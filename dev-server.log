@@ -1,0 +1,19 @@
+
+> nextjs@0.1.0 dev
+> next dev
+
+Error: spawn EPERM
+    at ChildProcess.spawn (node:internal/child_process:421:11)
+    at spawn (node:child_process:796:9)
+    at fork (node:child_process:174:10)
+    at C:\Users\TRAVKIN\Downloads\CodecSaaS\project-bolt-sb1-hjjzpfey-4\project\node_modules\next\dist\cli\next-dev.js:240:45
+    at new Promise (<anonymous>)
+    at startServer (C:\Users\TRAVKIN\Downloads\CodecSaaS\project-bolt-sb1-hjjzpfey-4\project\node_modules\next\dist\cli\next-dev.js:238:16)
+    at runDevServer (C:\Users\TRAVKIN\Downloads\CodecSaaS\project-bolt-sb1-hjjzpfey-4\project\node_modules\next\dist\cli\next-dev.js:289:23)
+    at C:\Users\TRAVKIN\Downloads\CodecSaaS\project-bolt-sb1-hjjzpfey-4\project\node_modules\next\dist\cli\next-dev.js:298:15
+    at Span.traceAsyncFn (C:\Users\TRAVKIN\Downloads\CodecSaaS\project-bolt-sb1-hjjzpfey-4\project\node_modules\next\dist\trace\trace.js:105:26)
+    at nextDev (C:\Users\TRAVKIN\Downloads\CodecSaaS\project-bolt-sb1-hjjzpfey-4\project\node_modules\next\dist\cli\next-dev.js:297:49) {
+  errno: -4048,
+  code: 'EPERM',
+  syscall: 'spawn'
+}
