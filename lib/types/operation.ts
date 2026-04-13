@@ -47,6 +47,7 @@ export type OperationFormData = z.infer<typeof operationSchema>;
 
 export interface SpecialistAssignee {
   id: string;
+  full_name?: string | null;
   email: string;
   role: string;
 }

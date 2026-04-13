@@ -1,8 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -11,341 +15,221 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Trash2, CircleArrowDown as ArrowDownCircle, CircleArrowUp as ArrowUpCircle } from "lucide-react";
-import { InventoryTransactionFormDialog } from "@/components/warehouses/inventory-transaction-form-dialog";
-import {
-  getInventoryTransactions,
-  createInventoryTransaction,
-  updateInventoryTransaction,
-  deleteInventoryTransaction,
-  getWarehouses,
-  getProducts,
-} from "@/lib/services/warehouses";
-import {
-  InventoryTransactionWithDetails,
-  InventoryTransactionFormData,
-  Warehouse,
-  Product,
-} from "@/lib/types/warehouse";
+import { ArrowRightLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { getInventoryTransactions, getWarehouses } from "@/lib/services/warehouses";
+import type { InventoryTransactionWithDetails, Warehouse } from "@/lib/types/warehouse";
+import { useLanguage } from "@/lib/contexts/language-context";
+import { localizeUnit } from "@/lib/i18n/helpers";
+
+function prettyMovementType(type: string): string {
+  switch (type) {
+    case "receipt":
+      return "Incoming";
+    case "issue":
+      return "Outgoing";
+    case "transfer":
+      return "Transfer";
+    case "writeoff":
+      return "Write-off";
+    case "adjustment":
+      return "Adjustment";
+    default:
+      return type;
+  }
+}
+
+function statusBadgeClass(status: string): string {
+  if (status === "confirmed") return "bg-emerald-100 text-emerald-800";
+  if (status === "cancelled") return "bg-slate-200 text-slate-700";
+  return "bg-amber-100 text-amber-800";
+}
 
 export default function InventoryTransactionsPage() {
-  const [transactions, setTransactions] = useState<InventoryTransactionWithDetails[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingTransaction, setEditingTransaction] =
-    useState<InventoryTransactionWithDetails | null>(null);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [transactionToDelete, setTransactionToDelete] =
-    useState<InventoryTransactionWithDetails | null>(null);
-  const { toast } = useToast();
   const { profile } = useAuth();
-
-  const loadData = async () => {
-    if (!profile?.company_id) return;
-
-    try {
-      setLoading(true);
-      const [transactionsData, warehousesData, productsData] = await Promise.all([
-        getInventoryTransactions(profile.company_id),
-        getWarehouses(profile.company_id),
-        getProducts(profile.company_id),
-      ]);
-      setTransactions(transactionsData);
-      setWarehouses(warehousesData);
-      setProducts(productsData);
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load data",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { toast } = useToast();
+  const { language } = useLanguage();
+  const t = (ru: string, kz: string, en: string) =>
+    language === "ru" ? ru : language === "kz" ? kz : en;
+  const [loading, setLoading] = useState(true);
+  const [movements, setMovements] = useState<InventoryTransactionWithDetails[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [search, setSearch] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
   useEffect(() => {
-    loadData();
-  }, []);
+    const load = async () => {
+      if (!profile?.company_id) return;
+      setLoading(true);
+      try {
+        const [movementData, warehouseData] = await Promise.all([
+          getInventoryTransactions(profile.company_id, language),
+          getWarehouses(profile.company_id, false, language),
+        ]);
+        setMovements(movementData);
+        setWarehouses(warehouseData);
+      } catch (error: any) {
+        toast({
+          title: t("Ошибка", "Қате", "Error"),
+          description: error?.message || t("Не удалось загрузить движения запасов", "Қор қозғалысын жүктеу мүмкін болмады", "Failed to load stock movements"),
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [profile?.company_id, toast, language]);
 
-  const handleCreate = async (data: InventoryTransactionFormData) => {
-    if (!profile?.company_id) return;
-
-    try {
-      await createInventoryTransaction(profile.company_id, data);
-      setIsFormOpen(false);
-      await loadData();
-      toast({
-        title: "Success",
-        description: "Transaction added successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to add transaction",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleUpdate = async (data: InventoryTransactionFormData) => {
-    if (!editingTransaction) return;
-
-    try {
-      await updateInventoryTransaction(editingTransaction.id, data);
-      setEditingTransaction(null);
-      setIsFormOpen(false);
-      await loadData();
-      toast({
-        title: "Success",
-        description: "Transaction updated successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update transaction",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!transactionToDelete) return;
-
-    try {
-      await deleteInventoryTransaction(transactionToDelete.id);
-      setDeleteDialogOpen(false);
-      setTransactionToDelete(null);
-      await loadData();
-      toast({
-        title: "Success",
-        description: "Transaction deleted successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to delete transaction",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const openEditDialog = (transaction: InventoryTransactionWithDetails) => {
-    setEditingTransaction(transaction);
-    setIsFormOpen(true);
-  };
-
-  const openDeleteDialog = (transaction: InventoryTransactionWithDetails) => {
-    setTransactionToDelete(transaction);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleFormClose = () => {
-    setIsFormOpen(false);
-    setEditingTransaction(null);
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
+  const filteredMovements = useMemo(() => {
+    return movements.filter((row) => {
+      const text = `${row.product_name} ${row.source_warehouse_name} ${row.destination_warehouse_name} ${row.notes || ""}`.toLowerCase();
+      const matchSearch = !search || text.includes(search.toLowerCase());
+      const matchWarehouse =
+        warehouseFilter === "all" ||
+        row.source_warehouse_id === warehouseFilter ||
+        row.destination_warehouse_id === warehouseFilter ||
+        row.warehouse_id === warehouseFilter;
+      const matchStatus = statusFilter === "all" || String(row.status || "confirmed") === statusFilter;
+      return matchSearch && matchWarehouse && matchStatus;
     });
-  };
+  }, [movements, search, warehouseFilter, statusFilter]);
 
-  const getTransactionTypeBadge = (type: string) => {
-    if (type === "in") {
-      return (
-        <Badge className="bg-green-100 text-green-800">
-          <ArrowDownCircle className="h-3 w-3 mr-1" />
-          In
-        </Badge>
-      );
-    }
+  if (
+    profile?.role !== "warehouse" &&
+    profile?.role !== "admin" &&
+    profile?.role !== "company_admin" &&
+    profile?.role !== "global_admin" &&
+    profile?.role !== "agronomist"
+  ) {
     return (
-      <Badge className="bg-red-100 text-red-800">
-        <ArrowUpCircle className="h-3 w-3 mr-1" />
-        Out
-      </Badge>
+      <div>
+        <PageHeader title={t("Движение запасов", "Қор қозғалысы", "Stock Movements")} description={t("История складских операций", "Қойма операциялары тарихы", "Warehouse operation history")} />
+        <Alert variant="destructive">
+          <AlertDescription>{t("Доступ запрещен для текущей роли.", "Ағымдағы рөл үшін рұқсат жоқ.", "Access denied for current role.")}</AlertDescription>
+        </Alert>
+      </div>
     );
-  };
-
-  const getProductTypeBadgeColor = (type: string) => {
-    switch (type) {
-      case "seed":
-        return "bg-green-100 text-green-800";
-      case "fertilizer":
-        return "bg-blue-100 text-blue-800";
-      case "pesticide":
-        return "bg-orange-100 text-orange-800";
-      default:
-        return "bg-gray-100 text-gray-800";
-    }
-  };
+  }
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
-        title="Inventory Transactions"
-        description="Track all incoming and outgoing inventory movements"
-        action={{
-          label: "Add Transaction",
-          icon: Plus,
-          onClick: () => setIsFormOpen(true),
-        }}
+        title={t("Движение запасов", "Қор қозғалысы", "Stock Movements")}
+        description={t("Все складские операции с остатками", "Қоймадағы барлық қор операциялары", "All warehouse stock operations")}
       />
 
       <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Warehouse</TableHead>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
-                  <TableHead>Transaction</TableHead>
-                  <TableHead>Notes</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center text-slate-500">
-                      Loading...
-                    </TableCell>
-                  </TableRow>
-                ) : transactions.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center text-slate-500 py-8">
-                      No transactions recorded yet. Click "Add Transaction" to get started.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  transactions.map((transaction) => (
-                    <TableRow key={transaction.id}>
-                      <TableCell className="font-medium">
-                        {formatDate(transaction.date)}
-                      </TableCell>
-                      <TableCell>{transaction.warehouse_name}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-1">
-                          <span>{transaction.product_name}</span>
-                          <Badge
-                            variant="secondary"
-                            className={`w-fit ${getProductTypeBadgeColor(
-                              transaction.product_type || ""
-                            )}`}
-                          >
-                            {transaction.product_type}
-                          </Badge>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {getTransactionTypeBadge(transaction.transaction_type)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {Number(transaction.quantity).toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`inline-flex items-center ${
-                            transaction.transaction_type === "in"
-                              ? "text-green-700"
-                              : "text-red-700"
-                          }`}
-                        >
-                          {transaction.transaction_type === "in" ? "+" : "-"}
-                          {Number(transaction.quantity).toFixed(2)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate">
-                        {transaction.notes || "-"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openEditDialog(transaction)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => openDeleteDialog(transaction)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+        <CardHeader>
+          <CardTitle>{t("Фильтры", "Сүзгілер", "Filters")}</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <Input
+            placeholder={t("Поиск по позиции, складу, комментарию...", "Өнім, қойма, түсініктеме бойынша іздеу...", "Search by item, warehouse, comment...")}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
+            <SelectTrigger>
+              <SelectValue placeholder={t("Склад", "Қойма", "Warehouse")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("Все склады", "Барлық қоймалар", "All warehouses")}</SelectItem>
+              {warehouses.map((warehouse) => (
+                <SelectItem key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger>
+              <SelectValue placeholder={t("Статус", "Күй", "Status")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("Все статусы", "Барлық статустар", "All statuses")}</SelectItem>
+              <SelectItem value="draft">{t("черновик", "жоба", "draft")}</SelectItem>
+              <SelectItem value="confirmed">{t("подтверждено", "расталған", "confirmed")}</SelectItem>
+              <SelectItem value="cancelled">{t("отменено", "болдырылмады", "cancelled")}</SelectItem>
+            </SelectContent>
+          </Select>
         </CardContent>
       </Card>
 
-      <InventoryTransactionFormDialog
-        open={isFormOpen}
-        onOpenChange={handleFormClose}
-        onSubmit={editingTransaction ? handleUpdate : handleCreate}
-        defaultValues={
-          editingTransaction
-            ? {
-                warehouse_id: editingTransaction.warehouse_id,
-                product_id: editingTransaction.product_id,
-                quantity: Number(editingTransaction.quantity),
-                transaction_type: editingTransaction.transaction_type,
-                date: editingTransaction.date,
-                notes: editingTransaction.notes || "",
-              }
-            : undefined
-        }
-        isEdit={!!editingTransaction}
-        warehouses={warehouses}
-        products={products}
-      />
-
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Transaction</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this transaction? This action cannot be
-              undone and will affect inventory calculations.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ArrowRightLeft className="h-5 w-5" />
+            {t("История движений", "Қозғалыс тарихы", "Movement history")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("Дата/время", "Күні/уақыты", "Date/time")}</TableHead>
+                <TableHead>{t("Операция", "Операция", "Operation")}</TableHead>
+                <TableHead>{t("Позиция", "Өнім", "Item")}</TableHead>
+                <TableHead className="text-right">{t("Кол-во", "Саны", "Qty")}</TableHead>
+                <TableHead>{t("Откуда", "Қайдан", "From")}</TableHead>
+                <TableHead>{t("Куда", "Қайда", "To")}</TableHead>
+                <TableHead>{t("Создал", "Құрған", "Created by")}</TableHead>
+                <TableHead>{t("Статус", "Күй", "Status")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={8}>{t("Загрузка...", "Жүктелуде...", "Loading...")}</TableCell>
+                </TableRow>
+              ) : filteredMovements.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center text-slate-500">
+                    {t("Записи движений не найдены.", "Қозғалыс жазбалары табылмады.", "No movement rows found.")}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredMovements.map((row) => (
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      {row.operation_datetime
+                        ? new Date(row.operation_datetime).toLocaleString()
+                        : row.date
+                        ? new Date(row.date).toLocaleDateString()
+                        : "-"}
+                    </TableCell>
+                    <TableCell>
+                      {row.movement_type === "receipt"
+                        ? t("Приход", "Кіріс", "Incoming")
+                        : row.movement_type === "issue"
+                        ? t("Расход", "Шығыс", "Outgoing")
+                        : row.movement_type === "transfer"
+                        ? t("Перемещение", "Ауыстыру", "Transfer")
+                        : row.movement_type === "writeoff"
+                        ? t("Списание", "Есептен шығару", "Write-off")
+                        : row.movement_type === "adjustment"
+                        ? t("Корректировка", "Түзету", "Adjustment")
+                        : prettyMovementType(row.movement_type || "issue")}
+                    </TableCell>
+                    <TableCell className="font-medium">{row.product_name}</TableCell>
+                    <TableCell className="text-right">{Number(row.quantity || 0).toFixed(2)} {localizeUnit(row.product_unit || "", language)}</TableCell>
+                    <TableCell>{row.source_warehouse_name || "-"}</TableCell>
+                    <TableCell>{row.destination_warehouse_name || "-"}</TableCell>
+                    <TableCell>{row.created_by_email || "-"}</TableCell>
+                    <TableCell>
+                      <Badge className={statusBadgeClass(row.status || "confirmed")}>
+                        {row.status || "confirmed"}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

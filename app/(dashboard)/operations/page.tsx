@@ -33,8 +33,11 @@ import { Field } from "@/lib/types/field";
 import { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { useLanguage } from "@/lib/contexts/language-context";
+import { getWarehouseIssueRequests } from "@/lib/services/warehouse-requests";
 
 export default function OperationsPage() {
+  const { language } = useLanguage();
   const [operations, setOperations] = useState<OperationWithDetails[]>([]);
   const [fields, setFields] = useState<Field[]>([]);
   const [cropStructures, setCropStructures] = useState<CropStructureWithDetails[]>([]);
@@ -45,6 +48,7 @@ export default function OperationsPage() {
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [operationToArchive, setOperationToArchive] = useState<OperationWithDetails | null>(null);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const [requestStatusByOperationId, setRequestStatusByOperationId] = useState<Record<string, string>>({});
   const { toast } = useToast();
   const { profile } = useAuth();
 
@@ -53,11 +57,12 @@ export default function OperationsPage() {
 
     try {
       setLoading(true);
-      const [operationsResult, fieldsResult, cropStructuresResult, specialistsResult] = await Promise.allSettled([
+      const [operationsResult, fieldsResult, cropStructuresResult, specialistsResult, requestsResult] = await Promise.allSettled([
         getOperations(profile.company_id),
         getFields(profile.company_id),
         getCropStructures(profile.company_id),
         getAssignableSpecialists(profile.company_id),
+        getWarehouseIssueRequests(profile.company_id, language),
       ]);
 
       if (operationsResult.status === "fulfilled") {
@@ -69,6 +74,15 @@ export default function OperationsPage() {
       setFields(fieldsResult.status === "fulfilled" ? fieldsResult.value : []);
       setCropStructures(cropStructuresResult.status === "fulfilled" ? cropStructuresResult.value : []);
       setSpecialists(specialistsResult.status === "fulfilled" ? specialistsResult.value : []);
+      if (requestsResult.status === "fulfilled") {
+        const nextMap: Record<string, string> = {};
+        requestsResult.value.forEach((row) => {
+          if (row.operation_id) nextMap[row.operation_id] = row.status;
+        });
+        setRequestStatusByOperationId(nextMap);
+      } else {
+        setRequestStatusByOperationId({});
+      }
     } catch {
       toast({
         title: "Error",
@@ -82,7 +96,7 @@ export default function OperationsPage() {
 
   useEffect(() => {
     if (profile?.company_id) loadData();
-  }, [profile?.company_id]);
+  }, [profile?.company_id, language]);
 
   const handleCreate = async (data: OperationFormData) => {
     if (!profile?.company_id) return;
@@ -163,7 +177,8 @@ export default function OperationsPage() {
   };
 
   const specialistLabelById = specialists.reduce<Record<string, string>>((acc, item) => {
-    acc[item.id] = `${item.email} (${item.role})`;
+    const baseName = String(item.full_name || "").trim() || item.email;
+    acc[item.id] = `${baseName} (${item.role})`;
     return acc;
   }, {});
 
@@ -218,6 +233,10 @@ export default function OperationsPage() {
                     </div>
                     <div><span className="text-slate-500">Work status:</span> {operation.work_status || "active"}</div>
                     <div><span className="text-slate-500">Specialist comment:</span> {operation.specialist_comment || "-"}</div>
+                    <div>
+                      <span className="text-slate-500">Warehouse request:</span>{" "}
+                      {requestStatusByOperationId[operation.id] || "-"}
+                    </div>
                   </div>
                   <div className="mt-3 text-sm">
                     <div className="text-slate-500">Details</div>

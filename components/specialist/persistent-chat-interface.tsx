@@ -1,10 +1,14 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChatSidebar } from './chat-sidebar';
 import { ChatInterface } from './chat-interface';
 import { useAuth } from '@/lib/contexts/auth-context';
 import {
+  getProjects,
+  createProject,
+  renameProject,
+  deleteProject,
   getChats,
   getChatMessages,
   createChat,
@@ -14,6 +18,7 @@ import {
   deleteChat,
   updateChatMessageMetadata,
   Chat,
+  ChatProject,
 } from '@/lib/services/chat';
 import { useToast } from '@/hooks/use-toast';
 
@@ -29,7 +34,7 @@ function sanitizeAssistantMessage(content: string, draft?: any): string {
   cleanContent = cleanContent.trim();
 
   if (!cleanContent && draft) {
-    return 'Draft operation prepared. Please review and confirm below.';
+    return '';
   }
 
   if (!cleanContent) {
@@ -40,7 +45,9 @@ function sanitizeAssistantMessage(content: string, draft?: any): string {
 }
 
 export function PersistentChatInterface({ onMessagesChange }: PersistentChatInterfaceProps) {
-  const [chats, setChats] = useState<Chat[]>([]);
+  const [projects, setProjects] = useState<ChatProject[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [chatsByProject, setChatsByProject] = useState<Record<string, Chat[]>>({});
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +57,16 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
   const initializedProfileKey = useRef<string | null>(null);
 
   const isReadOnly = profile?.role === 'specialist';
-  const hasFullAccess = profile?.role === 'admin' || profile?.role === 'agronomist';
+  const hasFullAccess =
+    profile?.role === 'admin' ||
+    profile?.role === 'company_admin' ||
+    profile?.role === 'global_admin' ||
+    profile?.role === 'agronomist';
+
+  const selectedProjectChats = useMemo(
+    () => (selectedProjectId ? chatsByProject[selectedProjectId] || [] : []),
+    [selectedProjectId, chatsByProject]
+  );
 
   useEffect(() => {
     const profileKey =
@@ -58,7 +74,9 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
 
     if (!profileKey) {
       initializedProfileKey.current = null;
-      setChats([]);
+      setProjects([]);
+      setSelectedProjectId(null);
+      setChatsByProject({});
       setActiveChatId(null);
       setMessages([]);
       setLoading(false);
@@ -67,35 +85,82 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
 
     if (initializedProfileKey.current !== profileKey) {
       initializedProfileKey.current = profileKey;
-      initializeChats();
+      void initializeProjectsAndChats();
     }
   }, [profile?.id, profile?.company_id]);
 
   useEffect(() => {
+    if (!selectedProjectId) {
+      setActiveChatId(null);
+      setMessages([]);
+      return;
+    }
+
+    if (selectedProjectChats.length === 0) {
+      setActiveChatId(null);
+      setMessages([]);
+      return;
+    }
+
+    if (!activeChatId || !selectedProjectChats.some((chat) => chat.id === activeChatId)) {
+      setActiveChatId(selectedProjectChats[0].id);
+    }
+  }, [selectedProjectId, selectedProjectChats, activeChatId]);
+
+  useEffect(() => {
     if (activeChatId) {
-      loadChatMessages(activeChatId);
+      void loadChatMessages(activeChatId);
     }
   }, [activeChatId]);
 
-  const initializeChats = async () => {
+  const loadChatsForAllProjects = async (
+    projectList: ChatProject[],
+    companyId: string,
+    userId: string
+  ): Promise<Record<string, Chat[]>> => {
+    if (projectList.length === 0) return {};
+
+    const entries = await Promise.all(
+      projectList.map(async (project) => {
+        const chats = await getChats(userId, companyId, project.id);
+        return [project.id, chats] as const;
+      })
+    );
+
+    return Object.fromEntries(entries);
+  };
+
+  const initializeProjectsAndChats = async () => {
     if (!profile?.id || !profile?.company_id) return;
     try {
       setLoading(true);
-      const existingChats = await getChats(profile.id, profile.company_id);
+      let existingProjects = await getProjects(profile.id, profile.company_id);
 
-      if (existingChats.length === 0) {
-        const newChat = await createChat(profile.id, profile.company_id, 'New Chat');
-        setChats([newChat]);
-        setActiveChatId(newChat.id);
-      } else {
-        setChats(existingChats);
-        setActiveChatId(existingChats[0].id);
+      if (existingProjects.length === 0) {
+        const defaultProject = await createProject(
+          profile.id,
+          profile.company_id,
+          'Общие консультации'
+        );
+        existingProjects = [defaultProject];
       }
+
+      const groupedChats = await loadChatsForAllProjects(
+        existingProjects,
+        profile.company_id,
+        profile.id
+      );
+
+      setProjects(existingProjects);
+      setChatsByProject(groupedChats);
+      const firstProjectId = existingProjects[0]?.id || null;
+      setSelectedProjectId(firstProjectId);
+      setActiveChatId(firstProjectId ? groupedChats[firstProjectId]?.[0]?.id || null : null);
     } catch (error) {
-      console.error('Failed to initialize chats:', error);
+      console.error('Failed to initialize projects/chats:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load chat history',
+        description: 'Failed to load projects',
         variant: 'destructive',
       });
     } finally {
@@ -103,37 +168,87 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
     }
   };
 
-  const loadChatMessages = async (chatId: string) => {
+  const handleCreateProject = async () => {
+    if (!profile?.id || !profile?.company_id) return;
+    const name = window.prompt('Название проекта', 'Новый проект');
+    if (!name || !name.trim()) return;
     try {
-      setMessagesLoading(true);
-      const chatMessages = await getChatMessages(chatId);
-      const formattedMessages = chatMessages.map((msg) => ({
-        id: msg.id,
-        role: msg.role,
-        content:
-          msg.role === 'assistant'
-            ? sanitizeAssistantMessage(msg.content, msg.metadata?.draft)
-            : msg.content,
-        draft: msg.metadata?.draft,
-        draftStatus: msg.metadata?.draft_status === 'confirmed' ? 'confirmed' : msg.metadata?.draft ? 'pending' : undefined,
-      }));
-      setMessages(formattedMessages);
-      if (onMessagesChange) {
-        onMessagesChange(chatId, formattedMessages);
+      const project = await createProject(profile.id, profile.company_id, name.trim());
+      setProjects((prev) => [project, ...prev]);
+      setChatsByProject((prev) => ({ ...prev, [project.id]: [] }));
+      setSelectedProjectId(project.id);
+      setActiveChatId(null);
+      setMessages([]);
+    } catch (error) {
+      console.error('Failed to create project:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to create project',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleRenameProject = async (projectId: string) => {
+    const current = projects.find((p) => p.id === projectId);
+    const name = window.prompt('Переименовать проект', current?.name || '');
+    if (!name || !name.trim()) return;
+    try {
+      await renameProject(projectId, name.trim());
+      setProjects((prev) =>
+        prev.map((project) =>
+          project.id === projectId
+            ? { ...project, name: name.trim(), updated_at: new Date().toISOString() }
+            : project
+        )
+      );
+    } catch (error) {
+      console.error('Failed to rename project:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to rename project',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+    const confirmed = window.confirm(
+      'Удалить проект? Чаты проекта останутся в истории, но сам проект будет скрыт.'
+    );
+    if (!confirmed) return;
+    try {
+      await deleteProject(projectId);
+      const updatedProjects = projects.filter((project) => project.id !== projectId);
+      setProjects(updatedProjects);
+      setChatsByProject((prev) => {
+        const next = { ...prev };
+        delete next[projectId];
+        return next;
+      });
+      if (selectedProjectId === projectId) {
+        const nextProjectId = updatedProjects[0]?.id || null;
+        setSelectedProjectId(nextProjectId);
+        setActiveChatId(nextProjectId ? chatsByProject[nextProjectId]?.[0]?.id || null : null);
       }
     } catch (error) {
-      console.error('Failed to load messages:', error);
-      setMessages([]);
-    } finally {
-      setMessagesLoading(false);
+      console.error('Failed to delete project:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete project',
+        variant: 'destructive',
+      });
     }
   };
 
   const handleNewChat = async () => {
-    if (!profile?.id || !profile?.company_id) return;
+    if (!profile?.id || !profile?.company_id || !selectedProjectId) return;
     try {
-      const newChat = await createChat(profile.id, profile.company_id, 'New Chat');
-      setChats((prev) => [newChat, ...prev]);
+      const newChat = await createChat(profile.id, profile.company_id, 'New Chat', selectedProjectId);
+      setChatsByProject((prev) => ({
+        ...prev,
+        [selectedProjectId]: [newChat, ...(prev[selectedProjectId] || [])],
+      }));
       setActiveChatId(newChat.id);
       setMessages([]);
     } catch (error) {
@@ -158,16 +273,21 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
 
     try {
       await deleteChat(chatId);
-      const updated = await getChats(profile.id, profile.company_id);
-      setChats(updated);
+
+      const chatProjectId =
+        Object.entries(chatsByProject).find(([, list]) => list.some((chat) => chat.id === chatId))?.[0] ||
+        selectedProjectId;
+      if (!chatProjectId) return;
+
+      const updatedChats = await getChats(profile.id, profile.company_id, chatProjectId);
+      setChatsByProject((prev) => ({ ...prev, [chatProjectId]: updatedChats }));
 
       if (activeChatId === chatId) {
-        if (updated.length > 0) {
-          setActiveChatId(updated[0].id);
+        if (chatProjectId === selectedProjectId && updatedChats.length > 0) {
+          setActiveChatId(updatedChats[0].id);
         } else {
-          const newChat = await createChat(profile.id, profile.company_id, 'New Chat');
-          setChats([newChat]);
-          setActiveChatId(newChat.id);
+          setActiveChatId(null);
+          setMessages([]);
         }
       }
     } catch (error) {
@@ -180,41 +300,89 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
     }
   };
 
-  const handleMessageSent = async (userMessage: string, assistantResponse: string, draft?: any) => {
+  const loadChatMessages = async (chatId: string) => {
+    try {
+      setMessagesLoading(true);
+      const chatMessages = await getChatMessages(chatId);
+      const formattedMessages = chatMessages.map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        content:
+          msg.role === 'assistant'
+            ? sanitizeAssistantMessage(msg.content, msg.metadata?.draft)
+            : msg.content,
+        attachments: Array.isArray(msg.metadata?.attachments) ? msg.metadata.attachments : [],
+        draft: msg.metadata?.draft,
+        draftStatus:
+          msg.metadata?.draft_status === 'confirmed'
+            ? 'confirmed'
+            : msg.metadata?.draft_status === 'cancelled'
+              ? 'cancelled'
+              : msg.metadata?.draft?.metadata?.confirmation_state === 'confirmed'
+                ? 'confirmed'
+                : msg.metadata?.draft
+                  ? 'draft'
+                  : undefined,
+        draftConfirmedAt: msg.metadata?.confirmed_at,
+        createdOperationId: msg.metadata?.operation_id,
+        draftConfirmToken: msg.metadata?.confirm_token,
+      }));
+      setMessages(formattedMessages);
+      if (onMessagesChange) {
+        onMessagesChange(chatId, formattedMessages);
+      }
+    } catch (error) {
+      console.error('Failed to load messages:', error);
+      setMessages([]);
+    } finally {
+      setMessagesLoading(false);
+    }
+  };
+
+  const handleMessageSent = async (
+    userMessage: string,
+    assistantResponse: string,
+    draft?: any,
+    userMetadata?: Record<string, unknown>
+  ) => {
     try {
       if (!profile?.id || !profile?.company_id) {
         throw new Error('Profile is not fully loaded');
       }
+      if (!selectedProjectId) {
+        throw new Error('Project is not selected');
+      }
 
       let targetChatId = activeChatId;
       if (!targetChatId) {
-        const emergencyChat = await createChat(profile.id, profile.company_id, 'New Chat');
-        setChats((prev) => [emergencyChat, ...prev]);
+        const emergencyChat = await createChat(profile.id, profile.company_id, 'New Chat', selectedProjectId);
+        setChatsByProject((prev) => ({
+          ...prev,
+          [selectedProjectId]: [emergencyChat, ...(prev[selectedProjectId] || [])],
+        }));
         setActiveChatId(emergencyChat.id);
         targetChatId = emergencyChat.id;
       }
 
       const cleanedAssistantResponse = sanitizeAssistantMessage(assistantResponse, draft);
 
-      await addChatMessage(targetChatId, 'user', userMessage);
+      await addChatMessage(targetChatId, 'user', userMessage, userMetadata || undefined);
       await addChatMessage(
         targetChatId,
         'assistant',
         cleanedAssistantResponse,
-        draft ? { draft, draft_status: 'pending' } : undefined
+        draft ? { draft, draft_status: 'draft' } : undefined
       );
 
-      const chat = chats.find((c) => c.id === targetChatId);
+      const projectChats = chatsByProject[selectedProjectId] || [];
+      const chat = projectChats.find((c) => c.id === targetChatId);
       if (!chat || chat.title === 'New Chat') {
         const newTitle = await generateChatTitle(userMessage);
         await updateChatTitle(targetChatId, newTitle);
-        setChats((prev) =>
-          prev.map((c) => (c.id === targetChatId ? { ...c, title: newTitle } : c))
-        );
       }
 
-      const updatedChats = await getChats(profile.id, profile.company_id);
-      setChats(updatedChats);
+      const updatedProjectChats = await getChats(profile.id, profile.company_id, selectedProjectId);
+      setChatsByProject((prev) => ({ ...prev, [selectedProjectId]: updatedProjectChats }));
       await loadChatMessages(targetChatId);
     } catch (error) {
       console.error('Failed to save messages:', error);
@@ -223,10 +391,17 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
 
   const handleDraftConfirmed = async (messageId: string | undefined, draft: any) => {
     try {
+      const confirmedAt = String(draft?.metadata?.confirmed_at || new Date().toISOString());
+      const operationId = draft?.metadata?.operation_id ? String(draft.metadata.operation_id) : null;
+      const confirmToken = draft?.metadata?.confirm_token ? String(draft.metadata.confirm_token) : null;
+
       if (messageId) {
         await updateChatMessageMetadata(messageId, {
           draft,
           draft_status: 'confirmed',
+          confirmed_at: confirmedAt,
+          operation_id: operationId,
+          confirm_token: confirmToken,
         });
         return;
       }
@@ -242,6 +417,9 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
           ...fallbackMessage.metadata,
           draft,
           draft_status: 'confirmed',
+          confirmed_at: confirmedAt,
+          operation_id: operationId,
+          confirm_token: confirmToken,
         });
         await loadChatMessages(activeChatId);
       }
@@ -252,10 +430,16 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
 
   return (
     <div className="flex h-[calc(100vh-12rem)] gap-4 overflow-hidden">
-      <div className="w-64 flex-shrink-0 min-h-0">
+      <div className="w-80 flex-shrink-0 min-h-0">
         <ChatSidebar
-          chats={chats}
+          projects={projects}
+          selectedProjectId={selectedProjectId}
+          chatsByProject={chatsByProject}
           activeChatId={activeChatId}
+          onSelectProject={setSelectedProjectId}
+          onCreateProject={handleCreateProject}
+          onRenameProject={handleRenameProject}
+          onDeleteProject={handleDeleteProject}
           onSelectChat={handleSelectChat}
           onNewChat={handleNewChat}
           onDeleteChat={handleDeleteChat}

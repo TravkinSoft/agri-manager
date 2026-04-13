@@ -1,10 +1,12 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useAuth } from '@/lib/contexts/auth-context';
-import { supabase } from '@/lib/supabase/client';
-import { PageHeader } from '@/components/layout/page-header';
-import { Card, CardContent } from '@/components/ui/card';
+import { useEffect, useMemo, useState } from "react";
+import { PageHeader } from "@/components/layout/page-header";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -12,258 +14,199 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { CircleArrowDown as ArrowDownCircle, CircleArrowUp as ArrowUpCircle, Package } from 'lucide-react';
+} from "@/components/ui/table";
+import { Package } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { getInventoryBalances, getWarehouses } from "@/lib/services/warehouses";
+import type { InventoryBalance, Warehouse } from "@/lib/types/warehouse";
+import { useLanguage } from "@/lib/contexts/language-context";
+import { localizeUnit } from "@/lib/i18n/helpers";
 
-interface InventoryItem {
-  id: string;
-  warehouse_id: string;
-  product_id: string;
-  quantity: number;
-  unit: string;
-  warehouses?: { name: string };
-  products?: { name: string; type: string };
-}
-
-interface Transaction {
-  id: string;
-  warehouse_id: string;
-  product_id: string;
-  type: string;
-  quantity: number;
-  unit: string;
-  notes: string;
-  date: string;
-  warehouses?: { name: string };
-  products?: { name: string; type: string };
+function categoryBadgeClass(type: string): string {
+  switch (type) {
+    case "produce":
+      return "bg-purple-100 text-purple-800";
+    case "seed":
+      return "bg-green-100 text-green-800";
+    case "fertilizer":
+      return "bg-blue-100 text-blue-800";
+    case "pesticide":
+      return "bg-orange-100 text-orange-800";
+    default:
+      return "bg-gray-100 text-gray-800";
+  }
 }
 
 export default function InventoryPage() {
   const { profile } = useAuth();
-  const [inventory, setInventory] = useState<InventoryItem[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const { toast } = useToast();
+  const { language } = useLanguage();
+  const t = (ru: string, kz: string, en: string) =>
+    language === "ru" ? ru : language === "kz" ? kz : en;
   const [loading, setLoading] = useState(true);
+  const [balances, setBalances] = useState<InventoryBalance[]>([]);
+  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [search, setSearch] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
 
   useEffect(() => {
-    if (profile) {
-      loadInventoryData();
-    }
-  }, [profile]);
+    const load = async () => {
+      if (!profile?.company_id) return;
+      setLoading(true);
+      try {
+        const [balanceData, warehouseData] = await Promise.all([
+          getInventoryBalances(profile.company_id, language),
+          getWarehouses(profile.company_id, false, language),
+        ]);
+        setBalances(balanceData);
+        setWarehouses(warehouseData);
+      } catch (error: any) {
+        toast({
+          title: t("Ошибка", "Қате", "Error"),
+          description: error?.message || t("Не удалось загрузить инвентарь", "Қор дерегін жүктеу мүмкін болмады", "Failed to load inventory"),
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [profile?.company_id, toast, language]);
 
-  const loadInventoryData = async () => {
-    try {
-      const [inventoryRes, transactionsRes] = await Promise.all([
-        supabase
-          .from('inventory_transactions')
-          .select(`
-            warehouse_id,
-            product_id,
-            unit,
-            warehouses(name),
-            products(name, type)
-          `)
-          .eq('user_id', profile?.id),
-        supabase
-          .from('inventory_transactions')
-          .select(`
-            *,
-            warehouses(name),
-            products(name, type)
-          `)
-          .eq('user_id', profile?.id)
-          .order('date', { ascending: false })
-          .limit(50),
-      ]);
+  const filteredBalances = useMemo(() => {
+    return balances.filter((row) => {
+      const text = `${row.product_name} ${row.warehouse_name}`.toLowerCase();
+      const matchSearch = !search || text.includes(search.toLowerCase());
+      const matchWarehouse = warehouseFilter === "all" || row.warehouse_id === warehouseFilter;
+      const matchCategory = categoryFilter === "all" || String(row.product_type) === categoryFilter;
+      return matchSearch && matchWarehouse && matchCategory;
+    });
+  }, [balances, search, warehouseFilter, categoryFilter]);
 
-      if (inventoryRes.error) throw inventoryRes.error;
-      if (transactionsRes.error) throw transactionsRes.error;
-
-      const inventoryMap = new Map<string, InventoryItem>();
-      inventoryRes.data?.forEach((item: any) => {
-        const key = `${item.warehouse_id}-${item.product_id}`;
-        if (!inventoryMap.has(key)) {
-          inventoryMap.set(key, {
-            id: key,
-            warehouse_id: item.warehouse_id,
-            product_id: item.product_id,
-            quantity: 0,
-            unit: item.unit,
-            warehouses: item.warehouses,
-            products: item.products,
-          });
-        }
-      });
-
-      transactionsRes.data?.forEach((transaction: Transaction) => {
-        const key = `${transaction.warehouse_id}-${transaction.product_id}`;
-        const item = inventoryMap.get(key);
-        if (item) {
-          if (transaction.type === 'in') {
-            item.quantity += transaction.quantity;
-          } else {
-            item.quantity -= transaction.quantity;
-          }
-        }
-      });
-
-      setInventory(Array.from(inventoryMap.values()));
-      setTransactions(transactionsRes.data || []);
-    } catch (error) {
-      console.error('Error loading inventory:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getTransactionBadge = (type: string) => {
-    return type === 'in' ? (
-      <Badge className="bg-green-100 text-green-800">
-        <ArrowDownCircle className="h-3 w-3 mr-1" />
-        Incoming
-      </Badge>
-    ) : (
-      <Badge className="bg-orange-100 text-orange-800">
-        <ArrowUpCircle className="h-3 w-3 mr-1" />
-        Outgoing
-      </Badge>
-    );
-  };
-
-  if (profile?.role !== 'warehouse') {
+  if (
+    profile?.role !== "warehouse" &&
+    profile?.role !== "admin" &&
+    profile?.role !== "company_admin" &&
+    profile?.role !== "global_admin" &&
+    profile?.role !== "agronomist"
+  ) {
     return (
       <div>
-        <PageHeader
-          title="Inventory"
-          description="Manage warehouse inventory"
-        />
+        <PageHeader title={t("Инвентарь", "Қор", "Inventory")} description={t("Складской инвентарь", "Қойма қоры", "Warehouse inventory")} />
         <Alert variant="destructive">
-          <AlertDescription>
-            Access denied. This page is only available for warehouse staff.
-          </AlertDescription>
+          <AlertDescription>{t("Доступ запрещен для текущей роли.", "Ағымдағы рөл үшін рұқсат жоқ.", "Access denied for current role.")}</AlertDescription>
         </Alert>
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       <PageHeader
-        title="Inventory Management"
-        description="View and manage warehouse inventory"
+        title={t("Инвентарь", "Қор", "Inventory")}
+        description={t("Текущие остатки по складам и категориям", "Қойма мен санат бойынша ағымдағы қалдықтар", "Current stock by warehouse and category")}
       />
 
-      <Tabs defaultValue="stock" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="stock">
-            <Package className="h-4 w-4 mr-2" />
-            Current Stock
-          </TabsTrigger>
-          <TabsTrigger value="transactions">
-            Transactions
-          </TabsTrigger>
-        </TabsList>
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("Фильтры", "Сүзгілер", "Filters")}</CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-3">
+          <Input
+            placeholder={t("Поиск по позиции или складу...", "Өнім немесе қойма бойынша іздеу...", "Search by item or warehouse...")}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Select value={warehouseFilter} onValueChange={setWarehouseFilter}>
+            <SelectTrigger>
+              <SelectValue placeholder={t("Склад", "Қойма", "Warehouse")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("Все склады", "Барлық қоймалар", "All warehouses")}</SelectItem>
+              {warehouses.map((warehouse) => (
+                <SelectItem key={warehouse.id} value={warehouse.id}>
+                  {warehouse.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger>
+              <SelectValue placeholder={t("Категория", "Санат", "Category")} />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("Все категории", "Барлық санаттар", "All categories")}</SelectItem>
+              <SelectItem value="produce">{t("Продукция", "Өнім", "Produce")}</SelectItem>
+              <SelectItem value="seed">{t("Семена", "Тұқым", "Seed")}</SelectItem>
+              <SelectItem value="fertilizer">{t("Удобрения", "Тыңайтқыш", "Fertilizer")}</SelectItem>
+              <SelectItem value="pesticide">{t("Пестициды", "Пестицид", "Pesticide")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </CardContent>
+      </Card>
 
-        <TabsContent value="stock">
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Warehouse</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead className="text-right">Quantity</TableHead>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Package className="h-5 w-5" />
+            {t("Список остатков", "Қалдықтар тізімі", "Inventory list")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("Позиция", "Өнім", "Item")}</TableHead>
+                <TableHead>{t("Категория", "Санат", "Category")}</TableHead>
+                <TableHead>{t("Склад", "Қойма", "Warehouse")}</TableHead>
+                <TableHead className="text-right">{t("Количество", "Саны", "Quantity")}</TableHead>
+                <TableHead>{t("Ед.", "Өлшем", "Unit")}</TableHead>
+                <TableHead>{t("Обновлено", "Жаңартылған", "Last updated")}</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={6}>{t("Загрузка...", "Жүктелуде...", "Loading...")}</TableCell>
+                </TableRow>
+              ) : filteredBalances.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-center text-slate-500">
+                    {t("Записей по остаткам не найдено.", "Қалдық жазбалары табылмады.", "No inventory rows found.")}
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredBalances.map((row) => (
+                  <TableRow key={`${row.warehouse_id}-${row.product_id}`}>
+                    <TableCell className="font-medium">{row.product_name}</TableCell>
+                    <TableCell>
+                      <Badge className={categoryBadgeClass(String(row.product_type))}>
+                        {String(row.product_type) === "produce"
+                          ? t("продукция", "өнім", "produce")
+                          : String(row.product_type) === "seed"
+                          ? t("семена", "тұқым", "seed")
+                          : String(row.product_type) === "fertilizer"
+                          ? t("удобрение", "тыңайтқыш", "fertilizer")
+                          : String(row.product_type) === "pesticide"
+                          ? t("пестицид", "пестицид", "pesticide")
+                          : String(row.product_type)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{row.warehouse_name}</TableCell>
+                    <TableCell className="text-right">{Number(row.quantity).toFixed(2)}</TableCell>
+                    <TableCell>{localizeUnit(row.unit || "kg", language)}</TableCell>
+                    <TableCell>
+                      {row.last_updated ? new Date(row.last_updated).toLocaleString() : "-"}
+                    </TableCell>
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-slate-500">
-                        Loading inventory...
-                      </TableCell>
-                    </TableRow>
-                  ) : inventory.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="text-center text-slate-500">
-                        No inventory data found.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    inventory.map((item) => (
-                      <TableRow key={item.id}>
-                        <TableCell className="font-medium">
-                          {item.warehouses?.name || 'Unknown'}
-                        </TableCell>
-                        <TableCell>{item.products?.name || 'Unknown'}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{item.products?.type || 'N/A'}</Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-medium">
-                          {item.quantity.toLocaleString()} {item.unit}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="transactions">
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Warehouse</TableHead>
-                    <TableHead>Product</TableHead>
-                    <TableHead className="text-right">Quantity</TableHead>
-                    <TableHead>Notes</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-slate-500">
-                        Loading transactions...
-                      </TableCell>
-                    </TableRow>
-                  ) : transactions.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center text-slate-500">
-                        No transactions found.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    transactions.map((transaction) => (
-                      <TableRow key={transaction.id}>
-                        <TableCell>
-                          {new Date(transaction.date).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell>{getTransactionBadge(transaction.type)}</TableCell>
-                        <TableCell>{transaction.warehouses?.name || 'Unknown'}</TableCell>
-                        <TableCell>{transaction.products?.name || 'Unknown'}</TableCell>
-                        <TableCell className="text-right font-medium">
-                          {transaction.quantity.toLocaleString()} {transaction.unit}
-                        </TableCell>
-                        <TableCell className="text-sm text-slate-600">
-                          {transaction.notes || '-'}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

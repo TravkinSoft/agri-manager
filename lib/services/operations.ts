@@ -197,10 +197,11 @@ export async function unarchiveOperation(operationId: string): Promise<void> {
 export async function getAssignableSpecialists(companyId: string): Promise<SpecialistAssignee[]> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, email, role")
+    .select("id, full_name, email, role")
     .eq("company_id", companyId)
     .eq("status", "active")
-    .in("role", ["specialist", "agronomist", "admin"])
+    .eq("role", "specialist")
+    .order("full_name", { ascending: true, nullsFirst: false })
     .order("email", { ascending: true });
 
   if (error) {

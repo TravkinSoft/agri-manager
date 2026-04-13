@@ -1,4 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
+import { Language } from "@/lib/i18n/translations";
+import { localizedName } from "@/lib/i18n/helpers";
 
 export type DraftOption = {
   id: string;
@@ -37,7 +39,10 @@ function uniqueById(items: DraftOption[]): DraftOption[] {
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function getAssistantDraftResources(companyId: string): Promise<AssistantDraftResources> {
+export async function getAssistantDraftResources(
+  companyId: string,
+  language: Language = "ru"
+): Promise<AssistantDraftResources> {
   if (!companyId) {
     return {
       fields: [],
@@ -48,7 +53,7 @@ export async function getAssistantDraftResources(companyId: string): Promise<Ass
     };
   }
 
-  const [fieldsRes, productsRes, cropStructureRes, cropsRes, specialistsRes, machinesRes, equipmentRes, specialistRefsRes] = await Promise.allSettled([
+  const [fieldsRes, productsRes, cropStructureRes, cropsRes, specialistsRes, machinesRes, equipmentRes] = await Promise.allSettled([
     supabase
       .from("fields")
       .select("id, name, area")
@@ -57,45 +62,41 @@ export async function getAssistantDraftResources(companyId: string): Promise<Ass
       .order("name", { ascending: true }),
     supabase
       .from("products")
-      .select("id, name")
+      .select("id, name, name_ru, name_kz, name_en")
       .eq("company_id", companyId)
       .eq("archived", false)
       .order("name", { ascending: true }),
     supabase
       .from("crop_structure")
-      .select("id, crops:crop_id(id, name)")
+      .select("id, crops:crop_id(id, name, name_ru, name_kz, name_en)")
       .eq("company_id", companyId)
       .eq("archived", false),
     supabase
       .from("crops")
-      .select("id, name")
+      .select("id, name, name_ru, name_kz, name_en")
       .or(`company_id.eq.${companyId},company_id.is.null`)
       .eq("archived", false)
       .order("name", { ascending: true }),
     supabase
       .from("profiles")
-      .select("id, email, role")
+      .select("id, full_name, email, role")
       .eq("company_id", companyId)
-      .in("role", ["specialist", "agronomist", "admin"])
+      .eq("role", "specialist")
+      .eq("status", "active")
+      .order("full_name", { ascending: true, nullsFirst: false })
       .order("email", { ascending: true }),
     supabase
       .from("reference_machines")
-      .select("id, name, type")
+      .select("id, name, name_ru, name_kz, name_en, type")
       .eq("company_id", companyId)
       .eq("archived", false)
       .order("name", { ascending: true }),
     supabase
       .from("reference_equipment")
-      .select("id, name")
+      .select("id, name, name_ru, name_kz, name_en")
       .eq("company_id", companyId)
       .eq("archived", false)
       .order("name", { ascending: true }),
-    supabase
-      .from("reference_specialists")
-      .select("id, full_name, role")
-      .eq("company_id", companyId)
-      .eq("archived", false)
-      .order("full_name", { ascending: true }),
   ]);
 
   const fields =
@@ -109,7 +110,10 @@ export async function getAssistantDraftResources(companyId: string): Promise<Ass
 
   const products =
     productsRes.status === "fulfilled"
-      ? ((productsRes.value.data || []).map((p: any) => ({ id: String(p.id), name: String(p.name) })) as DraftOption[])
+      ? ((productsRes.value.data || []).map((p: any) => ({
+          id: String(p.id),
+          name: localizedName(p, language, ["name"]),
+        })) as DraftOption[])
       : [];
 
   const cropStructureCrops =
@@ -117,40 +121,36 @@ export async function getAssistantDraftResources(companyId: string): Promise<Ass
       ? (cropStructureRes.value.data || [])
           .map((row: any) => {
             const crop = row?.crops;
-            if (!crop?.id || !crop?.name) return null;
-            return { id: String(crop.id), name: String(crop.name) } as DraftOption;
+            if (!crop?.id) return null;
+            const label = localizedName(crop, language, ["name"]);
+            if (!label) return null;
+            return { id: String(crop.id), name: label } as DraftOption;
           })
           .filter(Boolean) as DraftOption[]
       : [];
 
   const referenceCrops =
     cropsRes.status === "fulfilled"
-      ? ((cropsRes.value.data || []).map((c: any) => ({ id: String(c.id), name: String(c.name) })) as DraftOption[])
+      ? ((cropsRes.value.data || []).map((c: any) => ({
+          id: String(c.id),
+          name: localizedName(c, language, ["name"]),
+        })) as DraftOption[])
       : [];
 
   const profileSpecialists =
     specialistsRes.status === "fulfilled"
       ? ((specialistsRes.value.data || []).map((u: any) => {
-          const role = String(u.role || "");
+          const fullName = String(u.full_name || "").trim();
           const email = String(u.email || "");
-          const label = role ? `${email} (${role})` : email;
-          return { id: String(u.id), name: label };
+          return { id: String(u.id), name: fullName || email };
         }) as DraftOption[])
-      : [];
-
-  const refSpecialists =
-    specialistRefsRes.status === "fulfilled"
-      ? ((specialistRefsRes.value.data || []).map((u: any) => ({
-          id: `ref:${String(u.id)}`,
-          name: `${String(u.full_name)}${u.role ? ` (${String(u.role)})` : ""}`,
-        })) as DraftOption[])
       : [];
 
   const machineResources =
     machinesRes.status === "fulfilled"
       ? ((machinesRes.value.data || []).map((item: any) => ({
           id: `machine:${String(item.id)}`,
-          name: String(item.name),
+          name: localizedName(item, language, ["name"]),
           group: String(item.type || "machines") === "drone" ? "drones" : "machines",
         })) as EquipmentResource[])
       : [];
@@ -159,7 +159,7 @@ export async function getAssistantDraftResources(companyId: string): Promise<Ass
     equipmentRes.status === "fulfilled"
       ? ((equipmentRes.value.data || []).map((item: any) => ({
           id: `equipment:${String(item.id)}`,
-          name: String(item.name),
+          name: localizedName(item, language, ["name"]),
           group: "equipment" as const,
         })) as EquipmentResource[])
       : [];
@@ -167,7 +167,7 @@ export async function getAssistantDraftResources(companyId: string): Promise<Ass
   return {
     fields,
     products,
-    specialists: uniqueById([...profileSpecialists, ...refSpecialists]),
+    specialists: uniqueById(profileSpecialists),
     crops: uniqueById([...cropStructureCrops, ...referenceCrops]),
     equipment:
       machineResources.length > 0 || equipmentResources.length > 0

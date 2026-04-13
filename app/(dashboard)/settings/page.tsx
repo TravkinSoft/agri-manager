@@ -1,3 +1,5 @@
+"use client";
+
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -6,162 +8,121 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { useLanguage } from "@/lib/contexts/language-context";
 
 export default function SettingsPage() {
+  const { language } = useLanguage();
+  const t = (ru: string, kz: string, en: string) =>
+    language === "ru" ? ru : language === "kz" ? kz : en;
+
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
-        title="Settings"
-        description="Manage your application preferences and configuration"
+        title={t("Настройки", "Баптаулар", "Settings")}
+        description={t(
+          "Параметры системы и уведомлений",
+          "Жүйе мен хабарлама параметрлері",
+          "System and notification preferences"
+        )}
       />
+
       <Tabs defaultValue="general" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-          <TabsTrigger value="integrations">Integrations</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="general">{t("Общие", "Жалпы", "General")}</TabsTrigger>
+          <TabsTrigger value="notifications">{t("Уведомления", "Хабарламалар", "Notifications")}</TabsTrigger>
+          <TabsTrigger value="security">{t("Безопасность", "Қауіпсіздік", "Security")}</TabsTrigger>
         </TabsList>
+
         <TabsContent value="general" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Organization Details</CardTitle>
+              <CardTitle>{t("Данные организации", "Ұйым деректері", "Organization details")}</CardTitle>
               <CardDescription>
-                Update your organization information
+                {t(
+                  "Измените название, адрес и контактные данные",
+                  "Атауды, мекенжайды және байланыс деректерін өзгертіңіз",
+                  "Update name, address and contact information"
+                )}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="org-name">Organization Name</Label>
-                <Input id="org-name" placeholder="Enter organization name" />
+                <Label htmlFor="org-name">{t("Название организации", "Ұйым атауы", "Organization name")}</Label>
+                <Input id="org-name" placeholder={t("Введите название", "Атауын енгізіңіз", "Enter organization name")} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="org-address">Address</Label>
-                <Input id="org-address" placeholder="Enter address" />
+                <Label htmlFor="org-address">{t("Адрес", "Мекенжай", "Address")}</Label>
+                <Input id="org-address" placeholder={t("Введите адрес", "Мекенжайды енгізіңіз", "Enter address")} />
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="org-phone">Phone</Label>
-                  <Input id="org-phone" placeholder="Enter phone number" />
+                  <Label htmlFor="org-phone">{t("Телефон", "Телефон", "Phone")}</Label>
+                  <Input id="org-phone" placeholder={t("Введите телефон", "Телефон енгізіңіз", "Enter phone")} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="org-email">Email</Label>
-                  <Input id="org-email" type="email" placeholder="Enter email" />
+                  <Input id="org-email" type="email" placeholder={t("Введите email", "Email енгізіңіз", "Enter email")} />
                 </div>
               </div>
-              <Button>Save Changes</Button>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Regional Settings</CardTitle>
-              <CardDescription>
-                Configure regional preferences
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="timezone">Timezone</Label>
-                <Input id="timezone" placeholder="UTC" disabled />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="currency">Currency</Label>
-                <Input id="currency" placeholder="USD" disabled />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="units">Measurement Units</Label>
-                <Input id="units" placeholder="Metric" disabled />
-              </div>
+              <Button>{t("Сохранить изменения", "Өзгерістерді сақтау", "Save changes")}</Button>
             </CardContent>
           </Card>
         </TabsContent>
+
         <TabsContent value="notifications" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Notification Preferences</CardTitle>
+              <CardTitle>{t("Настройки уведомлений", "Хабарлама баптаулары", "Notification settings")}</CardTitle>
               <CardDescription>
-                Manage how you receive notifications
+                {t("Выберите, какие уведомления получать", "Қандай хабарламалар алатыныңызды таңдаңыз", "Choose what notifications you receive")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Email Notifications</Label>
-                  <p className="text-sm text-slate-500">
-                    Receive updates via email
-                  </p>
+                  <Label>{t("Email уведомления", "Email хабарламалар", "Email notifications")}</Label>
+                  <p className="text-sm text-slate-500">{t("Письма о важных событиях", "Маңызды оқиғалар туралы хаттар", "Emails for important events")}</p>
                 </div>
                 <Switch />
               </div>
               <Separator />
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Operation Alerts</Label>
-                  <p className="text-sm text-slate-500">
-                    Get notified about field operations
-                  </p>
+                  <Label>{t("Операции", "Операциялар", "Operations")}</Label>
+                  <p className="text-sm text-slate-500">{t("Статусы и напоминания по операциям", "Операциялар бойынша статустар мен еске салулар", "Operation status and reminders")}</p>
                 </div>
                 <Switch />
               </div>
               <Separator />
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <Label>Weather Warnings</Label>
-                  <p className="text-sm text-slate-500">
-                    Receive severe weather alerts
-                  </p>
-                </div>
-                <Switch />
-              </div>
-              <Separator />
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label>Task Reminders</Label>
-                  <p className="text-sm text-slate-500">
-                    Get reminders for scheduled tasks
-                  </p>
+                  <Label>{t("Склад", "Қойма", "Warehouse")}</Label>
+                  <p className="text-sm text-slate-500">{t("Выдача и подтверждение материалов", "Материалдарды беру және растау", "Issue and receipt confirmations")}</p>
                 </div>
                 <Switch />
               </div>
             </CardContent>
           </Card>
         </TabsContent>
-        <TabsContent value="integrations" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Integrations</CardTitle>
-              <CardDescription>
-                Connect external services and APIs
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-slate-500">
-                No integrations configured yet. Integration options will appear here.
-              </p>
-            </CardContent>
-          </Card>
-        </TabsContent>
+
         <TabsContent value="security" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Security Settings</CardTitle>
+              <CardTitle>{t("Безопасность", "Қауіпсіздік", "Security")}</CardTitle>
               <CardDescription>
-                Manage your security preferences
+                {t("Базовые параметры аккаунта", "Аккаунттың негізгі параметрлері", "Basic account configuration")}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="current-password">Current Password</Label>
+                <Label htmlFor="current-password">{t("Текущий пароль", "Ағымдағы құпиясөз", "Current password")}</Label>
                 <Input id="current-password" type="password" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="new-password">New Password</Label>
+                <Label htmlFor="new-password">{t("Новый пароль", "Жаңа құпиясөз", "New password")}</Label>
                 <Input id="new-password" type="password" />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirm-password">Confirm Password</Label>
-                <Input id="confirm-password" type="password" />
-              </div>
-              <Button>Update Password</Button>
+              <Button>{t("Обновить пароль", "Құпиясөзді жаңарту", "Update password")}</Button>
             </CardContent>
           </Card>
         </TabsContent>

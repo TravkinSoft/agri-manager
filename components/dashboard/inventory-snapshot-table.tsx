@@ -9,6 +9,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { InventorySnapshot } from "@/lib/services/dashboard";
+import { useLanguage } from "@/lib/contexts/language-context";
 
 interface InventorySnapshotTableProps {
   data: InventorySnapshot[];
@@ -21,22 +22,30 @@ const typeColors: Record<string, string> = {
 };
 
 export function InventorySnapshotTable({ data }: InventorySnapshotTableProps) {
+  const { t } = useLanguage();
+  const typeLabel = (value: string) => {
+    if (value === "seed") return t("type_seed");
+    if (value === "fertilizer") return t("type_fertilizer");
+    if (value === "pesticide") return t("type_pesticide");
+    return value;
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Inventory Snapshot</CardTitle>
+        <CardTitle>{t("inventory_snapshot_title")}</CardTitle>
       </CardHeader>
       <CardContent>
         {data.length === 0 ? (
-          <p className="text-sm text-slate-500">No inventory data available.</p>
+          <p className="text-sm text-slate-500">{t("no_inventory_data")}</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Product</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead className="text-right">Quantity</TableHead>
-                <TableHead>Warehouse</TableHead>
+                <TableHead>{t("product")}</TableHead>
+                <TableHead>{t("type")}</TableHead>
+                <TableHead className="text-right">{t("quantity")}</TableHead>
+                <TableHead>{t("warehouse")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -48,7 +57,7 @@ export function InventorySnapshotTable({ data }: InventorySnapshotTableProps) {
                       variant="secondary"
                       className={typeColors[item.productType] || ""}
                     >
-                      {item.productType}
+                      {typeLabel(item.productType)}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">

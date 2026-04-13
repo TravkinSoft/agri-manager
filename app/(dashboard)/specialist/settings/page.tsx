@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PageHeader } from '@/components/layout/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,11 +13,15 @@ import { useLanguage } from '@/lib/contexts/language-context';
 import {
   getAssistantSettings,
   upsertAssistantSettings,
-  getKnowledgeFiles,
-  deleteKnowledgeFile,
   AssistantSettings,
-  KnowledgeFile,
 } from '@/lib/services/assistant-settings';
+import {
+  archiveKnowledgeDocument,
+  KNOWLEDGE_SUPPORTED_FORMATS,
+  listGlobalKnowledgeDocuments,
+  type KnowledgeDocument,
+  uploadGlobalKnowledgeDocument,
+} from '@/lib/services/knowledge-base';
 import { Loader as Loader2, Save, Upload, FileText, Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { useAuth } from '@/lib/contexts/auth-context';
@@ -39,12 +43,14 @@ export default function AssistantSettingsPage() {
     farm_type: '',
     main_crops: '',
   });
-  const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeFile[]>([]);
+  const [knowledgeFiles, setKnowledgeFiles] = useState<KnowledgeDocument[]>([]);
+  const [uploadingKnowledge, setUploadingKnowledge] = useState(false);
+  const knowledgeInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     loadSettings();
     loadKnowledgeFiles();
-  }, []);
+  }, [profile?.company_id]);
 
   const loadSettings = async () => {
     if (!profile?.company_id) return;
@@ -71,7 +77,7 @@ export default function AssistantSettingsPage() {
     if (!profile?.company_id) return;
 
     try {
-      const files = await getKnowledgeFiles(profile.company_id);
+      const files = await listGlobalKnowledgeDocuments(profile.company_id);
       setKnowledgeFiles(files);
     } catch (error) {
       console.error('Failed to load knowledge files:', error);
@@ -102,7 +108,7 @@ export default function AssistantSettingsPage() {
 
   const handleDeleteFile = async (fileId: string) => {
     try {
-      await deleteKnowledgeFile(fileId);
+      await archiveKnowledgeDocument(fileId);
       setKnowledgeFiles((prev) => prev.filter((f) => f.id !== fileId));
       toast({
         title: t('success'),
@@ -115,6 +121,33 @@ export default function AssistantSettingsPage() {
         description: 'Failed to delete file',
         variant: 'destructive',
       });
+    }
+  };
+
+  const handleKnowledgeUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!profile?.company_id || files.length === 0) return;
+
+    try {
+      setUploadingKnowledge(true);
+      for (const file of files) {
+        await uploadGlobalKnowledgeDocument(profile.company_id, profile?.id, file);
+      }
+      await loadKnowledgeFiles();
+      toast({
+        title: t('success'),
+        description: 'Knowledge files uploaded',
+      });
+    } catch (error) {
+      console.error('Failed to upload knowledge files:', error);
+      toast({
+        title: t('error'),
+        description: error instanceof Error ? error.message : 'Failed to upload knowledge file',
+        variant: 'destructive',
+      });
+    } finally {
+      setUploadingKnowledge(false);
     }
   };
 
@@ -290,19 +323,39 @@ export default function AssistantSettingsPage() {
         <CardHeader>
           <CardTitle>Knowledge Base</CardTitle>
           <CardDescription>
-            Upload documents to enhance assistant knowledge (PDF, DOCX, XLSX, TXT)
+            Upload documents to enhance assistant knowledge (PDF, DOCX, TXT, PNG, JPG, WEBP)
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="border-2 border-dashed border-slate-200 rounded-lg p-8 text-center">
             <Upload className="h-12 w-12 text-slate-400 mx-auto mb-3" />
             <p className="text-sm text-slate-500 mb-3">
-              File upload functionality will be implemented with backend support
+              Global knowledge base files are shared across all chats and projects.
             </p>
-            <Button variant="outline" disabled>
-              <Upload className="h-4 w-4 mr-2" />
+            <Button
+              variant="outline"
+              onClick={() => knowledgeInputRef.current?.click()}
+              disabled={uploadingKnowledge}
+            >
+              {uploadingKnowledge ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4 mr-2" />
+              )}
               Upload Document
             </Button>
+            <input
+              ref={knowledgeInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              accept=".jpg,.jpeg,.png,.webp,.pdf,.docx,.txt"
+              onChange={handleKnowledgeUpload}
+            />
+            <p className="mt-3 text-xs text-slate-500">
+              Supported image formats: {KNOWLEDGE_SUPPORTED_FORMATS.images.join(', ')}. Supported documents:{' '}
+              {KNOWLEDGE_SUPPORTED_FORMATS.documents.join(', ')}.
+            </p>
           </div>
 
           {knowledgeFiles.length > 0 && (
@@ -320,7 +373,7 @@ export default function AssistantSettingsPage() {
                         <div className="font-medium text-sm">{file.filename}</div>
                         <div className="text-xs text-slate-500">
                           {(file.file_size / 1024).toFixed(1)} KB •{' '}
-                          {format(new Date(file.uploaded_at), 'dd.MM.yyyy')}
+                          {format(new Date(file.created_at), 'dd.MM.yyyy')}
                         </div>
                       </div>
                     </div>

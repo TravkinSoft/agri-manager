@@ -15,6 +15,7 @@ import { applyDraftCalculations, calculateDraftValues } from '@/lib/utils/draft-
 
 type DraftOption = { id: string; name: string; area?: number };
 type AdditionalChemical = { product_id: string; product: string; rate_per_ha: string };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 interface DraftEditorDialogProps {
   open: boolean;
@@ -89,6 +90,11 @@ export function DraftEditorDialog({
     const selectedField = fields.find((f) => f.id === editedDraft.field_id);
     return Number(selectedField?.area || editedDraft.metadata?.area || 0);
   }, [editedDraft, fields]);
+
+  const specialistUsers = useMemo(
+    () => specialists.filter((specialist) => UUID_RE.test(String(specialist.id || '').trim())),
+    [specialists]
+  );
 
   if (!editedDraft) return null;
   const metadata = editedDraft.metadata || {};
@@ -326,12 +332,12 @@ export function DraftEditorDialog({
             <Select
               value={String(metadata.responsible_id || '')}
               onValueChange={(value) => {
-                const selected = specialists.find((x) => x.id === value);
+                const selected = specialistUsers.find((x) => x.id === value);
                 updateMetadata({ responsible_id: value, responsible: selected?.name || '' });
               }}
             >
               <SelectTrigger><SelectValue placeholder="Выберите ответственного" /></SelectTrigger>
-              <SelectContent>{specialists.map((x) => <SelectItem key={x.id} value={x.id}>{x.name}</SelectItem>)}</SelectContent>
+              <SelectContent>{specialistUsers.map((x) => <SelectItem key={x.id} value={x.id}>{x.name}</SelectItem>)}</SelectContent>
             </Select>
           </div>
 

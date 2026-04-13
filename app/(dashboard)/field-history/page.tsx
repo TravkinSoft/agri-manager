@@ -24,6 +24,7 @@ import {
   type FieldHistoryRecord,
 } from "@/lib/services/field-history";
 import { supabase } from "@/lib/supabase/client";
+import { useLanguage } from "@/lib/contexts/language-context";
 
 const statusColors: Record<string, string> = {
   planned: "bg-slate-100 text-slate-800 hover:bg-slate-100",
@@ -37,6 +38,9 @@ export default function FieldHistoryPage() {
   const [selectedFieldId, setSelectedFieldId] = useState<string>("all");
   const [fieldHistory, setFieldHistory] = useState<FieldHistoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const { language } = useLanguage();
+  const t = (ru: string, kz: string, en: string) =>
+    language === "ru" ? ru : language === "kz" ? kz : en;
 
   useEffect(() => {
     async function loadFields() {
@@ -56,7 +60,7 @@ export default function FieldHistoryPage() {
     async function loadData() {
       setLoading(true);
       try {
-        const history = await getAllFieldHistory(selectedFieldId);
+        const history = await getAllFieldHistory(selectedFieldId, language);
         setFieldHistory(history);
       } catch (error) {
         console.error("Error loading field history:", error);
@@ -66,14 +70,14 @@ export default function FieldHistoryPage() {
     }
 
     loadData();
-  }, [selectedFieldId]);
+  }, [selectedFieldId, language]);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold">Field History</h1>
+        <h1 className="text-3xl font-bold">{t("История полей", "Алаң тарихы", "Field History")}</h1>
         <p className="text-slate-600 mt-2">
-          View crop rotation history for each field across seasons
+          {t("История севооборота по каждому полю за разные сезоны", "Әр алаң бойынша маусымдардағы ауыспалы егіс тарихы", "View crop rotation history for each field across seasons")}
         </p>
       </div>
 
@@ -81,19 +85,19 @@ export default function FieldHistoryPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Filter className="w-5 h-5" />
-            Filter by Field
+            {t("Фильтр по полю", "Алаң бойынша сүзгі", "Filter by Field")}
           </CardTitle>
           <CardDescription>
-            Select a specific field or view all fields
+            {t("Выберите конкретное поле или покажите все", "Нақты алаңды таңдаңыз немесе барлығын көрсетіңіз", "Select a specific field or view all fields")}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Select value={selectedFieldId} onValueChange={setSelectedFieldId}>
             <SelectTrigger className="w-full md:w-96">
-              <SelectValue placeholder="Select a field to view history" />
+              <SelectValue placeholder={t("Выберите поле для просмотра истории", "Тарихты көру үшін алаңды таңдаңыз", "Select a field to view history")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Fields</SelectItem>
+              <SelectItem value="all">{t("Все поля", "Барлық алаңдар", "All Fields")}</SelectItem>
               {fields.map((field) => (
                 <SelectItem key={field.id} value={field.id}>
                   {field.name}
@@ -106,34 +110,34 @@ export default function FieldHistoryPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Crop Rotation History</CardTitle>
+          <CardTitle>{t("История севооборота", "Ауыспалы егіс тарихы", "Crop Rotation History")}</CardTitle>
           <CardDescription>
             {selectedFieldId === "all"
-              ? `Showing all fields (${fieldHistory.length} records)`
-              : `Showing ${fields.find(f => f.id === selectedFieldId)?.name || "selected field"} (${fieldHistory.length} records)`}
+              ? t(`Показаны все поля (${fieldHistory.length} записей)`, `Барлық алаңдар көрсетілді (${fieldHistory.length} жазба)`, `Showing all fields (${fieldHistory.length} records)`)
+              : t(`Показано поле ${fields.find(f => f.id === selectedFieldId)?.name || "выбранное поле"} (${fieldHistory.length} записей)`, `${fields.find(f => f.id === selectedFieldId)?.name || "таңдалған алаң"} көрсетілді (${fieldHistory.length} жазба)`, `Showing ${fields.find(f => f.id === selectedFieldId)?.name || "selected field"} (${fieldHistory.length} records)`)}
           </CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
             <div className="text-center py-12">
-              <p className="text-slate-500">Loading data...</p>
+              <p className="text-slate-500">{t("Загрузка данных...", "Деректер жүктелуде...", "Loading data...")}</p>
             </div>
           ) : fieldHistory.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-slate-500">No history available.</p>
+              <p className="text-slate-500">{t("История отсутствует.", "Тарих жоқ.", "No history available.")}</p>
             </div>
           ) : (
             <div className="border rounded-lg overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-slate-50 hover:bg-slate-50">
-                    <TableHead className="font-semibold">Field</TableHead>
-                    <TableHead className="font-semibold">Season</TableHead>
-                    <TableHead className="font-semibold">Crop</TableHead>
-                    <TableHead className="font-semibold">Variety</TableHead>
-                    <TableHead className="text-right font-semibold">Area (ha)</TableHead>
-                    <TableHead className="text-right font-semibold">Expected Yield (t/ha)</TableHead>
-                    <TableHead className="font-semibold">Status</TableHead>
+                    <TableHead className="font-semibold">{t("Поле", "Алаң", "Field")}</TableHead>
+                    <TableHead className="font-semibold">{t("Сезон", "Маусым", "Season")}</TableHead>
+                    <TableHead className="font-semibold">{t("Культура", "Дақыл", "Crop")}</TableHead>
+                    <TableHead className="font-semibold">{t("Сорт", "Сорт", "Variety")}</TableHead>
+                    <TableHead className="text-right font-semibold">{t("Площадь (га)", "Ауданы (га)", "Area (ha)")}</TableHead>
+                    <TableHead className="text-right font-semibold">{t("Ожидаемая урожайность (т/га)", "Күтілетін өнімділік (т/га)", "Expected Yield (t/ha)")}</TableHead>
+                    <TableHead className="font-semibold">{t("Статус", "Күй", "Status")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

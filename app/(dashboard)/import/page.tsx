@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, CircleAlert as AlertCircle, CircleCheck as CheckCircle2, FileJson, FileSpreadsheet } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { useLanguage } from "@/lib/contexts/language-context";
 
 interface ImportResults {
   fields: number;
@@ -21,6 +22,9 @@ export default function ImportPage() {
   const [isImporting, setIsImporting] = useState(false);
   const [results, setResults] = useState<ImportResults | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { language } = useLanguage();
+  const t = (ru: string, kz: string, en: string) =>
+    language === "ru" ? ru : language === "kz" ? kz : en;
 
   const handleImport = async () => {
     setIsImporting(true);
@@ -33,7 +37,7 @@ export default function ImportPage() {
       try {
         parsedData = JSON.parse(importData);
       } catch (e) {
-        throw new Error("Invalid JSON format. Please check your input.");
+        throw new Error(t("Неверный JSON-формат. Проверьте данные.", "JSON пішімі қате. Деректерді тексеріңіз.", "Invalid JSON format. Please check your input."));
       }
 
       // Send to API
@@ -48,12 +52,12 @@ export default function ImportPage() {
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || "Import failed");
+        throw new Error(result.error || t("Импорт не выполнен", "Импорт орындалмады", "Import failed"));
       }
 
       setResults(result.results);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed");
+      setError(err instanceof Error ? err.message : t("Импорт не выполнен", "Импорт орындалмады", "Import failed"));
     } finally {
       setIsImporting(false);
     }
@@ -80,8 +84,8 @@ export default function ImportPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Farm Data Import"
-        description="Import fields, crop rotation history, and current season crop structure"
+        title={t("Импорт данных хозяйства", "Шаруашылық деректерін импорттау", "Farm Data Import")}
+        description={t("Импорт полей, истории севооборота и структуры посевов текущего сезона", "Алаңдар, ауыспалы егіс тарихы және ағымдағы маусым егіс құрылымын импорттау", "Import fields, crop rotation history, and current season crop structure")}
       />
 
       <div className="grid gap-6">
@@ -89,10 +93,10 @@ export default function ImportPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Upload className="h-5 w-5" />
-              Import Data
+              {t("Импорт данных", "Деректер импорты", "Import Data")}
             </CardTitle>
             <CardDescription>
-              Paste your structured data in JSON format to import fields, historical crop rotation, and 2025 crop structure.
+              {t("Вставьте JSON для импорта полей, истории севооборота и структуры посевов.", "Алаңдар, ауыспалы егіс тарихы және егіс құрылымын импорттау үшін JSON қойыңыз.", "Paste your structured data in JSON format to import fields, historical crop rotation, and crop structure.")}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -100,19 +104,19 @@ export default function ImportPage() {
               <TabsList>
                 <TabsTrigger value="json" className="flex items-center gap-2">
                   <FileJson className="h-4 w-4" />
-                  JSON Format
+                  {t("Формат JSON", "JSON пішімі", "JSON Format")}
                 </TabsTrigger>
                 <TabsTrigger value="guide" className="flex items-center gap-2">
                   <FileSpreadsheet className="h-4 w-4" />
-                  Data Guide
+                  {t("Гайд по данным", "Деректер нұсқаулығы", "Data Guide")}
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="json" className="space-y-4">
                 <div>
-                  <label className="text-sm font-medium mb-2 block">Import Data (JSON)</label>
+                  <label className="text-sm font-medium mb-2 block">{t("Данные для импорта (JSON)", "Импорт деректері (JSON)", "Import Data (JSON)")}</label>
                   <Textarea
-                    placeholder="Paste your JSON data here..."
+                    placeholder={t("Вставьте JSON сюда...", "JSON-ды осында қойыңыз...", "Paste your JSON data here...")}
                     value={importData}
                     onChange={(e) => setImportData(e.target.value)}
                     rows={15}
@@ -129,12 +133,12 @@ export default function ImportPage() {
                   {isImporting ? (
                     <>
                       <span className="animate-spin mr-2">⏳</span>
-                      Importing...
+                      {t("Импорт...", "Импортталуда...", "Importing...")}
                     </>
                   ) : (
                     <>
                       <Upload className="mr-2 h-5 w-5" />
-                      IMPORT DATA
+                      {t("ИМПОРТИРОВАТЬ", "ИМПОРТТАУ", "IMPORT DATA")}
                     </>
                   )}
                 </Button>
@@ -143,9 +147,9 @@ export default function ImportPage() {
               <TabsContent value="guide" className="space-y-4">
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-sm font-semibold mb-2">Data Structure</h3>
+                    <h3 className="text-sm font-semibold mb-2">{t("Структура данных", "Дерек құрылымы", "Data Structure")}</h3>
                     <p className="text-sm text-muted-foreground mb-4">
-                      Your JSON should contain three arrays: fields, field_history, and crop_structure.
+                      {t("JSON должен содержать три массива: fields, field_history и crop_structure.", "JSON үш массивтен тұруы керек: fields, field_history және crop_structure.", "Your JSON should contain three arrays: fields, field_history, and crop_structure.")}
                     </p>
                   </div>
 
@@ -213,7 +217,7 @@ export default function ImportPage() {
                       className="mt-2"
                       onClick={() => setImportData(exampleJSON)}
                     >
-                      Use This Example
+                      {t("Использовать пример", "Осы мысалды қолдану", "Use This Example")}
                     </Button>
                   </div>
                 </div>
@@ -223,7 +227,7 @@ export default function ImportPage() {
             {error && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Import Failed</AlertTitle>
+                <AlertTitle>{t("Импорт не выполнен", "Импорт орындалмады", "Import Failed")}</AlertTitle>
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
@@ -231,7 +235,7 @@ export default function ImportPage() {
             {results && (
               <Alert className="border-green-200 bg-green-50 text-green-900 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100">
                 <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-                <AlertTitle>Import Completed</AlertTitle>
+                <AlertTitle>{t("Импорт завершен", "Импорт аяқталды", "Import Completed")}</AlertTitle>
                 <AlertDescription>
                   <div className="mt-2 space-y-1 text-sm">
                     <div>✓ Fields imported: {results.fields}</div>

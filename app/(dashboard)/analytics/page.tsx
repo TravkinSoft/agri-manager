@@ -31,6 +31,8 @@ import {
   type InventorySummary,
 } from "@/lib/services/analytics";
 import { supabase } from "@/lib/supabase/client";
+import { useLanguage } from "@/lib/contexts/language-context";
+import { localizeUnit } from "@/lib/i18n/helpers";
 
 export default function AnalyticsPage() {
   const [seasons, setSeasons] = useState<Array<{ id: string; name: string; year: number }>>([]);
@@ -45,6 +47,9 @@ export default function AnalyticsPage() {
   const [operationsSummary, setOperationsSummary] = useState<OperationsSummary[]>([]);
   const [inventorySummary, setInventorySummary] = useState<InventorySummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const { language } = useLanguage();
+  const t = (ru: string, kz: string, en: string) =>
+    language === "ru" ? ru : language === "kz" ? kz : en;
 
   useEffect(() => {
     async function loadSeasons() {
@@ -100,19 +105,19 @@ export default function AnalyticsPage() {
   return (
     <div>
       <PageHeader
-        title="Reports & Analytics"
-        description="Comprehensive overview of your agricultural operations"
+        title={t("Отчеты и аналитика", "Есептер және аналитика", "Reports & Analytics")}
+        description={t("Комплексный обзор ваших сельхозопераций", "Ауылшаруашылық операцияларыңыздың толық шолуы", "Comprehensive overview of your agricultural operations")}
       />
 
       <div className="mb-6">
         <Card>
           <CardHeader>
-            <CardTitle>Select Season</CardTitle>
+            <CardTitle>{t("Выбор сезона", "Маусымды таңдау", "Select Season")}</CardTitle>
           </CardHeader>
           <CardContent>
             <Select value={selectedSeasonId} onValueChange={setSelectedSeasonId}>
               <SelectTrigger className="w-full md:w-96">
-                <SelectValue placeholder="Select a season" />
+                <SelectValue placeholder={t("Выберите сезон", "Маусымды таңдаңыз", "Select a season")} />
               </SelectTrigger>
               <SelectContent>
                 {seasons.map((season) => (
@@ -128,7 +133,7 @@ export default function AnalyticsPage() {
 
       {loading ? (
         <div className="text-center py-12">
-          <p className="text-slate-500">Loading analytics...</p>
+          <p className="text-slate-500">{t("Загрузка аналитики...", "Аналитика жүктелуде...", "Loading analytics...")}</p>
         </div>
       ) : (
         <div className="space-y-6">
@@ -136,14 +141,14 @@ export default function AnalyticsPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-slate-600">
-                  Total Fields
+                  {t("Всего полей", "Барлық алаңдар", "Total Fields")}
                 </CardTitle>
                 <MapPin className="h-4 w-4 text-slate-400" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{seasonSummary.totalFields}</div>
                 <p className="text-xs text-slate-500 mt-1">
-                  {selectedSeasonId ? "Fields in selected season" : "Select a season"}
+                  {selectedSeasonId ? t("Поля в выбранном сезоне", "Таңдалған маусымдағы алаңдар", "Fields in selected season") : t("Выберите сезон", "Маусымды таңдаңыз", "Select a season")}
                 </p>
               </CardContent>
             </Card>
@@ -151,66 +156,66 @@ export default function AnalyticsPage() {
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-slate-600">
-                  Planted Area
+                  {t("Площадь посева", "Егіс ауданы", "Planted Area")}
                 </CardTitle>
                 <Maximize className="h-4 w-4 text-slate-400" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {seasonSummary.totalPlantedArea.toFixed(2)} ha
+                  {seasonSummary.totalPlantedArea.toFixed(2)} {localizeUnit("ha", language)}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">Total area under cultivation</p>
+                <p className="text-xs text-slate-500 mt-1">{t("Общая площадь в обработке", "Өңделіп жатқан жалпы аудан", "Total area under cultivation")}</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-slate-600">
-                  Expected Yield
+                  {t("Ожидаемый урожай", "Күтілетін өнім", "Expected Yield")}
                 </CardTitle>
                 <TrendingUp className="h-4 w-4 text-slate-400" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {seasonSummary.totalExpectedYield.toFixed(2)} t
+                  {seasonSummary.totalExpectedYield.toFixed(2)} {localizeUnit("t", language)}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">Projected total harvest</p>
+                <p className="text-xs text-slate-500 mt-1">{t("Прогноз общего урожая", "Жалпы өнім болжамы", "Projected total harvest")}</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-slate-600">
-                  Operations
+                  {t("Операции", "Операциялар", "Operations")}
                 </CardTitle>
                 <Activity className="h-4 w-4 text-slate-400" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{seasonSummary.totalOperations}</div>
-                <p className="text-xs text-slate-500 mt-1">Total operations recorded</p>
+                <p className="text-xs text-slate-500 mt-1">{t("Всего зафиксировано операций", "Тіркелген операциялар саны", "Total operations recorded")}</p>
               </CardContent>
             </Card>
           </div>
 
           <Card>
             <CardHeader>
-              <CardTitle>Crop Structure Report</CardTitle>
+              <CardTitle>{t("Отчет по структуре посевов", "Егіс құрылымы бойынша есеп", "Crop Structure Report")}</CardTitle>
             </CardHeader>
             <CardContent>
               {cropReport.length === 0 ? (
                 <p className="text-sm text-slate-500">
-                  No crop structure data for the selected season.
+                  {t("Нет данных по структуре посевов для выбранного сезона.", "Таңдалған маусым үшін егіс құрылымы деректері жоқ.", "No crop structure data for the selected season.")}
                 </p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Crop</TableHead>
-                      <TableHead>Variety</TableHead>
-                      <TableHead>Reproduction</TableHead>
-                      <TableHead className="text-right">Fields Count</TableHead>
-                      <TableHead className="text-right">Total Area (ha)</TableHead>
-                      <TableHead className="text-right">Expected Yield (t)</TableHead>
+                      <TableHead>{t("Культура", "Дақыл", "Crop")}</TableHead>
+                      <TableHead>{t("Сорт", "Сорт", "Variety")}</TableHead>
+                      <TableHead>{t("Репродукция", "Репродукция", "Reproduction")}</TableHead>
+                      <TableHead className="text-right">{t("Кол-во полей", "Алаң саны", "Fields Count")}</TableHead>
+                      <TableHead className="text-right">{t("Общая площадь (га)", "Жалпы аудан (га)", "Total Area (ha)")}</TableHead>
+                      <TableHead className="text-right">{t("Ожидаемый урожай (т)", "Күтілетін өнім (т)", "Expected Yield (t)")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -234,18 +239,18 @@ export default function AnalyticsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Operations Summary</CardTitle>
+              <CardTitle>{t("Сводка операций", "Операциялар жиыны", "Operations Summary")}</CardTitle>
             </CardHeader>
             <CardContent>
               {operationsSummary.length === 0 ? (
-                <p className="text-sm text-slate-500">No operations recorded yet.</p>
+                <p className="text-sm text-slate-500">{t("Операции пока не зафиксированы.", "Операциялар әлі тіркелмеген.", "No operations recorded yet.")}</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Operation Type</TableHead>
-                      <TableHead className="text-right">Total Records</TableHead>
-                      <TableHead>Last Date</TableHead>
+                      <TableHead>{t("Тип операции", "Операция түрі", "Operation Type")}</TableHead>
+                      <TableHead className="text-right">{t("Всего записей", "Жалпы жазба", "Total Records")}</TableHead>
+                      <TableHead>{t("Последняя дата", "Соңғы күн", "Last Date")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -268,19 +273,19 @@ export default function AnalyticsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Inventory Summary</CardTitle>
+              <CardTitle>{t("Сводка остатков", "Қалдықтар жиыны", "Inventory Summary")}</CardTitle>
             </CardHeader>
             <CardContent>
               {inventorySummary.length === 0 ? (
-                <p className="text-sm text-slate-500">No inventory data available.</p>
+                <p className="text-sm text-slate-500">{t("Нет данных по остаткам.", "Қалдық деректері жоқ.", "No inventory data available.")}</p>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead className="text-right">Total Quantity</TableHead>
-                      <TableHead className="text-right">Warehouses Count</TableHead>
+                      <TableHead>{t("Продукт", "Өнім", "Product")}</TableHead>
+                      <TableHead>{t("Тип", "Түрі", "Type")}</TableHead>
+                      <TableHead className="text-right">{t("Общее количество", "Жалпы саны", "Total Quantity")}</TableHead>
+                      <TableHead className="text-right">{t("Кол-во складов", "Қойма саны", "Warehouses Count")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -298,7 +303,13 @@ export default function AnalyticsPage() {
                                 : "bg-orange-100 text-orange-800 hover:bg-orange-100"
                             }
                           >
-                            {summary.productType}
+                            {summary.productType === "seed"
+                              ? t("семена", "тұқым", "seed")
+                              : summary.productType === "fertilizer"
+                              ? t("удобрение", "тыңайтқыш", "fertilizer")
+                              : summary.productType === "pesticide"
+                              ? t("пестицид", "пестицид", "pesticide")
+                              : summary.productType}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">

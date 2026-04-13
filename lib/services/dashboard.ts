@@ -1,4 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
+import { localizedName } from "@/lib/i18n/helpers";
+import type { Language } from "@/lib/i18n/translations";
 
 export interface DashboardMetrics {
   totalFields: number;
@@ -29,10 +31,11 @@ export interface InventorySnapshot {
   warehouseName: string;
 }
 
-export async function getDashboardMetrics(): Promise<DashboardMetrics> {
+export async function getDashboardMetrics(companyId: string): Promise<DashboardMetrics> {
   const { data: fields } = await supabase
     .from("fields")
     .select("area")
+    .eq("company_id", companyId)
     .eq("archived", false);
 
   const totalFields = fields?.length || 0;
@@ -41,6 +44,7 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   const { data: crops } = await supabase
     .from("crop_structure")
     .select("id")
+    .eq("company_id", companyId)
     .eq("archived", false)
     .neq("status", "harvested");
 
@@ -49,6 +53,7 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   const { data: warehouses } = await supabase
     .from("warehouses")
     .select("id")
+    .eq("company_id", companyId)
     .eq("archived", false);
 
   const totalWarehouses = warehouses?.length || 0;
@@ -61,14 +66,19 @@ export async function getDashboardMetrics(): Promise<DashboardMetrics> {
   };
 }
 
-export async function getCropDistribution(season?: number): Promise<CropDistribution[]> {
+export async function getCropDistribution(
+  companyId: string,
+  season?: number,
+  language: Language = "ru"
+): Promise<CropDistribution[]> {
   let query = supabase
     .from("crop_structure")
     .select(`
       area,
       field_id,
-      crops!inner(name)
+      crops!inner(name, name_ru, name_kz, name_en)
     `)
+    .eq("company_id", companyId)
     .eq("archived", false);
 
   if (season) {
@@ -83,7 +93,7 @@ export async function getCropDistribution(season?: number): Promise<CropDistribu
   }
 
   const distribution = data?.reduce((acc, item: any) => {
-    const cropName = item.crops?.name || "Unknown";
+    const cropName = localizedName(item.crops, language) || "Unknown";
     const existing = acc.find((d) => d.crop === cropName);
     if (existing) {
       existing.totalArea += Number(item.area);
@@ -106,7 +116,11 @@ export async function getCropDistribution(season?: number): Promise<CropDistribu
     .sort((a, b) => b.totalArea - a.totalArea);
 }
 
-export async function getRecentOperations(limit: number = 5): Promise<RecentOperation[]> {
+export async function getRecentOperations(
+  companyId: string,
+  limit: number = 5,
+  language: Language = "ru"
+): Promise<RecentOperation[]> {
   const { data, error } = await supabase
     .from("operations")
     .select(`
@@ -118,9 +132,10 @@ export async function getRecentOperations(limit: number = 5): Promise<RecentOper
         name
       ),
       crop_structure!operations_crop_structure_id_fkey (
-        crops!inner(name)
+        crops!inner(name, name_ru, name_kz, name_en)
       )
     `)
+    .eq("company_id", companyId)
     .eq("archived", false)
     .order("date", { ascending: false })
     .limit(limit);
@@ -134,13 +149,16 @@ export async function getRecentOperations(limit: number = 5): Promise<RecentOper
     id: op.id,
     date: op.date,
     fieldName: op.fields?.name || "Unknown",
-    cropName: op.crop_structure?.crops?.name || null,
+    cropName: localizedName(op.crop_structure?.crops, language) || null,
     operationType: op.operation_type,
     notes: op.notes,
   })) || [];
 }
 
-export async function getInventorySnapshot(): Promise<InventorySnapshot[]> {
+export async function getInventorySnapshot(
+  companyId: string,
+  language: Language = "ru"
+): Promise<InventorySnapshot[]> {
   const { data: transactions, error } = await supabase
     .from("inventory_transactions")
     .select(`
@@ -149,13 +167,20 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot[]> {
       quantity,
       transaction_type,
       warehouses!inventory_transactions_warehouse_id_fkey (
-        name
+        name,
+        name_ru,
+        name_kz,
+        name_en
       ),
       products!inventory_transactions_product_id_fkey (
         name,
+        name_ru,
+        name_kz,
+        name_en,
         type
       )
-    `);
+    `)
+    .eq("company_id", companyId);
 
   if (error) {
     console.error("Error fetching inventory transactions:", error);
@@ -166,10 +191,10 @@ export async function getInventorySnapshot(): Promise<InventorySnapshot[]> {
     const key = `${txn.product_id}-${txn.warehouse_id}`;
     if (!acc[key]) {
       acc[key] = {
-        productName: txn.products?.name || "Unknown",
+        productName: localizedName(txn.products, language) || "Unknown",
         productType: txn.products?.type || "unknown",
         quantity: 0,
-        warehouseName: txn.warehouses?.name || "Unknown",
+        warehouseName: localizedName(txn.warehouses, language) || "Unknown",
       };
     }
     const qty = Number(txn.quantity);

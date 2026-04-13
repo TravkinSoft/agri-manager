@@ -13,7 +13,11 @@ export default function SpecialistPage() {
   const { profile } = useAuth();
   const router = useRouter();
 
-  const canManageSettings = profile?.role === 'admin' || profile?.role === 'agronomist';
+  const canManageSettings =
+    profile?.role === 'admin' ||
+    profile?.role === 'company_admin' ||
+    profile?.role === 'global_admin' ||
+    profile?.role === 'agronomist';
 
   if (profile?.role === 'warehouse') {
     return (

@@ -40,6 +40,96 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { useLanguage } from "@/lib/contexts/language-context";
+import type { Language } from "@/lib/i18n/translations";
+import { localizeUnit } from "@/lib/i18n/helpers";
+
+const pageText: Record<Language, Record<string, string>> = {
+  ru: {
+    title: "Поля",
+    desc: "Управление полями и земельными участками",
+    add: "Добавить поле",
+    fieldName: "Название поля",
+    area: "Площадь",
+    soilType: "Тип почвы",
+    notes: "Примечания",
+    createdAt: "Создано",
+    actions: "Действия",
+    loading: "Загрузка...",
+    empty: "Поля еще не добавлены. Нажмите «Добавить поле».",
+    edit: "Редактировать",
+    archive: "Архивировать",
+    cancel: "Отмена",
+    archiveTitle: "Архивировать поле",
+    archiveDesc: "Вы уверены, что хотите архивировать поле",
+    archiveDescTail: "Оно будет скрыто из основного списка, но его можно восстановить позже.",
+    success: "Успешно",
+    error: "Ошибка",
+    loadError: "Не удалось загрузить поля",
+    addSuccess: "Поле успешно добавлено",
+    addError: "Не удалось добавить поле",
+    editSuccess: "Поле успешно обновлено",
+    editError: "Не удалось обновить поле",
+    archiveSuccess: "Поле успешно архивировано",
+    archiveError: "Не удалось архивировать поле",
+  },
+  kz: {
+    title: "Алаңдар",
+    desc: "Алаңдар мен жер телімдерін басқару",
+    add: "Алаң қосу",
+    fieldName: "Алаң атауы",
+    area: "Ауданы",
+    soilType: "Топырақ түрі",
+    notes: "Ескертпе",
+    createdAt: "Құрылған күні",
+    actions: "Әрекеттер",
+    loading: "Жүктелуде...",
+    empty: "Әлі алаң қосылмаған. «Алаң қосу» түймесін басыңыз.",
+    edit: "Өңдеу",
+    archive: "Мұрағатқа жіберу",
+    cancel: "Болдырмау",
+    archiveTitle: "Алаңды мұрағаттау",
+    archiveDesc: "Осы алаңды мұрағаттағыңыз келе ме",
+    archiveDescTail: "Ол негізгі тізімнен жасырылады, кейін қалпына келтіруге болады.",
+    success: "Сәтті",
+    error: "Қате",
+    loadError: "Алаңдарды жүктеу мүмкін болмады",
+    addSuccess: "Алаң сәтті қосылды",
+    addError: "Алаңды қосу мүмкін болмады",
+    editSuccess: "Алаң сәтті жаңартылды",
+    editError: "Алаңды жаңарту мүмкін болмады",
+    archiveSuccess: "Алаң сәтті мұрағатталды",
+    archiveError: "Алаңды мұрағаттау мүмкін болмады",
+  },
+  en: {
+    title: "Fields",
+    desc: "Manage fields and land parcels",
+    add: "Add Field",
+    fieldName: "Field Name",
+    area: "Area",
+    soilType: "Soil Type",
+    notes: "Notes",
+    createdAt: "Created At",
+    actions: "Actions",
+    loading: "Loading...",
+    empty: "No fields yet. Click “Add Field” to start.",
+    edit: "Edit",
+    archive: "Archive",
+    cancel: "Cancel",
+    archiveTitle: "Archive Field",
+    archiveDesc: "Are you sure you want to archive field",
+    archiveDescTail: "It will be hidden from the main list and can be restored later.",
+    success: "Success",
+    error: "Error",
+    loadError: "Failed to load fields",
+    addSuccess: "Field added successfully",
+    addError: "Failed to add field",
+    editSuccess: "Field updated successfully",
+    editError: "Failed to update field",
+    archiveSuccess: "Field archived successfully",
+    archiveError: "Failed to archive field",
+  },
+};
 
 export default function FieldsPage() {
   const [fields, setFields] = useState<Field[]>([]);
@@ -50,6 +140,8 @@ export default function FieldsPage() {
   const [fieldToArchive, setFieldToArchive] = useState<Field | null>(null);
   const { toast } = useToast();
   const { profile } = useAuth();
+  const { language } = useLanguage();
+  const text = pageText[language];
 
   useEffect(() => {
     if (profile?.company_id) {
@@ -66,8 +158,8 @@ export default function FieldsPage() {
       setFields(data);
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to load fields",
+        title: text.error,
+        description: text.loadError,
         variant: "destructive",
       });
     } finally {
@@ -83,13 +175,13 @@ export default function FieldsPage() {
       setIsFormOpen(false);
       await loadFields();
       toast({
-        title: "Success",
-        description: "Field added successfully",
+        title: text.success,
+        description: text.addSuccess,
       });
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to add field",
+        title: text.error,
+        description: text.addError,
         variant: "destructive",
       });
     }
@@ -104,13 +196,13 @@ export default function FieldsPage() {
       setEditingField(null);
       await loadFields();
       toast({
-        title: "Success",
-        description: "Field updated successfully",
+        title: text.success,
+        description: text.editSuccess,
       });
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to update field",
+        title: text.error,
+        description: text.editError,
         variant: "destructive",
       });
     }
@@ -125,13 +217,13 @@ export default function FieldsPage() {
       setFieldToArchive(null);
       await loadFields();
       toast({
-        title: "Success",
-        description: "Field archived successfully",
+        title: text.success,
+        description: text.archiveSuccess,
       });
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to archive field",
+        title: text.error,
+        description: text.archiveError,
         variant: "destructive",
       });
     }
@@ -157,10 +249,10 @@ export default function FieldsPage() {
   return (
     <div>
       <PageHeader
-        title="Fields"
-        description="Manage your agricultural fields and land parcels"
+        title={text.title}
+        description={text.desc}
         action={{
-          label: "Add Field",
+          label: text.add,
           icon: Plus,
           onClick: () => setIsFormOpen(true),
         }}
@@ -171,25 +263,25 @@ export default function FieldsPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Field Name</TableHead>
-                <TableHead>Area (ha)</TableHead>
-                <TableHead>Soil Type</TableHead>
-                <TableHead>Notes</TableHead>
-                <TableHead>Created At</TableHead>
-                <TableHead className="w-[70px]">Actions</TableHead>
+                <TableHead>{text.fieldName}</TableHead>
+                <TableHead>{text.area} ({localizeUnit("ha", language)})</TableHead>
+                <TableHead>{text.soilType}</TableHead>
+                <TableHead>{text.notes}</TableHead>
+                <TableHead>{text.createdAt}</TableHead>
+                <TableHead className="w-[70px]">{text.actions}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-slate-500">
-                    Loading...
+                    {text.loading}
                   </TableCell>
                 </TableRow>
               ) : fields.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="text-center text-slate-500">
-                    No fields added yet. Click "Add Field" to get started.
+                    {text.empty}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -214,14 +306,14 @@ export default function FieldsPage() {
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem onClick={() => openEditDialog(field)}>
                             <Pencil className="mr-2 h-4 w-4" />
-                            Edit
+                            {text.edit}
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => openArchiveDialog(field)}
                             className="text-red-600"
                           >
                             <Archive className="mr-2 h-4 w-4" />
-                            Archive
+                            {text.archive}
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -254,16 +346,15 @@ export default function FieldsPage() {
       <AlertDialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Archive Field</AlertDialogTitle>
+            <AlertDialogTitle>{text.archiveTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to archive "{fieldToArchive?.name}"? This
-              field will be hidden from the main view but can be restored later.
+              {text.archiveDesc} "{fieldToArchive?.name}"? {text.archiveDescTail}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{text.cancel || "Cancel"}</AlertDialogCancel>
             <AlertDialogAction onClick={handleArchiveField}>
-              Archive
+              {text.archive}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

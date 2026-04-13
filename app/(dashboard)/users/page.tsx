@@ -22,9 +22,11 @@ import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
+import { useLanguage } from "@/lib/contexts/language-context";
 
 interface Profile {
   id: string;
+  full_name: string | null;
   email: string;
   role: string;
   status: string;
@@ -35,15 +37,20 @@ export default function UsersPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [inviteFullName, setInviteFullName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('agronomist');
   const [inviting, setInviting] = useState(false);
   const { profile } = useAuth();
   const { toast } = useToast();
+  const { language } = useLanguage();
+
+  const t = (ru: string, kz: string, en: string) =>
+    language === 'ru' ? ru : language === 'kz' ? kz : en;
 
   useEffect(() => {
     loadProfiles();
-  }, []);
+  }, [profile?.company_id]);
 
   const loadProfiles = async () => {
     try {
@@ -51,12 +58,31 @@ export default function UsersPage() {
 
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
+        .select('id, full_name, email, role, status, created_at')
         .eq('company_id', profile.company_id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setProfiles(data || []);
+      if (error) {
+        const missingColumn = String((error as any)?.message || "").toLowerCase().includes("full_name");
+        if (!missingColumn) throw error;
+
+        const fallbackRes = await supabase
+          .from('profiles')
+          .select('id, email, role, status, created_at')
+          .eq('company_id', profile.company_id)
+          .order('created_at', { ascending: false });
+
+        if (fallbackRes.error) throw fallbackRes.error;
+
+        const fallbackRows = (fallbackRes.data || []).map((row: any) => ({
+          ...row,
+          full_name: null,
+        }));
+        setProfiles(fallbackRows as Profile[]);
+        return;
+      }
+
+      setProfiles((data || []) as Profile[]);
     } catch (error) {
       console.error('Error loading profiles:', error);
     } finally {
@@ -65,17 +91,27 @@ export default function UsersPage() {
   };
 
   const handleInvite = async () => {
-    if (!inviteEmail || !profile?.company_id) return;
+    if (!inviteEmail || !inviteFullName || !profile?.company_id) return;
+    const normalizedInviteRole = inviteRole === 'admin' ? 'company_admin' : inviteRole;
+    if (profile.role !== 'global_admin' && normalizedInviteRole === 'company_admin') {
+      toast({
+        title: 'Ошибка',
+        description: 'Администратор компании не может приглашать администраторов компании.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setInviting(true);
     try {
-      console.log('[DEBUG] Invite button clicked - calling URL:', '/api/invite-user');
       const response = await fetch('/api/invite-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          actor_user_id: profile.id,
+          full_name: inviteFullName.trim(),
           email: inviteEmail,
-          role: inviteRole,
+          role: normalizedInviteRole,
           company_id: profile.company_id,
         }),
       });
@@ -92,20 +128,26 @@ export default function UsersPage() {
       }
 
       toast({
-        title: 'Invitation sent',
-        description: `An invitation has been sent to ${inviteEmail}`,
+        title: t('Приглашение отправлено', 'Шақыру жіберілді', 'Invitation sent'),
+        description: t(
+          `Приглашение отправлено на ${inviteEmail}`,
+          `${inviteEmail} мекенжайына шақыру жіберілді`,
+          `An invitation has been sent to ${inviteEmail}`
+        ),
       });
 
       setInviteDialogOpen(false);
+      setInviteFullName('');
       setInviteEmail('');
       setInviteRole('agronomist');
-
-      setTimeout(loadProfiles, 1000);
+      setTimeout(loadProfiles, 600);
     } catch (error: unknown) {
-      const message = error instanceof Error && error.message ? error.message : 'Failed to send invitation';
-      console.error('Invitation error:', error);
+      const message = error instanceof Error && error.message
+        ? error.message
+        : t('Не удалось отправить приглашение', 'Шақыру жіберілмеді', 'Failed to send invitation');
+
       toast({
-        title: 'Invitation failed',
+        title: t('Ошибка приглашения', 'Шақыру қатесі', 'Invitation failed'),
         description: message,
         variant: 'destructive',
       });
@@ -116,15 +158,32 @@ export default function UsersPage() {
 
   const getRoleBadge = (role: string) => {
     const styles = {
+      global_admin: 'bg-purple-100 text-purple-800',
+      company_admin: 'bg-rose-100 text-rose-800',
       admin: 'bg-red-100 text-red-800',
       agronomist: 'bg-green-100 text-green-800',
       specialist: 'bg-blue-100 text-blue-800',
       warehouse: 'bg-orange-100 text-orange-800',
-    };
+      weighman: 'bg-violet-100 text-violet-800',
+    } as const;
+
+    const roleLabel =
+      role === 'admin'
+        ? t('Админ', 'Әкімші', 'Admin')
+        : role === 'agronomist'
+          ? t('Агроном', 'Агроном', 'Agronomist')
+          : role === 'specialist'
+            ? t('Специалист', 'Маман', 'Specialist')
+            : role === 'warehouse'
+              ? t('Склад', 'Қойма', 'Warehouse')
+              : role === 'weighman'
+                ? t('Весовщик', 'Таразышы', 'Weighman')
+                : role;
+
     return (
       <Badge className={styles[role as keyof typeof styles] || 'bg-slate-100 text-slate-800'}>
         <Shield className="h-3 w-3 mr-1" />
-        {role}
+        {roleLabel}
       </Badge>
     );
   };
@@ -134,28 +193,36 @@ export default function UsersPage() {
       return (
         <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
           <CheckCircle2 className="h-3 w-3 mr-1" />
-          Active
+          {t('Активен', 'Белсенді', 'Active')}
         </Badge>
       );
     }
     return (
       <Badge className="bg-amber-100 text-amber-800 border-amber-200">
         <Clock className="h-3 w-3 mr-1" />
-        Pending
+        {t('Ожидание', 'Күтілуде', 'Pending')}
       </Badge>
     );
   };
 
-  if (profile?.role !== 'admin') {
+  if (profile?.role !== 'admin' && profile?.role !== 'company_admin' && profile?.role !== 'global_admin') {
     return (
       <div>
         <PageHeader
-          title="Users"
-          description="Manage team members and access permissions"
+          title={t('Пользователи', 'Пайдаланушылар', 'Users')}
+          description={t(
+            'Управление участниками команды и доступами',
+            'Команда мүшелері мен рұқсаттарды басқару',
+            'Manage team members and access permissions'
+          )}
         />
         <Alert variant="destructive">
           <AlertDescription>
-            Access denied. Only administrators can view this page.
+            {t(
+              'Доступ запрещен. Страница доступна только администраторам.',
+              'Қол жеткізуге тыйым салынған. Бұл бет тек әкімшілерге қолжетімді.',
+              'Access denied. Only administrators can view this page.'
+            )}
           </AlertDescription>
         </Alert>
       </div>
@@ -165,12 +232,16 @@ export default function UsersPage() {
   return (
     <div>
       <PageHeader
-        title="Users"
-        description="Manage team members and access permissions"
+        title={t('Пользователи', 'Пайдаланушылар', 'Users')}
+        description={t(
+          'Управление участниками команды и доступами',
+          'Команда мүшелері мен рұқсаттарды басқару',
+          'Manage team members and access permissions'
+        )}
       >
         <Button onClick={() => setInviteDialogOpen(true)}>
           <UserPlus className="mr-2 h-4 w-4" />
-          Invite User
+          {t('Пригласить', 'Шақыру', 'Invite User')}
         </Button>
       </PageHeader>
 
@@ -179,29 +250,31 @@ export default function UsersPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>{t('ФИО', 'Аты-жөні', 'Full name')}</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>{t('Роль', 'Рөл', 'Role')}</TableHead>
+                <TableHead>{t('Статус', 'Күй', 'Status')}</TableHead>
+                <TableHead>{t('Создан', 'Құрылған', 'Created')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-slate-500">
-                    Loading users...
+                  <TableCell colSpan={5} className="text-center text-slate-500">
+                    {t('Загрузка пользователей...', 'Пайдаланушылар жүктелуде...', 'Loading users...')}
                   </TableCell>
                 </TableRow>
               ) : profiles.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-slate-500">
-                    No users found.
+                  <TableCell colSpan={5} className="text-center text-slate-500">
+                    {t('Пользователи не найдены.', 'Пайдаланушылар табылмады.', 'No users found.')}
                   </TableCell>
                 </TableRow>
               ) : (
                 profiles.map((userProfile) => (
                   <TableRow key={userProfile.id}>
-                    <TableCell className="font-medium">{userProfile.email}</TableCell>
+                    <TableCell className="font-medium">{userProfile.full_name || userProfile.email}</TableCell>
+                    <TableCell>{userProfile.email}</TableCell>
                     <TableCell>{getRoleBadge(userProfile.role)}</TableCell>
                     <TableCell>{getStatusBadge(userProfile.status || 'pending')}</TableCell>
                     <TableCell>{new Date(userProfile.created_at).toLocaleDateString()}</TableCell>
@@ -216,14 +289,30 @@ export default function UsersPage() {
       <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Invite New User</DialogTitle>
+            <DialogTitle>{t('Пригласить пользователя', 'Пайдаланушыны шақыру', 'Invite New User')}</DialogTitle>
             <DialogDescription>
-              Send an invitation to add a new team member to your company.
+              {t(
+                'Укажите ФИО, email и роль. ФИО обязательно.',
+                'Аты-жөні, email және рөлді көрсетіңіз. Аты-жөні міндетті.',
+                'Provide full name, email, and role. Full name is required.'
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="invite-email">Email Address</Label>
+              <Label htmlFor="invite-full-name">{t('ФИО', 'Аты-жөні', 'Full name')}</Label>
+              <Input
+                id="invite-full-name"
+                type="text"
+                placeholder={t('Иванов Иван Иванович', 'Иванов Иван Иванович', 'John Smith')}
+                value={inviteFullName}
+                onChange={(e) => setInviteFullName(e.target.value)}
+                disabled={inviting}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="invite-email">{t('Email адрес', 'Email мекенжайы', 'Email Address')}</Label>
               <Input
                 id="invite-email"
                 type="email"
@@ -234,26 +323,27 @@ export default function UsersPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="invite-role">Role</Label>
+              <Label htmlFor="invite-role">{t('Роль', 'Рөл', 'Role')}</Label>
               <Select value={inviteRole} onValueChange={setInviteRole} disabled={inviting}>
                 <SelectTrigger id="invite-role">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="agronomist">Agronomist</SelectItem>
-                  <SelectItem value="specialist">Specialist</SelectItem>
-                  <SelectItem value="warehouse">Warehouse</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="agronomist">{t('Агроном', 'Агроном', 'Agronomist')}</SelectItem>
+                  <SelectItem value="specialist">{t('Специалист', 'Маман', 'Specialist')}</SelectItem>
+                  <SelectItem value="warehouse">{t('Склад', 'Қойма', 'Warehouse')}</SelectItem>
+                  <SelectItem value="weighman">{t('Весовщик', 'Таразышы', 'Weighman')}</SelectItem>
+                  <SelectItem value="admin">{t('Админ', 'Әкімші', 'Admin')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setInviteDialogOpen(false)} disabled={inviting}>
-              Cancel
+              {t('Отмена', 'Болдырмау', 'Cancel')}
             </Button>
-            <Button onClick={handleInvite} disabled={inviting || !inviteEmail}>
-              {inviting ? 'Sending...' : 'Send Invitation'}
+            <Button onClick={handleInvite} disabled={inviting || !inviteEmail.trim() || !inviteFullName.trim()}>
+              {inviting ? t('Отправка...', 'Жіберілуде...', 'Sending...') : t('Отправить приглашение', 'Шақыру жіберу', 'Send Invitation')}
             </Button>
           </DialogFooter>
         </DialogContent>

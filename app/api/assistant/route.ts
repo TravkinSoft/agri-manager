@@ -14,7 +14,7 @@ type AssistantSettings = {
   main_crops: string;
 };
 
-type ProfileRole = "admin" | "agronomist" | "specialist" | "warehouse";
+type ProfileRole = "global_admin" | "company_admin" | "admin" | "agronomist" | "specialist" | "warehouse" | "weighman";
 
 type UserContext = {
   companyId: string;
@@ -47,6 +47,16 @@ type HerbicideStockItem = {
   unit: string;
   totalQuantity: number;
   warehouseBreakdown: Array<{ warehouseName: string; quantity: number }>;
+};
+
+type AssistantAttachment = {
+  id?: string;
+  name: string;
+  type: string;
+  size: number;
+  kind: "image" | "file";
+  imageDataUrl?: string;
+  textContent?: string;
 };
 
 const DEFAULT_SETTINGS: AssistantSettings = {
@@ -94,6 +104,10 @@ Question order for spraying draft (must follow this sequence):
 8) responsible brigadier/specialist
 9) operation date/time (near the end)
 10) comments (last)
+
+Responsible rule:
+- Responsible assignee must be ONLY a user with role "specialist".
+- If the named user exists but has another role, do not assign and explain that this user is not a specialist.
 
 When preparing spraying operation draft, include:
 1) operation_type
@@ -185,6 +199,32 @@ function asString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
+function normalizeAttachments(raw: unknown): AssistantAttachment[] {
+  if (!Array.isArray(raw)) return [];
+  const normalized: AssistantAttachment[] = [];
+
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const kind = asString(row.kind);
+    const name = asString(row.name);
+    if (!kind || !name) continue;
+    if (kind !== "image" && kind !== "file") continue;
+
+    normalized.push({
+      id: asString(row.id),
+      name,
+      type: asString(row.type) || "",
+      size: Number(row.size || 0),
+      kind,
+      imageDataUrl: asString(row.imageDataUrl),
+      textContent: asString(row.textContent),
+    });
+  }
+
+  return normalized.slice(0, 8);
+}
+
 function normalizeLookupText(text: string): string {
   const charMap: Record<string, string> = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i", й: "i",
@@ -244,7 +284,8 @@ function normalizeProfileRole(value: string | undefined): ProfileRole | null {
   if (!value) return null;
   const role = value.trim().toLowerCase();
 
-  if (["admin", "owner", "superadmin", "super_admin"].includes(role)) return "admin";
+  if (["global_admin"].includes(role)) return "global_admin";
+  if (["company_admin", "admin", "owner", "superadmin", "super_admin"].includes(role)) return "company_admin";
   if (["agronomist", "agronom", "agronomer", "агроном"].includes(role)) return "agronomist";
   if (["specialist", "spec", "специалист"].includes(role)) return "specialist";
   if (["warehouse", "warehouseman", "storekeeper", "склад", "кладовщик"].includes(role)) return "warehouse";
@@ -253,7 +294,7 @@ function normalizeProfileRole(value: string | undefined): ProfileRole | null {
 }
 
 function hasFullAssistantAccess(role: ProfileRole | null): boolean {
-  return role === "admin" || role === "agronomist";
+  return role === "global_admin" || role === "company_admin" || role === "admin" || role === "agronomist";
 }
 
 async function resolveUserContext(
@@ -757,10 +798,11 @@ function pickHerbicideSnapshotForQuery(
 function buildHerbicideStockResponse(
   userMessage: string,
   snapshot: HerbicideStockItem[],
-  chatHistory?: unknown
+  chatHistory?: unknown,
+  preferredLanguage?: "ru" | "en" | "kz"
 ): string | null {
   if (snapshot.length === 0) return null;
-  const language = detectReplyLanguage(userMessage);
+  const language = detectReplyLanguage(userMessage, preferredLanguage);
   const list = pickHerbicideSnapshotForQuery(snapshot, userMessage, chatHistory);
   if (list.length === 0) return null;
 
@@ -787,29 +829,89 @@ function buildHerbicideStockResponse(
 
 async function loadAssistantSettings(
   supabase: SupabaseClient,
-  userId: string
+  userId: string,
+  companyId: string
 ): Promise<{ settings: AssistantSettings; knowledgeFiles: Array<{ filename: string; extracted_text: string }> }> {
   if (!userId || !isStrictUuid(userId)) {
     return { settings: DEFAULT_SETTINGS, knowledgeFiles: [] };
   }
 
   try {
-    const [{ data: settings }, { data: knowledgeFiles }] = await Promise.all([
+    const [settingsByCompany, settingsByUser] = await Promise.all([
+      companyId && isStrictUuid(companyId)
+        ? supabase.from("assistant_settings").select("*").eq("company_id", companyId).maybeSingle()
+        : Promise.resolve({ data: null } as any),
       supabase.from("assistant_settings").select("*").eq("user_id", userId).maybeSingle(),
-      supabase
-        .from("assistant_knowledge_files")
-        .select("filename, extracted_text")
-        .eq("user_id", userId)
-        .order("uploaded_at", { ascending: false })
-        .limit(3),
     ]);
+
+    let knowledgeFiles: Array<{ filename: string; extracted_text: string }> = [];
+    let globalBaseIds: string[] = [];
+
+    if (companyId && isStrictUuid(companyId)) {
+      try {
+        const globalBasesResult = await supabase
+          .from("knowledge_bases")
+          .select("id")
+          .eq("company_id", companyId)
+          .eq("scope_type", "global")
+          .eq("archived", false)
+          .limit(3);
+        globalBaseIds = Array.isArray(globalBasesResult?.data)
+          ? globalBasesResult.data
+              .map((row: any) => asString(row?.id))
+              .filter((id): id is string => Boolean(id))
+          : [];
+      } catch (error) {
+        console.warn("Global knowledge base tables are unavailable, fallback to legacy assistant files", error);
+      }
+    }
+
+    if (globalBaseIds.length > 0) {
+      const { data: globalDocs, error: globalDocsError } = await supabase
+        .from("knowledge_documents")
+        .select("filename, extracted_text")
+        .eq("company_id", companyId)
+        .in("knowledge_base_id", globalBaseIds)
+        .eq("archived", false)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      if (!globalDocsError && Array.isArray(globalDocs) && globalDocs.length > 0) {
+        knowledgeFiles = globalDocs;
+      }
+    }
+
+    if (knowledgeFiles.length === 0) {
+      const { data: legacyKnowledgeByCompany, error: legacyCompanyError } = companyId
+        ? await supabase
+            .from("assistant_knowledge_files")
+            .select("filename, extracted_text")
+            .eq("company_id", companyId)
+            .order("uploaded_at", { ascending: false })
+            .limit(5)
+        : ({ data: [], error: null } as any);
+
+      if (!legacyCompanyError && Array.isArray(legacyKnowledgeByCompany) && legacyKnowledgeByCompany.length > 0) {
+        knowledgeFiles = legacyKnowledgeByCompany;
+      } else {
+        const { data: legacyKnowledgeByUser, error: legacyUserError } = await supabase
+          .from("assistant_knowledge_files")
+          .select("filename, extracted_text")
+          .eq("user_id", userId)
+          .order("uploaded_at", { ascending: false })
+          .limit(3);
+        if (!legacyUserError && Array.isArray(legacyKnowledgeByUser)) {
+          knowledgeFiles = legacyKnowledgeByUser;
+        }
+      }
+    }
 
     return {
       settings: {
         ...DEFAULT_SETTINGS,
-        ...(settings || {}),
+        ...(settingsByUser?.data || {}),
+        ...(settingsByCompany?.data || {}),
       },
-      knowledgeFiles: knowledgeFiles || [],
+      knowledgeFiles,
     };
   } catch (error) {
     console.error("Failed to load assistant settings:", error);
@@ -1440,9 +1542,12 @@ function stripDraftPayloadFromText(text: string): string {
   return clean;
 }
 
-function detectReplyLanguage(text: string): "ru" | "en" | "kz" {
-  if (/\p{Script=Cyrillic}/u.test(text)) return "ru";
+function detectReplyLanguage(text: string, preferredLanguage?: "ru" | "en" | "kz"): "ru" | "en" | "kz" {
+  if (preferredLanguage === "ru" || preferredLanguage === "en" || preferredLanguage === "kz") {
+    return preferredLanguage;
+  }
   if (/[әіңғүұқөһ]/i.test(text)) return "kz";
+  if (/\p{Script=Cyrillic}/u.test(text)) return "ru";
   if (/[а-яё]/i.test(text)) return "ru";
   return "en";
 }
@@ -1505,8 +1610,8 @@ function isZeroLike(value: unknown): boolean {
   return !Number.isFinite(numeric) || numeric <= 0;
 }
 
-function pickDraftReadyMessage(userMessage: string): string {
-  const language = detectReplyLanguage(userMessage);
+function pickDraftReadyMessage(userMessage: string, preferredLanguage?: "ru" | "en" | "kz"): string {
+  const language = detectReplyLanguage(userMessage, preferredLanguage);
   if (language === "en") {
     return "Draft operation prepared. Please review and confirm below.";
   }
@@ -1586,6 +1691,82 @@ async function enrichDraftWithCompanyData(
     metadata.area = String(resolvedField.area);
   }
 
+  const rawResponsibleId = asString(metadata.responsible_id);
+  const rawResponsibleText = asString(metadata.responsible) || asString(metadata.performer) || "";
+  let resolvedResponsibleId = "";
+  let resolvedResponsibleEmail = "";
+  let responsibleRoleError = "";
+
+  if (rawResponsibleId && isUuidLike(rawResponsibleId)) {
+    const { data: responsibleById } = await supabase
+      .from("profiles")
+      .select("id, email, full_name, role, status")
+      .eq("id", rawResponsibleId)
+      .eq("company_id", safeCompanyId)
+      .eq("status", "active")
+      .maybeSingle();
+    if (responsibleById?.id && (responsibleById as any).role === "specialist") {
+      resolvedResponsibleId = String(responsibleById.id);
+      resolvedResponsibleEmail = asString(responsibleById.email) || "";
+      metadata.responsible = asString((responsibleById as any).full_name) || asString(metadata.responsible) || "";
+    } else if (responsibleById?.id) {
+      responsibleRoleError = "Нельзя назначить задачу на этого пользователя: он не специалист.";
+    }
+  }
+
+  if (!resolvedResponsibleId && !responsibleRoleError && rawResponsibleText) {
+    const emailMatch = rawResponsibleText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+    const normalizedEmail = (emailMatch?.[0] || rawResponsibleText).trim().toLowerCase();
+    if (normalizedEmail && normalizedEmail.includes("@")) {
+      const { data: responsibleByEmail } = await supabase
+        .from("profiles")
+        .select("id, email, full_name, role, status")
+        .eq("company_id", safeCompanyId)
+        .eq("status", "active")
+        .ilike("email", normalizedEmail)
+        .limit(1)
+        .maybeSingle();
+      if (responsibleByEmail?.id && (responsibleByEmail as any).role === "specialist") {
+        resolvedResponsibleId = String(responsibleByEmail.id);
+        resolvedResponsibleEmail = asString(responsibleByEmail.email) || "";
+        metadata.responsible = asString((responsibleByEmail as any).full_name) || asString(metadata.responsible) || "";
+      } else if (responsibleByEmail?.id) {
+        responsibleRoleError = "Такого специалиста нет. Этот пользователь есть в системе, но его роль не подходит для выполнения полевых задач.";
+      }
+    }
+  }
+
+  if (!resolvedResponsibleId && !responsibleRoleError && rawResponsibleText && !rawResponsibleText.includes("@")) {
+    const normalizedFullName = rawResponsibleText.replace(/\s+/g, " ").trim();
+    const { data: responsibleByName } = await supabase
+      .from("profiles")
+      .select("id, email, full_name, role, status")
+      .eq("company_id", safeCompanyId)
+      .eq("status", "active")
+      .ilike("full_name", normalizedFullName)
+      .limit(1)
+      .maybeSingle();
+
+    if (responsibleByName?.id && (responsibleByName as any).role === "specialist") {
+      resolvedResponsibleId = String(responsibleByName.id);
+      resolvedResponsibleEmail = asString((responsibleByName as any).email) || "";
+      metadata.responsible = asString((responsibleByName as any).full_name) || normalizedFullName;
+    } else if (responsibleByName?.id) {
+      responsibleRoleError = "Нельзя назначить задачу на этого пользователя: он не специалист.";
+    }
+  }
+
+  if (resolvedResponsibleId) {
+    metadata.responsible_id = resolvedResponsibleId;
+    if (!asString(metadata.responsible)) {
+      metadata.responsible = resolvedResponsibleEmail || rawResponsibleText;
+    }
+  }
+  if (responsibleRoleError) {
+    metadata.responsible_validation_error = responsibleRoleError;
+    delete (metadata as any).responsible_id;
+  }
+
   let normalizedCropStructureId = asString(draft.crop_structure_id);
   if (normalizedCropStructureId && isUuidLike(normalizedCropStructureId)) {
     let cropStructureFound = false;
@@ -1654,7 +1835,8 @@ function buildWarehouseFallbackMessage(
 function enforceWarehouseMessaging(
   assistantText: string,
   userMessage: string,
-  summary: { warehousesCount: number; productsCount: number; inventoryCount: number }
+  summary: { warehousesCount: number; productsCount: number; inventoryCount: number },
+  preferredLanguage?: "ru" | "en" | "kz"
 ): string {
   if (!assistantText) return assistantText;
 
@@ -1662,7 +1844,7 @@ function enforceWarehouseMessaging(
   if (!isWarehouseRelatedText(combined)) return assistantText;
   if (!containsAccessDeniedClaim(assistantText)) return assistantText;
 
-  const language = detectReplyLanguage(userMessage || assistantText);
+  const language = detectReplyLanguage(userMessage || assistantText, preferredLanguage);
   const fallback = buildWarehouseFallbackMessage(language, summary);
 
   if (language === "en") {
@@ -1679,12 +1861,13 @@ function enforceWarehouseMessaging(
 function enforceDataPresenceMessaging(
   assistantText: string,
   userMessage: string,
-  summary: DataAvailabilitySummary
+  summary: DataAvailabilitySummary,
+  preferredLanguage?: "ru" | "en" | "kz"
 ): string {
   if (!assistantText) return assistantText;
   if (!containsNoRecordsClaim(assistantText)) return assistantText;
 
-  const language = detectReplyLanguage(userMessage || assistantText);
+  const language = detectReplyLanguage(userMessage || assistantText, preferredLanguage);
 
   if (
     isWarehouseRelatedText(userMessage) &&
@@ -1790,7 +1973,10 @@ function extractDraftAndCleanResponse(rawResponse: string): { draft: OperationDr
 
 export async function POST(request: NextRequest) {
   try {
-    const { message, chatHistory, chatId, companyId, userId } = await request.json();
+    const { message, chatHistory, chatId, companyId, userId, locale, attachments } = await request.json();
+    const preferredLanguage =
+      locale === "ru" || locale === "en" || locale === "kz" ? (locale as "ru" | "en" | "kz") : undefined;
+    const normalizedAttachments = normalizeAttachments(attachments);
 
     const safeMessage = asString(message);
     if (!safeMessage) {
@@ -1810,7 +1996,11 @@ export async function POST(request: NextRequest) {
       safeUserId
     );
 
-    const { settings, knowledgeFiles } = await loadAssistantSettings(supabase, safeUserId);
+    const { settings, knowledgeFiles } = await loadAssistantSettings(
+      supabase,
+      safeUserId,
+      resolvedCompanyId
+    );
     const effectiveSettings = getEffectiveSettingsForRole(settings, role);
     const accessMode = hasFullAssistantAccess(role) ? "full" : "limited";
     const farmContext = await fetchFarmContext(
@@ -1859,11 +2049,28 @@ export async function POST(request: NextRequest) {
       role: "system",
       content: `CHAT ISOLATION: current chat_id=${asString(chatId) || "unknown"}. Use only facts from current chat history in this request. Do not carry assumptions from other chats.`,
     });
+    systemMessages.push({
+      role: "system",
+      content:
+        "CONTEXT LAYERS: (1) global knowledge base documents, (2) current project/chat history only, (3) current user message attachments. Prefer this order and never mix facts from unrelated chats.",
+    });
 
     systemMessages.push({
       role: "system",
       content: `CURRENT LOCAL TIME: ${currentLocalTime.isoMinute} (local), ${currentLocalTime.localeString}. Use this for operation scheduling down to minutes.`,
     });
+    if (normalizedAttachments.length > 0) {
+      systemMessages.push({
+        role: "system",
+        content: `ATTACHMENTS: user sent ${normalizedAttachments.length} attachment(s). Use them as context in this answer.`,
+      });
+    }
+    if (preferredLanguage) {
+      systemMessages.push({
+        role: "system",
+        content: `RESPONSE LANGUAGE: Always answer in locale "${preferredLanguage}".`,
+      });
+    }
 
     systemMessages.push({
       role: "system",
@@ -1956,7 +2163,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const conversationMessages: Array<{ role: "user" | "assistant"; content: string }> = [];
+    const conversationMessages: Array<{ role: "user" | "assistant"; content: any }> = [];
     if (Array.isArray(chatHistory) && chatHistory.length > 0) {
       chatHistory.slice(-16).forEach((msg: any) => {
         const role = msg?.role === "assistant" ? "assistant" : msg?.role === "user" ? "user" : null;
@@ -1969,8 +2176,44 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    conversationMessages.push({ role: "user", content: safeMessage });
+    if (normalizedAttachments.length === 0) {
+      conversationMessages.push({ role: "user", content: safeMessage });
+    } else {
+      const userParts: any[] = [
+        { type: "text", text: safeMessage },
+      ];
 
+      const fileContextLines: string[] = [];
+      for (const attachment of normalizedAttachments) {
+        if (attachment.kind === "image" && attachment.imageDataUrl) {
+          userParts.push({
+            type: "image_url",
+            image_url: {
+              url: attachment.imageDataUrl,
+            },
+          });
+          continue;
+        }
+
+        const descriptor = `file: ${attachment.name} (${attachment.type || "unknown"})`;
+        if (attachment.textContent) {
+          fileContextLines.push(`${descriptor}\n${attachment.textContent.slice(0, 12000)}`);
+        } else {
+          fileContextLines.push(`${descriptor}\nNo inline text preview available.`);
+        }
+      }
+
+      if (fileContextLines.length > 0) {
+        userParts.push({
+          type: "text",
+          text: `Attached documents context:\n${fileContextLines.join("\n\n---\n\n")}`,
+        });
+      }
+
+      conversationMessages.push({ role: "user", content: userParts });
+    }
+
+    const assistantModel = process.env.OPENAI_ASSISTANT_MODEL || "gpt-4.1-mini";
     const openAiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -1978,7 +2221,7 @@ export async function POST(request: NextRequest) {
         Authorization: `Bearer ${openaiKey}`,
       },
       body: JSON.stringify({
-        model: "gpt-4o-mini",
+        model: assistantModel,
         temperature: 0.3,
         max_tokens: 1500,
         messages: [...systemMessages, ...conversationMessages],
@@ -1996,6 +2239,15 @@ export async function POST(request: NextRequest) {
     let { draft, cleanResponse } = extractDraftAndCleanResponse(assistantRaw);
     if (draft) {
       draft = await enrichDraftWithCompanyData(supabase, draft, resolvedCompanyId, safeUserId);
+      const draftMetadata =
+        draft?.metadata && typeof draft.metadata === "object"
+          ? (draft.metadata as Record<string, unknown>)
+          : {};
+      const responsibleValidationError = asString(draftMetadata.responsible_validation_error);
+      if (responsibleValidationError) {
+        draft = null;
+        cleanResponse = responsibleValidationError;
+      }
     }
     let finalResponse = cleanResponse || "I can help with farm analysis and operation planning.";
 
@@ -2005,18 +2257,22 @@ export async function POST(request: NextRequest) {
     }
 
     if (draft) {
-      finalResponse = pickDraftReadyMessage(safeMessage);
+      // Draft card is the only UX surface once draft is ready.
+      // Keep assistant bubble empty to avoid duplicate summary/calculation text.
+      finalResponse = "";
     }
 
     finalResponse = enforceWarehouseMessaging(
       finalResponse,
       safeMessage,
-      warehouseAccessSummary
+      warehouseAccessSummary,
+      preferredLanguage
     );
     finalResponse = enforceDataPresenceMessaging(
       finalResponse,
       safeMessage,
-      dataSummary
+      dataSummary,
+      preferredLanguage
     );
 
     const hasHerbicideContext =
@@ -2025,7 +2281,7 @@ export async function POST(request: NextRequest) {
 
     const herbicideDirectResponse =
       isWarehouseRelatedText(safeMessage) && hasHerbicideContext
-        ? buildHerbicideStockResponse(safeMessage, herbicideSnapshot, chatHistory)
+        ? buildHerbicideStockResponse(safeMessage, herbicideSnapshot, chatHistory, preferredLanguage)
         : null;
 
     if (
@@ -2046,6 +2302,7 @@ export async function POST(request: NextRequest) {
             herbicideSnapshotCount: herbicideSnapshot.length,
             herbicideContextDetected: hasHerbicideContext,
             stockQueryDetected: isStockAvailabilityQuery(safeMessage),
+            attachmentsCount: normalizedAttachments.length,
             chatId: asString(chatId) || null,
             effectiveSettings: {
               allow_operation_creation: effectiveSettings.allow_operation_creation,

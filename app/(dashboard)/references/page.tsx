@@ -1,1097 +1,504 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Plus, Pencil, Archive } from "lucide-react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  Crop,
-  CropFormData,
-  cropSchema,
-  Variety,
-  VarietyFormData,
-  varietySchema,
-  VarietyWithCrop,
-  SeedReproduction,
-  SeedReproductionFormData,
-  seedReproductionSchema,
-  MachineReference,
-  MachineFormData,
-  machineSchema,
-  EquipmentReference,
-  EquipmentFormData,
-  equipmentSchema,
-  SpecialistReference,
-  SpecialistReferenceFormData,
-  specialistReferenceSchema,
-} from "@/lib/types/references";
-import {
-  getCrops,
-  createCrop,
-  updateCrop,
-  archiveCrop,
-  getVarieties,
-  getVarietiesByCrop,
-  createVariety,
-  updateVariety,
-  archiveVariety,
-  getSeedReproductions,
-  createSeedReproduction,
-  updateSeedReproduction,
-  archiveSeedReproduction,
-  getMachineReferences,
-  createMachineReference,
-  updateMachineReference,
-  archiveMachineReference,
-  getEquipmentReferences,
-  createEquipmentReference,
-  updateEquipmentReference,
-  archiveEquipmentReference,
-  getSpecialistReferences,
-  createSpecialistReference,
-  updateSpecialistReference,
-  archiveSpecialistReference,
-} from "@/lib/services/references";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
+import {
+  addGlobalAgrochemicalToCompany,
+  createCrop,
+  createMachineReference,
+  createSeedReproduction,
+  createSpecialistReference,
+  createVariety,
+  createVehicleReference,
+  getCrops,
+  getEquipmentReferences,
+  getFertilizers,
+  getMachineReferences,
+  getPesticides,
+  getSeedReproductions,
+  getSpecialistReferences,
+  getVarieties,
+  getVehicleReferences,
+  searchAgrochemicalMaster,
+} from "@/lib/services/references";
+
+type DomainTab = "agronomy" | "agrochemistry" | "machine-yard" | "fleet" | "personnel";
+type AgronomyTab = "crops" | "varieties" | "reproductions";
+type AgrochemTab = "master" | "company";
+type MachineYardTab = "machines" | "equipment";
+type FleetTab = "vehicles";
+type PersonnelTab = "specialists";
+type ModalType = "crop" | "variety" | "reproduction" | "machine" | "vehicle" | "specialist";
+
+const pesticideCategoryLabels: Record<string, string> = {
+  herbicide: "Гербицид",
+  fungicide: "Фунгицид",
+  insecticide: "Инсектицид",
+  seed_treatment: "Протравитель",
+  desiccant: "Десикант",
+  growth_regulator: "Регулятор роста",
+  adjuvant: "Адъювант",
+  biological: "Биопрепарат",
+  surfactant: "ПАВ",
+  water_conditioner: "Кондиционер воды",
+  pH_regulator: "pH-регулятор",
+  drift_reduction_agent: "Антидрифтовый агент",
+  anti_foam: "Антивспениватель",
+};
+
+const fertilizerTypeLabels: Record<string, string> = {
+  nitrogen: "Азотное",
+  phosphorus: "Фосфорное",
+  potassium: "Калийное",
+  npk: "NPK",
+  micronutrient: "Микроэлементное",
+  foliar: "Листовое",
+  organic: "Органическое",
+};
+
+const vehicleTypeLabels: Record<string, string> = {
+  truck: "Грузовик",
+  grain_truck: "Зерновоз",
+  dump_truck: "Самосвал",
+  tractor_trailer: "Трактор с прицепом",
+};
+
+function DataTable(props: { headers: string[]; rows: string[][]; loading: boolean; empty: string }) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>{props.headers.map((header) => <TableHead key={header}>{header}</TableHead>)}</TableRow>
+      </TableHeader>
+      <TableBody>
+        {props.loading ? (
+          <TableRow><TableCell colSpan={props.headers.length} className="text-center text-slate-500">Загрузка...</TableCell></TableRow>
+        ) : props.rows.length === 0 ? (
+          <TableRow><TableCell colSpan={props.headers.length} className="text-center text-slate-500">{props.empty}</TableCell></TableRow>
+        ) : (
+          props.rows.map((row, rowIdx) => (
+            <TableRow key={rowIdx}>
+              {row.map((cell, cellIdx) => <TableCell key={`${rowIdx}-${cellIdx}`} className={cellIdx === 0 ? "font-medium" : ""}>{cell}</TableCell>)}
+            </TableRow>
+          ))
+        )}
+      </TableBody>
+    </Table>
+  );
+}
 
 export default function ReferencesPage() {
   const { profile } = useAuth();
-  const [activeTab, setActiveTab] = useState("crops");
-  const [crops, setCrops] = useState<Crop[]>([]);
-  const [varieties, setVarieties] = useState<VarietyWithCrop[]>([]);
-  const [selectedCropId, setSelectedCropId] = useState<string>("all");
-  const [seedReproductions, setSeedReproductions] = useState<SeedReproduction[]>([]);
-  const [machines, setMachines] = useState<MachineReference[]>([]);
-  const [equipment, setEquipment] = useState<EquipmentReference[]>([]);
-  const [specialists, setSpecialists] = useState<SpecialistReference[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const [cropDialogOpen, setCropDialogOpen] = useState(false);
-  const [varietyDialogOpen, setVarietyDialogOpen] = useState(false);
-  const [reproductionDialogOpen, setReproductionDialogOpen] = useState(false);
-  const [machineDialogOpen, setMachineDialogOpen] = useState(false);
-  const [equipmentDialogOpen, setEquipmentDialogOpen] = useState(false);
-  const [specialistDialogOpen, setSpecialistDialogOpen] = useState(false);
-
-  const [editingCrop, setEditingCrop] = useState<Crop | null>(null);
-  const [editingVariety, setEditingVariety] = useState<Variety | null>(null);
-  const [editingReproduction, setEditingReproduction] = useState<SeedReproduction | null>(null);
-  const [editingMachine, setEditingMachine] = useState<MachineReference | null>(null);
-  const [editingEquipment, setEditingEquipment] = useState<EquipmentReference | null>(null);
-  const [editingSpecialist, setEditingSpecialist] = useState<SpecialistReference | null>(null);
-
-  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
-  const [archiveType, setArchiveType] = useState<"crop" | "variety" | "reproduction" | "machine" | "equipment" | "specialist">("crop");
-  const [itemToArchive, setItemToArchive] = useState<any>(null);
-
   const { toast } = useToast();
 
-  const cropForm = useForm<CropFormData>({
-    resolver: zodResolver(cropSchema),
-    defaultValues: { name: "" },
-  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [linkingGlobalId, setLinkingGlobalId] = useState<string | null>(null);
 
-  const varietyForm = useForm<VarietyFormData>({
-    resolver: zodResolver(varietySchema),
-    defaultValues: { crop_id: "", name: "" },
-  });
+  const [domainTab, setDomainTab] = useState<DomainTab>("agronomy");
+  const [agronomyTab, setAgronomyTab] = useState<AgronomyTab>("crops");
+  const [agrochemTab, setAgrochemTab] = useState<AgrochemTab>("master");
+  const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("machines");
+  const [fleetTab, setFleetTab] = useState<FleetTab>("vehicles");
+  const [personnelTab, setPersonnelTab] = useState<PersonnelTab>("specialists");
+  const [modalType, setModalType] = useState<ModalType | null>(null);
 
-  const reproductionForm = useForm<SeedReproductionFormData>({
-    resolver: zodResolver(seedReproductionSchema),
-    defaultValues: { name: "" },
-  });
+  const [searchMaster, setSearchMaster] = useState("");
 
-  const machineForm = useForm<MachineFormData>({
-    resolver: zodResolver(machineSchema),
-    defaultValues: { name: "", type: "machine" },
-  });
+  const [crops, setCrops] = useState<any[]>([]);
+  const [varieties, setVarieties] = useState<any[]>([]);
+  const [reproductions, setReproductions] = useState<any[]>([]);
+  const [pesticides, setPesticides] = useState<any[]>([]);
+  const [fertilizers, setFertilizers] = useState<any[]>([]);
+  const [agroMasterRows, setAgroMasterRows] = useState<any[]>([]);
+  const [machines, setMachines] = useState<any[]>([]);
+  const [equipment, setEquipment] = useState<any[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
+  const [specialists, setSpecialists] = useState<any[]>([]);
 
-  const equipmentForm = useForm<EquipmentFormData>({
-    resolver: zodResolver(equipmentSchema),
-    defaultValues: { name: "", category: "" },
-  });
+  const [form, setForm] = useState<Record<string, string>>({});
 
-  const specialistForm = useForm<SpecialistReferenceFormData>({
-    resolver: zodResolver(specialistReferenceSchema),
-    defaultValues: { full_name: "", role: "" },
-  });
-
-  useEffect(() => {
-    if (profile?.company_id) {
-      loadData();
+  const currentAction = useMemo(() => {
+    if (domainTab === "agronomy") {
+      if (agronomyTab === "crops") return { label: "Добавить культуру", modal: "crop" as const };
+      if (agronomyTab === "varieties") return { label: "Добавить сорт", modal: "variety" as const };
+      return { label: "Добавить репродукцию", modal: "reproduction" as const };
     }
-  }, [profile?.company_id]);
-
-  useEffect(() => {
-    if (selectedCropId !== "all" && selectedCropId) {
-      loadVarietiesByCrop(selectedCropId);
-    } else {
-      loadAllVarieties();
+    if (domainTab === "machine-yard") {
+      if (machineYardTab === "machines") return { label: "Добавить технику", modal: "machine" as const };
+      return null;
     }
-  }, [selectedCropId]);
+    if (domainTab === "fleet" && fleetTab === "vehicles") return { label: "Добавить машину", modal: "vehicle" as const };
+    if (domainTab === "personnel" && personnelTab === "specialists") return { label: "Добавить специалиста", modal: "specialist" as const };
+    return null;
+  }, [domainTab, agronomyTab, machineYardTab, fleetTab, personnelTab]);
 
-  const loadData = async () => {
+  const loadAll = async () => {
     if (!profile?.company_id) return;
-
+    setLoading(true);
     try {
-      setLoading(true);
-      const settled = await Promise.allSettled([
-        getCrops(profile.company_id),
-        getVarieties(profile.company_id),
-        getSeedReproductions(profile.company_id),
-        getMachineReferences(profile.company_id),
-        getEquipmentReferences(profile.company_id),
-        getSpecialistReferences(profile.company_id),
+      const [cropRows, varietyRows, reprRows, pesticideRows, fertilizerRows, machineRows, equipmentRows, vehicleRows, specialistRows] = await Promise.all([
+        getCrops(profile.company_id, false, "ru"),
+        getVarieties(profile.company_id, false, "ru"),
+        getSeedReproductions(profile.company_id, false, "ru"),
+        getPesticides(profile.company_id, false, "ru"),
+        getFertilizers(profile.company_id, false, "ru"),
+        getMachineReferences(profile.company_id, false, "ru"),
+        getEquipmentReferences(profile.company_id, false, "ru"),
+        getVehicleReferences(profile.company_id, false),
+        getSpecialistReferences(profile.company_id, false),
       ]);
-      const getData = <T,>(idx: number, fallback: T): T => {
-        const result = settled[idx];
-        return result.status === "fulfilled" ? (result.value as T) : fallback;
-      };
-      setCrops(getData(0, [] as Crop[]));
-      setVarieties(getData(1, [] as VarietyWithCrop[]));
-      setSeedReproductions(getData(2, [] as SeedReproduction[]));
-      setMachines(getData(3, [] as MachineReference[]));
-      setEquipment(getData(4, [] as EquipmentReference[]));
-      setSpecialists(getData(5, [] as SpecialistReference[]));
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load reference data",
-        variant: "destructive",
-      });
+      setCrops(cropRows);
+      setVarieties(varietyRows);
+      setReproductions(reprRows);
+      setPesticides(pesticideRows);
+      setFertilizers(fertilizerRows);
+      setMachines(machineRows);
+      setEquipment(equipmentRows);
+      setVehicles(vehicleRows);
+      setSpecialists(specialistRows);
     } finally {
       setLoading(false);
     }
   };
 
-  const loadAllVarieties = async () => {
+  const loadMasterCatalog = async () => {
     if (!profile?.company_id) return;
+    const [pRows, fRows] = await Promise.all([
+      searchAgrochemicalMaster(profile.company_id, "pesticide", searchMaster, "ru"),
+      searchAgrochemicalMaster(profile.company_id, "fertilizer", searchMaster, "ru"),
+    ]);
+    setAgroMasterRows([...pRows, ...fRows].filter((row) => row.source_scope === "global"));
+  };
 
+  useEffect(() => {
+    void loadAll();
+  }, [profile?.company_id]);
+
+  useEffect(() => {
+    void loadMasterCatalog();
+  }, [profile?.company_id, searchMaster]);
+
+  const openModal = (type: ModalType) => {
+    setModalType(type);
+    setForm({});
+  };
+
+  const submitCreate = async () => {
+    if (!profile?.company_id || !profile?.id || !modalType || saving) return;
+    setSaving(true);
     try {
-      const varietiesData = await getVarieties(profile.company_id);
-      setVarieties(varietiesData);
+      if (modalType === "crop") {
+        if (!form.name?.trim()) throw new Error("Укажите название культуры");
+        await createCrop(profile.company_id, { name: form.name.trim() });
+      }
+      if (modalType === "variety") {
+        if (!form.name?.trim()) throw new Error("Укажите название сорта");
+        if (!form.crop_id) throw new Error("Сорт должен быть привязан к культуре");
+        await createVariety(profile.company_id, { name: form.name.trim(), crop_id: form.crop_id });
+      }
+      if (modalType === "reproduction") {
+        if (!form.name?.trim()) throw new Error("Укажите название репродукции");
+        await createSeedReproduction(profile.company_id, { name: form.name.trim() });
+      }
+      if (modalType === "machine") {
+        if (!form.name?.trim()) throw new Error("Укажите название техники");
+        await createMachineReference(profile.company_id, profile.id, {
+          name: form.name.trim(),
+          type: (form.type || "other") as any,
+          model: form.model || "",
+          status: "free",
+          is_active: true,
+        });
+      }
+      if (modalType === "vehicle") {
+        if (!form.name?.trim()) throw new Error("Укажите название машины");
+        if (!form.plate_number?.trim()) throw new Error("Укажите госномер");
+        await createVehicleReference(profile.company_id, profile.id, {
+          name: form.name.trim(),
+          vehicle_type: (form.vehicle_type || "truck") as any,
+          plate_number: form.plate_number.trim(),
+          capacity_kg: Number(form.capacity_kg || 1),
+          body_volume_m3: null,
+          status: "free",
+          is_active: true,
+        });
+      }
+      if (modalType === "specialist") {
+        if (!form.full_name?.trim()) throw new Error("Укажите ФИО");
+        await createSpecialistReference(profile.company_id, profile.id, {
+          full_name: form.full_name.trim(),
+          role: form.role || "",
+          machine_id: "",
+          equipment_id: "",
+        });
+      }
+      setModalType(null);
+      setForm({});
+      await loadAll();
+      toast({ title: "Готово", description: "Запись успешно создана" });
     } catch (error) {
       toast({
-        title: "Error",
-        description: "Failed to load varieties",
+        title: "Ошибка",
+        description: error instanceof Error ? error.message : "Не удалось создать запись",
         variant: "destructive",
       });
+    } finally {
+      setSaving(false);
     }
   };
 
-  const loadVarietiesByCrop = async (cropId: string) => {
-    if (!profile?.company_id) return;
-
+  const addFromMaster = async (productId: string) => {
+    if (!profile?.company_id || !profile?.id || linkingGlobalId) return;
+    setLinkingGlobalId(productId);
     try {
-      const varietiesData = await getVarietiesByCrop(profile.company_id, cropId);
-      setVarieties(varietiesData as VarietyWithCrop[]);
+      await addGlobalAgrochemicalToCompany(profile.company_id, profile.id, productId);
+      await loadAll();
+      toast({ title: "Готово", description: "Препарат добавлен в каталог компании" });
     } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to load varieties",
-        variant: "destructive",
-      });
+      toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось добавить в компанию", variant: "destructive" });
+    } finally {
+      setLinkingGlobalId(null);
     }
-  };
-
-  const handleCreateCrop = async (data: CropFormData) => {
-    if (!profile?.company_id) return;
-
-    try {
-      await createCrop(profile.company_id, data);
-      setCropDialogOpen(false);
-      cropForm.reset();
-      const cropsData = await getCrops(profile.company_id);
-      setCrops(cropsData);
-      toast({
-        title: "Success",
-        description: "Crop created successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create crop",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleUpdateCrop = async (data: CropFormData) => {
-    if (!editingCrop || !profile?.company_id) return;
-    try {
-      await updateCrop(editingCrop.id, data);
-      setCropDialogOpen(false);
-      setEditingCrop(null);
-      cropForm.reset();
-      const cropsData = await getCrops(profile.company_id);
-      setCrops(cropsData);
-      toast({
-        title: "Success",
-        description: "Crop updated successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update crop",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleCreateVariety = async (data: VarietyFormData) => {
-    if (!profile?.company_id) return;
-
-    try {
-      await createVariety(profile.company_id, data);
-      setVarietyDialogOpen(false);
-      varietyForm.reset();
-      if (selectedCropId !== "all") {
-        await loadVarietiesByCrop(selectedCropId);
-      } else {
-        await loadAllVarieties();
-      }
-      toast({
-        title: "Success",
-        description: "Variety created successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create variety",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleUpdateVariety = async (data: VarietyFormData) => {
-    if (!editingVariety) return;
-    try {
-      await updateVariety(editingVariety.id, data);
-      setVarietyDialogOpen(false);
-      setEditingVariety(null);
-      varietyForm.reset();
-      if (selectedCropId !== "all") {
-        await loadVarietiesByCrop(selectedCropId);
-      } else {
-        await loadAllVarieties();
-      }
-      toast({
-        title: "Success",
-        description: "Variety updated successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update variety",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleCreateReproduction = async (data: SeedReproductionFormData) => {
-    if (!profile?.company_id) return;
-
-    try {
-      await createSeedReproduction(profile.company_id, data);
-      setReproductionDialogOpen(false);
-      reproductionForm.reset();
-      const reproductionsData = await getSeedReproductions(profile.company_id);
-      setSeedReproductions(reproductionsData);
-      toast({
-        title: "Success",
-        description: "Seed reproduction created successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create seed reproduction",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleUpdateReproduction = async (data: SeedReproductionFormData) => {
-    if (!editingReproduction || !profile?.company_id) return;
-    try {
-      await updateSeedReproduction(editingReproduction.id, data);
-      setReproductionDialogOpen(false);
-      setEditingReproduction(null);
-      reproductionForm.reset();
-      const reproductionsData = await getSeedReproductions(profile.company_id);
-      setSeedReproductions(reproductionsData);
-      toast({
-        title: "Success",
-        description: "Seed reproduction updated successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update seed reproduction",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleCreateMachine = async (data: MachineFormData) => {
-    if (!profile?.company_id || !profile?.id) return;
-    try {
-      await createMachineReference(profile.company_id, profile.id, data);
-      setMachineDialogOpen(false);
-      machineForm.reset({ name: "", type: "machine" });
-      setMachines(await getMachineReferences(profile.company_id));
-      toast({ title: "Success", description: "Machine created successfully" });
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message || "Failed to create machine", variant: "destructive" });
-    }
-  };
-
-  const handleUpdateMachine = async (data: MachineFormData) => {
-    if (!editingMachine || !profile?.company_id) return;
-    try {
-      await updateMachineReference(editingMachine.id, data);
-      setMachineDialogOpen(false);
-      setEditingMachine(null);
-      machineForm.reset({ name: "", type: "machine" });
-      setMachines(await getMachineReferences(profile.company_id));
-      toast({ title: "Success", description: "Machine updated successfully" });
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message || "Failed to update machine", variant: "destructive" });
-    }
-  };
-
-  const handleCreateEquipment = async (data: EquipmentFormData) => {
-    if (!profile?.company_id || !profile?.id) return;
-    try {
-      await createEquipmentReference(profile.company_id, profile.id, data);
-      setEquipmentDialogOpen(false);
-      equipmentForm.reset({ name: "", category: "" });
-      setEquipment(await getEquipmentReferences(profile.company_id));
-      toast({ title: "Success", description: "Equipment created successfully" });
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message || "Failed to create equipment", variant: "destructive" });
-    }
-  };
-
-  const handleUpdateEquipment = async (data: EquipmentFormData) => {
-    if (!editingEquipment || !profile?.company_id) return;
-    try {
-      await updateEquipmentReference(editingEquipment.id, data);
-      setEquipmentDialogOpen(false);
-      setEditingEquipment(null);
-      equipmentForm.reset({ name: "", category: "" });
-      setEquipment(await getEquipmentReferences(profile.company_id));
-      toast({ title: "Success", description: "Equipment updated successfully" });
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message || "Failed to update equipment", variant: "destructive" });
-    }
-  };
-
-  const handleCreateSpecialist = async (data: SpecialistReferenceFormData) => {
-    if (!profile?.company_id || !profile?.id) return;
-    try {
-      await createSpecialistReference(profile.company_id, profile.id, data);
-      setSpecialistDialogOpen(false);
-      specialistForm.reset({ full_name: "", role: "" });
-      setSpecialists(await getSpecialistReferences(profile.company_id));
-      toast({ title: "Success", description: "Specialist created successfully" });
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message || "Failed to create specialist", variant: "destructive" });
-    }
-  };
-
-  const handleUpdateSpecialist = async (data: SpecialistReferenceFormData) => {
-    if (!editingSpecialist || !profile?.company_id) return;
-    try {
-      await updateSpecialistReference(editingSpecialist.id, data);
-      setSpecialistDialogOpen(false);
-      setEditingSpecialist(null);
-      specialistForm.reset({ full_name: "", role: "" });
-      setSpecialists(await getSpecialistReferences(profile.company_id));
-      toast({ title: "Success", description: "Specialist updated successfully" });
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message || "Failed to update specialist", variant: "destructive" });
-    }
-  };
-
-  const handleArchive = async () => {
-    if (!itemToArchive || !profile?.company_id) return;
-    try {
-      if (archiveType === "crop") {
-        await archiveCrop(itemToArchive.id);
-        const cropsData = await getCrops(profile.company_id);
-        setCrops(cropsData);
-      } else if (archiveType === "variety") {
-        await archiveVariety(itemToArchive.id);
-        if (selectedCropId !== "all") {
-          await loadVarietiesByCrop(selectedCropId);
-        } else {
-          await loadAllVarieties();
-        }
-      } else if (archiveType === "machine") {
-        await archiveMachineReference(itemToArchive.id);
-        setMachines(await getMachineReferences(profile.company_id));
-      } else if (archiveType === "equipment") {
-        await archiveEquipmentReference(itemToArchive.id);
-        setEquipment(await getEquipmentReferences(profile.company_id));
-      } else if (archiveType === "specialist") {
-        await archiveSpecialistReference(itemToArchive.id);
-        setSpecialists(await getSpecialistReferences(profile.company_id));
-      } else {
-        await archiveSeedReproduction(itemToArchive.id);
-        const reproductionsData = await getSeedReproductions(profile.company_id);
-        setSeedReproductions(reproductionsData);
-      }
-      setArchiveDialogOpen(false);
-      setItemToArchive(null);
-      toast({
-        title: "Success",
-        description: `${archiveType.charAt(0).toUpperCase() + archiveType.slice(1)} archived successfully`,
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to archive item",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const openCropDialog = (crop?: Crop) => {
-    if (crop) {
-      setEditingCrop(crop);
-      cropForm.reset({ name: crop.name });
-    } else {
-      setEditingCrop(null);
-      cropForm.reset({ name: "" });
-    }
-    setCropDialogOpen(true);
-  };
-
-  const openVarietyDialog = (variety?: Variety) => {
-    if (variety) {
-      setEditingVariety(variety);
-      varietyForm.reset({ crop_id: variety.crop_id, name: variety.name });
-    } else {
-      setEditingVariety(null);
-      varietyForm.reset({
-        crop_id: selectedCropId !== "all" ? selectedCropId : "",
-        name: ""
-      });
-    }
-    setVarietyDialogOpen(true);
-  };
-
-  const openReproductionDialog = (reproduction?: SeedReproduction) => {
-    if (reproduction) {
-      setEditingReproduction(reproduction);
-      reproductionForm.reset({ name: reproduction.name });
-    } else {
-      setEditingReproduction(null);
-      reproductionForm.reset({ name: "" });
-    }
-    setReproductionDialogOpen(true);
-  };
-
-  const openMachineDialog = (machine?: MachineReference) => {
-    if (machine) {
-      setEditingMachine(machine);
-      machineForm.reset({ name: machine.name, type: machine.type });
-    } else {
-      setEditingMachine(null);
-      machineForm.reset({ name: "", type: "machine" });
-    }
-    setMachineDialogOpen(true);
-  };
-
-  const openEquipmentDialog = (item?: EquipmentReference) => {
-    if (item) {
-      setEditingEquipment(item);
-      equipmentForm.reset({ name: item.name, category: item.category || "" });
-    } else {
-      setEditingEquipment(null);
-      equipmentForm.reset({ name: "", category: "" });
-    }
-    setEquipmentDialogOpen(true);
-  };
-
-  const openSpecialistDialog = (item?: SpecialistReference) => {
-    if (item) {
-      setEditingSpecialist(item);
-      specialistForm.reset({ full_name: item.full_name, role: item.role || "" });
-    } else {
-      setEditingSpecialist(null);
-      specialistForm.reset({ full_name: "", role: "" });
-    }
-    setSpecialistDialogOpen(true);
-  };
-
-  const openArchiveDialog = (
-    type: "crop" | "variety" | "reproduction" | "machine" | "equipment" | "specialist",
-    item: any
-  ) => {
-    setArchiveType(type);
-    setItemToArchive(item);
-    setArchiveDialogOpen(true);
   };
 
   return (
-    <div>
-      <PageHeader
-        title="References"
-        description="Manage admin dictionaries for crops, varieties, and seed reproductions"
-      />
+    <div className="space-y-4">
+      <PageHeader title="Справочники" description="Управление доменами: Агрономия, Агрохимия, Машинный двор, Автопарк, Персонал" />
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-4">
-          <TabsTrigger value="crops">Crops</TabsTrigger>
-          <TabsTrigger value="varieties">Varieties</TabsTrigger>
-          <TabsTrigger value="reproductions">Seed Reproductions</TabsTrigger>
-          <TabsTrigger value="machines">Machines</TabsTrigger>
-          <TabsTrigger value="equipment">Equipment / Aggregates</TabsTrigger>
-          <TabsTrigger value="specialists">Specialists / Brigadiers</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="crops">
-          <div className="mb-4 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-slate-900">Crops</h2>
-            <Button onClick={() => openCropDialog()}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Crop
+      <Tabs value={domainTab} onValueChange={(value) => setDomainTab(value as DomainTab)}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <TabsList className="w-full justify-start overflow-auto md:w-auto">
+            <TabsTrigger value="agronomy">Агрономия</TabsTrigger>
+            <TabsTrigger value="agrochemistry">Агрохимия</TabsTrigger>
+            <TabsTrigger value="machine-yard">Машинный двор</TabsTrigger>
+            <TabsTrigger value="fleet">Автопарк</TabsTrigger>
+            <TabsTrigger value="personnel">Персонал</TabsTrigger>
+          </TabsList>
+          {currentAction ? (
+            <Button onClick={() => openModal(currentAction.modal)} disabled={saving}>
+              {saving ? "Сохранение..." : currentAction.label}
             </Button>
-          </div>
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead className="w-[150px]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={2} className="text-center text-slate-500">
-                        Loading...
-                      </TableCell>
-                    </TableRow>
-                  ) : crops.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={2} className="text-center text-slate-500">
-                        No crops added yet. Click "Add Crop" to get started.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    crops.map((crop) => (
-                      <TableRow key={crop.id}>
-                        <TableCell className="font-medium">{crop.name}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openCropDialog(crop)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openArchiveDialog("crop", crop)}
-                            >
-                              <Archive className="h-4 w-4 text-red-600" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+          ) : null}
+        </div>
+
+        <TabsContent value="agronomy" className="space-y-4">
+          <Tabs value={agronomyTab} onValueChange={(value) => setAgronomyTab(value as AgronomyTab)}>
+            <TabsList>
+              <TabsTrigger value="crops">Культуры</TabsTrigger>
+              <TabsTrigger value="varieties">Сорта</TabsTrigger>
+              <TabsTrigger value="reproductions">Репродукции</TabsTrigger>
+            </TabsList>
+            <TabsContent value="crops">
+              <Card>
+                <CardHeader><CardTitle>Культуры компании</CardTitle></CardHeader>
+                <CardContent><DataTable headers={["Название"]} rows={crops.map((x) => [x.name])} loading={loading} empty="Культуры не добавлены" /></CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="varieties">
+              <Card>
+                <CardHeader><CardTitle>Сорта (обязательно с привязкой к культуре)</CardTitle></CardHeader>
+                <CardContent><DataTable headers={["Культура", "Сорт"]} rows={varieties.map((x) => [x.crop_name || "-", x.name])} loading={loading} empty="Сорта не добавлены" /></CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="reproductions">
+              <Card>
+                <CardHeader><CardTitle>Репродукции</CardTitle></CardHeader>
+                <CardContent><DataTable headers={["Название"]} rows={reproductions.map((x) => [x.name])} loading={loading} empty="Репродукции не добавлены" /></CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </TabsContent>
+
+        <TabsContent value="agrochemistry" className="space-y-4">
+          <Card className="border-dashed">
+            <CardContent className="pt-6 text-sm text-slate-600">
+              Агрохимия работает только через глобальный каталог AgriManager. Создание пестицидов и удобрений в компании запрещено.
             </CardContent>
           </Card>
+          <Tabs value={agrochemTab} onValueChange={(value) => setAgrochemTab(value as AgrochemTab)}>
+            <TabsList>
+              <TabsTrigger value="master">Каталог AgriManager</TabsTrigger>
+              <TabsTrigger value="company">Используется в компании</TabsTrigger>
+            </TabsList>
+            <TabsContent value="master" className="space-y-3">
+              <Input placeholder="Поиск по глобальному каталогу..." value={searchMaster} onChange={(e) => setSearchMaster(e.target.value)} className="max-w-md" />
+              <Card>
+                <CardHeader><CardTitle>Глобальные пестициды и удобрения</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={["Название", "Тип", "Категория/Тип", "ДВ", "Действие"]}
+                    rows={agroMasterRows.map((x) => [
+                      x.trade_name || x.name,
+                      x.type === "pesticide" ? "Пестицид" : "Удобрение",
+                      x.type === "pesticide" ? pesticideCategoryLabels[x.pesticide_category || ""] || "-" : fertilizerTypeLabels[x.fertilizer_type || ""] || "-",
+                      x.active_ingredient || "-",
+                      linkingGlobalId === x.id ? "Добавление..." : "Добавить в компанию",
+                    ])}
+                    loading={loading}
+                    empty="Глобальные записи не найдены"
+                  />
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {agroMasterRows.map((x) => (
+                      <Button key={x.id} variant="outline" size="sm" disabled={!!linkingGlobalId} onClick={() => addFromMaster(x.id)}>
+                        {linkingGlobalId === x.id ? "Добавление..." : `Добавить: ${x.trade_name || x.name}`}
+                      </Button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="company">
+              <Card>
+                <CardHeader><CardTitle>Подключенные продукты компании</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={["Название", "Тип", "Категория/Тип", "ДВ"]}
+                    rows={[...pesticides, ...fertilizers].map((x) => [
+                      x.trade_name || x.name,
+                      x.type === "pesticide" ? "Пестицид" : "Удобрение",
+                      x.type === "pesticide" ? pesticideCategoryLabels[x.pesticide_category || ""] || "-" : fertilizerTypeLabels[x.fertilizer_type || ""] || "-",
+                      x.active_ingredient || "-",
+                    ])}
+                    loading={loading}
+                    empty="В компании еще нет подключенных агрохимических продуктов"
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
-        <TabsContent value="varieties">
-          <div className="mb-4 flex justify-between items-center gap-4">
-            <div className="flex items-center gap-4 flex-1">
-              <h2 className="text-lg font-semibold text-slate-900">Varieties</h2>
-              <Select value={selectedCropId} onValueChange={setSelectedCropId}>
-                <SelectTrigger className="w-[280px]">
-                  <SelectValue placeholder="Filter by crop" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Crops</SelectItem>
-                  {crops.map((crop) => (
-                    <SelectItem key={crop.id} value={crop.id}>
-                      {crop.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button onClick={() => openVarietyDialog()}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Variety
-            </Button>
-          </div>
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Crop</TableHead>
-                    <TableHead>Variety Name</TableHead>
-                    <TableHead className="w-[150px]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-center text-slate-500">
-                        Loading...
-                      </TableCell>
-                    </TableRow>
-                  ) : varieties.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-center text-slate-500">
-                        No varieties added yet. Click "Add Variety" to get started.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    varieties.map((variety) => (
-                      <TableRow key={variety.id}>
-                        <TableCell className="font-medium">
-                          {variety.crop_name || "-"}
-                        </TableCell>
-                        <TableCell>{variety.name}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openVarietyDialog(variety)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openArchiveDialog("variety", variety)}
-                            >
-                              <Archive className="h-4 w-4 text-red-600" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+        <TabsContent value="machine-yard">
+          <Tabs value={machineYardTab} onValueChange={(value) => setMachineYardTab(value as MachineYardTab)}>
+            <TabsList>
+              <TabsTrigger value="machines">Техника</TabsTrigger>
+              <TabsTrigger value="equipment">Оборудование</TabsTrigger>
+            </TabsList>
+            <TabsContent value="machines">
+              <Card>
+                <CardHeader><CardTitle>Техника</CardTitle></CardHeader>
+                <CardContent><DataTable headers={["Название", "Тип"]} rows={machines.map((x) => [x.name, x.type])} loading={loading} empty="Техника не добавлена" /></CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="equipment">
+              <Card>
+                <CardHeader><CardTitle>Оборудование</CardTitle></CardHeader>
+                <CardContent><DataTable headers={["Название", "Категория"]} rows={equipment.map((x) => [x.name, x.category || "-"])} loading={loading} empty="Оборудование не добавлено" /></CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
-        <TabsContent value="reproductions">
-          <div className="mb-4 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-slate-900">Seed Reproductions</h2>
-            <Button onClick={() => openReproductionDialog()}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Reproduction
-            </Button>
-          </div>
-          <Card>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead className="w-[150px]">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={2} className="text-center text-slate-500">
-                        Loading...
-                      </TableCell>
-                    </TableRow>
-                  ) : seedReproductions.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={2} className="text-center text-slate-500">
-                        No seed reproductions added yet. Click "Add Reproduction" to get started.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    seedReproductions.map((reproduction) => (
-                      <TableRow key={reproduction.id}>
-                        <TableCell className="font-medium">{reproduction.name}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openReproductionDialog(reproduction)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => openArchiveDialog("reproduction", reproduction)}
-                            >
-                              <Archive className="h-4 w-4 text-red-600" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
+        <TabsContent value="fleet">
+          <Tabs value={fleetTab} onValueChange={(value) => setFleetTab(value as FleetTab)}>
+            <TabsList><TabsTrigger value="vehicles">Машины</TabsTrigger></TabsList>
+            <TabsContent value="vehicles">
+              <Card>
+                <CardHeader><CardTitle>Автопарк</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={["Название", "Тип", "Госномер", "Грузоподъемность (кг)"]}
+                    rows={vehicles.map((x) => [x.name, vehicleTypeLabels[x.vehicle_type] || x.vehicle_type, x.plate_number, String(x.capacity_kg)])}
+                    loading={loading}
+                    empty="Машины не добавлены"
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
-        <TabsContent value="machines">
-          <div className="mb-4 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-slate-900">Machines</h2>
-            <Button onClick={() => openMachineDialog()}><Plus className="mr-2 h-4 w-4" />Add Machine</Button>
-          </div>
-          <Card><CardContent className="p-0">
-            <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Type</TableHead><TableHead className="w-[150px]">Actions</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {machines.length === 0 ? <TableRow><TableCell colSpan={3} className="text-center text-slate-500">No machines yet.</TableCell></TableRow> : machines.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell>{item.type}</TableCell>
-                    <TableCell><div className="flex gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => openMachineDialog(item)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="sm" onClick={() => openArchiveDialog("machine", item)}><Archive className="h-4 w-4 text-red-600" /></Button>
-                    </div></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent></Card>
-        </TabsContent>
-
-        <TabsContent value="equipment">
-          <div className="mb-4 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-slate-900">Equipment / Aggregates</h2>
-            <Button onClick={() => openEquipmentDialog()}><Plus className="mr-2 h-4 w-4" />Add Equipment</Button>
-          </div>
-          <Card><CardContent className="p-0">
-            <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Category</TableHead><TableHead className="w-[150px]">Actions</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {equipment.length === 0 ? <TableRow><TableCell colSpan={3} className="text-center text-slate-500">No equipment yet.</TableCell></TableRow> : equipment.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell>{item.category || "-"}</TableCell>
-                    <TableCell><div className="flex gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => openEquipmentDialog(item)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="sm" onClick={() => openArchiveDialog("equipment", item)}><Archive className="h-4 w-4 text-red-600" /></Button>
-                    </div></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent></Card>
-        </TabsContent>
-
-        <TabsContent value="specialists">
-          <div className="mb-4 flex justify-between items-center">
-            <h2 className="text-lg font-semibold text-slate-900">Specialists / Brigadiers</h2>
-            <Button onClick={() => openSpecialistDialog()}><Plus className="mr-2 h-4 w-4" />Add Specialist</Button>
-          </div>
-          <Card><CardContent className="p-0">
-            <Table><TableHeader><TableRow><TableHead>Name</TableHead><TableHead>Role</TableHead><TableHead className="w-[150px]">Actions</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {specialists.length === 0 ? <TableRow><TableCell colSpan={3} className="text-center text-slate-500">No specialists yet.</TableCell></TableRow> : specialists.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.full_name}</TableCell>
-                    <TableCell>{item.role || "-"}</TableCell>
-                    <TableCell><div className="flex gap-2">
-                      <Button variant="ghost" size="sm" onClick={() => openSpecialistDialog(item)}><Pencil className="h-4 w-4" /></Button>
-                      <Button variant="ghost" size="sm" onClick={() => openArchiveDialog("specialist", item)}><Archive className="h-4 w-4 text-red-600" /></Button>
-                    </div></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent></Card>
+        <TabsContent value="personnel">
+          <Tabs value={personnelTab} onValueChange={(value) => setPersonnelTab(value as PersonnelTab)}>
+            <TabsList><TabsTrigger value="specialists">Специалисты</TabsTrigger></TabsList>
+            <TabsContent value="specialists">
+              <Card>
+                <CardHeader><CardTitle>Персонал</CardTitle></CardHeader>
+                <CardContent><DataTable headers={["ФИО", "Роль"]} rows={specialists.map((x) => [x.full_name, x.role || "-"])} loading={loading} empty="Специалисты не добавлены" /></CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
         </TabsContent>
       </Tabs>
 
-      <Dialog open={cropDialogOpen} onOpenChange={setCropDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingCrop ? "Edit Crop" : "Add Crop"}</DialogTitle>
-            <DialogDescription>
-              {editingCrop ? "Update the crop name." : "Enter a new crop name."}
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...cropForm}>
-            <form onSubmit={cropForm.handleSubmit(editingCrop ? handleUpdateCrop : handleCreateCrop)}>
-              <FormField
-                control={cropForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Crop Name *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Wheat" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <DialogFooter className="mt-4">
-                <Button type="button" variant="outline" onClick={() => setCropDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  {editingCrop ? "Update" : "Create"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={varietyDialogOpen} onOpenChange={setVarietyDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingVariety ? "Edit Variety" : "Add Variety"}</DialogTitle>
-            <DialogDescription>
-              {editingVariety ? "Update the variety details." : "Enter variety details."}
-            </DialogDescription>
-          </DialogHeader>
-          <Form {...varietyForm}>
-            <form onSubmit={varietyForm.handleSubmit(editingVariety ? handleUpdateVariety : handleCreateVariety)} className="space-y-4">
-              <FormField
-                control={varietyForm.control}
-                name="crop_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Crop *</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a crop" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {crops.map((crop) => (
-                          <SelectItem key={crop.id} value={crop.id}>
-                            {crop.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={varietyForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Variety Name *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Winter Wheat" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setVarietyDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  {editingVariety ? "Update" : "Create"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={reproductionDialogOpen} onOpenChange={setReproductionDialogOpen}>
+      <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && setModalType(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {editingReproduction ? "Edit Seed Reproduction" : "Add Seed Reproduction"}
+              {modalType === "crop" ? "Добавить культуру" : null}
+              {modalType === "variety" ? "Добавить сорт" : null}
+              {modalType === "reproduction" ? "Добавить репродукцию" : null}
+              {modalType === "machine" ? "Добавить технику" : null}
+              {modalType === "vehicle" ? "Добавить машину" : null}
+              {modalType === "specialist" ? "Добавить специалиста" : null}
             </DialogTitle>
-            <DialogDescription>
-              {editingReproduction ? "Update the reproduction name." : "Enter a new reproduction name."}
-            </DialogDescription>
           </DialogHeader>
-          <Form {...reproductionForm}>
-            <form onSubmit={reproductionForm.handleSubmit(editingReproduction ? handleUpdateReproduction : handleCreateReproduction)}>
-              <FormField
-                control={reproductionForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Reproduction Name *</FormLabel>
-                    <FormControl>
-                      <Input placeholder="e.g., Elite" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <DialogFooter className="mt-4">
-                <Button type="button" variant="outline" onClick={() => setReproductionDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  {editingReproduction ? "Update" : "Create"}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={machineDialogOpen} onOpenChange={setMachineDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingMachine ? "Edit Machine" : "Add Machine"}</DialogTitle>
-          </DialogHeader>
-          <Form {...machineForm}>
-            <form onSubmit={machineForm.handleSubmit(editingMachine ? handleUpdateMachine : handleCreateMachine)} className="space-y-4">
-              <FormField control={machineForm.control} name="name" render={({ field }) => (
-                <FormItem><FormLabel>Name *</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              <FormField control={machineForm.control} name="type" render={({ field }) => (
-                <FormItem><FormLabel>Type *</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      <SelectItem value="machine">Machine</SelectItem>
-                      <SelectItem value="tractor">Tractor</SelectItem>
-                      <SelectItem value="drone">Drone</SelectItem>
-                    </SelectContent>
+          <div className="space-y-3">
+            {modalType === "crop" || modalType === "reproduction" || modalType === "machine" || modalType === "vehicle" ? (
+              <div>
+                <Label>Название</Label>
+                <Input value={form.name || ""} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
+              </div>
+            ) : null}
+
+            {modalType === "specialist" ? (
+              <div>
+                <Label>ФИО</Label>
+                <Input value={form.full_name || ""} onChange={(e) => setForm((prev) => ({ ...prev, full_name: e.target.value }))} />
+              </div>
+            ) : null}
+
+            {modalType === "variety" ? (
+              <>
+                <div>
+                  <Label>Название сорта</Label>
+                  <Input value={form.name || ""} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Культура (обязательно)</Label>
+                  <Select value={form.crop_id || ""} onValueChange={(value) => setForm((prev) => ({ ...prev, crop_id: value }))}>
+                    <SelectTrigger><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
+                    <SelectContent>{crops.map((x) => <SelectItem key={x.id} value={x.id}>{x.name}</SelectItem>)}</SelectContent>
                   </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setMachineDialogOpen(false)}>Cancel</Button>
-                <Button type="submit">{editingMachine ? "Update" : "Create"}</Button>
-              </DialogFooter>
-            </form>
-          </Form>
+                </div>
+              </>
+            ) : null}
+
+            {modalType === "vehicle" ? (
+              <>
+                <div>
+                  <Label>Госномер</Label>
+                  <Input value={form.plate_number || ""} onChange={(e) => setForm((prev) => ({ ...prev, plate_number: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Грузоподъемность (кг)</Label>
+                  <Input type="number" value={form.capacity_kg || ""} onChange={(e) => setForm((prev) => ({ ...prev, capacity_kg: e.target.value }))} />
+                </div>
+              </>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => !saving && setModalType(null)} disabled={saving}>
+              Отмена
+            </Button>
+            <Button onClick={submitCreate} disabled={saving}>
+              {saving ? "Сохранение..." : "Создать"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={equipmentDialogOpen} onOpenChange={setEquipmentDialogOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{editingEquipment ? "Edit Equipment" : "Add Equipment"}</DialogTitle></DialogHeader>
-          <Form {...equipmentForm}>
-            <form onSubmit={equipmentForm.handleSubmit(editingEquipment ? handleUpdateEquipment : handleCreateEquipment)} className="space-y-4">
-              <FormField control={equipmentForm.control} name="name" render={({ field }) => (
-                <FormItem><FormLabel>Name *</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              <FormField control={equipmentForm.control} name="category" render={({ field }) => (
-                <FormItem><FormLabel>Category</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setEquipmentDialogOpen(false)}>Cancel</Button>
-                <Button type="submit">{editingEquipment ? "Update" : "Create"}</Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={specialistDialogOpen} onOpenChange={setSpecialistDialogOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{editingSpecialist ? "Edit Specialist" : "Add Specialist"}</DialogTitle></DialogHeader>
-          <Form {...specialistForm}>
-            <form onSubmit={specialistForm.handleSubmit(editingSpecialist ? handleUpdateSpecialist : handleCreateSpecialist)} className="space-y-4">
-              <FormField control={specialistForm.control} name="full_name" render={({ field }) => (
-                <FormItem><FormLabel>Full name *</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              <FormField control={specialistForm.control} name="role" render={({ field }) => (
-                <FormItem><FormLabel>Role</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-              )} />
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setSpecialistDialogOpen(false)}>Cancel</Button>
-                <Button type="submit">{editingSpecialist ? "Update" : "Create"}</Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Archive {archiveType.charAt(0).toUpperCase() + archiveType.slice(1)}</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to archive {itemToArchive?.name}? It will be hidden from the main view but can be restored later.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleArchive}>
-              Archive
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

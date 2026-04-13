@@ -1,4 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
+import type { Language } from "@/lib/i18n/translations";
+import { localizedName } from "@/lib/i18n/helpers";
 
 export interface FieldHistoryRecord {
   id: string;
@@ -24,7 +26,7 @@ export interface CropRotationEntry {
   cropName: string;
 }
 
-export async function getAllFieldHistory(fieldId?: string): Promise<FieldHistoryRecord[]> {
+export async function getAllFieldHistory(fieldId?: string, language: Language = "ru"): Promise<FieldHistoryRecord[]> {
   let query = supabase
     .from("crop_structure")
     .select(`
@@ -39,10 +41,16 @@ export async function getAllFieldHistory(fieldId?: string): Promise<FieldHistory
         year
       ),
       crops (
-        name
+        name,
+        name_ru,
+        name_kz,
+        name_en
       ),
       varieties (
-        name
+        name,
+        name_ru,
+        name_kz,
+        name_en
       )
     `)
     .eq("archived", false);
@@ -62,8 +70,8 @@ export async function getAllFieldHistory(fieldId?: string): Promise<FieldHistory
     id: record.id,
     fieldName: record.fields?.name || "Unknown",
     seasonYear: record.seasons?.year || 0,
-    cropName: record.crops?.name || "Unknown",
-    varietyName: record.varieties?.name || null,
+    cropName: localizedName(record.crops, language) || "Unknown",
+    varietyName: localizedName(record.varieties, language) || null,
     area: Number(record.area),
     expectedYield: record.expected_yield ? Number(record.expected_yield) : null,
     status: record.status,
@@ -72,11 +80,11 @@ export async function getAllFieldHistory(fieldId?: string): Promise<FieldHistory
   return records.sort((a, b) => b.seasonYear - a.seasonYear);
 }
 
-export async function getFieldHistory(fieldId: string): Promise<FieldHistoryRecord[]> {
-  return getAllFieldHistory(fieldId);
+export async function getFieldHistory(fieldId: string, language: Language = "ru"): Promise<FieldHistoryRecord[]> {
+  return getAllFieldHistory(fieldId, language);
 }
 
-export async function getAllFieldsWithLatestCrop(): Promise<FieldWithLatestCrop[]> {
+export async function getAllFieldsWithLatestCrop(language: Language = "ru"): Promise<FieldWithLatestCrop[]> {
   const { data: fields, error: fieldsError } = await supabase
     .from("fields")
     .select("id, name, area")
@@ -97,7 +105,10 @@ export async function getAllFieldsWithLatestCrop(): Promise<FieldWithLatestCrop[
             year
           ),
           crops (
-            name
+            name,
+            name_ru,
+            name_kz,
+            name_en
           )
         `)
         .eq("field_id", field.id)
@@ -113,7 +124,7 @@ export async function getAllFieldsWithLatestCrop(): Promise<FieldWithLatestCrop[
         fieldId: field.id,
         fieldName: field.name,
         latestSeasonYear: seasonData?.year || null,
-        latestCropName: cropDataName?.name || null,
+        latestCropName: localizedName(cropDataName, language) || null,
         totalArea: Number(field.area),
       };
     }) || []
@@ -122,7 +133,7 @@ export async function getAllFieldsWithLatestCrop(): Promise<FieldWithLatestCrop[
   return fieldsWithCrops;
 }
 
-export async function getCropRotation(fieldId: string): Promise<CropRotationEntry[]> {
+export async function getCropRotation(fieldId: string, language: Language = "ru"): Promise<CropRotationEntry[]> {
   const { data, error } = await supabase
     .from("crop_structure")
     .select(`
@@ -130,7 +141,10 @@ export async function getCropRotation(fieldId: string): Promise<CropRotationEntr
         year
       ),
       crops (
-        name
+        name,
+        name_ru,
+        name_kz,
+        name_en
       )
     `)
     .eq("field_id", fieldId)
@@ -144,7 +158,7 @@ export async function getCropRotation(fieldId: string): Promise<CropRotationEntr
 
   return data?.map((record: any) => ({
     year: record.seasons?.year || 0,
-    cropName: record.crops?.name || "Unknown",
+    cropName: localizedName(record.crops, language) || "Unknown",
   })) || [];
 }
 
