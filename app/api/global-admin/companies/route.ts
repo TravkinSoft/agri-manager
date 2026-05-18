@@ -1,57 +1,68 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
+import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 
-async function ensureGlobalAdmin(userId: string) {
-  const supabase = getServiceClient();
-  const { data: profile, error } = await supabase
-    .from("profiles")
-    .select("id, role, company_id, full_name, email")
-    .eq("id", userId)
-    .maybeSingle();
+export const runtime = "nodejs";
 
-  if (error || !profile?.id) {
-    throw new Error("User profile not found");
+function isUuidLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function requireGlobalAdmin(role: string | null | undefined) {
+  if (role !== "global_admin") {
+    throw new SessionAuthError("Only global_admin can manage platform company context", 403);
   }
+}
 
-  if (String(profile.role || "").toLowerCase() !== "global_admin") {
-    throw new Error("Access denied: global admin role required");
-  }
+function isMissingRelationError(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  return text.includes("does not exist") || text.includes("schema cache");
+}
 
-  return { supabase, profile };
+function resolveContextOwnerIds(actor: { id: string; authUserId?: string | null }): string[] {
+  const ids = [String(actor.authUserId || "").trim(), String(actor.id || "").trim()].filter(Boolean);
+  return Array.from(new Set(ids));
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!userId) {
-      return NextResponse.json({ error: "userId is required" }, { status: 400 });
-    }
+    const actor = await getServerActorFromSession(request);
+    requireGlobalAdmin(actor.role);
 
-    const { supabase, profile } = await ensureGlobalAdmin(userId);
-    const [{ data: companies, error: companiesError }, { data: context }] = await Promise.all([
-      supabase.from("companies").select("id, name, created_at").order("created_at", { ascending: true }),
+    const supabase = getServiceClient();
+
+    const ownerIds = resolveContextOwnerIds(actor);
+    const [companiesRes, contextRes] = await Promise.all([
+      supabase.from("companies").select("id,name").order("name", { ascending: true }).limit(2000),
       supabase
         .from("global_admin_company_contexts")
         .select("company_id")
-        .eq("user_id", userId)
-        .maybeSingle(),
+        .in("user_id", ownerIds)
+        .order("updated_at", { ascending: false })
+        .limit(1),
     ]);
 
-    if (companiesError) {
-      return NextResponse.json({ error: companiesError.message }, { status: 400 });
+    if (companiesRes.error) {
+      throw new Error(companiesRes.error.message || "Failed to load companies");
+    }
+
+    if (contextRes.error && !isMissingRelationError(contextRes.error.message)) {
+      throw new Error(contextRes.error.message || "Failed to resolve selected company context");
     }
 
     return NextResponse.json({
-      currentCompanyId: context?.company_id || null,
-      homeCompanyId: profile.company_id || null,
-      companies: (companies || []).map((row) => ({
-        id: String((row as any).id),
-        name: String((row as any).name || "Компания"),
+      companies: (companiesRes.data || []).map((row) => ({
+        id: String(row.id),
+        name: String(row.name || row.id),
       })),
+      selectedCompanyId: contextRes.data?.[0]?.company_id ? String(contextRes.data[0].company_id) : null,
     });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
+      { error: error instanceof Error ? error.message : "Failed to load companies" },
       { status: 500 }
     );
   }
@@ -59,46 +70,67 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const userId = String(body?.userId || "").trim();
-    const companyIdRaw = body?.companyId;
-    const companyId = companyIdRaw == null ? null : String(companyIdRaw).trim();
+    const actor = await getServerActorFromSession(request);
+    requireGlobalAdmin(actor.role);
 
-    if (!userId) {
-      return NextResponse.json({ error: "userId is required" }, { status: 400 });
+    const payload = await request.json().catch(() => ({}));
+    const rawCompanyId = String(payload?.companyId || "").trim();
+    const companyId = rawCompanyId === "__none__" ? "" : rawCompanyId;
+
+    if (companyId && !isUuidLike(companyId)) {
+      return NextResponse.json({ error: "Invalid company id" }, { status: 400 });
     }
 
-    const { supabase } = await ensureGlobalAdmin(userId);
+    const supabase = getServiceClient();
 
     if (companyId) {
-      const { data: company, error: companyError } = await supabase
-        .from("companies")
-        .select("id")
-        .eq("id", companyId)
-        .maybeSingle();
-
-      if (companyError || !company?.id) {
-        return NextResponse.json({ error: "Target company not found" }, { status: 400 });
+      const companyRes = await supabase.from("companies").select("id,name").eq("id", companyId).maybeSingle();
+      if (companyRes.error) {
+        throw new Error(companyRes.error.message || "Failed to validate selected company");
+      }
+      if (!companyRes.data?.id) {
+        return NextResponse.json({ error: "Company not found" }, { status: 404 });
       }
     }
 
-    const { error: contextError } = await supabase.from("global_admin_company_contexts").upsert(
-      {
-        user_id: userId,
-        company_id: companyId || null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" }
-    );
+    const ownerIds = resolveContextOwnerIds(actor);
+    let upsertRes: { data?: { company_id?: string | null } } | null = null;
+    let lastErrorMessage = "";
+    for (const ownerId of ownerIds) {
+      const attempt = await supabase
+        .from("global_admin_company_contexts")
+        .upsert(
+          {
+            user_id: ownerId,
+            company_id: companyId || null,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        )
+        .select("company_id")
+        .maybeSingle();
 
-    if (contextError) {
-      return NextResponse.json({ error: contextError.message }, { status: 400 });
+      if (!attempt.error) {
+        upsertRes = { data: attempt.data as any };
+        break;
+      }
+      lastErrorMessage = attempt.error.message || "Failed to update company context";
     }
 
-    return NextResponse.json({ ok: true, companyId: companyId || null });
+    if (!upsertRes) {
+      throw new Error(lastErrorMessage || "Failed to update company context");
+    }
+
+    return NextResponse.json({
+      ok: true,
+      selectedCompanyId: upsertRes.data?.company_id ? String(upsertRes.data.company_id) : null,
+    });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
+      { error: error instanceof Error ? error.message : "Failed to switch company context" },
       { status: 500 }
     );
   }

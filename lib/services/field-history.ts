@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Language } from "@/lib/i18n/translations";
 import { localizedName } from "@/lib/i18n/helpers";
+import { getFieldDisplayName } from "@/lib/fields/display";
 
 export interface FieldHistoryRecord {
   id: string;
@@ -35,7 +36,8 @@ export async function getAllFieldHistory(fieldId?: string, language: Language = 
       expected_yield,
       status,
       fields (
-        name
+        name,
+        notes
       ),
       seasons (
         year
@@ -68,7 +70,7 @@ export async function getAllFieldHistory(fieldId?: string, language: Language = 
 
   const records = data?.map((record: any) => ({
     id: record.id,
-    fieldName: record.fields?.name || "Unknown",
+    fieldName: getFieldDisplayName(record.fields || {}) || "Unknown",
     seasonYear: record.seasons?.year || 0,
     cropName: localizedName(record.crops, language) || "Unknown",
     varietyName: localizedName(record.varieties, language) || null,
@@ -87,7 +89,7 @@ export async function getFieldHistory(fieldId: string, language: Language = "ru"
 export async function getAllFieldsWithLatestCrop(language: Language = "ru"): Promise<FieldWithLatestCrop[]> {
   const { data: fields, error: fieldsError } = await supabase
     .from("fields")
-    .select("id, name, area")
+    .select("id, name, notes, area")
     .eq("archived", false)
     .order("name");
 
@@ -122,7 +124,7 @@ export async function getAllFieldsWithLatestCrop(language: Language = "ru"): Pro
 
       return {
         fieldId: field.id,
-        fieldName: field.name,
+        fieldName: getFieldDisplayName(field),
         latestSeasonYear: seasonData?.year || null,
         latestCropName: localizedName(cropDataName, language) || null,
         totalArea: Number(field.area),

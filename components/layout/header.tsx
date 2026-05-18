@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bell, User, Menu, LogOut, Settings as SettingsIcon, Shield } from "lucide-react";
+import { Bell, LogOut, Menu, Settings as SettingsIcon, Shield, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,7 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { isGlobalAdmin } from "@/lib/auth/roles";
+import { supabase } from "@/lib/supabase/client";
 
 type CompanyContextItem = {
   id: string;
@@ -40,11 +41,30 @@ export function Header() {
     [companies, activeCompanyId]
   );
 
+  const buildAuthHeaders = async (contentType: "json" | "none" = "none") => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data?.session?.access_token) {
+      throw new Error("Session expired");
+    }
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${data.session.access_token}`,
+    };
+    if (contentType === "json") {
+      headers["Content-Type"] = "application/json";
+    }
+    return headers;
+  };
+
   useEffect(() => {
     const loadCompanies = async () => {
-      if (!user?.id || !isGlobal) return;
+      if (!isGlobal) return;
       try {
-        const response = await fetch(`/api/global-admin/companies?userId=${encodeURIComponent(user.id)}`);
+        const headers = await buildAuthHeaders("none");
+        const response = await fetch("/api/global-admin/companies", {
+          method: "GET",
+          headers,
+          cache: "no-store",
+        });
         if (!response.ok) return;
         const data = await response.json();
         setCompanies(Array.isArray(data?.companies) ? data.companies : []);
@@ -53,7 +73,7 @@ export function Header() {
       }
     };
     void loadCompanies();
-  }, [user?.id, isGlobal]);
+  }, [isGlobal, profile?.context_company_id]);
 
   const handleLogout = async () => {
     try {
@@ -68,16 +88,19 @@ export function Header() {
       case "global_admin":
         return "bg-purple-100 text-purple-800 hover:bg-purple-100";
       case "company_admin":
-      case "admin":
         return "bg-rose-100 text-rose-800 hover:bg-rose-100";
       case "agronomist":
         return "bg-green-100 text-green-800 hover:bg-green-100";
+      case "director":
+        return "bg-cyan-100 text-cyan-800 hover:bg-cyan-100";
       case "specialist":
         return "bg-blue-100 text-blue-800 hover:bg-blue-100";
       case "warehouse":
         return "bg-orange-100 text-orange-800 hover:bg-orange-100";
       case "weighman":
         return "bg-violet-100 text-violet-800 hover:bg-violet-100";
+      case "fuel_operator":
+        return "bg-sky-100 text-sky-800 hover:bg-sky-100";
       default:
         return "bg-slate-100 text-slate-800 hover:bg-slate-100";
     }
@@ -85,11 +108,13 @@ export function Header() {
 
   const getRoleLabel = (role?: string | null) => {
     if (role === "global_admin") return "Глобальный администратор";
-    if (role === "company_admin" || role === "admin") return "Администратор компании";
+    if (role === "company_admin") return "Администратор компании";
     if (role === "agronomist") return t("role_agronomist");
+    if (role === "director") return "Директор";
     if (role === "specialist") return t("role_specialist");
     if (role === "warehouse") return t("role_warehouse");
     if (role === "weighman") return t("role_weighman");
+    if (role === "fuel_operator") return "Оператор АЗС / ГСМ";
     return role || "-";
   };
 
@@ -97,10 +122,11 @@ export function Header() {
     if (!user?.id || !isGlobal) return;
     setSwitchingCompany(true);
     try {
+      const headers = await buildAuthHeaders("json");
       const response = await fetch("/api/global-admin/companies", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, companyId: companyId === "__none__" ? null : companyId }),
+        headers,
+        body: JSON.stringify({ companyId: companyId === "__none__" ? null : companyId }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
@@ -139,7 +165,7 @@ export function Header() {
                 ))}
               </SelectContent>
             </Select>
-            {activeCompanyName ? <span className="text-xs text-slate-600 truncate max-w-[150px]">{activeCompanyName}</span> : null}
+            {activeCompanyName ? <span className="max-w-[150px] truncate text-xs text-slate-600">{activeCompanyName}</span> : null}
           </div>
         ) : null}
 
@@ -159,8 +185,8 @@ export function Header() {
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-medium leading-none">{user?.email}</p>
                 {profile ? (
-                  <Badge className={`w-fit mt-1 ${getRoleBadgeColor(profile.role)}`}>
-                    <Shield className="h-3 w-3 mr-1" />
+                  <Badge className={`mt-1 w-fit ${getRoleBadgeColor(profile.role)}`}>
+                    <Shield className="mr-1 h-3 w-3" />
                     {getRoleLabel(profile.role)}
                   </Badge>
                 ) : null}
@@ -168,12 +194,12 @@ export function Header() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => router.push("/settings")}>
-              <SettingsIcon className="h-4 w-4 mr-2" />
+              <SettingsIcon className="mr-2 h-4 w-4" />
               {t("settings_menu")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} className="text-red-600">
-              <LogOut className="h-4 w-4 mr-2" />
+              <LogOut className="mr-2 h-4 w-4" />
               {t("logout")}
             </DropdownMenuItem>
           </DropdownMenuContent>

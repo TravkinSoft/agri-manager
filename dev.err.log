@@ -1,0 +1,9 @@
+=1 : Имя "=1" не распознано как имя командлета, функции, файла сценария или выполняемой программы. Проверьте 
+правильность написания имени, а также наличие и правильность пути, после чего повторите попытку.
+строка:1 знак:1
++ ='1'; npm run dev
++ ~~~~
+    + CategoryInfo          : ObjectNotFound: (=1:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+ тЪа Port 3000 is in use, trying 3001 instead.

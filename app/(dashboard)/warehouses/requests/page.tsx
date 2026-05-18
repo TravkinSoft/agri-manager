@@ -66,7 +66,6 @@ export default function WarehouseRequestsPage() {
   const canProcess = profile?.role === "warehouse";
   const canView =
     profile?.role === "warehouse" ||
-    profile?.role === "admin" ||
     profile?.role === "company_admin" ||
     profile?.role === "global_admin" ||
     profile?.role === "agronomist";

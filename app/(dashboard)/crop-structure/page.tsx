@@ -1,234 +1,310 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Download, Plus, Save, Search, X } from "lucide-react";
+import { Download, Edit3, FileText, Plus, Search, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
+import { getFieldDisplayName } from "@/lib/fields/display";
 
-type Field = { id: string; name: string; area: number };
+type Field = { id: string; name: string; area: number; notes?: string | null };
 type Season = { id: string; year: number };
-type Crop = { id: string; name: string; name_ru?: string | null; name_kz?: string | null; name_en?: string | null };
-type Allocation = { id?: string; field_id: string; crop_id: string; area: number };
-type StructureRow = { id: string; field_id: string; season_id: string; crop_id: string; area: number };
-type ViewMode = "grid" | "table";
-type RowStatus = "ok" | "risk" | "error";
+type Crop = {
+  id: string;
+  name: string;
+  slug?: string | null;
+  name_ru?: string | null;
+  name_en?: string | null;
+  company_id?: string | null;
+  archived?: boolean | null;
+  is_active?: boolean | null;
+};
+type Variety = { id: string; name: string; crop_id: string; company_id?: string | null; archived?: boolean | null; is_active?: boolean | null };
+type Reproduction = { id: string; name: string; company_id?: string | null; archived?: boolean | null; is_active?: boolean | null };
+type Allocation = {
+  id?: string;
+  field_id: string;
+  crop_id: string | null;
+  variety_id: string | null;
+  reproduction_id: string | null;
+  notes: string;
+  area: number | null;
+  seeding_rate?: number | null;
+  expected_yield?: number | null;
+};
+type Consumption = {
+  id: string;
+  field_id: string;
+  crop_structure_row_id: string | null;
+  operation_type: string;
+  product_id: string | null;
+  product_name: string;
+  variety_name: string | null;
+  reproduction_name: string | null;
+  batch_class: string | null;
+  quantity_kg: number;
+  area_ha: number | null;
+  norm_per_ha: number | null;
+  consumed_at: string | null;
+  ticket_id: string | null;
+  responsible_name: string | null;
+  vehicle_name: string | null;
+  notes: string | null;
+};
+
+type FieldLegalLink = {
+  id: string;
+  field_id: string;
+  crop_id: string | null;
+  area_ha: number;
+  cadastral_number: string;
+  legal_entity_name: string | null;
+  owner_legal_entity_name: string | null;
+  usage_legal_entity_name: string | null;
+  status: string;
+  allocation_method: string;
+  source: string;
+  notes: string | null;
+};
+
+type FieldState = "empty" | "partial" | "complete" | "over";
+type StageKey = "prep" | "seeding" | "care" | "harvest";
+type MaterialCategory = "seed" | "fertilizer" | "chemical" | "organic" | "fuel" | "irrigation" | "other";
 
 const EPS = 0.0001;
-const CHIP_COLORS = [
-  "bg-emerald-100 text-emerald-900 border-emerald-300",
-  "bg-sky-100 text-sky-900 border-sky-300",
-  "bg-amber-100 text-amber-900 border-amber-300",
-  "bg-violet-100 text-violet-900 border-violet-300",
-  "bg-rose-100 text-rose-900 border-rose-300",
-  "bg-cyan-100 text-cyan-900 border-cyan-300",
-  "bg-lime-100 text-lime-900 border-lime-300",
+
+const stageDefs: Array<{ key: StageKey; label: string; operations: string[] }> = [
+  { key: "prep", label: "Подготовка", operations: ["preparation", "tillage", "cultivation", "plowing", "other"] },
+  { key: "seeding", label: "Посев / посадка", operations: ["seeding", "planting"] },
+  { key: "care", label: "Вегетация / уход", operations: ["fertilizing", "top_dressing", "herbicide", "fungicide", "insecticide", "desiccation", "irrigation", "gsm"] },
+  { key: "harvest", label: "Уборка", operations: ["harvest", "harvesting"] },
 ];
+
+const fmtHa = (value: number) => `${value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
+const fmtKg = (value: number) => `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
+const fmtRate = (value: number | null) => (value == null ? "-" : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг/га`);
+const norm = (value?: string | null) => String(value || "").trim().toLowerCase();
+const parseNum = (value: string): number | null => {
+  const raw = value.trim().replace(",", ".");
+  if (!raw) return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+};
+const fmtDate = (value?: string | null) => {
+  if (!value) return "-";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(d);
+};
+
+const stageForOperation = (operation: string): StageKey => {
+  const key = String(operation || "").toLowerCase();
+  return stageDefs.find((stage) => stage.operations.includes(key))?.key || "care";
+};
+
+const batchClassLabel = (value?: string | null) => {
+  if (value === "seed") return "Семенной";
+  if (value === "feed") return "Кормовой";
+  if (value === "waste") return "Отходы";
+  if (value === "processing") return "В переработке";
+  if (value === "rejected") return "Брак";
+  return "Товарное";
+};
+
+const materialCategory = (item: Consumption): MaterialCategory => {
+  const op = String(item.operation_type || "").toLowerCase();
+  const name = norm(item.product_name);
+  if (op === "seeding" || op === "planting" || item.batch_class === "seed") return "seed";
+  if (name.includes("навоз") || name.includes("помет") || name.includes("помёт") || name.includes("компост") || name.includes("органик") || name.includes("биомасс")) return "organic";
+  if (op === "fertilizing" || op === "top_dressing" || name.includes("селитр") || name.includes("аммофос") || name.includes("карбамид") || name.includes("npk") || name.includes("кас") || name.includes("удобр")) return "fertilizer";
+  if (["herbicide", "fungicide", "insecticide", "desiccation"].includes(op) || name.includes("roundup") || name.includes("ридомил") || name.includes("falcon")) return "chemical";
+  if (op === "irrigation" || name.includes("вода") || name.includes("полив")) return "irrigation";
+  if (op === "gsm" || name.includes("гсм") || name.includes("дизел") || name.includes("топлив")) return "fuel";
+  return "other";
+};
 
 export default function CropStructurePage() {
   const { toast } = useToast();
+  const { profile } = useAuth();
   const { language } = useLanguage();
-  const t = (ru: string, kz: string, en: string) => (language === "ru" ? ru : language === "kz" ? kz : en);
+  const tr = (ru: string, kz: string, en: string) => (language === "kz" ? kz : language === "en" ? en : ru);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [fields, setFields] = useState<Field[]>([]);
   const [seasons, setSeasons] = useState<Season[]>([]);
-  const [crops, setCrops] = useState<Crop[]>([]);
   const [seasonId, setSeasonId] = useState("");
+  const [allCrops, setAllCrops] = useState<Crop[]>([]);
+  const [allVarieties, setAllVarieties] = useState<Variety[]>([]);
+  const [allReproductions, setAllReproductions] = useState<Reproduction[]>([]);
   const [allocByField, setAllocByField] = useState<Map<string, Allocation[]>>(new Map());
   const [initialByField, setInitialByField] = useState<Map<string, Allocation[]>>(new Map());
-  const [historyByFieldSeason, setHistoryByFieldSeason] = useState<Map<string, Allocation[]>>(new Map());
-
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [consumptions, setConsumptions] = useState<Consumption[]>([]);
   const [search, setSearch] = useState("");
-  const [cropFilter, setCropFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | RowStatus>("all");
-  const [areaFilter, setAreaFilter] = useState<"all" | "small" | "medium" | "large">("all");
-  const [sortBy, setSortBy] = useState<"field" | "area" | "main_crop" | "status">("field");
-
+  const [cropFilter, setCropFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | FieldState>("all");
+  const [sortBy, setSortBy] = useState<"field" | "area" | "main_crop" | "state">("field");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
-  const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set());
+  const [draftRows, setDraftRows] = useState<Allocation[]>([]);
+  const [fieldDialogTab, setFieldDialogTab] = useState<"dossier" | "editor" | "legal">("dossier");
+  const [legalLinksByField, setLegalLinksByField] = useState<Map<string, FieldLegalLink[]>>(new Map());
 
-  const [bulkCropId, setBulkCropId] = useState("");
-  const [bulkMode, setBulkMode] = useState<"percent" | "ha">("percent");
-  const [bulkValue, setBulkValue] = useState("100");
-
-  const fieldMap = useMemo(() => new Map(fields.map((f) => [f.id, f])), [fields]);
-  const cropMap = useMemo(() => new Map(crops.map((c) => [c.id, c])), [crops]);
-  const activeSeason = useMemo(() => seasons.find((s) => s.id === seasonId) ?? null, [seasons, seasonId]);
-
-  const cropName = (cropId: string) => localizedName(cropMap.get(cropId) as never, language) || cropMap.get(cropId)?.name || "-";
-  const chipClass = (cropId: string) => {
-    const i = Math.abs(cropId.split("").reduce((acc, ch) => acc + ch.charCodeAt(0), 0)) % CHIP_COLORS.length;
-    return CHIP_COLORS[i];
-  };
-
-  const getCurrentRows = (fieldId: string) => allocByField.get(fieldId) || [];
-  const totalForField = (fieldId: string) => getCurrentRows(fieldId).reduce((sum, row) => sum + Number(row.area || 0), 0);
-  const remainingForField = (fieldId: string) => (fieldMap.get(fieldId)?.area || 0) - totalForField(fieldId);
-  const isOverAllocated = (fieldId: string) => remainingForField(fieldId) < -EPS;
+  const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
-  const selectedRows = selectedFieldId ? getCurrentRows(selectedFieldId) : [];
+  const season = useMemo(() => seasons.find((item) => item.id === seasonId) || null, [seasons, seasonId]);
 
-  const getHistoryRows = (fieldId: string, take = 5) => {
-    if (!activeSeason) return [];
-    return seasons
-      .filter((s) => s.year < activeSeason.year)
-      .sort((a, b) => b.year - a.year)
-      .slice(0, take)
-      .map((s) => ({ season: s, rows: historyByFieldSeason.get(`${fieldId}|${s.id}`) || [] }));
-  };
+  const cropLabel = (crop: Crop) => (crop.name_ru || localizedName(crop as never, language) || crop.name || "").trim();
+  const globalCrops = useMemo(
+    () => allCrops.filter((crop) => crop.company_id == null && !crop.archived && crop.is_active !== false).sort((a, b) => cropLabel(a).localeCompare(cropLabel(b), "ru")),
+    [allCrops, language],
+  );
+  const globalVarieties = useMemo(() => allVarieties.filter((item) => item.company_id == null && !item.archived && item.is_active !== false), [allVarieties]);
+  const globalReproductions = useMemo(() => allReproductions.filter((item) => item.company_id == null && !item.archived && item.is_active !== false), [allReproductions]);
+  const cropMap = useMemo(() => new Map(globalCrops.map((crop) => [crop.id, crop])), [globalCrops]);
+  const varietyMap = useMemo(() => new Map(globalVarieties.map((item) => [item.id, item])), [globalVarieties]);
+  const reproductionMap = useMemo(() => new Map(globalReproductions.map((item) => [item.id, item])), [globalReproductions]);
+  const varietiesByCrop = useMemo(() => {
+    const map = new Map<string, Variety[]>();
+    for (const variety of globalVarieties) map.set(variety.crop_id, [...(map.get(variety.crop_id) || []), variety]);
+    return map;
+  }, [globalVarieties]);
 
-  const dominantCropId = (rows: Allocation[]) => (!rows.length ? null : [...rows].sort((a, b) => b.area - a.area)[0]?.crop_id ?? null);
+  const cropName = (id?: string | null) => (id && cropMap.get(id) ? cropLabel(cropMap.get(id) as Crop) : "-");
+  const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "-" : "-");
+  const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? reproductionMap.get(id)?.name || "-" : "-");
+  const sumArea = (rows: Allocation[]) => rows.reduce((sum, row) => sum + Number(row.area || 0), 0);
 
-  const getWarnings = (fieldId: string) => {
-    const currentRows = getCurrentRows(fieldId);
-    const history = getHistoryRows(fieldId, 5);
-    const chain = [currentRows, ...history.map((h) => h.rows)].map((rows) => dominantCropId(rows)).filter(Boolean) as string[];
-    let repeatStreak = 1;
-    let maxRepeat = 1;
-    for (let i = 1; i < chain.length; i += 1) {
-      if (chain[i] === chain[i - 1]) repeatStreak += 1;
-      else repeatStreak = 1;
-      if (repeatStreak > maxRepeat) maxRepeat = repeatStreak;
+  const consumptionsByAllocation = useMemo(() => {
+    const map = new Map<string, Consumption[]>();
+    for (const item of consumptions) {
+      if (!item.crop_structure_row_id) continue;
+      map.set(item.crop_structure_row_id, [...(map.get(item.crop_structure_row_id) || []), item]);
     }
-    const hasFallow = [currentRows, ...history.map((h) => h.rows)].some((rows) =>
-      rows.some((r) => {
-        const name = cropName(r.crop_id).toLowerCase();
-        return name.includes("пар") || name.includes("fallow");
-      }),
-    );
-    const fieldArea = fieldMap.get(fieldId)?.area || 0;
-    return {
-      repeat: maxRepeat >= 2,
-      noFallow: fieldArea >= 120 && !hasFallow,
-    };
-  };
+    return map;
+  }, [consumptions]);
 
-  const rowStatus = (fieldId: string): RowStatus => {
-    if (isOverAllocated(fieldId)) return "error";
-    const w = getWarnings(fieldId);
-    return w.repeat || w.noFallow ? "risk" : "ok";
-  };
-
-  const rowStatusWeight = (status: RowStatus) => (status === "error" ? 3 : status === "risk" ? 2 : 1);
-
-  const rowStatusBadge = (status: RowStatus) =>
-    status === "error" ? (
-      <Badge className="bg-red-100 text-red-700 border-red-300">🔴 {t("ошибка", "қате", "error")}</Badge>
-    ) : status === "risk" ? (
-      <Badge className="bg-amber-100 text-amber-700 border-amber-300">🟡 {t("риск", "тәуекел", "risk")}</Badge>
-    ) : (
-      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300">🟢 {t("норм", "қалыпты", "ok")}</Badge>
-    );
-
-  const overviewTotals = useMemo(() => {
-    const map = new Map<string, number>();
-    allocByField.forEach((rows) => rows.forEach((r) => map.set(r.crop_id, (map.get(r.crop_id) || 0) + Number(r.area || 0))));
-    return Array.from(map.entries())
-      .map(([cropId, area]) => ({ cropId, area }))
-      .sort((a, b) => b.area - a.area);
-  }, [allocByField]);
-
-  const comparisonWithPrevious = useMemo(() => {
-    if (!activeSeason) return [];
-    const prev = seasons.filter((s) => s.year < activeSeason.year).sort((a, b) => b.year - a.year)[0];
-    if (!prev) return [];
-    const current = new Map<string, number>();
-    const prevMap = new Map<string, number>();
-    allocByField.forEach((rows) => rows.forEach((r) => current.set(r.crop_id, (current.get(r.crop_id) || 0) + Number(r.area || 0))));
-    fields.forEach((field) => {
-      const rows = historyByFieldSeason.get(`${field.id}|${prev.id}`) || [];
-      rows.forEach((r) => prevMap.set(r.crop_id, (prevMap.get(r.crop_id) || 0) + Number(r.area || 0)));
-    });
-    const ids = new Set([...Array.from(current.keys()), ...Array.from(prevMap.keys())]);
-    return Array.from(ids)
-      .map((cropId) => ({ cropId, delta: (current.get(cropId) || 0) - (prevMap.get(cropId) || 0) }))
-      .filter((x) => Math.abs(x.delta) > EPS)
-      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-  }, [activeSeason, seasons, allocByField, fields, historyByFieldSeason]);
-
-  const riskOverview = useMemo(() => {
-    let repeatCount = 0;
-    let noFallowCount = 0;
-    fields.forEach((field) => {
-      const w = getWarnings(field.id);
-      if (w.repeat) repeatCount += 1;
-      if (w.noFallow) noFallowCount += 1;
-    });
-    return { repeatCount, noFallowCount };
-  }, [fields, allocByField, historyByFieldSeason, activeSeason, seasons, language]);
-
-  const loadBase = async () => {
-    const [fieldsRes, seasonsRes, cropsRes] = await Promise.all([
-      supabase.from("fields").select("id,name,area").eq("archived", false).order("name"),
-      supabase.from("seasons").select("id,year").eq("archived", false).order("year", { ascending: false }),
-      supabase.from("crops").select("id,name,name_ru,name_kz,name_en").eq("archived", false).order("name"),
-    ]);
-    if (fieldsRes.error) throw fieldsRes.error;
-    if (seasonsRes.error) throw seasonsRes.error;
-    if (cropsRes.error) throw cropsRes.error;
-    setFields((fieldsRes.data || []) as Field[]);
-    const seasonsData = (seasonsRes.data || []) as Season[];
-    setSeasons(seasonsData);
-    setCrops((cropsRes.data || []) as Crop[]);
-    if (!seasonId && seasonsData[0]) {
-      const current = seasonsData.find((s) => s.year === 2026) || seasonsData[0];
-      setSeasonId(current.id);
+  const consumptionsByField = useMemo(() => {
+    const map = new Map<string, Consumption[]>();
+    for (const item of consumptions) {
+      map.set(item.field_id, [...(map.get(item.field_id) || []), item]);
     }
-    return seasonsData;
+    return map;
+  }, [consumptions]);
+
+  const fieldState = (fieldId: string): FieldState => {
+    const field = fieldMap.get(fieldId);
+    const planned = sumArea(allocByField.get(fieldId) || []);
+    if (!field || planned <= EPS) return "empty";
+    if (planned > field.area + EPS) return "over";
+    if (planned < field.area - EPS) return "partial";
+    return "complete";
   };
 
-  const loadStructure = async (targetSeasonId: string, seasonsList?: Season[]) => {
-    if (!targetSeasonId) return;
-    const list = seasonsList ?? seasons;
-    const selected = list.find((s) => s.id === targetSeasonId);
-    if (!selected) return;
-    const seasonIds = list
-      .filter((s) => s.year <= selected.year)
-      .sort((a, b) => b.year - a.year)
-      .slice(0, 6)
-      .map((s) => s.id);
-    const structureRes = await supabase.from("crop_structure").select("id,field_id,season_id,crop_id,area").in("season_id", seasonIds).eq("archived", false);
-    if (structureRes.error) throw structureRes.error;
-
-    const currentMap = new Map<string, Allocation[]>();
-    const historyMap = new Map<string, Allocation[]>();
-    ((structureRes.data || []) as StructureRow[]).forEach((row) => {
-      const item: Allocation = { id: row.id, field_id: row.field_id, crop_id: row.crop_id, area: Number(row.area || 0) };
-      if (row.season_id === targetSeasonId) currentMap.set(row.field_id, [...(currentMap.get(row.field_id) || []), item]);
-      else historyMap.set(`${row.field_id}|${row.season_id}`, [...(historyMap.get(`${row.field_id}|${row.season_id}`) || []), item]);
-    });
-    setAllocByField(currentMap);
-    setInitialByField(new Map(Array.from(currentMap.entries()).map(([k, v]) => [k, [...v]])));
-    setHistoryByFieldSeason(historyMap);
+  const stateText = (state: FieldState) => {
+    if (state === "empty") return "Пусто";
+    if (state === "partial") return "Частично";
+    if (state === "over") return "Переплан";
+    return "Заполнено";
   };
+
+  const stateClass = (state: FieldState) => {
+    if (state === "empty") return "border-amber-200 bg-amber-100 text-amber-800";
+    if (state === "partial") return "border-slate-200 bg-slate-100 text-slate-700";
+    if (state === "over") return "border-rose-200 bg-rose-100 text-rose-800";
+    return "border-emerald-200 bg-emerald-100 text-emerald-800";
+  };
+
+  const allocationFacts = (allocation: Allocation) => {
+    const rows = allocation.id ? consumptionsByAllocation.get(allocation.id) || [] : [];
+    const stageCompleted = new Map<StageKey, number>();
+    const stageLatest = new Map<StageKey, string>();
+
+    for (const stage of stageDefs) {
+      const byTicket = new Map<string, number>();
+      const stageRows = rows.filter((row) => stageForOperation(row.operation_type) === stage.key);
+      for (const row of stageRows) {
+        const key = row.ticket_id || row.id;
+        byTicket.set(key, Math.max(byTicket.get(key) || 0, Number(row.area_ha || 0)));
+        if (row.consumed_at && (!stageLatest.get(stage.key) || new Date(row.consumed_at) > new Date(stageLatest.get(stage.key) || 0))) {
+          stageLatest.set(stage.key, row.consumed_at);
+        }
+      }
+      stageCompleted.set(stage.key, Array.from(byTicket.values()).reduce((sum, value) => sum + value, 0));
+    }
+
+    const plannedArea = Number(allocation.area || 0);
+    const actualAreaForRate = stageCompleted.get("seeding") || stageCompleted.get("care") || stageCompleted.get("prep") || plannedArea;
+    const operationRows = [...rows].sort((a, b) => new Date(b.consumed_at || 0).getTime() - new Date(a.consumed_at || 0).getTime());
+    const currentStage =
+      stageCompleted.get("harvest") ? "Уборка" :
+      stageCompleted.get("care") ? "Вегетация / уход" :
+      stageCompleted.get("seeding") ? "Посев / посадка" :
+      stageCompleted.get("prep") ? "Подготовка" :
+      "План";
+    return { rows, stageCompleted, stageLatest, operationRows, actualAreaForRate, currentStage };
+  };
+
+  const mainCrop = (fieldId: string) => {
+    const rows = allocByField.get(fieldId) || [];
+    return [...rows].sort((a, b) => Number(b.area || 0) - Number(a.area || 0))[0]?.crop_id || null;
+  };
+
+  const filteredFields = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return fields
+      .filter((field) => !q || field.name.toLowerCase().includes(q))
+      .filter((field) => cropFilter === "all" || (allocByField.get(field.id) || []).some((row) => row.crop_id === cropFilter))
+      .filter((field) => statusFilter === "all" || fieldState(field.id) === statusFilter)
+      .sort((a, b) => {
+        if (sortBy === "field") return a.name.localeCompare(b.name, "ru");
+        if (sortBy === "area") return b.area - a.area;
+        if (sortBy === "main_crop") return cropName(mainCrop(a.id)).localeCompare(cropName(mainCrop(b.id)), "ru");
+        const rank: Record<FieldState, number> = { over: 4, partial: 3, empty: 2, complete: 1 };
+        return rank[fieldState(b.id)] - rank[fieldState(a.id)];
+      });
+  }, [fields, search, cropFilter, statusFilter, sortBy, allocByField]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
+      if (!profile?.company_id) return;
       try {
         setLoading(true);
-        const seasonsData = await loadBase();
+        const [fieldsRes, seasonsRes, cropsRes, varietiesRes, reproductionsRes] = await Promise.all([
+          supabase.from("fields").select("id,name,notes,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
+          supabase.from("seasons").select("id,year").eq("company_id", profile.company_id).eq("archived", false).order("year", { ascending: false }),
+          supabase.from("crops").select("id,name,name_ru,name_en,company_id,archived,is_active"),
+          supabase.from("varieties").select("id,name,crop_id,company_id,archived,is_active"),
+          supabase.from("seed_reproductions").select("id,name,company_id,archived,is_active").order("level_order"),
+        ]);
+        if (fieldsRes.error || seasonsRes.error || cropsRes.error || varietiesRes.error || reproductionsRes.error) {
+          throw fieldsRes.error || seasonsRes.error || cropsRes.error || varietiesRes.error || reproductionsRes.error;
+        }
         if (!mounted) return;
-        const targetSeasonId = seasonId || seasonsData[0]?.id;
-        if (targetSeasonId) await loadStructure(targetSeasonId, seasonsData);
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : "Load failed";
-        toast({ title: t("Ошибка", "Қате", "Error"), description: message, variant: "destructive" });
+        const normalizedFields = ((fieldsRes.data || []) as Field[]).map((field) => ({
+          ...field,
+          name: getFieldDisplayName(field),
+        }));
+        setFields(normalizedFields);
+        const seasonRows = (seasonsRes.data || []) as Season[];
+        setSeasons(seasonRows);
+        setAllCrops((cropsRes.data || []) as Crop[]);
+        setAllVarieties((varietiesRes.data || []) as Variety[]);
+        setAllReproductions((reproductionsRes.data || []) as Reproduction[]);
+        if (seasonRows.length) setSeasonId((prev) => prev || seasonRows[0].id);
+      } catch (error) {
+        toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить структуру посевов", variant: "destructive" });
       } finally {
         if (mounted) setLoading(false);
       }
@@ -236,436 +312,842 @@ export default function CropStructurePage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [profile?.company_id]);
 
   useEffect(() => {
-    if (!seasonId) return;
+    if (!profile?.company_id || !seasonId) return;
     (async () => {
       try {
-        setLoading(true);
-        await loadStructure(seasonId);
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : "Load failed";
-        toast({ title: t("Ошибка", "Қате", "Error"), description: message, variant: "destructive" });
-      } finally {
-        setLoading(false);
+        const res = await supabase
+          .from("crop_structure")
+          .select("id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield")
+          .eq("company_id", profile.company_id)
+          .eq("season_id", seasonId)
+          .eq("archived", false);
+        if (res.error) throw res.error;
+        const map = new Map<string, Allocation[]>();
+        for (const row of (res.data || []) as any[]) {
+          const allocation: Allocation = {
+            id: row.id,
+            field_id: row.field_id,
+            crop_id: row.crop_id,
+            variety_id: row.variety_id,
+            reproduction_id: row.reproduction_id,
+            notes: row.notes || "",
+            area: Number(row.area || 0),
+            seeding_rate: row.seeding_rate == null ? null : Number(row.seeding_rate || 0),
+            expected_yield: row.expected_yield == null ? null : Number(row.expected_yield || 0),
+          };
+          map.set(row.field_id, [...(map.get(row.field_id) || []), allocation]);
+        }
+        setAllocByField(map);
+        setInitialByField(new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({ ...item }))])));
+      } catch (error) {
+        toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить посевные строки", variant: "destructive" });
       }
     })();
-  }, [seasonId]);
+  }, [profile?.company_id, seasonId]);
 
-  const setFieldRows = (fieldId: string, rows: Allocation[]) =>
-    setAllocByField((prev) => new Map(prev).set(fieldId, rows.filter((r) => r.crop_id && Number(r.area) >= 0)));
+  useEffect(() => {
+    if (!profile?.company_id || !seasonId) return;
+    (async () => {
+      try {
+        const res = await supabase
+          .from("field_material_consumptions")
+          .select("id,field_id,crop_structure_row_id,operation_type,product_id,variety_id,reproduction_id,batch_class,quantity_kg,area_ha,norm_per_ha,consumed_at,ticket_id,responsible_personnel_id,vehicle_id,notes")
+          .eq("company_id", profile.company_id)
+          .eq("season_id", seasonId)
+          .order("consumed_at", { ascending: false });
 
-  const addCropRow = () => {
-    if (!selectedFieldId || crops.length === 0) return;
-    setFieldRows(selectedFieldId, [...selectedRows, { field_id: selectedFieldId, crop_id: crops[0].id, area: 0 }]);
-  };
-  const patchCropRow = (idx: number, patch: Partial<Allocation>) => {
-    if (!selectedFieldId) return;
-    const next = [...selectedRows];
-    next[idx] = { ...next[idx], ...patch };
-    setFieldRows(selectedFieldId, next);
-  };
-  const removeCropRow = (idx: number) => {
-    if (!selectedFieldId) return;
-    const next = [...selectedRows];
-    next.splice(idx, 1);
-    setFieldRows(selectedFieldId, next);
-  };
-  const fillRemaining = () => {
-    if (!selectedFieldId || crops.length === 0) return;
-    const rest = remainingForField(selectedFieldId);
-    if (rest <= EPS) return;
-    const next = [...selectedRows];
-    if (!next.length) next.push({ field_id: selectedFieldId, crop_id: crops[0].id, area: Number(rest.toFixed(3)) });
-    else next[next.length - 1].area = Number((next[next.length - 1].area + rest).toFixed(3));
-    setFieldRows(selectedFieldId, next);
+        if (res.error) {
+          const message = String(res.error.message || "").toLowerCase();
+          if (message.includes("field_material_consumptions") || message.includes("schema cache")) {
+            setConsumptions([]);
+            return;
+          }
+          throw res.error;
+        }
+
+        const rows = (res.data || []) as any[];
+        const productIds = Array.from(new Set(rows.map((row) => String(row.product_id || "")).filter(Boolean)));
+        const specialistIds = Array.from(new Set(rows.map((row) => String(row.responsible_personnel_id || "")).filter(Boolean)));
+        const vehicleIds = Array.from(new Set(rows.map((row) => String(row.vehicle_id || "")).filter(Boolean)));
+        const [productsRes, specialistsRes, vehiclesRes] = await Promise.all([
+          productIds.length ? supabase.from("products").select("id,name").in("id", productIds) : Promise.resolve({ data: [] } as any),
+          specialistIds.length ? supabase.from("reference_specialists").select("id,full_name").in("id", specialistIds) : Promise.resolve({ data: [] } as any),
+          vehicleIds.length ? supabase.from("reference_vehicles").select("id,name,plate_number").in("id", vehicleIds) : Promise.resolve({ data: [] } as any),
+        ]);
+        const productNames = new Map<string, string>((productsRes.data || []).map((row: any) => [String(row.id), String(row.name || "Материал")]));
+        const specialistNames = new Map<string, string>((specialistsRes.data || []).map((row: any) => [String(row.id), String(row.full_name || "Ответственный")]));
+        const vehicleNames = new Map<string, string>((vehiclesRes.data || []).map((row: any) => [String(row.id), [row.name, row.plate_number].filter(Boolean).join(" ") || "Техника"]));
+        setConsumptions(rows.map((row: any) => ({
+          id: String(row.id),
+          field_id: String(row.field_id),
+          crop_structure_row_id: row.crop_structure_row_id ? String(row.crop_structure_row_id) : null,
+          operation_type: String(row.operation_type || "other"),
+          product_id: row.product_id ? String(row.product_id) : null,
+          product_name: productNames.get(String(row.product_id || "")) || "Материал",
+          variety_name: row.variety_id ? varietyMap.get(String(row.variety_id))?.name || null : null,
+          reproduction_name: row.reproduction_id ? reproductionMap.get(String(row.reproduction_id))?.name || null : null,
+          batch_class: row.batch_class ? String(row.batch_class) : null,
+          quantity_kg: Number(row.quantity_kg || 0),
+          area_ha: row.area_ha == null ? null : Number(row.area_ha || 0),
+          norm_per_ha: row.norm_per_ha == null ? null : Number(row.norm_per_ha || 0),
+          consumed_at: row.consumed_at || null,
+          ticket_id: row.ticket_id ? String(row.ticket_id) : null,
+          responsible_name: row.responsible_personnel_id ? specialistNames.get(String(row.responsible_personnel_id)) || null : null,
+          vehicle_name: row.vehicle_id ? vehicleNames.get(String(row.vehicle_id)) || null : null,
+          notes: row.notes || null,
+        })));
+      } catch (error) {
+        setConsumptions([]);
+        toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить фактический расход по полям", variant: "destructive" });
+      }
+    })();
+  }, [profile?.company_id, seasonId, varietyMap, reproductionMap]);
+
+  useEffect(() => {
+    if (!profile?.company_id || !seasonId) {
+      setLegalLinksByField(new Map());
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: links, error: linksError } = await supabase
+          .from("field_cadastre_links")
+          .select("id, field_id, crop_id, area_ha, cadastral_parcel_id, legal_entity_id, owner_legal_entity_id, usage_legal_entity_id, status, allocation_method, source, notes")
+          .eq("company_id", profile.company_id)
+          .eq("season_id", seasonId)
+          .neq("status", "archived");
+        if (linksError) throw new Error(linksError.message);
+
+        const cadastreIds = Array.from(new Set((links || []).map((row: any) => String(row.cadastral_parcel_id || "")).filter(Boolean)));
+        const entityIds = Array.from(
+          new Set(
+            (links || [])
+              .flatMap((row: any) => [row.legal_entity_id, row.owner_legal_entity_id, row.usage_legal_entity_id])
+              .map((value: any) => String(value || ""))
+              .filter(Boolean)
+          )
+        );
+
+        const [{ data: cadastres, error: cadastresError }, { data: entities, error: entitiesError }] = await Promise.all([
+          cadastreIds.length
+            ? supabase.from("cadastral_parcels").select("id, cadastral_number").in("id", cadastreIds)
+            : Promise.resolve({ data: [], error: null } as any),
+          entityIds.length
+            ? supabase.from("legal_entities").select("id, name").in("id", entityIds)
+            : Promise.resolve({ data: [], error: null } as any),
+        ]);
+        if (cadastresError) throw new Error(cadastresError.message);
+        if (entitiesError) throw new Error(entitiesError.message);
+
+        const cadastreMap = new Map<string, string>(
+          (cadastres || []).map((row: any) => [String(row.id), String(row.cadastral_number || "-")])
+        );
+        const entityMap = new Map<string, string>(
+          (entities || []).map((row: any) => [String(row.id), String(row.name || "-")])
+        );
+        const grouped = new Map<string, FieldLegalLink[]>();
+
+        (links || []).forEach((row: any) => {
+          const fieldId = String(row.field_id || "");
+          if (!fieldId) return;
+          grouped.set(fieldId, [
+            ...(grouped.get(fieldId) || []),
+            {
+              id: String(row.id),
+              field_id: fieldId,
+              crop_id: row.crop_id ? String(row.crop_id) : null,
+              area_ha: Number(row.area_ha || 0),
+              cadastral_number: cadastreMap.get(String(row.cadastral_parcel_id || "")) || "-",
+              legal_entity_name: entityMap.get(String(row.legal_entity_id || "")) || null,
+              owner_legal_entity_name: entityMap.get(String(row.owner_legal_entity_id || "")) || null,
+              usage_legal_entity_name: entityMap.get(String(row.usage_legal_entity_id || "")) || null,
+              status: String(row.status || "active"),
+              allocation_method: String(row.allocation_method || "manual_adjusted"),
+              source: String(row.source || "manual"),
+              notes: row.notes ? String(row.notes) : null,
+            },
+          ]);
+        });
+
+        if (!cancelled) setLegalLinksByField(grouped);
+      } catch (error) {
+        if (!cancelled) setLegalLinksByField(new Map());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.company_id, seasonId, cropMap]);
+
+  const openField = (fieldId: string) => {
+    setSelectedFieldId(fieldId);
+    setFieldDialogTab("dossier");
+    setDraftRows((allocByField.get(fieldId) || []).map((item) => ({ ...item })));
   };
 
-  const applyBulkForSelection = () => {
-    if (!bulkCropId || selectedFields.size === 0) return;
-    const value = Number(bulkValue || 0);
-    if (!(value > 0)) return;
-    const next = new Map(allocByField);
-    selectedFields.forEach((fieldId) => {
-      const field = fieldMap.get(fieldId);
-      if (!field) return;
-      const area = bulkMode === "percent" ? (field.area * value) / 100 : value;
-      next.set(fieldId, [{ field_id: fieldId, crop_id: bulkCropId, area: Number(Math.max(0, Math.min(field.area, area)).toFixed(3)) }]);
+  const closeField = () => {
+    setSelectedFieldId(null);
+    setDraftRows([]);
+    setFieldDialogTab("dossier");
+  };
+
+  const patchDraft = (index: number, patch: Partial<Allocation>) => {
+    setDraftRows((prev) => {
+      const next = [...prev];
+      const old = next[index];
+      next[index] = { ...old, ...patch };
+      if (patch.crop_id && patch.crop_id !== old.crop_id) next[index].variety_id = null;
+      return next;
     });
-    setAllocByField(next);
   };
 
-  const clearSelection = () => {
-    if (selectedFields.size === 0) return;
-    const next = new Map(allocByField);
-    selectedFields.forEach((fieldId) => next.set(fieldId, []));
-    setAllocByField(next);
-  };
-
-  const clearCurrentField = () => {
+  const addRow = () => {
     if (!selectedFieldId) return;
-    setFieldRows(selectedFieldId, []);
+    setDraftRows((prev) => [...prev, { field_id: selectedFieldId, crop_id: null, variety_id: null, reproduction_id: null, notes: "", area: null }]);
   };
 
-  const applyCurrentToSelected = () => {
-    if (!selectedFieldId || selectedFields.size === 0) return;
-    const sourceRows = getCurrentRows(selectedFieldId);
-    const next = new Map(allocByField);
-    selectedFields.forEach((fieldId) => {
-      if (fieldId === selectedFieldId) return;
-      next.set(
-        fieldId,
-        sourceRows.map((r) => ({ field_id: fieldId, crop_id: r.crop_id, area: r.area })),
-      );
+  const removeRow = (index: number) => {
+    setDraftRows((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const fillFullArea = () => {
+    if (!selectedField) return;
+    setDraftRows((prev) => {
+      if (!prev.length) return [{ field_id: selectedField.id, crop_id: null, variety_id: null, reproduction_id: null, notes: "", area: selectedField.area }];
+      const otherArea = prev.slice(1).reduce((sum, row) => sum + Number(row.area || 0), 0);
+      return [{ ...prev[0], area: Math.max(0, selectedField.area - otherArea) }, ...prev.slice(1)];
     });
-    setAllocByField(next);
   };
 
-  const exportCsv = () => {
-    const header = ["Поле", "План 2026", "Площадь", "Статус"];
-    const rows = filteredFields.map((field) => {
-      const plan = getCurrentRows(field.id).map((r) => `${cropName(r.crop_id)} (${r.area.toFixed(1)} га)`).join(" | ") || "Нет плана";
-      return [field.name, plan, field.area.toFixed(1), rowStatus(field.id)].join(";");
-    });
-    const csvText = `\uFEFF${[header.join(";"), ...rows].join("\n")}`;
-    const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = `crop-plan-${activeSeason?.year ?? "season"}.csv`;
-    link.click();
-    URL.revokeObjectURL(link.href);
-  };
-
-  const savePlan = async () => {
-    if (!seasonId) return;
-    if (fields.some((field) => isOverAllocated(field.id))) {
-      toast({ title: t("Ошибка", "Қате", "Error"), description: t("Есть поля с превышением площади", "Ауданы асқан алқаптар бар", "Some fields exceed area"), variant: "destructive" });
+  const save = async () => {
+    if (!selectedFieldId || !selectedField || !profile?.company_id || !profile.id || !seasonId) return;
+    for (const row of draftRows) {
+      if (!row.crop_id || !row.variety_id || !row.reproduction_id || row.area == null || row.area <= 0) {
+        toast({ title: "Ошибка", description: "Заполните культуру, сорт, репродукцию и площадь.", variant: "destructive" });
+        return;
+      }
+    }
+    if (sumArea(draftRows) > selectedField.area + EPS) {
+      toast({ title: "Ошибка", description: "Площадь посевных строк превышает площадь поля.", variant: "destructive" });
       return;
     }
     try {
       setSaving(true);
-      const oldIds = new Set<string>();
-      initialByField.forEach((rows) => rows.forEach((row) => row.id && oldIds.add(row.id)));
-      const upsertRows: Array<{ id?: string; field_id: string; season_id: string; crop_id: string; area: number; status: string }> = [];
-      allocByField.forEach((rows, fieldId) => {
-        rows.forEach((row) => {
-          if (Number(row.area) <= 0) return;
-          upsertRows.push({ id: row.id, field_id: fieldId, season_id: seasonId, crop_id: row.crop_id, area: Number(row.area), status: "planned" });
-        });
-      });
-      const newIds = new Set(upsertRows.map((r) => r.id).filter(Boolean) as string[]);
-      const toDelete = Array.from(oldIds).filter((id) => !newIds.has(id));
-      if (toDelete.length > 0) {
-        const delRes = await supabase.from("crop_structure").delete().in("id", toDelete);
-        if (delRes.error) throw delRes.error;
+      const prev = initialByField.get(selectedFieldId) || [];
+      const prevIds = new Set(prev.map((row) => row.id).filter(Boolean) as string[]);
+      const curIds = new Set(draftRows.map((row) => row.id).filter(Boolean) as string[]);
+      const delIds = Array.from(prevIds).filter((id) => !curIds.has(id));
+      if (delIds.length) {
+        const del = await supabase.from("crop_structure").delete().eq("company_id", profile.company_id).eq("field_id", selectedFieldId).eq("season_id", seasonId).in("id", delIds);
+        if (del.error) throw del.error;
       }
-      if (upsertRows.length > 0) {
-        const upsertRes = await supabase.from("crop_structure").upsert(upsertRows, { onConflict: "id" });
-        if (upsertRes.error) throw upsertRes.error;
+      const updates = draftRows.filter((row) => row.id);
+      if (updates.length) {
+        const up = await supabase.from("crop_structure").upsert(
+          updates.map((row) => ({
+            id: row.id,
+            company_id: profile.company_id,
+            user_id: profile.id,
+            field_id: selectedFieldId,
+            season_id: seasonId,
+            crop_id: row.crop_id,
+            variety_id: row.variety_id,
+            reproduction_id: row.reproduction_id,
+            notes: row.notes || null,
+            area: Number(row.area || 0),
+            status: "planned",
+          })),
+          { onConflict: "id" },
+        );
+        if (up.error) throw up.error;
       }
-      setInitialByField(new Map(Array.from(allocByField.entries()).map(([k, v]) => [k, [...v]])));
-      toast({ title: t("Сохранено", "Сақталды", "Saved"), description: t("План обновлён", "Жоспар жаңартылды", "Plan updated") });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Save failed";
-      toast({ title: t("Ошибка", "Қате", "Error"), description: message, variant: "destructive" });
+      const inserts = draftRows.filter((row) => !row.id);
+      if (inserts.length) {
+        const ins = await supabase.from("crop_structure").insert(
+          inserts.map((row) => ({
+            company_id: profile.company_id,
+            user_id: profile.id,
+            field_id: selectedFieldId,
+            season_id: seasonId,
+            crop_id: row.crop_id,
+            variety_id: row.variety_id,
+            reproduction_id: row.reproduction_id,
+            notes: row.notes || null,
+            area: Number(row.area || 0),
+            status: "planned",
+          })),
+        );
+        if (ins.error) throw ins.error;
+      }
+      const res = await supabase.from("crop_structure").select("id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield").eq("company_id", profile.company_id).eq("season_id", seasonId).eq("archived", false);
+      if (res.error) throw res.error;
+      const map = new Map<string, Allocation[]>();
+      for (const row of (res.data || []) as any[]) {
+        const item: Allocation = {
+          id: row.id,
+          field_id: row.field_id,
+          crop_id: row.crop_id,
+          variety_id: row.variety_id,
+          reproduction_id: row.reproduction_id,
+          notes: row.notes || "",
+          area: Number(row.area || 0),
+          seeding_rate: row.seeding_rate == null ? null : Number(row.seeding_rate || 0),
+          expected_yield: row.expected_yield == null ? null : Number(row.expected_yield || 0),
+        };
+        map.set(row.field_id, [...(map.get(row.field_id) || []), item]);
+      }
+      setAllocByField(map);
+      setInitialByField(new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({ ...item }))])));
+      setDraftRows((map.get(selectedFieldId) || []).map((item) => ({ ...item })));
+      toast({ title: "Сохранено", description: "Структура поля обновлена." });
+    } catch (error) {
+      toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Save failed", variant: "destructive" });
     } finally {
       setSaving(false);
     }
   };
 
-  const filteredFields = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return fields
-      .filter((field) => {
-        if (q && !field.name.toLowerCase().includes(q)) return false;
-        if (cropFilter !== "all" && !getCurrentRows(field.id).some((r) => r.crop_id === cropFilter)) return false;
-        const status = rowStatus(field.id);
-        if (statusFilter !== "all" && status !== statusFilter) return false;
-        if (areaFilter === "small" && field.area > 100) return false;
-        if (areaFilter === "medium" && (field.area <= 100 || field.area > 300)) return false;
-        if (areaFilter === "large" && field.area <= 300) return false;
-        return true;
+  const exportExcel = () => {
+    if (!season) return;
+    const lines = [["Сезон", "Поле", "Площадь поля, га", "Культура", "Сорт", "Репродукция", "Площадь, га"].join(";")];
+    for (const field of fields) {
+      const rows = allocByField.get(field.id) || [];
+      if (!rows.length) lines.push([season.year, field.name, field.area.toFixed(2), "", "", "", "0.00"].join(";"));
+      for (const row of rows) {
+        lines.push([season.year, field.name, field.area.toFixed(2), cropName(row.crop_id), varietyName(row.variety_id), reproductionName(row.reproduction_id), Number(row.area || 0).toFixed(2)].join(";"));
+      }
+    }
+    const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `crop-structure-${season.year}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportFieldPdf = async () => {
+    if (!selectedFieldId || !seasonId || !profile?.id) return;
+    try {
+      setPdfLoading(true);
+      const res = await fetch(`/api/crop-structure/fields/${selectedFieldId}/pdf?seasonId=${encodeURIComponent(seasonId)}&userId=${encodeURIComponent(profile.id)}`);
+      if (!res.ok) throw new Error("PDF export failed");
+      const html = await res.text();
+      const w = window.open("", "_blank", "noopener,noreferrer");
+      if (!w) throw new Error("Разрешите всплывающее окно для печати PDF.");
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    } catch (error) {
+      toast({ title: "Ошибка", description: error instanceof Error ? error.message : "PDF export failed", variant: "destructive" });
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
+  const renderStageStrip = (rows: Allocation[], compact = false) => {
+    const plannedArea = Math.max(sumArea(rows), 0);
+    return (
+      <div className={compact ? "space-y-1.5" : "space-y-2"}>
+        {stageDefs.map((stage) => {
+          const done = rows.reduce((sum, row) => {
+            const facts = allocationFacts(row);
+            return sum + Math.min(facts.stageCompleted.get(stage.key) || 0, Number(row.area || 0));
+          }, 0);
+          const pct = plannedArea > 0 ? Math.min(100, (done / plannedArea) * 100) : 0;
+          return (
+            <div key={stage.key} className="grid grid-cols-[104px_1fr_42px] items-center gap-2 text-[11px]">
+              <div className="truncate font-medium text-slate-600">{stage.label}</div>
+              <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+              </div>
+              <div className="text-right text-slate-500">{pct.toFixed(0)}%</div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  const renderOverviewCard = (field: Field) => {
+    const rows = allocByField.get(field.id) || [];
+    const state = fieldState(field.id);
+    const fieldConsumptions = consumptionsByField.get(field.id) || [];
+    const planned = sumArea(rows);
+    const materialLabels = Array.from(new Set(fieldConsumptions.map((item) => materialCategory(item))))
+      .filter((category) => category !== "other")
+      .map((category) => {
+        if (category === "seed") return "семена";
+        if (category === "fertilizer") return "удобрения";
+        if (category === "chemical") return "СЗР";
+        if (category === "organic") return "органика";
+        if (category === "fuel") return "ГСМ";
+        if (category === "irrigation") return "полив";
+        return "прочее";
+      });
+
+    return (
+      <Card key={field.id} className="cursor-pointer border-slate-200 transition hover:border-emerald-300 hover:shadow-sm" onClick={() => openField(field.id)}>
+        <CardContent className="p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <div className="truncate text-base font-semibold text-slate-950">Поле {field.name} — {fmtHa(field.area)}</div>
+              <div className="text-xs text-slate-500">Структура: {fmtHa(planned)}</div>
+            </div>
+            <Badge className={stateClass(state)}>{stateText(state)}</Badge>
+          </div>
+
+          <div className="mt-2 space-y-1">
+            {rows.length ? rows.slice(0, 3).map((row) => (
+              <div key={row.id || `${field.id}-${row.crop_id}`} className="rounded-md bg-slate-50 px-2 py-1.5">
+                <div className="truncate text-xs font-semibold text-slate-800">
+                  {cropName(row.crop_id)} / {varietyName(row.variety_id)} / {reproductionName(row.reproduction_id)}
+                </div>
+                <div className="text-[11px] text-slate-500">{fmtHa(Number(row.area || 0))}</div>
+              </div>
+            )) : (
+              <div className="rounded-md border border-dashed bg-slate-50 px-2 py-3 text-center text-xs text-slate-500">Нет посевных строк</div>
+            )}
+            {rows.length > 3 ? <div className="text-[11px] text-slate-500">+ ещё {rows.length - 3} строк</div> : null}
+          </div>
+
+          <div className="mt-3 border-t pt-2 text-xs text-slate-600">
+            <span className="font-medium text-slate-800">Материалы:</span>{" "}
+            {materialLabels.length ? materialLabels.join(", ") : "нет фактических выдач"}
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const categoryLabel = (category: MaterialCategory) => {
+    if (category === "seed") return "Семена";
+    if (category === "fertilizer") return "Удобрения";
+    if (category === "chemical") return "СЗР";
+    if (category === "organic") return "Органика";
+    if (category === "fuel") return "ГСМ";
+    if (category === "irrigation") return "Полив";
+    return "Прочее";
+  };
+
+  const categoryRank: Record<MaterialCategory, number> = {
+    seed: 1,
+    fertilizer: 2,
+    chemical: 3,
+    organic: 4,
+    fuel: 5,
+    irrigation: 6,
+    other: 7,
+  };
+
+  const formatMaterialQty = (category: MaterialCategory, value: number) => {
+    if (category === "organic") return `${(value / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т`;
+    if (category === "chemical" || category === "fuel") return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} л`;
+    if (category === "irrigation") return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} м³`;
+    return fmtKg(value);
+  };
+
+  const formatMaterialRate = (category: MaterialCategory, value: number | null) => {
+    if (value == null) return "-";
+    if (category === "organic") return `${(value / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т/га`;
+    if (category === "chemical" || category === "fuel") return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} л/га`;
+    if (category === "irrigation") return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} м³/га`;
+    return fmtRate(value);
+  };
+
+  const buildSeasonMaterialRows = (rows: Consumption[], actualArea: number) => {
+    const grouped = new Map<
+      string,
+      {
+        category: MaterialCategory;
+        product_name: string;
+        variety_name: string | null;
+        reproduction_name: string | null;
+        batch_class: string | null;
+        total: number;
+        latestDate: string | null;
+      }
+    >();
+
+    for (const row of rows) {
+      const category = materialCategory(row);
+      const key = [category, row.product_id || row.product_name, row.variety_name || "", row.reproduction_name || "", row.batch_class || ""].join("|");
+      const current = grouped.get(key);
+      if (current) {
+        current.total += Number(row.quantity_kg || 0);
+        if (row.consumed_at && (!current.latestDate || new Date(row.consumed_at) > new Date(current.latestDate))) {
+          current.latestDate = row.consumed_at;
+        }
+      } else {
+        grouped.set(key, {
+          category,
+          product_name: row.product_name,
+          variety_name: row.variety_name,
+          reproduction_name: row.reproduction_name,
+          batch_class: row.batch_class,
+          total: Number(row.quantity_kg || 0),
+          latestDate: row.consumed_at || null,
+        });
+      }
+    }
+
+    return Array.from(grouped.values())
+      .map((item) => {
+        const identity =
+          item.category === "seed"
+            ? [item.product_name, item.variety_name, item.reproduction_name].filter(Boolean).join(" / ") || item.product_name
+            : item.product_name;
+        const rate = actualArea > 0 ? item.total / actualArea : null;
+        return {
+          category: item.category,
+          categoryLabel: categoryLabel(item.category),
+          identity,
+          batchClass: batchClassLabel(item.batch_class),
+          total: formatMaterialQty(item.category, item.total),
+          perHa: formatMaterialRate(item.category, rate),
+          date: fmtDate(item.latestDate),
+          latestDate: item.latestDate ? new Date(item.latestDate).getTime() : 0,
+        };
       })
       .sort((a, b) => {
-        if (sortBy === "field") return a.name.localeCompare(b.name, "ru");
-        if (sortBy === "area") return b.area - a.area;
-        if (sortBy === "main_crop") {
-          const aMain = dominantCropId(getCurrentRows(a.id));
-          const bMain = dominantCropId(getCurrentRows(b.id));
-          return (aMain ? cropName(aMain) : "").localeCompare(bMain ? cropName(bMain) : "", "ru");
-        }
-        return rowStatusWeight(rowStatus(b.id)) - rowStatusWeight(rowStatus(a.id));
+        const byCategory = categoryRank[a.category] - categoryRank[b.category];
+        if (byCategory !== 0) return byCategory;
+        const byDate = b.latestDate - a.latestDate;
+        if (byDate !== 0) return byDate;
+        return a.identity.localeCompare(b.identity, "ru");
       });
-  }, [fields, search, cropFilter, statusFilter, areaFilter, sortBy, allocByField, historyByFieldSeason, seasons, activeSeason]);
+  };
+
+  const renderFieldDossier = () => {
+    if (!selectedField) return null;
+    const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
+    const planned = sumArea(rows);
+    const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
+    return (
+      <div className="space-y-4">
+        <div className="rounded-2xl border bg-[#f8faf7] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Что поле фактически получило за сезон</div>
+              <div className="mt-1 text-2xl font-semibold text-slate-950">Поле {selectedField.name}</div>
+              <div className="mt-1 text-sm text-slate-600">
+                Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
+              </div>
+            </div>
+            <Badge className={stateClass(fieldState(selectedField.id))}>{stateText(fieldState(selectedField.id))}</Badge>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-2">
+            {rows.length ? rows.map((allocation) => (
+              <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl bg-white px-3 py-2 text-sm">
+                <div className="font-semibold text-slate-900">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                <div className="text-xs text-slate-500">{fmtHa(Number(allocation.area || 0))}</div>
+              </div>
+            )) : (
+              <div className="rounded-xl border border-dashed bg-white px-3 py-3 text-sm text-slate-500">Посевные строки ещё не заданы.</div>
+            )}
+          </div>
+        </div>
+
+        {rows.length ? rows.map((allocation) => {
+          const facts = allocationFacts(allocation);
+          const plannedArea = Number(allocation.area || 0);
+          const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
+          const rateArea = actualCompletedArea || plannedArea;
+          const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади посевной строки";
+          const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
+          const hasMaterials = materialRows.length > 0;
+
+          return (
+            <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border bg-white p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-xl font-semibold text-slate-950">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                  <div className="mt-1 text-sm text-slate-600">
+                    {fmtHa(plannedArea)} · фактических выдач {facts.rows.length}
+                  </div>
+                </div>
+                <Badge className="bg-slate-900 text-white hover:bg-slate-900">Материалы сезона</Badge>
+              </div>
+
+              {hasMaterials ? (
+                <div className="mt-4 overflow-hidden rounded-xl border bg-white">
+                  <div className="flex items-center justify-end border-b bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
+                    Расчёт факта: {rateBasis}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-white text-[11px] uppercase tracking-wide text-slate-400">
+                        <tr>
+                          <th className="px-3 py-2 font-medium">Группа</th>
+                          <th className="px-3 py-2 font-medium">Продукт</th>
+                          <th className="px-3 py-2 font-medium">Партия/класс</th>
+                          <th className="px-3 py-2 text-right font-medium">Итого</th>
+                          <th className="px-3 py-2 text-right font-medium">На га</th>
+                          <th className="px-3 py-2 font-medium">Дата</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {materialRows.map((item) => (
+                          <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-slate-100">
+                            <td className="px-3 py-2 text-slate-700">{item.categoryLabel}</td>
+                            <td className="px-3 py-2 font-medium text-slate-900">{item.identity}</td>
+                            <td className="px-3 py-2 text-slate-500">{item.batchClass}</td>
+                            <td className="px-3 py-2 text-right font-semibold text-slate-900">{item.total}</td>
+                            <td className="px-3 py-2 text-right text-slate-700">{item.perHa}</td>
+                            <td className="px-3 py-2 text-slate-500">{item.date}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-4 rounded-xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
+                  Фактических выдач материалов на эту посевную строку пока нет.
+                </div>
+              )}
+
+            </div>
+          );
+        }) : (
+          <div className="rounded-xl border border-dashed bg-white p-5 text-sm text-slate-500">Посевные строки ещё не заданы.</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderEditor = () => {
+    if (!selectedField) return null;
+    return (
+      <div className="rounded-2xl border bg-white p-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold text-slate-950">Редактор структуры</div>
+            <div className="text-xs text-slate-500">План: {fmtHa(sumArea(draftRows))} / {fmtHa(selectedField.area)} · Остаток: {fmtHa(selectedField.area - sumArea(draftRows))}</div>
+          </div>
+          <Button variant="outline" size="sm" onClick={fillFullArea}>Вся площадь</Button>
+        </div>
+
+        <div className="space-y-2">
+          {draftRows.map((row, index) => {
+            const vars = row.crop_id ? varietiesByCrop.get(row.crop_id) || [] : [];
+            const pct = selectedField.area > 0 ? ((Number(row.area || 0) / selectedField.area) * 100).toFixed(2) : "0.00";
+            return (
+              <div key={`${row.id || "new"}-${index}`} className="grid grid-cols-12 items-end gap-2 rounded-xl bg-slate-50 p-2">
+                <div className="col-span-12 md:col-span-3">
+                  <Label>Культура *</Label>
+                  <Select value={row.crop_id || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
+                    <SelectTrigger><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
+                    <SelectContent><SelectItem value="none">—</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-12 md:col-span-2">
+                  <Label>Сорт *</Label>
+                  <Select value={row.variety_id || "none"} onValueChange={(value) => patchDraft(index, { variety_id: value === "none" ? null : value })}>
+                    <SelectTrigger><SelectValue placeholder="Выберите сорт" /></SelectTrigger>
+                    <SelectContent><SelectItem value="none">—</SelectItem>{vars.map((variety) => <SelectItem key={variety.id} value={variety.id}>{variety.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-12 md:col-span-2">
+                  <Label>Репродукция *</Label>
+                  <Select value={row.reproduction_id || "none"} onValueChange={(value) => patchDraft(index, { reproduction_id: value === "none" ? null : value })}>
+                    <SelectTrigger><SelectValue placeholder="Репродукция" /></SelectTrigger>
+                    <SelectContent><SelectItem value="none">—</SelectItem>{globalReproductions.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <div className="col-span-6 md:col-span-2">
+                  <Label>Площадь, га *</Label>
+                  <Input type="number" min={0} step="0.01" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
+                </div>
+                <div className="col-span-3 md:col-span-1">
+                  <Label>%</Label>
+                  <div className="flex h-10 items-center rounded-md border bg-white px-3 text-sm">{pct}</div>
+                </div>
+                <div className="col-span-3 md:col-span-1">
+                  <Label>Удалить</Label>
+                  <Button className="w-full" variant="ghost" size="icon" onClick={() => removeRow(index)}><X className="h-4 w-4" /></Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button variant="outline" onClick={addRow}><Plus className="mr-2 h-4 w-4" />Добавить строку</Button>
+        </div>
+      </div>
+    );
+  };
+
+  const renderLegalContour = () => {
+    if (!selectedField) return null;
+    const links = legalLinksByField.get(selectedField.id) || [];
+    const totalLegalArea = links.reduce((sum, row) => sum + Number(row.area_ha || 0), 0);
+    const diff = totalLegalArea - selectedField.area;
+    const diffAbs = Math.abs(diff);
+    const diffStatus =
+      diffAbs <= 0.01 ? "ok" : diffAbs <= 1 ? "warning" : links.length ? "mismatch" : "missing_cadastre";
+
+    return (
+      <div className="space-y-4">
+        <div className="rounded-2xl border bg-white p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Юридический контур поля</div>
+              <div className="mt-1 text-sm text-slate-600">
+                Поле {selectedField.name} · Агро-площадь {fmtHa(selectedField.area)} · Юр-площадь {fmtHa(totalLegalArea)}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                Разница: {diff > 0 ? "+" : ""}{fmtHa(diffAbs).replace(" га", "")} га
+              </div>
+            </div>
+            <Badge
+              className={
+                diffStatus === "ok"
+                  ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+                  : diffStatus === "warning"
+                    ? "bg-amber-100 text-amber-800 hover:bg-amber-100"
+                    : "bg-rose-100 text-rose-800 hover:bg-rose-100"
+              }
+            >
+              {diffStatus}
+            </Badge>
+          </div>
+        </div>
+
+        {links.length ? (
+          <div className="overflow-hidden rounded-xl border bg-white">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Кадастровый номер</th>
+                    <th className="px-3 py-2 font-medium">Площадь</th>
+                    <th className="px-3 py-2 font-medium">Культура</th>
+                    <th className="px-3 py-2 font-medium">Юрлицо</th>
+                    <th className="px-3 py-2 font-medium">Владелец</th>
+                    <th className="px-3 py-2 font-medium">Метод</th>
+                    <th className="px-3 py-2 font-medium">Источник</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {links.map((row) => (
+                    <tr key={row.id} className="border-t border-slate-100">
+                      <td className="px-3 py-2 font-medium text-slate-900">{row.cadastral_number}</td>
+                      <td className="px-3 py-2 text-slate-700">{fmtHa(row.area_ha)}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.crop_id ? cropName(row.crop_id) : "—"}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.legal_entity_name || "—"}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.owner_legal_entity_name || row.usage_legal_entity_name || "—"}</td>
+                      <td className="px-3 py-2 text-slate-500">{row.allocation_method}</td>
+                      <td className="px-3 py-2 text-slate-500">{row.source}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed bg-slate-50 p-4 text-sm text-slate-600">
+            Для этого поля пока нет юридической разбивки по кадастрам в выбранном сезоне.
+          </div>
+        )}
+      </div>
+    );
+  };
 
   if (loading) {
-    return <PageHeader title={t("Структура посевов", "Егіс құрылымы", "Crop structure")} description={t("Загрузка...", "Жүктелуде...", "Loading...")} />;
+    return <PageHeader title="Структура посевов" description="Загрузка..." />;
   }
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t("Структура посевов", "Егіс құрылымы", "Crop structure")} description={t("План сезона и севооборот по полям", "Маусым жоспары және алқап ауыспалы егісі", "Season plan and field rotation")} />
+      <PageHeader title="Структура посевов" description="Компактный агрономический обзор по полям" />
 
       <Card>
-        <CardContent className="pt-5 space-y-3">
-          <div className="flex flex-wrap gap-2 items-center">
+        <CardContent className="pt-5">
+          <div className="flex flex-wrap items-center gap-2">
             <Select value={seasonId} onValueChange={setSeasonId}>
-              <SelectTrigger className="w-[180px]"><SelectValue /></SelectTrigger>
-              <SelectContent>{seasons.map((s) => <SelectItem key={s.id} value={s.id}>{s.year}</SelectItem>)}</SelectContent>
+              <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+              <SelectContent>{seasons.map((item) => <SelectItem key={item.id} value={item.id}>{item.year}</SelectItem>)}</SelectContent>
             </Select>
-            <div className="relative w-[260px]">
+            <div className="relative w-[240px]">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
-              <Input className="pl-8" placeholder={t("Поиск поля...", "Алқап іздеу...", "Search field...")} value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input className="pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
             </div>
             <Select value={cropFilter} onValueChange={setCropFilter}>
-              <SelectTrigger className="w-[180px]"><SelectValue placeholder={t("Культура", "Дақыл", "Crop")} /></SelectTrigger>
-              <SelectContent><SelectItem value="all">{t("Все культуры", "Барлық дақыл", "All crops")}</SelectItem>{crops.map((c) => <SelectItem key={c.id} value={c.id}>{cropName(c.id)}</SelectItem>)}</SelectContent>
+              <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
+              <SelectContent><SelectItem value="all">Все культуры</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
             </Select>
-            <Select value={statusFilter} onValueChange={(v: "all" | RowStatus) => setStatusFilter(v)}>
-              <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="all">{t("Все статусы", "Барлық күй", "All statuses")}</SelectItem><SelectItem value="ok">{t("Норм", "Қалыпты", "OK")}</SelectItem><SelectItem value="risk">{t("Риск", "Тәуекел", "Risk")}</SelectItem><SelectItem value="error">{t("Ошибка", "Қате", "Error")}</SelectItem></SelectContent>
-            </Select>
-            <Select value={areaFilter} onValueChange={(v: "all" | "small" | "medium" | "large") => setAreaFilter(v)}>
-              <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="all">{t("Любая площадь", "Кез келген аудан", "Any area")}</SelectItem><SelectItem value="small">{t("До 100 га", "100 га дейін", "Up to 100 ha")}</SelectItem><SelectItem value="medium">{t("100-300 га", "100-300 га", "100-300 ha")}</SelectItem><SelectItem value="large">{t("300+ га", "300+ га", "300+ ha")}</SelectItem></SelectContent>
-            </Select>
-            <Select value={sortBy} onValueChange={(v: "field" | "area" | "main_crop" | "status") => setSortBy(v)}>
+            <Select value={statusFilter} onValueChange={(value: "all" | FieldState) => setStatusFilter(value)}>
               <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="field">{t("Сорт: поле", "Сұрып: алқап", "Sort: field")}</SelectItem><SelectItem value="area">{t("Сорт: площадь", "Сұрып: аудан", "Sort: area")}</SelectItem><SelectItem value="main_crop">{t("Сорт: культура", "Сұрып: дақыл", "Sort: crop")}</SelectItem><SelectItem value="status">{t("Сорт: статус", "Сұрып: күй", "Sort: status")}</SelectItem></SelectContent>
+              <SelectContent>
+                <SelectItem value="all">Все статусы</SelectItem>
+                <SelectItem value="empty">Пусто</SelectItem>
+                <SelectItem value="partial">Частично</SelectItem>
+                <SelectItem value="complete">Заполнено</SelectItem>
+                <SelectItem value="over">Переплан</SelectItem>
+              </SelectContent>
             </Select>
-            <div className="ml-auto flex gap-2">
-              <Button variant={viewMode === "grid" ? "default" : "outline"} onClick={() => setViewMode("grid")}>Grid</Button>
-              <Button variant={viewMode === "table" ? "default" : "outline"} onClick={() => setViewMode("table")}>Table</Button>
-              <Button variant="outline" onClick={() => setSelectedFieldId(filteredFields[0]?.id || null)}><Plus className="mr-2 h-4 w-4" />{t("Add plan", "Жоспар қосу", "Add plan")}</Button>
-              <Button variant="outline" onClick={() => window.print()}><Download className="mr-2 h-4 w-4" />PDF</Button>
-              <Button variant="outline" onClick={exportCsv}><Download className="mr-2 h-4 w-4" />Excel</Button>
-              <Button variant="outline" onClick={savePlan}><Save className="mr-2 h-4 w-4" />{saving ? t("Сохранение...", "Сақталуда...", "Saving...") : t("Сохранить", "Сақтау", "Save")}</Button>
-            </div>
+            <Select value={sortBy} onValueChange={(value: "field" | "area" | "main_crop" | "state") => setSortBy(value)}>
+              <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="field">Сорт: поле</SelectItem>
+                <SelectItem value="area">Сорт: площадь</SelectItem>
+                <SelectItem value="main_crop">Сорт: культура</SelectItem>
+                <SelectItem value="state">Сорт: статус</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button className="ml-auto" variant="outline" onClick={exportExcel}><Download className="mr-2 h-4 w-4" />Excel</Button>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="cursor-pointer" onClick={() => setCropFilter("all")}>
-          <CardHeader className="pb-2"><CardTitle className="text-base">{t("Итог по культурам", "Дақылдар жиынтығы", "Totals by crop")}</CardTitle></CardHeader>
-          <CardContent className="text-sm space-y-1">
-            {overviewTotals.length === 0 ? (
-              <div className="text-slate-500">{t("План на 2026 ещё не заполнен", "2026 жоспары әлі толтырылмаған", "Plan for 2026 is not filled yet")}</div>
-            ) : (
-              <>
-                {overviewTotals.slice(0, 6).map((r) => <div key={r.cropId} className="flex justify-between"><span>{cropName(r.cropId)}</span><span className="font-medium">{r.area.toFixed(1)} га</span></div>)}
-                {overviewTotals.length > 6 && <div className="text-slate-500">+{overviewTotals.length - 6} {t("ещё", "тағы", "more")}</div>}
-              </>
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">{t("Сравнение с прошлым годом", "Өткен жылмен салыстыру", "Comparison vs previous year")}</CardTitle></CardHeader>
-          <CardContent className="text-sm space-y-1">
-            {overviewTotals.length === 0 ? (
-              <div className="text-slate-500">{t("План на 2026 ещё не заполнен", "2026 жоспары әлі толтырылмаған", "Plan for 2026 is not filled yet")}</div>
-            ) : comparisonWithPrevious.length === 0 ? (
-              <div className="text-slate-500">{t("Существенных отличий нет", "Айқын айырмашылық жоқ", "No meaningful changes")}</div>
-            ) : (
-              comparisonWithPrevious.slice(0, 6).map((r) => <div key={r.cropId} className="flex justify-between"><span>{cropName(r.cropId)}</span><span className={r.delta >= 0 ? "text-emerald-700 font-medium" : "text-red-700 font-medium"}>{r.delta >= 0 ? "+" : ""}{r.delta.toFixed(1)} га</span></div>)
-            )}
-          </CardContent>
-        </Card>
-        <Card className="cursor-pointer" onClick={() => setStatusFilter("risk")}>
-          <CardHeader className="pb-2"><CardTitle className="text-base">{t("Риски", "Тәуекелдер", "Risks")}</CardTitle></CardHeader>
-          <CardContent className="text-sm space-y-1"><div>⚠️ {t("Повтор культуры", "Дақыл қайталануы", "Crop repeat")}: {riskOverview.repeatCount}</div><div>⚠️ {t("Нет пара", "Пар жоқ", "No fallow")}: {riskOverview.noFallowCount}</div></CardContent>
-        </Card>
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(340px,1fr))] gap-3">
+        {filteredFields.map(renderOverviewCard)}
       </div>
+      {!filteredFields.length ? (
+        <Card><CardContent className="p-8 text-center text-sm text-slate-500">По заданным фильтрам поля не найдены.</CardContent></Card>
+      ) : null}
 
-      {selectedFields.size > 0 && (
-        <Card className="border-emerald-300 bg-emerald-50/60">
-          <CardContent className="pt-4 flex flex-wrap items-end gap-2">
-            <div className="text-sm font-medium">{t("Выбрано полей", "Таңдалған алқаптар", "Selected fields")}: {selectedFields.size}</div>
-            <Select value={bulkCropId} onValueChange={setBulkCropId}>
-              <SelectTrigger className="w-[220px]"><SelectValue placeholder={t("Назначить культуру", "Дақыл тағайындау", "Assign crop")} /></SelectTrigger>
-              <SelectContent>{crops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropName(crop.id)}</SelectItem>)}</SelectContent>
-            </Select>
-            <Select value={bulkMode} onValueChange={(v: "percent" | "ha") => setBulkMode(v)}>
-              <SelectTrigger className="w-[120px]"><SelectValue /></SelectTrigger>
-              <SelectContent><SelectItem value="percent">%</SelectItem><SelectItem value="ha">{t("га", "га", "ha")}</SelectItem></SelectContent>
-            </Select>
-            <Input className="w-[120px]" type="number" min={0} value={bulkValue} onChange={(e) => setBulkValue(e.target.value)} />
-            <Button onClick={applyBulkForSelection} disabled={!bulkCropId}>{t("Применить", "Қолдану", "Apply")}</Button>
-            <Button variant="outline" onClick={clearSelection}>{t("Очистить", "Тазалау", "Clear")}</Button>
-            <div className="text-xs text-slate-600">
-              {t("Выбрано полей: можно массово назначить культуру", "Алқаптар таңдалды: дақылды жаппай тағайындауға болады", "Fields selected: you can assign crop in bulk")}
+      <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && closeField()}>
+        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+          <DialogHeader>
+            <div className="flex items-center justify-between gap-2">
+              <DialogTitle>{selectedField ? `Поле ${selectedField.name} — ${fmtHa(selectedField.area)}` : "Поле"}</DialogTitle>
+              <Button variant="outline" onClick={exportFieldPdf} disabled={pdfLoading || !selectedFieldId || !seasonId}>
+                <FileText className="mr-2 h-4 w-4" />{pdfLoading ? "Формирование..." : "PDF поля"}
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-      )}
-      {fields.some((f) => isOverAllocated(f.id)) && (
-        <Alert variant="destructive">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{t("Есть поля с превышением площади", "Ауданы асқан алқаптар бар", "Some fields exceed area")}</AlertDescription>
-        </Alert>
-      )}
-
-      {viewMode === "grid" ? (
-        <TooltipProvider>
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-            {filteredFields.map((field) => {
-              const rows = getCurrentRows(field.id);
-              const status = rowStatus(field.id);
-              const previewHistory = getHistoryRows(field.id, 3);
-              const extraCount = rows.length > 3 ? rows.length - 3 : 0;
-              return (
-                <Tooltip key={field.id}>
-                  <TooltipTrigger asChild>
-                    <Card className="rounded-xl border shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => setSelectedFieldId(field.id)}>
-                      <CardContent className="p-3 space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="font-semibold">{field.name}</div>
-                            <div className="text-xs text-slate-500">{field.area.toFixed(1)} га</div>
-                          </div>
-                          <Checkbox
-                            checked={selectedFields.has(field.id)}
-                            onCheckedChange={(checked) => {
-                              const next = new Set(selectedFields);
-                              if (checked) next.add(field.id);
-                              else next.delete(field.id);
-                              setSelectedFields(next);
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                        <div className="flex flex-wrap gap-1">
-                          {rows.slice(0, 3).map((row, idx) => <Badge key={`${field.id}-${row.crop_id}-${idx}`} variant="outline" className={chipClass(row.crop_id)}>{cropName(row.crop_id)} {row.area.toFixed(0)}га</Badge>)}
-                          {extraCount > 0 && <Badge variant="secondary">+{extraCount}</Badge>}
-                          {rows.length === 0 && <span className="text-xs text-slate-400">{t("Нет плана", "Жоспар жоқ", "No plan")}</span>}
-                        </div>
-                        <div className="flex items-center justify-between">
-                          {rowStatusBadge(status)}
-                          <div className={`text-xs ${isOverAllocated(field.id) ? "text-red-600 font-semibold" : "text-slate-500"}`}>{totalForField(field.id).toFixed(1)} / {field.area.toFixed(1)} га</div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs text-xs space-y-1">
-                    <div className="font-medium">{field.name}</div>
-                    <div>{t("Площадь", "Аудан", "Area")}: {field.area.toFixed(1)} га</div>
-                    <div>{rows.length ? rows.map((r) => `${cropName(r.crop_id)} ${r.area.toFixed(1)}га`).join(", ") : t("Нет плана", "Жоспар жоқ", "No plan")}</div>
-                    {previewHistory.map((h) => {
-                      const main = dominantCropId(h.rows);
-                      return <div key={h.season.id}>{h.season.year} — {main ? cropName(main) : "-"}</div>;
-                    })}
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
-          </div>
-        </TooltipProvider>
-      ) : (
-        <Card>
-          <CardContent className="p-0 overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b bg-slate-50">
-                  <th className="p-2 w-10" />
-                  <th className="p-2 text-left">{t("Поле", "Алқап", "Field")}</th>
-                  <th className="p-2 text-left">{t("План", "Жоспар", "Plan")}</th>
-                  <th className="p-2 text-left">{t("История", "Тарих", "History")}</th>
-                  <th className="p-2 text-left">{t("Статус", "Күй", "Status")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFields.map((field) => {
-                  const status = rowStatus(field.id);
-                  const rows = getCurrentRows(field.id);
-                  const previewHistory = getHistoryRows(field.id, 3);
-                  return (
-                    <tr key={field.id} className="border-b">
-                      <td className="p-2">
-                        <Checkbox
-                          checked={selectedFields.has(field.id)}
-                          onCheckedChange={(checked) => {
-                            const next = new Set(selectedFields);
-                            if (checked) next.add(field.id);
-                            else next.delete(field.id);
-                            setSelectedFields(next);
-                          }}
-                        />
-                      </td>
-                      <td className="p-2">
-                        <button className="text-left hover:underline font-medium" onClick={() => setSelectedFieldId(field.id)}>
-                          {field.name}
-                        </button>
-                        <div className="text-xs text-slate-500">{field.area.toFixed(1)} га</div>
-                      </td>
-                      <td className="p-2">
-                        <div className="flex flex-wrap gap-1">
-                          {rows.map((row, idx) => (
-                            <Badge key={`${field.id}-${row.crop_id}-${idx}`} variant="outline" className={chipClass(row.crop_id)}>
-                              {cropName(row.crop_id)} {row.area.toFixed(0)}га
-                            </Badge>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="p-2 text-xs text-slate-500">
-                        {previewHistory.map((h) => {
-                          const main = dominantCropId(h.rows);
-                          return <div key={h.season.id}>{h.season.year} — {main ? cropName(main) : "-"}</div>;
-                        })}
-                      </td>
-                      <td className="p-2">{rowStatusBadge(status)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </CardContent>
-        </Card>
-      )}
-
-      <Sheet open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && setSelectedFieldId(null)}>
-        <SheetContent className="sm:max-w-xl w-full overflow-y-auto">
-          <SheetHeader>
-            <SheetTitle>{selectedField ? `${selectedField.name} — ${selectedField.area.toFixed(1)} га` : "-"}</SheetTitle>
-          </SheetHeader>
-          <div className="space-y-4 mt-4">
-            <div className="rounded-md border p-3 space-y-2">
-              <div className="font-medium">{t("Структура посевов", "Егіс құрылымы", "Crop structure")}</div>
-              {selectedRows.map((row, idx) => (
-                <div key={`${row.crop_id}-${idx}`} className="grid grid-cols-[1fr_90px_36px] gap-2 items-end">
-                  <Select value={row.crop_id} onValueChange={(value) => patchCropRow(idx, { crop_id: value })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{crops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropName(crop.id)}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <Input type="number" min={0} value={row.area} onChange={(e) => patchCropRow(idx, { area: Number(e.target.value || 0) })} />
-                  <Button variant="ghost" size="icon" onClick={() => removeCropRow(idx)}><X className="h-4 w-4" /></Button>
-                </div>
-              ))}
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={addCropRow}><Plus className="mr-2 h-4 w-4" />{t("Добавить культуру", "Дақыл қосу", "Add crop")}</Button>
-                <Button variant="outline" onClick={fillRemaining}>{t("Заполнить остаток", "Қалдықты толтыру", "Fill remaining")}</Button>
-              </div>
-              <div className="rounded-md bg-slate-50 p-3 text-sm space-y-1">
-                <div>{t("Запланировано", "Жоспарланған", "Planned")}: {selectedFieldId ? totalForField(selectedFieldId).toFixed(2) : "0.00"} га</div>
-                <div className={selectedFieldId && remainingForField(selectedFieldId) < -EPS ? "text-red-600 font-semibold" : ""}>{t("Остаток", "Қалдық", "Remaining")}: {selectedFieldId ? remainingForField(selectedFieldId).toFixed(2) : "0.00"} га</div>
-              </div>
-            </div>
-            <div className="rounded-md border p-3 space-y-2">
-              <div className="font-medium">{t("История севооборота (5 лет)", "Ауыспалы егіс тарихы (5 жыл)", "Rotation history (5 years)")}</div>
-              {selectedFieldId && getHistoryRows(selectedFieldId, 5).map((h) => <div key={h.season.id} className="text-sm"><span className="font-medium">{h.season.year}</span> — {h.rows.length ? h.rows.map((row) => `${cropName(row.crop_id)} (${row.area.toFixed(1)} га)`).join(", ") : "-"}</div>)}
-              {selectedFieldId && (() => {
-                const w = getWarnings(selectedFieldId);
-                if (!w.repeat && !w.noFallow) return null;
-                return <div className="rounded-md bg-amber-50 border border-amber-300 p-2 text-sm space-y-1">{w.repeat && <div>⚠️ {t("Повтор культуры 2 года подряд", "Дақыл 2 жыл қатарынан қайталануда", "Same crop 2 years in a row")}</div>}{w.noFallow && <div>⚠️ {t("Нет парового года", "Пар жылы жоқ", "No fallow year")}</div>}</div>;
-              })()}
-            </div>
+          </DialogHeader>
+          <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={clearCurrentField}>{t("Очистить план", "Жоспарды тазалау", "Clear plan")}</Button>
-              <Button variant="outline" onClick={applyCurrentToSelected} disabled={selectedFields.size === 0}>{t("Дублировать в выбранные", "Таңдалғандарға көшіру", "Duplicate to selected")}</Button>
+              <Button variant={fieldDialogTab === "dossier" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("dossier")}>
+                Агро-контур
+              </Button>
+              <Button variant={fieldDialogTab === "legal" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("legal")}>
+                Юридический контур
+              </Button>
+              <Button variant={fieldDialogTab === "editor" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("editor")}>
+                Редактор структуры
+              </Button>
             </div>
+            {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
+            {fieldDialogTab === "legal" ? renderLegalContour() : null}
+            {fieldDialogTab === "editor" ? renderEditor() : null}
           </div>
-        </SheetContent>
-      </Sheet>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeField}>Закрыть</Button>
+            <Button onClick={save} disabled={saving}>
+              <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

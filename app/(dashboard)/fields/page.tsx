@@ -43,6 +43,12 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import type { Language } from "@/lib/i18n/translations";
 import { localizeUnit } from "@/lib/i18n/helpers";
+import {
+  getFieldDisplayName,
+  getFieldMetadata,
+  getFieldSourceLabel,
+  isGarbageFieldToken,
+} from "@/lib/fields/display";
 
 const pageText: Record<Language, Record<string, string>> = {
   ru: {
@@ -142,6 +148,19 @@ export default function FieldsPage() {
   const { profile } = useAuth();
   const { language } = useLanguage();
   const text = pageText[language];
+
+  const renderFieldNotes = (field: Field) => {
+    const metadata = getFieldMetadata(field);
+    const sourceLabel = getFieldSourceLabel(field);
+    const originalFieldKey = metadata?.original_field_key || null;
+    const showOriginalFieldKey = originalFieldKey && !isGarbageFieldToken(originalFieldKey);
+    if (!sourceLabel && !showOriginalFieldKey) return field.notes || "-";
+    const parts: string[] = [];
+    if (sourceLabel) parts.push(`Источник: ${sourceLabel}`);
+    if (showOriginalFieldKey) parts.push(`Оригинальное поле: ${originalFieldKey}`);
+    if (typeof metadata?.import_row_index === "number") parts.push(`Строка импорта: ${metadata.import_row_index}`);
+    return parts.length > 0 ? parts.join(" · ") : "Импорт структуры 2026";
+  };
 
   useEffect(() => {
     if (profile?.company_id) {
@@ -287,11 +306,13 @@ export default function FieldsPage() {
               ) : (
                 fields.map((field) => (
                   <TableRow key={field.id}>
-                    <TableCell className="font-medium">{field.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div>{getFieldDisplayName(field)}</div>
+                    </TableCell>
                     <TableCell>{field.area.toFixed(2)}</TableCell>
                     <TableCell>{field.soil_type || "-"}</TableCell>
                     <TableCell className="max-w-xs truncate">
-                      {field.notes || "-"}
+                      {renderFieldNotes(field)}
                     </TableCell>
                     <TableCell>
                       {format(new Date(field.created_at), "MMM d, yyyy")}
@@ -348,7 +369,7 @@ export default function FieldsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>{text.archiveTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              {text.archiveDesc} "{fieldToArchive?.name}"? {text.archiveDescTail}
+              {text.archiveDesc} "{fieldToArchive ? getFieldDisplayName(fieldToArchive) : ""}"? {text.archiveDescTail}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

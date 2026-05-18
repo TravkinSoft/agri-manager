@@ -14,6 +14,47 @@ type EntityConfig = {
   beforeUpdate?: (payload: Record<string, any>) => Record<string, any>;
 };
 
+const PLATFORM_GLOBAL_COMPANY_ID = "10000000-0000-0000-0000-000000000001";
+
+function applyGlobalScope(query: any) {
+  return query.or(`company_id.is.null,company_id.eq.${PLATFORM_GLOBAL_COMPANY_ID}`);
+}
+
+function translateModeOfAction(value: any): string {
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return "-";
+  if (key === "systemic") return "Системный";
+  if (key === "contact") return "Контактный";
+  if (key === "translaminar") return "Трансламинарный";
+  if (key === "systemic_local") return "Локально-системный";
+  return String(value);
+}
+
+function translateAgriculturalMachineCategory(value: any): string {
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return "-";
+  if (key === "combine_harvester") return "Комбайн";
+  if (key === "forage_harvester") return "Кормоуборочный комбайн";
+  if (key === "self_propelled_sprayer") return "Самоходный опрыскиватель";
+  if (key === "self_propelled_seeder") return "Самоходная сеялка";
+  if (key === "self_propelled_spreader") return "Самоходный разбрасыватель";
+  if (key === "self_propelled_windrower") return "Самоходная жатка";
+  if (key === "self_propelled_mower") return "Самоходная косилка";
+  if (key === "tractor") return "Трактор";
+  return String(value);
+}
+
+function translateAgriculturalMachineSourceType(value: any): string {
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return "-";
+  if (key === "manufacturer") return "Производитель";
+  if (key === "official_dealer") return "Официальный дилер";
+  if (key === "registry") return "Реестр";
+  if (key === "import_feed") return "Импорт данных";
+  if (key === "manual") return "Ручной ввод";
+  return String(value);
+}
+
 const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
   crops: {
     table: "crops",
@@ -67,44 +108,173 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     table: "products",
     select: "*",
     defaultOrder: "name",
-    scopeWhere: (query) => query.is("company_id", null).eq("type", "pesticide"),
-    searchColumns: ["name", "trade_name", "active_ingredient", "manufacturer", "formulation"],
-    filters: ["pesticide_category", "pesticide_subcategory", "manufacturer", "is_active"],
+    scopeWhere: (query) => query.is("company_id", null).eq("product_type", "pesticide"),
+    searchColumns: ["name", "trade_name"],
+    filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "is_active"],
     normalizeRow: (row) => ({
       ...row,
-      display_name: row.trade_name || row.name,
-      pesticide_subcategory: Array.isArray(row.pesticide_subcategories) ? row.pesticide_subcategories[0] || "-" : "-",
+      trade_name: row.trade_name || row.name || "-",
+      active_ingredients: row.active_ingredients || row.active_ingredient || "-",
+      pesticide_category: row.pesticide_category || "-",
+      mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
+      formulation: row.formulation_name || row.formulation || "-",
+      manufacturer: row.manufacturer_name || row.manufacturer || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
       ...payload,
       type: "pesticide",
+      product_type: "pesticide",
       company_id: null,
       unit: payload.default_unit || "l",
-      pesticide_subcategories: payload.pesticide_subcategory ? [payload.pesticide_subcategory] : [],
-    }),
-    beforeUpdate: (payload) => ({
-      ...payload,
-      pesticide_subcategories: payload.pesticide_subcategory ? [payload.pesticide_subcategory] : [],
     }),
   },
   fertilizers: {
     table: "products",
     select: "*",
     defaultOrder: "name",
-    scopeWhere: (query) => query.is("company_id", null).eq("type", "fertilizer"),
-    searchColumns: ["name", "trade_name", "active_ingredient", "manufacturer", "formulation"],
-    filters: ["fertilizer_type", "manufacturer", "is_active"],
+    scopeWhere: (query) => query.is("company_id", null).eq("product_type", "fertilizer"),
+    searchColumns: ["name", "trade_name"],
+    filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "fertilizer_type", "is_active"],
     normalizeRow: (row) => ({
       ...row,
-      display_name: row.trade_name || row.name,
-      pesticide_subcategory: Array.isArray(row.pesticide_subcategories) ? row.pesticide_subcategories[0] || "-" : "-",
+      trade_name: row.trade_name || row.name || "-",
+      active_ingredients: row.active_ingredients || row.active_ingredient || "-",
+      pesticide_category: row.pesticide_category || "-",
+      mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
+      formulation: row.formulation_name || row.formulation || "-",
+      manufacturer: row.manufacturer_name || row.manufacturer || "-",
+      status: "master",
     }),
     beforeCreate: (payload) => ({
       ...payload,
       type: "fertilizer",
+      product_type: "fertilizer",
       company_id: null,
       unit: payload.default_unit || "kg",
+    }),
+  },
+  growth_regulators: {
+    table: "products",
+    select: "*",
+    defaultOrder: "name",
+    scopeWhere: (query) => query.is("company_id", null).eq("product_type", "growth_regulator"),
+    searchColumns: ["name", "trade_name"],
+    filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "is_active"],
+    normalizeRow: (row) => ({
+      ...row,
+      trade_name: row.trade_name || row.name || "-",
+      active_ingredients: row.active_ingredients || row.active_ingredient || "-",
+      pesticide_category: row.pesticide_category || "-",
+      mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
+      formulation: row.formulation_name || row.formulation || "-",
+      manufacturer: row.manufacturer_name || row.manufacturer || "-",
+      status: "master",
+    }),
+    beforeCreate: (payload) => ({
+      ...payload,
+      type: "pesticide",
+      product_type: "growth_regulator",
+      company_id: null,
+      unit: payload.default_unit || "l",
+    }),
+  },
+  pesticide_categories: {
+    table: "pesticide_categories",
+    select: "id,name_ru,name_en,slug,description,is_active,archived,updated_at,created_at",
+    defaultOrder: "name_ru",
+    scopeWhere: (query) => query,
+    searchColumns: ["name_ru", "name_en", "slug", "description"],
+    filters: ["is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      slug: String(payload.slug || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_/-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, ""),
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      ...(payload.slug
+        ? {
+            slug: String(payload.slug)
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9_/-]+/g, "-")
+              .replace(/-+/g, "-")
+              .replace(/^-|-$/g, ""),
+          }
+        : {}),
+    }),
+  },
+  active_ingredients: {
+    table: "active_ingredients",
+    select: "id,name_ru,name_en,slug,ingredient_type,description,is_active,archived,updated_at,created_at",
+    defaultOrder: "name_ru",
+    scopeWhere: (query) => query,
+    searchColumns: ["name_ru", "name_en", "slug", "description"],
+    filters: ["ingredient_type", "is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      slug: String(payload.slug || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_/-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, ""),
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      ...(payload.slug
+        ? {
+            slug: String(payload.slug)
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9_/-]+/g, "-")
+              .replace(/-+/g, "-")
+              .replace(/^-|-$/g, ""),
+          }
+        : {}),
+    }),
+  },
+  agrochem_manufacturers: {
+    table: "agrochem_manufacturers",
+    select: "id,name,is_active,archived,updated_at,created_at",
+    defaultOrder: "name",
+    scopeWhere: (query) => query,
+    searchColumns: ["name"],
+    filters: ["is_active"],
+  },
+  agrochem_formulations: {
+    table: "agrochem_formulations",
+    select: "id,code,name_ru,is_active,archived,updated_at,created_at",
+    defaultOrder: "code",
+    scopeWhere: (query) => query,
+    searchColumns: ["code", "name_ru"],
+    filters: ["is_active"],
+  },
+  agrochem_mode_of_actions: {
+    table: "agrochem_mode_of_actions",
+    select: "id,slug,name_ru,is_active,archived,updated_at,created_at",
+    defaultOrder: "name_ru",
+    scopeWhere: (query) => query,
+    searchColumns: ["slug", "name_ru"],
+    filters: ["is_active"],
+  },
+  agricultural_machine_models: {
+    table: "agricultural_machine_models",
+    select:
+      "id,category,brand,series,model,full_name,power_hp,engine,tank_volume_l,grain_tank_l,working_width_m,power_class,dealer_name,presence_in_kz,source_url,source_type,is_active,notes,archived,updated_at,created_at",
+    defaultOrder: "full_name",
+    scopeWhere: (query) => query,
+    searchColumns: ["full_name", "brand", "series", "model", "dealer_name", "engine", "power_class"],
+    filters: ["category", "brand", "series", "is_active"],
+    normalizeRow: (row) => ({
+      ...row,
+      category: translateAgriculturalMachineCategory(row.category),
+      source_type: translateAgriculturalMachineSourceType(row.source_type),
     }),
   },
   machinery: {
@@ -112,7 +282,7 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     select:
       "id,name,full_name,brand,series,model,machine_category,machine_type,key_parameter,is_active,archived,updated_at,created_at",
     defaultOrder: "full_name",
-    scopeWhere: (query) => query.is("company_id", null),
+    scopeWhere: (query) => applyGlobalScope(query),
     searchColumns: ["name", "full_name", "brand", "series", "model", "machine_type"],
     filters: ["machine_category", "brand", "machine_type", "is_active"],
     beforeCreate: (payload) => ({
@@ -132,7 +302,7 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     select:
       "id,name,full_name,brand,series,model,equipment_category,purpose,key_parameter,is_active,archived,updated_at,created_at",
     defaultOrder: "full_name",
-    scopeWhere: (query) => query.is("company_id", null),
+    scopeWhere: (query) => applyGlobalScope(query),
     searchColumns: ["name", "full_name", "brand", "series", "model", "purpose"],
     filters: ["equipment_category", "brand", "is_active"],
     beforeCreate: (payload) => ({
@@ -148,27 +318,20 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     }),
   },
   fleet: {
-    table: "reference_vehicles",
+    table: "transport_models",
     select:
-      "id,name,full_name,brand,series,model,fleet_type,capacity_kg,is_active,archived,updated_at,created_at",
+      "id,category,brand,series,model,full_name,engine,dealer_name,presence_in_kz,is_active,notes,archived,updated_at,created_at",
     defaultOrder: "full_name",
-    scopeWhere: (query) => query.is("company_id", null),
-    searchColumns: ["name", "full_name", "brand", "series", "model", "fleet_type"],
-    filters: ["fleet_type", "brand", "is_active"],
+    scopeWhere: (query) => query,
+    searchColumns: ["full_name", "brand", "series", "model", "engine", "dealer_name"],
+    filters: ["category", "brand", "is_active"],
     beforeCreate: (payload) => ({
       ...payload,
-      name: payload.name || payload.full_name,
-      vehicle_type: payload.fleet_type || payload.vehicle_type || "truck",
-      plate_number: payload.plate_number || `GLOBAL-${Date.now()}`,
-      capacity_kg: Number(payload.capacity_kg || 0),
-      status: payload.status || "free",
-      company_id: null,
+      category: payload.category || "truck",
     }),
     beforeUpdate: (payload) => ({
       ...payload,
-      name: payload.name || payload.full_name,
-      vehicle_type: payload.fleet_type || payload.vehicle_type || "truck",
-      capacity_kg: payload.capacity_kg == null ? undefined : Number(payload.capacity_kg),
+      category: payload.category || "truck",
     }),
   },
 };
@@ -178,6 +341,25 @@ function parseBool(value: string | null): boolean | null {
   if (value === "true") return true;
   if (value === "false") return false;
   return null;
+}
+
+function isUuidLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function resolvePesticideCategoryIdBySlug(supabase: any, slugOrId: string | null | undefined) {
+  const value = String(slugOrId || "").trim();
+  if (!value) return null;
+  if (isUuidLike(value)) return value;
+
+  const { data } = await supabase
+    .from("pesticide_categories")
+    .select("id")
+    .eq("archived", false)
+    .ilike("slug", value)
+    .maybeSingle();
+
+  return data?.id || null;
 }
 
 async function assertGlobalAdmin(userId: string) {
@@ -242,6 +424,147 @@ async function attachCropNamesToVarieties(supabase: any, rows: any[]) {
   }));
 }
 
+async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
+  if (!rows.length) return rows;
+
+  const productIds = Array.from(new Set(rows.map((row) => row.id).filter(Boolean)));
+  if (!productIds.length) {
+    return rows.map((row) => ({ ...row, active_ingredient: "-", active_ingredients: "-" }));
+  }
+
+  const { data: links, error: linksError } = await supabase
+    .from("product_active_ingredients")
+    .select("product_id, active_ingredient_id, sort_order")
+    .in("product_id", productIds);
+
+  if (linksError || !links?.length) {
+    return rows.map((row) => ({ ...row, active_ingredient: "-", active_ingredients: "-" }));
+  }
+
+  const ingredientIds = Array.from(
+    new Set(links.map((link: any) => link.active_ingredient_id).filter(Boolean))
+  );
+
+  if (!ingredientIds.length) {
+    return rows.map((row) => ({ ...row, active_ingredient: "-", active_ingredients: "-" }));
+  }
+
+  const { data: ingredients, error: ingredientsError } = await supabase
+    .from("active_ingredients")
+    .select("id, name_ru, name_en, slug")
+    .in("id", ingredientIds)
+    .eq("archived", false);
+
+  if (ingredientsError || !ingredients?.length) {
+    return rows.map((row) => ({ ...row, active_ingredient: "-", active_ingredients: "-" }));
+  }
+
+  const ingredientNameById = new Map<string, string>();
+  for (const ingredient of ingredients) {
+    ingredientNameById.set(
+      ingredient.id,
+      ingredient.name_ru || ingredient.name_en || ingredient.slug || "-"
+    );
+  }
+
+  const linksByProductId = new Map<string, any[]>();
+  for (const link of links) {
+    const list = linksByProductId.get(link.product_id) || [];
+    list.push(link);
+    linksByProductId.set(link.product_id, list);
+  }
+
+  const categoryIds = Array.from(new Set(rows.map((row) => row.category_id).filter(Boolean)));
+  const manufacturerIds = Array.from(new Set(rows.map((row) => row.manufacturer_id).filter(Boolean)));
+  const formulationIds = Array.from(new Set(rows.map((row) => row.formulation_id).filter(Boolean)));
+  const modeIds = Array.from(new Set(rows.map((row) => row.mode_of_action_type_id).filter(Boolean)));
+
+  const [categoryRes, manufacturerRes, formulationRes, modeRes] = await Promise.all([
+    categoryIds.length
+      ? supabase.from("pesticide_categories").select("id,name_ru,slug").in("id", categoryIds)
+      : Promise.resolve({ data: [], error: null }),
+    manufacturerIds.length
+      ? supabase.from("agrochem_manufacturers").select("id,name").in("id", manufacturerIds)
+      : Promise.resolve({ data: [], error: null }),
+    formulationIds.length
+      ? supabase.from("agrochem_formulations").select("id,code,name_ru").in("id", formulationIds)
+      : Promise.resolve({ data: [], error: null }),
+    modeIds.length
+      ? supabase.from("agrochem_mode_of_actions").select("id,slug,name_ru").in("id", modeIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  const categoryMap = new Map<string, string>((categoryRes.data || []).map((c: any) => [c.id, c.name_ru || c.slug || "-"]));
+  const manufacturerMap = new Map<string, string>((manufacturerRes.data || []).map((m: any) => [m.id, m.name || "-"]));
+  const formulationMap = new Map<string, string>((formulationRes.data || []).map((f: any) => [f.id, f.name_ru || f.code || "-"]));
+  const modeMap = new Map<string, string>((modeRes.data || []).map((m: any) => [m.id, m.name_ru || translateModeOfAction(m.slug)]));
+
+  return rows.map((row) => {
+    const productLinks = (linksByProductId.get(row.id) || []).sort((a, b) => {
+      const sa = a.sort_order ?? 999999;
+      const sb = b.sort_order ?? 999999;
+      return sa - sb;
+    });
+
+    const dedup = new Set<string>();
+    const names: string[] = [];
+
+    for (const link of productLinks) {
+      const name = ingredientNameById.get(link.active_ingredient_id);
+      if (!name || name === "-") continue;
+      const key = name.trim().toLowerCase();
+      if (!key || dedup.has(key)) continue;
+      dedup.add(key);
+      names.push(name);
+    }
+
+    const text = names.length ? names.join(", ") : "-";
+
+    return {
+      ...row,
+      active_ingredient: text,
+      active_ingredients: text,
+      pesticide_category:
+        categoryMap.get(row.category_id) ||
+        row.pesticide_category ||
+        row.category_slug ||
+        row.source_category_slug ||
+        "-",
+      manufacturer_name: manufacturerMap.get(row.manufacturer_id) || row.manufacturer || "-",
+      formulation_name: formulationMap.get(row.formulation_id) || row.formulation || "-",
+      mode_of_action_type_name:
+        modeMap.get(row.mode_of_action_type_id) || translateModeOfAction(row.mode_of_action_type),
+    };
+  });
+}
+
+async function syncProductActiveIngredients(
+  supabase: any,
+  productId: string,
+  activeIngredientIds: string[] | undefined
+) {
+  if (!Array.isArray(activeIngredientIds)) return;
+
+  const validIds = Array.from(
+    new Set(activeIngredientIds.map((id) => String(id || "").trim()).filter((id) => isUuidLike(id)))
+  );
+
+  await supabase.from("product_active_ingredients").delete().eq("product_id", productId);
+
+  if (!validIds.length) return;
+
+  const payload = validIds.map((activeIngredientId, index) => ({
+    product_id: productId,
+    active_ingredient_id: activeIngredientId,
+    sort_order: index + 1,
+  }));
+
+  await supabase
+    .from("product_active_ingredients")
+    .insert(payload)
+    .select("product_id");
+}
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ entity: string }> }
@@ -286,6 +609,42 @@ export async function GET(
         continue;
       }
 
+      if (filterKey === "category_id") {
+        const resolvedCategoryId = await resolvePesticideCategoryIdBySlug(supabase, value);
+        if (resolvedCategoryId) {
+          query = query.eq("category_id", resolvedCategoryId);
+        } else {
+          query = query.eq("category_id", "00000000-0000-0000-0000-000000000000");
+        }
+        continue;
+      }
+
+      if (filterKey === "active_ingredient_ids") {
+        const ingredientIds = String(value)
+          .split(",")
+          .map((item) => item.trim())
+          .filter((item) => item && isUuidLike(item));
+        if (!ingredientIds.length) continue;
+
+        const { data: matchedLinks } = await supabase
+          .from("product_active_ingredients")
+          .select("product_id,active_ingredient_id")
+          .in("active_ingredient_id", ingredientIds);
+
+        const productIdSet = new Set<string>();
+        for (const link of matchedLinks || []) {
+          if (link.product_id) productIdSet.add(link.product_id);
+        }
+
+        const productIds = Array.from(productIdSet);
+        if (!productIds.length) {
+          query = query.eq("id", "00000000-0000-0000-0000-000000000000");
+        } else {
+          query = query.in("id", productIds);
+        }
+        continue;
+      }
+
       query = query.eq(filterKey, value);
     }
 
@@ -295,10 +654,28 @@ export async function GET(
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     const rawRows = data || [];
-    const hydratedRows =
-      entity === "varieties"
-        ? await attachCropNamesToVarieties(supabase, rawRows)
-        : rawRows;
+    let hydratedRows = rawRows;
+    if (entity === "varieties") {
+      hydratedRows = await attachCropNamesToVarieties(supabase, rawRows);
+    } else if (entity === "pesticides" || entity === "fertilizers") {
+      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
+    } else if (entity === "growth_regulators") {
+      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
+    }
+
+    if (search && (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators")) {
+      const normalizedSearch = search.toLowerCase();
+      hydratedRows = hydratedRows.filter((row: any) => {
+        const tradeName = String(row.trade_name || row.name || "").toLowerCase();
+        const ingredients = String(row.active_ingredients || row.active_ingredient || "").toLowerCase();
+        const manufacturer = String(row.manufacturer_name || row.manufacturer || "").toLowerCase();
+        return (
+          tradeName.includes(normalizedSearch) ||
+          ingredients.includes(normalizedSearch) ||
+          manufacturer.includes(normalizedSearch)
+        );
+      });
+    }
 
     const rows = hydratedRows.map((row: any) => (config.normalizeRow ? config.normalizeRow(row) : row));
     return NextResponse.json({ rows });
@@ -325,6 +702,41 @@ export async function POST(
     const supabase = await assertGlobalAdmin(userId);
     const payload = sanitizePayload(body?.payload || {});
     const normalized = config.beforeCreate ? config.beforeCreate(payload) : payload;
+    const selectedActiveIngredientIds = Array.isArray(normalized.active_ingredient_ids)
+      ? normalized.active_ingredient_ids
+      : undefined;
+    delete normalized.active_ingredient_ids;
+    if ((entity === "pesticides" || entity === "fertilizers") && !normalized.category_id) {
+      normalized.category_id = await resolvePesticideCategoryIdBySlug(
+        supabase,
+        normalized.pesticide_category || normalized.category_slug || normalized.source_category_slug
+      );
+    }
+
+    if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+      const tradeName = String(normalized.trade_name || normalized.name || "").trim();
+      if (!tradeName) {
+        return NextResponse.json({ error: "Торговое название обязательно" }, { status: 400 });
+      }
+      if (!normalized.category_id) {
+        return NextResponse.json({ error: "Категория обязательна" }, { status: 400 });
+      }
+      if (!selectedActiveIngredientIds?.length) {
+        return NextResponse.json({ error: "Выберите минимум одно действующее вещество" }, { status: 400 });
+      }
+
+      const { data: existedProduct } = await supabase
+        .from("products")
+        .select("id")
+        .is("company_id", null)
+        .eq("archived", false)
+        .ilike("trade_name", tradeName)
+        .maybeSingle();
+      if (existedProduct?.id) {
+        return NextResponse.json({ error: "Продукт с таким торговым названием уже существует" }, { status: 400 });
+      }
+    }
+
     normalized.user_id = userId;
     normalized.archived = false;
     if (normalized.is_active == null) normalized.is_active = true;
@@ -332,10 +744,21 @@ export async function POST(
     const { data, error } = await supabase.from(config.table).insert(normalized).select(config.select).single();
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-    const hydratedRows =
-      entity === "varieties"
-        ? await attachCropNamesToVarieties(supabase, [data])
-        : [data];
+    if (
+      (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") &&
+      data &&
+      typeof data === "object" &&
+      "id" in data
+    ) {
+      await syncProductActiveIngredients(supabase, String((data as any).id), selectedActiveIngredientIds);
+    }
+
+    let hydratedRows = [data];
+    if (entity === "varieties") {
+      hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
+    } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+      hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
+    }
     const row = hydratedRows[0];
 
     return NextResponse.json({ row: config.normalizeRow ? config.normalizeRow(row) : row });
@@ -363,6 +786,34 @@ export async function PATCH(
     const supabase = await assertGlobalAdmin(userId);
     const payload = sanitizePayload(body?.payload || {});
     const normalized = config.beforeUpdate ? config.beforeUpdate(payload) : payload;
+    const selectedActiveIngredientIds = Array.isArray(normalized.active_ingredient_ids)
+      ? normalized.active_ingredient_ids
+      : undefined;
+    delete normalized.active_ingredient_ids;
+    if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+      const nextCategoryId = await resolvePesticideCategoryIdBySlug(
+        supabase,
+        normalized.category_id || normalized.pesticide_category || normalized.category_slug || normalized.source_category_slug
+      );
+      if (nextCategoryId) {
+        normalized.category_id = nextCategoryId;
+      }
+
+      const nextTradeName = String(normalized.trade_name || normalized.name || "").trim();
+      if (nextTradeName) {
+        const { data: existedProduct } = await supabase
+          .from("products")
+          .select("id")
+          .is("company_id", null)
+          .eq("archived", false)
+          .ilike("trade_name", nextTradeName)
+          .neq("id", id)
+          .maybeSingle();
+        if (existedProduct?.id) {
+          return NextResponse.json({ error: "Продукт с таким торговым названием уже существует" }, { status: 400 });
+        }
+      }
+    }
 
     const { data, error } = await supabase
       .from(config.table)
@@ -372,10 +823,20 @@ export async function PATCH(
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    const hydratedRows =
-      entity === "varieties"
-        ? await attachCropNamesToVarieties(supabase, [data])
-        : [data];
+    if (
+      (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") &&
+      data &&
+      typeof data === "object" &&
+      "id" in data
+    ) {
+      await syncProductActiveIngredients(supabase, String((data as any).id), selectedActiveIngredientIds);
+    }
+    let hydratedRows = [data];
+    if (entity === "varieties") {
+      hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
+    } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+      hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
+    }
     const row = hydratedRows[0];
 
     return NextResponse.json({ row: config.normalizeRow ? config.normalizeRow(row) : row });

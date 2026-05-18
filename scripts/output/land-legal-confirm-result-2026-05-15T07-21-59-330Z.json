@@ -1,0 +1,15 @@
+{
+  "ok": true,
+  "import_batch_id": "32e6ab36-7288-4eb4-abfa-c14322b8d983",
+  "inserted_links": 31,
+  "created_cadastres": 18,
+  "created_legal_entities": 1,
+  "skipped_rows": 1,
+  "warnings_count": 1,
+  "errors_count": 0,
+  "warnings": [
+    "row 44: suspected_cadastre_typo_no_autocorrect"
+  ],
+  "errors": [],
+  "report_path": "scripts/output/land-legal-docx-dry-run-2026-05-15T07-21-13-548Z.json"
+}

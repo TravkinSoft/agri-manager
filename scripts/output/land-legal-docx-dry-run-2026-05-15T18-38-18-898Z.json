@@ -1,0 +1,188 @@
+{
+  "generated_at": "2026-05-15T18:38:18.896Z",
+  "policy": {
+    "seasonYearOnly": 2026,
+    "legalSnapshotOnly": true,
+    "retroHistoryGeneration": false,
+    "ownershipAssumptions": false
+  },
+  "matcher_bundle": {
+    "hard_rules": {
+      "fieldPreferredByToken": [
+        "6",
+        "10",
+        "19",
+        "23",
+        "50",
+        "51",
+        "53",
+        "65",
+        "14-1",
+        "49-2",
+        "49-1",
+        "64-1",
+        "9-1",
+        "9-2",
+        "50-1",
+        "2-3",
+        "2-2",
+        "4-1"
+      ],
+      "fieldBlacklistByToken": [
+        "1",
+        "3",
+        "6",
+        "19"
+      ],
+      "ku_rule": "for (КУ) or Круг №N prefer ку-N-1, then N-1",
+      "aggregate_skip": [
+        "Итого",
+        "Всего",
+        "Масличных",
+        "Зернобобовых",
+        "empty summary rows"
+      ]
+    },
+    "heuristic_rules": {
+      "preferExactToken": true,
+      "preferSuffixOne": true,
+      "preferKuForKuTokens": true
+    },
+    "manual_required_rules": {
+      "field_tokens": [
+        "28",
+        "16",
+        "52-2",
+        "61",
+        "66",
+        "2-1",
+        "2-2",
+        "50",
+        "4",
+        "4-1",
+        "4-4"
+      ]
+    },
+    "crop_aliases_count": 37
+  },
+  "input_documents": [
+    {
+      "file": "посев 2026 стем.tmp.docx",
+      "path": "C:\\Users\\TRAVKIN\\Downloads\\посев 2026 стем.tmp.docx",
+      "table_rows": 98,
+      "parsed_rows": 0,
+      "season_year": 2026,
+      "company_hint": "stem",
+      "resolved_company_id": "10000000-0000-0000-0000-000000000001",
+      "resolved_company_name": "ТОО \"Астык-STEM\"",
+      "source_document": "посев 2026 стем.tmp.docx",
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "path": "C:\\Users\\TRAVKIN\\Downloads\\посев 2026 карагаш.docx",
+      "table_rows": 47,
+      "parsed_rows": 0,
+      "season_year": 2026,
+      "company_hint": "karagash",
+      "resolved_company_id": "10000000-0000-0000-0000-000000000001",
+      "resolved_company_name": "ТОО \"Астык-STEM\"",
+      "source_document": "посев 2026 карагаш.docx",
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-Караагаш\""
+    }
+  ],
+  "summary": {
+    "rows_total": 0,
+    "rows_skipped_by_season_rule": 0,
+    "rows_skipped_aggregate": 0,
+    "skipped_manual": 0,
+    "fields_matched": 0,
+    "fields_unmatched": 0,
+    "fields_ambiguous": 0,
+    "crops_matched": 0,
+    "crops_unmatched": 0,
+    "cadastral_existing": 0,
+    "cadastral_to_create": 0,
+    "links_to_create": 0,
+    "duplicate_cadastres": 0,
+    "duplicate_field_links": 0,
+    "conflicts": 0,
+    "manual_required_count": 0,
+    "remaining_manual_required": 0,
+    "unresolved_count": 0
+  },
+  "company_breakdown": {
+    "посев 2026 стем.tmp.docx": {
+      "file": "посев 2026 стем.tmp.docx",
+      "company_hint": "stem",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "company_name": "ТОО \"Астык-STEM\"",
+      "season_year": 2026,
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "raw_rows": 98,
+      "usable_rows": 0,
+      "rows_skipped_by_season_rule": 0,
+      "rows_skipped_aggregate": 0,
+      "skipped_manual": 0,
+      "fields_matched": 0,
+      "fields_unmatched": 0,
+      "fields_ambiguous": 0,
+      "crops_matched": 0,
+      "crops_unmatched": 0,
+      "cadastral_existing": 0,
+      "cadastral_to_create": 0,
+      "links_to_create": 0,
+      "duplicate_cadastres": 0,
+      "duplicate_field_links": 0,
+      "conflicts": 0,
+      "manual_required_count": 0,
+      "remaining_manual_required": 0,
+      "unresolved_count": 0
+    },
+    "посев 2026 карагаш.docx": {
+      "file": "посев 2026 карагаш.docx",
+      "company_hint": "karagash",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "company_name": "ТОО \"Астык-STEM\"",
+      "season_year": 2026,
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "raw_rows": 47,
+      "usable_rows": 0,
+      "rows_skipped_by_season_rule": 0,
+      "rows_skipped_aggregate": 0,
+      "skipped_manual": 0,
+      "fields_matched": 0,
+      "fields_unmatched": 0,
+      "fields_ambiguous": 0,
+      "crops_matched": 0,
+      "crops_unmatched": 0,
+      "cadastral_existing": 0,
+      "cadastral_to_create": 0,
+      "links_to_create": 0,
+      "duplicate_cadastres": 0,
+      "duplicate_field_links": 0,
+      "conflicts": 0,
+      "manual_required_count": 0,
+      "remaining_manual_required": 0,
+      "unresolved_count": 0
+    }
+  },
+  "usage_legal_entities_to_create": [
+    {
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "company_name": "ТОО \"Астык-STEM\"",
+      "usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "source_document": "посев 2026 стем.tmp.docx"
+    }
+  ],
+  "prepared_rows": [],
+  "warnings": [],
+  "conflicts_sample": [],
+  "unmatched_rows_sample": [],
+  "manual_review_table": [],
+  "many_to_many_examples": {
+    "field_to_many_cadastres": [],
+    "cadastre_to_many_fields": [],
+    "cadastre_to_many_crops": []
+  }
+}

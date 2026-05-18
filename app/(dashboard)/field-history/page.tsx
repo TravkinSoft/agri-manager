@@ -25,6 +25,7 @@ import {
 } from "@/lib/services/field-history";
 import { supabase } from "@/lib/supabase/client";
 import { useLanguage } from "@/lib/contexts/language-context";
+import { getFieldDisplayName } from "@/lib/fields/display";
 
 const statusColors: Record<string, string> = {
   planned: "bg-slate-100 text-slate-800 hover:bg-slate-100",
@@ -46,11 +47,15 @@ export default function FieldHistoryPage() {
     async function loadFields() {
       const { data } = await supabase
         .from("fields")
-        .select("id, name")
+        .select("id, name, notes")
         .eq("archived", false)
         .order("name");
 
-      setFields(data || []);
+      const normalized = (data || []).map((field: any) => ({
+        id: String(field.id),
+        name: getFieldDisplayName(field),
+      }));
+      setFields(normalized);
     }
 
     loadFields();

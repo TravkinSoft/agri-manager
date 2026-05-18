@@ -1,0 +1,78 @@
+export type AssistantDebugSettingsSource = "db" | "env" | "default" | "legacy" | "unknown";
+
+export type AssistantDebugAnswerSource =
+  | "tools"
+  | "llm_fallback"
+  | "policy_block"
+  | "disabled"
+  | "access_denied"
+  | "no_data"
+  | "unknown";
+
+export type AssistantDebugToolLog = {
+  tool: string;
+  ok: boolean;
+  rows: number;
+  error: string | null;
+};
+
+export type AssistantDebugMetadata = {
+  generatedAt: string;
+  model: {
+    provider: string | null;
+    configuredModel: string | null;
+    actualModel: string | null;
+    settingsSource: AssistantDebugSettingsSource;
+    temperature: number | null;
+    reasoningEffort: string | null;
+    requestMode: string | null;
+  };
+  access: {
+    role: string | null;
+    authUserId: string | null;
+    profileId: string | null;
+    companyId: string | null;
+    companyName: string | null;
+    companyContextSource: string | null;
+  };
+  runtime: {
+    currentPage: string | null;
+    currentRoute: string | null;
+    currentEntity: string | null;
+    selectedRowsCount: number;
+    activeFiltersCount: number;
+    season: string | null;
+    locale: string | null;
+  };
+  engine: {
+    endpoint: string;
+    engineVersion: string;
+    intent: string | null;
+    grounded: boolean | null;
+    answerSource: AssistantDebugAnswerSource;
+    navigationIntentDetected: boolean;
+    navigationActionCreated: boolean;
+    navigationActionExecuted: boolean | null;
+    targetRoute: string | null;
+    routerError: string | null;
+    toolCount: number;
+    usedTools: AssistantDebugToolLog[];
+    lastToolError: string | null;
+  };
+  memory: {
+    sessionId: string | null;
+    lastCrop: string | null;
+    lastVariety: string | null;
+    lastWarehouse: string | null;
+    lastField: string | null;
+    lastIntent: string | null;
+    followUpActive: boolean;
+  };
+  performance: {
+    latencyMs: number | null;
+    promptTokens: number | null;
+    completionTokens: number | null;
+    totalTokens: number | null;
+  };
+  warnings: string[];
+};

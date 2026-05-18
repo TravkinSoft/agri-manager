@@ -177,24 +177,33 @@ export async function getInventorySummary(): Promise<InventorySummary[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const { data: transactions, error } = await supabase
-    .from("inventory_transactions")
-    .select(`
-      product_id,
-      warehouse_id,
-      quantity,
-      transaction_type,
-      products (
-        name,
-        type
-      )
-    `)
-    .eq("user_id", user.id);
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("company_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (!profile?.company_id) return [];
+
+  const { data: balances, error } = await supabase
+    .from("v_stock_balance_canonical")
+    .select("product_id, warehouse_id, quantity")
+    .eq("company_id", profile.company_id);
 
   if (error) {
     console.error("Error fetching inventory summary:", error);
     return [];
   }
+
+  const productIds = Array.from(
+    new Set((balances || []).map((row: any) => String(row.product_id || "")).filter(Boolean))
+  );
+
+  const productsRes = productIds.length
+    ? await supabase.from("products").select("id,name,type,product_type").in("id", productIds)
+    : ({ data: [], error: null } as any);
+
+  const productById = new Map<string, any>();
+  (productsRes.data || []).forEach((row: any) => productById.set(String(row.id), row));
 
   const inventoryMap = new Map<
     string,
@@ -206,13 +215,13 @@ export async function getInventorySummary(): Promise<InventorySummary[]> {
     }
   >();
 
-  transactions?.forEach((record: any) => {
+  (balances || []).forEach((record: any) => {
     const productId = record.product_id;
-    const productName = record.products?.name || "Unknown";
-    const productType = record.products?.type || "unknown";
+    const product = productById.get(String(productId));
+    const productName = product?.name || "Unknown";
+    const productType = product?.product_type || product?.type || "unknown";
     const warehouseId = record.warehouse_id;
-    const quantity =
-      record.transaction_type === "in" ? Number(record.quantity) : -Number(record.quantity);
+    const quantity = Number(record.quantity || 0);
 
     if (inventoryMap.has(productId)) {
       const existing = inventoryMap.get(productId)!;

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowRightCircle, Building2, Plus } from "lucide-react";
+import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +23,20 @@ type CompanyItem = {
   name: string;
 };
 
+async function buildAuthHeaders(contentType: "json" | "none" = "none") {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data?.session?.access_token) {
+    throw new Error("Сессия истекла. Войдите снова.");
+  }
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${data.session.access_token}`,
+  };
+  if (contentType === "json") {
+    headers["Content-Type"] = "application/json";
+  }
+  return headers;
+}
+
 export default function PlatformCompaniesPage() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -35,10 +50,7 @@ export default function PlatformCompaniesPage() {
   const [newAdminFullName, setNewAdminFullName] = useState("");
 
   const canCreate = useMemo(
-    () =>
-      Boolean(newCompanyName.trim()) &&
-      Boolean(newAdminEmail.trim()) &&
-      Boolean(newAdminFullName.trim()),
+    () => Boolean(newCompanyName.trim()) && Boolean(newAdminEmail.trim()) && Boolean(newAdminFullName.trim()),
     [newCompanyName, newAdminEmail, newAdminFullName]
   );
 
@@ -46,7 +58,8 @@ export default function PlatformCompaniesPage() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const response = await fetch(`/api/global-admin/companies?userId=${encodeURIComponent(user.id)}`);
+      const headers = await buildAuthHeaders("none");
+      const response = await fetch("/api/global-admin/companies", { method: "GET", headers, cache: "no-store" });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить компании");
       setCompanies(Array.isArray(payload?.companies) ? payload.companies : []);
@@ -68,10 +81,11 @@ export default function PlatformCompaniesPage() {
   const openCompanyContext = async (companyId: string) => {
     if (!user?.id) return;
     try {
+      const headers = await buildAuthHeaders("json");
       const response = await fetch("/api/global-admin/companies", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, companyId }),
+        headers,
+        body: JSON.stringify({ companyId }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось открыть компанию");
@@ -89,9 +103,10 @@ export default function PlatformCompaniesPage() {
     if (!user?.id || !canCreate || submitting) return;
     setSubmitting(true);
     try {
+      const headers = await buildAuthHeaders("json");
       const response = await fetch("/api/global-admin/create-company", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           actorUserId: user.id,
           companyName: newCompanyName.trim(),
@@ -139,11 +154,9 @@ export default function PlatformCompaniesPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           {loading ? <p className="text-sm text-slate-500">Загрузка...</p> : null}
-          {!loading && companies.length === 0 ? (
-            <p className="text-sm text-slate-500">Компаний пока нет.</p>
-          ) : null}
+          {!loading && companies.length === 0 ? <p className="text-sm text-slate-500">Компаний пока нет.</p> : null}
           {companies.map((company) => (
-            <div key={company.id} className="rounded-lg border p-3 flex items-center justify-between gap-3">
+            <div key={company.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
               <div className="flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-slate-500" />
                 <span className="font-medium">{company.name}</span>
@@ -161,9 +174,7 @@ export default function PlatformCompaniesPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Новая компания</DialogTitle>
-            <DialogDescription>
-              Укажите данные компании и первого администратора компании.
-            </DialogDescription>
+            <DialogDescription>Укажите данные компании и первого администратора компании.</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-2">
@@ -172,11 +183,7 @@ export default function PlatformCompaniesPage() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="companyAdminName">ФИО первого администратора компании</Label>
-              <Input
-                id="companyAdminName"
-                value={newAdminFullName}
-                onChange={(e) => setNewAdminFullName(e.target.value)}
-              />
+              <Input id="companyAdminName" value={newAdminFullName} onChange={(e) => setNewAdminFullName(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="companyAdminEmail">Email первого администратора компании</Label>

@@ -112,26 +112,19 @@ function applyMovementToBalances(
 
 async function loadConfirmedBalanceMap(companyId: string): Promise<BalanceMap> {
   const { data, error } = await supabase
-    .from("inventory_transactions")
-    .select(
-      "warehouse_id, product_id, quantity, transaction_type, movement_type, status, source_warehouse_id, destination_warehouse_id"
-    )
+    .from("v_stock_balance_canonical")
+    .select("warehouse_id, product_id, quantity")
     .eq("company_id", companyId);
 
   if (error) throw new Error(error.message);
 
   const map: BalanceMap = new Map();
   (data || []).forEach((row: any) => {
-    applyMovementToBalances(map, {
-      status: row.status,
-      movementType: normalizeMovementType(row.movement_type, row.transaction_type),
-      direction: row.transaction_type === "in" ? "in" : "out",
-      sourceWarehouseId: row.source_warehouse_id,
-      destinationWarehouseId: row.destination_warehouse_id,
-      warehouseId: row.warehouse_id,
-      productId: String(row.product_id),
-      quantity: toNumber(row.quantity),
-    });
+    const warehouseId = String(row.warehouse_id || "");
+    const productId = String(row.product_id || "");
+    if (!warehouseId || !productId) return;
+    const key = `${warehouseId}|${productId}`;
+    map.set(key, toNumber(row.quantity));
   });
   return map;
 }
@@ -496,160 +489,217 @@ export async function deleteInventoryTransaction(transactionId: string): Promise
 }
 
 export async function getInventoryBalances(companyId: string, language: Language = "ru"): Promise<InventoryBalance[]> {
-  const { data, error } = await supabase
-    .from("inventory_transactions")
+  const identityRes = await supabase
+    .from("v_stock_balance_identity")
     .select(
-      `
-      warehouse_id,
-      source_warehouse_id,
-      destination_warehouse_id,
-      product_id,
-      quantity,
-      transaction_type,
-      movement_type,
-      status,
-      operation_datetime,
-      date,
-      warehouses:warehouse_id (name, name_ru, name_kz, name_en),
-      source_warehouse:source_warehouse_id (name, name_ru, name_kz, name_en),
-      destination_warehouse:destination_warehouse_id (name, name_ru, name_kz, name_en),
-      products:product_id (name, name_ru, name_kz, name_en, type, unit)
-    `
+      "warehouse_id, product_id, variety_id, reproduction_id, batch_id, batch_class, quantity, last_movement_at"
     )
     .eq("company_id", companyId);
+  const identityMissing =
+    identityRes.error &&
+    String(identityRes.error.message || "").toLowerCase().includes("v_stock_balance_identity");
 
-  if (error) throw new Error(error.message);
+  if (identityRes.error && !identityMissing) {
+    throw new Error(identityRes.error.message);
+  }
 
-  const map = new Map<string, InventoryBalance>();
-  const upsert = (
-    warehouseId: string,
-    warehouseName: string,
-    productId: string,
-    productName: string,
-    productType: string,
-    unit: string,
-    delta: number,
-    updatedAt: string
-  ) => {
-    const key = `${warehouseId}|${productId}`;
-    if (!map.has(key)) {
-      map.set(key, {
-        warehouse_id: warehouseId,
-        warehouse_name: warehouseName,
-        product_id: productId,
-        product_name: productName,
-        product_type: productType,
-        unit,
-        quantity: 0,
-        last_updated: updatedAt,
-      });
-    }
-    const row = map.get(key)!;
-    row.quantity += delta;
-    if (updatedAt > row.last_updated) {
-      row.last_updated = updatedAt;
-    }
-  };
+  if (identityMissing) {
+    const canonicalRes = await supabase
+      .from("v_stock_balance_canonical")
+      .select("warehouse_id, product_id, quantity, last_movement_at")
+      .eq("company_id", companyId);
+    if (canonicalRes.error) throw new Error(canonicalRes.error.message);
 
-  (data || []).forEach((row: any) => {
-    const status = normalizeStatus(row.status);
-    if (status !== "confirmed") return;
+    const canonicalRows = canonicalRes.data || [];
+    const warehouseIds = Array.from(
+      new Set(canonicalRows.map((row: any) => String(row.warehouse_id || "")).filter(Boolean))
+    );
+    const productIds = Array.from(
+      new Set(canonicalRows.map((row: any) => String(row.product_id || "")).filter(Boolean))
+    );
 
-    const movementType = normalizeMovementType(row.movement_type, row.transaction_type);
-    const productId = String(row.product_id);
-    const qty = toNumber(row.quantity);
-    const productName = localizedName(row.products, language) || "N/A";
-    const productType = row.products?.type || "N/A";
-    const unit = row.products?.unit || "kg";
-    const updatedAt = row.operation_datetime || row.date || new Date().toISOString();
-    const legacyWarehouseName = localizedName(row.warehouses, language) || "N/A";
-    const sourceName = localizedName(row.source_warehouse, language) || legacyWarehouseName;
-    const destName = localizedName(row.destination_warehouse, language) || legacyWarehouseName;
+    const [warehousesRes, productsRes] = await Promise.all([
+      warehouseIds.length
+        ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").in("id", warehouseIds)
+        : Promise.resolve({ data: [], error: null } as any),
+      productIds.length
+        ? supabase
+            .from("products")
+            .select("id,name,name_ru,name_kz,name_en,type,product_type,unit,base_uom")
+            .in("id", productIds)
+        : Promise.resolve({ data: [], error: null } as any),
+    ]);
 
-    if (movementType === "transfer") {
-      if (row.source_warehouse_id) {
-        upsert(
-          String(row.source_warehouse_id),
-          sourceName,
-          productId,
-          productName,
-          productType,
-          unit,
-          -qty,
-          updatedAt
-        );
-      }
-      if (row.destination_warehouse_id) {
-        upsert(
-          String(row.destination_warehouse_id),
-          destName,
-          productId,
-          productName,
-          productType,
-          unit,
-          qty,
-          updatedAt
-        );
-      }
-      return;
-    }
+    const warehouseById = new Map<string, any>();
+    (warehousesRes.data || []).forEach((row: any) => warehouseById.set(String(row.id), row));
+    const productById = new Map<string, any>();
+    (productsRes.data || []).forEach((row: any) => productById.set(String(row.id), row));
 
-    if (movementType === "receipt") {
-      const targetWarehouseId = row.destination_warehouse_id || row.warehouse_id;
-      if (targetWarehouseId) {
-        upsert(
-          String(targetWarehouseId),
-          destName,
-          productId,
-          productName,
-          productType,
-          unit,
-          qty,
-          updatedAt
-        );
-      }
-      return;
-    }
+    return canonicalRows
+      .map((row: any) => {
+        const productName = localizedName(productById.get(String(row.product_id)), language) || "N/A";
+        const classLabel =
+          String(row.batch_class || "commodity") === "seed"
+            ? "Семенной фонд"
+            : String(row.batch_class || "commodity") === "feed"
+              ? "Кормовой"
+              : String(row.batch_class || "commodity") === "waste"
+                ? "Отход"
+                : String(row.batch_class || "commodity") === "processing"
+                  ? "Переработка"
+                  : String(row.batch_class || "commodity") === "rejected"
+                    ? "Брак"
+                    : null;
 
-    if (movementType === "issue" || movementType === "writeoff") {
-      const sourceWarehouseId = row.source_warehouse_id || row.warehouse_id;
-      if (sourceWarehouseId) {
-        upsert(
-          String(sourceWarehouseId),
-          sourceName,
-          productId,
-          productName,
-          productType,
-          unit,
-          -qty,
-          updatedAt
-        );
-      }
-      return;
-    }
-
-    // adjustment and legacy fallback
-    const adjustmentDirection = row.transaction_type === "in" ? 1 : -1;
-    const adjustmentWarehouseId =
-      row.transaction_type === "in"
-        ? row.destination_warehouse_id || row.warehouse_id
-        : row.source_warehouse_id || row.warehouse_id;
-
-    if (adjustmentWarehouseId) {
-      upsert(
-        String(adjustmentWarehouseId),
-        row.transaction_type === "in" ? destName : sourceName,
-        productId,
-        productName,
-        productType,
-        unit,
-        qty * adjustmentDirection,
-        updatedAt
+        return {
+          warehouse_id: String(row.warehouse_id),
+          warehouse_name:
+            localizedName(warehouseById.get(String(row.warehouse_id)), language) || "N/A",
+          product_id: String(row.product_id),
+          product_name: productName,
+          variety_id: null,
+          variety_name: "-",
+          reproduction_id: null,
+          reproduction_name: "-",
+          batch_id: null,
+          batch_class: String(row.batch_class || "commodity"),
+          identity_name: classLabel
+            ? `${productName} / - / - / ${classLabel}`
+            : `${productName} / - / -`,
+          product_type:
+            productById.get(String(row.product_id))?.product_type ||
+            productById.get(String(row.product_id))?.type ||
+            "N/A",
+          unit:
+            productById.get(String(row.product_id))?.base_uom ||
+            productById.get(String(row.product_id))?.unit ||
+            "kg",
+          quantity: toNumber(row.quantity),
+          last_updated: row.last_movement_at || new Date().toISOString(),
+        };
+      })
+      .filter((row) => Math.abs(row.quantity) > 0.000001)
+      .sort(
+        (a, b) =>
+          a.warehouse_name.localeCompare(b.warehouse_name) ||
+          (a.identity_name || a.product_name).localeCompare(b.identity_name || b.product_name)
       );
-    }
+  }
+
+  const data = identityRes.data || [];
+
+  const warehouseIds = Array.from(new Set((data || []).map((row: any) => String(row.warehouse_id || "")).filter(Boolean)));
+  const productIds = Array.from(new Set((data || []).map((row: any) => String(row.product_id || "")).filter(Boolean)));
+  const varietyIds = Array.from(new Set((data || []).map((row: any) => String(row.variety_id || "")).filter(Boolean)));
+  const reproductionIds = Array.from(new Set((data || []).map((row: any) => String(row.reproduction_id || "")).filter(Boolean)));
+
+  const [warehousesRes, productsRes, varietiesRes, reproductionsRes, lineSnapshotsRes] = await Promise.all([
+    warehouseIds.length
+      ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").in("id", warehouseIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    productIds.length
+      ? supabase.from("products").select("id,name,name_ru,name_kz,name_en,type,product_type,unit,base_uom").in("id", productIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    varietyIds.length
+      ? supabase
+          .from("varieties")
+          .select("id,name,name_ru,name_kz,name_en,company_id")
+          .in("id", varietyIds)
+          .or(`company_id.eq.${companyId},company_id.is.null`)
+      : Promise.resolve({ data: [], error: null } as any),
+    reproductionIds.length
+      ? supabase
+          .from("seed_reproductions")
+          .select("id,name,name_ru,name_kz,name_en,company_id")
+          .in("id", reproductionIds)
+          .or(`company_id.eq.${companyId},company_id.is.null`)
+      : Promise.resolve({ data: [], error: null } as any),
+    varietyIds.length || reproductionIds.length
+      ? supabase
+          .from("ticket_lines")
+          .select("variety_id,variety_name_snapshot,reproduction_id,reproduction_name_snapshot")
+          .eq("company_id", companyId)
+          .not("ticket_id", "is", null)
+      : Promise.resolve({ data: [], error: null } as any),
+  ]);
+
+  const warehouseById = new Map<string, any>();
+  (warehousesRes.data || []).forEach((row: any) => {
+    warehouseById.set(String(row.id), row);
   });
 
-  return Array.from(map.values())
+  const productById = new Map<string, any>();
+  (productsRes.data || []).forEach((row: any) => {
+    productById.set(String(row.id), row);
+  });
+  const varietyById = new Map<string, any>();
+  (varietiesRes.data || []).forEach((row: any) => {
+    varietyById.set(String(row.id), row);
+  });
+  const reproductionById = new Map<string, any>();
+  (reproductionsRes.data || []).forEach((row: any) => {
+    reproductionById.set(String(row.id), row);
+  });
+  const varietySnapshotById = new Map<string, string>();
+  const reproductionSnapshotById = new Map<string, string>();
+  (lineSnapshotsRes.data || []).forEach((row: any) => {
+    const vId = String(row.variety_id || "");
+    const vName = String(row.variety_name_snapshot || "").trim();
+    if (vId && vName && !varietySnapshotById.has(vId)) varietySnapshotById.set(vId, vName);
+    const rId = String(row.reproduction_id || "");
+    const rName = String(row.reproduction_name_snapshot || "").trim();
+    if (rId && rName && !reproductionSnapshotById.has(rId)) reproductionSnapshotById.set(rId, rName);
+  });
+
+  return (data || [])
+    .map((row: any) => {
+      const productName = localizedName(productById.get(String(row.product_id)), language) || "N/A";
+      const varietyName = row.variety_id
+        ? (localizedName(varietyById.get(String(row.variety_id)), language) ||
+          varietySnapshotById.get(String(row.variety_id)) ||
+          "-")
+        : "-";
+      const reproductionName = row.reproduction_id
+        ? (localizedName(reproductionById.get(String(row.reproduction_id)), language) ||
+          reproductionSnapshotById.get(String(row.reproduction_id)) ||
+          "-")
+        : "-";
+      const classLabel =
+        String(row.batch_class || "commodity") === "seed"
+          ? "Семенной фонд"
+          : String(row.batch_class || "commodity") === "feed"
+            ? "Кормовой"
+            : String(row.batch_class || "commodity") === "waste"
+              ? "Отход"
+              : String(row.batch_class || "commodity") === "processing"
+                ? "Переработка"
+                : String(row.batch_class || "commodity") === "rejected"
+                  ? "Брак"
+                  : null;
+      const identityCore = `${productName} / ${varietyName} / ${reproductionName}`;
+
+      return {
+        warehouse_id: String(row.warehouse_id),
+        warehouse_name: localizedName(warehouseById.get(String(row.warehouse_id)), language) || "N/A",
+        product_id: String(row.product_id),
+        product_name: productName,
+        variety_id: row.variety_id ? String(row.variety_id) : null,
+        variety_name: varietyName,
+        reproduction_id: row.reproduction_id ? String(row.reproduction_id) : null,
+        reproduction_name: reproductionName,
+        batch_id: row.batch_id ? String(row.batch_id) : null,
+        batch_class: String(row.batch_class || "commodity"),
+        identity_name: classLabel ? `${identityCore} / ${classLabel}` : identityCore,
+        product_type: productById.get(String(row.product_id))?.product_type || productById.get(String(row.product_id))?.type || "N/A",
+        unit: productById.get(String(row.product_id))?.base_uom || productById.get(String(row.product_id))?.unit || "kg",
+        quantity: toNumber(row.quantity),
+        last_updated: row.last_movement_at || new Date().toISOString(),
+      };
+    })
     .filter((row) => Math.abs(row.quantity) > 0.000001)
-    .sort((a, b) => a.warehouse_name.localeCompare(b.warehouse_name) || a.product_name.localeCompare(b.product_name));
+    .sort(
+      (a, b) =>
+        a.warehouse_name.localeCompare(b.warehouse_name) ||
+        (a.identity_name || a.product_name).localeCompare(b.identity_name || b.product_name)
+    );
 }

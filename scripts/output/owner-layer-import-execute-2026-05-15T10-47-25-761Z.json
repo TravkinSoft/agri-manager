@@ -1,0 +1,494 @@
+{
+  "ok": true,
+  "mode": "execute",
+  "company_id": "10000000-0000-0000-0000-000000000001",
+  "season_year": 2026,
+  "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+  "source_document": "owner_sheet_handwritten_2026",
+  "summary": {
+    "rows_total": 13,
+    "can_execute": 6,
+    "unresolved": 7,
+    "complete_candidate": 3,
+    "partial_missing_cadastre_candidate": 0,
+    "partial_missing_crop_candidate": 1,
+    "ambiguous": 7,
+    "cadastre_unreadable": 4,
+    "crop_unreadable": 1,
+    "owners_to_create": []
+  },
+  "unresolved_rows": [
+    {
+      "owner": "Ертайлаков",
+      "field": "16",
+      "area_ha": 200,
+      "crop": "ячмень",
+      "cadastral_number": "cadastral unreadable",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "c2087da369b84833e8fb61022790972e161c261b0dd38f7c467ef3b6e1e653dd",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "cadastre_unreadable"
+      ],
+      "field_candidates": [
+        "16-1",
+        "16-2"
+      ]
+    },
+    {
+      "owner": "Магзеев",
+      "field": "16",
+      "area_ha": 50,
+      "crop": "ячмень",
+      "cadastral_number": "cadastral unreadable",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "a620fbcc18b8b05f9c8870a5666f19d266d44e205e04807de608091565d95079",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "cadastre_unreadable"
+      ],
+      "field_candidates": [
+        "16-1",
+        "16-2"
+      ]
+    },
+    {
+      "owner": "Звольский",
+      "field": "66",
+      "area_ha": 23,
+      "crop": "ячмень",
+      "cadastral_number": "cadastral unreadable",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "f60573433aaa26d828944a5fde0b5318fb48684c7a0ad007bcba078371f5682a",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "cadastre_unreadable"
+      ],
+      "field_candidates": [
+        "66-1",
+        "66-2",
+        "66-3"
+      ]
+    },
+    {
+      "owner": "Звольский",
+      "field": "66",
+      "area_ha": 48,
+      "crop": "пары",
+      "cadastral_number": "cadastral unreadable",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "7c865584635c28fafdc5a878e284cfbb1a73a54220b2cbee17d4166ef1fbb10c",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "crop_not_found",
+        "cadastre_unreadable"
+      ],
+      "field_candidates": [
+        "66-1",
+        "66-2",
+        "66-3"
+      ]
+    },
+    {
+      "owner": "Мантаева",
+      "field": "3",
+      "area_ha": 40,
+      "crop": "пары",
+      "cadastral_number": "15-164-086-219",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "d804393dd6fe6600765c27edacd159696f9f4e6eafa02acf2400850b7e50cacf",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "crop_not_found",
+        "cadastre_to_create"
+      ],
+      "field_candidates": [
+        "3-1",
+        "32-1",
+        "35-1",
+        "32-2"
+      ]
+    },
+    {
+      "owner": "Грицук",
+      "field": "3",
+      "area_ha": 122,
+      "crop": "пары",
+      "cadastral_number": "15-164-086-086",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "3600b3b923316ae8c68c8f9e22b10a038908d4d7fff7c80e7b5e7d9623077ca3",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "crop_not_found",
+        "cadastre_to_create"
+      ],
+      "field_candidates": [
+        "3-1",
+        "32-1",
+        "35-1",
+        "32-2"
+      ]
+    },
+    {
+      "owner": "Каппасов",
+      "field": "66",
+      "area_ha": 65,
+      "crop": "многолетка",
+      "cadastral_number": "15-164-086-250",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "0f0761584e47554a7550b50a2d5faffa446c20f19dee355786abd9ef5f81c4d4",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "cadastre_to_create"
+      ],
+      "field_candidates": [
+        "66-1",
+        "66-2",
+        "66-3"
+      ]
+    }
+  ],
+  "rows": [
+    {
+      "owner": "Даулбаев",
+      "field": "12",
+      "area_ha": 146,
+      "crop": "пшеница",
+      "cadastral_number": "15-164-086-017",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "90f7226b86a0dd8df3de09dd4a713ae81544c42a22d97667736e28479a5b1994",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": "c4ab5f13-6aac-4d34-8054-922752729e5f",
+      "field_name_match": "12-1",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name_match": "Пшеница",
+      "cadastral_parcel_id": "2f825592-9d74-4993-9b86-4fabd03a66b0",
+      "cadastral_number_match": "15-164-086-017",
+      "owner_legal_entity_id": "2a477004-0752-44dc-9830-b37d648e909b",
+      "owner_name_match": "Даулбаев",
+      "warnings": [],
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "allocation_status": "complete",
+      "can_execute": true
+    },
+    {
+      "owner": "Сыздыков",
+      "field": "14-1",
+      "area_ha": 39,
+      "crop": "пшеница",
+      "cadastral_number": "15-164-086-186",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "bf2e701b755fea6a5e805a687dee6694850f3f430e13aa93853653d2ce9bd48b",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": "cdbae16a-b557-4499-a475-5c24ec3facef",
+      "field_name_match": "14-1",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name_match": "Пшеница",
+      "cadastral_parcel_id": "e072224c-d133-46a1-9576-34517dbde7a5",
+      "cadastral_number_match": "15-164-086-186",
+      "owner_legal_entity_id": "4cb5ed72-c70f-4086-a98f-300f29e72eec",
+      "owner_name_match": "Сыздыков",
+      "warnings": [],
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "allocation_status": "complete",
+      "can_execute": true
+    },
+    {
+      "owner": "Амергалиев",
+      "field": "10",
+      "area_ha": 70,
+      "crop": "ячмень",
+      "cadastral_number": "15-164-086-148",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "4afceb3e80b63a8cc4062351e6c3e2ad09e4755c60c8aadc392ea37226850578",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "field_name_match": "10-1",
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name_match": "Ячмень",
+      "cadastral_parcel_id": "b122bf6a-33b5-4f33-a414-d625c69ed9f5",
+      "cadastral_number_match": "15-164-086-148",
+      "owner_legal_entity_id": "106c5dcd-fa56-40d9-9db6-21dabb23e976",
+      "owner_name_match": "Амергалиев",
+      "warnings": [],
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "allocation_status": "complete",
+      "can_execute": true
+    },
+    {
+      "owner": "Ертайлаков",
+      "field": "16",
+      "area_ha": 200,
+      "crop": "ячмень",
+      "cadastral_number": "cadastral unreadable",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "c2087da369b84833e8fb61022790972e161c261b0dd38f7c467ef3b6e1e653dd",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": null,
+      "field_name_match": null,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name_match": "Ячмень",
+      "cadastral_parcel_id": null,
+      "cadastral_number_match": null,
+      "owner_legal_entity_id": "21acdaee-d68d-4603-b547-5a30ad55db94",
+      "owner_name_match": "Ертайлаков",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "cadastre_unreadable"
+      ],
+      "missing_cadastre": true,
+      "missing_crop": false,
+      "allocation_status": "partial_missing_cadastre",
+      "can_execute": false
+    },
+    {
+      "owner": "Магзеев",
+      "field": "16",
+      "area_ha": 50,
+      "crop": "ячмень",
+      "cadastral_number": "cadastral unreadable",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "a620fbcc18b8b05f9c8870a5666f19d266d44e205e04807de608091565d95079",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": null,
+      "field_name_match": null,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name_match": "Ячмень",
+      "cadastral_parcel_id": null,
+      "cadastral_number_match": null,
+      "owner_legal_entity_id": "7d612dbf-2f35-4ad2-898f-a22cac9cc261",
+      "owner_name_match": "Магзеев",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "cadastre_unreadable"
+      ],
+      "missing_cadastre": true,
+      "missing_crop": false,
+      "allocation_status": "partial_missing_cadastre",
+      "can_execute": false
+    },
+    {
+      "owner": "Звольский",
+      "field": "66",
+      "area_ha": 23,
+      "crop": "ячмень",
+      "cadastral_number": "cadastral unreadable",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "f60573433aaa26d828944a5fde0b5318fb48684c7a0ad007bcba078371f5682a",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": null,
+      "field_name_match": null,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name_match": "Ячмень",
+      "cadastral_parcel_id": null,
+      "cadastral_number_match": null,
+      "owner_legal_entity_id": "eaf73dc0-ef18-4ea1-88e2-c94bd6355682",
+      "owner_name_match": "Звольский",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "cadastre_unreadable"
+      ],
+      "missing_cadastre": true,
+      "missing_crop": false,
+      "allocation_status": "partial_missing_cadastre",
+      "can_execute": false
+    },
+    {
+      "owner": "Звольский",
+      "field": "66",
+      "area_ha": 48,
+      "crop": "пары",
+      "cadastral_number": "cadastral unreadable",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "7c865584635c28fafdc5a878e284cfbb1a73a54220b2cbee17d4166ef1fbb10c",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": null,
+      "field_name_match": null,
+      "crop_id": null,
+      "crop_name_match": "пары",
+      "cadastral_parcel_id": null,
+      "cadastral_number_match": null,
+      "owner_legal_entity_id": "eaf73dc0-ef18-4ea1-88e2-c94bd6355682",
+      "owner_name_match": "Звольский",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "crop_not_found",
+        "cadastre_unreadable"
+      ],
+      "missing_cadastre": true,
+      "missing_crop": true,
+      "allocation_status": "manual_review",
+      "can_execute": false
+    },
+    {
+      "owner": "Мантаева",
+      "field": "3",
+      "area_ha": 40,
+      "crop": "пары",
+      "cadastral_number": "15-164-086-219",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "d804393dd6fe6600765c27edacd159696f9f4e6eafa02acf2400850b7e50cacf",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": null,
+      "field_name_match": null,
+      "crop_id": null,
+      "crop_name_match": "пары",
+      "cadastral_parcel_id": null,
+      "cadastral_number_match": null,
+      "owner_legal_entity_id": "3a3750ec-e916-46bb-9546-cc4615880b61",
+      "owner_name_match": "Мантаева",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "crop_not_found",
+        "cadastre_to_create"
+      ],
+      "missing_cadastre": true,
+      "missing_crop": true,
+      "allocation_status": "manual_review",
+      "can_execute": false
+    },
+    {
+      "owner": "Грицук",
+      "field": "3",
+      "area_ha": 122,
+      "crop": "пары",
+      "cadastral_number": "15-164-086-086",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "3600b3b923316ae8c68c8f9e22b10a038908d4d7fff7c80e7b5e7d9623077ca3",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": null,
+      "field_name_match": null,
+      "crop_id": null,
+      "crop_name_match": "пары",
+      "cadastral_parcel_id": null,
+      "cadastral_number_match": null,
+      "owner_legal_entity_id": "533e9e5d-a826-4087-9b04-39e7e907249c",
+      "owner_name_match": "Грицук",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "crop_not_found",
+        "cadastre_to_create"
+      ],
+      "missing_cadastre": true,
+      "missing_crop": true,
+      "allocation_status": "manual_review",
+      "can_execute": false
+    },
+    {
+      "owner": "Сатымгалиев",
+      "field": "22",
+      "area_ha": 107,
+      "crop": "лен",
+      "cadastral_number": "15-164-086-186",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "e255a6764a964d08eb9c14c85f5454769670728a142d6a9df8c491ff20f5ddac",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_name_match": "22-1",
+      "crop_id": null,
+      "crop_name_match": "лен",
+      "cadastral_parcel_id": "e072224c-d133-46a1-9576-34517dbde7a5",
+      "cadastral_number_match": "15-164-086-186",
+      "owner_legal_entity_id": "befc7876-c93e-4a23-83b7-7da2df6ccdd8",
+      "owner_name_match": "Сатымгалиев",
+      "warnings": [
+        "crop_not_found"
+      ],
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "allocation_status": "partial_missing_crop",
+      "can_execute": true
+    },
+    {
+      "owner": "Сатымгалиев",
+      "field": "22",
+      "area_ha": 97,
+      "crop": "лен",
+      "cadastral_number": "15-164-086-129",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "99e5a39d39a9eedd513ea4b5d35dd304f55f0092194c13665baa12330a11804a",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_name_match": "22-1",
+      "crop_id": null,
+      "crop_name_match": "лен",
+      "cadastral_parcel_id": null,
+      "cadastral_number_match": null,
+      "owner_legal_entity_id": "befc7876-c93e-4a23-83b7-7da2df6ccdd8",
+      "owner_name_match": "Сатымгалиев",
+      "warnings": [
+        "crop_not_found",
+        "cadastre_to_create"
+      ],
+      "missing_cadastre": true,
+      "missing_crop": true,
+      "allocation_status": "manual_review",
+      "can_execute": true
+    },
+    {
+      "owner": "Каппасов",
+      "field": "66",
+      "area_ha": 65,
+      "crop": "многолетка",
+      "cadastral_number": "15-164-086-250",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "0f0761584e47554a7550b50a2d5faffa446c20f19dee355786abd9ef5f81c4d4",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": null,
+      "field_name_match": null,
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "crop_name_match": "Многолетние травы",
+      "cadastral_parcel_id": null,
+      "cadastral_number_match": null,
+      "owner_legal_entity_id": "7ead3984-baa3-4b36-957f-085e7d1aee97",
+      "owner_name_match": "Каппасов",
+      "warnings": [
+        "field_ambiguous_prefix",
+        "cadastre_to_create"
+      ],
+      "missing_cadastre": true,
+      "missing_crop": false,
+      "allocation_status": "partial_missing_cadastre",
+      "can_execute": false
+    },
+    {
+      "owner": "Ваховский",
+      "field": "22(Т)",
+      "area_ha": 88,
+      "crop": "crop unreadable",
+      "cadastral_number": "15-164-018-020",
+      "source_document": "owner_sheet_handwritten_2026",
+      "source_row_hash": "6c5c3da2a7c60ad7e3d7286a627c84688cadc744a0ff9a0bf8938fbc49ea9e48",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_name_match": "22-1",
+      "crop_id": null,
+      "crop_name_match": null,
+      "cadastral_parcel_id": null,
+      "cadastral_number_match": null,
+      "owner_legal_entity_id": "211f42d4-5891-4c43-a51a-f34231382670",
+      "owner_name_match": "Ваховский",
+      "warnings": [
+        "crop_unreadable",
+        "cadastre_to_create"
+      ],
+      "missing_cadastre": true,
+      "missing_crop": true,
+      "allocation_status": "manual_review",
+      "can_execute": true
+    }
+  ],
+  "execute_result": {
+    "created_owner_legal_entities": 0,
+    "created_cadastral_parcels": 2,
+    "updated_existing_links_with_owner": 0,
+    "inserted_owner_links": 3,
+    "inserted_owner_allocations": 5,
+    "skipped_duplicates": 3,
+    "skipped_unresolved": 7,
+    "mutation_warnings": []
+  }
+}

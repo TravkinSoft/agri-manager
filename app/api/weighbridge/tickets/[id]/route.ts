@@ -16,12 +16,52 @@ export async function GET(
     const supabase = getServiceClient();
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
-      .select("*")
+      .select(`
+        *,
+        field:field_id(id,name),
+        warehouse_from:warehouse_from_id(id,name),
+        warehouse_to:warehouse_to_id(id,name),
+        vehicle:vehicle_id(id,name,plate_number),
+        driver:driver_id(id,full_name,email),
+        creator:created_by(id,full_name,email)
+      `)
       .eq("id", id)
       .maybeSingle();
 
     if (ticketError || !ticket?.id) {
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
+    }
+
+    let cropStructureAllocationLabel: string | null = null;
+    if (ticket.crop_structure_allocation_id) {
+      const { data: allocation } = await supabase
+        .from("crop_structure")
+        .select("id,area,crop_id,variety_id,reproduction_id")
+        .eq("id", ticket.crop_structure_allocation_id)
+        .eq("company_id", ticket.company_id)
+        .maybeSingle();
+
+      if (allocation?.id) {
+        const [cropRes, varietyRes, reproductionRes] = await Promise.all([
+          allocation.crop_id
+            ? supabase.from("crops").select("name").eq("id", allocation.crop_id).maybeSingle()
+            : Promise.resolve({ data: null } as any),
+          allocation.variety_id
+            ? supabase.from("varieties").select("name").eq("id", allocation.variety_id).maybeSingle()
+            : Promise.resolve({ data: null } as any),
+          allocation.reproduction_id
+            ? supabase.from("seed_reproductions").select("name").eq("id", allocation.reproduction_id).maybeSingle()
+            : Promise.resolve({ data: null } as any),
+        ]);
+        const cropName = String((cropRes as any)?.data?.name || "").trim();
+        const varietyName = String((varietyRes as any)?.data?.name || "").trim();
+        const reproductionName = String((reproductionRes as any)?.data?.name || "").trim();
+        const area = Number((allocation as any).area || 0);
+        cropStructureAllocationLabel = [
+          [cropName, varietyName, reproductionName].filter(Boolean).join(" / "),
+          area > 0 ? `${area.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га` : "",
+        ].filter(Boolean).join(" • ") || null;
+      }
     }
 
     await assertActorAccess({
@@ -33,7 +73,12 @@ export async function GET(
 
     const { data: lines } = await supabase
       .from("ticket_lines")
-      .select("*, products:product_id(name)")
+      .select(`
+        *,
+        products:product_id(name),
+        varieties:variety_id(name),
+        reproductions:reproduction_id(name)
+      `)
       .eq("ticket_id", id);
     const { data: weighings } = await supabase
       .from("ticket_weighings")
@@ -42,10 +87,22 @@ export async function GET(
       .order("weighing_no", { ascending: true });
 
     return NextResponse.json({
-      ticket,
+      ticket: {
+        ...ticket,
+        field_name_snapshot: ticket.field?.name || null,
+        warehouse_from_name_snapshot: ticket.warehouse_from?.name || null,
+        warehouse_to_name_snapshot: ticket.warehouse_to?.name || null,
+        vehicle_name_snapshot: ticket.vehicle?.name || null,
+        vehicle_plate_snapshot: ticket.vehicle?.plate_number || null,
+        driver_name_snapshot: ticket.driver?.full_name || ticket.driver?.email || null,
+        created_by_name_snapshot: ticket.creator?.full_name || ticket.creator?.email || null,
+        crop_structure_allocation_label: cropStructureAllocationLabel,
+      },
       lines: (lines || []).map((line: any) => ({
         ...line,
         product_name: line.product_name_snapshot || line.products?.name || "-",
+        variety_name: line.variety_name_snapshot || line.varieties?.name || "-",
+        reproduction_name: line.reproduction_name_snapshot || line.reproductions?.name || "-",
       })),
       weighings: weighings || [],
     });

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeftRight,
+  Brain,
   Building2,
   Shield,
   Sprout,
@@ -35,6 +36,11 @@ const NAV_GROUPS: NavGroup[] = [
     items: [{ href: "/platform", label: "Компании" }],
   },
   {
+    title: "Ассистент",
+    icon: Brain,
+    items: [{ href: "/platform/assistant/settings", label: "Настройки ассистента" }],
+  },
+  {
     title: "Агрономия",
     icon: Sprout,
     items: [
@@ -49,13 +55,16 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/platform/catalogs/agrochemistry/pesticides", label: "Пестициды" },
       { href: "/platform/catalogs/agrochemistry/fertilizers", label: "Удобрения" },
+      { href: "/platform/catalogs/agrochemistry/growth-regulators", label: "Регуляторы роста" },
+      { href: "/platform/catalogs/agrochemistry/pesticide-categories", label: "Категории пестицидов" },
+      { href: "/platform/catalogs/agrochemistry/active-ingredients", label: "Действующие вещества" },
     ],
   },
   {
     title: "Машинный двор",
     icon: Tractor,
     items: [
-      { href: "/platform/catalogs/machine-yard/machinery", label: "Техника" },
+      { href: "/platform/catalogs/machine-yard/agricultural-machinery", label: "Сельхозмашины (самоходные)" },
       { href: "/platform/catalogs/machine-yard/implements", label: "Оборудование / агрегаты" },
     ],
   },
@@ -91,7 +100,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="h-16 border-b bg-white px-6 flex items-center justify-between">
+      <header className="flex h-16 items-center justify-between border-b bg-white px-6">
         <div className="flex items-center gap-3">
           <Shield className="h-5 w-5 text-purple-700" />
           <span className="font-semibold text-slate-900">Платформа AgriManager</span>
@@ -102,8 +111,8 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
           Перейти в контекст компании
         </Button>
       </header>
-      <div className="mx-auto max-w-7xl px-6 py-6 grid grid-cols-1 gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="rounded-xl border bg-white p-3 h-fit space-y-3">
+      <div className="grid w-full grid-cols-1 gap-6 px-6 py-6 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="h-fit space-y-3 rounded-xl border bg-white p-3">
           {NAV_GROUPS.map((group) => {
             const GroupIcon = group.icon;
             return (
@@ -121,9 +130,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
                         href={item.href}
                         className={cn(
                           "flex items-center rounded-lg px-3 py-2 text-sm",
-                          active
-                            ? "bg-purple-100 text-purple-900 font-medium"
-                            : "text-slate-700 hover:bg-slate-100"
+                          active ? "bg-purple-100 font-medium text-purple-900" : "text-slate-700 hover:bg-slate-100",
                         )}
                       >
                         {item.label}

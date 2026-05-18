@@ -159,54 +159,40 @@ export async function getInventorySnapshot(
   companyId: string,
   language: Language = "ru"
 ): Promise<InventorySnapshot[]> {
-  const { data: transactions, error } = await supabase
-    .from("inventory_transactions")
-    .select(`
-      warehouse_id,
-      product_id,
-      quantity,
-      transaction_type,
-      warehouses!inventory_transactions_warehouse_id_fkey (
-        name,
-        name_ru,
-        name_kz,
-        name_en
-      ),
-      products!inventory_transactions_product_id_fkey (
-        name,
-        name_ru,
-        name_kz,
-        name_en,
-        type
-      )
-    `)
+  const { data: balances, error } = await supabase
+    .from("v_stock_balance_canonical")
+    .select("warehouse_id, product_id, quantity")
     .eq("company_id", companyId);
 
   if (error) {
-    console.error("Error fetching inventory transactions:", error);
+    console.error("Error fetching inventory snapshot:", error);
     return [];
   }
 
-  const inventory = transactions?.reduce((acc, txn: any) => {
-    const key = `${txn.product_id}-${txn.warehouse_id}`;
-    if (!acc[key]) {
-      acc[key] = {
-        productName: localizedName(txn.products, language) || "Unknown",
-        productType: txn.products?.type || "unknown",
-        quantity: 0,
-        warehouseName: localizedName(txn.warehouses, language) || "Unknown",
-      };
-    }
-    const qty = Number(txn.quantity);
-    if (txn.transaction_type === "in") {
-      acc[key].quantity += qty;
-    } else if (txn.transaction_type === "out") {
-      acc[key].quantity -= qty;
-    }
-    return acc;
-  }, {} as Record<string, InventorySnapshot>) || {};
+  const warehouseIds = Array.from(new Set((balances || []).map((row: any) => String(row.warehouse_id || "")).filter(Boolean)));
+  const productIds = Array.from(new Set((balances || []).map((row: any) => String(row.product_id || "")).filter(Boolean)));
 
-  return Object.values(inventory)
-    .filter((item) => item.quantity > 0)
+  const [warehousesRes, productsRes] = await Promise.all([
+    warehouseIds.length
+      ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").in("id", warehouseIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    productIds.length
+      ? supabase.from("products").select("id,name,name_ru,name_kz,name_en,type,product_type").in("id", productIds)
+      : Promise.resolve({ data: [], error: null } as any),
+  ]);
+
+  const warehouseById = new Map<string, any>();
+  (warehousesRes.data || []).forEach((row: any) => warehouseById.set(String(row.id), row));
+  const productById = new Map<string, any>();
+  (productsRes.data || []).forEach((row: any) => productById.set(String(row.id), row));
+
+  return (balances || [])
+    .map((row: any) => ({
+      productName: localizedName(productById.get(String(row.product_id)), language) || "Unknown",
+      productType: productById.get(String(row.product_id))?.product_type || productById.get(String(row.product_id))?.type || "unknown",
+      quantity: Number(row.quantity || 0),
+      warehouseName: localizedName(warehouseById.get(String(row.warehouse_id)), language) || "Unknown",
+    }))
+    .filter((item) => Number.isFinite(item.quantity) && item.quantity > 0)
     .sort((a, b) => a.productName.localeCompare(b.productName));
 }

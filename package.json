@@ -4,11 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:stable": "powershell -ExecutionPolicy Bypass -File ./scripts/start-dev.ps1",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "cleanup:users": "node scripts/cleanup-users-keep-admin.mjs"
+    "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
+    "cleanup:users": "node scripts/cleanup-users-keep-admin.mjs",
+    "import:structure2026:dry": "node scripts/import-structure-2026.mjs --mode dry-run",
+    "import:structure2026:execute": "node scripts/import-structure-2026.mjs --mode execute --confirm-reset true"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -53,6 +57,7 @@
     "embla-carousel-react": "^8.3.0",
     "eslint": "8.49.0",
     "eslint-config-next": "13.5.1",
+    "exceljs": "^4.4.0",
     "input-otp": "^1.2.4",
     "lucide-react": "^0.446.0",
     "next": "13.5.1",

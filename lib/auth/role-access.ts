@@ -10,6 +10,7 @@ const WAREHOUSE_ALLOWED_PREFIXES = [
 
 const WEIGHMAN_ALLOWED_PREFIXES = [
   "/dashboard",
+  "/warehouses",
   "/weighbridge",
   "/processing",
   "/containers",
@@ -19,8 +20,12 @@ const WEIGHMAN_ALLOWED_PREFIXES = [
 
 const SPECIALIST_ALLOWED_PREFIXES = [
   "/dashboard",
-  "/specialist",
   "/tasks",
+  "/auth",
+];
+
+const FUEL_OPERATOR_ALLOWED_PREFIXES = [
+  "/fuel",
   "/auth",
 ];
 
@@ -30,8 +35,8 @@ const AGRONOMIST_ALLOWED_PREFIXES = [
   "/crop-structure",
   "/field-history",
   "/operations",
+  "/technique",
   "/analytics",
-  "/specialist",
   "/references",
   "/auth",
 ];
@@ -41,9 +46,30 @@ const AGRONOMIST_ALLOWED_EXACT = [
   "/weighbridge/dashboard",
 ];
 
+const DIRECTOR_ALLOWED_PREFIXES = [
+  "/dashboard",
+  "/fields",
+  "/crop-structure",
+  "/field-history",
+  "/operations",
+  "/technique",
+  "/analytics",
+  "/warehouses",
+  "/weighbridge",
+  "/fuel",
+  "/references",
+  "/auth",
+];
+
 export function canAccessPath(role: AppRole, pathname: string): boolean {
   const path = String(pathname || "").toLowerCase();
   if (!path || path === "/") return true;
+
+  // Legacy assistant page is deprecated and should be reachable only by global admin.
+  if (path === "/specialist" || path.startsWith("/specialist/")) {
+    return role === "global_admin";
+  }
+
   if (path === "/platform" || path.startsWith("/platform/")) {
     return role === "global_admin";
   }
@@ -60,10 +86,18 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
     return SPECIALIST_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
   }
 
+  if (role === "fuel_operator") {
+    return FUEL_OPERATOR_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  }
+
   if (role === "agronomist") {
     const hasPrefixAccess = AGRONOMIST_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
     const hasExactAccess = AGRONOMIST_ALLOWED_EXACT.includes(path);
     return hasPrefixAccess || hasExactAccess;
+  }
+
+  if (role === "director") {
+    return DIRECTOR_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
   }
 
   // global/company admin keep full company access
@@ -74,6 +108,7 @@ export function getDefaultPathForRole(role: AppRole): string {
   if (role === "global_admin") return "/platform";
   if (role === "warehouse") return "/warehouses";
   if (role === "weighman") return "/weighbridge/dashboard";
-  if (role === "specialist") return "/specialist";
+  if (role === "fuel_operator") return "/fuel";
+  if (role === "specialist") return "/tasks";
   return "/dashboard";
 }

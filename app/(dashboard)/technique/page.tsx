@@ -78,7 +78,6 @@ export default function TechniquePage() {
 
   const canManage = useMemo(
     () =>
-      profile?.role === "admin" ||
       profile?.role === "company_admin" ||
       profile?.role === "global_admin" ||
       profile?.role === "agronomist",

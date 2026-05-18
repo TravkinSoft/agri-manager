@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  SessionAuthError,
+  ensureAssistantRole,
+  getServerActorFromSession,
+} from "@/lib/auth/server-session";
 
 export const runtime = "nodejs";
 
@@ -10,6 +15,9 @@ const LANGUAGE_MAP: Record<string, string> = {
 
 export async function POST(request: NextRequest) {
   try {
+    const actor = await getServerActorFromSession(request);
+    ensureAssistantRole(actor);
+
     const openaiKey = process.env.OPENAI_API_KEY;
     if (!openaiKey) {
       return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 });
@@ -49,6 +57,9 @@ export async function POST(request: NextRequest) {
     const text = String(payload?.text || "").trim();
     return NextResponse.json({ text });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error("Transcribe error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Internal server error" },

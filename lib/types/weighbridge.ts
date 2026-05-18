@@ -4,6 +4,10 @@ export type WeighMethod = "double_weighing" | "preset_tare" | "manual_override_w
 
 export interface TicketLineInput {
   product_id: string;
+  crop_id?: string | null;
+  batch_id?: string | null;
+  lot_id?: string | null;
+  supplier_lot?: string | null;
   quantity: number;
   uom?: string;
   notes?: string;
@@ -14,6 +18,7 @@ export interface TicketLineInput {
   class_grade?: string | null;
   variety_id?: string | null;
   reproduction_id?: string | null;
+  batch_class?: string | null;
 }
 
 export interface TicketInput {
@@ -26,8 +31,20 @@ export interface TicketInput {
   destination_kind: string;
   destination_id?: string | null;
   field_id?: string | null;
+  crop_structure_allocation_id?: string | null;
   warehouse_from_id?: string | null;
   warehouse_to_id?: string | null;
+  supplier_id?: string | null;
+  buyer_id?: string | null;
+  supplier_document_no?: string | null;
+  shipment_purpose?: string | null;
+  destination_text?: string | null;
+  external_document_no?: string | null;
+  receipt_mode?: "weighbridge" | "direct" | string | null;
+  supplier_receipt_kind?: "generic" | "agro_identity" | string | null;
+  field_operation_type?: string | null;
+  field_material_category?: string | null;
+  disposal_category?: string | null;
   processing_point_from_id?: string | null;
   processing_point_to_id?: string | null;
   vehicle_id?: string | null;
@@ -40,6 +57,7 @@ export interface TicketInput {
   notes?: string | null;
   linked_operation_id?: string | null;
   linked_request_id?: string | null;
+  shift_id?: string | null;
 }
 
 export interface WeighingInput {
@@ -64,6 +82,16 @@ export interface WeighbridgeTicket {
   field_id?: string | null;
   warehouse_from_id?: string | null;
   warehouse_to_id?: string | null;
+  supplier_id?: string | null;
+  buyer_id?: string | null;
+  supplier_document_no?: string | null;
+  shipment_purpose?: string | null;
+  destination_text?: string | null;
+  external_document_no?: string | null;
+  receipt_mode?: string | null;
+  supplier_receipt_kind?: string | null;
+  field_material_category?: string | null;
+  disposal_category?: string | null;
   processing_point_from_id?: string | null;
   processing_point_to_id?: string | null;
   vehicle_id?: string | null;
@@ -78,6 +106,8 @@ export interface WeighbridgeTicket {
   created_at: string;
   updated_at: string;
   notes?: string | null;
+  crop_structure_allocation_id?: string | null;
+  crop_structure_allocation_label?: string | null;
   lines?: Array<{
     id: string;
     product_id: string;
@@ -85,6 +115,10 @@ export interface WeighbridgeTicket {
     quantity: number;
     uom: string;
     variety_id?: string | null;
+    variety_name?: string | null;
     reproduction_id?: string | null;
+    reproduction_name?: string | null;
+    batch_class?: string | null;
+    lot_id?: string | null;
   }>;
 }

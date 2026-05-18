@@ -1,0 +1,181 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
+import type { ServerActorContext } from "@/lib/auth/server-session";
+
+export type AssistantToolName =
+  | "get_company_context"
+  | "get_current_season"
+  | "get_fields"
+  | "get_crop_structure"
+  | "get_inventory"
+  | "get_batches"
+  | "get_warehouse_balances"
+  | "get_warehouse_movements"
+  | "get_weighbridge_tickets"
+  | "get_operations"
+  | "get_fuel_sources"
+  | "get_fuel_balances"
+  | "get_fuel_movements"
+  | "resolve_warehouse_by_name"
+  | "resolve_field_by_number"
+  | "resolve_fuel_source_by_name"
+  | "resolve_page_or_module"
+  | "resolve_crop_variety"
+  | "resolve_vehicle_or_equipment"
+  | "resolve_operation_type"
+  | "create_operation_draft"
+  | "create_transfer_draft"
+  | "create_fuel_issue_draft"
+  | "create_field_task_draft"
+  | "create_material_issue_draft"
+  | "create_weighbridge_ticket_draft"
+  | "navigate_to_page"
+  | "open_entity"
+  | "apply_filter";
+
+export type AssistantIntentName =
+  | "inventory_balance"
+  | "warehouse_movements"
+  | "weighbridge_tickets"
+  | "fields_overview"
+  | "crop_structure_overview"
+  | "operations_recent"
+  | "fuel_movements"
+  | "entity_resolution"
+  | "company_context"
+  | "navigation_help"
+  | "create_draft"
+  | "clarification_required"
+  | "general_question";
+
+export type AssistantUiContext = {
+  currentPage: string;
+  currentRoute: string;
+  entity: { type: string; id: string; label?: string | null } | null;
+  selectedRows: string[];
+  filters: Record<string, string | string[]>;
+  season: string | null;
+  companyId: string | null;
+  companyName?: string | null;
+  locale: "ru" | "kz" | "en" | null;
+};
+
+export type AssistantSessionState = {
+  lastEntity: string | null;
+  lastCrop: string | null;
+  lastVariety: string | null;
+  lastBatchClass: string | null;
+  lastWarehouse: string | null;
+  lastField: string | null;
+  lastSeason: string | null;
+  lastIntent: AssistantIntentName | null;
+  lastResultContext: string | null;
+};
+
+export type AssistantIntent = {
+  name: AssistantIntentName;
+  confidence: number;
+  needsData: boolean;
+  parameters: Record<string, string | number | boolean | null>;
+};
+
+export type AssistantToolCallLog = {
+  tool: AssistantToolName;
+  params: Record<string, unknown>;
+  ok: boolean;
+  error?: string;
+  rows?: number;
+};
+
+export type AssistantToolContext = {
+  supabase: SupabaseClient;
+  actor: ServerActorContext;
+  companyId: string;
+  settings: AssistantPlatformSettings;
+  runtimeContext: AssistantUiContext;
+  sessionState: AssistantSessionState;
+  intent: AssistantIntent;
+};
+
+export type AssistantToolOutput = {
+  title: string;
+  rows: Array<Record<string, unknown>>;
+  source: {
+    module: string;
+    tableOrView: string;
+    season?: string | null;
+    fetchedAt: string;
+  };
+  summary?: string;
+  navigationHint?: {
+    action: "open_page" | "open_entity" | "apply_filter";
+    target: string;
+    params?: Record<string, string>;
+  };
+};
+
+export type AssistantNavigationAction =
+  | {
+      type: "open_page";
+      page: string;
+      route: string;
+    }
+  | {
+      type: "open_page_with_filter";
+      page: string;
+      route: string;
+      filters: Record<string, string>;
+    }
+  | {
+      type: "open_entity";
+      page: string;
+      route: string;
+      entityType: "warehouse" | "field" | "fuel";
+      entityId: string | null;
+      entityQuery: string | null;
+      filters: Record<string, string>;
+    }
+  | {
+      type: "apply_filter";
+      page: string;
+      route: string;
+      filters: Record<string, string>;
+    };
+
+export type AssistantToolDefinition = {
+  name: AssistantToolName;
+  description: string;
+  domains: string[];
+  run: (context: AssistantToolContext) => Promise<AssistantToolOutput>;
+};
+
+export type AssistantEngineInput = {
+  message: string;
+  locale?: "ru" | "kz" | "en" | null;
+  chatId?: string | null;
+  runtimeContext?: Partial<AssistantUiContext> | null;
+  sessionState?: Partial<AssistantSessionState> | null;
+  chatHistory?: Array<{ role?: string; content?: string }> | null;
+};
+
+export type AssistantEngineResult = {
+  answer: string;
+  sessionState: AssistantSessionState;
+  intent: AssistantIntent;
+  toolCalls: AssistantToolCallLog[];
+  navigationActions: AssistantNavigationAction[];
+  sourceHints: string[];
+  answerSource: "tools" | "llm_fallback" | "policy_block" | "disabled" | "access_denied" | "no_data";
+  grounded: boolean;
+  model: {
+    configuredModel: string | null;
+    actualModel: string | null;
+    settingsSource: "db" | "env" | "default";
+    requestMode: "tool_first";
+  };
+  performance: {
+    promptTokens: number | null;
+    completionTokens: number | null;
+    totalTokens: number | null;
+  };
+};

@@ -40,7 +40,7 @@ import {
 } from "@/lib/services/references";
 import { vehicleSchema, type VehicleFormData, type VehicleReference } from "@/lib/types/references";
 
-const VEHICLE_TYPE_LABELS: Record<VehicleReference["vehicle_type"], string> = {
+const VEHICLE_TYPE_LABELS: Record<string, string> = {
   truck: "Грузовик",
   grain_truck: "Зерновоз",
   dump_truck: "Самосвал",
@@ -80,7 +80,6 @@ export default function MachinesPage() {
 
   const canManage = useMemo(
     () =>
-      profile?.role === "admin" ||
       profile?.role === "company_admin" ||
       profile?.role === "global_admin" ||
       profile?.role === "warehouse" ||

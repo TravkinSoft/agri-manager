@@ -7,6 +7,10 @@ import { Header } from "./header";
 import { SidebarProvider } from "@/lib/contexts/sidebar-context";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { canAccessPath, getDefaultPathForRole } from "@/lib/auth/role-access";
+import { AssistantShellProvider } from "@/components/assistant/assistant-shell-provider";
+import { AssistantLauncher } from "@/components/assistant/assistant-launcher";
+import { AssistantPanel } from "@/components/assistant/assistant-panel";
+import { AssistantDebugMonitor } from "@/components/assistant/assistant-debug-monitor";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { profile, loading } = useAuth();
@@ -34,15 +38,20 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider>
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar />
-        <div className="flex flex-1 flex-col overflow-hidden">
-          <Header />
-          <main className="flex-1 overflow-y-auto bg-slate-50 p-6">
-            {children}
-          </main>
+      <AssistantShellProvider>
+        <div className="flex h-screen overflow-hidden">
+          <Sidebar />
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <Header />
+            <main className="flex-1 overflow-y-auto bg-slate-50 p-6">
+              {children}
+            </main>
+          </div>
         </div>
-      </div>
+        <AssistantLauncher />
+        <AssistantPanel />
+        <AssistantDebugMonitor />
+      </AssistantShellProvider>
     </SidebarProvider>
   );
 }

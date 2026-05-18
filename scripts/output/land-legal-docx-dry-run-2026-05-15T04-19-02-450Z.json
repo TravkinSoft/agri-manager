@@ -1,0 +1,1068 @@
+{
+  "generated_at": "2026-05-15T04:19:02.422Z",
+  "input_documents": [
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "path": "C:\\Users\\TRAVKIN\\Downloads\\посев 2025 стем. — копия.docx",
+      "table_rows": 98,
+      "parsed_rows": 98,
+      "season_year": 2025,
+      "company_hint": "stem",
+      "resolved_company_id": null,
+      "resolved_company_name": null
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "path": "C:\\Users\\TRAVKIN\\Downloads\\посев 2026 карагаш.docx",
+      "table_rows": 47,
+      "parsed_rows": 47,
+      "season_year": 2026,
+      "company_hint": "karagash",
+      "resolved_company_id": null,
+      "resolved_company_name": null
+    }
+  ],
+  "summary": {
+    "rows_total": 145,
+    "fields_matched": 0,
+    "fields_unmatched": 0,
+    "fields_ambiguous": 0,
+    "crops_matched": 0,
+    "crops_unmatched": 0,
+    "cadastral_existing": 0,
+    "cadastral_to_create": 0,
+    "duplicate_cadastres": 0,
+    "duplicate_field_links": 0,
+    "conflicts": 0,
+    "mismatched_areas": 0
+  },
+  "company_breakdown": {
+    "посев 2025 стем. — копия.docx": {
+      "file": "посев 2025 стем. — копия.docx",
+      "company_hint": "stem",
+      "company_id": null,
+      "company_name": null,
+      "season_year": 2025,
+      "season_id": null,
+      "raw_rows": 98,
+      "usable_rows": 98,
+      "fields_matched": 0,
+      "fields_unmatched": 98,
+      "fields_ambiguous": 0,
+      "crops_matched": 0,
+      "crops_unmatched": 98,
+      "cadastral_existing": 0,
+      "cadastral_to_create": 0,
+      "links_to_create": 0,
+      "duplicate_cadastres": 0,
+      "duplicate_field_links": 0,
+      "conflicts": 0,
+      "mismatched_areas": 0
+    },
+    "посев 2026 карагаш.docx": {
+      "file": "посев 2026 карагаш.docx",
+      "company_hint": "karagash",
+      "company_id": null,
+      "company_name": null,
+      "season_year": 2026,
+      "season_id": null,
+      "raw_rows": 47,
+      "usable_rows": 47,
+      "fields_matched": 0,
+      "fields_unmatched": 47,
+      "fields_ambiguous": 0,
+      "crops_matched": 0,
+      "crops_unmatched": 47,
+      "cadastral_existing": 0,
+      "cadastral_to_create": 0,
+      "links_to_create": 0,
+      "duplicate_cadastres": 0,
+      "duplicate_field_links": 0,
+      "conflicts": 0,
+      "mismatched_areas": 0
+    }
+  },
+  "warnings": [
+    "No company mapping for document \"посев 2025 стем. — копия.docx\" (hint=stem).",
+    "No company mapping for document \"посев 2026 карагаш.docx\" (hint=karagash)."
+  ],
+  "conflicts_sample": [],
+  "unmatched_rows_sample": [
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 2,
+      "reason": "company_not_resolved",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-206"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 3,
+      "reason": "company_not_resolved",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-211"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 4,
+      "reason": "company_not_resolved",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-264"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 5,
+      "reason": "company_not_resolved",
+      "field": "12",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-106"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 6,
+      "reason": "company_not_resolved",
+      "field": "14-1",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-215"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 7,
+      "reason": "company_not_resolved",
+      "field": "19",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-106"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 8,
+      "reason": "company_not_resolved",
+      "field": "19",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-018-093"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 9,
+      "reason": "company_not_resolved",
+      "field": "35",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-105"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 10,
+      "reason": "company_not_resolved",
+      "field": "49-2",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-202"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 11,
+      "reason": "company_not_resolved",
+      "field": "52-2",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-240"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 12,
+      "reason": "company_not_resolved",
+      "field": "53",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-089"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 13,
+      "reason": "company_not_resolved",
+      "field": "53",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-217"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 14,
+      "reason": "company_not_resolved",
+      "field": "67",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-180"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 15,
+      "reason": "company_not_resolved",
+      "field": "72",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-106"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 16,
+      "reason": "company_not_resolved",
+      "field": "31-1 (Т)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-018-096"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 17,
+      "reason": "company_not_resolved",
+      "field": "24-1 (Т)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-018-114"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 18,
+      "reason": "company_not_resolved",
+      "field": "3-3 (КУ)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-254"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 19,
+      "reason": "company_not_resolved",
+      "field": "8 (КУ)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-114"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 20,
+      "reason": "company_not_resolved",
+      "field": "8",
+      "crop": "",
+      "cadastral_number": "15-164-081-018"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 21,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Пшеницы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 22,
+      "reason": "company_not_resolved",
+      "field": "10",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-210"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 23,
+      "reason": "company_not_resolved",
+      "field": "10",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-216"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 24,
+      "reason": "company_not_resolved",
+      "field": "10",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-238"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 25,
+      "reason": "company_not_resolved",
+      "field": "13",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-213"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 26,
+      "reason": "company_not_resolved",
+      "field": "16",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-258"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 27,
+      "reason": "company_not_resolved",
+      "field": "29 (Т)",
+      "crop": "ячмень",
+      "cadastral_number": "15-164-018-071"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 28,
+      "reason": "company_not_resolved",
+      "field": "50",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-212"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 29,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Ячменя",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 30,
+      "reason": "company_not_resolved",
+      "field": "20",
+      "crop": "Овес",
+      "cadastral_number": "15-164-086-106"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 31,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Овес",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 32,
+      "reason": "company_not_resolved",
+      "field": "25",
+      "crop": "Горох",
+      "cadastral_number": "15-164-086-150"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 33,
+      "reason": "company_not_resolved",
+      "field": "72",
+      "crop": "Горох",
+      "cadastral_number": "15-164-086-106"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 34,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Гороха",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 35,
+      "reason": "company_not_resolved",
+      "field": "64-1",
+      "crop": "З/смесь",
+      "cadastral_number": "15-164-086-107"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 36,
+      "reason": "company_not_resolved",
+      "field": "2-1",
+      "crop": "з/смесь",
+      "cadastral_number": "15-164-086-172"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 37,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "З/смеси",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 38,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Зернобобовых",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 39,
+      "reason": "company_not_resolved",
+      "field": "23-24(Т)",
+      "crop": "Лен",
+      "cadastral_number": "15-164-086-242"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 40,
+      "reason": "company_not_resolved",
+      "field": "49-1",
+      "crop": "Лен",
+      "cadastral_number": "15-164-086-128"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 41,
+      "reason": "company_not_resolved",
+      "field": "22",
+      "crop": "Лен",
+      "cadastral_number": "15-164-086-106"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 42,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Льна",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 43,
+      "reason": "company_not_resolved",
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-176"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 44,
+      "reason": "company_not_resolved",
+      "field": "27",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-108"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 45,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Подсолнечника",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 46,
+      "reason": "company_not_resolved",
+      "field": "огород",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-078-039"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 47,
+      "reason": "company_not_resolved",
+      "field": "10",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-084-029"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 48,
+      "reason": "company_not_resolved",
+      "field": "23",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-177"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 49,
+      "reason": "company_not_resolved",
+      "field": "28",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-244"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 50,
+      "reason": "company_not_resolved",
+      "field": "51",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-214"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 51,
+      "reason": "company_not_resolved",
+      "field": "61",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-111"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 52,
+      "reason": "company_not_resolved",
+      "field": "66",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-112"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 53,
+      "reason": "company_not_resolved",
+      "field": "41(Вим)",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-088-130"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 54,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Рапса",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 55,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Масличных",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 56,
+      "reason": "company_not_resolved",
+      "field": "28",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-086-244"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 57,
+      "reason": "company_not_resolved",
+      "field": "28",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-086-244"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 58,
+      "reason": "company_not_resolved",
+      "field": "сад",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-086-217"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 59,
+      "reason": "company_not_resolved",
+      "field": "17-2",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-017-100"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 60,
+      "reason": "company_not_resolved",
+      "field": "Круг №3",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-017-126"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 61,
+      "reason": "company_not_resolved",
+      "field": "1",
+      "crop": "Картофеля",
+      "cadastral_number": "15-164-086-176"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 62,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Картофеля",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 63,
+      "reason": "company_not_resolved",
+      "field": "1",
+      "crop": "Морковь",
+      "cadastral_number": "15-164-086-176"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 64,
+      "reason": "company_not_resolved",
+      "field": "28",
+      "crop": "Морковь",
+      "cadastral_number": "15-164-086-244"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 65,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Моркови",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 66,
+      "reason": "company_not_resolved",
+      "field": "4-1",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-239"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 67,
+      "reason": "company_not_resolved",
+      "field": "1",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-176"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 68,
+      "reason": "company_not_resolved",
+      "field": "2-2",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-110"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 69,
+      "reason": "company_not_resolved",
+      "field": "1,3",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-017-133"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 70,
+      "reason": "company_not_resolved",
+      "field": "28",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-244"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 71,
+      "reason": "company_not_resolved",
+      "field": "53",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-217"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 72,
+      "reason": "company_not_resolved",
+      "field": "Круг№2",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-017-133"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 73,
+      "reason": "company_not_resolved",
+      "field": "Круг №3",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-017-126"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 74,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Кукурузы на силос",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 75,
+      "reason": "company_not_resolved",
+      "field": "9-3",
+      "crop": "Однолетние травы (Суданская трава)",
+      "cadastral_number": "15-164-086-152"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 76,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Однолетние травы (Суданская трава)",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 77,
+      "reason": "company_not_resolved",
+      "field": "Круг№1",
+      "crop": "Бобовые травы",
+      "cadastral_number": "15-164-017-133"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 78,
+      "reason": "company_not_resolved",
+      "field": "1,3",
+      "crop": "Бобовые травы",
+      "cadastral_number": "15-164-017-133"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 79,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Бобовые травы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 80,
+      "reason": "company_not_resolved",
+      "field": "32",
+      "crop": "Многолетние травы(Житняк)",
+      "cadastral_number": "15-164-086-109"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 81,
+      "reason": "company_not_resolved",
+      "field": "24-3",
+      "crop": "Многолетние травы(Житняк)",
+      "cadastral_number": "15-164-086-174"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 82,
+      "reason": "company_not_resolved",
+      "field": "4-4",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-172"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 83,
+      "reason": "company_not_resolved",
+      "field": "1",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-176"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 84,
+      "reason": "company_not_resolved",
+      "field": "28",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-244"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 85,
+      "reason": "company_not_resolved",
+      "field": "24-1",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-203"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 86,
+      "reason": "company_not_resolved",
+      "field": "64-1",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-107"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 87,
+      "reason": "company_not_resolved",
+      "field": "27",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-106"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 88,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Многолетние травы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 89,
+      "reason": "company_not_resolved",
+      "field": "1",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-176"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 90,
+      "reason": "company_not_resolved",
+      "field": "66",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-112"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 91,
+      "reason": "company_not_resolved",
+      "field": "2 (КУ)",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-116"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 92,
+      "reason": "company_not_resolved",
+      "field": "3",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-179"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 93,
+      "reason": "company_not_resolved",
+      "field": "3",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-149"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 94,
+      "reason": "company_not_resolved",
+      "field": "21",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-106"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 95,
+      "reason": "company_not_resolved",
+      "field": "огород",
+      "crop": "Пары",
+      "cadastral_number": "15-164-017-098"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 96,
+      "reason": "company_not_resolved",
+      "field": "огород",
+      "crop": "Пары",
+      "cadastral_number": "15-164-017-101"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 97,
+      "reason": "company_not_resolved",
+      "field": "28",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-244"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 98,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Пары",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 99,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 2,
+      "reason": "company_not_resolved",
+      "field": "14-1",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-192"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 3,
+      "reason": "company_not_resolved",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-195"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 4,
+      "reason": "company_not_resolved",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-157"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 5,
+      "reason": "company_not_resolved",
+      "field": "53",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-122"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 6,
+      "reason": "company_not_resolved",
+      "field": "49-2",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-168"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 7,
+      "reason": "company_not_resolved",
+      "field": "8(КУ)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-159"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 8,
+      "reason": "company_not_resolved",
+      "field": "8(КУ)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-123"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 9,
+      "reason": "company_not_resolved",
+      "field": "49-2",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-154"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 10,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Пшеницы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 11,
+      "reason": "company_not_resolved",
+      "field": "50",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-155"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 12,
+      "reason": "company_not_resolved",
+      "field": "50-1",
+      "crop": "ячмень",
+      "cadastral_number": "15-164-086-154"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 13,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Ячменя",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 14,
+      "reason": "company_not_resolved",
+      "field": "2-2",
+      "crop": "з/смесь",
+      "cadastral_number": "15-164-086-124"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 15,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "з/смеси",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 16,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Зернобобовых",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 17,
+      "reason": "company_not_resolved",
+      "field": "4-1",
+      "crop": "Лен",
+      "cadastral_number": "15-164-086-159"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 18,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Льна",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 19,
+      "reason": "company_not_resolved",
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-164"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 20,
+      "reason": "company_not_resolved",
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-197"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 21,
+      "reason": "company_not_resolved",
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-198"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 22,
+      "reason": "company_not_resolved",
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-153"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 23,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Подсолнечника",
+      "cadastral_number": ""
+    }
+  ],
+  "many_to_many_examples": {
+    "field_to_many_cadastres": [],
+    "cadastre_to_many_fields": [],
+    "cadastre_to_many_crops": []
+  },
+  "migration_delta_recommended": {
+    "cadastral_parcels": [
+      "source_document (text, nullable)",
+      "source (text default 'import_docx')"
+    ],
+    "field_cadastre_links": [
+      "source_document (text, nullable)",
+      "raw_field_key (text, nullable)",
+      "raw_crop_name (text, nullable)"
+    ]
+  }
+}

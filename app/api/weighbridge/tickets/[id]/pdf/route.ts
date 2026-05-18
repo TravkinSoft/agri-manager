@@ -92,9 +92,9 @@ export async function GET(
       supabase.from("ticket_lines").select("*").eq("ticket_id", id).order("created_at", { ascending: true }),
       supabase.from("fields").select("id,name").eq("company_id", ticket.company_id),
       supabase.from("warehouses").select("id,name").eq("company_id", ticket.company_id),
-      supabase.from("products").select("id,name").eq("company_id", ticket.company_id),
-      supabase.from("varieties").select("id,name").eq("company_id", ticket.company_id),
-      supabase.from("seed_reproductions").select("id,name").eq("company_id", ticket.company_id),
+      supabase.from("products").select("id,name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
+      supabase.from("varieties").select("id,name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
+      supabase.from("seed_reproductions").select("id,name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
       supabase.from("reference_vehicles").select("id,name,plate_number").eq("company_id", ticket.company_id),
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
@@ -169,4 +169,3 @@ export async function GET(
     );
   }
 }
-

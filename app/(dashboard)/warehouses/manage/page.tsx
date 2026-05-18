@@ -42,6 +42,7 @@ import { Plus, Pencil, Archive, Warehouse as WarehouseIcon, Package } from "luci
 import {
   getWarehouses,
   getProducts,
+  getInventoryBalances,
   createWarehouse,
   createProduct,
   updateWarehouse,
@@ -52,6 +53,7 @@ import {
 import {
   Warehouse,
   Product,
+  InventoryBalance,
   WarehouseFormData,
   ProductFormData,
   warehouseSchema,
@@ -66,6 +68,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 export default function ManageWarehousesPage() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [balances, setBalances] = useState<InventoryBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [warehouseDialogOpen, setWarehouseDialogOpen] = useState(false);
   const [productDialogOpen, setProductDialogOpen] = useState(false);
@@ -76,6 +79,13 @@ export default function ManageWarehousesPage() {
   const { language } = useLanguage();
   const t = (ru: string, kz: string, en: string) =>
     language === "ru" ? ru : language === "kz" ? kz : en;
+  const canManageWarehouses =
+    profile?.role === "company_admin" ||
+    profile?.role === "global_admin" ||
+    profile?.role === "warehouse";
+  const canManageProducts =
+    profile?.role === "company_admin" ||
+    profile?.role === "global_admin";
 
   const warehouseForm = useForm<WarehouseFormData>({
     resolver: zodResolver(warehouseSchema),
@@ -92,12 +102,14 @@ export default function ManageWarehousesPage() {
 
     try {
       setLoading(true);
-      const [warehousesData, productsData] = await Promise.all([
+      const [warehousesData, productsData, balanceRows] = await Promise.all([
         getWarehouses(profile.company_id, false, language),
         getProducts(profile.company_id, false, language),
+        getInventoryBalances(profile.company_id, language),
       ]);
       setWarehouses(warehousesData);
       setProducts(productsData);
+      setBalances(balanceRows);
     } catch (error) {
       toast({
         title: t("Ошибка", "Қате", "Error"),
@@ -162,6 +174,22 @@ export default function ManageWarehousesPage() {
   };
 
   const handleArchiveWarehouse = async (warehouseId: string) => {
+    const hasStock = balances.some(
+      (row) => row.warehouse_id === warehouseId && Number(row.quantity || 0) > 0
+    );
+    if (hasStock) {
+      toast({
+        title: t("Операция запрещена", "Операцияға тыйым салынған", "Operation blocked"),
+        description: t(
+          "Нельзя удалить склад с остатками. Сначала переместите или спишите остатки.",
+          "Қалдығы бар қойманы жоюға болмайды. Алдымен қалдықтарды ауыстырыңыз немесе есептен шығарыңыз.",
+          "Cannot delete warehouse with stock. Move or write off balances first."
+        ),
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       await archiveWarehouse(warehouseId);
       toast({ title: t("Успешно", "Сәтті", "Success"), description: t("Склад архивирован", "Қойма мұрағатталды", "Warehouse archived successfully") });
@@ -221,6 +249,21 @@ export default function ManageWarehousesPage() {
     }
   };
 
+  if (!canManageWarehouses) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title={t("Управление складами", "Қоймаларды басқару", "Warehouse management")}
+          description={t(
+            "У вас нет прав на управление складами",
+            "Сізде қоймаларды басқаруға рұқсат жоқ",
+            "You do not have warehouse management permissions"
+          )}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -231,7 +274,9 @@ export default function ManageWarehousesPage() {
       <Tabs defaultValue="warehouses" className="space-y-4">
         <TabsList>
           <TabsTrigger value="warehouses">{t("Склады", "Қоймалар", "Warehouses")}</TabsTrigger>
-          <TabsTrigger value="products">{t("Продукты", "Өнімдер", "Products")}</TabsTrigger>
+          {canManageProducts ? (
+            <TabsTrigger value="products">{t("Продукты", "Өнімдер", "Products")}</TabsTrigger>
+          ) : null}
         </TabsList>
 
         <TabsContent value="warehouses">
@@ -302,6 +347,7 @@ export default function ManageWarehousesPage() {
           </Card>
         </TabsContent>
 
+        {canManageProducts ? (
         <TabsContent value="products">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
@@ -378,6 +424,7 @@ export default function ManageWarehousesPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        ) : null}
       </Tabs>
 
       <Dialog open={warehouseDialogOpen} onOpenChange={setWarehouseDialogOpen}>

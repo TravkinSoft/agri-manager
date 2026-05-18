@@ -1,31 +1,23 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { parseCanonicalRole, type CanonicalRole } from "@/lib/auth/role-contract";
 
 type AllowedRole =
+  | "admin"
   | "global_admin"
   | "company_admin"
-  | "admin"
   | "agronomist"
+  | "director"
   | "warehouse"
   | "weighman"
-  | "specialist";
+  | "specialist"
+  | "fuel_operator";
 
-type NormalizedRole = Exclude<AllowedRole, "admin">;
+type NormalizedRole = CanonicalRole;
 
 function normalizeRole(role: string | null | undefined): NormalizedRole | null {
-  const value = String(role || "").trim().toLowerCase();
-  if (!value) return null;
-  if (value === "admin") return "company_admin";
-  if (
-    value === "global_admin" ||
-    value === "company_admin" ||
-    value === "agronomist" ||
-    value === "warehouse" ||
-    value === "weighman" ||
-    value === "specialist"
-  ) {
-    return value;
-  }
-  return null;
+  const parsed = parseCanonicalRole(role);
+  if (!parsed) return null;
+  return parsed;
 }
 
 export async function assertActorAccess(params: {
@@ -52,16 +44,15 @@ export async function assertActorAccess(params: {
   }
 
   const normalizedRole = normalizeRole(profile.role);
-  const allowedNormalized = Array.from(
-    new Set(
-      allowedRoles.flatMap((role) => {
-        if (role === "admin" || role === "company_admin") {
-          return ["company_admin", "global_admin"] as const;
-        }
-        return [role] as const;
-      })
-    )
-  );
+  const allowedNormalized = Array.from(new Set(allowedRoles.flatMap((role) => {
+    if (role === "admin") {
+      return ["company_admin", "global_admin"] as const;
+    }
+    if (role === "company_admin") {
+      return ["company_admin", "global_admin"] as const;
+    }
+    return [role] as const;
+  })));
 
   if (!normalizedRole || !allowedNormalized.includes(normalizedRole)) {
     throw new Error("Access denied for current role");

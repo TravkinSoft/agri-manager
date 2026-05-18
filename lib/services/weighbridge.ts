@@ -17,6 +17,50 @@ export async function listTickets(companyId: string, userId: string): Promise<We
   return payload.tickets || [];
 }
 
+export async function getWeighbridgeBootstrap(companyId: string, userId: string) {
+  const response = await fetch(
+    `/api/weighbridge/bootstrap?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(userId)}`,
+    { method: "GET", cache: "no-store" }
+  );
+  return parseJsonOrThrow(response);
+}
+
+export async function getActiveShift(companyId: string, userId: string) {
+  const response = await fetch(
+    `/api/weighbridge/shifts?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(userId)}`,
+    { method: "GET", cache: "no-store" }
+  );
+  return parseJsonOrThrow(response);
+}
+
+export async function openShift(companyId: string, actorUserId: string, openingNote?: string) {
+  const response = await fetch("/api/weighbridge/shifts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ companyId, actorUserId, openingNote }),
+  });
+  return parseJsonOrThrow(response);
+}
+
+export async function closeShift(
+  companyId: string,
+  actorUserId: string,
+  params?: { closingNote?: string; handoverNote?: string; force?: boolean }
+) {
+  const response = await fetch("/api/weighbridge/shifts", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      companyId,
+      actorUserId,
+      closingNote: params?.closingNote,
+      handoverNote: params?.handoverNote,
+      force: Boolean(params?.force),
+    }),
+  });
+  return parseJsonOrThrow(response);
+}
+
 export async function getTicketDetails(ticketId: string, userId: string) {
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}?userId=${encodeURIComponent(userId)}`, {
     method: "GET",
@@ -70,25 +114,22 @@ export async function voidTicket(ticketId: string, actorUserId: string, reason: 
   return parseJsonOrThrow(response);
 }
 
+export async function adminTicketAction(
+  ticketId: string,
+  actorUserId: string,
+  action: "void" | "archive" | "force_close",
+  reason?: string
+) {
+  const response = await fetch(`/api/weighbridge/tickets/${ticketId}/admin-action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ actorUserId, action, reason }),
+  });
+  return parseJsonOrThrow(response);
+}
+
 export async function downloadTicketPdf(ticketId: string, userId: string) {
-  const response = await fetch(
-    `/api/weighbridge/tickets/${ticketId}/pdf?userId=${encodeURIComponent(userId)}`,
-    {
-      method: "GET",
-      cache: "no-store",
-    }
-  );
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload?.error || "Failed to generate PDF");
-  }
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `ticket-${ticketId}.pdf`;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  window.URL.revokeObjectURL(url);
+  if (!ticketId) throw new Error("Ticket id is required");
+  const printUrl = `/weighbridge/${encodeURIComponent(ticketId)}/print?autoprint=1&userId=${encodeURIComponent(userId)}`;
+  window.open(printUrl, "_blank", "noopener,noreferrer");
 }

@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getRequestOrigin } from "@/lib/utils/app-url";
 
-const GLOBAL_ADMIN_ALLOWED_TARGETS = ["company_admin", "agronomist", "specialist", "warehouse", "weighman"] as const;
-const COMPANY_ADMIN_ALLOWED_TARGETS = ["agronomist", "specialist", "warehouse", "weighman"] as const;
+const GLOBAL_ADMIN_ALLOWED_TARGETS = ["company_admin", "agronomist", "specialist", "warehouse", "weighman", "fuel_operator"] as const;
+const COMPANY_ADMIN_ALLOWED_TARGETS = ["agronomist", "specialist", "warehouse", "weighman", "fuel_operator"] as const;
 
 function errorToText(err: any): string {
   if (!err) return "unknown error";

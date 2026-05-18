@@ -73,6 +73,13 @@ export interface InventoryBalance {
   warehouse_name: string;
   product_id: string;
   product_name: string;
+  variety_id?: string | null;
+  variety_name?: string;
+  reproduction_id?: string | null;
+  reproduction_name?: string;
+  batch_id?: string | null;
+  batch_class?: "commodity" | "seed" | "feed" | "waste" | "processing" | "rejected" | string;
+  identity_name?: string;
   product_type: ProductCategory | string;
   unit: string;
   quantity: number;

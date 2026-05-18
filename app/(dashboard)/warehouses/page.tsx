@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,6 +55,8 @@ interface WarehouseOverview {
   allItems: InventoryBalance[];
   latestMovements: InventoryTransactionWithDetails[];
   status: WarehouseStatus;
+  todayDeltaKg: number;
+  mainCrop: InventoryBalance | null;
 }
 
 const FALLBACK_TYPE_BY_NAME: Array<{ test: RegExp; type: string }> = [
@@ -141,6 +144,8 @@ export default function WarehousesPage() {
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
   const [searchValue, setSearchValue] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [movementDateFrom, setMovementDateFrom] = useState("");
+  const [movementDateTo, setMovementDateTo] = useState("");
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -148,11 +153,10 @@ export default function WarehousesPage() {
   const [transactions, setTransactions] = useState<InventoryTransactionWithDetails[]>([]);
 
   const canManageMovements =
-    profile?.role === "admin" ||
     profile?.role === "company_admin" ||
     profile?.role === "global_admin" ||
     profile?.role === "warehouse";
-  const observerMode = profile?.role === "agronomist";
+  const observerMode = profile?.role === "agronomist" || profile?.role === "weighman";
 
   const reloadData = async () => {
     if (!profile?.company_id) return;
@@ -188,6 +192,10 @@ export default function WarehousesPage() {
   }, [profile?.company_id, language]);
 
   const overviewData = useMemo<WarehouseOverview[]>(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const startMs = startOfToday.getTime();
+
     return warehouses.map((warehouse) => {
       const allItems = balances
         .filter((row) => row.warehouse_id === warehouse.id)
@@ -205,6 +213,40 @@ export default function WarehousesPage() {
         })
         .slice(0, 12);
 
+      const todayDeltaKg = transactions.reduce((sum, row) => {
+        const rawDate = row.operation_datetime || row.date;
+        if (!rawDate) return sum;
+        const dt = new Date(rawDate);
+        if (Number.isNaN(dt.getTime()) || dt.getTime() < startMs) return sum;
+        if (String(row.status || "confirmed") !== "confirmed") return sum;
+
+        const qty = Number(row.quantity || 0);
+        const movementType = String(row.movement_type || "");
+        if (movementType === "transfer") {
+          if (row.source_warehouse_id === warehouse.id) return sum - qty;
+          if (row.destination_warehouse_id === warehouse.id) return sum + qty;
+          return sum;
+        }
+        if (movementType === "receipt") {
+          const destination = row.destination_warehouse_id || row.warehouse_id;
+          return destination === warehouse.id ? sum + qty : sum;
+        }
+        if (movementType === "issue" || movementType === "writeoff") {
+          const source = row.source_warehouse_id || row.warehouse_id;
+          return source === warehouse.id ? sum - qty : sum;
+        }
+
+        const direction = String(row.transaction_type || "out");
+        const target =
+          direction === "in"
+            ? row.destination_warehouse_id || row.warehouse_id
+            : row.source_warehouse_id || row.warehouse_id;
+        if (target !== warehouse.id) return sum;
+        return sum + (direction === "in" ? qty : -qty);
+      }, 0);
+
+      const mainCrop = allItems[0] || null;
+
       return {
         warehouse,
         warehouseType: resolveWarehouseType(warehouse),
@@ -215,6 +257,8 @@ export default function WarehousesPage() {
         allItems,
         latestMovements,
         status,
+        todayDeltaKg,
+        mainCrop,
       };
     });
   }, [warehouses, balances, transactions]);
@@ -231,7 +275,9 @@ export default function WarehousesPage() {
 
       if (!normalizedSearch) return matchesType;
 
-      const fullText = [item.warehouse.name, ...item.allItems.map((x) => x.product_name)].join(" ").toLowerCase();
+      const fullText = [item.warehouse.name, ...item.allItems.map((x) => x.identity_name || x.product_name)]
+        .join(" ")
+        .toLowerCase();
       return matchesType && fullText.includes(normalizedSearch);
     });
   }, [overviewData, searchValue, typeFilter]);
@@ -240,6 +286,22 @@ export default function WarehousesPage() {
     if (!selectedWarehouseId) return null;
     return overviewData.find((item) => item.warehouse.id === selectedWarehouseId) || null;
   }, [selectedWarehouseId, overviewData]);
+
+  const filteredSelectedMovements = useMemo(() => {
+    if (!selectedOverview) return [];
+    const fromDate = movementDateFrom ? new Date(`${movementDateFrom}T00:00:00`) : null;
+    const toDate = movementDateTo ? new Date(`${movementDateTo}T23:59:59`) : null;
+
+    return selectedOverview.latestMovements.filter((movement) => {
+      const rawDate = movement.operation_datetime || movement.date;
+      if (!rawDate) return true;
+      const dt = new Date(rawDate);
+      if (Number.isNaN(dt.getTime())) return true;
+      if (fromDate && dt < fromDate) return false;
+      if (toDate && dt > toDate) return false;
+      return true;
+    });
+  }, [selectedOverview, movementDateFrom, movementDateTo]);
 
   const totalWarehouses = overviewData.length;
   const totalVolumeKg = overviewData.reduce((sum, item) => sum + item.currentKg, 0);
@@ -286,11 +348,11 @@ export default function WarehousesPage() {
   };
 
   if (
-    profile?.role !== "admin" &&
     profile?.role !== "company_admin" &&
     profile?.role !== "global_admin" &&
     profile?.role !== "warehouse" &&
-    profile?.role !== "agronomist"
+    profile?.role !== "agronomist" &&
+    profile?.role !== "weighman"
   ) {
     return (
       <div className="space-y-4">
@@ -332,6 +394,18 @@ export default function WarehousesPage() {
             : undefined
         }
       />
+
+      <div className="flex flex-wrap items-center gap-2">
+        {canManageMovements ? (
+          <Button asChild variant="outline">
+            <Link href="/warehouses/manage">
+              {t("Управление складами", "Қоймаларды басқару", "Manage warehouses")}
+            </Link>
+          </Button>
+        ) : (
+          <Badge variant="secondary">{t("Р РµР¶РёРј С‚РѕР»СЊРєРѕ С‡С‚РµРЅРёРµ", "РўРµРє РѕТ›Сѓ СЂРµР¶РёРјС–", "Read-only mode")}</Badge>
+        )}
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
@@ -396,7 +470,7 @@ export default function WarehousesPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
         {loading ? (
           <Card className="sm:col-span-2 xl:col-span-3">
             <CardContent className="py-12 text-center text-slate-500">{t("Загрузка складов...", "Қоймалар жүктелуде...", "Loading warehouses...")}</CardContent>
@@ -435,28 +509,43 @@ export default function WarehousesPage() {
 
             const StatusIcon = statusMeta.icon;
             const fillPercent = item.fillPercent == null ? null : Math.max(0, item.fillPercent);
+            const deltaPrefix = item.todayDeltaKg > 0 ? "+" : item.todayDeltaKg < 0 ? "-" : "±";
+            const deltaValue = formatStorageAmount(Math.abs(item.todayDeltaKg), "kg", language as Lang);
 
             return (
               <button
                 key={item.warehouse.id}
                 type="button"
                 onClick={() => setSelectedWarehouseId(item.warehouse.id)}
-                className="group overflow-hidden rounded-2xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                className="group overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
               >
-                <div className="border-b bg-gradient-to-r from-slate-900 to-slate-700 px-4 py-3 text-white">
+                <div className="border-b bg-gradient-to-r from-slate-900 to-slate-700 px-3 py-2.5 text-white">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-[11px] uppercase tracking-wider text-slate-300">{typeLabel}</div>
-                      <div className="mt-1 truncate text-lg font-semibold">{item.warehouse.name}</div>
+                      <div className="text-[10px] uppercase tracking-wider text-slate-300">{typeLabel}</div>
+                      <div className="mt-0.5 truncate text-base font-semibold">{item.warehouse.name}</div>
                     </div>
-                    <WarehouseIcon className="h-4 w-4 shrink-0 text-emerald-300/90" />
+                    <WarehouseIcon className="h-3.5 w-3.5 shrink-0 text-emerald-300/90" />
                   </div>
                 </div>
 
-                <div className="space-y-3 p-4">
+                <div className="space-y-2.5 p-3">
+                  <div>
+                    <div className="text-xs text-slate-500">{t("Основная культура", "Негізгі дақыл", "Main crop")}</div>
+                      <div className="mt-0.5 text-sm font-medium text-slate-900">
+                        {item.mainCrop?.identity_name || item.mainCrop?.product_name || "-"}
+                      </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-slate-500">{t("Изменение за сегодня", "Бүгінгі өзгеріс", "Change today")}</div>
+                    <div className={`mt-0.5 text-sm font-semibold ${item.todayDeltaKg > 0 ? "text-emerald-700" : item.todayDeltaKg < 0 ? "text-red-700" : "text-slate-700"}`}>
+                      {deltaPrefix} {deltaValue}
+                    </div>
+                  </div>
                   <div>
                     <div className="text-xs text-slate-500">{t("Объем хранения", "Сақтау көлемі", "Stored volume")}</div>
-                    <div className="mt-1 text-2xl font-bold text-slate-900">{formatStorageAmount(item.currentKg, "kg", language as Lang)}</div>
+                    <div className="mt-0.5 text-xl font-bold text-slate-900">{formatStorageAmount(item.currentKg, "kg", language as Lang)}</div>
                   </div>
 
                   {fillPercent != null ? (
@@ -480,7 +569,9 @@ export default function WarehousesPage() {
                     ) : (
                       item.topItems.map((stockItem) => (
                         <div key={`${item.warehouse.id}-${stockItem.product_id}`} className="flex items-center justify-between gap-2 text-sm">
-                          <span className="truncate text-slate-700">{stockItem.product_name}</span>
+                          <span className="truncate text-slate-700">
+                            {stockItem.identity_name || stockItem.product_name}
+                          </span>
                           <span className="shrink-0 font-medium text-slate-900">{formatStorageAmount(stockItem.quantity, stockItem.unit || "kg", language as Lang)}</span>
                         </div>
                       ))
@@ -498,7 +589,16 @@ export default function WarehousesPage() {
         )}
       </div>
 
-      <Sheet open={Boolean(selectedOverview)} onOpenChange={(open) => !open && setSelectedWarehouseId(null)}>
+      <Sheet
+        open={Boolean(selectedOverview)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedWarehouseId(null);
+            setMovementDateFrom("");
+            setMovementDateTo("");
+          }
+        }}
+      >
         <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
           {selectedOverview && (
             <div className="space-y-5">
@@ -557,9 +657,14 @@ export default function WarehousesPage() {
                       const maxQty = Number(selectedOverview.allItems[0]?.quantity || 1);
                       const width = Math.max(4, Math.min(100, (Number(stockItem.quantity || 0) / maxQty) * 100));
                       return (
-                        <div key={stockItem.product_id} className="rounded-lg border border-slate-200 p-3">
+                      <div
+                        key={`${stockItem.product_id}-${stockItem.variety_id || "no-variety"}-${stockItem.reproduction_id || "no-repro"}-${stockItem.batch_id || "no-batch"}`}
+                        className="rounded-lg border border-slate-200 p-3"
+                      >
                           <div className="flex items-center justify-between gap-2">
-                            <div className="font-medium text-slate-800">{stockItem.product_name}</div>
+                            <div className="font-medium text-slate-800">
+                              {stockItem.identity_name || stockItem.product_name}
+                            </div>
                             <div className="text-sm font-semibold text-slate-900">
                               {formatStorageAmount(stockItem.quantity, stockItem.unit || "kg", language as Lang)}
                             </div>
@@ -582,10 +687,14 @@ export default function WarehousesPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2">
-                  {selectedOverview.latestMovements.length === 0 ? (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Input type="date" value={movementDateFrom} onChange={(e) => setMovementDateFrom(e.target.value)} />
+                    <Input type="date" value={movementDateTo} onChange={(e) => setMovementDateTo(e.target.value)} />
+                  </div>
+                  {filteredSelectedMovements.length === 0 ? (
                     <div className="py-5 text-center text-slate-500">{t("Движения пока отсутствуют", "Әзірге қозғалыс жоқ", "No movements yet")}</div>
                   ) : (
-                    selectedOverview.latestMovements.map((movement) => {
+                    filteredSelectedMovements.map((movement) => {
                       const movementStatus = String(movement.status || "confirmed");
                       const statusLabel =
                         movementStatus === "confirmed"

@@ -28,12 +28,17 @@ export const equipmentSchema = z.object({
 
 export const vehicleSchema = z.object({
   name: z.string().min(1, "Vehicle name is required").max(150, "Vehicle name is too long"),
+  global_brand_id: z.string().uuid().optional().nullable(),
+  global_model_id: z.string().uuid().optional().nullable(),
+  custom_name: z.string().max(150, "Custom name is too long").optional().or(z.literal("")),
+  inventory_number: z.string().max(64, "Inventory number is too long").optional().or(z.literal("")),
   vehicle_type: z
-    .enum(["truck", "grain_truck", "dump_truck", "tractor_trailer"])
+    .enum(["truck", "tractor", "combine", "trailer", "loader", "sprayer", "seeder", "other", "grain_truck", "dump_truck", "tractor_trailer"])
     .default("truck"),
   plate_number: z.string().min(1, "Plate number is required").max(32, "Plate number is too long"),
-  capacity_kg: z.coerce.number().positive("Capacity must be greater than zero"),
+  capacity_kg: z.coerce.number().nonnegative("Capacity must be zero or greater"),
   body_volume_m3: z.coerce.number().positive("Body volume must be greater than zero").optional().nullable(),
+  primary_responsible_personnel_id: z.string().uuid().optional().nullable(),
   status: z
     .enum(["free", "in_trip", "loading", "unloading", "drying"])
     .default("free"),
@@ -43,6 +48,11 @@ export const vehicleSchema = z.object({
 export const specialistReferenceSchema = z.object({
   full_name: z.string().min(1, "Name is required").max(150, "Name is too long"),
   role: z.string().optional(),
+  personnel_type: z.enum(["driver", "machine_operator"]).default("driver"),
+  phone: z.string().max(32, "Phone is too long").optional().or(z.literal("")),
+  status: z.enum(["active", "inactive"]).default("active"),
+  note: z.string().max(500, "Note is too long").optional().or(z.literal("")),
+  assigned_vehicle_ids: z.array(z.string().uuid()).optional().default([]),
   machine_id: z.string().uuid().optional().or(z.literal("")),
   equipment_id: z.string().uuid().optional().or(z.literal("")),
 });
@@ -93,15 +103,15 @@ export const fertilizerSchema = agrochemicalBaseSchema.extend({
   type: z.enum(fertilizerTypeValues),
 });
 
-export type CropFormData = z.infer<typeof cropSchema>;
-export type VarietyFormData = z.infer<typeof varietySchema>;
-export type SeedReproductionFormData = z.infer<typeof seedReproductionSchema>;
-export type MachineFormData = z.infer<typeof machineSchema>;
-export type EquipmentFormData = z.infer<typeof equipmentSchema>;
-export type SpecialistReferenceFormData = z.infer<typeof specialistReferenceSchema>;
-export type VehicleFormData = z.infer<typeof vehicleSchema>;
-export type PesticideFormData = z.infer<typeof pesticideSchema>;
-export type FertilizerFormData = z.infer<typeof fertilizerSchema>;
+export type CropFormData = z.input<typeof cropSchema>;
+export type VarietyFormData = z.input<typeof varietySchema>;
+export type SeedReproductionFormData = z.input<typeof seedReproductionSchema>;
+export type MachineFormData = z.input<typeof machineSchema>;
+export type EquipmentFormData = z.input<typeof equipmentSchema>;
+export type SpecialistReferenceFormData = z.input<typeof specialistReferenceSchema>;
+export type VehicleFormData = z.input<typeof vehicleSchema>;
+export type PesticideFormData = z.input<typeof pesticideSchema>;
+export type FertilizerFormData = z.input<typeof fertilizerSchema>;
 export type PesticideCategory = (typeof pesticideCategoryValues)[number];
 export type FertilizerType = (typeof fertilizerTypeValues)[number];
 
@@ -154,7 +164,12 @@ export interface MachineReference {
 export interface VehicleReference {
   id: string;
   name: string;
-  vehicle_type: "truck" | "grain_truck" | "dump_truck" | "tractor_trailer";
+  global_brand_id?: string | null;
+  global_model_id?: string | null;
+  custom_name?: string | null;
+  inventory_number?: string | null;
+  primary_responsible_personnel_id?: string | null;
+  vehicle_type: "truck" | "tractor" | "combine" | "trailer" | "loader" | "sprayer" | "seeder" | "other" | "grain_truck" | "dump_truck" | "tractor_trailer";
   plate_number: string;
   capacity_kg: number;
   body_volume_m3: number | null;
@@ -182,6 +197,11 @@ export interface SpecialistReference {
   id: string;
   full_name: string;
   role: string | null;
+  personnel_type?: "driver" | "machine_operator" | null;
+  phone?: string | null;
+  status?: "active" | "inactive";
+  note?: string | null;
+  assigned_vehicle_ids?: string[];
   machine_id?: string | null;
   equipment_id?: string | null;
   archived: boolean;
@@ -189,6 +209,23 @@ export interface SpecialistReference {
   updated_at: string;
   user_id: string;
   company_id: string;
+}
+
+export interface GlobalVehicleBrand {
+  id: string;
+  name: string;
+  category: string | null;
+  country: string | null;
+  is_active: boolean;
+}
+
+export interface GlobalVehicleModel {
+  id: string;
+  brand_id: string;
+  name: string;
+  model_type: "truck" | "tractor" | "combine" | "trailer" | "loader" | "sprayer" | "seeder" | "other";
+  default_capacity_kg: number | null;
+  is_active: boolean;
 }
 
 export interface AgrochemicalReference {

@@ -33,7 +33,7 @@ export async function POST(
       allowedRoles: ["admin", "warehouse", "weighman"],
     });
 
-    const { error } = await supabase.rpc("void_ticket_with_storno", {
+    const { error } = await supabase.rpc("void_ticket_with_storno_v2", {
       p_ticket_id: id,
       p_actor_user_id: actorUserId,
       p_reason: reason,

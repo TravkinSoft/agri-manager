@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { Field, FieldFormData } from "@/lib/types/field";
+import { getFieldDisplayName, getFieldTechnicalKey } from "@/lib/fields/display";
 
 export async function getFields(companyId: string, includeArchived = false) {
   let query = supabase
@@ -18,7 +19,11 @@ export async function getFields(companyId: string, includeArchived = false) {
     throw new Error(error.message);
   }
 
-  return data as Field[];
+  return (data as Field[]).map((field) => ({
+    ...field,
+    display_name: getFieldDisplayName(field),
+    technical_key: getFieldTechnicalKey(field),
+  }));
 }
 
 export async function createField(

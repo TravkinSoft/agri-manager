@@ -92,7 +92,7 @@ export default function UsersPage() {
 
   const handleInvite = async () => {
     if (!inviteEmail || !inviteFullName || !profile?.company_id) return;
-    const normalizedInviteRole = inviteRole === 'admin' ? 'company_admin' : inviteRole;
+    const normalizedInviteRole = inviteRole;
     if (profile.role !== 'global_admin' && normalizedInviteRole === 'company_admin') {
       toast({
         title: 'Ошибка',
@@ -160,25 +160,29 @@ export default function UsersPage() {
     const styles = {
       global_admin: 'bg-purple-100 text-purple-800',
       company_admin: 'bg-rose-100 text-rose-800',
-      admin: 'bg-red-100 text-red-800',
       agronomist: 'bg-green-100 text-green-800',
       specialist: 'bg-blue-100 text-blue-800',
       warehouse: 'bg-orange-100 text-orange-800',
       weighman: 'bg-violet-100 text-violet-800',
+      fuel_operator: 'bg-cyan-100 text-cyan-800',
     } as const;
 
     const roleLabel =
-      role === 'admin'
-        ? t('Админ', 'Әкімші', 'Admin')
-        : role === 'agronomist'
-          ? t('Агроном', 'Агроном', 'Agronomist')
-          : role === 'specialist'
-            ? t('Специалист', 'Маман', 'Specialist')
-            : role === 'warehouse'
-              ? t('Склад', 'Қойма', 'Warehouse')
-              : role === 'weighman'
-                ? t('Весовщик', 'Таразышы', 'Weighman')
-                : role;
+      role === "global_admin"
+        ? t("Глобальный администратор", "Жаһандық әкімші", "Global admin")
+        : role === "company_admin"
+          ? t("Администратор компании", "Компания әкімшісі", "Company admin")
+          : role === "agronomist"
+            ? t("Агроном", "Агроном", "Agronomist")
+            : role === "specialist"
+              ? t("Специалист", "Маман", "Specialist")
+              : role === "warehouse"
+                ? t("Склад", "Қойма", "Warehouse")
+                : role === "weighman"
+                  ? t("Весовщик", "Таразышы", "Weighman")
+                  : role === "fuel_operator"
+                    ? t("Заправщик", "Жанармай операторы", "Fuel operator")
+                    : role;
 
     return (
       <Badge className={styles[role as keyof typeof styles] || 'bg-slate-100 text-slate-800'}>
@@ -205,7 +209,7 @@ export default function UsersPage() {
     );
   };
 
-  if (profile?.role !== 'admin' && profile?.role !== 'company_admin' && profile?.role !== 'global_admin') {
+  if (profile?.role !== 'company_admin' && profile?.role !== 'global_admin') {
     return (
       <div>
         <PageHeader
@@ -333,7 +337,7 @@ export default function UsersPage() {
                   <SelectItem value="specialist">{t('Специалист', 'Маман', 'Specialist')}</SelectItem>
                   <SelectItem value="warehouse">{t('Склад', 'Қойма', 'Warehouse')}</SelectItem>
                   <SelectItem value="weighman">{t('Весовщик', 'Таразышы', 'Weighman')}</SelectItem>
-                  <SelectItem value="admin">{t('Админ', 'Әкімші', 'Admin')}</SelectItem>
+                  <SelectItem value="fuel_operator">{t('Заправщик', 'Жанармай операторы', 'Fuel operator')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

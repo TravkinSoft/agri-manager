@@ -1,0 +1,192 @@
+export const IMPORT_POLICY = {
+  seasonYearOnly: 2026,
+  legalSnapshotOnly: true,
+  retroHistoryGeneration: false,
+  ownershipAssumptions: false,
+};
+
+export const HARD_RULES = {
+  fieldPreferredByToken: {
+    "6": [/^6-1$/i],
+    "19": [/^19-1$/i],
+    "14-1": [/^14-1$/i],
+    "49-2": [/^49-2-1$/i],
+    "49-1": [/^49-1-1$/i],
+    "10": [/^10-1$/i],
+    "64-1": [/^64-1$/i],
+    "9-1": [/^9-1$/i],
+    "9-2": [/^9-2$/i],
+    "50-1": [/^50-1$/i],
+    "2-3": [/^2-3-1$/i],
+    "23": [/^23-1$/i],
+    "53": [/^53-1$/i],
+    "51": [/^51-1$/i],
+    "65": [/^65-1$/i],
+    "50": [/^50-1$/i],
+    "2-2": [/^2-2-1$/i],
+    "4-1": [/^4-1-1$/i],
+    "52-2": [/^52-2-1$/i],
+    "16": [/^16-1$/i],
+    "2-1": [/^2-2-1$/i],
+    "28": [/^28-1$/i],
+    "61": [/^61-1$/i],
+    "66": [/^66-1$/i],
+    "4-4": [/^4-1-1$/i],
+    "1": [/^1-1$/i],
+    "3": [/^3-1$/i],
+    "32": [/^32-1$/i],
+    "9-3": [/^9-3$/i],
+    "8": [/^8-1$/i],
+  },
+  fieldBlacklistByToken: {
+    "6": [/виноград/i],
+    "19": [/терн/i],
+    "1": [/xml/i, /donets/i, /сад/i],
+    "3": [/виноград/i, /xml/i],
+  },
+  suffixCleanupRegex: [
+    /\(\s*т\s*\)/gi,
+    /\(\s*ку\s*\)/gi,
+    /\(\s*вим\s*\)/gi,
+  ],
+  circleTokenRegex: /круг\s*№?\s*(\d+)/iu,
+  kuTokenRegex: /\(\s*ку\s*\)|\bку\b/iu,
+  aggregateCropSkipRegex: [
+    /^итого:?$/iu,
+    /^всего:?$/iu,
+    /^масличных$/iu,
+    /^зернобобовых$/iu,
+  ],
+  aggregateFieldSkipRegex: [/^итого:?$/iu, /^всего:?$/iu],
+};
+
+export const HEURISTIC_RULES = {
+  preferExactToken: true,
+  preferSuffixOne: true,
+  preferKuForKuTokens: true,
+  confidence: {
+    hard: 0.98,
+    heuristic: 0.8,
+    manualSuggestion: 0.55,
+  },
+};
+
+export const MANUAL_REQUIRED_RULES = {
+  fieldTokens: new Set(["28", "16", "52-2", "61", "66", "2-1", "2-2", "50", "4", "4-1", "4-4"]),
+};
+
+export const DECISION_RULES = {
+  caseSpecificFieldMappings: [
+    {
+      sourceDocumentContains: "карагаш",
+      rawFieldToken: "4",
+      cadastralNumber: "15-164-086-122",
+      cropToken: "кукуруза на силос",
+      areaHa: 63,
+      targetFieldNameRegex: /^4-1-1$/i,
+      reason: "approved_case_specific_mapping",
+    },
+  ],
+  manualSkipRows: [
+    {
+      sourceDocumentContains: "карагаш",
+      rowNo: 44,
+      reason: "suspected_cadastre_typo_no_autocorrect",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 16,
+      reason: "field_not_present_in_operational_fields",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 20,
+      reason: "missing_crop_value_in_source_row",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 27,
+      reason: "field_not_present_in_operational_fields",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 32,
+      reason: "field_not_present_in_operational_fields",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 46,
+      reason: "non_field_token_ogorod_requires_manual_field",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 53,
+      reason: "field_not_present_in_operational_fields",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 58,
+      reason: "non_field_token_sad_requires_manual_field",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 69,
+      reason: "composite_field_token_1_3_requires_manual_split",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 78,
+      reason: "composite_field_token_1_3_requires_manual_split",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 95,
+      reason: "non_field_token_ogorod_requires_manual_field",
+    },
+    {
+      sourceDocumentContains: "стем",
+      rowNo: 96,
+      reason: "non_field_token_ogorod_requires_manual_field",
+    },
+  ],
+};
+
+export const CROP_ALIASES = {
+  пшеница: "пшеница",
+  пшеницы: "пшеница",
+  ячмень: "ячмень",
+  ячменя: "ячмень",
+  овес: "овес",
+  овёс: "овес",
+  горох: "горох",
+  гороха: "горох",
+  картофель: "картофель",
+  картофеля: "картофель",
+  морковь: "морковь",
+  моркови: "морковь",
+  рапс: "рапс",
+  рапса: "рапс",
+  подсолнечник: "подсолнечник",
+  подсолнечника: "подсолнечник",
+  подсолн: "подсолнечник",
+  лен: "лен (масличный)",
+  лён: "лен (масличный)",
+  льна: "лен (масличный)",
+  "кукуруза на силос": "кукуруза",
+  "кукурузы на силос": "кукуруза",
+  кукуруза: "кукуруза",
+  "однолетние травы (суданская трава)": "суданская трава",
+  "суданская трава": "суданская трава",
+  "суданской травы": "суданская трава",
+  "многолетние травы": "многолетние травы",
+  "многолетние травы (костер)": "многолетние травы",
+  "многолетние травы(житняк)": "многолетние травы",
+  "бобовые травы": "бобовые травы",
+  "з/смесь": "травосмеси",
+  "з/смеси": "травосмеси",
+  "з\\смесь": "травосмеси",
+  "з\\смеси": "травосмеси",
+  смесь: "травосмеси",
+  пары: "пар",
+  пар: "пар",
+};

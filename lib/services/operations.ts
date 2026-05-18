@@ -123,6 +123,17 @@ export async function createOperation(
   companyId: string,
   operationData: OperationFormData
 ): Promise<Operation> {
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError) {
+    throw new Error(`Failed to resolve current user: ${authError.message}`);
+  }
+  if (!user?.id) {
+    throw new Error("Failed to create operation: user is not authenticated");
+  }
+
   const safeResponsibleUserId =
     operationData.responsible_user_id && operationData.responsible_user_id !== "none"
       ? operationData.responsible_user_id
@@ -136,6 +147,7 @@ export async function createOperation(
         responsible_user_id: safeResponsibleUserId,
         work_status: "active",
         company_id: companyId,
+        user_id: user.id,
       },
     ])
     .select()

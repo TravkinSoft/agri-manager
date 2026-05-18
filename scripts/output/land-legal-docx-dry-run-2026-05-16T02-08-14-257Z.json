@@ -1,0 +1,3289 @@
+{
+  "generated_at": "2026-05-16T02:08:14.248Z",
+  "policy": {
+    "seasonYearOnly": 2026,
+    "legalSnapshotOnly": true,
+    "retroHistoryGeneration": false,
+    "ownershipAssumptions": false
+  },
+  "matcher_bundle": {
+    "hard_rules": {
+      "fieldPreferredByToken": [
+        "1",
+        "3",
+        "6",
+        "8",
+        "10",
+        "16",
+        "19",
+        "23",
+        "28",
+        "32",
+        "50",
+        "51",
+        "53",
+        "61",
+        "65",
+        "66",
+        "14-1",
+        "49-2",
+        "49-1",
+        "64-1",
+        "9-1",
+        "9-2",
+        "50-1",
+        "2-3",
+        "2-2",
+        "4-1",
+        "52-2",
+        "2-1",
+        "4-4",
+        "9-3"
+      ],
+      "fieldBlacklistByToken": [
+        "1",
+        "3",
+        "6",
+        "19"
+      ],
+      "ku_rule": "for (КУ) or Круг №N prefer ку-N-1, then N-1",
+      "aggregate_skip": [
+        "Итого",
+        "Всего",
+        "Масличных",
+        "Зернобобовых",
+        "empty summary rows"
+      ]
+    },
+    "heuristic_rules": {
+      "preferExactToken": true,
+      "preferSuffixOne": true,
+      "preferKuForKuTokens": true
+    },
+    "manual_required_rules": {
+      "field_tokens": [
+        "28",
+        "16",
+        "52-2",
+        "61",
+        "66",
+        "2-1",
+        "2-2",
+        "50",
+        "4",
+        "4-1",
+        "4-4"
+      ]
+    },
+    "crop_aliases_count": 37
+  },
+  "input_documents": [
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "path": "C:\\Users\\TRAVKIN\\Downloads\\посев 2025 стем. — копия.docx",
+      "table_rows": 98,
+      "parsed_rows": 96,
+      "season_year": 2026,
+      "company_hint": "stem",
+      "resolved_company_id": "10000000-0000-0000-0000-000000000001",
+      "resolved_company_name": "ТОО \"Астык-STEM\"",
+      "source_document": "посев 2025 стем. — копия.docx",
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "path": "C:\\Users\\TRAVKIN\\Downloads\\посев 2026 карагаш.docx",
+      "table_rows": 47,
+      "parsed_rows": 45,
+      "season_year": 2026,
+      "company_hint": "karagash",
+      "resolved_company_id": null,
+      "resolved_company_name": null,
+      "source_document": "посев 2026 карагаш.docx",
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-Караагаш\""
+    }
+  ],
+  "summary": {
+    "rows_total": 141,
+    "rows_skipped_by_season_rule": 0,
+    "rows_skipped_aggregate": 16,
+    "skipped_manual": 11,
+    "fields_matched": 69,
+    "fields_unmatched": 0,
+    "fields_ambiguous": 0,
+    "crops_matched": 69,
+    "crops_unmatched": 0,
+    "cadastral_existing": 0,
+    "cadastral_to_create": 45,
+    "links_to_create": 69,
+    "duplicate_cadastres": 24,
+    "duplicate_field_links": 0,
+    "conflicts": 0,
+    "manual_required_count": 0,
+    "remaining_manual_required": 0,
+    "unresolved_count": 0
+  },
+  "company_breakdown": {
+    "посев 2025 стем. — копия.docx": {
+      "file": "посев 2025 стем. — копия.docx",
+      "company_hint": "stem",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "company_name": "ТОО \"Астык-STEM\"",
+      "season_year": 2026,
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "raw_rows": 98,
+      "usable_rows": 96,
+      "rows_skipped_by_season_rule": 0,
+      "rows_skipped_aggregate": 16,
+      "skipped_manual": 11,
+      "fields_matched": 69,
+      "fields_unmatched": 0,
+      "fields_ambiguous": 0,
+      "crops_matched": 69,
+      "crops_unmatched": 0,
+      "cadastral_existing": 0,
+      "cadastral_to_create": 45,
+      "links_to_create": 69,
+      "duplicate_cadastres": 24,
+      "duplicate_field_links": 0,
+      "conflicts": 0,
+      "manual_required_count": 0,
+      "remaining_manual_required": 0,
+      "unresolved_count": 0
+    },
+    "посев 2026 карагаш.docx": {
+      "file": "посев 2026 карагаш.docx",
+      "company_hint": "karagash",
+      "company_id": null,
+      "company_name": null,
+      "season_year": 2026,
+      "season_id": null,
+      "raw_rows": 47,
+      "usable_rows": 45,
+      "rows_skipped_by_season_rule": 0,
+      "rows_skipped_aggregate": 0,
+      "skipped_manual": 0,
+      "fields_matched": 0,
+      "fields_unmatched": 0,
+      "fields_ambiguous": 0,
+      "crops_matched": 0,
+      "crops_unmatched": 0,
+      "cadastral_existing": 0,
+      "cadastral_to_create": 0,
+      "links_to_create": 0,
+      "duplicate_cadastres": 0,
+      "duplicate_field_links": 0,
+      "conflicts": 0,
+      "manual_required_count": 0,
+      "remaining_manual_required": 0,
+      "unresolved_count": 45
+    }
+  },
+  "usage_legal_entities_to_create": [
+    {
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "company_name": "ТОО \"Астык-STEM\"",
+      "usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "source_document": "посев 2025 стем. — копия.docx"
+    }
+  ],
+  "prepared_rows": [
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 2,
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-206",
+      "rural_district": "Абайский",
+      "area_ha": 73,
+      "field_id": "d9453ce1-83a7-4dcd-8085-6ce9d73ac933",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "6-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "6",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-206",
+        "культура": "Пшеница",
+        "площадь, га": "73"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 3,
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-211",
+      "rural_district": "Абайский",
+      "area_ha": 25,
+      "field_id": "d9453ce1-83a7-4dcd-8085-6ce9d73ac933",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "6-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "6",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-211",
+        "культура": "Пшеница",
+        "площадь, га": "25"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 4,
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-264",
+      "rural_district": "Абайский",
+      "area_ha": 110,
+      "field_id": "d9453ce1-83a7-4dcd-8085-6ce9d73ac933",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "6-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "6",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-264",
+        "культура": "Пшеница",
+        "площадь, га": "110"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 5,
+      "field": "12",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 183,
+      "field_id": "c4ab5f13-6aac-4d34-8054-922752729e5f",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "12-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "12",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-106",
+        "культура": "Пшеница",
+        "площадь, га": "183"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 6,
+      "field": "14-1",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-215",
+      "rural_district": "Абайский",
+      "area_ha": 59,
+      "field_id": "cdbae16a-b557-4499-a475-5c24ec3facef",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "14-1",
+        "14-2-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "14-1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-215",
+        "культура": "Пшеница",
+        "площадь, га": "59"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 7,
+      "field": "19",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 347,
+      "field_id": "4172e304-ffff-4900-bf07-f10b4506fd9f",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "19-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "19",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-106",
+        "культура": "Пшеница",
+        "площадь, га": "347"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 8,
+      "field": "19",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-018-093",
+      "rural_district": "Большой Изюмский",
+      "area_ha": 274,
+      "field_id": "4172e304-ffff-4900-bf07-f10b4506fd9f",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "19-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "19",
+        "Сельский округ": "Большой Изюмский",
+        "Кадастровый номер участка": "15-164-018-093",
+        "культура": "Пшеница",
+        "площадь, га": "274"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 9,
+      "field": "35",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-105",
+      "rural_district": "Абайский",
+      "area_ha": 402,
+      "field_id": "62eef55e-4622-44e4-8c95-06b211d99101",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "35-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "35",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-105",
+        "культура": "Пшеница",
+        "площадь, га": "402"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 10,
+      "field": "49-2",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-202",
+      "rural_district": "Абайский",
+      "area_ha": 30,
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "49-2-1",
+        "49-1-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "49-2",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-202",
+        "культура": "Пшеница",
+        "площадь, га": "30"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 11,
+      "field": "52-2",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-240",
+      "rural_district": "Абайский",
+      "area_ha": 35,
+      "field_id": "3464ce29-d2d3-4c47-91c2-fc3e201e3dcb",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "52-2-1",
+        "52-2-2",
+        "52-1-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "52-2",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-240",
+        "культура": "Пшеница",
+        "площадь, га": "35"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 12,
+      "field": "53",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-089",
+      "rural_district": "Абайский",
+      "area_ha": 99,
+      "field_id": "f15064fe-7143-4e76-8823-60ca3ce25917",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "53-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "53",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-089",
+        "культура": "Пшеница",
+        "площадь, га": "99"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 13,
+      "field": "53",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-217",
+      "rural_district": "Абайский",
+      "area_ha": 40,
+      "field_id": "f15064fe-7143-4e76-8823-60ca3ce25917",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "53-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "53",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-217",
+        "культура": "Пшеница",
+        "площадь, га": "40"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 14,
+      "field": "67",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-180",
+      "rural_district": "Абайский",
+      "area_ha": 161,
+      "field_id": "dccbfb36-ff5e-47bc-97f4-90382ab0697b",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "67-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "67",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-180",
+        "культура": "Пшеница",
+        "площадь, га": "161"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 15,
+      "field": "72",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 193,
+      "field_id": "5a11bb16-3f73-4322-8000-f15ae80ca5c9",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "72-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "72",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-106",
+        "культура": "Пшеница",
+        "площадь, га": "193"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 16,
+      "field": "31-1 (Т)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-018-096",
+      "rural_district": "Большой Изюмский",
+      "area_ha": 113,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "field_not_present_in_operational_fields",
+      "raw": {
+        "№ поля": "31-1 (Т)",
+        "Сельский округ": "Большой Изюмский",
+        "Кадастровый номер участка": "15-164-018-096",
+        "культура": "Пшеница",
+        "площадь, га": "113"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 17,
+      "field": "24-1 (Т)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-018-114",
+      "rural_district": "Большой Изюмский",
+      "area_ha": 78,
+      "field_id": "bdbf65c8-f715-4f17-b675-ff6b7489d2ca",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "ку 24-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "24-1 (Т)",
+        "Сельский округ": "Большой Изюмский",
+        "Кадастровый номер участка": "15-164-018-114",
+        "культура": "Пшеница",
+        "площадь, га": "78"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 18,
+      "field": "3-3 (КУ)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-254",
+      "rural_district": "Абайский",
+      "area_ha": 55,
+      "field_id": "ba12f6f2-86e1-4ac5-a6df-de34d39e5411",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "3-1",
+        "ку-3-1",
+        "виноград-3",
+        "System.Xml.XmlElement-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "3-3 (КУ)",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-254",
+        "культура": "Пшеница",
+        "площадь, га": "55"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 19,
+      "field": "8 (КУ)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-114",
+      "rural_district": "Абайский",
+      "area_ha": 60,
+      "field_id": "96c31fd7-8d6e-472e-a839-a1f67b44d7e5",
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "field_candidates": [
+        "ку-8-1",
+        "8-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "8 (КУ)",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-114",
+        "культура": "Пшеница",
+        "площадь, га": "60"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 20,
+      "field": "8",
+      "crop": "",
+      "cadastral_number": "15-164-081-018",
+      "rural_district": "Яснополянский",
+      "area_ha": 271,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "missing_crop_value_in_source_row",
+      "raw": {
+        "№ поля": "8",
+        "Сельский округ": "Яснополянский",
+        "Кадастровый номер участка": "15-164-081-018",
+        "культура": "",
+        "площадь, га": "271"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 22,
+      "field": "10",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-210",
+      "rural_district": "Абайский",
+      "area_ha": 77,
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "field_candidates": [
+        "10-1",
+        "10ж-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "10",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-210",
+        "культура": "Ячмень",
+        "площадь, га": "77"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 23,
+      "field": "10",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-216",
+      "rural_district": "Абайский",
+      "area_ha": 129,
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "field_candidates": [
+        "10-1",
+        "10ж-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "10",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-216",
+        "культура": "Ячмень",
+        "площадь, га": "129"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 24,
+      "field": "10",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-238",
+      "rural_district": "Абайский",
+      "area_ha": 43,
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "field_candidates": [
+        "10-1",
+        "10ж-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "10",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-238",
+        "культура": "Ячмень",
+        "площадь, га": "43"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 25,
+      "field": "13",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-213",
+      "rural_district": "Абайский",
+      "area_ha": 279,
+      "field_id": "f18765b8-8fcd-43e4-ad31-0bad9f5efcaa",
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "field_candidates": [
+        "13-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "13",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-213",
+        "культура": "Ячмень",
+        "площадь, га": "279"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 26,
+      "field": "16",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-258",
+      "rural_district": "Абайский",
+      "area_ha": 69,
+      "field_id": "8e97d8e3-396d-480b-b674-921955fe1d24",
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "field_candidates": [
+        "16-1",
+        "16-2",
+        "ку-16-2-1",
+        "ку-16-1-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "16",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-258",
+        "культура": "Ячмень",
+        "площадь, га": "69"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 27,
+      "field": "29 (Т)",
+      "crop": "ячмень",
+      "cadastral_number": "15-164-018-071",
+      "rural_district": "Большой Изюмский",
+      "area_ha": 307,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "field_not_present_in_operational_fields",
+      "raw": {
+        "№ поля": "29 (Т)",
+        "Сельский округ": "Большой Изюмский",
+        "Кадастровый номер участка": "15-164-018-071",
+        "культура": "ячмень",
+        "площадь, га": "307"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 28,
+      "field": "50",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-212",
+      "rural_district": "Абайский",
+      "area_ha": 61,
+      "field_id": "07b727ce-f44a-4674-a87d-34fe50002fc2",
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "field_candidates": [
+        "50-1",
+        "50-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "50",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-212",
+        "культура": "Ячмень",
+        "площадь, га": "61"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 30,
+      "field": "20",
+      "crop": "Овес",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 297,
+      "field_id": "f3be9a20-a8f3-421b-90b2-83c3f31c4433",
+      "crop_id": "68dd47d5-7830-43aa-be76-4943f1ac2f5f",
+      "field_candidates": [
+        "20-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "20",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-106",
+        "культура": "Овес",
+        "площадь, га": "297"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 32,
+      "field": "25",
+      "crop": "Горох",
+      "cadastral_number": "15-164-086-150",
+      "rural_district": "Абайский",
+      "area_ha": 300,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "field_not_present_in_operational_fields",
+      "raw": {
+        "№ поля": "25",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-150",
+        "культура": "Горох",
+        "площадь, га": "300"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 33,
+      "field": "72",
+      "crop": "Горох",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 200,
+      "field_id": "5a11bb16-3f73-4322-8000-f15ae80ca5c9",
+      "crop_id": "71dcdf43-ed70-4bd0-bbc8-b04e48eeeaf7",
+      "field_candidates": [
+        "72-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "72",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-106",
+        "культура": "Горох",
+        "площадь, га": "200"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 35,
+      "field": "64-1",
+      "crop": "З/смесь",
+      "cadastral_number": "15-164-086-107",
+      "rural_district": "Абайский",
+      "area_ha": 209,
+      "field_id": "8275008c-e150-42b6-9126-82e453e91892",
+      "crop_id": "413b04d4-8cf8-4f3d-bb1a-2a1bce371c8a",
+      "field_candidates": [
+        "64-1",
+        "64-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "64-1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-107",
+        "культура": "З/смесь",
+        "площадь, га": "209"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 36,
+      "field": "2-1",
+      "crop": "з/смесь",
+      "cadastral_number": "15-164-086-172",
+      "rural_district": "Абайский",
+      "area_ha": 44,
+      "field_id": "68098f78-733f-422f-b1a2-e8c5281c2ac7",
+      "crop_id": "413b04d4-8cf8-4f3d-bb1a-2a1bce371c8a",
+      "field_candidates": [
+        "2-2-1",
+        "2-3-1",
+        "ку-2-1",
+        "System.Xml.XmlElement-2",
+        "терн-2",
+        "виноград-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "2-1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-172",
+        "культура": "з/смесь",
+        "площадь, га": "44"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 39,
+      "field": "23-24(Т)",
+      "crop": "Лен",
+      "cadastral_number": "15-164-086-242",
+      "rural_district": "Абайский",
+      "area_ha": 84,
+      "field_id": "c75dfb0d-e461-41f0-a543-cc8fffcf1ff8",
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "field_candidates": [
+        "23-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "23-24(Т)",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-242",
+        "культура": "Лен",
+        "площадь, га": "84"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 40,
+      "field": "49-1",
+      "crop": "Лен",
+      "cadastral_number": "15-164-086-128",
+      "rural_district": "Абайский",
+      "area_ha": 322,
+      "field_id": "08ef518a-2ea6-4404-9b8c-330d5bcdeb3c",
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "field_candidates": [
+        "49-1-1",
+        "49-2-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "49-1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-128",
+        "культура": "Лен",
+        "площадь, га": "322"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 41,
+      "field": "22",
+      "crop": "Лен",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 172,
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "field_candidates": [
+        "22-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "22",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-106",
+        "культура": "Лен",
+        "площадь, га": "172"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 43,
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 72,
+      "field_id": "14611399-68e1-4fec-b57c-d11f53726009",
+      "crop_id": "09ccac52-5cc3-4b81-a9ef-fd40b89a955c",
+      "field_candidates": [
+        "65-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "65",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-176",
+        "культура": "Подсолнечник",
+        "площадь, га": "72"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 44,
+      "field": "27",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-108",
+      "rural_district": "Абайский",
+      "area_ha": 232,
+      "field_id": "2487501c-3fc4-49c4-be96-66a7995e8310",
+      "crop_id": "09ccac52-5cc3-4b81-a9ef-fd40b89a955c",
+      "field_candidates": [
+        "27-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "27",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-108",
+        "культура": "Подсолнечник",
+        "площадь, га": "232"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 46,
+      "field": "огород",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-078-039",
+      "rural_district": "Донецкий",
+      "area_ha": 33,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "non_field_token_ogorod_requires_manual_field",
+      "raw": {
+        "№ поля": "огород",
+        "Сельский округ": "Донецкий",
+        "Кадастровый номер участка": "15-164-078-039",
+        "культура": "Рапс",
+        "площадь, га": "33"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 47,
+      "field": "10",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-084-029",
+      "rural_district": "Донецкий",
+      "area_ha": 56,
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "crop_id": "9981eeca-1482-4f7e-af47-5d6d464459a2",
+      "field_candidates": [
+        "10-1",
+        "10ж-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "10",
+        "Сельский округ": "Донецкий",
+        "Кадастровый номер участка": "15-164-084-029",
+        "культура": "Рапс",
+        "площадь, га": "56"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 48,
+      "field": "23",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-177",
+      "rural_district": "Абайский",
+      "area_ha": 84,
+      "field_id": "c75dfb0d-e461-41f0-a543-cc8fffcf1ff8",
+      "crop_id": "9981eeca-1482-4f7e-af47-5d6d464459a2",
+      "field_candidates": [
+        "23-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "23",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-177",
+        "культура": "Рапс",
+        "площадь, га": "84"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 49,
+      "field": "28",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-244",
+      "rural_district": "Абайский",
+      "area_ha": 112,
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "crop_id": "9981eeca-1482-4f7e-af47-5d6d464459a2",
+      "field_candidates": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "28",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-244",
+        "культура": "Рапс",
+        "площадь, га": "112"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 50,
+      "field": "51",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-214",
+      "rural_district": "Абайский",
+      "area_ha": 61,
+      "field_id": "64326e87-7817-418f-b4fa-e93a149dc313",
+      "crop_id": "9981eeca-1482-4f7e-af47-5d6d464459a2",
+      "field_candidates": [
+        "51-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "51",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-214",
+        "культура": "Рапс",
+        "площадь, га": "61"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 51,
+      "field": "61",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-111",
+      "rural_district": "Абайский",
+      "area_ha": 315,
+      "field_id": "695c11e9-bfbb-44f2-aeba-3c75e1bb56bc",
+      "crop_id": "9981eeca-1482-4f7e-af47-5d6d464459a2",
+      "field_candidates": [
+        "61-1",
+        "61-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "61",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-111",
+        "культура": "Рапс",
+        "площадь, га": "315"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 52,
+      "field": "66",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-112",
+      "rural_district": "Абайский",
+      "area_ha": 181,
+      "field_id": "96277888-f4f8-43ff-a297-8b4372e7016b",
+      "crop_id": "9981eeca-1482-4f7e-af47-5d6d464459a2",
+      "field_candidates": [
+        "66-1",
+        "66-2",
+        "66-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "66",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-112",
+        "культура": "Рапс",
+        "площадь, га": "181"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 53,
+      "field": "41(Вим)",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-088-130",
+      "rural_district": "Чкаловский",
+      "area_ha": 332,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "field_not_present_in_operational_fields",
+      "raw": {
+        "№ поля": "41(Вим)",
+        "Сельский округ": "Чкаловский",
+        "Кадастровый номер участка": "15-164-088-130",
+        "культура": "Рапс",
+        "площадь, га": "332"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 56,
+      "field": "28",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-086-244",
+      "rural_district": "Абайский",
+      "area_ha": 28,
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "crop_id": "b7f399eb-6ca3-46f9-a03c-8098dc59d16f",
+      "field_candidates": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "28",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-244",
+        "культура": "Картофель",
+        "площадь, га": "28"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 57,
+      "field": "28",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-086-244",
+      "rural_district": "Абайский",
+      "area_ha": 12,
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "crop_id": "b7f399eb-6ca3-46f9-a03c-8098dc59d16f",
+      "field_candidates": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "28",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-244",
+        "культура": "Картофель",
+        "площадь, га": "12"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 58,
+      "field": "сад",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-086-217",
+      "rural_district": "Абайский",
+      "area_ha": 6,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "non_field_token_sad_requires_manual_field",
+      "raw": {
+        "№ поля": "сад",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-217",
+        "культура": "Картофель",
+        "площадь, га": "6"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 59,
+      "field": "17-2",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-017-100",
+      "rural_district": "Мироновский",
+      "area_ha": 56,
+      "field_id": "ff08882d-5e15-4871-84e1-cefaeb493068",
+      "crop_id": "b7f399eb-6ca3-46f9-a03c-8098dc59d16f",
+      "field_candidates": [
+        "17-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "17-2",
+        "Сельский округ": "Мироновский",
+        "Кадастровый номер участка": "15-164-017-100",
+        "культура": "Картофель",
+        "площадь, га": "56"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 60,
+      "field": "Круг №3",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-017-126",
+      "rural_district": "Мироновский",
+      "area_ha": 92,
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "crop_id": "b7f399eb-6ca3-46f9-a03c-8098dc59d16f",
+      "field_candidates": [
+        "ку-3-1",
+        "3-1",
+        "виноград-3",
+        "System.Xml.XmlElement-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "Круг №3",
+        "Сельский округ": "Мироновский",
+        "Кадастровый номер участка": "15-164-017-126",
+        "культура": "Картофель",
+        "площадь, га": "92"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 61,
+      "field": "1",
+      "crop": "Картофеля",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 5,
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "crop_id": "b7f399eb-6ca3-46f9-a03c-8098dc59d16f",
+      "field_candidates": [
+        "1-1",
+        "донец-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-176",
+        "культура": "Картофеля",
+        "площадь, га": "5"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 63,
+      "field": "1",
+      "crop": "Морковь",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 5,
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "crop_id": "57937a88-ecdf-4196-b2a7-cbbb0611958e",
+      "field_candidates": [
+        "1-1",
+        "донец-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-176",
+        "культура": "Морковь",
+        "площадь, га": "5"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 64,
+      "field": "28",
+      "crop": "Морковь",
+      "cadastral_number": "15-164-086-244",
+      "rural_district": "Абайский",
+      "area_ha": 16,
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "crop_id": "57937a88-ecdf-4196-b2a7-cbbb0611958e",
+      "field_candidates": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "28",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-244",
+        "культура": "Морковь",
+        "площадь, га": "16"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 66,
+      "field": "4-1",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-239",
+      "rural_district": "Абайский",
+      "area_ha": 45,
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "field_candidates": [
+        "4-1-1",
+        "4(2-4)-1",
+        "4-3-1",
+        "ку 4-1-1",
+        "ку 4-2-1",
+        "виноград-4",
+        "System.Xml.XmlElement-4"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "4-1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-239",
+        "культура": "Кукуруза на силос",
+        "площадь, га": "45"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 67,
+      "field": "1",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 24,
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "field_candidates": [
+        "1-1",
+        "донец-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-176",
+        "культура": "Кукуруза на силос",
+        "площадь, га": "24"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 68,
+      "field": "2-2",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-110",
+      "rural_district": "Абайский",
+      "area_ha": 134,
+      "field_id": "68098f78-733f-422f-b1a2-e8c5281c2ac7",
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "field_candidates": [
+        "2-2-1",
+        "2-3-1",
+        "ку-2-1",
+        "System.Xml.XmlElement-2",
+        "терн-2",
+        "виноград-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "2-2",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-110",
+        "культура": "Кукуруза на силос",
+        "площадь, га": "134"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 69,
+      "field": "1,3",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-017-133",
+      "rural_district": "Мироновский",
+      "area_ha": 85,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "composite_field_token_1_3_requires_manual_split",
+      "raw": {
+        "№ поля": "1,3",
+        "Сельский округ": "Мироновский",
+        "Кадастровый номер участка": "15-164-017-133",
+        "культура": "Кукуруза на силос",
+        "площадь, га": "85"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 70,
+      "field": "28",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-244",
+      "rural_district": "Абайский",
+      "area_ha": 28,
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "field_candidates": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "28",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-244",
+        "культура": "Кукуруза на силос",
+        "площадь, га": "28"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 71,
+      "field": "53",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-217",
+      "rural_district": "Абайский",
+      "area_ha": 17,
+      "field_id": "f15064fe-7143-4e76-8823-60ca3ce25917",
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "field_candidates": [
+        "53-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "53",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-217",
+        "культура": "Кукуруза на силос",
+        "площадь, га": "17"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 72,
+      "field": "Круг№2",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-017-133",
+      "rural_district": "Мироновский",
+      "area_ha": 126,
+      "field_id": "68098f78-733f-422f-b1a2-e8c5281c2ac7",
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "field_candidates": [
+        "ку-2-1",
+        "2-2-1",
+        "2-3-1",
+        "System.Xml.XmlElement-2",
+        "терн-2",
+        "виноград-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "Круг№2",
+        "Сельский округ": "Мироновский",
+        "Кадастровый номер участка": "15-164-017-133",
+        "культура": "Кукуруза на силос",
+        "площадь, га": "126"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 73,
+      "field": "Круг №3",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-017-126",
+      "rural_district": "Мироновский",
+      "area_ha": 49,
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "field_candidates": [
+        "ку-3-1",
+        "3-1",
+        "виноград-3",
+        "System.Xml.XmlElement-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "Круг №3",
+        "Сельский округ": "Мироновский",
+        "Кадастровый номер участка": "15-164-017-126",
+        "культура": "Кукуруза на силос",
+        "площадь, га": "49"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 75,
+      "field": "9-3",
+      "crop": "Однолетние травы (Суданская трава)",
+      "cadastral_number": "15-164-086-152",
+      "rural_district": "Абайский",
+      "area_ha": 111,
+      "field_id": "3e2f28c9-5560-4063-85e9-af7303e5aa95",
+      "crop_id": "f2cc6307-4329-45e4-8750-25e024f58cdb",
+      "field_candidates": [
+        "9-3",
+        "9-1",
+        "9-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "9-3",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-152",
+        "культура": "Однолетние травы (Суданская трава)",
+        "площадь, га": "111"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 77,
+      "field": "Круг№1",
+      "crop": "Бобовые травы",
+      "cadastral_number": "15-164-017-133",
+      "rural_district": "Мироновский",
+      "area_ha": 38,
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "crop_id": "16c2c7f8-c0c0-47b1-ba72-bd5ab0b091f4",
+      "field_candidates": [
+        "1-1",
+        "System.Xml.XmlElement-1",
+        "донец-1",
+        "Сад (2га)-1",
+        "Сад (7Га)-1",
+        "Сад внутри-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "Круг№1",
+        "Сельский округ": "Мироновский",
+        "Кадастровый номер участка": "15-164-017-133",
+        "культура": "Бобовые травы",
+        "площадь, га": "38"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 78,
+      "field": "1,3",
+      "crop": "Бобовые травы",
+      "cadastral_number": "15-164-017-133",
+      "rural_district": "Мироновский",
+      "area_ha": 78,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "composite_field_token_1_3_requires_manual_split",
+      "raw": {
+        "№ поля": "1,3",
+        "Сельский округ": "Мироновский",
+        "Кадастровый номер участка": "15-164-017-133",
+        "культура": "Бобовые травы",
+        "площадь, га": "78"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 80,
+      "field": "32",
+      "crop": "Многолетние травы(Житняк)",
+      "cadastral_number": "15-164-086-109",
+      "rural_district": "Абайский",
+      "area_ha": 221,
+      "field_id": "6bd573e0-aa35-4603-a238-3ddd7919dff0",
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "field_candidates": [
+        "32-1",
+        "32-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "32",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-109",
+        "культура": "Многолетние травы(Житняк)",
+        "площадь, га": "221"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 81,
+      "field": "24-3",
+      "crop": "Многолетние травы(Житняк)",
+      "cadastral_number": "15-164-086-174",
+      "rural_district": "Абайский",
+      "area_ha": 73,
+      "field_id": "bdbf65c8-f715-4f17-b675-ff6b7489d2ca",
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "field_candidates": [
+        "ку 24-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "24-3",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-174",
+        "культура": "Многолетние травы(Житняк)",
+        "площадь, га": "73"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 82,
+      "field": "4-4",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-172",
+      "rural_district": "Абайский",
+      "area_ha": 44,
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "field_candidates": [
+        "4-1-1",
+        "4(2-4)-1",
+        "4-3-1",
+        "ку 4-1-1",
+        "ку 4-2-1",
+        "виноград-4",
+        "System.Xml.XmlElement-4"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "4-4",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-172",
+        "культура": "Многолетние травы",
+        "площадь, га": "44"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 83,
+      "field": "1",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 143,
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "field_candidates": [
+        "1-1",
+        "донец-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-176",
+        "культура": "Многолетние травы",
+        "площадь, га": "143"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 84,
+      "field": "28",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-244",
+      "rural_district": "Абайский",
+      "area_ha": 78,
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "field_candidates": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "28",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-244",
+        "культура": "Многолетние травы",
+        "площадь, га": "78"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 85,
+      "field": "24-1",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-203",
+      "rural_district": "Абайский",
+      "area_ha": 41,
+      "field_id": "bdbf65c8-f715-4f17-b675-ff6b7489d2ca",
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "field_candidates": [
+        "ку 24-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "24-1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-203",
+        "культура": "Многолетние травы",
+        "площадь, га": "41"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 86,
+      "field": "64-1",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-107",
+      "rural_district": "Абайский",
+      "area_ha": 30,
+      "field_id": "8275008c-e150-42b6-9126-82e453e91892",
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "field_candidates": [
+        "64-1",
+        "64-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "64-1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-107",
+        "культура": "Многолетние травы",
+        "площадь, га": "30"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 87,
+      "field": "27",
+      "crop": "Многолетние травы",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 130,
+      "field_id": "2487501c-3fc4-49c4-be96-66a7995e8310",
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "field_candidates": [
+        "27-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "27",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-106",
+        "культура": "Многолетние травы",
+        "площадь, га": "130"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 89,
+      "field": "1",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 286,
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "field_candidates": [
+        "1-1",
+        "донец-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "1",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-176",
+        "культура": "Пары",
+        "площадь, га": "286"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 90,
+      "field": "66",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-112",
+      "rural_district": "Абайский",
+      "area_ha": 113,
+      "field_id": "96277888-f4f8-43ff-a297-8b4372e7016b",
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "field_candidates": [
+        "66-1",
+        "66-2",
+        "66-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "66",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-112",
+        "культура": "Пары",
+        "площадь, га": "113"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 91,
+      "field": "2 (КУ)",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-116",
+      "rural_district": "Абайский",
+      "area_ha": 184,
+      "field_id": "ae33819c-ede2-4436-a119-1189b4cd52b7",
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "field_candidates": [
+        "2-2-1",
+        "2-3-1",
+        "ку-2-1",
+        "System.Xml.XmlElement-2",
+        "терн-2",
+        "виноград-2"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "2 (КУ)",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-116",
+        "культура": "Пары",
+        "площадь, га": "184"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 92,
+      "field": "3",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-179",
+      "rural_district": "Абайский",
+      "area_ha": 100,
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "field_candidates": [
+        "3-1",
+        "ку-3-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "3",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-179",
+        "культура": "Пары",
+        "площадь, га": "100"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 93,
+      "field": "3",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-149",
+      "rural_district": "Абайский",
+      "area_ha": 110,
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "field_candidates": [
+        "3-1",
+        "ку-3-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "3",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-149",
+        "культура": "Пары",
+        "площадь, га": "110"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 94,
+      "field": "21",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 391,
+      "field_id": "d9172937-6ef0-44a3-abea-9d5563a8426d",
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "field_candidates": [
+        "21-1"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "21",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-106",
+        "культура": "Пары",
+        "площадь, га": "391"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 95,
+      "field": "огород",
+      "crop": "Пары",
+      "cadastral_number": "15-164-017-098",
+      "rural_district": "Мироновский",
+      "area_ha": 32,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "non_field_token_ogorod_requires_manual_field",
+      "raw": {
+        "№ поля": "огород",
+        "Сельский округ": "Мироновский",
+        "Кадастровый номер участка": "15-164-017-098",
+        "культура": "Пары",
+        "площадь, га": "32"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 96,
+      "field": "огород",
+      "crop": "Пары",
+      "cadastral_number": "15-164-017-101",
+      "rural_district": "Мироновский",
+      "area_ha": 8,
+      "field_id": null,
+      "crop_id": null,
+      "field_candidates": [],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": false,
+      "status": "skip_manual",
+      "reason": "non_field_token_ogorod_requires_manual_field",
+      "raw": {
+        "№ поля": "огород",
+        "Сельский округ": "Мироновский",
+        "Кадастровый номер участка": "15-164-017-101",
+        "культура": "Пары",
+        "площадь, га": "8"
+      }
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "source_mode": "import_docx",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "row_no": 97,
+      "field": "28",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-244",
+      "rural_district": "Абайский",
+      "area_ha": 44,
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "field_candidates": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ],
+      "inferred_usage_legal_entity_name": "ТОО \"Астык-STEM\"",
+      "can_insert": true,
+      "status": "insertable",
+      "reason": "ok",
+      "raw": {
+        "№ поля": "28",
+        "Сельский округ": "Абайский",
+        "Кадастровый номер участка": "15-164-086-244",
+        "культура": "Пары",
+        "площадь, га": "44"
+      }
+    }
+  ],
+  "warnings": [
+    "No company mapping for посев 2026 карагаш.docx"
+  ],
+  "conflicts_sample": [],
+  "unmatched_rows_sample": [
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 2,
+      "reason": "company_not_resolved",
+      "field": "14-1",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-192"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 3,
+      "reason": "company_not_resolved",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-195"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 4,
+      "reason": "company_not_resolved",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-157"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 5,
+      "reason": "company_not_resolved",
+      "field": "53",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-122"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 6,
+      "reason": "company_not_resolved",
+      "field": "49-2",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-168"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 7,
+      "reason": "company_not_resolved",
+      "field": "8(КУ)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-159"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 8,
+      "reason": "company_not_resolved",
+      "field": "8(КУ)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-123"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 9,
+      "reason": "company_not_resolved",
+      "field": "49-2",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-086-154"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 10,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Пшеницы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 11,
+      "reason": "company_not_resolved",
+      "field": "50",
+      "crop": "Ячмень",
+      "cadastral_number": "15-164-086-155"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 12,
+      "reason": "company_not_resolved",
+      "field": "50-1",
+      "crop": "ячмень",
+      "cadastral_number": "15-164-086-154"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 13,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Ячменя",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 14,
+      "reason": "company_not_resolved",
+      "field": "2-2",
+      "crop": "з/смесь",
+      "cadastral_number": "15-164-086-124"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 15,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "з/смеси",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 17,
+      "reason": "company_not_resolved",
+      "field": "4-1",
+      "crop": "Лен",
+      "cadastral_number": "15-164-086-159"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 18,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Льна",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 19,
+      "reason": "company_not_resolved",
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-164"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 20,
+      "reason": "company_not_resolved",
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-197"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 21,
+      "reason": "company_not_resolved",
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-198"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 22,
+      "reason": "company_not_resolved",
+      "field": "65",
+      "crop": "Подсолнечник",
+      "cadastral_number": "15-164-086-153"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 23,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Подсолнечника",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 24,
+      "reason": "company_not_resolved",
+      "field": "23",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-086-157"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 25,
+      "reason": "company_not_resolved",
+      "field": "10",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-084-028"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 26,
+      "reason": "company_not_resolved",
+      "field": "51",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-084-199"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 27,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Рапса",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 29,
+      "reason": "company_not_resolved",
+      "field": "9-2",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-086-160"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 30,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Картофеля",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 31,
+      "reason": "company_not_resolved",
+      "field": "49-2",
+      "crop": "Морковь",
+      "cadastral_number": "15-164-086-168"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 32,
+      "reason": "company_not_resolved",
+      "field": "9-2",
+      "crop": "Морковь",
+      "cadastral_number": "15-164-086-160"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 33,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Моркови",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 34,
+      "reason": "company_not_resolved",
+      "field": "2-3",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-124"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 35,
+      "reason": "company_not_resolved",
+      "field": "4",
+      "crop": "Кукуруза на силос",
+      "cadastral_number": "15-164-086-122"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 36,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Кукурузы на силос",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 37,
+      "reason": "company_not_resolved",
+      "field": "9-1",
+      "crop": "Суданская трава",
+      "cadastral_number": "15-164-086-160"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 38,
+      "reason": "company_not_resolved",
+      "field": "9-2",
+      "crop": "Суданская трава",
+      "cadastral_number": "15-164-086-160"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 39,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Суданской травы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 40,
+      "reason": "company_not_resolved",
+      "field": "64-1",
+      "crop": "Многолетние травы (костер)",
+      "cadastral_number": "15-164-086-163"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 41,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Многолетние травы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 42,
+      "reason": "company_not_resolved",
+      "field": "9-1",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-160"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 43,
+      "reason": "company_not_resolved",
+      "field": "4-1",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-159"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 44,
+      "reason": "company_not_resolved",
+      "field": "4",
+      "crop": "Пары",
+      "cadastral_number": "15-164-06-122"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 45,
+      "reason": "company_not_resolved",
+      "field": "49-2",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-168"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 46,
+      "reason": "company_not_resolved",
+      "field": "9-2",
+      "crop": "Пары",
+      "cadastral_number": "15-164-086-160"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 47,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "Пары",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 48,
+      "reason": "company_not_resolved",
+      "field": "",
+      "crop": "",
+      "cadastral_number": ""
+    }
+  ],
+  "manual_review_table": [
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 16,
+      "raw_token": "31-1 (Т)",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "field_not_present_in_operational_fields",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-018-096",
+      "crop": "Пшеница",
+      "area_ha": 113
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 20,
+      "raw_token": "8",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "missing_crop_value_in_source_row",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-081-018",
+      "crop": "",
+      "area_ha": 271
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 27,
+      "raw_token": "29 (Т)",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "field_not_present_in_operational_fields",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-018-071",
+      "crop": "ячмень",
+      "area_ha": 307
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 32,
+      "raw_token": "25",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "field_not_present_in_operational_fields",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-086-150",
+      "crop": "Горох",
+      "area_ha": 300
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 46,
+      "raw_token": "огород",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "non_field_token_ogorod_requires_manual_field",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-078-039",
+      "crop": "Рапс",
+      "area_ha": 33
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 53,
+      "raw_token": "41(Вим)",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "field_not_present_in_operational_fields",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-088-130",
+      "crop": "Рапс",
+      "area_ha": 332
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 58,
+      "raw_token": "сад",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "non_field_token_sad_requires_manual_field",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-086-217",
+      "crop": "Картофель",
+      "area_ha": 6
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 69,
+      "raw_token": "1,3",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "composite_field_token_1_3_requires_manual_split",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-017-133",
+      "crop": "Кукуруза на силос",
+      "area_ha": 85
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 78,
+      "raw_token": "1,3",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "composite_field_token_1_3_requires_manual_split",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-017-133",
+      "crop": "Бобовые травы",
+      "area_ha": 78
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 95,
+      "raw_token": "огород",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "non_field_token_ogorod_requires_manual_field",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-017-098",
+      "crop": "Пары",
+      "area_ha": 32
+    },
+    {
+      "source_document": "посев 2025 стем. — копия.docx",
+      "row_no": 96,
+      "raw_token": "огород",
+      "candidates": [],
+      "suggested_match": null,
+      "confidence": 1,
+      "reason": "non_field_token_ogorod_requires_manual_field",
+      "action": "skip_manual",
+      "cadastral_number": "15-164-017-101",
+      "crop": "Пары",
+      "area_ha": 8
+    }
+  ],
+  "many_to_many_examples": {
+    "field_to_many_cadastres": [
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "6-1",
+        "cadastre_count": 3,
+        "cadastres": [
+          "15-164-086-206",
+          "15-164-086-211",
+          "15-164-086-264"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "19-1",
+        "cadastre_count": 2,
+        "cadastres": [
+          "15-164-086-106",
+          "15-164-018-093"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "53-1",
+        "cadastre_count": 2,
+        "cadastres": [
+          "15-164-086-089",
+          "15-164-086-217"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "ку 24-1",
+        "cadastre_count": 3,
+        "cadastres": [
+          "15-164-018-114",
+          "15-164-086-174",
+          "15-164-086-203"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "10-1",
+        "cadastre_count": 4,
+        "cadastres": [
+          "15-164-086-210",
+          "15-164-086-216",
+          "15-164-086-238",
+          "15-164-084-029"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "2-2-1",
+        "cadastre_count": 3,
+        "cadastres": [
+          "15-164-086-172",
+          "15-164-086-110",
+          "15-164-017-133"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "23-1",
+        "cadastre_count": 2,
+        "cadastres": [
+          "15-164-086-242",
+          "15-164-086-177"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "27-1",
+        "cadastre_count": 2,
+        "cadastres": [
+          "15-164-086-108",
+          "15-164-086-106"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "3-1",
+        "cadastre_count": 3,
+        "cadastres": [
+          "15-164-017-126",
+          "15-164-086-179",
+          "15-164-086-149"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "1-1",
+        "cadastre_count": 2,
+        "cadastres": [
+          "15-164-086-176",
+          "15-164-017-133"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "4-1-1",
+        "cadastre_count": 2,
+        "cadastres": [
+          "15-164-086-239",
+          "15-164-086-172"
+        ]
+      }
+    ],
+    "cadastre_to_many_fields": [
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-106",
+        "field_count": 7,
+        "fields": [
+          "12-1",
+          "19-1",
+          "20-1",
+          "21-1",
+          "22-1",
+          "27-1",
+          "72-1"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-172",
+        "field_count": 2,
+        "fields": [
+          "2-2-1",
+          "4-1-1"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-176",
+        "field_count": 2,
+        "fields": [
+          "1-1",
+          "65-1"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-017-133",
+        "field_count": 2,
+        "fields": [
+          "1-1",
+          "2-2-1"
+        ]
+      }
+    ],
+    "cadastre_to_many_crops": [
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-106",
+        "crop_count": 6,
+        "crops": [
+          "горох",
+          "лен",
+          "многолетние травы",
+          "овес",
+          "пары",
+          "пшеница"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-217",
+        "crop_count": 2,
+        "crops": [
+          "кукуруза на силос",
+          "пшеница"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-107",
+        "crop_count": 2,
+        "crops": [
+          "з/смесь",
+          "многолетние травы"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-172",
+        "crop_count": 2,
+        "crops": [
+          "з/смесь",
+          "многолетние травы"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-176",
+        "crop_count": 6,
+        "crops": [
+          "картофеля",
+          "кукуруза на силос",
+          "многолетние травы",
+          "морковь",
+          "пары",
+          "подсолнечник"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-244",
+        "crop_count": 6,
+        "crops": [
+          "картофель",
+          "кукуруза на силос",
+          "многолетние травы",
+          "морковь",
+          "пары",
+          "рапс"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-112",
+        "crop_count": 2,
+        "crops": [
+          "пары",
+          "рапс"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-017-126",
+        "crop_count": 2,
+        "crops": [
+          "картофель",
+          "кукуруза на силос"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-017-133",
+        "crop_count": 2,
+        "crops": [
+          "бобовые травы",
+          "кукуруза на силос"
+        ]
+      }
+    ]
+  }
+}

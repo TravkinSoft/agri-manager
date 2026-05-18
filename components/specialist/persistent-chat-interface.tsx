@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChatSidebar } from './chat-sidebar';
 import { ChatInterface } from './chat-interface';
 import { useAuth } from '@/lib/contexts/auth-context';
+import type { AssistantRuntimeUiContext } from "@/lib/assistant/shell";
 import {
   getProjects,
   createProject,
@@ -24,6 +25,9 @@ import { useToast } from '@/hooks/use-toast';
 
 interface PersistentChatInterfaceProps {
   onMessagesChange?: (chatId: string, messages: any[]) => void;
+  embedded?: boolean;
+  runtimeContext?: AssistantRuntimeUiContext;
+  assistantSessionId?: string;
 }
 
 function sanitizeAssistantMessage(content: string, draft?: any): string {
@@ -44,7 +48,12 @@ function sanitizeAssistantMessage(content: string, draft?: any): string {
   return cleanContent;
 }
 
-export function PersistentChatInterface({ onMessagesChange }: PersistentChatInterfaceProps) {
+export function PersistentChatInterface({
+  onMessagesChange,
+  embedded = false,
+  runtimeContext,
+  assistantSessionId,
+}: PersistentChatInterfaceProps) {
   const [projects, setProjects] = useState<ChatProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [chatsByProject, setChatsByProject] = useState<Record<string, Chat[]>>({});
@@ -55,10 +64,13 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
   const { toast } = useToast();
   const { profile } = useAuth();
   const initializedProfileKey = useRef<string | null>(null);
+  const chatSelectionStorageKey = useMemo(() => {
+    if (!profile?.id || !profile?.company_id) return null;
+    return `assistant-chat-selection:${profile.id}:${profile.company_id}`;
+  }, [profile?.id, profile?.company_id]);
 
   const isReadOnly = profile?.role === 'specialist';
   const hasFullAccess =
-    profile?.role === 'admin' ||
     profile?.role === 'company_admin' ||
     profile?.role === 'global_admin' ||
     profile?.role === 'agronomist';
@@ -88,6 +100,16 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
       void initializeProjectsAndChats();
     }
   }, [profile?.id, profile?.company_id]);
+
+  useEffect(() => {
+    if (!chatSelectionStorageKey) return;
+    const payload = {
+      selectedProjectId,
+      activeChatId,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem(chatSelectionStorageKey, JSON.stringify(payload));
+  }, [chatSelectionStorageKey, selectedProjectId, activeChatId]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -153,9 +175,34 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
 
       setProjects(existingProjects);
       setChatsByProject(groupedChats);
+      let savedProjectId: string | null = null;
+      let savedChatId: string | null = null;
+      if (chatSelectionStorageKey) {
+        try {
+          const raw = localStorage.getItem(chatSelectionStorageKey);
+          if (raw) {
+            const saved = JSON.parse(raw) as { selectedProjectId?: string; activeChatId?: string };
+            savedProjectId = saved.selectedProjectId ? String(saved.selectedProjectId) : null;
+            savedChatId = saved.activeChatId ? String(saved.activeChatId) : null;
+          }
+        } catch {
+          // ignore malformed local storage
+        }
+      }
+
       const firstProjectId = existingProjects[0]?.id || null;
-      setSelectedProjectId(firstProjectId);
-      setActiveChatId(firstProjectId ? groupedChats[firstProjectId]?.[0]?.id || null : null);
+      const nextProjectId =
+        savedProjectId && existingProjects.some((project) => project.id === savedProjectId)
+          ? savedProjectId
+          : firstProjectId;
+      const nextProjectChats = nextProjectId ? groupedChats[nextProjectId] || [] : [];
+      const nextChatId =
+        savedChatId && nextProjectChats.some((chat) => chat.id === savedChatId)
+          ? savedChatId
+          : nextProjectChats[0]?.id || null;
+
+      setSelectedProjectId(nextProjectId);
+      setActiveChatId(nextChatId);
     } catch (error) {
       console.error('Failed to initialize projects/chats:', error);
       toast({
@@ -429,7 +476,7 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
   };
 
   return (
-    <div className="flex h-[calc(100vh-12rem)] gap-4 overflow-hidden">
+    <div className={embedded ? "flex h-full gap-4 overflow-hidden" : "flex h-[calc(100vh-12rem)] gap-4 overflow-hidden"}>
       <div className="w-80 flex-shrink-0 min-h-0">
         <ChatSidebar
           projects={projects}
@@ -451,6 +498,8 @@ export function PersistentChatInterface({ onMessagesChange }: PersistentChatInte
           key={activeChatId || 'empty-chat'}
           chatId={activeChatId}
           initialMessages={messages}
+          runtimeContext={runtimeContext}
+          assistantSessionId={assistantSessionId}
           onMessageSent={handleMessageSent}
           onDraftConfirmed={handleDraftConfirmed}
           readOnlyMode={isReadOnly}

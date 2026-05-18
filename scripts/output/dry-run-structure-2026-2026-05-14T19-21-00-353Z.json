@@ -1,0 +1,250 @@
+{
+  "generatedAt": "2026-05-14T19:21:03.220Z",
+  "companyId": "10000000-0000-0000-0000-000000000001",
+  "source": {
+    "filePath": "C:\\Users\\TRAVKIN\\Downloads\\Структура посева 2026.xlsx",
+    "fileName": "Структура посева 2026.xlsx",
+    "sheetName": "2026"
+  },
+  "summary": {
+    "rows_total": 999,
+    "rows_used": 98,
+    "fields_to_create": 98,
+    "duplicate_field_groups": 12,
+    "duplicate_field_rows": 35,
+    "crop_allocations_2026": 119,
+    "history_records_2021_2025_split": 470,
+    "history_unknown_tokens": 15,
+    "warning_rows": 15,
+    "error_rows": 0,
+    "skipped_rows": 901,
+    "skipped_by_reason": {
+      "no_area": 2,
+      "no_field": 898,
+      "summary_row": 1
+    },
+    "validation_mismatch_total_vs_alloc": 2,
+    "validation_under_area": 2,
+    "validation_over_area": 0,
+    "flags": {
+      "zyab_rows": 0,
+      "rent_rows": 2,
+      "background_rows": 33
+    },
+    "desiccation_rule": "Колонка/значение десикация пропускается полностью (не сохраняется в crop/history/flags)."
+  },
+  "crop_totals_2026": [
+    {
+      "cropName": "Пшеница",
+      "areaHa": 7536
+    },
+    {
+      "cropName": "Ячмень",
+      "areaHa": 2273
+    },
+    {
+      "cropName": "Рапс",
+      "areaHa": 2239
+    },
+    {
+      "cropName": "Пар",
+      "areaHa": 1705
+    },
+    {
+      "cropName": "Подсолнечник",
+      "areaHa": 1406
+    },
+    {
+      "cropName": "Лён (масличный)",
+      "areaHa": 1367
+    },
+    {
+      "cropName": "Многолетние травы",
+      "areaHa": 934
+    },
+    {
+      "cropName": "Горох",
+      "areaHa": 614
+    },
+    {
+      "cropName": "Кукуруза",
+      "areaHa": 598
+    },
+    {
+      "cropName": "Травосмеси",
+      "areaHa": 544
+    },
+    {
+      "cropName": "Картофель",
+      "areaHa": 334
+    },
+    {
+      "cropName": "Овёс",
+      "areaHa": 297
+    },
+    {
+      "cropName": "Суданская трава",
+      "areaHa": 221
+    },
+    {
+      "cropName": "Бобовые травы",
+      "areaHa": 116
+    },
+    {
+      "cropName": "Морковь",
+      "areaHa": 40
+    }
+  ],
+  "unknown_history_tokens": [
+    {
+      "year": 2024,
+      "token": "з.смесь",
+      "originalRawValue": "з.смесь",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2024,
+      "token": "з.смесь",
+      "originalRawValue": "з.смесь",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2022,
+      "token": "п\\пар",
+      "originalRawValue": "п\\пар",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2021,
+      "token": "залеж",
+      "originalRawValue": "залеж",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2024,
+      "token": "пшен.кукуруз",
+      "originalRawValue": "пшен.кукуруз",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2024,
+      "token": "system.xml.xmlelement",
+      "originalRawValue": "System.Xml.XmlElement",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2021,
+      "token": "залеж",
+      "originalRawValue": "залеж",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2021,
+      "token": "залеж",
+      "originalRawValue": "залеж",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2021,
+      "token": "залеж",
+      "originalRawValue": "залеж",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2021,
+      "token": "залеж",
+      "originalRawValue": "залеж",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2024,
+      "token": "ячм. пар",
+      "originalRawValue": "ячм. Пар",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2023,
+      "token": "залеж",
+      "originalRawValue": "залеж",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2024,
+      "token": "залеж",
+      "originalRawValue": "залеж",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2023,
+      "token": "залеж",
+      "originalRawValue": "залеж",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    },
+    {
+      "year": 2024,
+      "token": "залеж",
+      "originalRawValue": "залеж",
+      "canonicalCropName": null,
+      "parsedFromMultivalue": false,
+      "parseConfidence": 25,
+      "isUnknown": true,
+      "isRentStatus": false
+    }
+  ]
+}

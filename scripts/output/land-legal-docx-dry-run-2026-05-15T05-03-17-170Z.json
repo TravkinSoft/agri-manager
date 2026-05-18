@@ -1,0 +1,2469 @@
+{
+  "generated_at": "2026-05-15T05:03:17.161Z",
+  "input_documents": [
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "path": "C:\\Users\\TRAVKIN\\Downloads\\посев 2025 стем. — копия.docx",
+      "table_rows": 98,
+      "parsed_rows": 98,
+      "season_year": 2025,
+      "company_hint": "stem",
+      "resolved_company_id": "10000000-0000-0000-0000-000000000001",
+      "resolved_company_name": "ТОО \"Астык-STEM\""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "path": "C:\\Users\\TRAVKIN\\Downloads\\посев 2026 карагаш.docx",
+      "table_rows": 47,
+      "parsed_rows": 47,
+      "season_year": 2026,
+      "company_hint": "karagash",
+      "resolved_company_id": "10000000-0000-0000-0000-000000000001",
+      "resolved_company_name": "ТОО \"Астык-STEM\""
+    }
+  ],
+  "summary": {
+    "rows_total": 145,
+    "fields_matched": 31,
+    "fields_unmatched": 41,
+    "fields_ambiguous": 73,
+    "crops_matched": 112,
+    "crops_unmatched": 33,
+    "cadastral_existing": 0,
+    "cadastral_to_create": 112,
+    "duplicate_cadastres": 0,
+    "duplicate_field_links": 0,
+    "conflicts": 114,
+    "mismatched_areas": 0
+  },
+  "company_breakdown": {
+    "посев 2025 стем. — копия.docx": {
+      "file": "посев 2025 стем. — копия.docx",
+      "company_hint": "stem",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "company_name": "ТОО \"Астык-STEM\"",
+      "season_year": 2025,
+      "season_id": "9267a123-e99d-449a-a8f6-3ba3f7227f01",
+      "raw_rows": 98,
+      "usable_rows": 98,
+      "fields_matched": 24,
+      "fields_unmatched": 26,
+      "fields_ambiguous": 48,
+      "crops_matched": 79,
+      "crops_unmatched": 19,
+      "cadastral_existing": 0,
+      "cadastral_to_create": 80,
+      "links_to_create": 24,
+      "duplicate_cadastres": 0,
+      "duplicate_field_links": 0,
+      "conflicts": 74,
+      "mismatched_areas": 0
+    },
+    "посев 2026 карагаш.docx": {
+      "file": "посев 2026 карагаш.docx",
+      "company_hint": "karagash",
+      "company_id": "10000000-0000-0000-0000-000000000001",
+      "company_name": "ТОО \"Астык-STEM\"",
+      "season_year": 2026,
+      "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+      "raw_rows": 47,
+      "usable_rows": 47,
+      "fields_matched": 7,
+      "fields_unmatched": 15,
+      "fields_ambiguous": 25,
+      "crops_matched": 33,
+      "crops_unmatched": 14,
+      "cadastral_existing": 0,
+      "cadastral_to_create": 32,
+      "links_to_create": 7,
+      "duplicate_cadastres": 0,
+      "duplicate_field_links": 0,
+      "conflicts": 40,
+      "mismatched_areas": 0
+    }
+  },
+  "warnings": [],
+  "conflicts_sample": [
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 2,
+      "type": "field_ambiguous",
+      "field": "6",
+      "matches": [
+        "6-1",
+        "виноград-6"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 2,
+      "type": "row_not_insertable",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastre": "15-164-086-206",
+      "area_ha": 73,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 3,
+      "type": "field_ambiguous",
+      "field": "6",
+      "matches": [
+        "6-1",
+        "виноград-6"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 3,
+      "type": "row_not_insertable",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastre": "15-164-086-211",
+      "area_ha": 25,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 4,
+      "type": "field_ambiguous",
+      "field": "6",
+      "matches": [
+        "6-1",
+        "виноград-6"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 4,
+      "type": "row_not_insertable",
+      "field": "6",
+      "crop": "Пшеница",
+      "cadastre": "15-164-086-264",
+      "area_ha": 110,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 6,
+      "type": "field_ambiguous",
+      "field": "14-1",
+      "matches": [
+        "14-1",
+        "14-2-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 6,
+      "type": "row_not_insertable",
+      "field": "14-1",
+      "crop": "Пшеница",
+      "cadastre": "15-164-086-215",
+      "area_ha": 59,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 7,
+      "type": "field_ambiguous",
+      "field": "19",
+      "matches": [
+        "19-1",
+        "19 терн-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 7,
+      "type": "row_not_insertable",
+      "field": "19",
+      "crop": "Пшеница",
+      "cadastre": "15-164-086-106",
+      "area_ha": 347,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 8,
+      "type": "field_ambiguous",
+      "field": "19",
+      "matches": [
+        "19-1",
+        "19 терн-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 8,
+      "type": "row_not_insertable",
+      "field": "19",
+      "crop": "Пшеница",
+      "cadastre": "15-164-018-093",
+      "area_ha": 274,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 10,
+      "type": "field_ambiguous",
+      "field": "49-2",
+      "matches": [
+        "49-2-1",
+        "49-1-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 10,
+      "type": "row_not_insertable",
+      "field": "49-2",
+      "crop": "Пшеница",
+      "cadastre": "15-164-086-202",
+      "area_ha": 30,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 11,
+      "type": "field_ambiguous",
+      "field": "52-2",
+      "matches": [
+        "52-2-1",
+        "52-2-2",
+        "52-1-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 11,
+      "type": "row_not_insertable",
+      "field": "52-2",
+      "crop": "Пшеница",
+      "cadastre": "15-164-086-240",
+      "area_ha": 35,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 16,
+      "type": "row_not_insertable",
+      "field": "31-1 (Т)",
+      "crop": "Пшеница",
+      "cadastre": "15-164-018-096",
+      "area_ha": 113,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 18,
+      "type": "field_ambiguous",
+      "field": "3-3 (КУ)",
+      "matches": [
+        "3-1",
+        "ку-3-1",
+        "виноград-3",
+        "System.Xml.XmlElement-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 18,
+      "type": "row_not_insertable",
+      "field": "3-3 (КУ)",
+      "crop": "Пшеница",
+      "cadastre": "15-164-086-254",
+      "area_ha": 55,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 19,
+      "type": "field_ambiguous",
+      "field": "8 (КУ)",
+      "matches": [
+        "ку-8-1",
+        "8-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 19,
+      "type": "row_not_insertable",
+      "field": "8 (КУ)",
+      "crop": "Пшеница",
+      "cadastre": "15-164-086-114",
+      "area_ha": 60,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 20,
+      "type": "field_ambiguous",
+      "field": "8",
+      "matches": [
+        "ку-8-1",
+        "8-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 20,
+      "type": "row_not_insertable",
+      "field": "8",
+      "crop": "",
+      "cadastre": "15-164-081-018",
+      "area_ha": 271,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 21,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Пшеницы",
+      "cadastre": "",
+      "area_ha": 2608,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 22,
+      "type": "field_ambiguous",
+      "field": "10",
+      "matches": [
+        "10-1",
+        "10ж-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 22,
+      "type": "row_not_insertable",
+      "field": "10",
+      "crop": "Ячмень",
+      "cadastre": "15-164-086-210",
+      "area_ha": 77,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 23,
+      "type": "field_ambiguous",
+      "field": "10",
+      "matches": [
+        "10-1",
+        "10ж-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 23,
+      "type": "row_not_insertable",
+      "field": "10",
+      "crop": "Ячмень",
+      "cadastre": "15-164-086-216",
+      "area_ha": 129,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 24,
+      "type": "field_ambiguous",
+      "field": "10",
+      "matches": [
+        "10-1",
+        "10ж-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 24,
+      "type": "row_not_insertable",
+      "field": "10",
+      "crop": "Ячмень",
+      "cadastre": "15-164-086-238",
+      "area_ha": 43,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 26,
+      "type": "field_ambiguous",
+      "field": "16",
+      "matches": [
+        "16-1",
+        "16-2",
+        "ку-16-2-1",
+        "ку-16-1-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 26,
+      "type": "row_not_insertable",
+      "field": "16",
+      "crop": "Ячмень",
+      "cadastre": "15-164-086-258",
+      "area_ha": 69,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 27,
+      "type": "row_not_insertable",
+      "field": "29 (Т)",
+      "crop": "ячмень",
+      "cadastre": "15-164-018-071",
+      "area_ha": 307,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 28,
+      "type": "field_ambiguous",
+      "field": "50",
+      "matches": [
+        "50-1",
+        "50-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 28,
+      "type": "row_not_insertable",
+      "field": "50",
+      "crop": "Ячмень",
+      "cadastre": "15-164-086-212",
+      "area_ha": 61,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 29,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Ячменя",
+      "cadastre": "",
+      "area_ha": 965,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 31,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Овес",
+      "cadastre": "",
+      "area_ha": 297,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 32,
+      "type": "row_not_insertable",
+      "field": "25",
+      "crop": "Горох",
+      "cadastre": "15-164-086-150",
+      "area_ha": 300,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 34,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Гороха",
+      "cadastre": "",
+      "area_ha": 500,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 35,
+      "type": "field_ambiguous",
+      "field": "64-1",
+      "matches": [
+        "64-1",
+        "64-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 35,
+      "type": "row_not_insertable",
+      "field": "64-1",
+      "crop": "З/смесь",
+      "cadastre": "15-164-086-107",
+      "area_ha": 209,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 36,
+      "type": "field_ambiguous",
+      "field": "2-1",
+      "matches": [
+        "2-2-1",
+        "2-3-1",
+        "ку-2-1",
+        "Сад (2га)-1",
+        "System.Xml.XmlElement-2",
+        "терн-2",
+        "виноград-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 36,
+      "type": "row_not_insertable",
+      "field": "2-1",
+      "crop": "з/смесь",
+      "cadastre": "15-164-086-172",
+      "area_ha": 44,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 37,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "З/смеси",
+      "cadastre": "",
+      "area_ha": 253,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 38,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Зернобобовых",
+      "cadastre": "",
+      "area_ha": null,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 40,
+      "type": "field_ambiguous",
+      "field": "49-1",
+      "matches": [
+        "49-1-1",
+        "49-2-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 40,
+      "type": "row_not_insertable",
+      "field": "49-1",
+      "crop": "Лен",
+      "cadastre": "15-164-086-128",
+      "area_ha": 322,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 42,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Льна",
+      "cadastre": "",
+      "area_ha": 578,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 45,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Подсолнечника",
+      "cadastre": "",
+      "area_ha": 304,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 46,
+      "type": "row_not_insertable",
+      "field": "огород",
+      "crop": "Рапс",
+      "cadastre": "15-164-078-039",
+      "area_ha": 33,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 47,
+      "type": "field_ambiguous",
+      "field": "10",
+      "matches": [
+        "10-1",
+        "10ж-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 47,
+      "type": "row_not_insertable",
+      "field": "10",
+      "crop": "Рапс",
+      "cadastre": "15-164-084-029",
+      "area_ha": 56,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 49,
+      "type": "field_ambiguous",
+      "field": "28",
+      "matches": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 49,
+      "type": "row_not_insertable",
+      "field": "28",
+      "crop": "Рапс",
+      "cadastre": "15-164-086-244",
+      "area_ha": 112,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 51,
+      "type": "field_ambiguous",
+      "field": "61",
+      "matches": [
+        "61-1",
+        "61-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 51,
+      "type": "row_not_insertable",
+      "field": "61",
+      "crop": "Рапс",
+      "cadastre": "15-164-086-111",
+      "area_ha": 315,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 52,
+      "type": "field_ambiguous",
+      "field": "66",
+      "matches": [
+        "66-1",
+        "66-2",
+        "66-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 52,
+      "type": "row_not_insertable",
+      "field": "66",
+      "crop": "Рапс",
+      "cadastre": "15-164-086-112",
+      "area_ha": 181,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 53,
+      "type": "row_not_insertable",
+      "field": "41(Вим)",
+      "crop": "Рапс",
+      "cadastre": "15-164-088-130",
+      "area_ha": 332,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 54,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Рапса",
+      "cadastre": "",
+      "area_ha": 1174,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 55,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Масличных",
+      "cadastre": "",
+      "area_ha": 2056,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 56,
+      "type": "field_ambiguous",
+      "field": "28",
+      "matches": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 56,
+      "type": "row_not_insertable",
+      "field": "28",
+      "crop": "Картофель",
+      "cadastre": "15-164-086-244",
+      "area_ha": 28,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 57,
+      "type": "field_ambiguous",
+      "field": "28",
+      "matches": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 57,
+      "type": "row_not_insertable",
+      "field": "28",
+      "crop": "Картофель",
+      "cadastre": "15-164-086-244",
+      "area_ha": 12,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 58,
+      "type": "row_not_insertable",
+      "field": "сад",
+      "crop": "Картофель",
+      "cadastre": "15-164-086-217",
+      "area_ha": 6,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 60,
+      "type": "field_ambiguous",
+      "field": "Круг №3",
+      "matches": [
+        "3-1",
+        "ку-3-1",
+        "виноград-3",
+        "System.Xml.XmlElement-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 60,
+      "type": "row_not_insertable",
+      "field": "Круг №3",
+      "crop": "Картофель",
+      "cadastre": "15-164-017-126",
+      "area_ha": 92,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 61,
+      "type": "field_ambiguous",
+      "field": "1",
+      "matches": [
+        "1-1",
+        "System.Xml.XmlElement-1",
+        "донец-1",
+        "Сад внутри-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 61,
+      "type": "row_not_insertable",
+      "field": "1",
+      "crop": "Картофеля",
+      "cadastre": "15-164-086-176",
+      "area_ha": 5,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 62,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Картофеля",
+      "cadastre": "",
+      "area_ha": 199,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 63,
+      "type": "field_ambiguous",
+      "field": "1",
+      "matches": [
+        "1-1",
+        "System.Xml.XmlElement-1",
+        "донец-1",
+        "Сад внутри-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 63,
+      "type": "row_not_insertable",
+      "field": "1",
+      "crop": "Морковь",
+      "cadastre": "15-164-086-176",
+      "area_ha": 5,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 64,
+      "type": "field_ambiguous",
+      "field": "28",
+      "matches": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 64,
+      "type": "row_not_insertable",
+      "field": "28",
+      "crop": "Морковь",
+      "cadastre": "15-164-086-244",
+      "area_ha": 16,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 65,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Моркови",
+      "cadastre": "",
+      "area_ha": 21,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 66,
+      "type": "field_ambiguous",
+      "field": "4-1",
+      "matches": [
+        "4-1-1",
+        "4(2-4)-1",
+        "4-3-1",
+        "ку 4-1-1",
+        "ку 4-2-1",
+        "виноград-4",
+        "System.Xml.XmlElement-4"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 66,
+      "type": "row_not_insertable",
+      "field": "4-1",
+      "crop": "Кукуруза на силос",
+      "cadastre": "15-164-086-239",
+      "area_ha": 45,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 67,
+      "type": "field_ambiguous",
+      "field": "1",
+      "matches": [
+        "1-1",
+        "System.Xml.XmlElement-1",
+        "донец-1",
+        "Сад внутри-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 67,
+      "type": "row_not_insertable",
+      "field": "1",
+      "crop": "Кукуруза на силос",
+      "cadastre": "15-164-086-176",
+      "area_ha": 24,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 68,
+      "type": "field_ambiguous",
+      "field": "2-2",
+      "matches": [
+        "2-2-1",
+        "2-3-1",
+        "ку-2-1",
+        "Сад (2га)-1",
+        "System.Xml.XmlElement-2",
+        "терн-2",
+        "виноград-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 68,
+      "type": "row_not_insertable",
+      "field": "2-2",
+      "crop": "Кукуруза на силос",
+      "cadastre": "15-164-086-110",
+      "area_ha": 134,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 70,
+      "type": "field_ambiguous",
+      "field": "28",
+      "matches": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 70,
+      "type": "row_not_insertable",
+      "field": "28",
+      "crop": "Кукуруза на силос",
+      "cadastre": "15-164-086-244",
+      "area_ha": 28,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 72,
+      "type": "field_ambiguous",
+      "field": "Круг№2",
+      "matches": [
+        "2-2-1",
+        "2-3-1",
+        "ку-2-1",
+        "Сад (2га)-1",
+        "System.Xml.XmlElement-2",
+        "терн-2",
+        "виноград-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 72,
+      "type": "row_not_insertable",
+      "field": "Круг№2",
+      "crop": "Кукуруза на силос",
+      "cadastre": "15-164-017-133",
+      "area_ha": 126,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 73,
+      "type": "field_ambiguous",
+      "field": "Круг №3",
+      "matches": [
+        "3-1",
+        "ку-3-1",
+        "виноград-3",
+        "System.Xml.XmlElement-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 73,
+      "type": "row_not_insertable",
+      "field": "Круг №3",
+      "crop": "Кукуруза на силос",
+      "cadastre": "15-164-017-126",
+      "area_ha": 49,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 74,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Кукурузы на силос",
+      "cadastre": "",
+      "area_ha": 516,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 75,
+      "type": "field_ambiguous",
+      "field": "9-3",
+      "matches": [
+        "9-3",
+        "9-1",
+        "9-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 75,
+      "type": "row_not_insertable",
+      "field": "9-3",
+      "crop": "Однолетние травы (Суданская трава)",
+      "cadastre": "15-164-086-152",
+      "area_ha": 111,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 76,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Однолетние травы (Суданская трава)",
+      "cadastre": "",
+      "area_ha": 111,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 77,
+      "type": "field_ambiguous",
+      "field": "Круг№1",
+      "matches": [
+        "1-1",
+        "System.Xml.XmlElement-1",
+        "донец-1",
+        "Сад внутри-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 77,
+      "type": "row_not_insertable",
+      "field": "Круг№1",
+      "crop": "Бобовые травы",
+      "cadastre": "15-164-017-133",
+      "area_ha": 38,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 79,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Бобовые травы",
+      "cadastre": "",
+      "area_ha": 116,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 80,
+      "type": "field_ambiguous",
+      "field": "32",
+      "matches": [
+        "32-1",
+        "32-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 80,
+      "type": "row_not_insertable",
+      "field": "32",
+      "crop": "Многолетние травы(Житняк)",
+      "cadastre": "15-164-086-109",
+      "area_ha": 221,
+      "details": {
+        "field_ok": false,
+        "crop_ok": false,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 82,
+      "type": "field_ambiguous",
+      "field": "4-4",
+      "matches": [
+        "4-1-1",
+        "4(2-4)-1",
+        "4-3-1",
+        "ку 4-1-1",
+        "ку 4-2-1",
+        "виноград-4",
+        "System.Xml.XmlElement-4"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 82,
+      "type": "row_not_insertable",
+      "field": "4-4",
+      "crop": "Многолетние травы",
+      "cadastre": "15-164-086-172",
+      "area_ha": 44,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 83,
+      "type": "field_ambiguous",
+      "field": "1",
+      "matches": [
+        "1-1",
+        "System.Xml.XmlElement-1",
+        "донец-1",
+        "Сад внутри-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 83,
+      "type": "row_not_insertable",
+      "field": "1",
+      "crop": "Многолетние травы",
+      "cadastre": "15-164-086-176",
+      "area_ha": 143,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 84,
+      "type": "field_ambiguous",
+      "field": "28",
+      "matches": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 84,
+      "type": "row_not_insertable",
+      "field": "28",
+      "crop": "Многолетние травы",
+      "cadastre": "15-164-086-244",
+      "area_ha": 78,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 86,
+      "type": "field_ambiguous",
+      "field": "64-1",
+      "matches": [
+        "64-1",
+        "64-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 86,
+      "type": "row_not_insertable",
+      "field": "64-1",
+      "crop": "Многолетние травы",
+      "cadastre": "15-164-086-107",
+      "area_ha": 30,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 88,
+      "type": "row_not_insertable",
+      "field": "",
+      "crop": "Многолетние травы",
+      "cadastre": "",
+      "area_ha": 760,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": false,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 89,
+      "type": "field_ambiguous",
+      "field": "1",
+      "matches": [
+        "1-1",
+        "System.Xml.XmlElement-1",
+        "донец-1",
+        "Сад внутри-1",
+        "терн-1",
+        "нов\\берёз-1",
+        "краснокиев-1",
+        "тапшыл-1",
+        "виноград-1"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 89,
+      "type": "row_not_insertable",
+      "field": "1",
+      "crop": "Пары",
+      "cadastre": "15-164-086-176",
+      "area_ha": 286,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 90,
+      "type": "field_ambiguous",
+      "field": "66",
+      "matches": [
+        "66-1",
+        "66-2",
+        "66-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 90,
+      "type": "row_not_insertable",
+      "field": "66",
+      "crop": "Пары",
+      "cadastre": "15-164-086-112",
+      "area_ha": 113,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 91,
+      "type": "field_ambiguous",
+      "field": "2 (КУ)",
+      "matches": [
+        "2-2-1",
+        "2-3-1",
+        "ку-2-1",
+        "Сад (2га)-1",
+        "System.Xml.XmlElement-2",
+        "терн-2",
+        "виноград-2"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 91,
+      "type": "row_not_insertable",
+      "field": "2 (КУ)",
+      "crop": "Пары",
+      "cadastre": "15-164-086-116",
+      "area_ha": 184,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 92,
+      "type": "field_ambiguous",
+      "field": "3",
+      "matches": [
+        "3-1",
+        "ку-3-1",
+        "виноград-3",
+        "System.Xml.XmlElement-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 92,
+      "type": "row_not_insertable",
+      "field": "3",
+      "crop": "Пары",
+      "cadastre": "15-164-086-179",
+      "area_ha": 100,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 93,
+      "type": "field_ambiguous",
+      "field": "3",
+      "matches": [
+        "3-1",
+        "ку-3-1",
+        "виноград-3",
+        "System.Xml.XmlElement-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 93,
+      "type": "row_not_insertable",
+      "field": "3",
+      "crop": "Пары",
+      "cadastre": "15-164-086-149",
+      "area_ha": 110,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 95,
+      "type": "row_not_insertable",
+      "field": "огород",
+      "crop": "Пары",
+      "cadastre": "15-164-017-098",
+      "area_ha": 32,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 96,
+      "type": "row_not_insertable",
+      "field": "огород",
+      "crop": "Пары",
+      "cadastre": "15-164-017-101",
+      "area_ha": 8,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 97,
+      "type": "field_ambiguous",
+      "field": "28",
+      "matches": [
+        "28-1",
+        "28-2",
+        "28-3"
+      ]
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 97,
+      "type": "row_not_insertable",
+      "field": "28",
+      "crop": "Пары",
+      "cadastre": "15-164-086-244",
+      "area_ha": 44,
+      "details": {
+        "field_ok": false,
+        "crop_ok": true,
+        "cadastre_ok": true,
+        "season_ok": true
+      }
+    }
+  ],
+  "unmatched_rows_sample": [
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 16,
+      "reason": "field_not_matched",
+      "field": "31-1 (Т)",
+      "crop": "Пшеница",
+      "cadastral_number": "15-164-018-096"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 20,
+      "reason": "crop_not_matched",
+      "field": "8",
+      "crop": "",
+      "cadastral_number": "15-164-081-018"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 21,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Пшеницы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 21,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Пшеницы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 27,
+      "reason": "field_not_matched",
+      "field": "29 (Т)",
+      "crop": "ячмень",
+      "cadastral_number": "15-164-018-071"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 29,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Ячменя",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 29,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Ячменя",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 31,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Овес",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 32,
+      "reason": "field_not_matched",
+      "field": "25",
+      "crop": "Горох",
+      "cadastral_number": "15-164-086-150"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 34,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Гороха",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 34,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Гороха",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 37,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "З/смеси",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 37,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "З/смеси",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 38,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Зернобобовых",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 38,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Зернобобовых",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 42,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Льна",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 42,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Льна",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 45,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Подсолнечника",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 45,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Подсолнечника",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 46,
+      "reason": "field_not_matched",
+      "field": "огород",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-078-039"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 53,
+      "reason": "field_not_matched",
+      "field": "41(Вим)",
+      "crop": "Рапс",
+      "cadastral_number": "15-164-088-130"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 54,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Рапса",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 54,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Рапса",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 55,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Масличных",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 55,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Масличных",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 58,
+      "reason": "field_not_matched",
+      "field": "сад",
+      "crop": "Картофель",
+      "cadastral_number": "15-164-086-217"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 61,
+      "reason": "crop_not_matched",
+      "field": "1",
+      "crop": "Картофеля",
+      "cadastral_number": "15-164-086-176"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 62,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Картофеля",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 62,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Картофеля",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 65,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Моркови",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 65,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Моркови",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 74,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Кукурузы на силос",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 74,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Кукурузы на силос",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 75,
+      "reason": "crop_not_matched",
+      "field": "9-3",
+      "crop": "Однолетние травы (Суданская трава)",
+      "cadastral_number": "15-164-086-152"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 76,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Однолетние травы (Суданская трава)",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 76,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Однолетние травы (Суданская трава)",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 79,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Бобовые травы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 80,
+      "reason": "crop_not_matched",
+      "field": "32",
+      "crop": "Многолетние травы(Житняк)",
+      "cadastral_number": "15-164-086-109"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 81,
+      "reason": "crop_not_matched",
+      "field": "24-3",
+      "crop": "Многолетние травы(Житняк)",
+      "cadastral_number": "15-164-086-174"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 88,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Многолетние травы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 95,
+      "reason": "field_not_matched",
+      "field": "огород",
+      "crop": "Пары",
+      "cadastral_number": "15-164-017-098"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 96,
+      "reason": "field_not_matched",
+      "field": "огород",
+      "crop": "Пары",
+      "cadastral_number": "15-164-017-101"
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 98,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Пары",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 99,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2025 стем. — копия.docx",
+      "row_no": 99,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 10,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Пшеницы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 10,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Пшеницы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 13,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Ячменя",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 13,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Ячменя",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 15,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "з/смеси",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 15,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "з/смеси",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 16,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Зернобобовых",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 16,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Зернобобовых",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 18,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Льна",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 18,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Льна",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 23,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Подсолнечника",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 23,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Подсолнечника",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 27,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Рапса",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 27,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Рапса",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 28,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Масличных",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 28,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Масличных",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 30,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Картофеля",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 30,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Картофеля",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 33,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Моркови",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 33,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Моркови",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 36,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Кукурузы на силос",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 36,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Кукурузы на силос",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 39,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Суданской травы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 39,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "Суданской травы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 40,
+      "reason": "crop_not_matched",
+      "field": "64-1",
+      "crop": "Многолетние травы (костер)",
+      "cadastral_number": "15-164-086-163"
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 41,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Многолетние травы",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 47,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "Пары",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 48,
+      "reason": "field_not_matched",
+      "field": "",
+      "crop": "",
+      "cadastral_number": ""
+    },
+    {
+      "file": "посев 2026 карагаш.docx",
+      "row_no": 48,
+      "reason": "crop_not_matched",
+      "field": "",
+      "crop": "",
+      "cadastral_number": ""
+    }
+  ],
+  "many_to_many_examples": {
+    "field_to_many_cadastres": [
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "53-1",
+        "cadastre_count": 3,
+        "cadastres": [
+          "15-164-086-089",
+          "15-164-086-217",
+          "15-164-086-122"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "ку 24-1",
+        "cadastre_count": 3,
+        "cadastres": [
+          "15-164-018-114",
+          "15-164-086-174",
+          "15-164-086-203"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "13-1",
+        "cadastre_count": 2,
+        "cadastres": [
+          "15-164-086-213",
+          "15-164-017-133"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "23-1",
+        "cadastre_count": 3,
+        "cadastres": [
+          "15-164-086-242",
+          "15-164-086-177",
+          "15-164-086-157"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "65-1",
+        "cadastre_count": 5,
+        "cadastres": [
+          "15-164-086-176",
+          "15-164-086-164",
+          "15-164-086-197",
+          "15-164-086-198",
+          "15-164-086-153"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "27-1",
+        "cadastre_count": 2,
+        "cadastres": [
+          "15-164-086-108",
+          "15-164-086-106"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "field": "51-1",
+        "cadastre_count": 2,
+        "cadastres": [
+          "15-164-086-214",
+          "15-164-084-199"
+        ]
+      }
+    ],
+    "cadastre_to_many_fields": [
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-106",
+        "field_count": 6,
+        "fields": [
+          "12-1",
+          "20-1",
+          "21-1",
+          "22-1",
+          "27-1",
+          "72-1"
+        ]
+      }
+    ],
+    "cadastre_to_many_crops": [
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-106",
+        "crop_count": 6,
+        "crops": [
+          "горох",
+          "лен (масличный)",
+          "многолетние травы",
+          "овес",
+          "пар",
+          "пшеница"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-086-217",
+        "crop_count": 2,
+        "crops": [
+          "кукуруза на силос",
+          "пшеница"
+        ]
+      },
+      {
+        "company": "ТОО \"Астык-STEM\"",
+        "cadastral_number": "15-164-017-133",
+        "crop_count": 2,
+        "crops": [
+          "бобовые травы",
+          "кукуруза на силос"
+        ]
+      }
+    ]
+  },
+  "migration_delta_recommended": {
+    "cadastral_parcels": [
+      "source_document (text, nullable)",
+      "source (text default 'import_docx')"
+    ],
+    "field_cadastre_links": [
+      "source_document (text, nullable)",
+      "raw_field_key (text, nullable)",
+      "raw_crop_name (text, nullable)"
+    ]
+  }
+}

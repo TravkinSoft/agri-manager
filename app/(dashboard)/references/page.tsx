@@ -20,6 +20,8 @@ import {
   createSpecialistReference,
   createVariety,
   createVehicleReference,
+  getGlobalVehicleBrands,
+  getGlobalVehicleModels,
   getCrops,
   getEquipmentReferences,
   getFertilizers,
@@ -29,6 +31,7 @@ import {
   getSpecialistReferences,
   getVarieties,
   getVehicleReferences,
+  updateSpecialistReference,
   searchAgrochemicalMaster,
 } from "@/lib/services/references";
 
@@ -71,6 +74,11 @@ const vehicleTypeLabels: Record<string, string> = {
   grain_truck: "Зерновоз",
   dump_truck: "Самосвал",
   tractor_trailer: "Трактор с прицепом",
+};
+
+const personnelTypeLabels: Record<string, string> = {
+  driver: "Водитель",
+  machine_operator: "Механизатор",
 };
 
 function DataTable(props: { headers: string[]; rows: string[][]; loading: boolean; empty: string }) {
@@ -124,6 +132,8 @@ export default function ReferencesPage() {
   const [equipment, setEquipment] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [specialists, setSpecialists] = useState<any[]>([]);
+  const [globalBrands, setGlobalBrands] = useState<any[]>([]);
+  const [globalModels, setGlobalModels] = useState<any[]>([]);
 
   const [form, setForm] = useState<Record<string, string>>({});
 
@@ -146,7 +156,7 @@ export default function ReferencesPage() {
     if (!profile?.company_id) return;
     setLoading(true);
     try {
-      const [cropRows, varietyRows, reprRows, pesticideRows, fertilizerRows, machineRows, equipmentRows, vehicleRows, specialistRows] = await Promise.all([
+      const [cropRows, varietyRows, reprRows, pesticideRows, fertilizerRows, machineRows, equipmentRows, vehicleRows, specialistRows, brandRows, modelRows] = await Promise.all([
         getCrops(profile.company_id, false, "ru"),
         getVarieties(profile.company_id, false, "ru"),
         getSeedReproductions(profile.company_id, false, "ru"),
@@ -156,6 +166,8 @@ export default function ReferencesPage() {
         getEquipmentReferences(profile.company_id, false, "ru"),
         getVehicleReferences(profile.company_id, false),
         getSpecialistReferences(profile.company_id, false),
+        getGlobalVehicleBrands(),
+        getGlobalVehicleModels(),
       ]);
       setCrops(cropRows);
       setVarieties(varietyRows);
@@ -166,6 +178,8 @@ export default function ReferencesPage() {
       setEquipment(equipmentRows);
       setVehicles(vehicleRows);
       setSpecialists(specialistRows);
+      setGlobalBrands(brandRows);
+      setGlobalModels(modelRows);
     } finally {
       setLoading(false);
     }
@@ -225,9 +239,14 @@ export default function ReferencesPage() {
         if (!form.plate_number?.trim()) throw new Error("Укажите госномер");
         await createVehicleReference(profile.company_id, profile.id, {
           name: form.name.trim(),
+          global_brand_id: form.global_brand_id || null,
+          global_model_id: form.global_model_id || null,
+          custom_name: form.custom_name || form.name.trim(),
+          inventory_number: form.inventory_number || "",
+          primary_responsible_personnel_id: form.primary_responsible_personnel_id || null,
           vehicle_type: (form.vehicle_type || "truck") as any,
           plate_number: form.plate_number.trim(),
-          capacity_kg: Number(form.capacity_kg || 1),
+          capacity_kg: Number(form.capacity_kg || 0),
           body_volume_m3: null,
           status: "free",
           is_active: true,
@@ -235,12 +254,34 @@ export default function ReferencesPage() {
       }
       if (modalType === "specialist") {
         if (!form.full_name?.trim()) throw new Error("Укажите ФИО");
-        await createSpecialistReference(profile.company_id, profile.id, {
+        const created = await createSpecialistReference(profile.company_id, profile.id, {
           full_name: form.full_name.trim(),
           role: form.role || "",
+          personnel_type: (form.personnel_type || "driver") as any,
+          phone: form.phone || "",
+          status: (form.status || "active") as any,
+          note: form.note || "",
+          assigned_vehicle_ids: [],
           machine_id: "",
           equipment_id: "",
         });
+        const assignedVehicleIds = String(form.assigned_vehicle_ids || "")
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean);
+        if (assignedVehicleIds.length > 0) {
+          await updateSpecialistReference(created.id, {
+            full_name: created.full_name,
+            role: created.role || "",
+            personnel_type: (created.personnel_type || "driver") as any,
+            phone: created.phone || "",
+            status: (created.status || "active") as any,
+            note: created.note || "",
+            assigned_vehicle_ids: assignedVehicleIds,
+            machine_id: "",
+            equipment_id: "",
+          });
+        }
       }
       setModalType(null);
       setForm({});
@@ -408,7 +449,7 @@ export default function ReferencesPage() {
                 <CardContent>
                   <DataTable
                     headers={["Название", "Тип", "Госномер", "Грузоподъемность (кг)"]}
-                    rows={vehicles.map((x) => [x.name, vehicleTypeLabels[x.vehicle_type] || x.vehicle_type, x.plate_number, String(x.capacity_kg)])}
+                    rows={vehicles.map((x) => [x.name, vehicleTypeLabels[x.vehicle_type] || x.vehicle_type, x.plate_number || "-", x.capacity_kg == null ? "-" : String(x.capacity_kg), x.primary_responsible?.full_name || "-", x.is_active ? "Активна" : "Неактивна"])}
                     loading={loading}
                     empty="Машины не добавлены"
                   />

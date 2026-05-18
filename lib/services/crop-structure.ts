@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { CropStructure, CropStructureFormData, CropStructureWithDetails } from "@/lib/types/crop-structure";
+import { getFieldDisplayName } from "@/lib/fields/display";
 
 export async function getCropStructures(
   companyId: string,
@@ -9,7 +10,7 @@ export async function getCropStructures(
     .from("crop_structure")
     .select(`
       *,
-      fields!inner(name),
+      fields!inner(name,notes),
       seasons!inner(year),
       crops!inner(name),
       varieties(name),
@@ -30,7 +31,7 @@ export async function getCropStructures(
 
   return (data || []).map((item: any) => ({
     ...item,
-    field_name: item.fields.name,
+    field_name: getFieldDisplayName(item.fields),
     season_year: item.seasons.year,
     crop_name: item.crops.name,
     variety_name: item.varieties?.name || null,
@@ -47,7 +48,7 @@ export async function getCropStructuresBySeasonId(
     .from("crop_structure")
     .select(`
       *,
-      fields!inner(name),
+      fields!inner(name,notes),
       seasons!inner(year),
       crops!inner(name),
       varieties(name),
@@ -69,7 +70,7 @@ export async function getCropStructuresBySeasonId(
 
   return (data || []).map((item: any) => ({
     ...item,
-    field_name: item.fields.name,
+    field_name: getFieldDisplayName(item.fields),
     season_year: item.seasons.year,
     crop_name: item.crops.name,
     variety_name: item.varieties?.name || null,

@@ -1,0 +1,116 @@
+{
+  "company_id": "10000000-0000-0000-0000-000000000001",
+  "generated_at": "2026-05-14T19:19:27.011Z",
+  "tables": {
+    "warehouse_issue_request_items": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "warehouse_issue_requests": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "field_material_consumptions": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "ticket_lines": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "ticket_weighings": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "stock_ledger_entries": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "tickets": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "operations": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "batch_transformation_outputs": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "batch_transformation_inputs": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "batch_transformations": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "processing_documents": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "inventory_transactions": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "inventory_batches": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "fuel_issues": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "fuel_transfers": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "crop_structure": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "field_history_entries": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "field_season_flags": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "field_cadastre_links": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "fields": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    },
+    "field_history": {
+      "exists": true,
+      "count": 0,
+      "rows": []
+    }
+  }
+}

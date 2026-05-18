@@ -1,81 +1,117 @@
-import { supabase } from "@/lib/supabase/client";
-
-export type ProcessingType =
+export type TransformationType =
   | "drying"
   | "cleaning"
-  | "grading"
-  | "treatment"
-  | "soil_separation"
-  | "washing"
-  | "repacking"
-  | "mixing";
+  | "sorting"
+  | "calibration"
+  | "seed_treatment"
+  | "seed_selection"
+  | "packaging"
+  | "aeration"
+  | "conditioning"
+  | "reclassification";
 
-export interface ProcessingDocumentRow {
+export type BatchClass = "commodity" | "seed" | "feed" | "waste" | "processing" | "rejected";
+
+export type TransformationStatus = "draft" | "completed" | "voided";
+
+export interface StockIdentityItem {
+  key: string;
+  warehouse_id: string;
+  product_id: string;
+  product_name: string;
+  variety_id: string | null;
+  variety_name: string;
+  reproduction_id: string | null;
+  reproduction_name: string;
+  batch_id: string | null;
+  batch_class: BatchClass | string;
+  batch_class_label: string;
+  quantity: number;
+  label: string;
+}
+
+export interface TransformationOutputDraft {
+  line_type: string;
+  batch_class: BatchClass;
+  warehouse_to_id: string | null;
+  output_weight_kg: number;
+}
+
+export interface CreateTransformationInput {
+  company_id: string;
+  actor_user_id: string;
+  transformation_type: TransformationType;
+  processing_node_id?: string | null;
+  source_ticket_id?: string | null;
+  note?: string | null;
+  input: {
+    batch_id: string;
+    warehouse_from_id: string;
+    input_weight_kg: number;
+  };
+  outputs: TransformationOutputDraft[];
+}
+
+export interface BatchTransformationRow {
   id: string;
   company_id: string;
-  processing_type: ProcessingType;
-  status: "draft" | "confirmed" | "cancelled";
-  source_warehouse_id: string;
-  destination_warehouse_id: string | null;
-  product_id: string;
-  input_qty_kg: number;
-  output_qty_kg: number;
-  loss_qty_kg: number;
-  waste_qty_kg: number;
-  moisture_in_percent: number | null;
-  moisture_out_percent: number | null;
-  dockage_in_percent: number | null;
-  dockage_out_percent: number | null;
-  notes: string | null;
+  transformation_type: TransformationType | string;
+  status: TransformationStatus | string;
+  processing_node_id: string | null;
+  processing_node_name: string | null;
+  source_ticket_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
   created_at: string;
-  confirmed_at: string | null;
-  product_name?: string;
-  source_warehouse_name?: string;
-  destination_warehouse_name?: string | null;
+  note: string | null;
+  input_label: string;
+  input_weight_kg: number;
+  source_warehouse_name: string | null;
+  outputs: Array<{
+    line_type: string;
+    batch_class: string;
+    warehouse_to_name: string | null;
+    output_weight_kg: number;
+  }>;
 }
 
-export async function getProcessingDocuments(companyId: string): Promise<ProcessingDocumentRow[]> {
-  const { data, error } = await supabase
-    .from("processing_documents")
-    .select(`
-      *,
-      product:product_id(name),
-      source_warehouse:source_warehouse_id(name),
-      destination_warehouse:destination_warehouse_id(name)
-    `)
-    .eq("company_id", companyId)
-    .order("created_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-
-  return (data || []).map((row: any) => ({
-    ...row,
-    input_qty_kg: Number(row.input_qty_kg || 0),
-    output_qty_kg: Number(row.output_qty_kg || 0),
-    loss_qty_kg: Number(row.loss_qty_kg || 0),
-    waste_qty_kg: Number(row.waste_qty_kg || 0),
-    product_name: row.product?.name || "-",
-    source_warehouse_name: row.source_warehouse?.name || "-",
-    destination_warehouse_name: row.destination_warehouse?.name || null,
-  }));
+async function parseJsonOrThrow(response: Response) {
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || "Request failed");
+  }
+  return payload;
 }
 
-export async function createProcessingDocument(input: Record<string, unknown>) {
-  const { data, error } = await supabase
-    .from("processing_documents")
-    .insert(input)
-    .select("*")
-    .single();
-
-  if (error) throw new Error(error.message);
-  return data;
+export async function getProcessingTransformations(companyId: string, actorUserId: string): Promise<BatchTransformationRow[]> {
+  const params = new URLSearchParams({ companyId, userId: actorUserId });
+  const payload = await parseJsonOrThrow(await fetch(`/api/processing/transformations?${params.toString()}`));
+  return payload.items || [];
 }
 
-export async function confirmProcessingDocument(processingId: string, actorUserId: string) {
-  const { error } = await supabase.rpc("confirm_processing_document", {
-    p_processing_id: processingId,
-    p_actor_user_id: actorUserId,
-  });
-  if (error) throw new Error(error.message);
+export async function createBatchTransformation(input: CreateTransformationInput): Promise<{ id: string }> {
+  return parseJsonOrThrow(
+    await fetch("/api/processing/transformations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    })
+  );
 }
 
+export async function finalizeBatchTransformation(transformationId: string, actorUserId: string): Promise<void> {
+  await parseJsonOrThrow(
+    await fetch(`/api/processing/transformations/${encodeURIComponent(transformationId)}/finalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actor_user_id: actorUserId }),
+    })
+  );
+}
+
+export async function getWarehouseStockIdentities(companyId: string, actorUserId: string, warehouseId: string): Promise<StockIdentityItem[]> {
+  if (!companyId || !actorUserId || !warehouseId) return [];
+  const params = new URLSearchParams({ companyId, userId: actorUserId, warehouseId });
+  const payload = await parseJsonOrThrow(await fetch(`/api/weighbridge/stock-identities?${params.toString()}`));
+  return payload.items || [];
+}

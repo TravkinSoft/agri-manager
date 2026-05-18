@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { OperationDraft } from '@/lib/types/operation-draft';
 import { createHash } from 'crypto';
+import { getServiceClient } from '@/lib/supabase/service';
+import {
+  SessionAuthError,
+  ensureAssistantRole,
+  getServerActorFromSession,
+  resolveCompanyForActor,
+} from '@/lib/auth/server-session';
 
 type ConfirmDraftRequest = {
   draft: OperationDraft;
@@ -21,22 +28,6 @@ type ResolvedMaterial = {
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
-
-function getServiceClient(): SupabaseClient {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceKey) {
-    throw new Error('Supabase service credentials are not configured');
-  }
-
-  return createClient(supabaseUrl, serviceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
 }
 
 function normalizePayload(payload: any): ConfirmDraftRequest {
@@ -541,28 +532,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const actor = await getServerActorFromSession(request);
+    ensureAssistantRole(actor);
+
     const supabase = getServiceClient();
-    const safeUserId = payload.userId?.trim();
-    const safeCompanyId = payload.companyId?.trim();
-
-    if (!safeUserId || !isUuid(safeUserId)) {
-      return NextResponse.json({ error: 'Valid userId is required' }, { status: 400 });
-    }
-
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, company_id')
-      .eq('id', safeUserId)
-      .maybeSingle();
-
-    if (!profile?.company_id) {
-      return NextResponse.json({ error: 'User profile or company not found' }, { status: 404 });
-    }
-
-    const resolvedCompanyId = String(profile.company_id);
-    if (safeCompanyId && safeCompanyId !== resolvedCompanyId) {
-      return NextResponse.json({ error: 'Company mismatch' }, { status: 403 });
-    }
+    const safeUserId = actor.id;
+    const resolvedCompanyId = resolveCompanyForActor(actor, payload.companyId);
 
     const validOperationTypes = [
       'planting',
@@ -881,6 +856,9 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Confirm draft error:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error' },

@@ -1,0 +1,440 @@
+create or replace function public.finalize_weighbridge_ticket_v2(
+  p_ticket_id uuid,
+  p_actor_user_id uuid
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_ticket public.tickets%rowtype;
+  v_line public.ticket_lines%rowtype;
+  v_actor public.profiles%rowtype;
+  v_net numeric(14,3);
+  v_qty numeric(14,3);
+  v_available numeric;
+  v_reason text;
+  v_wh uuid;
+  v_batch_id uuid;
+  v_batch_code text;
+  v_batch_class text;
+  v_area_ha numeric;
+  v_season_id uuid;
+  v_structure public.crop_structure%rowtype;
+begin
+  select *
+    into v_ticket
+  from public.tickets
+  where id = p_ticket_id
+  for update;
+
+  if not found then
+    raise exception 'Ticket not found';
+  end if;
+
+  if v_ticket.is_voided or v_ticket.status = 'voided' then
+    raise exception 'Voided ticket cannot be finalized';
+  end if;
+
+  if v_ticket.is_finalized or v_ticket.status = 'finalized' then
+    return p_ticket_id;
+  end if;
+
+  select *
+    into v_actor
+  from public.profiles
+  where id = p_actor_user_id;
+
+  if not found or v_actor.company_id <> v_ticket.company_id then
+    raise exception 'Actor does not belong to ticket company';
+  end if;
+
+  if coalesce(v_actor.role, '') not in ('admin', 'company_admin', 'warehouse', 'weighman') then
+    raise exception 'Actor role is not allowed to finalize weighbridge tickets';
+  end if;
+
+  if v_ticket.weigh_method = 'manual_override_with_reason' then
+    v_net := coalesce(v_ticket.gross_weight_kg, 0);
+  else
+    if v_ticket.gross_weight_kg is null or v_ticket.tare_weight_kg is null then
+      raise exception 'Gross and tare are required before finalization';
+    end if;
+    v_net := coalesce(v_ticket.gross_weight_kg, 0) - coalesce(v_ticket.tare_weight_kg, 0);
+  end if;
+
+  if v_net <= 0 then
+    raise exception 'Net weight must be greater than zero';
+  end if;
+
+  if exists (
+    select 1
+    from public.stock_ledger_entries sle
+    where sle.ticket_id = p_ticket_id
+      and coalesce(sle.is_storno, false) = false
+  ) then
+    raise exception 'Ticket already has ledger entries';
+  end if;
+
+  if not exists (select 1 from public.ticket_lines tl where tl.ticket_id = p_ticket_id) then
+    raise exception 'Ticket lines are required';
+  end if;
+
+  if v_ticket.op_type = 'issue_to_field' then
+    if v_ticket.field_id is null or v_ticket.warehouse_from_id is null or v_ticket.crop_structure_allocation_id is null then
+      raise exception 'Field issue requires field, source warehouse and crop structure allocation';
+    end if;
+    if coalesce(v_ticket.field_material_category, '') not in ('seed_planting_material','fertilizer','crop_protection','organic','fuel','other') then
+      raise exception 'Field material category is required';
+    end if;
+
+    select *
+      into v_structure
+    from public.crop_structure cs
+    where cs.company_id = v_ticket.company_id
+      and cs.field_id = v_ticket.field_id
+      and cs.id = v_ticket.crop_structure_allocation_id
+      and coalesce(cs.archived, false) = false
+    order by cs.created_at desc
+    limit 1;
+
+    if not found then
+      raise exception 'Selected crop structure allocation is invalid';
+    end if;
+
+    v_area_ha := nullif(coalesce(v_structure.area, 0), 0);
+    v_season_id := v_structure.season_id;
+  end if;
+
+  for v_line in
+    select *
+    from public.ticket_lines
+    where ticket_id = p_ticket_id
+    order by created_at asc
+  loop
+    v_qty := case
+      when v_ticket.weigh_method = 'manual_override_with_reason' then coalesce(v_line.quantity, 0)
+      else v_net
+    end;
+
+    if v_qty <= 0 then
+      raise exception 'Ticket line quantity must be greater than zero';
+    end if;
+
+    update public.ticket_lines
+    set
+      quantity = v_qty,
+      net_line_weight_kg = v_qty
+    where id = v_line.id;
+
+    v_line.quantity := v_qty;
+    v_line.net_line_weight_kg := v_qty;
+    v_batch_class := coalesce(v_line.batch_class, 'commodity');
+
+    if v_ticket.op_type = 'harvest_incoming' then
+      v_batch_class := 'commodity';
+    elsif v_ticket.op_type = 'supplier_receipt' and coalesce(v_ticket.supplier_receipt_kind, '') = 'agro_identity' then
+      v_batch_class := 'seed';
+    elsif v_ticket.op_type = 'disposal' then
+      v_batch_class := coalesce(v_line.batch_class, 'waste');
+    end if;
+
+    if v_ticket.op_type in ('harvest_incoming', 'supplier_receipt') then
+      v_batch_code := coalesce(
+        nullif(trim(v_line.lot_id), ''),
+        case
+          when v_ticket.op_type = 'supplier_receipt' then 'SUP'
+          else 'HAR'
+        end || '-' || to_char(now(), 'YYYYMMDDHH24MISS') || '-' || left(v_line.id::text, 8)
+      );
+
+      select ib.id
+        into v_batch_id
+      from public.inventory_batches ib
+      where ib.company_id = v_ticket.company_id
+        and ib.batch_code = v_batch_code
+      limit 1;
+
+      if v_batch_id is null then
+        insert into public.inventory_batches (
+          company_id,
+          season_id,
+          product_id,
+          crop_id,
+          variety_id,
+          reproduction_id,
+          source_field_id,
+          source_ticket_id,
+          batch_code,
+          status,
+          batch_class,
+          origin_type,
+          origin_ref_id,
+          supplier_lot,
+          initial_weight_kg,
+          current_weight_kg,
+          treatment_status
+        )
+        values (
+          v_ticket.company_id,
+          v_ticket.season_id,
+          v_line.product_id,
+          v_line.crop_id,
+          v_line.variety_id,
+          v_line.reproduction_id,
+          v_ticket.field_id,
+          v_ticket.id,
+          v_batch_code,
+          case when v_batch_class = 'seed' then 'ready_for_seeding' else 'commodity' end,
+          v_batch_class,
+          case when v_ticket.op_type = 'supplier_receipt' then 'supplier' else 'harvest' end,
+          v_ticket.id,
+          case when v_ticket.op_type = 'supplier_receipt' then v_batch_code else null end,
+          v_qty,
+          v_qty,
+          case when v_batch_class = 'seed' then 'untreated' else 'not_applicable' end
+        )
+        returning id into v_batch_id;
+      end if;
+
+      update public.ticket_lines
+      set
+        batch_id = v_batch_id,
+        lot_id = v_batch_code,
+        batch_class = v_batch_class
+      where id = v_line.id;
+
+      update public.tickets
+      set
+        batch_id = coalesce(batch_id, v_batch_id),
+        lot_id = coalesce(lot_id, v_batch_code)
+      where id = v_ticket.id;
+
+      v_line.batch_id := v_batch_id;
+      v_line.lot_id := v_batch_code;
+      v_line.batch_class := v_batch_class;
+    end if;
+
+    if v_ticket.direction in ('outgoing', 'transfer') then
+      v_wh := v_ticket.warehouse_from_id;
+      if v_wh is null then
+        raise exception 'Source warehouse is required';
+      end if;
+
+      select coalesce(sum(sbi.quantity), 0)
+        into v_available
+      from public.v_stock_balance_identity sbi
+      where sbi.company_id = v_ticket.company_id
+        and sbi.warehouse_id = v_wh
+        and sbi.product_id = v_line.product_id
+        and coalesce(sbi.variety_id::text, '') = coalesce(v_line.variety_id::text, '')
+        and coalesce(sbi.reproduction_id::text, '') = coalesce(v_line.reproduction_id::text, '')
+        and coalesce(sbi.batch_id, '') = coalesce(coalesce(v_line.batch_id::text, v_line.lot_id), '')
+        and coalesce(sbi.batch_class, 'commodity') = coalesce(v_line.batch_class, 'commodity');
+
+      if coalesce(v_available, 0) < v_qty then
+        raise exception 'Insufficient exact stock identity. Available %, required %', coalesce(v_available, 0), v_qty;
+      end if;
+    end if;
+
+    if v_ticket.op_type = 'issue_to_field'
+       and v_ticket.field_material_category = 'seed_planting_material' then
+      if coalesce(v_structure.crop_id::text, '') <> coalesce(v_line.crop_id::text, '')
+         or coalesce(v_structure.variety_id::text, '') <> coalesce(v_line.variety_id::text, '')
+         or coalesce(v_structure.reproduction_id::text, '') <> coalesce(v_line.reproduction_id::text, '') then
+        raise exception 'Seed material does not match selected crop structure allocation';
+      end if;
+    end if;
+
+    if v_ticket.direction = 'incoming' then
+      v_wh := v_ticket.warehouse_to_id;
+      if v_wh is null then
+        raise exception 'Destination warehouse is required';
+      end if;
+      v_reason := v_ticket.op_type || '_in';
+
+      insert into public.stock_ledger_entries (
+        company_id,
+        ticket_id,
+        product_id,
+        variety_id,
+        reproduction_id,
+        batch_id_text,
+        batch_class,
+        warehouse_id,
+        direction,
+        quantity,
+        uom,
+        delta_qty_signed,
+        reason_type,
+        reason_ref_id,
+        occurred_at,
+        created_by,
+        notes
+      )
+      values (
+        v_ticket.company_id,
+        v_ticket.id,
+        v_line.product_id,
+        v_line.variety_id,
+        v_line.reproduction_id,
+        coalesce(v_line.batch_id::text, v_line.lot_id),
+        v_batch_class,
+        v_wh,
+        'in',
+        v_qty,
+        coalesce(v_line.uom, 'kg'),
+        abs(v_qty),
+        v_reason,
+        v_ticket.id,
+        now(),
+        p_actor_user_id,
+        v_ticket.notes
+      );
+    elsif v_ticket.direction = 'transfer' then
+      if v_ticket.warehouse_to_id is null then
+        raise exception 'Destination warehouse is required for transfer';
+      end if;
+      if v_ticket.warehouse_from_id = v_ticket.warehouse_to_id then
+        raise exception 'Source and destination warehouses must be different';
+      end if;
+
+      insert into public.stock_ledger_entries (
+        company_id, ticket_id, product_id, variety_id, reproduction_id, batch_id_text, batch_class,
+        warehouse_id, direction, quantity, uom, delta_qty_signed, reason_type, reason_ref_id, occurred_at, created_by, notes
+      )
+      values
+        (
+          v_ticket.company_id, v_ticket.id, v_line.product_id, v_line.variety_id, v_line.reproduction_id,
+          coalesce(v_line.batch_id::text, v_line.lot_id), coalesce(v_line.batch_class, 'commodity'),
+          v_ticket.warehouse_from_id, 'out', v_qty, coalesce(v_line.uom, 'kg'), -abs(v_qty),
+          'warehouse_transfer_out', v_ticket.id, now(), p_actor_user_id, v_ticket.notes
+        ),
+        (
+          v_ticket.company_id, v_ticket.id, v_line.product_id, v_line.variety_id, v_line.reproduction_id,
+          coalesce(v_line.batch_id::text, v_line.lot_id), coalesce(v_line.batch_class, 'commodity'),
+          v_ticket.warehouse_to_id, 'in', v_qty, coalesce(v_line.uom, 'kg'), abs(v_qty),
+          'warehouse_transfer_in', v_ticket.id, now(), p_actor_user_id, v_ticket.notes
+        );
+    elsif v_ticket.direction = 'outgoing' then
+      v_reason := case
+        when v_ticket.op_type = 'shipment_outbound' then 'shipment_outbound'
+        when v_ticket.op_type = 'issue_to_field' then 'issue_to_field'
+        when v_ticket.op_type = 'disposal' then coalesce(v_ticket.disposal_category, 'disposal')
+        else coalesce(v_ticket.op_type, 'outgoing')
+      end;
+
+      insert into public.stock_ledger_entries (
+        company_id,
+        ticket_id,
+        product_id,
+        variety_id,
+        reproduction_id,
+        batch_id_text,
+        batch_class,
+        warehouse_id,
+        direction,
+        quantity,
+        uom,
+        delta_qty_signed,
+        reason_type,
+        reason_ref_id,
+        occurred_at,
+        created_by,
+        notes
+      )
+      values (
+        v_ticket.company_id,
+        v_ticket.id,
+        v_line.product_id,
+        v_line.variety_id,
+        v_line.reproduction_id,
+        coalesce(v_line.batch_id::text, v_line.lot_id),
+        coalesce(v_line.batch_class, v_batch_class, 'commodity'),
+        v_ticket.warehouse_from_id,
+        'out',
+        v_qty,
+        coalesce(v_line.uom, 'kg'),
+        -abs(v_qty),
+        v_reason,
+        v_ticket.id,
+        now(),
+        p_actor_user_id,
+        v_ticket.notes
+      );
+
+      if v_ticket.op_type = 'issue_to_field' then
+        insert into public.field_material_consumptions (
+          company_id,
+          season_id,
+          field_id,
+          crop_structure_row_id,
+          ticket_id,
+          ticket_line_id,
+          warehouse_id,
+          operation_type,
+          material_category,
+          product_id,
+          variety_id,
+          reproduction_id,
+          batch_id_text,
+          batch_class,
+          quantity_kg,
+          area_ha,
+          norm_per_ha,
+          responsible_personnel_id,
+          vehicle_id,
+          notes,
+          consumed_at,
+          created_by_user_id
+        )
+        values (
+          v_ticket.company_id,
+          v_season_id,
+          v_ticket.field_id,
+          v_ticket.crop_structure_allocation_id,
+          v_ticket.id,
+          v_line.id,
+          v_ticket.warehouse_from_id,
+          'issued_to_field',
+          v_ticket.field_material_category,
+          v_line.product_id,
+          v_line.variety_id,
+          v_line.reproduction_id,
+          coalesce(v_line.batch_id::text, v_line.lot_id),
+          coalesce(v_line.batch_class, 'commodity'),
+          v_qty,
+          v_area_ha,
+          case when coalesce(v_area_ha, 0) > 0 then v_qty / v_area_ha else null end,
+          v_ticket.driver_id,
+          v_ticket.vehicle_id,
+          v_ticket.notes,
+          now(),
+          p_actor_user_id
+        )
+        on conflict (ticket_line_id) where ticket_line_id is not null
+        do update set
+          quantity_kg = excluded.quantity_kg,
+          area_ha = excluded.area_ha,
+          norm_per_ha = excluded.norm_per_ha,
+          material_category = excluded.material_category,
+          updated_at = now();
+      end if;
+    else
+      raise exception 'Unsupported ticket direction %', v_ticket.direction;
+    end if;
+  end loop;
+
+  update public.tickets
+  set
+    net_weight_kg = v_net,
+    is_finalized = true,
+    status = 'finalized',
+    closed_by = p_actor_user_id,
+    finalized_at = now(),
+    updated_at = now()
+  where id = p_ticket_id;
+
+  return p_ticket_id;
+end;
+$$;

@@ -22,6 +22,8 @@ import { DraftEditorDialog } from "@/components/specialist/draft-editor-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { supabase } from "@/lib/supabase/client";
+import type { AssistantRuntimeUiContext } from "@/lib/assistant/shell";
 import {
   getAssistantDraftResources,
   type AssistantDraftResources,
@@ -57,6 +59,30 @@ const SUPPORTED_EXTENSIONS = ["jpg", "jpeg", "png", "webp", "pdf", "docx", "txt"
 const SUPPORTED_IMAGE_EXTENSIONS = ["jpg", "jpeg", "png", "webp"];
 const SUPPORTED_DOCUMENT_EXTENSIONS = ["pdf", "docx", "txt"];
 const SCROLL_BOTTOM_THRESHOLD = 84;
+
+type AssistantSessionStatePayload = {
+  lastEntity: string | null;
+  lastCrop: string | null;
+  lastVariety: string | null;
+  lastBatchClass: string | null;
+  lastWarehouse: string | null;
+  lastField: string | null;
+  lastSeason: string | null;
+  lastIntent: string | null;
+  lastResultContext: string | null;
+};
+
+const EMPTY_ASSISTANT_SESSION_STATE: AssistantSessionStatePayload = {
+  lastEntity: null,
+  lastCrop: null,
+  lastVariety: null,
+  lastBatchClass: null,
+  lastWarehouse: null,
+  lastField: null,
+  lastSeason: null,
+  lastIntent: null,
+  lastResultContext: null,
+};
 
 const getQuickPrompts = (language: "ru" | "en" | "kz") => {
   const prompts = {
@@ -99,6 +125,25 @@ interface ChatInterfaceProps {
   chatReady?: boolean;
   accessMode?: "full" | "limited";
   userRole?: string | null;
+  runtimeContext?: AssistantRuntimeUiContext;
+  assistantSessionId?: string;
+}
+
+async function buildAuthorizedHeaders(contentType?: "json"): Promise<Record<string, string>> {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data?.session?.access_token) {
+    throw new Error("Session expired. Please sign in again.");
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${data.session.access_token}`,
+  };
+
+  if (contentType === "json") {
+    headers["Content-Type"] = "application/json";
+  }
+
+  return headers;
 }
 
 function readAsDataUrl(file: File): Promise<string> {
@@ -128,6 +173,8 @@ export function ChatInterface({
   chatReady = true,
   accessMode = "limited",
   userRole = null,
+  runtimeContext,
+  assistantSessionId,
 }: ChatInterfaceProps = {}) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -144,6 +191,9 @@ export function ChatInterface({
   });
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "processing">("idle");
+  const [assistantSessionState, setAssistantSessionState] = useState<AssistantSessionStatePayload>(
+    EMPTY_ASSISTANT_SESSION_STATE
+  );
   const { toast } = useToast();
   const { t, language } = useLanguage();
   const { profile } = useAuth();
@@ -162,6 +212,10 @@ export function ChatInterface({
   const [isAutoScrollEnabled, setIsAutoScrollEnabled] = useState(true);
   const [waveformLevel, setWaveformLevel] = useState(0.15);
   const [waveformTick, setWaveformTick] = useState(0);
+  const assistantStateStorageKey = useMemo(() => {
+    if (!profile?.id || !profile?.company_id || !chatId) return null;
+    return `assistant-session-state:${profile.id}:${profile.company_id}:${chatId}`;
+  }, [profile?.id, profile?.company_id, chatId]);
 
   useEffect(() => {
     void loadDraftResources();
@@ -204,6 +258,32 @@ export function ChatInterface({
       messagesBottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
     });
   }, [chatId]);
+
+  useEffect(() => {
+    if (!assistantStateStorageKey) {
+      setAssistantSessionState(EMPTY_ASSISTANT_SESSION_STATE);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(assistantStateStorageKey);
+      if (!raw) {
+        setAssistantSessionState(EMPTY_ASSISTANT_SESSION_STATE);
+        return;
+      }
+      const parsed = JSON.parse(raw) as Partial<AssistantSessionStatePayload>;
+      setAssistantSessionState({
+        ...EMPTY_ASSISTANT_SESSION_STATE,
+        ...parsed,
+      });
+    } catch {
+      setAssistantSessionState(EMPTY_ASSISTANT_SESSION_STATE);
+    }
+  }, [assistantStateStorageKey]);
+
+  useEffect(() => {
+    if (!assistantStateStorageKey) return;
+    localStorage.setItem(assistantStateStorageKey, JSON.stringify(assistantSessionState));
+  }, [assistantStateStorageKey, assistantSessionState]);
 
   const isComposerDisabled = !chatReady || isLoading;
 
@@ -483,9 +563,11 @@ export function ChatInterface({
       const formData = new FormData();
       formData.append("audio", audioBlob, "voice-message.webm");
       formData.append("language", language);
+      const headers = await buildAuthorizedHeaders();
 
       const response = await fetch("/api/assistant/transcribe", {
         method: "POST",
+        headers,
         body: formData,
       });
 
@@ -545,17 +627,27 @@ export function ChatInterface({
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/assistant", {
+      const headers = await buildAuthorizedHeaders("json");
+      const response = await fetch("/api/assistant/query", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           message: messageText || "Вложение",
           chatHistory: messages,
           chatId,
           companyId: profile.company_id,
-          userId: profile.id,
+          sessionId: assistantSessionId || null,
+          runtimeContext: {
+            currentPage: runtimeContext?.currentPage || "specialist",
+            currentRoute: runtimeContext?.currentRoute || "/specialist",
+            entity: runtimeContext?.entity || null,
+            selectedRows: runtimeContext?.selectedRows || [],
+            filters: runtimeContext?.filters || {},
+            season: runtimeContext?.season || null,
+            companyId: profile.company_id,
+            locale: runtimeContext?.locale || language || "ru",
+          },
+          sessionState: assistantSessionState,
           locale: language,
           attachments: outgoingAttachments,
         }),
@@ -567,6 +659,12 @@ export function ChatInterface({
       }
 
       const data = await response.json();
+      if (data?.sessionState && typeof data.sessionState === "object") {
+        setAssistantSessionState((prev) => ({
+          ...prev,
+          ...data.sessionState,
+        }));
+      }
       if (process.env.NODE_ENV !== "production" && data.debug) {
         console.info("[assistant-debug]", data.debug);
       }
@@ -672,12 +770,11 @@ export function ChatInterface({
       setMessages((prev) =>
         prev.map((msg, index) => (index === messageIndex ? { ...msg, draftStatus: "confirming" } : msg))
       );
+      const headers = await buildAuthorizedHeaders("json");
 
       const response = await fetch("/api/operations/confirm-draft", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           draft: normalizedDraft,
           companyId: profile.company_id,

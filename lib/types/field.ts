@@ -12,6 +12,9 @@ export type FieldFormData = z.infer<typeof fieldSchema>;
 export interface Field {
   id: string;
   name: string;
+  display_name?: string | null;
+  original_field_key?: string | null;
+  technical_key?: string | null;
   area: number;
   soil_type: string | null;
   notes: string | null;

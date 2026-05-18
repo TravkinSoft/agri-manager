@@ -4,13 +4,16 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import { normalizeRoleKey, parseCanonicalRole, type CanonicalRole } from "@/lib/auth/role-contract";
 
 interface Profile {
   id: string;
   full_name?: string | null;
   email: string;
-  role: 'global_admin' | 'company_admin' | 'admin' | 'agronomist' | 'specialist' | 'warehouse' | 'weighman';
-  company_id: string;
+  role: CanonicalRole;
+  role_raw_key?: string;
+  role_is_legacy_alias?: boolean;
+  company_id: string | null;
   home_company_id?: string | null;
   context_company_id?: string | null;
   is_owner: boolean;
@@ -56,7 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(session?.user ?? null);
 
         if (session?.user) {
-          await loadProfile(session.user.id);
+          await loadProfile(session.user.id, session.user.email || null);
         }
       } catch (error) {
         console.error('Error loading session:', error);
@@ -77,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(session?.user ?? null);
 
           if (session?.user) {
-            await loadProfile(session.user.id);
+            await loadProfile(session.user.id, session.user.email || null);
           } else {
             setProfile(null);
           }
@@ -95,30 +98,80 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  const loadProfile = async (userId: string) => {
+  const loadProfile = async (userId: string, userEmail?: string | null) => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
+      const profileMap = new Map<string, any>();
+      const addRows = (rows: any[]) => {
+        rows.forEach((row) => {
+          if (!row?.id) return;
+          if (!profileMap.has(String(row.id))) {
+            profileMap.set(String(row.id), row);
+          }
+        });
+      };
 
-      if (error) throw error;
+      const byId = await supabase.from("profiles").select("*").eq("id", userId).limit(1);
+      if (byId.error) throw byId.error;
+      if (Array.isArray(byId.data)) addRows(byId.data);
 
-      const role = String(data?.role || "").toLowerCase();
-      const contextCompanyId = await resolveGlobalAdminContextCompanyId(userId, role);
+      const userIdProbe = await supabase.from("profiles").select("user_id").limit(1);
+      if (!userIdProbe.error) {
+        const byUserId = await supabase.from("profiles").select("*").eq("user_id", userId).limit(10);
+        if (!byUserId.error && Array.isArray(byUserId.data)) addRows(byUserId.data);
+      }
 
-      if (data && data.status === 'pending') {
+      const normalizedEmail = String(userEmail || "").trim().toLowerCase();
+      if (normalizedEmail) {
+        const byEmail = await supabase.from("profiles").select("*").ilike("email", normalizedEmail).limit(20);
+        if (!byEmail.error && Array.isArray(byEmail.data)) addRows(byEmail.data);
+      }
+
+      const candidates = Array.from(profileMap.values());
+      if (!candidates.length) {
+        setProfile(null);
+        return;
+      }
+
+      const profileScore = (row: any) => {
+        const status = String(row?.status || "active").toLowerCase();
+        const role = parseCanonicalRole(row?.role);
+        const companyId = String(row?.company_id || "").trim();
+        let score = 0;
+        if (String(row?.id || "") === userId) score += 100;
+        if (String(row?.user_id || "") === userId) score += 90;
+        if (status === "active") score += 30;
+        if (role) score += 30;
+        if (companyId) score += 20;
+        return score;
+      };
+
+      const data = [...candidates].sort((a, b) => profileScore(b) - profileScore(a))[0];
+
+      const normalizedRole = parseCanonicalRole(data.role);
+      if (!normalizedRole) {
+        console.error("Unknown profile role, access denied by default:", data.role);
+        setProfile(null);
+        return;
+      }
+      const roleRawKey = normalizeRoleKey(data.role);
+      const roleIsLegacyAlias = roleRawKey !== normalizedRole;
+
+      const contextCompanyId = await resolveGlobalAdminContextCompanyId(userId, normalizedRole);
+
+      if (data.status === 'pending') {
         await supabase
           .from('profiles')
           .update({ status: 'active' })
           .eq('id', userId);
         const effectiveCompany =
-          role === "global_admin" && contextCompanyId
+          normalizedRole === "global_admin" && contextCompanyId
             ? contextCompanyId
             : await resolveEffectiveCompanyId(data.company_id);
         setProfile({
           ...data,
+          role: normalizedRole,
+          role_raw_key: roleRawKey,
+          role_is_legacy_alias: roleIsLegacyAlias,
           status: 'active',
           home_company_id: data.company_id,
           context_company_id: contextCompanyId,
@@ -126,22 +179,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         });
       } else {
         const effectiveCompany =
-          role === "global_admin" && contextCompanyId
+          normalizedRole === "global_admin" && contextCompanyId
             ? contextCompanyId
             : await resolveEffectiveCompanyId(data?.company_id);
         setProfile(
-          data
-            ? {
-                ...data,
-                home_company_id: data.company_id,
-                context_company_id: contextCompanyId,
-                company_id: effectiveCompany || data.company_id,
-              }
-            : data
+          {
+            ...data,
+            role: normalizedRole,
+            role_raw_key: roleRawKey,
+            role_is_legacy_alias: roleIsLegacyAlias,
+            home_company_id: data.company_id,
+            context_company_id: contextCompanyId,
+            company_id: effectiveCompany || data.company_id,
+          }
         );
       }
     } catch (error) {
       console.error('Error loading profile:', error);
+      setProfile(null);
     }
   };
 
@@ -155,7 +210,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const resolveGlobalAdminContextCompanyId = async (userId: string, role: string) => {
+  const resolveGlobalAdminContextCompanyId = async (userId: string, role: CanonicalRole) => {
     if (role !== "global_admin") return null;
     try {
       const { data, error } = await supabase

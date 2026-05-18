@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "import_batch_id": "c4eb0627-19a7-4f9b-8ef7-68f5b00bc329",
+  "inserted_links": 71,
+  "created_cadastres": 45,
+  "created_legal_entities": 1,
+  "skipped_rows": 12,
+  "warnings_count": 12,
+  "errors_count": 0,
+  "warnings": [
+    "row 16: field_not_present_in_operational_fields",
+    "row 20: missing_crop_value_in_source_row",
+    "row 27: field_not_present_in_operational_fields",
+    "row 32: field_not_present_in_operational_fields",
+    "row 46: non_field_token_ogorod_requires_manual_field",
+    "row 53: field_not_present_in_operational_fields",
+    "row 58: non_field_token_sad_requires_manual_field",
+    "row 69: composite_field_token_1_3_requires_manual_split",
+    "row 78: composite_field_token_1_3_requires_manual_split",
+    "row 95: non_field_token_ogorod_requires_manual_field",
+    "row 96: non_field_token_ogorod_requires_manual_field",
+    "row 44: suspected_cadastre_typo_no_autocorrect"
+  ],
+  "errors": [],
+  "report_path": "C:\\Users\\TRAVKIN\\Downloads\\CodecSaaS\\project-bolt-sb1-hjjzpfey-4\\project\\scripts\\output\\land-legal-docx-dry-run-2026-05-16T02-08-57-758Z.json"
+}

@@ -1,0 +1,12 @@
+
+> nextjs@0.1.0 dev
+> next dev
+
+  ▲ Next.js 13.5.1
+  - Local:        http://localhost:3001
+  - Environments: .env
+  - Experiments (use at your own risk):
+     · serverComponentsExternalPackages
+
+ ✓ Ready in 5.6s
+[?25h
