@@ -55,10 +55,13 @@ async function fetchWithToken(token, input, init = {}) {
   return { status: response.status, ok: response.ok, body: parsed };
 }
 
-async function getProfile(token) {
+async function getProfile(token, authUserId) {
+  if (!authUserId) {
+    throw new Error("Missing auth user id for profile lookup");
+  }
   const result = await fetchWithToken(
     token,
-    `${SUPABASE_URL}/rest/v1/profiles?select=id,role,company_id,email&limit=1`,
+    `${SUPABASE_URL}/rest/v1/profiles?select=id,role,company_id,email&id=eq.${encodeURIComponent(authUserId)}&limit=1`,
     {
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -89,7 +92,7 @@ async function run() {
   for (const user of USERS) {
     const auth = await signIn(user.email, user.password);
     const token = auth.access_token;
-    const profile = await getProfile(token);
+    const profile = await getProfile(token, auth.user?.id);
     if (!stemCompanyId) {
       stemCompanyId = profile.company_id;
     } else if (profile.company_id !== stemCompanyId && !nonStemCompanyId) {
