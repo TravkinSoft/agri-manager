@@ -224,7 +224,12 @@ async function run() {
     }))
     .filter((row) => row.field_name);
 
+  const identityStructures = structureWithField.filter(
+    (row) => row.variety_id && row.reproduction_id
+  );
   const preferredStructure =
+    identityStructures.find((row) => row.field_name.includes("28")) ||
+    identityStructures.sort((a, b) => b.area_num - a.area_num)[0] ||
     structureWithField.find((row) => row.field_name.includes("28")) ||
     structureWithField.sort((a, b) => b.area_num - a.area_num)[0];
   if (!preferredStructure?.id) throw new Error("No suitable potato field found");
@@ -316,7 +321,9 @@ async function run() {
   const seedWarehouse = warehouseByType.get("seed");
   const fertWarehouse = warehouseByType.get("fertilizer");
   const pzrWarehouse = warehouseByType.get("pesticide");
-  if (!seedWarehouse?.id || !fertWarehouse?.id || !pzrWarehouse?.id) {
+  const vegetableWarehouse = warehouseByType.get("vegetable");
+  const temporaryWarehouse = warehouseByType.get("temporary");
+  if (!seedWarehouse?.id || !fertWarehouse?.id || !pzrWarehouse?.id || !vegetableWarehouse?.id || !temporaryWarehouse?.id) {
     throw new Error("Required QA warehouses not found");
   }
 
@@ -327,7 +334,18 @@ async function run() {
   const seedProduct = pickFirstByNameContains(products, "name", ["qa_test_2026", "картофель семенной"]) || products.find((p) => p.type === "seed");
   const fertProduct = pickFirstByNameContains(products, "name", ["npk", "map", "dap"]) || products.find((p) => p.type === "fertilizer");
   const pzrProduct = pickFirstByNameContains(products, "name", ["actara", "amistar", "ridomil"]) || products.find((p) => p.type === "pesticide");
-  if (!seedProduct?.id || !fertProduct?.id || !pzrProduct?.id) {
+  const harvestProduct =
+    products.find((p) => {
+      const name = normalizeText(p.name).toLowerCase();
+      const type = normalizeText(p.type).toLowerCase();
+      return (name.includes("картоф") || name.includes("potato")) && ["produce", "crop", "material"].includes(type);
+    }) ||
+    products.find((p) => {
+      const name = normalizeText(p.name).toLowerCase();
+      return name.includes("картоф") || name.includes("potato");
+    }) ||
+    seedProduct;
+  if (!seedProduct?.id || !fertProduct?.id || !pzrProduct?.id || !harvestProduct?.id) {
     throw new Error("Missing products for QA supplier receipts");
   }
 
@@ -340,6 +358,23 @@ async function run() {
   ]);
   if (!counterparties[0]?.id) throw new Error("No active supplier counterparty found");
   const supplierId = counterparties[0].id;
+
+  const harvestDriverId = String(profiles.weighman.id || profiles.specialist.id || "").trim();
+  if (!harvestDriverId) {
+    throw new Error("No profile id available for harvest_incoming driver_id");
+  }
+
+  const vehicles = await restSelect(auth.admin.access_token, "reference_vehicles", "id,name,plate_number,status,is_active,archived,company_id", [
+    ["company_id", `eq.${companyId}`],
+    ["limit", "500"],
+  ]);
+  const harvestVehicle =
+    vehicles.find((row) => row.is_active !== false && row.archived !== true && ["free", "idle", ""].includes(String(row.status || "").toLowerCase())) ||
+    vehicles.find((row) => row.is_active !== false && row.archived !== true) ||
+    null;
+  if (!harvestVehicle?.id) {
+    throw new Error("No active vehicle found for harvest_incoming flow");
+  }
 
   const shiftRes = await appApi(auth.weighman.access_token, "/api/weighbridge/shifts", {
     method: "POST",
@@ -532,6 +567,177 @@ async function run() {
     })
   );
 
+  const harvestIncomingTickets = [];
+  const transferTickets = [];
+  let harvestAllocation =
+    structureWithField.find(
+      (row) =>
+        String(row.field_id || "") === String(preferredStructure.field_id || "") &&
+        String(row.crop_id || "") === String(preferredStructure.crop_id || "") &&
+        row.variety_id &&
+        row.reproduction_id
+    ) || null;
+
+  let harvestAllocationAutoCreated = false;
+  let harvestAllocationCreateError = null;
+  if (!harvestAllocation && createdLines[0]?.variety_id && createdLines[0]?.reproduction_id) {
+    const areaForHarvest = Math.max(1, Math.min(5, toNum(preferredStructure.area_num || preferredStructure.area)));
+    let insertedAllocation = [];
+    try {
+      insertedAllocation = await restInsert(auth.agronomist.access_token, "crop_structure", [
+        {
+          company_id: companyId,
+          season_id: seasonId,
+          field_id: preferredStructure.field_id,
+          crop_id: preferredStructure.crop_id,
+          variety_id: createdLines[0].variety_id,
+          reproduction_id: createdLines[0].reproduction_id,
+          area: areaForHarvest,
+          status: "planned",
+          notes: `${runTag} harvest allocation bootstrap`,
+          user_id: auth.agronomist.user.id,
+          archived: false,
+        },
+      ]);
+    } catch (error) {
+      harvestAllocationCreateError = error instanceof Error ? error.message : String(error);
+    }
+
+    const createdAllocation = Array.isArray(insertedAllocation) ? insertedAllocation[0] : null;
+    if (createdAllocation?.id) {
+      harvestAllocationAutoCreated = true;
+      harvestAllocation = {
+        ...createdAllocation,
+        field_name: preferredStructure.field_name,
+        area_num: toNum(createdAllocation.area),
+      };
+    }
+  }
+
+  if (harvestAllocation?.id) {
+    const harvestQuantityKg = 520;
+    const harvestCreateRes = await appApi(auth.weighman.access_token, "/api/weighbridge/tickets", {
+      method: "POST",
+      body: JSON.stringify({
+        companyId,
+        ticket: {
+          ticket_type: "movement",
+          op_type: "harvest_incoming",
+          direction: "incoming",
+          source_kind: "field",
+          destination_kind: "warehouse",
+          field_id: harvestAllocation.field_id,
+          crop_structure_allocation_id: harvestAllocation.id,
+          warehouse_to_id: vegetableWarehouse.id,
+          driver_id: harvestDriverId,
+          vehicle_id: harvestVehicle.id,
+          gross_weight_kg: harvestQuantityKg,
+          tare_weight_kg: 0,
+          weigh_method: "manual_override_with_reason",
+          linked_operation_id: operation.id,
+          notes: `${runTag} harvest incoming`,
+        },
+        lines: [
+          {
+            product_id: harvestProduct.id,
+            crop_id: harvestAllocation.crop_id,
+            variety_id: harvestAllocation.variety_id,
+            reproduction_id: harvestAllocation.reproduction_id,
+            quantity: harvestQuantityKg,
+            uom: harvestProduct.unit || "kg",
+            batch_class: "commodity",
+            lot_id: `${runTag}-harvest`,
+          },
+        ],
+      }),
+    });
+    if (!harvestCreateRes.ok || !harvestCreateRes.body?.ticket?.id) {
+      throw new Error(`Harvest incoming create failed: ${JSON.stringify(harvestCreateRes.body)}`);
+    }
+    const harvestTicketId = harvestCreateRes.body.ticket.id;
+    const harvestFinalizeRes = await appApi(auth.weighman.access_token, `/api/weighbridge/tickets/${harvestTicketId}/finalize`, {
+      method: "POST",
+      body: JSON.stringify({ companyId }),
+    });
+    if (!harvestFinalizeRes.ok) {
+      throw new Error(`Harvest incoming finalize failed: ${JSON.stringify(harvestFinalizeRes.body)}`);
+    }
+    harvestIncomingTickets.push(harvestTicketId);
+
+    const refreshedStockIdentity = await restSelect(
+      auth.admin.access_token,
+      "v_stock_balance_identity",
+      "warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity",
+      [
+        ["company_id", `eq.${companyId}`],
+        ["warehouse_id", `eq.${vegetableWarehouse.id}`],
+        ["product_id", `eq.${harvestProduct.id}`],
+        ["quantity", "gt.0"],
+        ["limit", "5000"],
+      ]
+    );
+
+    const transferIdentity =
+      refreshedStockIdentity
+        .filter(
+          (row) =>
+            String(row.variety_id || "") === String(harvestAllocation.variety_id || "") &&
+            String(row.reproduction_id || "") === String(harvestAllocation.reproduction_id || "")
+        )
+        .sort((a, b) => toNum(b.quantity) - toNum(a.quantity))[0] ||
+      refreshedStockIdentity.sort((a, b) => toNum(b.quantity) - toNum(a.quantity))[0] ||
+      null;
+
+    if (!transferIdentity) {
+      throw new Error("No stock identity found in vegetable warehouse after harvest incoming");
+    }
+
+    const availableQty = toNum(transferIdentity.quantity);
+    const transferQty = Math.max(1, Math.min(120, Math.floor(availableQty / 2)));
+    const transferCreateRes = await appApi(auth.weighman.access_token, "/api/weighbridge/tickets", {
+      method: "POST",
+      body: JSON.stringify({
+        companyId,
+        ticket: {
+          ticket_type: "movement",
+          op_type: "warehouse_transfer",
+          direction: "transfer",
+          source_kind: "warehouse",
+          destination_kind: "warehouse",
+          warehouse_from_id: vegetableWarehouse.id,
+          warehouse_to_id: temporaryWarehouse.id,
+          weigh_method: "manual_override_with_reason",
+          gross_weight_kg: transferQty,
+          notes: `${runTag} transfer vegetable->temporary`,
+        },
+        lines: [
+          {
+            product_id: harvestProduct.id,
+            quantity: transferQty,
+            uom: harvestProduct.unit || "kg",
+            variety_id: transferIdentity.variety_id || null,
+            reproduction_id: transferIdentity.reproduction_id || null,
+            batch_id: transferIdentity.batch_id || null,
+            batch_class: transferIdentity.batch_class || "commodity",
+            lot_id: `${runTag}-transfer`,
+          },
+        ],
+      }),
+    });
+    if (!transferCreateRes.ok || !transferCreateRes.body?.ticket?.id) {
+      throw new Error(`Warehouse transfer create failed: ${JSON.stringify(transferCreateRes.body)}`);
+    }
+    const transferTicketId = transferCreateRes.body.ticket.id;
+    const transferFinalizeRes = await appApi(auth.weighman.access_token, `/api/weighbridge/tickets/${transferTicketId}/finalize`, {
+      method: "POST",
+      body: JSON.stringify({ companyId }),
+    });
+    if (!transferFinalizeRes.ok) {
+      throw new Error(`Warehouse transfer finalize failed: ${JSON.stringify(transferFinalizeRes.body)}`);
+    }
+    transferTickets.push(transferTicketId);
+  }
+
   const factUpdates = [
     { actual_area_ha: 2.6, row_count: 34, row_spacing_m: 0.75, seed_spacing_cm: 30, notes: `${runTag} fact-1` },
     { actual_area_ha: 2.4, row_count: 32, row_spacing_m: 0.75, seed_spacing_cm: 30, notes: `${runTag} fact-2` },
@@ -586,11 +792,47 @@ async function run() {
     ["limit", "2000"],
   ]);
 
-  const ledgerRows = await restSelect(auth.admin.access_token, "stock_ledger_entries", "id,ticket_id,warehouse_id,direction,quantity,reason_type,product_id,operation_line_id,created_at", [
-    ["company_id", `eq.${companyId}`],
-    ["reason_ref_id", `eq.${operation.id}`],
-    ["limit", "2000"],
-  ]).catch(() => []);
+  const allTicketIds = [
+    ...supplierReceiptTickets,
+    ...fieldIssueTickets,
+    ...harvestIncomingTickets,
+    ...transferTickets,
+  ];
+  const allTicketIdsFilter = allTicketIds.length > 0 ? allTicketIds.join(",") : "";
+
+  const ledgerRows = allTicketIdsFilter
+    ? await restSelect(
+        auth.admin.access_token,
+        "stock_ledger_entries",
+        "id,ticket_id,warehouse_id,direction,quantity,reason_type,product_id,operation_line_id,created_at",
+        [
+          ["company_id", `eq.${companyId}`],
+          ["ticket_id", `in.(${allTicketIdsFilter})`],
+          ["limit", "5000"],
+        ]
+      ).catch(() => [])
+    : [];
+
+  const stockSnapshotRaw = await restSelect(
+    auth.admin.access_token,
+    "v_stock_balance_identity",
+    "warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity",
+    [
+      ["company_id", `eq.${companyId}`],
+      ["quantity", "gt.0"],
+      ["limit", "5000"],
+    ]
+  ).catch(() => []);
+  const qaWarehouseIds = new Set(qaWarehouses.map((x) => String(x.id)));
+  const warehouseNameById = new Map(warehouseRows.map((x) => [String(x.id), String(x.name || "")]));
+  const productNameById = new Map(products.map((x) => [String(x.id), String(x.name || "")]));
+  const stockSnapshot = stockSnapshotRaw
+    .filter((row) => qaWarehouseIds.has(String(row.warehouse_id)))
+    .map((row) => ({
+      ...row,
+      warehouse_name: warehouseNameById.get(String(row.warehouse_id)) || String(row.warehouse_id),
+      product_name: productNameById.get(String(row.product_id)) || String(row.product_id),
+    }));
 
   const runReport = {
     ok: true,
@@ -604,6 +846,9 @@ async function run() {
       field_id: preferredStructure.field_id,
       field_name: preferredStructure.field_name,
       crop_structure_allocation_id: preferredStructure.id,
+      harvest_allocation_id: harvestAllocation?.id || null,
+      harvest_allocation_auto_created: harvestAllocationAutoCreated,
+      harvest_allocation_create_error: harvestAllocationCreateError,
     },
     operation: {
       id: operation.id,
@@ -627,16 +872,21 @@ async function run() {
     tickets: {
       supplier_receipts: supplierReceiptTickets,
       field_issues: fieldIssueTickets,
+      harvest_incoming: harvestIncomingTickets,
+      warehouse_transfers: transferTickets,
     },
     report: {
       potato_rows_for_operation: reportRows,
       fmc_rows_for_operation: fmcRows,
       ledger_rows_for_operation_ref: ledgerRows,
+      stock_snapshot_qa_warehouses: stockSnapshot,
     },
     totals: {
       potato_report_rows: reportRows.length,
       fmc_rows: fmcRows.length,
       ledger_rows: ledgerRows.length,
+      harvest_incoming_tickets: harvestIncomingTickets.length,
+      warehouse_transfer_tickets: transferTickets.length,
     },
   };
 
@@ -653,8 +903,11 @@ async function run() {
         operation_id: operation.id,
         supplier_receipts: supplierReceiptTickets.length,
         field_issues: fieldIssueTickets.length,
+        harvest_incoming: harvestIncomingTickets.length,
+        warehouse_transfers: transferTickets.length,
         report_rows: reportRows.length,
         fmc_rows: fmcRows.length,
+        ledger_rows: ledgerRows.length,
       },
       null,
       2
