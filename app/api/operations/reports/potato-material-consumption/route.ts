@@ -40,10 +40,6 @@ function isPotatoCrop(cropName: string): boolean {
 }
 
 function matchesLineIdentity(item: any, line: any): boolean {
-  const itemCropId = String(item?.crop_id || "").trim();
-  const lineCropId = String(line?.crop_id || "").trim();
-  if (itemCropId && lineCropId && itemCropId !== lineCropId) return false;
-
   const itemVarietyId = String(item?.variety_id || "").trim();
   const lineVarietyId = String(line?.variety_id || "").trim();
   if (itemVarietyId && lineVarietyId && itemVarietyId !== lineVarietyId) return false;
@@ -126,7 +122,6 @@ export async function GET(request: NextRequest) {
         operation_id,
         operation_line_id,
         field_id,
-        crop_id,
         variety_id,
         reproduction_id,
         material_category,
