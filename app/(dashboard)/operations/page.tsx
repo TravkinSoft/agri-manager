@@ -17,6 +17,7 @@ import {
 import { Plus, Pencil, Archive, ChevronDown, ChevronUp } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
 import {
   getOperations,
@@ -155,6 +156,31 @@ export default function OperationsPage() {
     seed_spacing_cm: null,
     notes: "",
   });
+
+  const getOperationLineIdentityOptions = (operation: OperationWithDetails) => {
+    const seen = new Set<string>();
+    const options: Array<{ key: string; varietyId: string | null; reproductionId: string | null; label: string }> = [];
+
+    for (const row of cropStructures) {
+      if (String(row.field_id || "") !== String(operation.field_id || "")) continue;
+      if (operation.crop_id && String(row.crop_id || "") !== String(operation.crop_id || "")) continue;
+      const varietyId = row.variety_id ? String(row.variety_id) : null;
+      const reproductionId = row.reproduction_id ? String(row.reproduction_id) : null;
+      const key = `${varietyId || ""}|${reproductionId || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const varietyName = row.variety_name || "—";
+      const reproductionName = row.reproduction_name || "—";
+      options.push({
+        key,
+        varietyId,
+        reproductionId,
+        label: `${varietyName} / ${reproductionName}`,
+      });
+    }
+
+    return options.sort((a, b) => a.label.localeCompare(b.label, "ru"));
+  };
 
   const upsertLineDraft = (operationId: string, patch: Partial<OperationLineFormData>) => {
     setLineDraftByOperationId((prev) => {
@@ -363,6 +389,7 @@ export default function OperationsPage() {
       <div className="space-y-3 p-4">
         {ops.map((operation) => {
           const expanded = !!expandedIds[operation.id];
+          const identityOptions = getOperationLineIdentityOptions(operation);
           return (
             <Card key={operation.id}>
               <CardHeader className="py-3">
@@ -559,7 +586,69 @@ export default function OperationsPage() {
                     {canManageOperationLines ? (
                       <div className="mt-3 rounded-md border border-dashed p-2">
                         <div className="mb-2 text-xs font-medium text-slate-700">Add line</div>
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
+                          <div>
+                            <div className="mb-1 text-[11px] text-slate-500">Variety</div>
+                            <Select
+                              value={lineDraftByOperationId[operation.id]?.variety_id || "__none__"}
+                              onValueChange={(value) => {
+                                const option = identityOptions.find((item) => item.varietyId === (value === "__none__" ? null : value));
+                                upsertLineDraft(operation.id, {
+                                  variety_id: value === "__none__" ? null : value,
+                                  reproduction_id: option?.reproductionId || null,
+                                });
+                              }}
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="—" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">—</SelectItem>
+                                {Array.from(
+                                  new Map(
+                                    identityOptions
+                                      .filter((item) => item.varietyId)
+                                      .map((item) => [String(item.varietyId), item])
+                                  ).values()
+                                ).map((item) => (
+                                  <SelectItem key={item.key} value={String(item.varietyId)}>
+                                    {item.label.split(" / ")[0]}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <div className="mb-1 text-[11px] text-slate-500">Reproduction</div>
+                            <Select
+                              value={lineDraftByOperationId[operation.id]?.reproduction_id || "__none__"}
+                              onValueChange={(value) =>
+                                upsertLineDraft(operation.id, { reproduction_id: value === "__none__" ? null : value })
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="—" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">—</SelectItem>
+                                {Array.from(
+                                  new Map(
+                                    identityOptions
+                                      .filter((item) => {
+                                        const selectedVarietyId = lineDraftByOperationId[operation.id]?.variety_id || null;
+                                        if (!selectedVarietyId) return Boolean(item.reproductionId);
+                                        return String(item.varietyId || "") === String(selectedVarietyId) && Boolean(item.reproductionId);
+                                      })
+                                      .map((item) => [String(item.reproductionId), item])
+                                  ).values()
+                                ).map((item) => (
+                                  <SelectItem key={item.key} value={String(item.reproductionId)}>
+                                    {item.label.split(" / ")[1] || "—"}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                           <div>
                             <div className="mb-1 text-[11px] text-slate-500">Plan, ha</div>
                             <Input
@@ -686,11 +775,13 @@ export default function OperationsPage() {
                     <th className="px-3 py-2">Fact/ha</th>
                     <th className="px-3 py-2">Norm/ha</th>
                     <th className="px-3 py-2">Deviation</th>
+                    <th className="px-3 py-2">Need kg</th>
+                    <th className="px-3 py-2">Remaining kg</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {potatoConsumptionRows.map((row) => (
-                    <tr key={`${row.operation_line_id}-${row.material_name}`} className="border-t">
+                  {potatoConsumptionRows.map((row, index) => (
+                    <tr key={`${row.operation_line_id}-${row.material_name}-${row.linkage_scope}-${index}`} className="border-t">
                       <td className="px-3 py-2">{row.field_name}</td>
                       <td className="px-3 py-2">{row.variety_name || "—"} / {row.reproduction_name || "—"}</td>
                       <td className="px-3 py-2">{Number(row.planned_area_ha || 0).toFixed(2)}</td>
@@ -701,6 +792,8 @@ export default function OperationsPage() {
                       <td className="px-3 py-2">{row.fact_qty_per_ha == null ? "—" : row.fact_qty_per_ha.toFixed(3)}</td>
                       <td className="px-3 py-2">{row.planned_norm_per_ha == null ? "—" : row.planned_norm_per_ha.toFixed(3)}</td>
                       <td className="px-3 py-2">{row.deviation_per_ha == null ? "—" : row.deviation_per_ha.toFixed(3)}</td>
+                      <td className="px-3 py-2">{row.planned_need_kg == null ? "-" : row.planned_need_kg.toFixed(2)}</td>
+                      <td className="px-3 py-2">{row.remaining_need_kg == null ? "-" : row.remaining_need_kg.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>

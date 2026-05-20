@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { assertActorAccess } from "@/lib/auth/server-acl";
+import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
 export async function GET(
   request: NextRequest,
@@ -8,12 +8,13 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!id || !actorUserId) {
-      return NextResponse.json({ error: "ticket id and userId are required" }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: "ticket id is required" }, { status: 400 });
     }
 
-    const supabase = getServiceClient();
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_READ_ROLES,
+    });
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
       .select(`
@@ -26,6 +27,7 @@ export async function GET(
         creator:created_by(id,full_name,email)
       `)
       .eq("id", id)
+      .eq("company_id", companyId)
       .maybeSingle();
 
     if (ticketError || !ticket?.id) {
@@ -64,13 +66,6 @@ export async function GET(
       }
     }
 
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId: ticket.company_id,
-      allowedRoles: ["admin", "agronomist", "warehouse", "weighman", "specialist"],
-    });
-
     const { data: lines } = await supabase
       .from("ticket_lines")
       .select(`
@@ -107,6 +102,10 @@ export async function GET(
       weighings: weighings || [],
     });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
@@ -121,28 +120,24 @@ export async function PATCH(
   try {
     const { id } = await params;
     const body = await request.json();
-    const actorUserId = String(body?.actorUserId || "").trim();
-    if (!id || !actorUserId) {
-      return NextResponse.json({ error: "ticket id and actorUserId are required" }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: "ticket id is required" }, { status: 400 });
     }
 
-    const supabase = getServiceClient();
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
+      requestedCompanyId: String(body?.companyId || "").trim() || null,
+    });
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
       .select("*")
       .eq("id", id)
+      .eq("company_id", companyId)
       .maybeSingle();
 
     if (ticketError || !ticket?.id) {
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
     }
-
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId: ticket.company_id,
-      allowedRoles: ["admin", "warehouse", "weighman"],
-    });
 
     if (ticket.status === "finalized" || ticket.status === "voided") {
       return NextResponse.json({ error: "Finalized/voided ticket is read-only" }, { status: 400 });
@@ -194,6 +189,10 @@ export async function PATCH(
 
     return NextResponse.json({ ticket: updated });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { assertActorAccess } from "@/lib/auth/server-acl";
+import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
 
 function buildTicketNo(companyId: string): string {
@@ -50,21 +50,8 @@ async function resolveActiveShiftId(
 
 export async function GET(request: NextRequest) {
   try {
-    const companyId = String(request.nextUrl.searchParams.get("companyId") || "").trim();
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!companyId) {
-      return NextResponse.json({ error: "companyId is required" }, { status: 400 });
-    }
-    if (!actorUserId) {
-      return NextResponse.json({ error: "userId is required" }, { status: 400 });
-    }
-
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId,
-      allowedRoles: ["admin", "agronomist", "warehouse", "weighman"],
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
     const { data, error } = await supabase
       .from("tickets")
@@ -82,6 +69,7 @@ export async function GET(request: NextRequest) {
           reproduction_name_snapshot,
           batch_class,
           batch_id,
+          operation_line_id,
           lot_id,
           products:product_id(name),
           varieties:variety_id(name),
@@ -110,12 +98,17 @@ export async function GET(request: NextRequest) {
         reproduction_name: String(line.reproduction_name_snapshot || line.reproductions?.name || "-"),
         batch_class: line.batch_class ? String(line.batch_class) : null,
         batch_id: line.batch_id ? String(line.batch_id) : null,
+        operation_line_id: line.operation_line_id ? String(line.operation_line_id) : null,
         lot_id: line.lot_id ? String(line.lot_id) : null,
       })),
     }));
 
     return NextResponse.json({ tickets });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
@@ -126,13 +119,19 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const ticket = (body?.ticket || {}) as TicketInput;
+    const rawTicket = (body?.ticket || {}) as TicketInput;
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
+      requestedCompanyId: String(body?.companyId || rawTicket.company_id || "").trim() || null,
+    });
+    const ticket = {
+      ...rawTicket,
+      company_id: companyId,
+      created_by: actor.id,
+    } as TicketInput;
     const lines = (Array.isArray(body?.lines) ? body.lines : []) as TicketLineInput[];
     const weighings = (Array.isArray(body?.weighings) ? body.weighings : []) as WeighingInput[];
 
-    if (!ticket.company_id || !ticket.created_by) {
-      return NextResponse.json({ error: "company_id and created_by are required" }, { status: 400 });
-    }
     if (!ticket.ticket_type || !ticket.op_type || !ticket.direction) {
       return NextResponse.json({ error: "ticket_type, op_type and direction are required" }, { status: 400 });
     }
@@ -245,13 +244,6 @@ export async function POST(request: NextRequest) {
     const isHarvestIncoming =
       String(ticket.direction || "") === "incoming" &&
       String(ticket.op_type || "").toLowerCase() === "harvest_incoming";
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId: ticket.created_by,
-      companyId: ticket.company_id,
-      allowedRoles: ["admin", "warehouse", "weighman"],
-    });
     if (isSupplierReceipt) {
       if (!ticket.supplier_id || String(ticket.source_kind || "") !== "supplier") {
         return NextResponse.json({ error: "supplier_id is required for supplier receipt" }, { status: 400 });
@@ -476,6 +468,58 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const requestedOperationLineIds = Array.from(
+      new Set(
+        lines
+          .map((line) => String((line as any).operation_line_id || "").trim())
+          .filter(Boolean)
+      )
+    );
+    if (requestedOperationLineIds.length > 0) {
+      const { data: operationLines, error: operationLinesError } = await supabase
+        .from("operation_lines")
+        .select("id,operation_id,field_id,company_id")
+        .eq("company_id", ticket.company_id)
+        .in("id", requestedOperationLineIds);
+      if (operationLinesError) {
+        return NextResponse.json({ error: operationLinesError.message }, { status: 400 });
+      }
+      const operationLineMap = new Map((operationLines || []).map((row: any) => [String(row.id), row]));
+      for (const operationLineId of requestedOperationLineIds) {
+        const row = operationLineMap.get(operationLineId);
+        if (!row) {
+          return NextResponse.json({ error: `operation_line_id ${operationLineId} is invalid for actor company` }, { status: 400 });
+        }
+        if (ticket.linked_operation_id && String(row.operation_id || "") !== String(ticket.linked_operation_id)) {
+          return NextResponse.json(
+            { error: `operation_line_id ${operationLineId} does not belong to linked_operation_id` },
+            { status: 400 }
+          );
+        }
+        if (isFieldIssue && ticket.field_id && row.field_id && String(row.field_id || "") !== String(ticket.field_id || "")) {
+          return NextResponse.json(
+            { error: `operation_line_id ${operationLineId} does not belong to selected field` },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
+    if (ticket.linked_operation_id) {
+      const { data: linkedOperation, error: linkedOperationError } = await supabase
+        .from("operations")
+        .select("id,field_id,company_id")
+        .eq("company_id", ticket.company_id)
+        .eq("id", ticket.linked_operation_id)
+        .maybeSingle();
+      if (linkedOperationError || !linkedOperation?.id) {
+        return NextResponse.json({ error: "linked_operation_id is invalid for actor company" }, { status: 400 });
+      }
+      if (isFieldIssue && ticket.field_id && linkedOperation.field_id && String(linkedOperation.field_id || "") !== String(ticket.field_id || "")) {
+        return NextResponse.json({ error: "linked_operation_id does not belong to selected field" }, { status: 400 });
+      }
+    }
+
     const activeShiftId = await resolveActiveShiftId(supabase, ticket.company_id, ticket.created_by);
     if (!activeShiftId) {
       return NextResponse.json(
@@ -667,6 +711,7 @@ export async function POST(request: NextRequest) {
       class_grade: line.class_grade ?? null,
       variety_id: line.variety_id ?? null,
       reproduction_id: line.reproduction_id ?? null,
+      operation_line_id: (line as any).operation_line_id ?? null,
       batch_id: line.batch_id ?? null,
       batch_class: line.batch_class ?? null,
     }));
@@ -703,6 +748,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ticket: createdTicket });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

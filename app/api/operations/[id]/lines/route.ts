@@ -108,7 +108,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("id,company_id,field_id,crop_structure_id")
+      .select("id,company_id,field_id,crop_structure_id,crop_id")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -119,19 +119,49 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     if (plannedArea == null || plannedArea < 0) {
       return NextResponse.json({ error: "planned_area_ha must be >= 0" }, { status: 400 });
     }
+    const actualArea = nullableNumber(body.actual_area_ha);
+    if (actualArea != null && actualArea < 0) {
+      return NextResponse.json({ error: "actual_area_ha must be >= 0" }, { status: 400 });
+    }
+    const rowCount = nullableNumber(body.row_count);
+    if (rowCount != null && rowCount < 0) {
+      return NextResponse.json({ error: "row_count must be >= 0" }, { status: 400 });
+    }
+    const rowSpacing = nullableNumber(body.row_spacing_m);
+    if (rowSpacing != null && rowSpacing <= 0) {
+      return NextResponse.json({ error: "row_spacing_m must be > 0" }, { status: 400 });
+    }
+    const seedSpacing = nullableNumber(body.seed_spacing_cm);
+    if (seedSpacing != null && seedSpacing <= 0) {
+      return NextResponse.json({ error: "seed_spacing_cm must be > 0" }, { status: 400 });
+    }
+
+    let resolvedCropId = nullableUuid(body.crop_id) ?? nullableUuid(operation.crop_id);
+    if (!resolvedCropId && operation.crop_structure_id) {
+      const { data: structureRow, error: structureError } = await supabase
+        .from("crop_structure")
+        .select("crop_id")
+        .eq("id", operation.crop_structure_id)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (structureError) {
+        return NextResponse.json({ error: structureError.message }, { status: 400 });
+      }
+      resolvedCropId = nullableUuid(structureRow?.crop_id);
+    }
 
     const payload = {
       company_id: companyId,
       operation_id: operationId,
       field_id: nullableUuid(body.field_id) ?? operation.field_id ?? null,
-      crop_id: nullableUuid(body.crop_id),
+      crop_id: resolvedCropId,
       variety_id: nullableUuid(body.variety_id),
       reproduction_id: nullableUuid(body.reproduction_id),
       planned_area_ha: plannedArea,
-      actual_area_ha: nullableNumber(body.actual_area_ha),
-      row_count: nullableNumber(body.row_count),
-      row_spacing_m: nullableNumber(body.row_spacing_m),
-      seed_spacing_cm: nullableNumber(body.seed_spacing_cm),
+      actual_area_ha: actualArea,
+      row_count: rowCount,
+      row_spacing_m: rowSpacing,
+      seed_spacing_cm: seedSpacing,
       notes: String(body.notes || "").trim() || null,
       created_by_user_id: actor.authUserId,
       updated_by_user_id: actor.authUserId,
@@ -152,4 +182,3 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }
-

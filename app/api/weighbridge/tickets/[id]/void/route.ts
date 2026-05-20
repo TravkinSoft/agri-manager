@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { assertActorAccess } from "@/lib/auth/server-acl";
+import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
 export async function POST(
   request: NextRequest,
@@ -8,34 +8,32 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const { actorUserId, reason } = await request.json();
-    if (!id || !actorUserId || !reason) {
+    const body = await request.json().catch(() => ({}));
+    const reason = String(body?.reason || "").trim();
+    if (!id || !reason) {
       return NextResponse.json(
-        { error: "ticket id, actorUserId and reason are required" },
+        { error: "ticket id and reason are required" },
         { status: 400 }
       );
     }
 
-    const supabase = getServiceClient();
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
+      requestedCompanyId: String(body?.companyId || "").trim() || null,
+    });
     const { data: ticketBefore, error: ticketBeforeError } = await supabase
       .from("tickets")
       .select("id, company_id, vehicle_id")
       .eq("id", id)
+      .eq("company_id", companyId)
       .maybeSingle();
     if (ticketBeforeError || !ticketBefore?.id) {
       return NextResponse.json({ error: ticketBeforeError?.message || "Ticket not found" }, { status: 404 });
     }
 
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId: ticketBefore.company_id,
-      allowedRoles: ["admin", "warehouse", "weighman"],
-    });
-
     const { error } = await supabase.rpc("void_ticket_with_storno_v2", {
       p_ticket_id: id,
-      p_actor_user_id: actorUserId,
+      p_actor_user_id: actor.id,
       p_reason: reason,
     });
 
@@ -70,6 +68,10 @@ export async function POST(
 
     return NextResponse.json({ ticket: updated });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

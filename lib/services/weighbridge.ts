@@ -23,9 +23,12 @@ async function parseJsonOrThrow(response: Response) {
   return payload;
 }
 
-export async function listTickets(companyId: string, userId: string): Promise<WeighbridgeTicket[]> {
+export async function listTickets(companyId?: string, _userId?: string): Promise<WeighbridgeTicket[]> {
   const headers = await buildAuthHeaders("none");
-  const response = await fetch(`/api/weighbridge/tickets?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(userId)}`, {
+  const url = companyId
+    ? `/api/weighbridge/tickets?companyId=${encodeURIComponent(companyId)}`
+    : "/api/weighbridge/tickets";
+  const response = await fetch(url, {
     method: "GET",
     cache: "no-store",
     headers,
@@ -34,37 +37,37 @@ export async function listTickets(companyId: string, userId: string): Promise<We
   return payload.tickets || [];
 }
 
-export async function getWeighbridgeBootstrap(companyId: string, userId: string) {
+export async function getWeighbridgeBootstrap(companyId?: string, _userId?: string) {
   const headers = await buildAuthHeaders("none");
-  const response = await fetch(
-    `/api/weighbridge/bootstrap?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(userId)}`,
-    { method: "GET", cache: "no-store", headers }
-  );
+  const url = companyId
+    ? `/api/weighbridge/bootstrap?companyId=${encodeURIComponent(companyId)}`
+    : "/api/weighbridge/bootstrap";
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
   return parseJsonOrThrow(response);
 }
 
-export async function getActiveShift(companyId: string, userId: string) {
+export async function getActiveShift(companyId?: string, _userId?: string) {
   const headers = await buildAuthHeaders("none");
-  const response = await fetch(
-    `/api/weighbridge/shifts?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(userId)}`,
-    { method: "GET", cache: "no-store", headers }
-  );
+  const url = companyId
+    ? `/api/weighbridge/shifts?companyId=${encodeURIComponent(companyId)}`
+    : "/api/weighbridge/shifts";
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
   return parseJsonOrThrow(response);
 }
 
-export async function openShift(companyId: string, actorUserId: string, openingNote?: string) {
+export async function openShift(companyId?: string, _actorUserId?: string, openingNote?: string) {
   const headers = await buildAuthHeaders("json");
   const response = await fetch("/api/weighbridge/shifts", {
     method: "POST",
     headers,
-    body: JSON.stringify({ companyId, actorUserId, openingNote }),
+    body: JSON.stringify({ companyId, openingNote }),
   });
   return parseJsonOrThrow(response);
 }
 
 export async function closeShift(
-  companyId: string,
-  actorUserId: string,
+  companyId?: string,
+  _actorUserId?: string,
   params?: { closingNote?: string; handoverNote?: string; force?: boolean }
 ) {
   const headers = await buildAuthHeaders("json");
@@ -73,7 +76,6 @@ export async function closeShift(
     headers,
     body: JSON.stringify({
       companyId,
-      actorUserId,
       closingNote: params?.closingNote,
       handoverNote: params?.handoverNote,
       force: Boolean(params?.force),
@@ -82,9 +84,9 @@ export async function closeShift(
   return parseJsonOrThrow(response);
 }
 
-export async function getTicketDetails(ticketId: string, userId: string) {
+export async function getTicketDetails(ticketId: string, _userId?: string) {
   const headers = await buildAuthHeaders("none");
-  const response = await fetch(`/api/weighbridge/tickets/${ticketId}?userId=${encodeURIComponent(userId)}`, {
+  const response = await fetch(`/api/weighbridge/tickets/${ticketId}`, {
     method: "GET",
     cache: "no-store",
     headers,
@@ -94,7 +96,7 @@ export async function getTicketDetails(ticketId: string, userId: string) {
 
 export async function patchTicket(
   ticketId: string,
-  actorUserId: string,
+  _actorUserId: string,
   patch: {
     gross_weight_kg?: number;
     tare_weight_kg?: number;
@@ -106,7 +108,7 @@ export async function patchTicket(
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}`, {
     method: "PATCH",
     headers,
-    body: JSON.stringify({ actorUserId, ...patch }),
+    body: JSON.stringify({ ...patch }),
   });
   return parseJsonOrThrow(response);
 }
@@ -121,29 +123,29 @@ export async function createTicket(input: TicketInput, lines: TicketLineInput[],
   return parseJsonOrThrow(response);
 }
 
-export async function finalizeTicket(ticketId: string, actorUserId: string) {
+export async function finalizeTicket(ticketId: string, _actorUserId: string) {
   const headers = await buildAuthHeaders("json");
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}/finalize`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ actorUserId }),
+    body: JSON.stringify({}),
   });
   return parseJsonOrThrow(response);
 }
 
-export async function voidTicket(ticketId: string, actorUserId: string, reason: string) {
+export async function voidTicket(ticketId: string, _actorUserId: string, reason: string) {
   const headers = await buildAuthHeaders("json");
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}/void`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ actorUserId, reason }),
+    body: JSON.stringify({ reason }),
   });
   return parseJsonOrThrow(response);
 }
 
 export async function adminTicketAction(
   ticketId: string,
-  actorUserId: string,
+  _actorUserId: string,
   action: "void" | "archive" | "force_close",
   reason?: string
 ) {
@@ -151,13 +153,13 @@ export async function adminTicketAction(
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}/admin-action`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ actorUserId, action, reason }),
+    body: JSON.stringify({ action, reason }),
   });
   return parseJsonOrThrow(response);
 }
 
-export async function downloadTicketPdf(ticketId: string, userId: string) {
+export async function downloadTicketPdf(ticketId: string, _userId?: string) {
   if (!ticketId) throw new Error("Ticket id is required");
-  const printUrl = `/weighbridge/${encodeURIComponent(ticketId)}/print?autoprint=1&userId=${encodeURIComponent(userId)}`;
+  const printUrl = `/weighbridge/${encodeURIComponent(ticketId)}/print?autoprint=1`;
   window.open(printUrl, "_blank", "noopener,noreferrer");
 }

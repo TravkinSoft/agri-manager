@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { assertActorAccess } from "@/lib/auth/server-acl";
+import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
 type Row = {
   id: string;
@@ -13,18 +13,8 @@ type Row = {
 
 export async function GET(request: NextRequest) {
   try {
-    const companyId = String(request.nextUrl.searchParams.get("companyId") || "").trim();
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-
-    if (!companyId) return NextResponse.json({ error: "companyId is required" }, { status: 400 });
-    if (!actorUserId) return NextResponse.json({ error: "userId is required" }, { status: 400 });
-
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId,
-      allowedRoles: ["admin", "company_admin", "global_admin", "warehouse", "weighman", "agronomist"],
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
 
     const { data: seasonsRows, error: seasonError } = await supabase
@@ -121,10 +111,13 @@ export async function GET(request: NextRequest) {
       incompleteByField,
     });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
   }
 }
-

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { assertActorAccess } from "@/lib/auth/server-acl";
+import { asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
 type AdminAction = "void" | "archive" | "force_close";
 
@@ -11,33 +11,29 @@ export async function POST(
   try {
     const { id } = await params;
     const body = await request.json();
-    const actorUserId = String(body?.actorUserId || "").trim();
     const action = String(body?.action || "").trim() as AdminAction;
     const reason = String(body?.reason || "").trim();
 
-    if (!id || !actorUserId) {
-      return NextResponse.json({ error: "ticket id and actorUserId are required" }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: "ticket id is required" }, { status: 400 });
     }
     if (!["void", "archive", "force_close"].includes(action)) {
       return NextResponse.json({ error: "Unsupported admin action" }, { status: 400 });
     }
 
-    const supabase = getServiceClient();
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: ["company_admin", "global_admin"],
+      requestedCompanyId: String(body?.companyId || "").trim() || null,
+    });
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
       .select("*")
       .eq("id", id)
+      .eq("company_id", companyId)
       .maybeSingle();
     if (ticketError || !ticket?.id) {
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
     }
-
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId: ticket.company_id,
-      allowedRoles: ["admin", "company_admin", "global_admin"],
-    });
 
     if (action === "void" || action === "archive") {
       if (ticket.status === "finalized") {
@@ -57,7 +53,7 @@ export async function POST(
           status: "voided",
           is_voided: true,
           void_reason: voidReason,
-          voided_by: actorUserId,
+          voided_by: actor.id,
           voided_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         })
@@ -123,10 +119,17 @@ export async function POST(
 
       const { error: finalizeError } = await supabase.rpc("finalize_weighbridge_ticket_v2", {
         p_ticket_id: id,
-        p_actor_user_id: actorUserId,
+        p_actor_user_id: actor.id,
       });
       if (finalizeError) {
         return NextResponse.json({ error: finalizeError.message }, { status: 400 });
+      }
+
+      const { error: backfillError } = await supabase.rpc("backfill_ticket_operation_line_links_v1", {
+        p_ticket_id: id,
+      });
+      if (backfillError) {
+        return NextResponse.json({ error: backfillError.message }, { status: 400 });
       }
 
       const { data: updated } = await supabase
@@ -148,6 +151,10 @@ export async function POST(
 
     return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

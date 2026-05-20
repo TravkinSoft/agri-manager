@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertActorAccess } from "@/lib/auth/server-acl";
-import { getServiceClient } from "@/lib/supabase/service";
+import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
 export async function GET(request: NextRequest) {
   try {
-    const companyId = String(request.nextUrl.searchParams.get("companyId") || "").trim();
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!companyId || !actorUserId) {
-      return NextResponse.json({ error: "companyId and userId are required" }, { status: 400 });
-    }
-
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId,
-      allowedRoles: ["admin", "company_admin", "global_admin", "weighman", "warehouse", "agronomist"],
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
 
     const [shiftRes, ticketsRes, nodesRes, pendingRes] = await Promise.all([
@@ -23,7 +12,7 @@ export async function GET(request: NextRequest) {
         .from("weighbridge_shifts")
         .select("*")
         .eq("company_id", companyId)
-        .eq("operator_id", actorUserId)
+        .eq("operator_id", actor.id)
         .eq("status", "open")
         .order("opened_at", { ascending: false })
         .limit(1)
@@ -75,10 +64,13 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
   }
 }
-

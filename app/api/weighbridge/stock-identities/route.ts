@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertActorAccess } from "@/lib/auth/server-acl";
-import { getServiceClient } from "@/lib/supabase/service";
+import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
 const batchClassLabel = (value: string | null | undefined) => {
   const key = String(value || "commodity").toLowerCase();
@@ -34,20 +33,14 @@ const firstSnapshot = (rows: any[], idKey: string, nameKey: string) => {
 
 export async function GET(request: NextRequest) {
   try {
-    const companyId = String(request.nextUrl.searchParams.get("companyId") || "").trim();
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
     const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim();
 
-    if (!companyId || !actorUserId || !warehouseId) {
-      return NextResponse.json({ error: "companyId, userId and warehouseId are required" }, { status: 400 });
+    if (!warehouseId) {
+      return NextResponse.json({ error: "warehouseId is required" }, { status: 400 });
     }
 
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId,
-      allowedRoles: ["admin", "warehouse", "weighman"],
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
     });
 
     const { data: rows, error } = await supabase
@@ -141,6 +134,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ items });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

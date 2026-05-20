@@ -110,7 +110,15 @@ export interface PotatoMaterialConsumptionRow {
   issued_qty_kg: number;
   fact_qty_per_ha: number | null;
   planned_norm_per_ha: number | null;
+  planned_need_kg: number | null;
+  remaining_need_kg: number | null;
   deviation_per_ha: number | null;
+  linkage_scope:
+    | "line"
+    | "operation_single_line"
+    | "operation_identity_fallback"
+    | "operation_first_line_fallback"
+    | "none";
 }
 
 export interface SpecialistAssignee {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { assertActorAccess } from "@/lib/auth/server-acl";
+import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
 function escapePdfText(text: string) {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -66,27 +66,22 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!id || !actorUserId) {
-      return NextResponse.json({ error: "ticket id and userId are required" }, { status: 400 });
+    if (!id) {
+      return NextResponse.json({ error: "ticket id is required" }, { status: 400 });
     }
 
-    const supabase = getServiceClient();
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_READ_ROLES,
+    });
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
       .select("*")
       .eq("id", id)
+      .eq("company_id", companyId)
       .maybeSingle();
     if (ticketError || !ticket?.id) {
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
     }
-
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId: ticket.company_id,
-      allowedRoles: ["admin", "agronomist", "warehouse", "weighman", "specialist"],
-    });
 
     const [{ data: lines }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: drivers }, { data: vehicles }, { data: operators }] = await Promise.all([
       supabase.from("ticket_lines").select("*").eq("ticket_id", id).order("created_at", { ascending: true }),
@@ -163,6 +158,10 @@ export async function GET(
       },
     });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
-import { assertActorAccess } from "@/lib/auth/server-acl";
+import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 12);
@@ -9,15 +8,21 @@ function buildTicketNo(companyId: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const { requestId, actorUserId, sourceWarehouseId, vehicleId } = await request.json();
-    if (!requestId || !actorUserId || !sourceWarehouseId) {
+    const body = await request.json().catch(() => ({}));
+    const requestId = String(body?.requestId || "").trim();
+    const sourceWarehouseId = String(body?.sourceWarehouseId || "").trim();
+    const vehicleId = String(body?.vehicleId || "").trim() || null;
+    if (!requestId || !sourceWarehouseId) {
       return NextResponse.json(
-        { error: "requestId, actorUserId and sourceWarehouseId are required" },
+        { error: "requestId and sourceWarehouseId are required" },
         { status: 400 }
       );
     }
 
-    const supabase = getServiceClient();
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
+      requestedCompanyId: String(body?.companyId || "").trim() || null,
+    });
     const { data: reqRow, error: reqError } = await supabase
       .from("warehouse_issue_requests")
       .select(`
@@ -30,13 +35,9 @@ export async function POST(request: NextRequest) {
     if (reqError || !reqRow?.id) {
       return NextResponse.json({ error: reqError?.message || "Issue request not found" }, { status: 404 });
     }
-
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId: reqRow.company_id,
-      allowedRoles: ["admin", "warehouse", "weighman"],
-    });
+    if (String(reqRow.company_id || "") !== companyId) {
+      return NextResponse.json({ error: "Issue request does not belong to actor company scope" }, { status: 403 });
+    }
 
     if (vehicleId) {
       const { data: vehicle, error: vehicleError } = await supabase
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
         warehouse_from_id: sourceWarehouseId,
         vehicle_id: vehicleId || null,
         responsible_user_id: reqRow.recipient_user_id,
-        created_by: actorUserId,
+        created_by: actor.id,
         linked_operation_id: reqRow.operation_id,
         linked_request_id: reqRow.id,
         notes: reqRow.comment,
@@ -143,6 +144,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ticketId: ticket.id, ticketNo: ticket.ticket_no });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

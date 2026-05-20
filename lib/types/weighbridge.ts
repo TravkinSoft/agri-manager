@@ -19,6 +19,7 @@ export interface TicketLineInput {
   variety_id?: string | null;
   reproduction_id?: string | null;
   batch_class?: string | null;
+  operation_line_id?: string | null;
 }
 
 export interface TicketInput {
@@ -120,5 +121,6 @@ export interface WeighbridgeTicket {
     reproduction_name?: string | null;
     batch_class?: string | null;
     lot_id?: string | null;
+    operation_line_id?: string | null;
   }>;
 }

@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/lib/contexts/auth-context";
 
 const opLabel = (opType: string) => {
   if (opType === "harvest_incoming") return "Урожай с поля";
@@ -46,7 +45,6 @@ const kg = (value: unknown) => {
 export default function WeighbridgePrintPage() {
   const params = useParams<{ id: string }>();
   const searchParams = useSearchParams();
-  const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [ticket, setTicket] = useState<any>(null);
@@ -54,15 +52,14 @@ export default function WeighbridgePrintPage() {
 
   const ticketId = String(params?.id || "");
   const autoPrint = searchParams.get("autoprint") === "1";
-  const userId = searchParams.get("userId") || profile?.id || "";
 
   useEffect(() => {
     async function loadData() {
-      if (!ticketId || !userId) return;
+      if (!ticketId) return;
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/weighbridge/tickets/${ticketId}?userId=${encodeURIComponent(userId)}`, { cache: "no-store" });
+        const response = await fetch(`/api/weighbridge/tickets/${ticketId}`, { cache: "no-store" });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить талон");
         setTicket(payload.ticket || null);
@@ -74,7 +71,7 @@ export default function WeighbridgePrintPage() {
       }
     }
     void loadData();
-  }, [ticketId, userId]);
+  }, [ticketId]);
 
   useEffect(() => {
     if (!autoPrint || loading || !ticket) return;
@@ -89,7 +86,7 @@ export default function WeighbridgePrintPage() {
   const cropLabel = mainLine?.product_name || mainLine?.product_name_snapshot || ticket?.crop_name_snapshot || "-";
   const varietyLabel = mainLine?.variety_name || mainLine?.variety_name_snapshot || ticket?.variety_name_snapshot || "-";
   const reproductionLabel = mainLine?.reproduction_name || mainLine?.reproduction_name_snapshot || ticket?.reproduction_name_snapshot || "-";
-  const operatorLabel = ticket?.created_by_name_snapshot || profile?.full_name?.trim() || profile?.email || "-";
+  const operatorLabel = ticket?.created_by_name_snapshot || "-";
 
   if (loading) return <div className="p-6 text-sm text-slate-500">Загрузка талона...</div>;
   if (error) return <div className="p-6 text-sm text-red-600">{error}</div>;

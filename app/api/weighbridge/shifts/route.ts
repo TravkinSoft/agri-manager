@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertActorAccess } from "@/lib/auth/server-acl";
 import { getServiceClient } from "@/lib/supabase/service";
+import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
 async function getActiveShift(supabase: ReturnType<typeof getServiceClient>, companyId: string, operatorId: string) {
   const { data, error } = await supabase
@@ -18,23 +18,17 @@ async function getActiveShift(supabase: ReturnType<typeof getServiceClient>, com
 
 export async function GET(request: NextRequest) {
   try {
-    const companyId = String(request.nextUrl.searchParams.get("companyId") || "").trim();
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!companyId || !actorUserId) {
-      return NextResponse.json({ error: "companyId and userId are required" }, { status: 400 });
-    }
-
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId,
-      allowedRoles: ["admin", "company_admin", "global_admin", "weighman", "warehouse"],
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
     });
 
-    const shift = await getActiveShift(supabase, companyId, actorUserId);
+    const shift = await getActiveShift(supabase, companyId, actor.id);
     return NextResponse.json({ shift });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
@@ -45,30 +39,21 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const companyId = String(body?.companyId || "").trim();
-    const actorUserId = String(body?.actorUserId || "").trim();
     const openingNote = String(body?.openingNote || "").trim() || null;
-    if (!companyId || !actorUserId) {
-      return NextResponse.json({ error: "companyId and actorUserId are required" }, { status: 400 });
-    }
-
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId,
-      allowedRoles: ["admin", "company_admin", "global_admin", "weighman", "warehouse"],
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
+      requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
 
-    const current = await getActiveShift(supabase, companyId, actorUserId);
+    const current = await getActiveShift(supabase, companyId, actor.id);
     if (current?.id) return NextResponse.json({ shift: current });
 
     const { data, error } = await supabase
       .from("weighbridge_shifts")
       .insert({
         company_id: companyId,
-        operator_id: actorUserId,
-        opened_by: actorUserId,
+        operator_id: actor.id,
+        opened_by: actor.id,
         opening_note: openingNote,
         status: "open",
       })
@@ -77,6 +62,10 @@ export async function POST(request: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ shift: data });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
@@ -87,24 +76,15 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const companyId = String(body?.companyId || "").trim();
-    const actorUserId = String(body?.actorUserId || "").trim();
     const handoverNote = String(body?.handoverNote || "").trim() || null;
     const closingNote = String(body?.closingNote || "").trim() || null;
     const force = Boolean(body?.force);
-    if (!companyId || !actorUserId) {
-      return NextResponse.json({ error: "companyId and actorUserId are required" }, { status: 400 });
-    }
-
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId,
-      companyId,
-      allowedRoles: ["admin", "company_admin", "global_admin", "weighman", "warehouse"],
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
+      requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
 
-    const shift = await getActiveShift(supabase, companyId, actorUserId);
+    const shift = await getActiveShift(supabase, companyId, actor.id);
     if (!shift?.id) {
       return NextResponse.json({ error: "No active shift found" }, { status: 400 });
     }
@@ -144,7 +124,7 @@ export async function PATCH(request: NextRequest) {
       .update({
         status: "closed",
         closed_at: new Date().toISOString(),
-        closed_by: actorUserId,
+        closed_by: actor.id,
         closing_note: closingNote,
         handover_note: handoverNote,
         ticket_count: ticketCount,
@@ -173,10 +153,13 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ shift: closed });
   } catch (error) {
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) {
+      return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
   }
 }
-

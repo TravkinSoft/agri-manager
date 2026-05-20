@@ -24,6 +24,14 @@ type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "drying";
 type MovementGroup = "warehouse_inbound" | "field_issue" | "internal_transfer" | "shipment" | "writeoff";
 type Option = { id: string; name: string };
+type LinkedOperationOption = { id: string; field_id: string | null; label: string };
+type LinkedOperationLineOption = {
+  id: string;
+  operation_id: string;
+  variety_id: string | null;
+  reproduction_id: string | null;
+  label: string;
+};
 type LocalizedRef = {
   id: string;
   name?: string | null;
@@ -99,6 +107,8 @@ type FormState = {
   harvestYear: string;
   productId: string;
   stockIdentityKey: string;
+  linkedOperationId: string;
+  linkedOperationLineId: string;
   quantityKg: string;
   dryingOutputKg: string;
   moistureIn: string;
@@ -136,6 +146,8 @@ const INITIAL_FORM: FormState = {
   harvestYear: "",
   productId: "",
   stockIdentityKey: "",
+  linkedOperationId: "",
+  linkedOperationLineId: "",
   quantityKg: "",
   dryingOutputKg: "",
   moistureIn: "",
@@ -173,6 +185,8 @@ const PERSIST_KEYS: Array<keyof FormState> = [
   "harvestYear",
   "productId",
   "stockIdentityKey",
+  "linkedOperationId",
+  "linkedOperationLineId",
   "disposalCategory",
   "notes",
 ];
@@ -408,6 +422,11 @@ const fmt = (value: string | null | undefined, language: Lang) => {
   const locale = language === "kz" ? "kk-KZ" : language === "en" ? "en-US" : "ru-RU";
   return new Intl.DateTimeFormat(locale, { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).format(d);
 };
+const formatDate = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+};
 
 export default function WeighbridgeOperationsPage() {
   const { profile } = useAuth();
@@ -429,6 +448,9 @@ export default function WeighbridgeOperationsPage() {
   const [processingPoints, setProcessingPoints] = useState<Option[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [stockIdentityOptions, setStockIdentityOptions] = useState<StockIdentityOption[]>([]);
+  const [linkedOperations, setLinkedOperations] = useState<LinkedOperationOption[]>([]);
+  const [linkedOperationLines, setLinkedOperationLines] = useState<LinkedOperationLineOption[]>([]);
+  const [linkedOperationLinesLoading, setLinkedOperationLinesLoading] = useState(false);
   const [stockIdentityLoading, setStockIdentityLoading] = useState(false);
   const [crops, setCrops] = useState<Option[]>([]);
   const [varieties, setVarieties] = useState<{ id: string; name: string; cropId: string; cropName: string }[]>([]);
@@ -464,6 +486,7 @@ export default function WeighbridgeOperationsPage() {
     profile?.role === "company_admin" ||
     profile?.role === "global_admin" ||
     profile?.role === "warehouse" ||
+    profile?.role === "warehouse_operator" ||
     profile?.role === "weighman";
   const canView = canOperate || profile?.role === "agronomist";
   const canVoid = profile?.role === "company_admin" || profile?.role === "global_admin";
@@ -585,9 +608,9 @@ export default function WeighbridgeOperationsPage() {
     return (data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Контрагент") }));
   };
 
-  const loadMasterIdentityRefs = async (companyId: string, userId: string) => {
+  const loadMasterIdentityRefs = async (companyId: string) => {
     const resp = await fetch(
-      `/api/weighbridge/master-identity?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(userId)}`,
+      `/api/weighbridge/master-identity?companyId=${encodeURIComponent(companyId)}`,
       { cache: "no-store" }
     );
     const json = await resp.json();
@@ -603,7 +626,7 @@ export default function WeighbridgeOperationsPage() {
     if (!profile?.company_id || !profile?.id || !canView) return;
     setLoading(true);
     try {
-      const [fieldsRes, warehousesRes, vehiclesRes, processingRes, productsRes, identityRefs, supplierRows, buyerRows, driverRows, ticketRows] = await Promise.all([
+      const [fieldsRes, warehousesRes, vehiclesRes, processingRes, productsRes, identityRefs, supplierRows, buyerRows, driverRows, ticketRows, operationsRes] = await Promise.all([
         supabase.from("fields").select("id,name,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase.from("reference_vehicles").select("id,name,custom_name,plate_number,primary_responsible_personnel_id,is_active,archived").eq("company_id", profile.company_id).eq("is_active", true).eq("archived", false).order("name"),
@@ -614,13 +637,20 @@ export default function WeighbridgeOperationsPage() {
           .or(`company_id.eq.${profile.company_id},company_id.is.null`)
           .eq("archived", false)
           .order("name"),
-        loadMasterIdentityRefs(profile.company_id, profile.id),
+        loadMasterIdentityRefs(profile.company_id),
         loadSuppliers(profile.company_id),
         loadBuyers(profile.company_id),
         loadDriversV2(profile.company_id),
         listTickets(profile.company_id, profile.id),
+        supabase
+          .from("operations")
+          .select("id,field_id,operation_type,date,status")
+          .eq("company_id", profile.company_id)
+          .eq("archived", false)
+          .order("date", { ascending: false })
+          .limit(500),
       ]);
-      if (fieldsRes.error || warehousesRes.error || vehiclesRes.error || processingRes.error || productsRes.error) {
+      if (fieldsRes.error || warehousesRes.error || vehiclesRes.error || processingRes.error || productsRes.error || operationsRes.error) {
         throw new Error(fieldsRes.error?.message || warehousesRes.error?.message || vehiclesRes.error?.message || processingRes.error?.message || productsRes.error?.message || "Не удалось загрузить данные");
       }
       setFields((fieldsRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Поле"), area: Number(r.area || 0) })));
@@ -682,6 +712,20 @@ export default function WeighbridgeOperationsPage() {
       );
       setDrivers(driverRows);
       setTickets(ticketRows || []);
+      const fieldNameById = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "РџРѕР»Рµ")]));
+      setLinkedOperations(
+        (operationsRes.data || []).map((row: any) => {
+          const fieldId = row.field_id ? String(row.field_id) : null;
+          const fieldName = fieldId ? fieldNameById.get(fieldId) || "РџРѕР»Рµ" : "РџРѕР»Рµ";
+          const dateText = row.date ? formatDate(String(row.date)) : "—";
+          return {
+            id: String(row.id),
+            field_id: fieldId,
+            label: `${row.operation_type || "Operation"} • ${fieldName} • ${dateText}`,
+          };
+        })
+      );
+      setLinkedOperationLines([]);
       try {
         const bootstrap = await getWeighbridgeBootstrap(profile.company_id, profile.id);
         setActiveShift(bootstrap?.shift || null);
@@ -719,7 +763,7 @@ export default function WeighbridgeOperationsPage() {
       const incompleteByField: Record<string, boolean> = {};
       {
         const resp = await fetch(
-          `/api/weighbridge/harvest-allocations?companyId=${encodeURIComponent(profile.company_id)}&userId=${encodeURIComponent(profile.id)}`,
+          `/api/weighbridge/harvest-allocations?companyId=${encodeURIComponent(profile.company_id)}`,
           { cache: "no-store" }
         );
         const json = await resp.json();
@@ -819,7 +863,7 @@ export default function WeighbridgeOperationsPage() {
 
     let cancelled = false;
     setStockIdentityLoading(true);
-    fetch(`/api/weighbridge/stock-identities?companyId=${encodeURIComponent(profile.company_id)}&userId=${encodeURIComponent(profile.id)}&warehouseId=${encodeURIComponent(form.warehouseFromId)}`, {
+    fetch(`/api/weighbridge/stock-identities?companyId=${encodeURIComponent(profile.company_id)}&warehouseId=${encodeURIComponent(form.warehouseFromId)}`, {
       cache: "no-store",
     })
       .then(async (response) => {
@@ -956,6 +1000,144 @@ export default function WeighbridgeOperationsPage() {
     }
   }, [form.operationType, selectedHarvestAllocation, form.cropId, form.varietyId, form.reproductionId]);
 
+  const linkedOperationsForField = useMemo(() => {
+    if (form.operationType !== "issue_to_field" || !form.fieldId) return [] as LinkedOperationOption[];
+    return linkedOperations.filter((row) => !row.field_id || row.field_id === form.fieldId);
+  }, [form.operationType, form.fieldId, linkedOperations]);
+
+  useEffect(() => {
+    if (form.operationType === "issue_to_field") {
+      if (!form.fieldId) {
+        if (form.linkedOperationId || form.linkedOperationLineId) {
+          setForm((prev) => ({ ...prev, linkedOperationId: "", linkedOperationLineId: "" }));
+        }
+        setLinkedOperationLines([]);
+        return;
+      }
+      if (form.linkedOperationId && !linkedOperationsForField.some((row) => row.id === form.linkedOperationId)) {
+        setForm((prev) => ({ ...prev, linkedOperationId: "", linkedOperationLineId: "" }));
+        setLinkedOperationLines([]);
+      }
+      return;
+    }
+    if (form.linkedOperationId || form.linkedOperationLineId) {
+      setForm((prev) => ({ ...prev, linkedOperationId: "", linkedOperationLineId: "" }));
+    }
+    setLinkedOperationLines([]);
+  }, [form.operationType, form.fieldId, form.linkedOperationId, form.linkedOperationLineId, linkedOperationsForField]);
+
+  useEffect(() => {
+    if (form.operationType !== "issue_to_field" || !profile?.company_id || !form.linkedOperationId) {
+      setLinkedOperationLinesLoading(false);
+      setLinkedOperationLines([]);
+      if (form.linkedOperationLineId) {
+        setForm((prev) => ({ ...prev, linkedOperationLineId: "" }));
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setLinkedOperationLinesLoading(true);
+
+    (supabase
+      .from("operation_lines")
+      .select("id,operation_id,variety_id,reproduction_id,planned_area_ha,actual_area_ha,varieties:variety_id(name),seed_reproductions:reproduction_id(name)")
+      .eq("company_id", profile.company_id)
+      .eq("operation_id", form.linkedOperationId)
+      .order("created_at", { ascending: true }) as unknown as Promise<{ data: any[] | null; error: any }>)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) throw error;
+        const options = (data || []).map((row: any) => {
+          const varietyName =
+            String(row?.varieties?.name || "").trim() ||
+            varieties.find((item) => item.id === String(row.variety_id || ""))?.name ||
+            "Сорт не указан";
+          const reproductionName =
+            String(row?.seed_reproductions?.name || "").trim() ||
+            reproductions.find((item) => item.id === String(row.reproduction_id || ""))?.name ||
+            "Репродукция не указана";
+          const area = Number(row.actual_area_ha ?? row.planned_area_ha ?? 0);
+          return {
+            id: String(row.id),
+            operation_id: String(row.operation_id),
+            variety_id: row.variety_id ? String(row.variety_id) : null,
+            reproduction_id: row.reproduction_id ? String(row.reproduction_id) : null,
+            label: `${varietyName} / ${reproductionName} • ${area.toFixed(2)} га`,
+          } satisfies LinkedOperationLineOption;
+        });
+        setLinkedOperationLines(options);
+        if (form.linkedOperationLineId && !options.some((item) => item.id === form.linkedOperationLineId)) {
+          setForm((prev) => ({ ...prev, linkedOperationLineId: "" }));
+        }
+      })
+      .catch((error: any) => {
+        if (cancelled) return;
+        setLinkedOperationLines([]);
+        toast({
+          title: "Ошибка загрузки строк операции",
+          description: String(error?.message || "Не удалось загрузить строки операции"),
+          variant: "destructive",
+        });
+      })
+      .finally(() => {
+        if (!cancelled) setLinkedOperationLinesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    form.operationType,
+    form.linkedOperationId,
+    form.linkedOperationLineId,
+    profile?.company_id,
+    reproductions,
+    toast,
+    varieties,
+  ]);
+
+  const linkedOperationLineOptions = useMemo(() => {
+    if (!selectedHarvestAllocation) return linkedOperationLines;
+    return [...linkedOperationLines].sort((a, b) => {
+      const aMatch =
+        a.variety_id === selectedHarvestAllocation.varietyId &&
+        a.reproduction_id === selectedHarvestAllocation.reproductionId;
+      const bMatch =
+        b.variety_id === selectedHarvestAllocation.varietyId &&
+        b.reproduction_id === selectedHarvestAllocation.reproductionId;
+      return Number(bMatch) - Number(aMatch);
+    });
+  }, [linkedOperationLines, selectedHarvestAllocation]);
+
+  useEffect(() => {
+    if (form.operationType !== "issue_to_field" || !form.linkedOperationLineId) return;
+    const selectedLine = linkedOperationLineOptions.find((line) => line.id === form.linkedOperationLineId);
+    if (!selectedLine) return;
+    if (!selectedLine.variety_id || !selectedLine.reproduction_id) return;
+    const allocation = fieldHarvestOptions.find(
+      (line) =>
+        line.varietyId === selectedLine.variety_id &&
+        line.reproductionId === selectedLine.reproduction_id
+    );
+    if (!allocation || allocation.allocationId === form.cropStructureAllocationId) return;
+    setForm((prev) => ({
+      ...prev,
+      cropStructureAllocationId: allocation.allocationId,
+      cropId: allocation.cropId,
+      varietyId: allocation.varietyId,
+      reproductionId: allocation.reproductionId,
+      stockIdentityKey: "",
+      quantityKg: "",
+    }));
+  }, [
+    form.operationType,
+    form.linkedOperationLineId,
+    form.cropStructureAllocationId,
+    linkedOperationLineOptions,
+    fieldHarvestOptions,
+  ]);
+
   const activeTickets = useMemo(() => tickets.filter((t) => ["draft", "active", "ready_to_close"].includes(t.status)), [tickets]);
   const historyTypes = useMemo(() => Array.from(new Set(tickets.map((t) => t.op_type).filter(Boolean))), [tickets]);
   const historyTickets = useMemo(() => tickets.filter((t) => ["finalized", "voided"].includes(t.status) && (historyTypeFilter === "all" || t.op_type === historyTypeFilter)), [tickets, historyTypeFilter]);
@@ -1059,6 +1241,8 @@ export default function WeighbridgeOperationsPage() {
       if (operationType === "issue_to_field") {
         next.fieldIssueMode = prev.fieldIssueMode;
         next.fieldMaterialCategory = prev.fieldMaterialCategory;
+        next.linkedOperationId = prev.linkedOperationId;
+        next.linkedOperationLineId = prev.linkedOperationLineId;
       }
 
       if (operationType === "transfer_between_warehouses") {
@@ -1213,6 +1397,7 @@ export default function WeighbridgeOperationsPage() {
     } else if (form.operationType === "issue_to_field") {
       if (form.fieldId && fieldHarvestOptions.length > 1 && !form.cropStructureAllocationId) return "Выберите посевную строку поля";
       if (form.fieldId && !selectedHarvestAllocation) return "Для отпуска в поле нужна посевная строка активного сезона";
+      if (form.linkedOperationLineId && !form.linkedOperationId) return "Сначала выберите операцию, затем строку операции";
       if (!form.warehouseFromId) return "Выберите склад-источник";
       if (!form.fieldId) return "Выберите поле";
       if (!form.fieldMaterialCategory) return "Выберите категорию материала";
@@ -1361,6 +1546,7 @@ export default function WeighbridgeOperationsPage() {
       supplier_receipt_kind: form.operationType === "supplier_receipt" ? form.supplierItemMode : null,
       field_operation_type: isFieldIssue ? "issued_to_field" : null,
       field_material_category: isFieldIssue ? form.fieldMaterialCategory : null,
+      linked_operation_id: isFieldIssue ? form.linkedOperationId || null : null,
       disposal_category: form.operationType === "disposal_writeoff" ? form.disposalCategory : null,
       field_id: form.operationType === "supplier_receipt" ? null : form.fieldId || null,
       warehouse_from_id: form.operationType === "supplier_receipt" ? null : form.warehouseFromId || null,
@@ -1392,6 +1578,7 @@ export default function WeighbridgeOperationsPage() {
       batch_class: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.batch_class || "commodity" : null,
       variety_id: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierItemMode === "agro_identity") ? form.varietyId || null : null,
       reproduction_id: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierItemMode === "agro_identity") ? form.reproductionId || null : null,
+      operation_line_id: isFieldIssue ? form.linkedOperationLineId || null : null,
       moisture_percent: form.operationType === "drying" ? toNum(form.moistureIn) : null,
       net_line_weight_kg: form.operationType === "drying" ? toNum(form.dryingOutputKg) : null,
     };
@@ -1426,6 +1613,8 @@ export default function WeighbridgeOperationsPage() {
         harvestYear: prev.harvestYear,
         productId: prev.productId,
         stockIdentityKey: prev.stockIdentityKey,
+        linkedOperationId: prev.linkedOperationId,
+        linkedOperationLineId: prev.linkedOperationLineId,
         disposalCategory: prev.disposalCategory,
         disposalReason: prev.disposalReason,
         notes: prev.notes,
@@ -1687,7 +1876,7 @@ export default function WeighbridgeOperationsPage() {
               {(form.operationType === "harvest_incoming" || isFieldIssue) ? (
                 <div className="space-y-1">
                   <Label>Поле *</Label>
-                  <Select value={form.fieldId} onValueChange={(v) => setForm((p) => ({ ...p, fieldId: v, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "", stockIdentityKey: "" }))}>
+                  <Select value={form.fieldId} onValueChange={(v) => setForm((p) => ({ ...p, fieldId: v, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "", stockIdentityKey: "", linkedOperationId: "", linkedOperationLineId: "" }))}>
                     <SelectTrigger className="h-8"><SelectValue placeholder="Выберите поле" /></SelectTrigger>
                     <SelectContent>{fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} • {f.area.toFixed(2)} га</SelectItem>)}</SelectContent>
                   </Select>
@@ -2027,7 +2216,7 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
             <div className="grid gap-3 md:grid-cols-2">
-              {(form.operationType === "harvest_incoming" || form.operationType === "issue_to_field") && <div className="space-y-2"><Label>Поле *</Label><Select value={form.fieldId} onValueChange={(v) => setForm((p) => ({ ...p, fieldId: v, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "" }))}><SelectTrigger><SelectValue placeholder="Выберите поле" /></SelectTrigger><SelectContent>{fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} • {f.area.toFixed(2)} га</SelectItem>)}</SelectContent></Select></div>}
+              {(form.operationType === "harvest_incoming" || form.operationType === "issue_to_field") && <div className="space-y-2"><Label>Поле *</Label><Select value={form.fieldId} onValueChange={(v) => setForm((p) => ({ ...p, fieldId: v, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "", linkedOperationId: "", linkedOperationLineId: "" }))}><SelectTrigger><SelectValue placeholder="Выберите поле" /></SelectTrigger><SelectContent>{fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} • {f.area.toFixed(2)} га</SelectItem>)}</SelectContent></Select></div>}
               {form.operationType !== "harvest_incoming" && form.operationType !== "supplier_receipt" && <div className="space-y-2"><Label>Склад-источник *</Label><Select value={form.warehouseFromId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseFromId: v, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}><SelectTrigger><SelectValue placeholder="Выберите склад" /></SelectTrigger><SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent></Select></div>}
               {(form.operationType === "harvest_incoming" || form.operationType === "supplier_receipt" || form.operationType === "transfer_between_warehouses" || form.operationType === "drying") && <div className="space-y-2"><Label>{form.operationType === "drying" ? "Склад после сушки *" : "Склад назначения *"}</Label><Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}><SelectTrigger><SelectValue placeholder="Выберите склад" /></SelectTrigger><SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent></Select></div>}
               {form.operationType === "drying" && <div className="space-y-2"><Label>Точка сушки *</Label><Select value={form.processingPointId} onValueChange={(v) => setForm((p) => ({ ...p, processingPointId: v }))}><SelectTrigger><SelectValue placeholder="Выберите точку" /></SelectTrigger><SelectContent>{processingPoints.map((x) => <SelectItem key={x.id} value={x.id}>{x.name}</SelectItem>)}</SelectContent></Select></div>}
@@ -2079,6 +2268,120 @@ export default function WeighbridgeOperationsPage() {
                         {fieldMaterialCategoryLabels[type]}
                       </Button>
                     ))}
+                  </div>
+                </div>
+
+                <div className="grid gap-2 md:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label>Связанная операция (опционально)</Label>
+                    <Select
+                      value={form.linkedOperationId}
+                      onValueChange={(value) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          linkedOperationId: value,
+                          linkedOperationLineId: "",
+                        }))
+                      }
+                      disabled={!form.fieldId || linkedOperationsForField.length === 0}
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue
+                          placeholder={
+                            !form.fieldId
+                              ? "Сначала выберите поле"
+                              : linkedOperationsForField.length === 0
+                                ? "По полю нет открытых операций"
+                                : "Выберите операцию"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {linkedOperationsForField.length === 0 ? (
+                          <SelectItem value="__empty_operation" disabled>
+                            Операции не найдены
+                          </SelectItem>
+                        ) : null}
+                        {linkedOperationsForField.map((operation) => (
+                          <SelectItem key={operation.id} value={operation.id}>
+                            {operation.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {form.linkedOperationId ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-slate-600"
+                        onClick={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            linkedOperationId: "",
+                            linkedOperationLineId: "",
+                          }))
+                        }
+                      >
+                        Сбросить связь с операцией
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label>Строка операции (опционально)</Label>
+                    <Select
+                      value={form.linkedOperationLineId}
+                      onValueChange={(value) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          linkedOperationLineId: value,
+                        }))
+                      }
+                      disabled={!form.linkedOperationId || linkedOperationLinesLoading || linkedOperationLineOptions.length === 0}
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue
+                          placeholder={
+                            !form.linkedOperationId
+                              ? "Сначала выберите операцию"
+                              : linkedOperationLinesLoading
+                                ? "Загрузка строк операции..."
+                                : linkedOperationLineOptions.length === 0
+                                  ? "В операции нет строк"
+                                  : "Выберите строку операции"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {linkedOperationLineOptions.length === 0 ? (
+                          <SelectItem value="__empty_operation_line" disabled>
+                            Строки операции не найдены
+                          </SelectItem>
+                        ) : null}
+                        {linkedOperationLineOptions.map((line) => (
+                          <SelectItem key={line.id} value={line.id}>
+                            {line.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {form.linkedOperationLineId ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-slate-600"
+                        onClick={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            linkedOperationLineId: "",
+                          }))
+                        }
+                      >
+                        Сбросить строку операции
+                      </Button>
+                    ) : null}
                   </div>
                 </div>
 
