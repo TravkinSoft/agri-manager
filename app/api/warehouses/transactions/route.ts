@@ -171,6 +171,7 @@ function ensureSufficientStock(
 function buildPayloadFromBody(
   body: Record<string, unknown>,
   actorProfileId: string,
+  actorAuthUserId: string,
   companyId: string
 ) {
   const status = normalizeStatus(body.status);
@@ -201,9 +202,16 @@ function buildPayloadFromBody(
       date: opDate,
       notes: toNullableText(body.notes),
       responsible_user_id: toNullableText(body.responsible_user_id) || actorProfileId,
+      user_id: actorAuthUserId,
       confirmed_at: status === "confirmed" ? nowIso : null,
       cancelled_at: status === "cancelled" ? nowIso : null,
       company_id: companyId,
+      operation_id: toNullableText(body.operation_id),
+      field_id: toNullableText(body.field_id),
+      warehouse_issue_request_id: toNullableText(body.warehouse_issue_request_id),
+      warehouse_issue_request_item_id: toNullableText(body.warehouse_issue_request_item_id),
+      quantity_input: body.quantity_input !== undefined ? toNumberSafe(body.quantity_input) : null,
+      input_uom: toNullableText(body.input_uom),
     },
     movementType,
     direction,
@@ -263,7 +271,7 @@ export async function POST(request: NextRequest) {
       allowedRoles: [...WRITE_ROLES],
     });
 
-    const normalized = buildPayloadFromBody(body, actor.id, companyId);
+    const normalized = buildPayloadFromBody(body, actor.id, actor.authUserId, companyId);
 
     if (normalized.status === "confirmed") {
       const balances = await loadConfirmedBalanceMap(companyId);
