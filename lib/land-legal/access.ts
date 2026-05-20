@@ -1,4 +1,5 @@
 import type { ServerActorContext } from "@/lib/auth/server-session";
+import { SessionAuthError } from "@/lib/auth/server-session";
 
 export const LAND_LEGAL_READ_ROLES = new Set([
   "global_admin",
@@ -22,12 +23,12 @@ export function canWriteLandLegal(role?: string | null): boolean {
 
 export function assertLandLegalRead(actor: ServerActorContext): void {
   if (!canReadLandLegal(actor.role)) {
-    throw new Error("Access denied for current role");
+    throw new SessionAuthError("Access denied for current role", 403);
   }
 }
 
 export function assertLandLegalWrite(actor: ServerActorContext): void {
   if (!canWriteLandLegal(actor.role)) {
-    throw new Error("Write access denied for current role");
+    throw new SessionAuthError("Write access denied for current role", 403);
   }
 }

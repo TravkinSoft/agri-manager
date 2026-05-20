@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { parseCanonicalRole, type CanonicalRole } from "@/lib/auth/role-contract";
+import { SessionAuthError } from "@/lib/auth/server-session";
 
 type AllowedRole =
   | "admin"
@@ -39,11 +40,11 @@ export async function assertActorAccess(params: {
     .maybeSingle();
 
   if (error || !profile?.id) {
-    throw new Error("Actor profile not found");
+    throw new SessionAuthError("Actor profile not found", 403);
   }
 
   if (companyId && profile.company_id !== companyId) {
-    throw new Error("Actor does not belong to the target company");
+    throw new SessionAuthError("Actor does not belong to the target company", 403);
   }
 
   const normalizedRole = normalizeRole(profile.role);
@@ -58,11 +59,11 @@ export async function assertActorAccess(params: {
   })));
 
   if (!normalizedRole || !allowedNormalized.includes(normalizedRole)) {
-    throw new Error("Access denied for current role");
+    throw new SessionAuthError("Access denied for current role", 403);
   }
 
   if (requireActive && String(profile.status || "active") !== "active") {
-    throw new Error("Actor profile is not active");
+    throw new SessionAuthError("Actor profile is not active", 403);
   }
 
   return profile as any;
