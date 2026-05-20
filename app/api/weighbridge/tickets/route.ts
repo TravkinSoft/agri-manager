@@ -4,8 +4,9 @@ import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse
 import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
 
 function buildTicketNo(companyId: string): string {
-  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 12);
-  return `WB-${companyId.slice(0, 6).toUpperCase()}-${stamp}`;
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
+  const entropy = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `WB-${companyId.slice(0, 6).toUpperCase()}-${stamp}-${entropy}`;
 }
 
 const sameNullable = (a: unknown, b: unknown) => String(a || "") === String(b || "");
