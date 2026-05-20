@@ -253,7 +253,9 @@ export default function TasksPage() {
     </Card>
   );
 
-  if (profile?.role !== 'specialist') {
+  const isTaskRole = profile?.role === "specialist" || profile?.role === "brigadier";
+
+  if (!isTaskRole) {
     return (
       <div>
         <PageHeader
@@ -262,7 +264,7 @@ export default function TasksPage() {
         />
         <Alert variant="destructive">
           <AlertDescription>
-            Access denied. This page is only available for specialists.
+            Access denied. This page is available for specialists and brigadiers.
           </AlertDescription>
         </Alert>
       </div>

@@ -1,0 +1,3793 @@
+{
+  "generated_at": "2026-05-19T06:23:42.977Z",
+  "mode": "dry-run",
+  "company_id": "10000000-0000-0000-0000-000000000001",
+  "company_name": "ТОО \"Астык-STEM\"",
+  "season_year": 2026,
+  "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+  "source_file": "C:\\Users\\TRAVKIN\\Downloads\\Реестр зем.участков 1.xlsx",
+  "source_sheet": "Лист2",
+  "counts_before_reset": {
+    "legal_entities": 15,
+    "cadastral_parcels": 71,
+    "field_cadastre_links": 108,
+    "land_owner_allocations": 18,
+    "land_documents": 0
+  },
+  "parsed": {
+    "rows_total": 123,
+    "rows_primary": 110,
+    "rows_owner_from_registry": 13,
+    "rows_owner_manual": 13,
+    "parser_warnings": [
+      "row 2: skipped (empty field token)",
+      "row 30: skipped (empty field token)",
+      "row 31: skipped (empty field token)",
+      "row 32: skipped (empty field token)",
+      "row 33: skipped (empty field token)",
+      "row 34: skipped (empty field token)",
+      "row 35: skipped (empty field token)",
+      "row 36: skipped (empty field token)",
+      "row 37: skipped (empty field token)",
+      "row 38: skipped (empty field token)",
+      "row 39: skipped (empty field token)",
+      "row 41: skipped (empty field token)",
+      "row 131: skipped (empty field token)",
+      "row 132: skipped (empty field token)",
+      "row 133: skipped (empty field token)",
+      "row 134: skipped (empty field token)",
+      "row 135: skipped (empty field token)",
+      "row 136: skipped (empty field token)",
+      "row 137: skipped (empty field token)",
+      "row 138: skipped (empty field token)",
+      "row 139: skipped (empty field token)",
+      "row 140: skipped (empty field token)",
+      "row 160: skipped (empty field token)"
+    ],
+    "dangling_owner_rows": [
+      {
+        "row_index": 157,
+        "owner_name": "Ертайлаков",
+        "source_document": "registry_legal_xlsx_2026_owner_overlay",
+        "reason": "owner_without_field_area_cadastre"
+      },
+      {
+        "row_index": 158,
+        "owner_name": "Магзеев",
+        "source_document": "registry_legal_xlsx_2026_owner_overlay",
+        "reason": "owner_without_field_area_cadastre"
+      }
+    ]
+  },
+  "field_match": {
+    "matched": 62,
+    "manual_required": 49,
+    "unmatched": 25
+  },
+  "planned": {
+    "cadastral_parcels_to_create": 104,
+    "field_cadastre_links_to_create": 121,
+    "land_owner_allocations_to_create": 26,
+    "unresolved_rows": 25,
+    "conflicts": 0
+  },
+  "unresolved_rows": [
+    {
+      "kind": "primary",
+      "row_index": 45,
+      "reason": "not_found",
+      "field_raw": "4-4",
+      "candidates": [],
+      "cadastre": "15-164-086-172",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 46,
+      "reason": "not_found",
+      "field_raw": "2-1",
+      "candidates": [],
+      "cadastre": "15-164-086-172",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 50,
+      "reason": "not_found",
+      "field_raw": "47(Т)",
+      "candidates": [],
+      "cadastre": "15-164-018-070",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 51,
+      "reason": "not_found",
+      "field_raw": "3-2",
+      "candidates": [],
+      "cadastre": "15-164-086-173",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 52,
+      "reason": "not_found",
+      "field_raw": "24-3",
+      "candidates": [],
+      "cadastre": "15-164-086-174",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 71,
+      "reason": "not_found",
+      "field_raw": "33",
+      "candidates": [],
+      "cadastre": "15-164-086-113",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 74,
+      "reason": "not_found",
+      "field_raw": "47",
+      "candidates": [],
+      "cadastre": "15-164-086-116",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 76,
+      "reason": "not_found",
+      "field_raw": "25",
+      "candidates": [],
+      "cadastre": "15-164-086-150",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 80,
+      "reason": "not_found",
+      "field_raw": "24-1",
+      "candidates": [],
+      "cadastre": "15-164-086-203",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 95,
+      "reason": "not_found",
+      "field_raw": "САД",
+      "candidates": [],
+      "cadastre": "15-164-086-217",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 99,
+      "reason": "not_found",
+      "field_raw": "Г-84",
+      "candidates": [],
+      "cadastre": "15-164-086-241",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 100,
+      "reason": "not_found",
+      "field_raw": "23/24",
+      "candidates": [],
+      "cadastre": "15-164-086-242",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 101,
+      "reason": "not_found",
+      "field_raw": "31-1",
+      "candidates": [],
+      "cadastre": "15-164-018-096",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 102,
+      "reason": "not_found",
+      "field_raw": "24-1",
+      "candidates": [],
+      "cadastre": "15-164-018-095",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 106,
+      "reason": "not_found",
+      "field_raw": "Огород",
+      "candidates": [],
+      "cadastre": "15-164-017-101",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 107,
+      "reason": "not_found",
+      "field_raw": "Огород",
+      "candidates": [],
+      "cadastre": "15-164-017-098",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 112,
+      "reason": "not_found",
+      "field_raw": "29/28",
+      "candidates": [],
+      "cadastre": "15-164-086-230",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 115,
+      "reason": "not_found",
+      "field_raw": "3-3",
+      "candidates": [],
+      "cadastre": "15-164-086-254",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 118,
+      "reason": "not_found",
+      "field_raw": "Г 33",
+      "candidates": [],
+      "cadastre": "15-164-086-257",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 121,
+      "reason": "not_found",
+      "field_raw": "18-4",
+      "candidates": [],
+      "cadastre": "15-164-086-260",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 123,
+      "reason": "not_found",
+      "field_raw": "23-2",
+      "candidates": [],
+      "cadastre": "15-164-086-262",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 124,
+      "reason": "not_found",
+      "field_raw": "ГУ-34",
+      "candidates": [],
+      "cadastre": "15-164-086-263",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 127,
+      "reason": "not_found",
+      "field_raw": "41ВИМ",
+      "candidates": [],
+      "cadastre": "15-164-088-130",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 128,
+      "reason": "not_found",
+      "field_raw": "Огород",
+      "candidates": [],
+      "cadastre": "15-164-078-039",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "kind": "primary",
+      "row_index": 129,
+      "reason": "not_found",
+      "field_raw": "ЖанаДаур",
+      "candidates": [],
+      "cadastre": "15-164-087-161",
+      "source_document": "registry_legal_xlsx_2026_stem"
+    }
+  ],
+  "conflicts": [],
+  "cadastres_preview": [
+    {
+      "cadastral_number": "15-164-084-028",
+      "declared_area_ha": 45,
+      "rural_district": "Донецкий",
+      "rural_district_values": [
+        "Донецкий"
+      ],
+      "source_rows": [
+        5
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-122",
+      "declared_area_ha": 154,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        6,
+        7
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-123",
+      "declared_area_ha": 22,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        8
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-124",
+      "declared_area_ha": 149,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        9,
+        10
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-153",
+      "declared_area_ha": 68,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        11
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-154",
+      "declared_area_ha": 56,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        12,
+        13
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-155",
+      "declared_area_ha": 88,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        14
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-157",
+      "declared_area_ha": 151,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        15,
+        16
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-159",
+      "declared_area_ha": 295,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        17,
+        18
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-160",
+      "declared_area_ha": 215,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        19,
+        20
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-163",
+      "declared_area_ha": 75,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        21
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-164",
+      "declared_area_ha": 140,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        22
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-168",
+      "declared_area_ha": 92,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        23
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-192",
+      "declared_area_ha": 178,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        24
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-195",
+      "declared_area_ha": 91,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        25
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-197",
+      "declared_area_ha": 85,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        26
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-198",
+      "declared_area_ha": 36,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        27
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-199",
+      "declared_area_ha": 76,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        28
+      ],
+      "source_document": "registry_legal_xlsx_2026_karagash"
+    },
+    {
+      "cadastral_number": "15-164-086-177",
+      "declared_area_ha": 85,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        44
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-172",
+      "declared_area_ha": 92,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        45,
+        46
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-176",
+      "declared_area_ha": 547,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        47,
+        48
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-018-071",
+      "declared_area_ha": 309,
+      "rural_district": "Большеизюмский",
+      "rural_district_values": [
+        "Большеизюмский"
+      ],
+      "source_rows": [
+        49
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-018-070",
+      "declared_area_ha": 349,
+      "rural_district": "Большеизюмский",
+      "rural_district_values": [
+        "Большеизюмский"
+      ],
+      "source_rows": [
+        50
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-173",
+      "declared_area_ha": 81,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        51
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-174",
+      "declared_area_ha": 101,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        52
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-175",
+      "declared_area_ha": 9,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        53
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-180",
+      "declared_area_ha": 162,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        54
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-179",
+      "declared_area_ha": 102,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        55
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-089",
+      "declared_area_ha": 99,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        56
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-105",
+      "declared_area_ha": 403,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        57
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-106",
+      "declared_area_ha": 1901,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        58,
+        59,
+        60,
+        61,
+        62,
+        63
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-107",
+      "declared_area_ha": 251,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        64
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-108",
+      "declared_area_ha": 397,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        65
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-109",
+      "declared_area_ha": 405,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        66,
+        67
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-110",
+      "declared_area_ha": 136,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        68
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-111",
+      "declared_area_ha": 328,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        69
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-112",
+      "declared_area_ha": 313,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        70
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-113",
+      "declared_area_ha": 130,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        71
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-114",
+      "declared_area_ha": 62,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        72
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-115",
+      "declared_area_ha": 172,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        73
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-116",
+      "declared_area_ha": 603,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        74,
+        75
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-150",
+      "declared_area_ha": 324,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        76
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-149",
+      "declared_area_ha": 119,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        77
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-201",
+      "declared_area_ha": 38,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        78
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-084-029",
+      "declared_area_ha": 56,
+      "rural_district": "Донецкий",
+      "rural_district_values": [
+        "Донецкий"
+      ],
+      "source_rows": [
+        79
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-203",
+      "declared_area_ha": 65,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        80
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-202",
+      "declared_area_ha": 35,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        81
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-205",
+      "declared_area_ha": 49,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        82
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-206",
+      "declared_area_ha": 75,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        83
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-204",
+      "declared_area_ha": 57,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        84
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-128",
+      "declared_area_ha": 325,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        85
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-018-093",
+      "declared_area_ha": 275,
+      "rural_district": "Большеизюмский",
+      "rural_district_values": [
+        "Большеизюмский"
+      ],
+      "source_rows": [
+        86
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-210",
+      "declared_area_ha": 78,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        87
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-211",
+      "declared_area_ha": 44,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        88
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-212",
+      "declared_area_ha": 61,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        89
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-213",
+      "declared_area_ha": 300,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        90
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-214",
+      "declared_area_ha": 64,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        91
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-215",
+      "declared_area_ha": 61,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        92
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-216",
+      "declared_area_ha": 142,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        93
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-217",
+      "declared_area_ha": 96,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        94,
+        95
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-238",
+      "declared_area_ha": 44,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        96
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-239",
+      "declared_area_ha": 48,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        97
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-240",
+      "declared_area_ha": 35,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        98
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-241",
+      "declared_area_ha": 124,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        99
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-242",
+      "declared_area_ha": 88,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        100
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-018-096",
+      "declared_area_ha": 113,
+      "rural_district": "Большеизюмский",
+      "rural_district_values": [
+        "Большеизюмский"
+      ],
+      "source_rows": [
+        101
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-018-095",
+      "declared_area_ha": 99,
+      "rural_district": "Большеизюмский",
+      "rural_district_values": [
+        "Большеизюмский"
+      ],
+      "source_rows": [
+        102
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-017-133",
+      "declared_area_ha": 182,
+      "rural_district": "Мироновский",
+      "rural_district_values": [
+        "Мироновский"
+      ],
+      "source_rows": [
+        103,
+        104
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-017-100",
+      "declared_area_ha": 56,
+      "rural_district": "Мироновский",
+      "rural_district_values": [
+        "Мироновский"
+      ],
+      "source_rows": [
+        105
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-017-101",
+      "declared_area_ha": 8,
+      "rural_district": "Мироновский",
+      "rural_district_values": [
+        "Мироновский"
+      ],
+      "source_rows": [
+        106
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-017-098",
+      "declared_area_ha": 32,
+      "rural_district": "Мироновский",
+      "rural_district_values": [
+        "Мироновский"
+      ],
+      "source_rows": [
+        107
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-017-126",
+      "declared_area_ha": 151,
+      "rural_district": "Мироновский",
+      "rural_district_values": [
+        "Мироновский"
+      ],
+      "source_rows": [
+        108
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-081-018",
+      "declared_area_ha": 271,
+      "rural_district": "Яснополянский",
+      "rural_district_values": [
+        "Яснополянский"
+      ],
+      "source_rows": [
+        109
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-244",
+      "declared_area_ha": 281,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        110
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-152",
+      "declared_area_ha": 138,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        111
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-230",
+      "declared_area_ha": 350,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        112
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-231",
+      "declared_area_ha": 106,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        113
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-084-040",
+      "declared_area_ha": 27,
+      "rural_district": "Донецкий",
+      "rural_district_values": [
+        "Донецкий"
+      ],
+      "source_rows": [
+        114
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-254",
+      "declared_area_ha": 39,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        115
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-255",
+      "declared_area_ha": 117,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        116
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-256",
+      "declared_area_ha": 65,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        117
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-257",
+      "declared_area_ha": 41,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        118
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-258",
+      "declared_area_ha": 80,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        119
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-259",
+      "declared_area_ha": 43,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        120
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-260",
+      "declared_area_ha": 20,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        121
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-261",
+      "declared_area_ha": 70,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        122
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-262",
+      "declared_area_ha": 50,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        123
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-263",
+      "declared_area_ha": 48,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        124
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-264",
+      "declared_area_ha": 113,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        125
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-265",
+      "declared_area_ha": 35,
+      "rural_district": "Абайский",
+      "rural_district_values": [
+        "Абайский"
+      ],
+      "source_rows": [
+        126
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-088-130",
+      "declared_area_ha": 339,
+      "rural_district": "Чкаловский",
+      "rural_district_values": [
+        "Чкаловский"
+      ],
+      "source_rows": [
+        127
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-078-039",
+      "declared_area_ha": 33,
+      "rural_district": "Донецкий",
+      "rural_district_values": [
+        "Донецкий"
+      ],
+      "source_rows": [
+        128
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-087-161",
+      "declared_area_ha": 2134,
+      "rural_district": "Амандыкский",
+      "rural_district_values": [
+        "Амандыкский"
+      ],
+      "source_rows": [
+        129
+      ],
+      "source_document": "registry_legal_xlsx_2026_stem"
+    },
+    {
+      "cadastral_number": "15-164-086-017",
+      "declared_area_ha": 209,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        145,
+        10000
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-018-020",
+      "declared_area_ha": 113,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        146,
+        10012
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-086-130",
+      "declared_area_ha": 16,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        147
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-086-129",
+      "declared_area_ha": 101,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        148,
+        10010
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-086-186",
+      "declared_area_ha": 148,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        149,
+        150,
+        10001,
+        10009
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-086-219",
+      "declared_area_ha": 41,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        151,
+        10007
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-086-086",
+      "declared_area_ha": 183,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        152,
+        153,
+        10008
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-086-218",
+      "declared_area_ha": 330,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        154
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-086-243",
+      "declared_area_ha": 131,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        155
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-086-250",
+      "declared_area_ha": 66,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        156,
+        10011
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    },
+    {
+      "cadastral_number": "15-164-086-148",
+      "declared_area_ha": 96,
+      "rural_district": null,
+      "rural_district_values": [],
+      "source_rows": [
+        159,
+        10002
+      ],
+      "source_document": "registry_legal_xlsx_2026_owner_overlay"
+    }
+  ],
+  "link_rows_preview": [
+    {
+      "row_index": 5,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "10",
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "field_display_name": "10",
+      "cadastral_number": "15-164-084-028",
+      "rural_district": "Донецкий",
+      "area_ha": 44,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 6,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "4",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-122",
+      "rural_district": "Абайский",
+      "area_ha": 10.651,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 6,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "4",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-122",
+      "rural_district": "Абайский",
+      "area_ha": 56.509,
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "crop_name": "Лён (масличный)",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 6,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "4",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-122",
+      "rural_district": "Абайский",
+      "area_ha": 18.639,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 6,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "4",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-122",
+      "rural_district": "Абайский",
+      "area_ha": 14.201,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 7,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "53",
+      "field_id": "f15064fe-7143-4e76-8823-60ca3ce25917",
+      "field_display_name": "53",
+      "cadastral_number": "15-164-086-122",
+      "rural_district": "Абайский",
+      "area_ha": 43.785,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 7,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "53",
+      "field_id": "f15064fe-7143-4e76-8823-60ca3ce25917",
+      "field_display_name": "53",
+      "cadastral_number": "15-164-086-122",
+      "rural_district": "Абайский",
+      "area_ha": 4.215,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 8,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "8",
+      "field_id": "96c31fd7-8d6e-472e-a839-a1f67b44d7e5",
+      "field_display_name": "8",
+      "cadastral_number": "15-164-086-123",
+      "rural_district": "Абайский",
+      "area_ha": 22,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 9,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "2-2",
+      "field_id": "68098f78-733f-422f-b1a2-e8c5281c2ac7",
+      "field_display_name": "2-2",
+      "cadastral_number": "15-164-086-124",
+      "rural_district": "Абайский",
+      "area_ha": 135,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 10,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "2-3",
+      "field_id": "55bf6074-7179-4a79-8a6a-6bcc1d97426f",
+      "field_display_name": "2-3",
+      "cadastral_number": "15-164-086-124",
+      "rural_district": "Абайский",
+      "area_ha": 9,
+      "crop_id": "413b04d4-8cf8-4f3d-bb1a-2a1bce371c8a",
+      "crop_name": "Травосмеси",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 11,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "65",
+      "field_id": "14611399-68e1-4fec-b57c-d11f53726009",
+      "field_display_name": "65",
+      "cadastral_number": "15-164-086-153",
+      "rural_district": "Абайский",
+      "area_ha": 67,
+      "crop_id": "09ccac52-5cc3-4b81-a9ef-fd40b89a955c",
+      "crop_name": "Подсолнечник",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 12,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "49-2",
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "field_display_name": "49-2",
+      "cadastral_number": "15-164-086-154",
+      "rural_district": "Абайский",
+      "area_ha": 29.064,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 12,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "49-2",
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "field_display_name": "49-2",
+      "cadastral_number": "15-164-086-154",
+      "rural_district": "Абайский",
+      "area_ha": 1.739,
+      "crop_id": "57937a88-ecdf-4196-b2a7-cbbb0611958e",
+      "crop_name": "Морковь",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 12,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "49-2",
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "field_display_name": "49-2",
+      "cadastral_number": "15-164-086-154",
+      "rural_district": "Абайский",
+      "area_ha": 8.197,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 13,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "50",
+      "field_id": "07b727ce-f44a-4674-a87d-34fe50002fc2",
+      "field_display_name": "50",
+      "cadastral_number": "15-164-086-154",
+      "rural_district": "Абайский",
+      "area_ha": 17,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 14,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "50",
+      "field_id": "07b727ce-f44a-4674-a87d-34fe50002fc2",
+      "field_display_name": "50",
+      "cadastral_number": "15-164-086-155",
+      "rural_district": "Абайский",
+      "area_ha": 88,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 15,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "23",
+      "field_id": "c75dfb0d-e461-41f0-a543-cc8fffcf1ff8",
+      "field_display_name": "23",
+      "cadastral_number": "15-164-086-157",
+      "rural_district": "Абайский",
+      "area_ha": 112,
+      "crop_id": "002b56c9-e54b-41ff-b823-ab99e7c6c88e",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 16,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "6",
+      "field_id": "d9453ce1-83a7-4dcd-8085-6ce9d73ac933",
+      "field_display_name": "6",
+      "cadastral_number": "15-164-086-157",
+      "rural_district": "Абайский",
+      "area_ha": 31,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 17,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "4-1",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-159",
+      "rural_district": "Абайский",
+      "area_ha": 23.112,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 17,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "4-1",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-159",
+      "rural_district": "Абайский",
+      "area_ha": 122.624,
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "crop_name": "Лён (масличный)",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 17,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "4-1",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-159",
+      "rural_district": "Абайский",
+      "area_ha": 40.447,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 17,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "4-1",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-159",
+      "rural_district": "Абайский",
+      "area_ha": 30.817,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 18,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "8",
+      "field_id": "96c31fd7-8d6e-472e-a839-a1f67b44d7e5",
+      "field_display_name": "8",
+      "cadastral_number": "15-164-086-159",
+      "rural_district": "Абайский",
+      "area_ha": 32,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 19,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "9-1",
+      "field_id": "341ece35-8aff-4d0d-afc3-63083ae3314d",
+      "field_display_name": "9",
+      "cadastral_number": "15-164-086-160",
+      "rural_district": "Абайский",
+      "area_ha": 81,
+      "crop_id": "f2cc6307-4329-45e4-8750-25e024f58cdb",
+      "crop_name": "Суданская трава",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 19,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "9-1",
+      "field_id": "341ece35-8aff-4d0d-afc3-63083ae3314d",
+      "field_display_name": "9",
+      "cadastral_number": "15-164-086-160",
+      "rural_district": "Абайский",
+      "area_ha": 18,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 20,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "9-2",
+      "field_id": "ea9d2ea3-c327-458d-aa25-965775736f21",
+      "field_display_name": "9",
+      "cadastral_number": "15-164-086-160",
+      "rural_district": "Абайский",
+      "area_ha": 113,
+      "crop_id": "f2cc6307-4329-45e4-8750-25e024f58cdb",
+      "crop_name": "Суданская трава",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 21,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "64-1",
+      "field_id": "8275008c-e150-42b6-9126-82e453e91892",
+      "field_display_name": "64",
+      "cadastral_number": "15-164-086-163",
+      "rural_district": "Абайский",
+      "area_ha": 73,
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "crop_name": "Многолетние травы",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 22,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "65",
+      "field_id": "14611399-68e1-4fec-b57c-d11f53726009",
+      "field_display_name": "65",
+      "cadastral_number": "15-164-086-164",
+      "rural_district": "Абайский",
+      "area_ha": 135,
+      "crop_id": "09ccac52-5cc3-4b81-a9ef-fd40b89a955c",
+      "crop_name": "Подсолнечник",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 23,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "49-2",
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "field_display_name": "49-2",
+      "cadastral_number": "15-164-086-168",
+      "rural_district": "Абайский",
+      "area_ha": 66.325,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 23,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "49-2",
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "field_display_name": "49-2",
+      "cadastral_number": "15-164-086-168",
+      "rural_district": "Абайский",
+      "area_ha": 3.968,
+      "crop_id": "57937a88-ecdf-4196-b2a7-cbbb0611958e",
+      "crop_name": "Морковь",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 23,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "49-2",
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "field_display_name": "49-2",
+      "cadastral_number": "15-164-086-168",
+      "rural_district": "Абайский",
+      "area_ha": 18.707,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 24,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "14-1",
+      "field_id": "cdbae16a-b557-4499-a475-5c24ec3facef",
+      "field_display_name": "14",
+      "cadastral_number": "15-164-086-192",
+      "rural_district": "Абайский",
+      "area_ha": 170,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 25,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "6",
+      "field_id": "d9453ce1-83a7-4dcd-8085-6ce9d73ac933",
+      "field_display_name": "6",
+      "cadastral_number": "15-164-086-195",
+      "rural_district": "Абайский",
+      "area_ha": 88,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 26,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "65",
+      "field_id": "14611399-68e1-4fec-b57c-d11f53726009",
+      "field_display_name": "65",
+      "cadastral_number": "15-164-086-197",
+      "rural_district": "Абайский",
+      "area_ha": 80,
+      "crop_id": "09ccac52-5cc3-4b81-a9ef-fd40b89a955c",
+      "crop_name": "Подсолнечник",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 27,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "65",
+      "field_id": "14611399-68e1-4fec-b57c-d11f53726009",
+      "field_display_name": "65",
+      "cadastral_number": "15-164-086-198",
+      "rural_district": "Абайский",
+      "area_ha": 35,
+      "crop_id": "09ccac52-5cc3-4b81-a9ef-fd40b89a955c",
+      "crop_name": "Подсолнечник",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 28,
+      "section": "karagash",
+      "source_document": "registry_legal_xlsx_2026_karagash",
+      "field_raw": "51",
+      "field_id": "64326e87-7817-418f-b4fa-e93a149dc313",
+      "field_display_name": "51",
+      "cadastral_number": "15-164-086-199",
+      "rural_district": "Абайский",
+      "area_ha": 76,
+      "crop_id": "002b56c9-e54b-41ff-b823-ab99e7c6c88e",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-Караагаш\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 44,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "23",
+      "field_id": "c75dfb0d-e461-41f0-a543-cc8fffcf1ff8",
+      "field_display_name": "23",
+      "cadastral_number": "15-164-086-177",
+      "rural_district": "Абайский",
+      "area_ha": 84,
+      "crop_id": "002b56c9-e54b-41ff-b823-ab99e7c6c88e",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 47,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 7.212,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 47,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 7.212,
+      "crop_id": "57937a88-ecdf-4196-b2a7-cbbb0611958e",
+      "crop_name": "Морковь",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 47,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 36.059,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 47,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 412.517,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 48,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "65",
+      "field_id": "14611399-68e1-4fec-b57c-d11f53726009",
+      "field_display_name": "65",
+      "cadastral_number": "15-164-086-176",
+      "rural_district": "Абайский",
+      "area_ha": 72,
+      "crop_id": "09ccac52-5cc3-4b81-a9ef-fd40b89a955c",
+      "crop_name": "Подсолнечник",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 49,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "29(Т)",
+      "field_id": "0996089c-de1c-47ae-95ac-6ecabc4f9d50",
+      "field_display_name": "29 терн",
+      "cadastral_number": "15-164-018-071",
+      "rural_district": "Большеизюмский",
+      "area_ha": 307,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 53,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "16-1",
+      "field_id": "8e97d8e3-396d-480b-b674-921955fe1d24",
+      "field_display_name": "16",
+      "cadastral_number": "15-164-086-175",
+      "rural_district": "Абайский",
+      "area_ha": 9,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 54,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "67",
+      "field_id": "dccbfb36-ff5e-47bc-97f4-90382ab0697b",
+      "field_display_name": "67",
+      "cadastral_number": "15-164-086-180",
+      "rural_district": "Абайский",
+      "area_ha": 161,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 55,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "3",
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "field_display_name": "3",
+      "cadastral_number": "15-164-086-179",
+      "rural_district": "Абайский",
+      "area_ha": 100,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 56,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "53",
+      "field_id": "f15064fe-7143-4e76-8823-60ca3ce25917",
+      "field_display_name": "53",
+      "cadastral_number": "15-164-086-089",
+      "rural_district": "Абайский",
+      "area_ha": 90.307,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 56,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "53",
+      "field_id": "f15064fe-7143-4e76-8823-60ca3ce25917",
+      "field_display_name": "53",
+      "cadastral_number": "15-164-086-089",
+      "rural_district": "Абайский",
+      "area_ha": 8.693,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 57,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "35",
+      "field_id": "62eef55e-4622-44e4-8c95-06b211d99101",
+      "field_display_name": "35",
+      "cadastral_number": "15-164-086-105",
+      "rural_district": "Абайский",
+      "area_ha": 402,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 58,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "72",
+      "field_id": "5a11bb16-3f73-4322-8000-f15ae80ca5c9",
+      "field_display_name": "72",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 193,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 58,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "72",
+      "field_id": "5a11bb16-3f73-4322-8000-f15ae80ca5c9",
+      "field_display_name": "72",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 200,
+      "crop_id": "71dcdf43-ed70-4bd0-bbc8-b04e48eeeaf7",
+      "crop_name": "Горох",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 59,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "19",
+      "field_id": "495c95a6-1286-4c08-9f82-c839ba80de13",
+      "field_display_name": "19 терн",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 347,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 60,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "20",
+      "field_id": "f3be9a20-a8f3-421b-90b2-83c3f31c4433",
+      "field_display_name": "20",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 297,
+      "crop_id": "68dd47d5-7830-43aa-be76-4943f1ac2f5f",
+      "crop_name": "Овёс",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 61,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "21",
+      "field_id": "d9172937-6ef0-44a3-abea-9d5563a8426d",
+      "field_display_name": "21",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 391,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 62,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "12",
+      "field_id": "c4ab5f13-6aac-4d34-8054-922752729e5f",
+      "field_display_name": "12",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 183,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 63,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "22",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_display_name": "22",
+      "cadastral_number": "15-164-086-106",
+      "rural_district": "Абайский",
+      "area_ha": 172,
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "crop_name": "Лён (масличный)",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 64,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "64-1",
+      "field_id": "8275008c-e150-42b6-9126-82e453e91892",
+      "field_display_name": "64",
+      "cadastral_number": "15-164-086-107",
+      "rural_district": "Абайский",
+      "area_ha": 239,
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "crop_name": "Многолетние травы",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 65,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "27",
+      "field_id": "2487501c-3fc4-49c4-be96-66a7995e8310",
+      "field_display_name": "27",
+      "cadastral_number": "15-164-086-108",
+      "rural_district": "Абайский",
+      "area_ha": 379,
+      "crop_id": "09ccac52-5cc3-4b81-a9ef-fd40b89a955c",
+      "crop_name": "Подсолнечник",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 66,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "32",
+      "field_id": "6bd573e0-aa35-4603-a238-3ddd7919dff0",
+      "field_display_name": "32",
+      "cadastral_number": "15-164-086-109",
+      "rural_district": "Абайский",
+      "area_ha": 221,
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "crop_name": "Многолетние травы",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 67,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "11",
+      "field_id": "da2cf8a3-5816-4a4f-90d2-aecd6624b443",
+      "field_display_name": "11",
+      "cadastral_number": "15-164-086-109",
+      "rural_district": "Абайский",
+      "area_ha": 405,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 68,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "2-2",
+      "field_id": "68098f78-733f-422f-b1a2-e8c5281c2ac7",
+      "field_display_name": "2-2",
+      "cadastral_number": "15-164-086-110",
+      "rural_district": "Абайский",
+      "area_ha": 134,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 69,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "61",
+      "field_id": "695c11e9-bfbb-44f2-aeba-3c75e1bb56bc",
+      "field_display_name": "61",
+      "cadastral_number": "15-164-086-111",
+      "rural_district": "Абайский",
+      "area_ha": 315,
+      "crop_id": "002b56c9-e54b-41ff-b823-ab99e7c6c88e",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 70,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "66",
+      "field_id": "96277888-f4f8-43ff-a297-8b4372e7016b",
+      "field_display_name": "66",
+      "cadastral_number": "15-164-086-112",
+      "rural_district": "Абайский",
+      "area_ha": 294,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 72,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "8",
+      "field_id": "96c31fd7-8d6e-472e-a839-a1f67b44d7e5",
+      "field_display_name": "8",
+      "cadastral_number": "15-164-086-114",
+      "rural_district": "Абайский",
+      "area_ha": 60,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 73,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "5",
+      "field_id": "7aab64fa-ec5b-409e-9bf0-e4c059a7224e",
+      "field_display_name": "5-1",
+      "cadastral_number": "15-164-086-115",
+      "rural_district": "Абайский",
+      "area_ha": 172,
+      "crop_id": "71dcdf43-ed70-4bd0-bbc8-b04e48eeeaf7",
+      "crop_name": "Горох",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 75,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "КУ-2",
+      "field_id": "ae33819c-ede2-4436-a119-1189b4cd52b7",
+      "field_display_name": "ку-2",
+      "cadastral_number": "15-164-086-116",
+      "rural_district": "Абайский",
+      "area_ha": 60,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 77,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "3",
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "field_display_name": "3",
+      "cadastral_number": "15-164-086-149",
+      "rural_district": "Абайский",
+      "area_ha": 110,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 78,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "7",
+      "field_id": "c0af839d-c50c-47c1-9159-23ab89d29003",
+      "field_display_name": "Сад (7Га)",
+      "cadastral_number": "15-164-086-201",
+      "rural_district": "Абайский",
+      "area_ha": 38,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 79,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "10",
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "field_display_name": "10",
+      "cadastral_number": "15-164-084-029",
+      "rural_district": "Донецкий",
+      "area_ha": 56,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 81,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "49-2",
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "field_display_name": "49-2",
+      "cadastral_number": "15-164-086-202",
+      "rural_district": "Абайский",
+      "area_ha": 22.357,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 81,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "49-2",
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "field_display_name": "49-2",
+      "cadastral_number": "15-164-086-202",
+      "rural_district": "Абайский",
+      "area_ha": 1.338,
+      "crop_id": "57937a88-ecdf-4196-b2a7-cbbb0611958e",
+      "crop_name": "Морковь",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 81,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "49-2",
+      "field_id": "128b7a17-8450-4714-a7e6-a24d3eec4e0e",
+      "field_display_name": "49-2",
+      "cadastral_number": "15-164-086-202",
+      "rural_district": "Абайский",
+      "area_ha": 6.305,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 82,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "16-2",
+      "field_id": "e646e865-b8a0-42db-9cb6-81492e353d02",
+      "field_display_name": "16",
+      "cadastral_number": "15-164-086-205",
+      "rural_district": "Абайский",
+      "area_ha": 49,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 83,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "6",
+      "field_id": "d9453ce1-83a7-4dcd-8085-6ce9d73ac933",
+      "field_display_name": "6",
+      "cadastral_number": "15-164-086-206",
+      "rural_district": "Абайский",
+      "area_ha": 73,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 84,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "13",
+      "field_id": "f18765b8-8fcd-43e4-ad31-0bad9f5efcaa",
+      "field_display_name": "13",
+      "cadastral_number": "15-164-086-204",
+      "rural_district": "Абайский",
+      "area_ha": 57,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 85,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "49-1",
+      "field_id": "08ef518a-2ea6-4404-9b8c-330d5bcdeb3c",
+      "field_display_name": "49-1",
+      "cadastral_number": "15-164-086-128",
+      "rural_district": "Абайский",
+      "area_ha": 322,
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "crop_name": "Лён (масличный)",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 86,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "19",
+      "field_id": "495c95a6-1286-4c08-9f82-c839ba80de13",
+      "field_display_name": "19 терн",
+      "cadastral_number": "15-164-018-093",
+      "rural_district": "Большеизюмский",
+      "area_ha": 274,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 87,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "10",
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "field_display_name": "10",
+      "cadastral_number": "15-164-086-210",
+      "rural_district": "Абайский",
+      "area_ha": 77,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 88,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "6",
+      "field_id": "d9453ce1-83a7-4dcd-8085-6ce9d73ac933",
+      "field_display_name": "6",
+      "cadastral_number": "15-164-086-211",
+      "rural_district": "Абайский",
+      "area_ha": 25,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 89,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "50",
+      "field_id": "07b727ce-f44a-4674-a87d-34fe50002fc2",
+      "field_display_name": "50",
+      "cadastral_number": "15-164-086-212",
+      "rural_district": "Абайский",
+      "area_ha": 61,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 90,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "13",
+      "field_id": "f18765b8-8fcd-43e4-ad31-0bad9f5efcaa",
+      "field_display_name": "13",
+      "cadastral_number": "15-164-086-213",
+      "rural_district": "Абайский",
+      "area_ha": 279,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 91,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "51",
+      "field_id": "64326e87-7817-418f-b4fa-e93a149dc313",
+      "field_display_name": "51",
+      "cadastral_number": "15-164-086-214",
+      "rural_district": "Абайский",
+      "area_ha": 61,
+      "crop_id": "002b56c9-e54b-41ff-b823-ab99e7c6c88e",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 92,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "14-1",
+      "field_id": "cdbae16a-b557-4499-a475-5c24ec3facef",
+      "field_display_name": "14",
+      "cadastral_number": "15-164-086-215",
+      "rural_district": "Абайский",
+      "area_ha": 59,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 93,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "10",
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "field_display_name": "10",
+      "cadastral_number": "15-164-086-216",
+      "rural_district": "Абайский",
+      "area_ha": 129,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 94,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "53",
+      "field_id": "f15064fe-7143-4e76-8823-60ca3ce25917",
+      "field_display_name": "53",
+      "cadastral_number": "15-164-086-217",
+      "rural_district": "Абайский",
+      "area_ha": 51.995,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 94,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "53",
+      "field_id": "f15064fe-7143-4e76-8823-60ca3ce25917",
+      "field_display_name": "53",
+      "cadastral_number": "15-164-086-217",
+      "rural_district": "Абайский",
+      "area_ha": 5.005,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 96,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "10",
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "field_display_name": "10",
+      "cadastral_number": "15-164-086-238",
+      "rural_district": "Абайский",
+      "area_ha": 43,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 97,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "4-1",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-239",
+      "rural_district": "Абайский",
+      "area_ha": 4.793,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 97,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "4-1",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-239",
+      "rural_district": "Абайский",
+      "area_ha": 25.429,
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "crop_name": "Лён (масличный)",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 97,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "4-1",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-239",
+      "rural_district": "Абайский",
+      "area_ha": 8.388,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 97,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "4-1",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-239",
+      "rural_district": "Абайский",
+      "area_ha": 6.39,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 98,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "52-2",
+      "field_id": "3464ce29-d2d3-4c47-91c2-fc3e201e3dcb",
+      "field_display_name": "52-2",
+      "cadastral_number": "15-164-086-240",
+      "rural_district": "Абайский",
+      "area_ha": 35,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 103,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "2 круг",
+      "field_id": "68098f78-733f-422f-b1a2-e8c5281c2ac7",
+      "field_display_name": "2-2",
+      "cadastral_number": "15-164-017-133",
+      "rural_district": "Мироновский",
+      "area_ha": 182,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_ambiguous_deterministic"
+    },
+    {
+      "row_index": 104,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1круг",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-017-133",
+      "rural_district": "Мироновский",
+      "area_ha": 0.685,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_single"
+    },
+    {
+      "row_index": 104,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1круг",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-017-133",
+      "rural_district": "Мироновский",
+      "area_ha": 0.685,
+      "crop_id": "57937a88-ecdf-4196-b2a7-cbbb0611958e",
+      "crop_name": "Морковь",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_single"
+    },
+    {
+      "row_index": 104,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1круг",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-017-133",
+      "rural_district": "Мироновский",
+      "area_ha": 3.427,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_single"
+    },
+    {
+      "row_index": 104,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1круг",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-017-133",
+      "rural_district": "Мироновский",
+      "area_ha": 39.203,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_single"
+    },
+    {
+      "row_index": 105,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1круг",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-017-100",
+      "rural_district": "Мироновский",
+      "area_ha": 0.872,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_single"
+    },
+    {
+      "row_index": 105,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1круг",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-017-100",
+      "rural_district": "Мироновский",
+      "area_ha": 0.872,
+      "crop_id": "57937a88-ecdf-4196-b2a7-cbbb0611958e",
+      "crop_name": "Морковь",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_single"
+    },
+    {
+      "row_index": 105,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1круг",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-017-100",
+      "rural_district": "Мироновский",
+      "area_ha": 4.361,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_single"
+    },
+    {
+      "row_index": 105,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "1круг",
+      "field_id": "e7d2958c-990a-4e1f-9279-e5e7babcf091",
+      "field_display_name": "1",
+      "cadastral_number": "15-164-017-100",
+      "rural_district": "Мироновский",
+      "area_ha": 49.895,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_single"
+    },
+    {
+      "row_index": 108,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "3 круг",
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "field_display_name": "3",
+      "cadastral_number": "15-164-017-126",
+      "rural_district": "Мироновский",
+      "area_ha": 102,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_single"
+    },
+    {
+      "row_index": 109,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "8",
+      "field_id": "96c31fd7-8d6e-472e-a839-a1f67b44d7e5",
+      "field_display_name": "8",
+      "cadastral_number": "15-164-081-018",
+      "rural_district": "Яснополянский",
+      "area_ha": 271,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 110,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "28",
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "field_display_name": "28",
+      "cadastral_number": "15-164-086-244",
+      "rural_district": "Абайский",
+      "area_ha": 39.918,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 110,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "28",
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "field_display_name": "28",
+      "cadastral_number": "15-164-086-244",
+      "rural_district": "Абайский",
+      "area_ha": 238.082,
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "crop_name": "Многолетние травы",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 111,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "9-3",
+      "field_id": "3e2f28c9-5560-4063-85e9-af7303e5aa95",
+      "field_display_name": "9",
+      "cadastral_number": "15-164-086-152",
+      "rural_district": "Абайский",
+      "area_ha": 35.363,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 111,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "9-3",
+      "field_id": "3e2f28c9-5560-4063-85e9-af7303e5aa95",
+      "field_display_name": "9",
+      "cadastral_number": "15-164-086-152",
+      "rural_district": "Абайский",
+      "area_ha": 11.788,
+      "crop_id": "57937a88-ecdf-4196-b2a7-cbbb0611958e",
+      "crop_name": "Морковь",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 111,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "9-3",
+      "field_id": "3e2f28c9-5560-4063-85e9-af7303e5aa95",
+      "field_display_name": "9",
+      "cadastral_number": "15-164-086-152",
+      "rural_district": "Абайский",
+      "area_ha": 28.487,
+      "crop_id": "f2cc6307-4329-45e4-8750-25e024f58cdb",
+      "crop_name": "Суданская трава",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 111,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "9-3",
+      "field_id": "3e2f28c9-5560-4063-85e9-af7303e5aa95",
+      "field_display_name": "9",
+      "cadastral_number": "15-164-086-152",
+      "rural_district": "Абайский",
+      "area_ha": 35.362,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 113,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "13",
+      "field_id": "f18765b8-8fcd-43e4-ad31-0bad9f5efcaa",
+      "field_display_name": "13",
+      "cadastral_number": "15-164-086-231",
+      "rural_district": "Абайский",
+      "area_ha": 106,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 114,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "3-1",
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "field_display_name": "3",
+      "cadastral_number": "15-164-084-040",
+      "rural_district": "Донецкий",
+      "area_ha": 27,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 116,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "4-2",
+      "field_id": "56282300-ebe7-484b-a201-7f1a5de232e9",
+      "field_display_name": "ку 4-2",
+      "cadastral_number": "15-164-086-255",
+      "rural_district": "Абайский",
+      "area_ha": 117,
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "crop_name": "Многолетние травы",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 117,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "Г4",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-256",
+      "rural_district": "Абайский",
+      "area_ha": 6.923,
+      "crop_id": "a6594c98-673f-4656-a2ca-c37ca79450e7",
+      "crop_name": "",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_ambiguous_deterministic"
+    },
+    {
+      "row_index": 117,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "Г4",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-256",
+      "rural_district": "Абайский",
+      "area_ha": 36.731,
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "crop_name": "Лён (масличный)",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_ambiguous_deterministic"
+    },
+    {
+      "row_index": 117,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "Г4",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-256",
+      "rural_district": "Абайский",
+      "area_ha": 12.115,
+      "crop_id": "d7e0da52-a625-46e2-8df2-8d42bdd576af",
+      "crop_name": "Кукуруза",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_ambiguous_deterministic"
+    },
+    {
+      "row_index": 117,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "Г4",
+      "field_id": "547de261-8fcf-4d68-917d-7b5eff6ca0a6",
+      "field_display_name": "4-1",
+      "cadastral_number": "15-164-086-256",
+      "rural_district": "Абайский",
+      "area_ha": 9.231,
+      "crop_id": "c19bedd4-0e90-414e-95be-a43f56230cc7",
+      "crop_name": "Пар",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "digits_ambiguous_deterministic"
+    },
+    {
+      "row_index": 119,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "16",
+      "field_id": "8e97d8e3-396d-480b-b674-921955fe1d24",
+      "field_display_name": "16",
+      "cadastral_number": "15-164-086-258",
+      "rural_district": "Абайский",
+      "area_ha": 69,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 120,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "11",
+      "field_id": "da2cf8a3-5816-4a4f-90d2-aecd6624b443",
+      "field_display_name": "11",
+      "cadastral_number": "15-164-086-259",
+      "rural_district": "Абайский",
+      "area_ha": 43,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 122,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "16-2",
+      "field_id": "e646e865-b8a0-42db-9cb6-81492e353d02",
+      "field_display_name": "16",
+      "cadastral_number": "15-164-086-261",
+      "rural_district": "Абайский",
+      "area_ha": 70,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 125,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "6",
+      "field_id": "d9453ce1-83a7-4dcd-8085-6ce9d73ac933",
+      "field_display_name": "6",
+      "cadastral_number": "15-164-086-264",
+      "rural_district": "Абайский",
+      "area_ha": 110,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_name": "Пшеница",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 126,
+      "section": "stem",
+      "source_document": "registry_legal_xlsx_2026_stem",
+      "field_raw": "16-1",
+      "field_id": "8e97d8e3-396d-480b-b674-921955fe1d24",
+      "field_display_name": "16",
+      "cadastral_number": "15-164-086-265",
+      "rural_district": "Абайский",
+      "area_ha": 35,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_name": "Ячмень",
+      "owner_name": "ТОО \"Астык-STEM\"",
+      "field_match_reason": "ambiguous_alias"
+    }
+  ],
+  "owner_overlay_preview": [
+    {
+      "row_index": 145,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Даулбаев",
+      "field_raw": "12",
+      "field_id": "c4ab5f13-6aac-4d34-8054-922752729e5f",
+      "field_display_name": "12",
+      "cadastral_number": "15-164-086-017",
+      "area_ha": 146,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 146,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Ваховский",
+      "field_raw": "22-1(Т)",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_display_name": "22",
+      "cadastral_number": "15-164-018-020",
+      "area_ha": 88,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 147,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Сатымгалиев",
+      "field_raw": "16",
+      "field_id": "8e97d8e3-396d-480b-b674-921955fe1d24",
+      "field_display_name": "16",
+      "cadastral_number": "15-164-086-130",
+      "area_ha": 16,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 148,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Сатымгалиев",
+      "field_raw": "22",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_display_name": "22",
+      "cadastral_number": "15-164-086-129",
+      "area_ha": 97,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 149,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Сыздыков",
+      "field_raw": "22",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_display_name": "22",
+      "cadastral_number": "15-164-086-186",
+      "area_ha": 107,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 150,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Сыздыков",
+      "field_raw": "14-1",
+      "field_id": "cdbae16a-b557-4499-a475-5c24ec3facef",
+      "field_display_name": "14",
+      "cadastral_number": "15-164-086-186",
+      "area_ha": 39,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 151,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Мантаева",
+      "field_raw": "3",
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "field_display_name": "3",
+      "cadastral_number": "15-164-086-219",
+      "area_ha": 40,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 152,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Грицук",
+      "field_raw": "3",
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "field_display_name": "3",
+      "cadastral_number": "15-164-086-086",
+      "area_ha": 122,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 153,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Грицук",
+      "field_raw": "15",
+      "field_id": "ff923a91-dfa1-4899-a9ee-8d873690e75c",
+      "field_display_name": "15",
+      "cadastral_number": "15-164-086-086",
+      "area_ha": 35,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 154,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Мукачев",
+      "field_raw": "26",
+      "field_id": "7081a248-1426-49b5-b6d3-3eef06edc110",
+      "field_display_name": "26",
+      "cadastral_number": "15-164-086-218",
+      "area_ha": 282,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 155,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Мукачев",
+      "field_raw": "28",
+      "field_id": "c6463112-7069-4430-abf8-98385d66dbf5",
+      "field_display_name": "28",
+      "cadastral_number": "15-164-086-243",
+      "area_ha": 130,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 156,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Капасов",
+      "field_raw": "66",
+      "field_id": "96277888-f4f8-43ff-a297-8b4372e7016b",
+      "field_display_name": "66",
+      "cadastral_number": "15-164-086-250",
+      "area_ha": 65,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 159,
+      "source_document": "registry_legal_xlsx_2026_owner_overlay",
+      "owner_name": "Амиргалиев",
+      "field_raw": "10",
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "field_display_name": "10",
+      "cadastral_number": "15-164-086-148",
+      "area_ha": 70,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 10000,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Даулбаев",
+      "field_raw": "12",
+      "field_id": "c4ab5f13-6aac-4d34-8054-922752729e5f",
+      "field_display_name": "12",
+      "cadastral_number": "15-164-086-017",
+      "area_ha": 146,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_token": "пшеница",
+      "allocation_status": "complete",
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 10001,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Сыздыков",
+      "field_raw": "14-1",
+      "field_id": "cdbae16a-b557-4499-a475-5c24ec3facef",
+      "field_display_name": "14",
+      "cadastral_number": "15-164-086-186",
+      "area_ha": 39,
+      "crop_id": "322ae86f-a5e2-4f20-94ea-dcec80d5ee8c",
+      "crop_token": "пшеница",
+      "allocation_status": "complete",
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 10002,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Амергалиев",
+      "field_raw": "10",
+      "field_id": "5b41d664-8908-4cf8-944e-64808b2ecf78",
+      "field_display_name": "10",
+      "cadastral_number": "15-164-086-148",
+      "area_ha": 70,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_token": "ячмень",
+      "allocation_status": "complete",
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 10003,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Ертайлаков",
+      "field_raw": "16",
+      "field_id": "8e97d8e3-396d-480b-b674-921955fe1d24",
+      "field_display_name": "16",
+      "cadastral_number": null,
+      "area_ha": 200,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_token": "ячмень",
+      "allocation_status": "partial_missing_cadastre",
+      "missing_cadastre": true,
+      "missing_crop": false,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 10004,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Магзеев",
+      "field_raw": "16",
+      "field_id": "8e97d8e3-396d-480b-b674-921955fe1d24",
+      "field_display_name": "16",
+      "cadastral_number": null,
+      "area_ha": 50,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_token": "ячмень",
+      "allocation_status": "partial_missing_cadastre",
+      "missing_cadastre": true,
+      "missing_crop": false,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 10005,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Звольский",
+      "field_raw": "66",
+      "field_id": "96277888-f4f8-43ff-a297-8b4372e7016b",
+      "field_display_name": "66",
+      "cadastral_number": null,
+      "area_ha": 23,
+      "crop_id": "38e1e95a-44a5-469f-aaf0-614d7a5b4384",
+      "crop_token": "ячмень",
+      "allocation_status": "partial_missing_cadastre",
+      "missing_cadastre": true,
+      "missing_crop": false,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 10006,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Звольский",
+      "field_raw": "66",
+      "field_id": "96277888-f4f8-43ff-a297-8b4372e7016b",
+      "field_display_name": "66",
+      "cadastral_number": null,
+      "area_ha": 48,
+      "crop_id": "87855e7d-d097-4fe9-a36a-e0a5885737bf",
+      "crop_token": "пар",
+      "allocation_status": "partial_missing_cadastre",
+      "missing_cadastre": true,
+      "missing_crop": false,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 10007,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Мантаева",
+      "field_raw": "3",
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "field_display_name": "3",
+      "cadastral_number": "15-164-086-219",
+      "area_ha": 40,
+      "crop_id": "87855e7d-d097-4fe9-a36a-e0a5885737bf",
+      "crop_token": "пар",
+      "allocation_status": "complete",
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 10008,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Грицук",
+      "field_raw": "3",
+      "field_id": "5d79b36f-6fec-48de-9df2-61b0e361ad60",
+      "field_display_name": "3",
+      "cadastral_number": "15-164-086-086",
+      "area_ha": 122,
+      "crop_id": "87855e7d-d097-4fe9-a36a-e0a5885737bf",
+      "crop_token": "пар",
+      "allocation_status": "complete",
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 10009,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Сатымгалиев",
+      "field_raw": "22",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_display_name": "22",
+      "cadastral_number": "15-164-086-186",
+      "area_ha": 107,
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "crop_token": "лен",
+      "allocation_status": "complete",
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 10010,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Сатымгалиев",
+      "field_raw": "22",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_display_name": "22",
+      "cadastral_number": "15-164-086-129",
+      "area_ha": 97,
+      "crop_id": "9723a23c-843e-45a4-b6f6-3c827e10f850",
+      "crop_token": "лен",
+      "allocation_status": "complete",
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "field_match_reason": "exact_alias"
+    },
+    {
+      "row_index": 10011,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Капасов",
+      "field_raw": "66",
+      "field_id": "96277888-f4f8-43ff-a297-8b4372e7016b",
+      "field_display_name": "66",
+      "cadastral_number": "15-164-086-250",
+      "area_ha": 65,
+      "crop_id": "8477e45f-fcf3-4eb3-8779-c49e86e7af00",
+      "crop_token": "многолетние травы",
+      "allocation_status": "complete",
+      "missing_cadastre": false,
+      "missing_crop": false,
+      "field_match_reason": "ambiguous_alias"
+    },
+    {
+      "row_index": 10012,
+      "source_document": "owner_sheet_handwritten_2026",
+      "owner_name": "Ваховский",
+      "field_raw": "22(Т)",
+      "field_id": "cb675c33-32f1-4f9e-b567-1c6d73dda0b8",
+      "field_display_name": "22",
+      "cadastral_number": "15-164-018-020",
+      "area_ha": 88,
+      "crop_id": null,
+      "crop_token": null,
+      "allocation_status": "partial_missing_crop",
+      "missing_cadastre": false,
+      "missing_crop": true,
+      "field_match_reason": "exact_alias"
+    }
+  ]
+}

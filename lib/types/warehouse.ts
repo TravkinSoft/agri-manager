@@ -1,19 +1,48 @@
 import { z } from "zod";
 
-export type ProductCategory = "produce" | "seed" | "fertilizer" | "pesticide";
+export type ProductCategory =
+  | "crop"
+  | "seed"
+  | "fertilizer"
+  | "pesticide"
+  | "organic"
+  | "fuel"
+  | "material"
+  | "produce";
 export type ProductAccountingMode = "bulk_mass" | "unit_with_weight" | "package_count";
 export type MovementType = "receipt" | "issue" | "transfer" | "writeoff" | "adjustment";
 export type InventoryStatus = "draft" | "confirmed" | "cancelled";
 export type TransactionDirection = "in" | "out";
+export type CapacityUnit = "kg" | "t" | "m3" | "l";
+export type WarehouseType =
+  | "grain"
+  | "vegetable"
+  | "seed"
+  | "fertilizer"
+  | "pesticide"
+  | "universal"
+  | "potato_storage"
+  | "fuel"
+  | "temporary";
 
 export interface Warehouse {
   id: string;
   name: string;
   warehouse_type?: string | null;
   storage_capacity_kg?: number | null;
+  capacity_value?: number | null;
+  capacity_unit?: CapacityUnit | null;
+  responsible_user_id?: string | null;
+  location?: string | null;
+  description?: string | null;
   created_at: string;
   archived: boolean;
+  is_archived?: boolean;
+  archived_at?: string | null;
+  archived_by_user_id?: string | null;
   user_id: string;
+  created_by_user_id?: string | null;
+  updated_by_user_id?: string | null;
   company_id?: string | null;
 }
 
@@ -86,13 +115,61 @@ export interface InventoryBalance {
   last_updated: string;
 }
 
+export interface WarehouseDeleteCheck {
+  can_delete: boolean;
+  reasons: string[];
+  stats: {
+    stock_balance_rows: number;
+    stock_balance_qty: number;
+    inventory_transactions: number;
+    stock_ledger_entries: number;
+    tickets: number;
+    issue_requests: number;
+    field_material_consumptions: number;
+    batch_inputs: number;
+    batch_outputs: number;
+  };
+}
+
+export interface WarehouseHistorySnapshot {
+  transactions: InventoryTransactionWithDetails[];
+  tickets: Array<{
+    id: string;
+    ticket_no: string;
+    op_type: string | null;
+    status: string | null;
+    created_at: string;
+  }>;
+  transformations: Array<{
+    id: string;
+    transformation_type: string | null;
+    status: string | null;
+    created_at: string;
+  }>;
+  events?: Array<{
+    event_type: string;
+    occurred_at: string | null;
+    actor_user_id: string | null;
+    details: string | null;
+  }>;
+}
+
 export const warehouseSchema = z.object({
-  name: z.string().min(1, "Warehouse name is required"),
+  name: z.string().trim().min(1, "Warehouse name is required"),
+  warehouse_type: z
+    .enum(["grain", "vegetable", "seed", "fertilizer", "pesticide", "universal", "potato_storage", "fuel", "temporary"])
+    .default("universal"),
+  capacity_value: z.coerce.number().min(0).optional().nullable(),
+  capacity_unit: z.enum(["kg", "t", "m3", "l"]).optional().nullable(),
+  responsible_user_id: z.string().uuid().optional().or(z.literal("")).nullable(),
+  location: z.string().max(255).optional().nullable(),
+  description: z.string().max(2000).optional().nullable(),
+  is_archived: z.boolean().optional(),
 });
 
 export const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
-  type: z.enum(["produce", "seed", "fertilizer", "pesticide"], {
+  type: z.enum(["crop", "seed", "fertilizer", "pesticide", "organic", "fuel", "material", "produce"], {
     required_error: "Please select a product category",
   }),
   crop_id: z.string().uuid().optional().or(z.literal("")),

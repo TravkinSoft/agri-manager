@@ -1,0 +1,41 @@
+{
+  "executed_at": "2026-05-19T06:27:40.326Z",
+  "mode": "execute",
+  "company_id": "10000000-0000-0000-0000-000000000001",
+  "company_name": "ТОО \"Астык-STEM\"",
+  "season_id": "2732e17d-8a23-498e-8a01-4a2d3954e606",
+  "season_year": 2026,
+  "source_file": "C:\\Users\\TRAVKIN\\Downloads\\Реестр зем.участков 1.xlsx",
+  "source_sheet": "Лист2",
+  "dry_run_report_path": "C:\\Users\\TRAVKIN\\Downloads\\CodecSaaS\\project-bolt-sb1-hjjzpfey-4\\project\\scripts\\output\\land-legal-rebuild-dry-run-2026-05-19T06-25-38-343Z.json",
+  "snapshot_path": "C:\\Users\\TRAVKIN\\Downloads\\CodecSaaS\\project-bolt-sb1-hjjzpfey-4\\project\\scripts\\backups\\land-legal-before-reset-10000000-0000-0000-0000-000000000001-2026-2026-05-19T06-25-38-343Z.json",
+  "counts_before_reset": {
+    "legal_entities": 15,
+    "cadastral_parcels": 71,
+    "field_cadastre_links": 108,
+    "land_owner_allocations": 18,
+    "land_documents": 0
+  },
+  "reset_deleted": {
+    "land_owner_allocations": 18,
+    "field_cadastre_links": 108,
+    "land_documents": 0,
+    "cadastral_parcels": 71,
+    "legal_entities": 15
+  },
+  "created": {
+    "legal_entities": 15,
+    "cadastral_parcels": 104,
+    "field_cadastre_links": 121,
+    "land_owner_allocations": 26
+  },
+  "unresolved_rows": 25,
+  "conflict_rows": 0,
+  "counts_after": {
+    "legal_entities": 15,
+    "cadastral_parcels": 104,
+    "field_cadastre_links": 121,
+    "land_owner_allocations": 26,
+    "land_documents": 0
+  }
+}

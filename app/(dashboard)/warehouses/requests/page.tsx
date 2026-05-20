@@ -63,9 +63,10 @@ export default function WarehouseRequestsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [balanceByWarehouseProduct, setBalanceByWarehouseProduct] = useState<Record<string, number>>({});
 
-  const canProcess = profile?.role === "warehouse";
+  const canProcess = profile?.role === "warehouse" || profile?.role === "warehouse_operator";
   const canView =
     profile?.role === "warehouse" ||
+    profile?.role === "warehouse_operator" ||
     profile?.role === "company_admin" ||
     profile?.role === "global_admin" ||
     profile?.role === "agronomist";

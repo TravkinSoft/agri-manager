@@ -135,6 +135,10 @@ function signature(params: {
   ].join("|");
 }
 
+function groupSignature(params: { fieldId: string; cadastreId: string | null }): string {
+  return [params.fieldId, params.cadastreId || "none"].join("|");
+}
+
 function allocationCompletenessScore(row: any): number {
   const hasCadastre = Boolean(row?.cadastral_parcel_id);
   const hasCrop = Boolean(row?.crop_id);
@@ -279,6 +283,7 @@ export function buildCanonicalRows(input: BuildCanonicalRowsInput): BuildCanonic
 
   const indexBySignature = new Map<string, number>();
   const indexBySourceHash = new Map<string, number>();
+  const groupIndicesByFieldCadastre = new Map<string, number[]>();
   canonicalLegalRows.forEach((row, index) => {
     indexBySignature.set(
       signature({
@@ -293,6 +298,14 @@ export function buildCanonicalRows(input: BuildCanonicalRowsInput): BuildCanonic
     if (rawSourceHash) {
       indexBySourceHash.set(rawSourceHash, index);
     }
+
+    const groupKey = groupSignature({
+      fieldId: row.field_id,
+      cadastreId: row.cadastral_parcel_id,
+    });
+    const bucket = groupIndicesByFieldCadastre.get(groupKey) || [];
+    bucket.push(index);
+    groupIndicesByFieldCadastre.set(groupKey, bucket);
   });
 
   ownerAllocations.forEach((allocation: any) => {
@@ -337,6 +350,37 @@ export function buildCanonicalRows(input: BuildCanonicalRowsInput): BuildCanonic
             : current.allocation_status,
       };
       return;
+    }
+
+    const hasCadastre = Boolean(allocation.cadastral_parcel_id);
+    if (hasCadastre) {
+      const groupKey = groupSignature({
+        fieldId: String(allocation.field_id),
+        cadastreId: String(allocation.cadastral_parcel_id),
+      });
+      const groupIndexes = groupIndicesByFieldCadastre.get(groupKey) || [];
+      if (groupIndexes.length > 0) {
+        const groupArea = groupIndexes.reduce(
+          (sum, rowIndex) => sum + Number(canonicalLegalRows[rowIndex]?.area_ha || 0),
+          0,
+        );
+        const allocationArea = Number(allocation.area_ha || 0);
+        if (Math.abs(groupArea - allocationArea) <= 0.01 || allocationArea <= 0) {
+          groupIndexes.forEach((rowIndex) => {
+            const current = canonicalLegalRows[rowIndex];
+            canonicalLegalRows[rowIndex] = {
+              ...current,
+              owner_name: ownerName || current.owner_name,
+              owner_legal_entity_id:
+                current.owner_legal_entity_id ||
+                (allocation.owner_legal_entity_id ? String(allocation.owner_legal_entity_id) : null),
+              rural_district: district || current.rural_district,
+              rural_district_missing: district ? false : current.rural_district_missing,
+            };
+          });
+          return;
+        }
+      }
     }
 
     const field = fieldById.get(String(allocation.field_id));

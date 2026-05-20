@@ -99,6 +99,7 @@ export default function InventoryTransactionsPage() {
 
   if (
     profile?.role !== "warehouse" &&
+    profile?.role !== "warehouse_operator" &&
     profile?.role !== "company_admin" &&
     profile?.role !== "global_admin" &&
     profile?.role !== "agronomist"

@@ -8,11 +8,33 @@ import {
   InventoryTransactionWithDetails,
   InventoryBalance,
   WarehouseFormData,
+  WarehouseDeleteCheck,
+  WarehouseHistorySnapshot,
   ProductFormData,
   InventoryTransactionFormData,
   MovementType,
   TransactionDirection,
 } from "@/lib/types/warehouse";
+
+async function buildAuthHeaders(contentType: "json" | "none" = "none") {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data?.session?.access_token) {
+    throw new Error("Session expired");
+  }
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${data.session.access_token}`,
+  };
+  if (contentType === "json") headers["Content-Type"] = "application/json";
+  return headers;
+}
+
+async function parseJsonOrThrow(response: Response) {
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || "Request failed");
+  }
+  return payload;
+}
 
 function toNumber(value: unknown): number {
   const num = Number(value);
@@ -165,19 +187,17 @@ export async function getWarehouses(
   includeArchived = false,
   language: Language = "ru"
 ): Promise<Warehouse[]> {
-  let query = supabase
-    .from("warehouses")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("name", { ascending: true });
-
-  if (!includeArchived) {
-    query = query.eq("archived", false);
-  }
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return ((data || []) as Warehouse[]).map((row: any) => ({
+  const query = new URLSearchParams();
+  query.set("companyId", companyId);
+  query.set("includeArchived", includeArchived ? "true" : "false");
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses?${query.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return ((payload?.warehouses || []) as Warehouse[]).map((row: any) => ({
     ...row,
     name: localizedName(row, language) || row.name,
   }));
@@ -187,35 +207,104 @@ export async function createWarehouse(
   companyId: string,
   warehouseData: WarehouseFormData
 ): Promise<Warehouse> {
-  const { data, error } = await supabase
-    .from("warehouses")
-    .insert([{ ...warehouseData, company_id: companyId }])
-    .select()
-    .single();
-  if (error) throw new Error(`Failed to create warehouse: ${error.message}`);
-  return data as Warehouse;
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/warehouses", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      ...warehouseData,
+      companyId,
+    }),
+  });
+  const payload = await parseJsonOrThrow(response);
+  return payload.warehouse as Warehouse;
 }
 
 export async function updateWarehouse(
   warehouseId: string,
-  warehouseData: Partial<WarehouseFormData>
+  warehouseData: Partial<WarehouseFormData>,
+  companyId?: string
 ): Promise<Warehouse> {
-  const { data, error } = await supabase
-    .from("warehouses")
-    .update(warehouseData)
-    .eq("id", warehouseId)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data as Warehouse;
+  const query = new URLSearchParams();
+  if (companyId) query.set("companyId", companyId);
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(
+    `/api/warehouses/${encodeURIComponent(warehouseId)}?${query.toString()}`,
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(warehouseData),
+    }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.warehouse as Warehouse;
 }
 
-export async function archiveWarehouse(warehouseId: string): Promise<void> {
-  const { error } = await supabase
-    .from("warehouses")
-    .update({ archived: true })
-    .eq("id", warehouseId);
-  if (error) throw new Error(error.message);
+export async function archiveWarehouse(warehouseId: string, companyId?: string): Promise<Warehouse> {
+  const query = new URLSearchParams();
+  query.set("mode", "archive");
+  if (companyId) query.set("companyId", companyId);
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/warehouses/${encodeURIComponent(warehouseId)}?${query.toString()}`,
+    {
+      method: "DELETE",
+      headers,
+    }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.warehouse as Warehouse;
+}
+
+export async function deleteWarehouseHard(warehouseId: string, companyId?: string): Promise<void> {
+  const query = new URLSearchParams();
+  query.set("mode", "hard");
+  if (companyId) query.set("companyId", companyId);
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/warehouses/${encodeURIComponent(warehouseId)}?${query.toString()}`,
+    {
+      method: "DELETE",
+      headers,
+    }
+  );
+  await parseJsonOrThrow(response);
+}
+
+export async function getWarehouseDeleteCheck(warehouseId: string, companyId?: string): Promise<WarehouseDeleteCheck> {
+  const query = new URLSearchParams();
+  if (companyId) query.set("companyId", companyId);
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/warehouses/${encodeURIComponent(warehouseId)}?${query.toString()}`,
+    {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.delete_check as WarehouseDeleteCheck;
+}
+
+export async function getWarehouseHistory(
+  warehouseId: string,
+  params?: { companyId?: string; limit?: number }
+): Promise<WarehouseHistorySnapshot> {
+  const query = new URLSearchParams();
+  if (params?.companyId) query.set("companyId", params.companyId);
+  if (params?.limit != null) query.set("limit", String(params.limit));
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/warehouses/${encodeURIComponent(warehouseId)}/history?${query.toString()}`,
+    {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.history as WarehouseHistorySnapshot;
 }
 
 export async function getProducts(
@@ -223,17 +312,17 @@ export async function getProducts(
   includeArchived = false,
   language: Language = "ru"
 ): Promise<Product[]> {
-  let query = supabase
-    .from("products")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("name", { ascending: true });
-  if (!includeArchived) {
-    query = query.eq("archived", false);
-  }
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return ((data || []) as Product[]).map((row: any) => ({
+  const params = new URLSearchParams();
+  params.set("companyId", companyId);
+  params.set("includeArchived", includeArchived ? "true" : "false");
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/products?${params.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return ((payload?.products || []) as Product[]).map((row: any) => ({
     ...row,
     name: localizedName(row, language) || row.name,
   }));
@@ -254,16 +343,22 @@ export async function createProduct(
     units_per_pack: productData.units_per_pack ?? null,
     unit: productData.unit || "kg",
     description: productData.description || null,
-    company_id: companyId,
+    companyId,
   };
-  const { data, error } = await supabase.from("products").insert([payload]).select().single();
-  if (error) throw new Error(`Failed to create item: ${error.message}`);
-  return data as Product;
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/warehouses/products", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  const result = await parseJsonOrThrow(response);
+  return result.product as Product;
 }
 
 export async function updateProduct(
   productId: string,
-  productData: Partial<ProductFormData>
+  productData: Partial<ProductFormData>,
+  companyId?: string
 ): Promise<Product> {
   const payload = {
     ...productData,
@@ -284,22 +379,33 @@ export async function updateProduct(
     description:
       productData.description === undefined ? undefined : productData.description || null,
   };
-  const { data, error } = await supabase
-    .from("products")
-    .update(payload)
-    .eq("id", productId)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data as Product;
+  const query = new URLSearchParams();
+  if (companyId) query.set("companyId", companyId);
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(
+    `/api/warehouses/products/${encodeURIComponent(productId)}?${query.toString()}`,
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(payload),
+    }
+  );
+  const result = await parseJsonOrThrow(response);
+  return result.product as Product;
 }
 
-export async function archiveProduct(productId: string): Promise<void> {
-  const { error } = await supabase
-    .from("products")
-    .update({ archived: true })
-    .eq("id", productId);
-  if (error) throw new Error(error.message);
+export async function archiveProduct(productId: string, companyId?: string): Promise<void> {
+  const query = new URLSearchParams();
+  if (companyId) query.set("companyId", companyId);
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/warehouses/products/${encodeURIComponent(productId)}?${query.toString()}`,
+    {
+      method: "DELETE",
+      headers,
+    }
+  );
+  await parseJsonOrThrow(response);
 }
 
 export async function getInventoryTransactions(
@@ -343,46 +449,18 @@ export async function createInventoryTransaction(
   transactionData: InventoryTransactionFormData,
   actorUserId?: string
 ): Promise<InventoryTransaction> {
-  const status = normalizeStatus(transactionData.status);
-  const { warehouseId, direction } = deriveLegacyWarehouseAndDirection(transactionData);
-
-  if (!warehouseId) {
-    throw new Error("Warehouse is required for this operation");
-  }
-
-  if (status === "confirmed") {
-    const balances = await loadConfirmedBalanceMap(companyId);
-    ensureSufficientStockForMovement(balances, transactionData);
-  }
-
-  const operationDate = String(transactionData.operation_datetime).slice(0, 10);
-  const nowIso = new Date().toISOString();
-  const payload = {
-    warehouse_id: warehouseId,
-    source_warehouse_id: transactionData.source_warehouse_id || null,
-    destination_warehouse_id: transactionData.destination_warehouse_id || null,
-    product_id: transactionData.product_id,
-    quantity: transactionData.quantity,
-    transaction_type: direction,
-    movement_type: transactionData.movement_type,
-    status,
-    operation_datetime: transactionData.operation_datetime,
-    date: operationDate,
-    notes: transactionData.notes || null,
-    responsible_user_id: transactionData.responsible_user_id || actorUserId || null,
-    confirmed_at: status === "confirmed" ? nowIso : null,
-    cancelled_at: status === "cancelled" ? nowIso : null,
-    company_id: companyId,
-  };
-
-  const { data, error } = await supabase
-    .from("inventory_transactions")
-    .insert([payload])
-    .select()
-    .single();
-
-  if (error) throw new Error(`Failed to create movement: ${error.message}`);
-  return data as InventoryTransaction;
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/warehouses/transactions", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      ...transactionData,
+      companyId,
+      responsible_user_id: transactionData.responsible_user_id || actorUserId || null,
+    }),
+  });
+  const result = await parseJsonOrThrow(response);
+  return result.transaction as InventoryTransaction;
 }
 
 export async function updateInventoryTransaction(
@@ -390,102 +468,42 @@ export async function updateInventoryTransaction(
   companyId: string,
   transactionData: Partial<InventoryTransactionFormData>
 ): Promise<InventoryTransaction> {
-  const { data: existing, error: existingError } = await supabase
-    .from("inventory_transactions")
-    .select("*")
-    .eq("id", transactionId)
-    .eq("company_id", companyId)
-    .maybeSingle();
-  if (existingError) throw new Error(existingError.message);
-  if (!existing) throw new Error("Movement not found");
-
-  const existingStatus = normalizeStatus(existing.status);
-  if (existingStatus === "confirmed" || existingStatus === "cancelled") {
-    throw new Error("Confirmed/cancelled movements are read-only. Create a correction movement.");
-  }
-
-  const nextStatus = transactionData.status ? normalizeStatus(transactionData.status) : existingStatus;
-  const merged = {
-    product_id: transactionData.product_id ?? existing.product_id,
-    movement_type:
-      (transactionData.movement_type as MovementType | undefined) ??
-      normalizeMovementType(existing.movement_type, existing.transaction_type),
-    status: nextStatus,
-    source_warehouse_id: transactionData.source_warehouse_id ?? existing.source_warehouse_id,
-    destination_warehouse_id:
-      transactionData.destination_warehouse_id ?? existing.destination_warehouse_id,
-    operation_datetime: transactionData.operation_datetime ?? existing.operation_datetime ?? existing.date,
-    quantity: toNumber(transactionData.quantity ?? existing.quantity),
-    transaction_type:
-      (transactionData.transaction_type as TransactionDirection | undefined) ??
-      (existing.transaction_type === "in" ? "in" : "out"),
-    notes: transactionData.notes ?? existing.notes ?? "",
-    responsible_user_id: transactionData.responsible_user_id ?? existing.responsible_user_id,
-  } as InventoryTransactionFormData;
-
-  if (nextStatus === "confirmed") {
-    const balances = await loadConfirmedBalanceMap(companyId);
-    ensureSufficientStockForMovement(balances, merged);
-  }
-
-  const { warehouseId, direction } = deriveLegacyWarehouseAndDirection(merged);
-  const operationDate = String(merged.operation_datetime).slice(0, 10);
-  const nowIso = new Date().toISOString();
-
-  const updatePayload = {
-    warehouse_id: warehouseId,
-    source_warehouse_id: merged.source_warehouse_id || null,
-    destination_warehouse_id: merged.destination_warehouse_id || null,
-    product_id: merged.product_id,
-    movement_type: merged.movement_type,
-    status: nextStatus,
-    operation_datetime: merged.operation_datetime,
-    quantity: merged.quantity,
-    transaction_type: direction,
-    date: operationDate,
-    notes: merged.notes || null,
-    responsible_user_id: merged.responsible_user_id || null,
-    confirmed_at: nextStatus === "confirmed" ? nowIso : null,
-    cancelled_at: nextStatus === "cancelled" ? nowIso : null,
-  };
-
-  const { data, error } = await supabase
-    .from("inventory_transactions")
-    .update(updatePayload)
-    .eq("id", transactionId)
-    .eq("company_id", companyId)
-    .select()
-    .single();
-
-  if (error) throw new Error(error.message);
-  return data as InventoryTransaction;
+  const headers = await buildAuthHeaders("json");
+  const query = new URLSearchParams();
+  query.set("companyId", companyId);
+  const response = await fetch(
+    `/api/warehouses/transactions/${encodeURIComponent(transactionId)}?${query.toString()}`,
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify(transactionData),
+    }
+  );
+  const result = await parseJsonOrThrow(response);
+  return result.transaction as InventoryTransaction;
 }
 
 export async function cancelInventoryTransaction(
   transactionId: string,
   companyId: string
 ): Promise<InventoryTransaction> {
-  const nowIso = new Date().toISOString();
-  const { data, error } = await supabase
-    .from("inventory_transactions")
-    .update({
-      status: "cancelled",
-      cancelled_at: nowIso,
-    })
-    .eq("id", transactionId)
-    .eq("company_id", companyId)
-    .select()
-    .single();
-  if (error) throw new Error(error.message);
-  return data as InventoryTransaction;
+  return updateInventoryTransaction(transactionId, companyId, {
+    status: "cancelled",
+  });
 }
 
-export async function deleteInventoryTransaction(transactionId: string): Promise<void> {
-  const { error } = await supabase
-    .from("inventory_transactions")
-    .delete()
-    .eq("id", transactionId);
-  if (error) throw new Error(error.message);
+export async function deleteInventoryTransaction(transactionId: string, companyId: string): Promise<void> {
+  const headers = await buildAuthHeaders("none");
+  const query = new URLSearchParams();
+  query.set("companyId", companyId);
+  const response = await fetch(
+    `/api/warehouses/transactions/${encodeURIComponent(transactionId)}?${query.toString()}`,
+    {
+      method: "DELETE",
+      headers,
+    }
+  );
+  await parseJsonOrThrow(response);
 }
 
 export async function getInventoryBalances(companyId: string, language: Language = "ru"): Promise<InventoryBalance[]> {

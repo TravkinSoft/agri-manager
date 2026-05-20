@@ -2,9 +2,14 @@ import { z } from "zod";
 
 export interface Operation {
   id: string;
+  company_id?: string;
   field_id: string;
   crop_structure_id: string | null;
   operation_type: string;
+  planned_area_ha?: number | null;
+  crop_id?: string | null;
+  status?: string | null;
+  assigned_to?: string | null;
   date: string;
   notes: string | null;
   responsible_user_id: string | null;
@@ -22,6 +27,7 @@ export interface OperationWithDetails extends Operation {
   field_name?: string;
   crop_name?: string;
   variety_name?: string;
+  reproduction_name?: string;
   responsible_email?: string;
   responsible_role?: string;
   draft_target?: string;
@@ -34,16 +40,78 @@ export interface OperationWithDetails extends Operation {
   draft_comments?: string;
 }
 
+export interface OperationLine {
+  id: string;
+  company_id: string;
+  operation_id: string;
+  field_id: string | null;
+  crop_id: string | null;
+  variety_id: string | null;
+  reproduction_id: string | null;
+  planned_area_ha: number;
+  actual_area_ha: number | null;
+  row_count: number | null;
+  row_spacing_m: number | null;
+  seed_spacing_cm: number | null;
+  calculated_plants_per_ha: number | null;
+  calculated_total_plants: number | null;
+  completed_by: string | null;
+  completed_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  field_name?: string;
+  crop_name?: string;
+  variety_name?: string;
+  reproduction_name?: string;
+}
+
+export const operationLineSchema = z.object({
+  field_id: z.string().uuid().nullable().optional(),
+  crop_id: z.string().uuid().nullable().optional(),
+  variety_id: z.string().uuid().nullable().optional(),
+  reproduction_id: z.string().uuid().nullable().optional(),
+  planned_area_ha: z.number().min(0, "planned_area_ha must be >= 0"),
+  actual_area_ha: z.number().min(0, "actual_area_ha must be >= 0").nullable().optional(),
+  row_count: z.number().int().min(0, "row_count must be >= 0").nullable().optional(),
+  row_spacing_m: z.number().positive("row_spacing_m must be > 0").nullable().optional(),
+  seed_spacing_cm: z.number().positive("seed_spacing_cm must be > 0").nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export type OperationLineFormData = z.infer<typeof operationLineSchema>;
+
 export const operationSchema = z.object({
   field_id: z.string().uuid("Please select a field"),
   crop_structure_id: z.string().uuid("Please select a crop structure").nullable().optional(),
   operation_type: z.string().min(1, "Operation type is required"),
+  planned_area_ha: z.number().min(0, "Planned area must be >= 0").nullable().optional(),
+  crop_id: z.string().uuid().nullable().optional(),
   date: z.string().min(1, "Date is required"),
   responsible_user_id: z.string().uuid("Please select specialist").nullable().optional(),
   notes: z.string().optional(),
 });
 
 export type OperationFormData = z.infer<typeof operationSchema>;
+
+export interface PotatoMaterialConsumptionRow {
+  operation_id: string;
+  operation_line_id: string;
+  operation_date: string | null;
+  field_name: string;
+  crop_name: string;
+  variety_name: string | null;
+  reproduction_name: string | null;
+  planned_area_ha: number;
+  actual_area_ha: number | null;
+  completion_pct: number | null;
+  material_name: string;
+  material_category: string | null;
+  issued_qty_kg: number;
+  fact_qty_per_ha: number | null;
+  planned_norm_per_ha: number | null;
+  deviation_per_ha: number | null;
+}
 
 export interface SpecialistAssignee {
   id: string;

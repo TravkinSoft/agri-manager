@@ -1,4 +1,19 @@
 import type { TicketInput, TicketLineInput, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
+import { supabase } from "@/lib/supabase/client";
+
+async function buildAuthHeaders(contentType: "json" | "none" = "none") {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new Error("Session not found. Please log in again.");
+  }
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${data.session.access_token}`,
+  };
+  if (contentType === "json") {
+    headers["Content-Type"] = "application/json";
+  }
+  return headers;
+}
 
 async function parseJsonOrThrow(response: Response) {
   const payload = await response.json().catch(() => ({}));
@@ -9,34 +24,39 @@ async function parseJsonOrThrow(response: Response) {
 }
 
 export async function listTickets(companyId: string, userId: string): Promise<WeighbridgeTicket[]> {
+  const headers = await buildAuthHeaders("none");
   const response = await fetch(`/api/weighbridge/tickets?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(userId)}`, {
     method: "GET",
     cache: "no-store",
+    headers,
   });
   const payload = await parseJsonOrThrow(response);
   return payload.tickets || [];
 }
 
 export async function getWeighbridgeBootstrap(companyId: string, userId: string) {
+  const headers = await buildAuthHeaders("none");
   const response = await fetch(
     `/api/weighbridge/bootstrap?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(userId)}`,
-    { method: "GET", cache: "no-store" }
+    { method: "GET", cache: "no-store", headers }
   );
   return parseJsonOrThrow(response);
 }
 
 export async function getActiveShift(companyId: string, userId: string) {
+  const headers = await buildAuthHeaders("none");
   const response = await fetch(
     `/api/weighbridge/shifts?companyId=${encodeURIComponent(companyId)}&userId=${encodeURIComponent(userId)}`,
-    { method: "GET", cache: "no-store" }
+    { method: "GET", cache: "no-store", headers }
   );
   return parseJsonOrThrow(response);
 }
 
 export async function openShift(companyId: string, actorUserId: string, openingNote?: string) {
+  const headers = await buildAuthHeaders("json");
   const response = await fetch("/api/weighbridge/shifts", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ companyId, actorUserId, openingNote }),
   });
   return parseJsonOrThrow(response);
@@ -47,9 +67,10 @@ export async function closeShift(
   actorUserId: string,
   params?: { closingNote?: string; handoverNote?: string; force?: boolean }
 ) {
+  const headers = await buildAuthHeaders("json");
   const response = await fetch("/api/weighbridge/shifts", {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({
       companyId,
       actorUserId,
@@ -62,9 +83,11 @@ export async function closeShift(
 }
 
 export async function getTicketDetails(ticketId: string, userId: string) {
+  const headers = await buildAuthHeaders("none");
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}?userId=${encodeURIComponent(userId)}`, {
     method: "GET",
     cache: "no-store",
+    headers,
   });
   return parseJsonOrThrow(response);
 }
@@ -79,36 +102,40 @@ export async function patchTicket(
     status?: "draft" | "active" | "ready_to_close";
   }
 ) {
+  const headers = await buildAuthHeaders("json");
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ actorUserId, ...patch }),
   });
   return parseJsonOrThrow(response);
 }
 
 export async function createTicket(input: TicketInput, lines: TicketLineInput[], weighings: WeighingInput[] = []) {
+  const headers = await buildAuthHeaders("json");
   const response = await fetch("/api/weighbridge/tickets", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ ticket: input, lines, weighings }),
   });
   return parseJsonOrThrow(response);
 }
 
 export async function finalizeTicket(ticketId: string, actorUserId: string) {
+  const headers = await buildAuthHeaders("json");
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}/finalize`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ actorUserId }),
   });
   return parseJsonOrThrow(response);
 }
 
 export async function voidTicket(ticketId: string, actorUserId: string, reason: string) {
+  const headers = await buildAuthHeaders("json");
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}/void`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ actorUserId, reason }),
   });
   return parseJsonOrThrow(response);
@@ -120,9 +147,10 @@ export async function adminTicketAction(
   action: "void" | "archive" | "force_close",
   reason?: string
 ) {
+  const headers = await buildAuthHeaders("json");
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}/admin-action`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ actorUserId, action, reason }),
   });
   return parseJsonOrThrow(response);

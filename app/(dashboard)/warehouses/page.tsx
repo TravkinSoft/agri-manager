@@ -155,7 +155,8 @@ export default function WarehousesPage() {
   const canManageMovements =
     profile?.role === "company_admin" ||
     profile?.role === "global_admin" ||
-    profile?.role === "warehouse";
+    profile?.role === "warehouse" ||
+    profile?.role === "warehouse_operator";
   const observerMode = profile?.role === "agronomist" || profile?.role === "weighman";
 
   const reloadData = async () => {
@@ -351,6 +352,7 @@ export default function WarehousesPage() {
     profile?.role !== "company_admin" &&
     profile?.role !== "global_admin" &&
     profile?.role !== "warehouse" &&
+    profile?.role !== "warehouse_operator" &&
     profile?.role !== "agronomist" &&
     profile?.role !== "weighman"
   ) {

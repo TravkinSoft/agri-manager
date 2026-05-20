@@ -151,7 +151,30 @@ const INITIAL_FORM: FormState = {
 const PERSIST_KEYS: Array<keyof FormState> = [
   "operationType",
   "fieldId",
+  "warehouseFromId",
   "warehouseToId",
+  "processingPointId",
+  "cropId",
+  "varietyId",
+  "reproductionId",
+  "cropStructureAllocationId",
+  "supplierId",
+  "buyerId",
+  "supplierDocumentNo",
+  "shipmentPurpose",
+  "destinationText",
+  "externalDocumentNo",
+  "supplierReceiptMode",
+  "supplierItemMode",
+  "transferMode",
+  "fieldIssueMode",
+  "fieldMaterialCategory",
+  "supplierLot",
+  "harvestYear",
+  "productId",
+  "stockIdentityKey",
+  "disposalCategory",
+  "notes",
 ];
 
 const LEGACY_MOVEMENT_GROUPS: Array<{ id: MovementGroup; title: string; hint: string }> = [
@@ -445,7 +468,7 @@ export default function WeighbridgeOperationsPage() {
   const canView = canOperate || profile?.role === "agronomist";
   const canVoid = profile?.role === "company_admin" || profile?.role === "global_admin";
   const persistKey = useMemo(
-    () => (profile?.company_id && profile?.id ? `weighbridge:last-form:${profile.company_id}:${profile.id}` : ""),
+    () => (profile?.company_id && profile?.id ? `travkin.weighbridge.formDraft.${profile.company_id}.${profile.id}` : ""),
     [profile?.company_id, profile?.id]
   );
 
@@ -768,16 +791,12 @@ export default function WeighbridgeOperationsPage() {
 
   useEffect(() => {
     if (!persistKey) return;
-    const payload = {
-      operationType: form.operationType,
-      fieldId: form.fieldId,
-      warehouseToId: form.warehouseToId,
-      cropId: form.cropId,
-      varietyId: form.varietyId,
-      reproductionId: form.reproductionId,
-    } satisfies Partial<FormState>;
+    const payload = PERSIST_KEYS.reduce((acc, key) => {
+      (acc as Record<string, string>)[key] = form[key];
+      return acc;
+    }, {} as Partial<FormState>);
     localStorage.setItem(persistKey, JSON.stringify(payload));
-  }, [persistKey, form.operationType, form.fieldId, form.warehouseToId, form.cropId, form.varietyId, form.reproductionId]);
+  }, [persistKey, form]);
 
   useEffect(() => {
     if (!persistKey) return;
@@ -995,19 +1014,80 @@ export default function WeighbridgeOperationsPage() {
     isDisposal;
 
   const selectOperation = (operationType: OperationType) => {
-    setForm((prev) => ({
-      ...INITIAL_FORM,
-      operationType,
-      warehouseToId:
-        operationType === "harvest_incoming" || operationType === "supplier_receipt" || operationType === "transfer_between_warehouses"
-          ? prev.warehouseToId
-          : "",
-      warehouseFromId:
-        operationType === "issue_to_field" || operationType === "transfer_between_warehouses" || operationType === "shipment_outbound" || operationType === "disposal_writeoff"
-          ? prev.warehouseFromId
-          : "",
-      fieldId: operationType === "harvest_incoming" || operationType === "issue_to_field" ? prev.fieldId : "",
-    }));
+    setForm((prev) => {
+      const next: FormState = {
+        ...INITIAL_FORM,
+        operationType,
+      };
+
+      const prevGroup = movementGroupForOperation(prev.operationType);
+      const nextGroup = movementGroupForOperation(operationType);
+      const sameGroup = prevGroup === nextGroup;
+
+      // Shared contextual values for production flow are preserved,
+      // but transport/weight actors are always reset between type switches.
+      if (operationType === "harvest_incoming" || operationType === "issue_to_field") {
+        next.fieldId = prev.fieldId;
+        next.cropId = prev.cropId;
+        next.varietyId = prev.varietyId;
+        next.reproductionId = prev.reproductionId;
+        next.cropStructureAllocationId = prev.cropStructureAllocationId;
+      }
+
+      if (operationType === "harvest_incoming" || operationType === "supplier_receipt" || operationType === "transfer_between_warehouses") {
+        next.warehouseToId = prev.warehouseToId;
+      }
+      if (operationType === "issue_to_field" || operationType === "transfer_between_warehouses" || operationType === "shipment_outbound" || operationType === "disposal_writeoff") {
+        next.warehouseFromId = prev.warehouseFromId;
+      }
+
+      if (sameGroup) {
+        next.notes = prev.notes;
+        next.stockIdentityKey = prev.stockIdentityKey;
+        next.productId = prev.productId;
+      }
+
+      if (operationType === "supplier_receipt") {
+        next.supplierReceiptMode = prev.supplierReceiptMode;
+        next.supplierItemMode = prev.supplierItemMode;
+        next.supplierId = prev.supplierId;
+        next.supplierDocumentNo = prev.supplierDocumentNo;
+        next.supplierLot = prev.supplierLot;
+        next.harvestYear = prev.harvestYear;
+      }
+
+      if (operationType === "issue_to_field") {
+        next.fieldIssueMode = prev.fieldIssueMode;
+        next.fieldMaterialCategory = prev.fieldMaterialCategory;
+      }
+
+      if (operationType === "transfer_between_warehouses") {
+        next.transferMode = prev.transferMode;
+      }
+
+      if (operationType === "shipment_outbound") {
+        next.buyerId = prev.buyerId;
+        next.shipmentPurpose = prev.shipmentPurpose;
+        next.destinationText = prev.destinationText;
+        next.externalDocumentNo = prev.externalDocumentNo;
+      }
+
+      if (operationType === "disposal_writeoff") {
+        next.disposalCategory = prev.disposalCategory;
+        next.disposalReason = prev.disposalReason;
+      }
+
+      // Explicit volatile reset for every type switch.
+      next.driverId = "";
+      next.vehicleId = "";
+      next.grossKg = "";
+      next.quantityKg = "";
+      next.dryingOutputKg = "";
+      next.moistureIn = "";
+      next.moistureOut = "";
+
+      return next;
+    });
   };
 
   const validate = () => {
@@ -1326,18 +1406,29 @@ export default function WeighbridgeOperationsPage() {
         fieldId: prev.fieldId,
         warehouseFromId: prev.warehouseFromId,
         warehouseToId: prev.warehouseToId,
+        processingPointId: prev.processingPointId,
         cropId: prev.cropId,
         varietyId: prev.varietyId,
         reproductionId: prev.reproductionId,
+        cropStructureAllocationId: prev.cropStructureAllocationId,
         supplierId: prev.supplierId,
         buyerId: prev.buyerId,
         supplierDocumentNo: prev.supplierDocumentNo,
         shipmentPurpose: prev.shipmentPurpose,
+        destinationText: prev.destinationText,
+        externalDocumentNo: prev.externalDocumentNo,
         supplierReceiptMode: prev.supplierReceiptMode,
         supplierItemMode: prev.supplierItemMode,
         transferMode: prev.transferMode,
         fieldIssueMode: prev.fieldIssueMode,
         fieldMaterialCategory: prev.fieldMaterialCategory,
+        supplierLot: prev.supplierLot,
+        harvestYear: prev.harvestYear,
+        productId: prev.productId,
+        stockIdentityKey: prev.stockIdentityKey,
+        disposalCategory: prev.disposalCategory,
+        disposalReason: prev.disposalReason,
+        notes: prev.notes,
       }));
       await refreshTickets();
     } catch (e: any) {

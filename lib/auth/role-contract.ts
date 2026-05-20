@@ -3,10 +3,13 @@ export const CANONICAL_ROLES = [
   "company_admin",
   "agronomist",
   "director",
+  "legal_operator",
   "specialist",
   "warehouse",
+  "warehouse_operator",
   "weighman",
   "fuel_operator",
+  "brigadier",
 ] as const;
 
 export type CanonicalRole = (typeof CANONICAL_ROLES)[number];
@@ -16,10 +19,13 @@ const CANONICAL_ROLE_MAP: Record<string, CanonicalRole> = {
   company_admin: "company_admin",
   agronomist: "agronomist",
   director: "director",
+  legal_operator: "legal_operator",
   specialist: "specialist",
   warehouse: "warehouse",
+  warehouse_operator: "warehouse_operator",
   weighman: "weighman",
   fuel_operator: "fuel_operator",
+  brigadier: "brigadier",
 };
 
 const LEGACY_ROLE_ALIASES: Record<string, CanonicalRole> = {
@@ -29,6 +35,10 @@ const LEGACY_ROLE_ALIASES: Record<string, CanonicalRole> = {
   super_admin: "global_admin",
   superadmin: "global_admin",
   globaladmin: "global_admin",
+  legal_accountant: "legal_operator",
+  warehousemanager: "warehouse_operator",
+  warehouse_manager: "warehouse_operator",
+  foreman: "brigadier",
 };
 
 function allowLegacyAliases(): boolean {

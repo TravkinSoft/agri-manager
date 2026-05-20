@@ -1,7 +1,10 @@
 import { supabase } from "@/lib/supabase/client";
 import {
   Operation,
+  OperationLine,
+  OperationLineFormData,
   OperationFormData,
+  PotatoMaterialConsumptionRow,
   OperationWithDetails,
   SpecialistAssignee,
 } from "@/lib/types/operation";
@@ -27,6 +30,28 @@ function parseOperationDraftDetails(notes: string | null | undefined) {
     draft_responsible: extractDraftValueFromNotes(notes, "Responsible"),
     draft_comments: notes ? notes.split("\n\nDraft details:")[0].trim() : undefined,
   };
+}
+
+async function buildAuthHeaders(contentType: "json" | "none" = "none") {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new Error("Session not found. Please log in again.");
+  }
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${data.session.access_token}`,
+  };
+  if (contentType === "json") {
+    headers["Content-Type"] = "application/json";
+  }
+  return headers;
+}
+
+async function parseApiResponse(response: Response) {
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || "Request failed");
+  }
+  return payload;
 }
 
 export async function getOperations(
@@ -263,4 +288,77 @@ export async function completeOperationWork(
   }
 
   return data as Operation;
+}
+
+export async function getOperationLines(
+  operationId: string,
+  companyId: string
+): Promise<OperationLine[]> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/operations/${encodeURIComponent(operationId)}/lines?companyId=${encodeURIComponent(companyId)}`,
+    { method: "GET", headers, cache: "no-store" }
+  );
+  const payload = await parseApiResponse(response);
+  return (payload.operation_lines || []) as OperationLine[];
+}
+
+export async function createOperationLine(
+  operationId: string,
+  companyId: string,
+  line: OperationLineFormData
+): Promise<OperationLine> {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/lines`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId, ...line }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation_line as OperationLine;
+}
+
+export async function updateOperationLine(
+  lineId: string,
+  companyId: string,
+  patch: Partial<OperationLineFormData> & { completed?: boolean }
+): Promise<OperationLine> {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(`/api/operation-lines/${encodeURIComponent(lineId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ companyId, ...patch }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation_line as OperationLine;
+}
+
+export async function deleteOperationLine(lineId: string, companyId: string): Promise<void> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/operation-lines/${encodeURIComponent(lineId)}?companyId=${encodeURIComponent(companyId)}`,
+    { method: "DELETE", headers }
+  );
+  await parseApiResponse(response);
+}
+
+export async function getPotatoMaterialConsumptionReport(
+  companyId: string,
+  options?: { seasonYear?: number; limit?: number }
+): Promise<PotatoMaterialConsumptionRow[]> {
+  const headers = await buildAuthHeaders("none");
+  const params = new URLSearchParams();
+  params.set("companyId", companyId);
+  if (options?.seasonYear) params.set("seasonYear", String(options.seasonYear));
+  if (options?.limit) params.set("limit", String(options.limit));
+  const response = await fetch(
+    `/api/operations/reports/potato-material-consumption?${params.toString()}`,
+    {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    }
+  );
+  const payload = await parseApiResponse(response);
+  return (payload.rows || []) as PotatoMaterialConsumptionRow[];
 }

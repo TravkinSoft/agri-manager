@@ -7,10 +7,13 @@ type AllowedRole =
   | "company_admin"
   | "agronomist"
   | "director"
+  | "legal_operator"
   | "warehouse"
+  | "warehouse_operator"
   | "weighman"
   | "specialist"
-  | "fuel_operator";
+  | "fuel_operator"
+  | "brigadier";
 
 type NormalizedRole = CanonicalRole;
 
@@ -44,7 +47,7 @@ export async function assertActorAccess(params: {
   }
 
   const normalizedRole = normalizeRole(profile.role);
-  const allowedNormalized = Array.from(new Set(allowedRoles.flatMap((role) => {
+  const allowedNormalized: string[] = Array.from(new Set(allowedRoles.flatMap((role) => {
     if (role === "admin") {
       return ["company_admin", "global_admin"] as const;
     }

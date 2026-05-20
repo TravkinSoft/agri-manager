@@ -91,6 +91,14 @@ const WAREHOUSE_NAV: NavItem[] = [
   { label: "Складские справочники", href: "/warehouses/manage", icon: BookOpen },
 ];
 
+const WAREHOUSE_OPERATOR_NAV: NavItem[] = [
+  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Склады", href: "/warehouses", icon: Package },
+  { label: "Инвентарь", href: "/inventory", icon: Package },
+  { label: "Движение запасов", href: "/warehouses/transactions", icon: History },
+  { label: "Заявки на выдачу", href: "/warehouses/requests", icon: CheckSquare },
+];
+
 const WEIGHMAN_NAV: NavItem[] = [
   { label: "Весовая Dashboard", href: "/weighbridge/dashboard", icon: LayoutDashboard },
   { label: "Машины", href: "/machines", icon: PackageSearch },
@@ -106,6 +114,19 @@ const SPECIALIST_NAV: NavItem[] = [
   { label: "Мои задачи", href: "/tasks", icon: CheckSquare },
 ];
 
+const BRIGADIER_NAV: NavItem[] = [
+  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Операции", href: "/operations", icon: Tractor },
+  { label: "Поля", href: "/fields", icon: MapPin },
+];
+
+const LEGAL_OPERATOR_NAV: NavItem[] = [
+  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Кадастр и право", href: "/land-legal", icon: ScrollText },
+  { label: "Поля", href: "/fields", icon: MapPin },
+  { label: "Аналитика", href: "/analytics", icon: BarChart3 },
+];
+
 const FUEL_OPERATOR_NAV: NavItem[] = [{ label: "АЗС / ГСМ", href: "/fuel", icon: Droplets }];
 
 function getNavigationByRole(role?: string | null): NavItem[] {
@@ -113,8 +134,11 @@ function getNavigationByRole(role?: string | null): NavItem[] {
   if (role === "agronomist") return AGRONOMIST_NAV;
   if (role === "director") return DIRECTOR_NAV;
   if (role === "warehouse") return WAREHOUSE_NAV;
+  if (role === "warehouse_operator") return WAREHOUSE_OPERATOR_NAV;
   if (role === "weighman") return WEIGHMAN_NAV;
   if (role === "specialist") return SPECIALIST_NAV;
+  if (role === "brigadier") return BRIGADIER_NAV;
+  if (role === "legal_operator") return LEGAL_OPERATOR_NAV;
   if (role === "fuel_operator") return FUEL_OPERATOR_NAV;
   return [];
 }
@@ -195,4 +219,3 @@ export function Sidebar() {
     </div>
   );
 }
-
