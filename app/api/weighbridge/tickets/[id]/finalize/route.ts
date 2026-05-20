@@ -45,6 +45,34 @@ export async function POST(
       return NextResponse.json({ error: backfillError.message || "Operation line linkage backfill failed" }, { status: 400 });
     }
 
+    const { data: lineLinks, error: lineLinksError } = await supabase
+      .from("ticket_lines")
+      .select("id,operation_line_id,operation_lines:operation_line_id(operation_id)")
+      .eq("ticket_id", id)
+      .eq("company_id", companyId)
+      .not("operation_line_id", "is", null);
+    if (lineLinksError) {
+      return NextResponse.json({ error: lineLinksError.message || "Operation linkage load failed" }, { status: 400 });
+    }
+
+    for (const row of lineLinks || []) {
+      const operationLineRel = Array.isArray((row as any).operation_lines)
+        ? (row as any).operation_lines[0]
+        : (row as any).operation_lines;
+      const operationId = String(operationLineRel?.operation_id || "").trim();
+      if (!operationId) continue;
+      const { error: fmcBackfillError } = await supabase
+        .from("field_material_consumptions")
+        .update({ operation_id: operationId, updated_at: new Date().toISOString() })
+        .eq("company_id", companyId)
+        .eq("ticket_id", id)
+        .eq("ticket_line_id", String((row as any).id || ""))
+        .is("operation_id", null);
+      if (fmcBackfillError) {
+        return NextResponse.json({ error: fmcBackfillError.message || "Operation id backfill failed" }, { status: 400 });
+      }
+    }
+
     const { data: updated } = await supabase
       .from("tickets")
       .select("*")
