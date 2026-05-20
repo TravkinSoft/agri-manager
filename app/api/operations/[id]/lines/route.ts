@@ -108,7 +108,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("id,company_id,field_id,crop_structure_id,crop_id")
+      .select("id,company_id,field_id,crop_structure_id")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
       return NextResponse.json({ error: "seed_spacing_cm must be > 0" }, { status: 400 });
     }
 
-    let resolvedCropId = nullableUuid(body.crop_id) ?? nullableUuid(operation.crop_id);
+    let resolvedCropId = nullableUuid(body.crop_id);
     if (!resolvedCropId && operation.crop_structure_id) {
       const { data: structureRow, error: structureError } = await supabase
         .from("crop_structure")
