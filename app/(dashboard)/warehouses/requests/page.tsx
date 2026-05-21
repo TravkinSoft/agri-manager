@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -34,22 +35,33 @@ import type { WarehouseIssueRequest } from "@/lib/types/warehouse-request";
 
 function statusBadge(status: string) {
   if (status === "received_confirmed") return "bg-emerald-100 text-emerald-800";
-  if (status === "issued_by_warehouse") return "bg-violet-100 text-violet-800";
+  if (status === "issued_by_warehouse" || status === "issued") return "bg-violet-100 text-violet-800";
+  if (status === "partially_issued") return "bg-amber-100 text-amber-800";
+  if (status === "preparing") return "bg-cyan-100 text-cyan-800";
   if (status === "ready") return "bg-blue-100 text-blue-800";
   if (status === "cancelled") return "bg-slate-200 text-slate-700";
   return "bg-amber-100 text-amber-800";
 }
 
 function statusLabel(status: string, t: (key: any) => string): string {
-  if (status === "new") return t("status_new");
+  if (status === "new" || status === "active") return t("status_new");
+  if (status === "preparing") return "Preparing";
   if (status === "ready") return t("status_ready");
+  if (status === "partially_issued") return "Partially issued";
+  if (status === "issued") return t("status_issued_by_warehouse");
   if (status === "issued_by_warehouse") return t("status_issued_by_warehouse");
   if (status === "received_confirmed") return t("status_received_confirmed");
   if (status === "cancelled") return t("status_cancelled");
   return status;
 }
 
+function toQty(value: unknown, fallback = 0): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export default function WarehouseRequestsPage() {
+  const router = useRouter();
   const { profile } = useAuth();
   const { t, language } = useLanguage();
   const { toast } = useToast();
@@ -61,9 +73,15 @@ export default function WarehouseRequestsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sourceWarehouseId, setSourceWarehouseId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"requests" | "preparing" | "ready" | "history" | "stock">("requests");
   const [balanceByWarehouseProduct, setBalanceByWarehouseProduct] = useState<Record<string, number>>({});
+  const [issueQtyByItem, setIssueQtyByItem] = useState<Record<string, string>>({});
 
-  const canProcess = profile?.role === "warehouse" || profile?.role === "warehouse_operator";
+  const canProcess =
+    profile?.role === "warehouse" ||
+    profile?.role === "warehouse_operator" ||
+    profile?.role === "company_admin" ||
+    profile?.role === "global_admin";
   const canView =
     profile?.role === "warehouse" ||
     profile?.role === "warehouse_operator" ||
@@ -76,7 +94,7 @@ export default function WarehouseRequestsPage() {
     setLoading(true);
     try {
       const [requestRows, warehouseRows, balances] = await Promise.all([
-        getWarehouseIssueRequests(profile.company_id, language),
+        getWarehouseIssueRequests(profile.company_id),
         getWarehouses(profile.company_id, false, language),
         getInventoryBalances(profile.company_id, language),
       ]);
@@ -112,7 +130,12 @@ export default function WarehouseRequestsPage() {
     return requests.filter((row) => {
       const text = `${row.request_number} ${row.field_name || ""} ${row.recipient_email || ""}`.toLowerCase();
       const matchSearch = !search || text.includes(search.toLowerCase());
-      const matchStatus = statusFilter === "all" || row.status === statusFilter;
+      const workflowStatus = String((row as any).workflow_status || row.status || "");
+      const matchStatus =
+        statusFilter === "all" ||
+        row.status === statusFilter ||
+        workflowStatus === statusFilter ||
+        (statusFilter === "active" && row.status === "new");
       return matchSearch && matchStatus;
     });
   }, [requests, search, statusFilter]);
@@ -127,25 +150,43 @@ export default function WarehouseRequestsPage() {
   useEffect(() => {
     if (!selectedRequest) return;
     setSourceWarehouseId(selectedRequest.source_warehouse_id || "");
+    const defaults: Record<string, string> = {};
+    (selectedRequest.items || []).forEach((item) => {
+      const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+      const alreadyIssued = toQty(item.issued_quantity, 0);
+      const remaining = Math.max(planned - alreadyIssued, 0);
+      defaults[item.id] = remaining > 0 ? remaining.toFixed(2) : "0";
+    });
+    setIssueQtyByItem(defaults);
   }, [selectedRequest?.id]);
 
   const stockCheckRows = useMemo(() => {
     if (!selectedRequest || !effectiveSourceWarehouseId) return [];
     return (selectedRequest.items || []).map((item) => {
-      const available = Number(balanceByWarehouseProduct[`${effectiveSourceWarehouseId}|${item.product_id}`] || 0);
-      const required = Number(item.required_quantity || 0);
-      const missing = Math.max(0, required - available);
+      const available = toQty(balanceByWarehouseProduct[`${effectiveSourceWarehouseId}|${item.product_id}`], 0);
+      const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+      const alreadyIssued = toQty(item.issued_quantity, 0);
+      const remaining = Math.max(planned - alreadyIssued, 0);
+      const toIssueRaw = toQty(issueQtyByItem[item.id], remaining);
+      const toIssue = Math.max(0, toIssueRaw);
+      const missing = Math.max(0, toIssue - available);
+      const exceedsRemaining = toIssue > remaining + 0.000001;
       return {
         item,
         available,
-        required,
+        planned,
+        alreadyIssued,
+        remaining,
+        toIssue,
         missing,
-        enough: available + 0.000001 >= required,
+        exceedsRemaining,
+        enough: available + 0.000001 >= toIssue,
       };
     });
-  }, [selectedRequest, effectiveSourceWarehouseId, balanceByWarehouseProduct]);
+  }, [selectedRequest, effectiveSourceWarehouseId, balanceByWarehouseProduct, issueQtyByItem]);
 
-  const hasStockShortage = stockCheckRows.some((row) => !row.enough);
+  const hasStockShortage = stockCheckRows.some((row) => row.toIssue > 0 && !row.enough);
+  const hasIssueQtyOverRemaining = stockCheckRows.some((row) => row.exceedsRemaining);
 
   const runAction = async (fn: () => Promise<void>, successMessage: string) => {
     if (!selectedRequest || !profile?.company_id) return;
@@ -162,6 +203,29 @@ export default function WarehouseRequestsPage() {
       });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleMobileTab = (tab: "requests" | "preparing" | "ready" | "history" | "stock") => {
+    setMobileTab(tab);
+    if (tab === "stock") {
+      router.push("/inventory");
+      return;
+    }
+    if (tab === "requests") {
+      setStatusFilter("all");
+      return;
+    }
+    if (tab === "preparing") {
+      setStatusFilter("preparing");
+      return;
+    }
+    if (tab === "ready") {
+      setStatusFilter("ready");
+      return;
+    }
+    if (tab === "history") {
+      setStatusFilter("received_confirmed");
     }
   };
 
@@ -202,7 +266,7 @@ export default function WarehouseRequestsPage() {
   };
 
   const handleIssue = async () => {
-    if (!selectedRequest || !profile?.id) return;
+    if (!selectedRequest || !profile?.company_id) return;
     const warehouseId = effectiveSourceWarehouseId;
     if (!warehouseId) {
       toast({
@@ -218,8 +282,37 @@ export default function WarehouseRequestsPage() {
       toast({
         title: t("insufficient_stock"),
         description: firstShortage
-          ? `${firstShortage.item.product_name || t("material")}: ${selectedWarehouseName}. ${t("available")} ${firstShortage.available.toFixed(2)} ${localizeUnit(firstShortage.item.unit || firstShortage.item.product_unit || "", language)}, ${t("required_qty")} ${firstShortage.required.toFixed(2)} ${localizeUnit(firstShortage.item.unit || firstShortage.item.product_unit || "", language)}.`
+          ? `${firstShortage.item.product_name || t("material")}: ${selectedWarehouseName}. ${t("available")} ${firstShortage.available.toFixed(2)} ${localizeUnit(firstShortage.item.unit || firstShortage.item.product_unit || "", language)}, ${t("required_qty")} ${firstShortage.toIssue.toFixed(2)} ${localizeUnit(firstShortage.item.unit || firstShortage.item.product_unit || "", language)}.`
           : `${t("selected_warehouse")} ${selectedWarehouseName}: ${t("insufficient_stock")}.`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (hasIssueQtyOverRemaining) {
+      const firstOver = stockCheckRows.find((row) => row.exceedsRemaining);
+      toast({
+        title: t("error"),
+        description: firstOver
+          ? `${firstOver.item.product_name || t("material")}: issue quantity exceeds remaining planned amount.`
+          : "Issue quantity exceeds remaining planned amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const issueItems = stockCheckRows
+      .filter((row) => row.toIssue > 0)
+      .map((row) => ({
+        itemId: row.item.id,
+        issuedQuantity: Number(row.toIssue.toFixed(4)),
+        batchId: row.item.batch_id || null,
+      }));
+
+    if (issueItems.length === 0) {
+      toast({
+        title: t("error"),
+        description: "Set at least one issue quantity greater than zero.",
         variant: "destructive",
       });
       return;
@@ -229,8 +322,9 @@ export default function WarehouseRequestsPage() {
       setSubmitting(true);
       await issueWarehouseRequest({
         requestId: selectedRequest.id,
-        actorUserId: profile.id,
+        companyId: profile.company_id,
         sourceWarehouseId: warehouseId,
+        items: issueItems,
       });
       await loadData();
       toast({ title: t("success"), description: t("request_issued_waiting") });
@@ -247,7 +341,7 @@ export default function WarehouseRequestsPage() {
           ? stockCheckRows.find((row) => row.item.product_id === referencedItem.product_id)
           : stockCheckRows.find((row) => !row.enough);
         if (shortageRow) {
-          formattedMessage = `${shortageRow.item.product_name || "Material"}: ${selectedWarehouseName}. Available ${shortageRow.available.toFixed(2)} ${shortageRow.item.unit || shortageRow.item.product_unit || ""}, required ${shortageRow.required.toFixed(2)} ${shortageRow.item.unit || shortageRow.item.product_unit || ""}.`;
+          formattedMessage = `${shortageRow.item.product_name || "Material"}: ${selectedWarehouseName}. Available ${shortageRow.available.toFixed(2)} ${shortageRow.item.unit || shortageRow.item.product_unit || ""}, required ${shortageRow.toIssue.toFixed(2)} ${shortageRow.item.unit || shortageRow.item.product_unit || ""}.`;
         }
       }
 
@@ -262,7 +356,7 @@ export default function WarehouseRequestsPage() {
   };
 
   const handleCreateIssueTicket = async () => {
-    if (!selectedRequest || !profile?.id) return;
+    if (!selectedRequest || !profile?.company_id) return;
     const warehouseId = effectiveSourceWarehouseId;
     if (!warehouseId) {
       toast({
@@ -286,7 +380,7 @@ export default function WarehouseRequestsPage() {
       setSubmitting(true);
       const result = await createIssueTicketFromRequest({
         requestId: selectedRequest.id,
-        actorUserId: profile.id,
+        companyId: profile.company_id,
         sourceWarehouseId: warehouseId,
       });
       await loadData();
@@ -339,14 +433,18 @@ export default function WarehouseRequestsPage() {
             <SelectTrigger>
               <SelectValue placeholder={t("status")} />
             </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("all_statuses")}</SelectItem>
-              <SelectItem value="new">{t("status_new")}</SelectItem>
-              <SelectItem value="ready">{t("status_ready")}</SelectItem>
-              <SelectItem value="issued_by_warehouse">{t("status_issued_by_warehouse")}</SelectItem>
-              <SelectItem value="received_confirmed">{t("status_received_confirmed")}</SelectItem>
-              <SelectItem value="cancelled">{t("status_cancelled")}</SelectItem>
-            </SelectContent>
+              <SelectContent>
+                <SelectItem value="all">{t("all_statuses")}</SelectItem>
+                <SelectItem value="new">{t("status_new")}</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="preparing">Preparing</SelectItem>
+                <SelectItem value="ready">{t("status_ready")}</SelectItem>
+                <SelectItem value="partially_issued">Partially issued</SelectItem>
+                <SelectItem value="issued_by_warehouse">{t("status_issued_by_warehouse")}</SelectItem>
+                <SelectItem value="issued">{t("status_issued_by_warehouse")}</SelectItem>
+                <SelectItem value="received_confirmed">{t("status_received_confirmed")}</SelectItem>
+                <SelectItem value="cancelled">{t("status_cancelled")}</SelectItem>
+              </SelectContent>
           </Select>
         </CardContent>
       </Card>
@@ -461,7 +559,7 @@ export default function WarehouseRequestsPage() {
                     <div className="space-y-1">
                       {stockCheckRows.map((row) => (
                         <div key={row.item.id} className={row.enough ? "text-emerald-700" : "text-red-700"}>
-                          {row.item.product_name || "-"}: {t("available")} {row.available.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, {t("required_qty")} {row.required.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}
+                          {row.item.product_name || "-"}: {t("available")} {row.available.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, to issue {row.toIssue.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, remaining {row.remaining.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}
                         </div>
                       ))}
                     </div>
@@ -473,34 +571,84 @@ export default function WarehouseRequestsPage() {
                     <TableRow>
                       <TableHead>{t("material")}</TableHead>
                       <TableHead>{t("category")}</TableHead>
-                      <TableHead className="text-right">{t("required")}</TableHead>
+                      <TableHead className="text-right">Planned</TableHead>
+                      <TableHead className="text-right">Issued</TableHead>
+                      <TableHead className="text-right">Remaining</TableHead>
+                      <TableHead className="text-right">To issue</TableHead>
                       <TableHead>{t("unit")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(selectedRequest.items || []).map((item) => (
+                    {(selectedRequest.items || []).map((item) => {
+                      const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+                      const issued = toQty(item.issued_quantity, 0);
+                      const remaining = Math.max(planned - issued, 0);
+                      const editable =
+                        selectedRequest.status === "ready" || selectedRequest.status === "partially_issued";
+                      return (
                       <TableRow key={item.id}>
                         <TableCell>{item.product_name || "-"}</TableCell>
                         <TableCell>{item.product_type || item.product_category || "-"}</TableCell>
-                        <TableCell className="text-right">{Number(item.required_quantity || 0).toFixed(2)}</TableCell>
+                        <TableCell className="text-right">{planned.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">{issued.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">{remaining.toFixed(2)}</TableCell>
+                        <TableCell className="text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min={0}
+                            max={remaining}
+                            value={issueQtyByItem[item.id] ?? "0"}
+                            onChange={(e) =>
+                              setIssueQtyByItem((prev) => ({
+                                ...prev,
+                                [item.id]: e.target.value,
+                              }))
+                            }
+                            disabled={!editable || submitting}
+                            className="h-8 w-24 ml-auto"
+                          />
+                        </TableCell>
                         <TableCell>{localizeUnit(item.unit || item.product_unit || "kg", language)}</TableCell>
                       </TableRow>
-                    ))}
+                    )})}
                   </TableBody>
                 </Table>
 
                 {canProcess && (
                   <div className="flex flex-wrap gap-2">
-                    {selectedRequest.status === "new" && (
+                    {(selectedRequest.status === "new" ||
+                      selectedRequest.status === "active" ||
+                      selectedRequest.status === "preparing") && (
                       <>
+                        {selectedRequest.status !== "preparing" ? (
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              runAction(
+                                () =>
+                                  updateWarehouseIssueRequestStatus({
+                                    requestId: selectedRequest.id,
+                                    companyId: profile.company_id!,
+                                    status: "preparing",
+                                    sourceWarehouseId,
+                                  }),
+                                "Request moved to preparing"
+                              )
+                            }
+                            disabled={submitting}
+                          >
+                            Start preparation
+                          </Button>
+                        ) : null}
                         <Button onClick={handleReady} disabled={submitting}>{t("mark_ready")}</Button>
                         <Button variant="outline" onClick={handleCancel} disabled={submitting}>{t("cancel")}</Button>
                       </>
                     )}
 
-                    {selectedRequest.status === "ready" && (
+                    {(selectedRequest.status === "ready" || selectedRequest.status === "partially_issued") && (
                       <>
-                        <Button onClick={handleCreateIssueTicket} disabled={submitting || !effectiveSourceWarehouseId || hasStockShortage}>
+                        <Button className="hidden" onClick={handleCreateIssueTicket} disabled={submitting || !effectiveSourceWarehouseId || hasStockShortage}>
                           Создать талон выдачи
                         </Button>
                         <Button onClick={handleIssue} disabled={submitting || !effectiveSourceWarehouseId || hasStockShortage}>
@@ -512,7 +660,9 @@ export default function WarehouseRequestsPage() {
                   </div>
                 )}
 
-                {selectedRequest.status === "issued_by_warehouse" && (
+                {(selectedRequest.status === "issued_by_warehouse" ||
+                  selectedRequest.status === "issued" ||
+                  selectedRequest.status === "partially_issued") && (
                   <div className="rounded-md border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900">
                     {t("waiting_recipient_confirmation")}
                   </div>
@@ -527,6 +677,51 @@ export default function WarehouseRequestsPage() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-2 py-2 shadow md:hidden">
+        <div className="grid grid-cols-5 gap-1 text-[11px]">
+          <Button
+            type="button"
+            variant={mobileTab === "requests" ? "default" : "outline"}
+            className="h-9 px-1"
+            onClick={() => handleMobileTab("requests")}
+          >
+            Заявки
+          </Button>
+          <Button
+            type="button"
+            variant={mobileTab === "preparing" ? "default" : "outline"}
+            className="h-9 px-1"
+            onClick={() => handleMobileTab("preparing")}
+          >
+            Подг.
+          </Button>
+          <Button
+            type="button"
+            variant={mobileTab === "ready" ? "default" : "outline"}
+            className="h-9 px-1"
+            onClick={() => handleMobileTab("ready")}
+          >
+            Готово
+          </Button>
+          <Button
+            type="button"
+            variant={mobileTab === "history" ? "default" : "outline"}
+            className="h-9 px-1"
+            onClick={() => handleMobileTab("history")}
+          >
+            История
+          </Button>
+          <Button
+            type="button"
+            variant={mobileTab === "stock" ? "default" : "outline"}
+            className="h-9 px-1"
+            onClick={() => handleMobileTab("stock")}
+          >
+            Остатки
+          </Button>
+        </div>
       </div>
     </div>
   );

@@ -100,7 +100,7 @@ export default function OperationsPage() {
         getFields(profile.company_id),
         getCropStructures(profile.company_id),
         getAssignableSpecialists(profile.company_id),
-        getWarehouseIssueRequests(profile.company_id, language),
+        getWarehouseIssueRequests(profile.company_id),
         getPotatoMaterialConsumptionReport(profile.company_id, { seasonYear: new Date().getFullYear(), limit: 2000 }),
       ]);
 

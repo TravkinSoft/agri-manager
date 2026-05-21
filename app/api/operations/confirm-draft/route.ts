@@ -260,9 +260,11 @@ async function ensureWarehouseIssueRequest(params: {
       operation_id: operationId,
       field_id: fieldId,
       recipient_user_id: recipientUserId,
+      assigned_specialist_id: recipientUserId,
+      crop_id: draft.crop_id || null,
       planned_datetime: plannedDatetime,
       comment,
-      status: "new",
+      status: "active",
       confirm_token: confirmToken,
     })
     .select("id")
@@ -278,6 +280,7 @@ async function ensureWarehouseIssueRequest(params: {
     product_id: item.productId,
     product_category: item.category,
     required_quantity: Number(item.requiredQuantity.toFixed(4)),
+    planned_quantity: Number(item.requiredQuantity.toFixed(4)),
     unit: item.unit || "kg",
   }));
 

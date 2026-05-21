@@ -46,6 +46,7 @@ export default function TasksPage() {
   const [receiptHistory, setReceiptHistory] = useState<WarehouseIssueRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmingReceiptId, setConfirmingReceiptId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'my_ops' | 'receiving' | 'in_work' | 'history'>('my_ops');
 
   const getTaskStatus = (task: Operation): 'active' | 'in_progress' | 'completed' => {
     if (task.work_status === 'active' || task.work_status === 'in_progress' || task.work_status === 'completed') {
@@ -61,6 +62,17 @@ export default function TasksPage() {
       loadTasks();
     }
   }, [profile, language]);
+
+  const buildAuthHeaders = async () => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.access_token) {
+      throw new Error('Session not found. Please log in again.');
+    }
+    return {
+      Authorization: `Bearer ${data.session.access_token}`,
+      'Content-Type': 'application/json',
+    };
+  };
 
   const loadTasks = async () => {
     try {
@@ -81,7 +93,6 @@ export default function TasksPage() {
           ? getRecipientWarehouseIssueRequests({
               companyId: profile.company_id,
               recipientUserId: profile.id,
-              language,
             })
           : Promise.resolve([] as WarehouseIssueRequest[]),
       ]);
@@ -95,7 +106,9 @@ export default function TasksPage() {
       setMyTasks(active);
       setCompletedTasks(completed);
       const requests = receiptsResult || [];
-      setPendingReceipts(requests.filter((r) => r.status === "issued_by_warehouse"));
+      setPendingReceipts(
+        requests.filter((r) => r.status === "issued_by_warehouse" || r.status === "partially_issued" || r.status === "issued")
+      );
       setReceiptHistory(requests.filter((r) => r.status === "received_confirmed"));
     } catch (error) {
       console.error('Error loading tasks:', error);
@@ -110,12 +123,12 @@ export default function TasksPage() {
   };
 
   const handleConfirmReceipt = async (requestId: string) => {
-    if (!profile?.id) return;
+    if (!profile?.company_id) return;
     try {
       setConfirmingReceiptId(requestId);
       await confirmWarehouseReceipt({
         requestId,
-        actorUserId: profile.id,
+        companyId: profile.company_id,
       });
       toast({
         title: 'Receipt confirmed',
@@ -136,16 +149,14 @@ export default function TasksPage() {
 
   const handleAccept = async (taskId: string) => {
     try {
-      const { error } = await supabase
-        .from('operations')
-        .update({
-          status: 'in_progress',
-          work_status: 'in_progress',
-          accepted_at: new Date().toISOString(),
-        })
-        .eq('id', taskId);
-
-      if (error) throw error;
+      const headers = await buildAuthHeaders();
+      const response = await fetch(`/api/operations/${encodeURIComponent(taskId)}/start`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ companyId: profile?.company_id }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Failed to start operation');
 
       toast({
         title: 'Task Accepted',
@@ -165,16 +176,14 @@ export default function TasksPage() {
 
   const handleComplete = async (taskId: string) => {
     try {
-      const { error } = await supabase
-        .from('operations')
-        .update({
-          status: 'completed',
-          work_status: 'completed',
-          completed_at: new Date().toISOString(),
-        })
-        .eq('id', taskId);
-
-      if (error) throw error;
+      const headers = await buildAuthHeaders();
+      const response = await fetch(`/api/operations/${encodeURIComponent(taskId)}/complete`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ companyId: profile?.company_id }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Failed to complete operation');
 
       toast({
         title: 'Task Completed',
@@ -253,6 +262,8 @@ export default function TasksPage() {
     </Card>
   );
 
+  const inProgressTasks = myTasks.filter((task) => getTaskStatus(task) === 'in_progress');
+
   const isTaskRole = profile?.role === "specialist" || profile?.role === "brigadier";
 
   if (!isTaskRole) {
@@ -278,20 +289,23 @@ export default function TasksPage() {
         description="View and manage your assigned operations"
       />
 
-      <Tabs defaultValue="active" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="active">
-            My Tasks ({myTasks.length})
+          <TabsTrigger value="my_ops">
+            Мои операции ({myTasks.length})
           </TabsTrigger>
-          <TabsTrigger value="receipts">
-            Material Receipts ({pendingReceipts.length})
+          <TabsTrigger value="receiving">
+            Получение ({pendingReceipts.length})
           </TabsTrigger>
-          <TabsTrigger value="completed">
-            Completed ({completedTasks.length})
+          <TabsTrigger value="in_work">
+            В работе ({inProgressTasks.length})
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            История ({completedTasks.length + receiptHistory.length})
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="active">
+        <TabsContent value="my_ops">
           {loading ? (
             <Card>
               <CardContent className="p-6 text-center text-slate-500">
@@ -311,7 +325,7 @@ export default function TasksPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="receipts">
+        <TabsContent value="receiving">
           {loading ? (
             <Card>
               <CardContent className="p-6 text-center text-slate-500">
@@ -405,7 +419,27 @@ export default function TasksPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="completed">
+        <TabsContent value="in_work">
+          {loading ? (
+            <Card>
+              <CardContent className="p-6 text-center text-slate-500">
+                Loading tasks...
+              </CardContent>
+            </Card>
+          ) : inProgressTasks.length === 0 ? (
+            <Card>
+              <CardContent className="p-6 text-center text-slate-500">
+                No operations in progress.
+              </CardContent>
+            </Card>
+          ) : (
+            <div>
+              {inProgressTasks.map(task => renderTaskCard(task))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="history">
           {loading ? (
             <Card>
               <CardContent className="p-6 text-center text-slate-500">
@@ -413,18 +447,99 @@ export default function TasksPage() {
               </CardContent>
             </Card>
           ) : completedTasks.length === 0 ? (
-            <Card>
-              <CardContent className="p-6 text-center text-slate-500">
-                No completed tasks yet.
-              </CardContent>
-            </Card>
+            <div className="space-y-4">
+              <Card>
+                <CardContent className="p-6 text-center text-slate-500">
+                  No completed tasks yet.
+                </CardContent>
+              </Card>
+              {receiptHistory.length > 0 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Confirmed receipts</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {receiptHistory.map((request) => (
+                      <div key={request.id} className="rounded-md border p-3">
+                        <div className="font-medium">{request.request_number}</div>
+                        <div className="text-slate-500">
+                          {request.field_name || '-'} • {request.operation_type} • confirmed{" "}
+                          {request.received_confirmed_at
+                            ? new Date(request.received_confirmed_at).toLocaleString()
+                            : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>
           ) : (
-            <div>
-              {completedTasks.map(task => renderTaskCard(task, true))}
+            <div className="space-y-4">
+              <div>
+                {completedTasks.map(task => renderTaskCard(task, true))}
+              </div>
+              {receiptHistory.length > 0 ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Confirmed receipts</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {receiptHistory.map((request) => (
+                      <div key={request.id} className="rounded-md border p-3">
+                        <div className="font-medium">{request.request_number}</div>
+                        <div className="text-slate-500">
+                          {request.field_name || '-'} • {request.operation_type} • confirmed{" "}
+                          {request.received_confirmed_at
+                            ? new Date(request.received_confirmed_at).toLocaleString()
+                            : ""}
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              ) : null}
             </div>
           )}
         </TabsContent>
       </Tabs>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-2 py-2 shadow md:hidden">
+        <div className="grid grid-cols-4 gap-1 text-xs">
+          <Button
+            type="button"
+            variant={activeTab === 'my_ops' ? 'default' : 'outline'}
+            className="h-9 px-1"
+            onClick={() => setActiveTab('my_ops')}
+          >
+            Операции
+          </Button>
+          <Button
+            type="button"
+            variant={activeTab === 'receiving' ? 'default' : 'outline'}
+            className="h-9 px-1"
+            onClick={() => setActiveTab('receiving')}
+          >
+            Получение
+          </Button>
+          <Button
+            type="button"
+            variant={activeTab === 'in_work' ? 'default' : 'outline'}
+            className="h-9 px-1"
+            onClick={() => setActiveTab('in_work')}
+          >
+            В работе
+          </Button>
+          <Button
+            type="button"
+            variant={activeTab === 'history' ? 'default' : 'outline'}
+            className="h-9 px-1"
+            onClick={() => setActiveTab('history')}
+          >
+            История
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

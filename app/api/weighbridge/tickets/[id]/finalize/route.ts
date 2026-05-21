@@ -101,7 +101,7 @@ export async function POST(
     if (ticketBefore.linked_request_id) {
       const { data: requestItems } = await supabase
         .from("warehouse_issue_request_items")
-        .select("id, required_quantity")
+        .select("id, planned_quantity, required_quantity")
         .eq("request_id", ticketBefore.linked_request_id);
 
       await supabase
@@ -119,7 +119,7 @@ export async function POST(
         .upsert(
           (requestItems || []).map((item: any) => ({
             id: item.id,
-            issued_quantity: Number(item.required_quantity || 0),
+            issued_quantity: Number(item.planned_quantity || item.required_quantity || 0),
           })),
           { onConflict: "id" }
         );

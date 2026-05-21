@@ -115,6 +115,7 @@ export async function POST(request: NextRequest) {
       product_name_snapshot: productById.get(String(item.product_id)) || null,
       uom: item.unit || "kg",
       quantity: Number(item.required_quantity || 0),
+      operation_line_id: reqRow.operation_line_id || null,
       notes: `From warehouse request ${reqRow.request_number}`,
     }));
 
