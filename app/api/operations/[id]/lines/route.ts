@@ -29,6 +29,13 @@ function nullableNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function allowsOperationLines(operation: { operation_category_slug?: string | null; operation_type_slug?: string | null; operation_type?: string | null }): boolean {
+  const categorySlug = String(operation.operation_category_slug || "").trim().toLowerCase();
+  if (categorySlug === "seeding_planting" || categorySlug === "harvesting") return true;
+  const merged = `${String(operation.operation_type_slug || "").toLowerCase()} ${String(operation.operation_type || "").toLowerCase()}`;
+  return ["seed", "sow", "plant", "harvest", "посев", "посад", "уборк"].some((token) => merged.includes(token));
+}
+
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const actor = await getServerActorFromSession(request);
@@ -49,7 +56,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("id,company_id")
+      .select("id,company_id,operation_category_slug,operation_type_slug,operation_type")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -108,12 +115,15 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("id,company_id,field_id,crop_structure_id")
+      .select("id,company_id,field_id,crop_structure_id,operation_category_slug,operation_type_slug,operation_type")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
     if (operationError) return NextResponse.json({ error: operationError.message }, { status: 400 });
     if (!operation?.id) return NextResponse.json({ error: "operation not found" }, { status: 404 });
+    if (!allowsOperationLines(operation)) {
+      return NextResponse.json({ error: "operation lines are not enabled for this operation type" }, { status: 400 });
+    }
 
     const plannedArea = nullableNumber(body.planned_area_ha);
     if (plannedArea == null || plannedArea < 0) {

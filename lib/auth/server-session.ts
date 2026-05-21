@@ -16,6 +16,11 @@ export type ServerActorContext = {
   contextCompanyId: string | null;
   status: string | null;
   email: string | null;
+  isImpersonating: boolean;
+  impersonatedProfileId: string | null;
+  impersonatedCompanyId: string | null;
+  impersonatedByProfileId: string | null;
+  impersonatedByAuthUserId: string | null;
 };
 
 export class SessionAuthError extends Error {
@@ -46,6 +51,12 @@ type ProfileRow = {
   status: string | null;
   company_id: string | null;
   email?: string | null;
+};
+
+type ImpersonationContextRow = {
+  admin_user_id: string;
+  impersonated_profile_id: string | null;
+  impersonated_company_id: string | null;
 };
 
 function isUuidLike(value: string): boolean {
@@ -374,7 +385,48 @@ async function resolveGlobalAdminContextCompanyId(profileId: string, authUserId:
   return null;
 }
 
-export async function getServerActorFromSession(request: NextRequest): Promise<ServerActorContext> {
+async function resolveGlobalAdminImpersonationContext(profileId: string, authUserId: string): Promise<ImpersonationContextRow | null> {
+  const supabase = getServiceClient();
+  const candidateUserIds = Array.from(new Set([profileId, authUserId].filter((value) => isUuidLike(value))));
+  if (!candidateUserIds.length) return null;
+
+  const { data, error } = await supabase
+    .from("global_admin_impersonation_contexts")
+    .select("admin_user_id,impersonated_profile_id,impersonated_company_id,updated_at")
+    .in("admin_user_id", candidateUserIds)
+    .order("updated_at", { ascending: false })
+    .limit(1);
+
+  if (error || !Array.isArray(data) || data.length === 0) return null;
+  const row = data[0] as any;
+  const adminUserId = String(row?.admin_user_id || "").trim();
+  if (!isUuidLike(adminUserId)) return null;
+  const impersonatedProfileId = String(row?.impersonated_profile_id || "").trim();
+  const impersonatedCompanyId = String(row?.impersonated_company_id || "").trim();
+  return {
+    admin_user_id: adminUserId,
+    impersonated_profile_id: isUuidLike(impersonatedProfileId) ? impersonatedProfileId : null,
+    impersonated_company_id: isUuidLike(impersonatedCompanyId) ? impersonatedCompanyId : null,
+  };
+}
+
+async function resolveProfileById(profileId: string): Promise<ProfileRow | null> {
+  const supabase = getServiceClient();
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", profileId)
+    .limit(1);
+
+  if (error) return null;
+  const rows = normalizeProfileRows(data);
+  return rows[0] || null;
+}
+
+export async function getServerActorFromSession(
+  request: NextRequest,
+  options?: { ignoreImpersonation?: boolean }
+): Promise<ServerActorContext> {
   const { userId, token, email } = await getSessionIdentity(request);
   const profileLookup = await findProfileByIdOrEmail({ userId, userEmail: email, token });
   const profile = profileLookup.selected;
@@ -410,6 +462,38 @@ export async function getServerActorFromSession(request: NextRequest): Promise<S
   const contextCompanyId =
     normalizedRole === "global_admin" ? await resolveGlobalAdminContextCompanyId(profile.id, userId) : null;
 
+  if (normalizedRole === "global_admin" && options?.ignoreImpersonation !== true) {
+    const impersonationContext = await resolveGlobalAdminImpersonationContext(profile.id, userId);
+    const impersonatedProfileId = String(impersonationContext?.impersonated_profile_id || "").trim();
+    if (isUuidLike(impersonatedProfileId)) {
+      const impersonatedProfile = await resolveProfileById(impersonatedProfileId);
+      const impersonatedRole = normalizeRole(impersonatedProfile?.role);
+      const impersonatedStatus = normalizeStatus(impersonatedProfile?.status);
+      const impersonatedCompanyId = String(impersonatedProfile?.company_id || "").trim();
+      if (!impersonatedProfile || !impersonatedRole || impersonatedStatus !== "active" || !isUuidLike(impersonatedCompanyId)) {
+        throw new SessionAuthError("Impersonation context is invalid", 403);
+      }
+
+      return {
+        id: impersonatedProfileId,
+        authUserId: userId,
+        role: impersonatedRole,
+        roleRawKey: normalizeRoleKey(impersonatedProfile.role),
+        roleIsLegacyAlias: isLegacyRoleAlias(impersonatedProfile.role),
+        companyId: impersonatedCompanyId,
+        homeCompanyId: impersonatedCompanyId,
+        contextCompanyId: null,
+        status: impersonatedStatus,
+        email: normalizeEmail(impersonatedProfile.email),
+        isImpersonating: true,
+        impersonatedProfileId,
+        impersonatedCompanyId: impersonationContext?.impersonated_company_id || impersonatedCompanyId,
+        impersonatedByProfileId: String(profile.id),
+        impersonatedByAuthUserId: userId,
+      };
+    }
+  }
+
   return {
     id: String(profile.id),
     authUserId: userId,
@@ -421,6 +505,11 @@ export async function getServerActorFromSession(request: NextRequest): Promise<S
     homeCompanyId,
     contextCompanyId,
     email,
+    isImpersonating: false,
+    impersonatedProfileId: null,
+    impersonatedCompanyId: null,
+    impersonatedByProfileId: null,
+    impersonatedByAuthUserId: null,
   };
 }
 

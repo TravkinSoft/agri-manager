@@ -26,7 +26,7 @@ function resolveContextOwnerIds(actor: { id: string; authUserId?: string | null 
 
 export async function GET(request: NextRequest) {
   try {
-    const actor = await getServerActorFromSession(request);
+    const actor = await getServerActorFromSession(request, { ignoreImpersonation: true });
     requireGlobalAdmin(actor.role);
 
     const supabase = getServiceClient();
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const actor = await getServerActorFromSession(request);
+    const actor = await getServerActorFromSession(request, { ignoreImpersonation: true });
     requireGlobalAdmin(actor.role);
 
     const payload = await request.json().catch(() => ({}));

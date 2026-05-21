@@ -6,11 +6,20 @@ export interface Operation {
   field_id: string;
   crop_structure_id: string | null;
   operation_type: string;
+  operation_category_slug?: string | null;
+  operation_type_slug?: string | null;
   planned_area_ha?: number | null;
   crop_id?: string | null;
   status?: string | null;
   assigned_to?: string | null;
   date: string;
+  machine_id?: string | null;
+  equipment_id?: string | null;
+  transport_id?: string | null;
+  operation_target?: string | null;
+  rate_per_ha?: number | null;
+  spray_volume_per_ha?: number | null;
+  operation_config?: Record<string, unknown> | null;
   notes: string | null;
   responsible_user_id: string | null;
   work_status: "active" | "in_progress" | "completed";
@@ -38,6 +47,39 @@ export interface OperationWithDetails extends Operation {
   draft_equipment?: string;
   draft_responsible?: string;
   draft_comments?: string;
+  materials?: OperationMaterial[];
+}
+
+export type OperationMaterialType =
+  | "seed"
+  | "fertilizer"
+  | "pesticide"
+  | "adjuvant"
+  | "ph_corrector"
+  | "defoamer"
+  | "biological"
+  | "fuel"
+  | "organic";
+
+export type OperationMaterialUnit = "kg" | "l" | "pcs";
+
+export interface OperationMaterial {
+  id: string;
+  company_id: string;
+  operation_id: string;
+  operation_line_id: string | null;
+  product_id: string;
+  batch_id: string | null;
+  material_type: OperationMaterialType;
+  unit: OperationMaterialUnit;
+  planned_rate: number | null;
+  actual_rate: number | null;
+  planned_quantity: number | null;
+  issued_quantity: number;
+  consumed_quantity: number | null;
+  returned_quantity: number | null;
+  notes: string | null;
+  product_name?: string | null;
 }
 
 export interface OperationLine {
@@ -66,6 +108,17 @@ export interface OperationLine {
   reproduction_name?: string;
 }
 
+export interface OperationMaterialFormData {
+  id?: string;
+  material_type: OperationMaterialType;
+  product_id: string;
+  batch_id?: string | null;
+  planned_rate?: number | null;
+  actual_rate?: number | null;
+  unit: OperationMaterialUnit;
+  notes?: string | null;
+}
+
 export const operationLineSchema = z.object({
   field_id: z.string().uuid().nullable().optional(),
   crop_id: z.string().uuid().nullable().optional(),
@@ -84,9 +137,40 @@ export type OperationLineFormData = z.infer<typeof operationLineSchema>;
 export const operationSchema = z.object({
   field_id: z.string().uuid("Please select a field"),
   crop_structure_id: z.string().uuid("Please select a crop structure").nullable().optional(),
+  operation_category_slug: z.string().optional(),
+  operation_type_slug: z.string().optional(),
   operation_type: z.string().min(1, "Operation type is required"),
   planned_area_ha: z.number().min(0, "Planned area must be >= 0").nullable().optional(),
   crop_id: z.string().uuid().nullable().optional(),
+  machine_id: z.string().uuid().nullable().optional(),
+  equipment_id: z.string().uuid().nullable().optional(),
+  transport_id: z.string().uuid().nullable().optional(),
+  operation_target: z.string().nullable().optional(),
+  rate_per_ha: z.number().min(0).nullable().optional(),
+  spray_volume_per_ha: z.number().min(0).nullable().optional(),
+  materials: z
+    .array(
+      z.object({
+        material_type: z.enum([
+          "seed",
+          "fertilizer",
+          "pesticide",
+          "adjuvant",
+          "ph_corrector",
+          "defoamer",
+          "biological",
+          "fuel",
+          "organic",
+        ]),
+        product_id: z.string().uuid("Product is required"),
+        batch_id: z.string().uuid().nullable().optional(),
+        planned_rate: z.number().min(0).nullable().optional(),
+        actual_rate: z.number().min(0).nullable().optional(),
+        unit: z.enum(["kg", "l", "pcs"]),
+        notes: z.string().nullable().optional(),
+      })
+    )
+    .optional(),
   date: z.string().min(1, "Date is required"),
   responsible_user_id: z.string().uuid("Please select specialist").nullable().optional(),
   notes: z.string().optional(),

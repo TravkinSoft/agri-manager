@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Archive, ChevronDown, ChevronUp, Pencil, Plus } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,53 +17,80 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Pencil, Archive, ChevronDown, ChevronUp } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
 import {
-  getOperations,
-  createOperation,
-  updateOperation,
   archiveOperation,
+  createOperation,
+  createOperationLine,
+  deleteOperationLine,
+  ensureOperationMaterialRequest,
   getAssignableSpecialists,
   getOperationLines,
-  createOperationLine,
-  updateOperationLine,
-  deleteOperationLine,
+  getOperations,
   getPotatoMaterialConsumptionReport,
+  updateOperation,
+  updateOperationLine,
 } from "@/lib/services/operations";
 import { getFields } from "@/lib/services/fields";
 import { getCropStructures } from "@/lib/services/crop-structure";
+import { getWarehouseIssueRequests } from "@/lib/services/warehouse-requests";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { useToast } from "@/hooks/use-toast";
 import {
+  OperationFormData,
   OperationLine,
   OperationLineFormData,
   OperationWithDetails,
   PotatoMaterialConsumptionRow,
+  SpecialistAssignee,
 } from "@/lib/types/operation";
-import { OperationFormData } from "@/lib/types/operation";
-import { SpecialistAssignee } from "@/lib/types/operation";
 import { Field } from "@/lib/types/field";
 import { CropStructureWithDetails } from "@/lib/types/crop-structure";
-import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
-import { getWarehouseIssueRequests } from "@/lib/services/warehouse-requests";
 
 function isRowCrop(cropName: string | null | undefined): boolean {
   const normalized = String(cropName || "").trim().toLowerCase();
   if (!normalized) return false;
-  return [
-    "картофель",
-    "морковь",
-    "лук",
-    "кукуруза",
-    "свекла",
-  ].some((token) => normalized.includes(token));
+  return ["картофель", "морковь", "лук", "кукуруза", "свекла", "potato", "carrot", "onion", "corn"].some(
+    (token) => normalized.includes(token)
+  );
+}
+
+function shouldShowOperationLines(operation: OperationWithDetails): boolean {
+  const categorySlug = String(operation.operation_category_slug || "").trim().toLowerCase();
+  if (categorySlug === "seeding_planting" || categorySlug === "harvesting") return true;
+
+  const typeSlug = String(operation.operation_type_slug || "").trim().toLowerCase();
+  const typeName = String(operation.operation_type || "").trim().toLowerCase();
+  const merged = `${categorySlug} ${typeSlug} ${typeName}`;
+  return ["seed", "sow", "plant", "harvest", "посев", "посад", "уборк"].some((token) => merged.includes(token));
+}
+
+function formatDate(dateString: string): string {
+  if (!dateString) return "-";
+  const d = new Date(dateString);
+  if (Number.isNaN(d.getTime())) return dateString;
+  return d.toLocaleDateString("ru-RU", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function statusBadge(status: string | null | undefined) {
+  const normalized = String(status || "active").trim().toLowerCase();
+  if (normalized === "completed") return <Badge className="bg-emerald-100 text-emerald-800">completed</Badge>;
+  if (normalized === "in_progress") return <Badge className="bg-blue-100 text-blue-800">in progress</Badge>;
+  if (normalized === "ready_to_start") return <Badge className="bg-amber-100 text-amber-800">ready</Badge>;
+  return <Badge className="bg-slate-100 text-slate-800">{normalized}</Badge>;
 }
 
 export default function OperationsPage() {
+  const { profile } = useAuth();
+  const { toast } = useToast();
   const { language } = useLanguage();
   const [operations, setOperations] = useState<OperationWithDetails[]>([]);
   const [fields, setFields] = useState<Field[]>([]);
@@ -71,7 +101,7 @@ export default function OperationsPage() {
   const [editingOperation, setEditingOperation] = useState<OperationWithDetails | null>(null);
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [operationToArchive, setOperationToArchive] = useState<OperationWithDetails | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [requestStatusByOperationId, setRequestStatusByOperationId] = useState<Record<string, string>>({});
   const [operationLinesByOperationId, setOperationLinesByOperationId] = useState<Record<string, OperationLine[]>>({});
   const [linesLoadingByOperationId, setLinesLoadingByOperationId] = useState<Record<string, boolean>>({});
@@ -79,61 +109,52 @@ export default function OperationsPage() {
   const [lineMutationBusyByOperationId, setLineMutationBusyByOperationId] = useState<Record<string, boolean>>({});
   const [potatoConsumptionRows, setPotatoConsumptionRows] = useState<PotatoMaterialConsumptionRow[]>([]);
   const [potatoConsumptionLoading, setPotatoConsumptionLoading] = useState(false);
-  const { toast } = useToast();
-  const { profile } = useAuth();
+
+  const [explorerField, setExplorerField] = useState<string>("all");
+  const [explorerOperationType, setExplorerOperationType] = useState<string>("all");
+  const [explorerMaterialSearch, setExplorerMaterialSearch] = useState<string>("");
+
   const canManageOperationLines =
-    profile?.role === "company_admin" ||
-    profile?.role === "global_admin" ||
-    profile?.role === "agronomist";
-  const canUpdateOperationFacts =
-    canManageOperationLines ||
-    profile?.role === "brigadier";
+    profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "agronomist";
+  const canUpdateOperationFacts = canManageOperationLines || profile?.role === "brigadier";
 
   const loadData = async () => {
     if (!profile?.company_id) return;
-
+    setLoading(true);
+    setPotatoConsumptionLoading(true);
     try {
-      setLoading(true);
-      setPotatoConsumptionLoading(true);
-      const [operationsResult, fieldsResult, cropStructuresResult, specialistsResult, requestsResult, potatoReportResult] = await Promise.allSettled([
+      const [opsRes, fieldsRes, cropRes, specialistRes, requestsRes, potatoRes] = await Promise.allSettled([
         getOperations(profile.company_id),
         getFields(profile.company_id),
         getCropStructures(profile.company_id),
         getAssignableSpecialists(profile.company_id),
         getWarehouseIssueRequests(profile.company_id),
-        getPotatoMaterialConsumptionReport(profile.company_id, { seasonYear: new Date().getFullYear(), limit: 2000 }),
+        getPotatoMaterialConsumptionReport(profile.company_id, {
+          seasonYear: new Date().getFullYear(),
+          limit: 2000,
+        }),
       ]);
 
-      if (operationsResult.status === "fulfilled") {
-        setOperations(operationsResult.value);
-      } else {
-        throw operationsResult.reason;
-      }
+      if (opsRes.status === "fulfilled") setOperations(opsRes.value);
+      else throw opsRes.reason;
+      setFields(fieldsRes.status === "fulfilled" ? fieldsRes.value : []);
+      setCropStructures(cropRes.status === "fulfilled" ? cropRes.value : []);
+      setSpecialists(specialistRes.status === "fulfilled" ? specialistRes.value : []);
 
-      setFields(fieldsResult.status === "fulfilled" ? fieldsResult.value : []);
-      setCropStructures(cropStructuresResult.status === "fulfilled" ? cropStructuresResult.value : []);
-      setSpecialists(specialistsResult.status === "fulfilled" ? specialistsResult.value : []);
-      if (requestsResult.status === "fulfilled") {
-        const nextMap: Record<string, string> = {};
-        requestsResult.value.forEach((row) => {
-          if (row.operation_id) nextMap[row.operation_id] = row.status;
+      if (requestsRes.status === "fulfilled") {
+        const map: Record<string, string> = {};
+        requestsRes.value.forEach((row) => {
+          if (row.operation_id) map[row.operation_id] = row.status;
         });
-        setRequestStatusByOperationId(nextMap);
+        setRequestStatusByOperationId(map);
       } else {
         setRequestStatusByOperationId({});
       }
 
-      if (potatoReportResult.status === "fulfilled") {
-        setPotatoConsumptionRows(potatoReportResult.value);
-      } else {
-        setPotatoConsumptionRows([]);
-      }
-    } catch {
-      toast({
-        title: "Error",
-        description: "Failed to load data",
-        variant: "destructive",
-      });
+      setPotatoConsumptionRows(potatoRes.status === "fulfilled" ? potatoRes.value : []);
+    } catch (error) {
+      console.error(error);
+      toast({ title: "Ошибка", description: "Не удалось загрузить операции", variant: "destructive" });
     } finally {
       setLoading(false);
       setPotatoConsumptionLoading(false);
@@ -141,7 +162,7 @@ export default function OperationsPage() {
   };
 
   useEffect(() => {
-    if (profile?.company_id) loadData();
+    if (profile?.company_id) void loadData();
   }, [profile?.company_id, language]);
 
   const makeDefaultLineDraft = (operation: OperationWithDetails): OperationLineFormData => ({
@@ -160,25 +181,21 @@ export default function OperationsPage() {
   const getOperationLineIdentityOptions = (operation: OperationWithDetails) => {
     const seen = new Set<string>();
     const options: Array<{ key: string; varietyId: string | null; reproductionId: string | null; label: string }> = [];
-
-    for (const row of cropStructures) {
-      if (String(row.field_id || "") !== String(operation.field_id || "")) continue;
-      if (operation.crop_id && String(row.crop_id || "") !== String(operation.crop_id || "")) continue;
+    cropStructures.forEach((row) => {
+      if (String(row.field_id || "") !== String(operation.field_id || "")) return;
+      if (operation.crop_id && String(row.crop_id || "") !== String(operation.crop_id || "")) return;
       const varietyId = row.variety_id ? String(row.variety_id) : null;
       const reproductionId = row.reproduction_id ? String(row.reproduction_id) : null;
       const key = `${varietyId || ""}|${reproductionId || ""}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) return;
       seen.add(key);
-      const varietyName = row.variety_name || "—";
-      const reproductionName = row.reproduction_name || "—";
       options.push({
         key,
         varietyId,
         reproductionId,
-        label: `${varietyName} / ${reproductionName}`,
+        label: `${row.variety_name || "без сорта"} / ${row.reproduction_name || "без репр."}`,
       });
-    }
-
+    });
     return options.sort((a, b) => a.label.localeCompare(b.label, "ru"));
   };
 
@@ -192,120 +209,40 @@ export default function OperationsPage() {
 
   const loadOperationLines = async (operationId: string) => {
     if (!profile?.company_id) return;
+    setLinesLoadingByOperationId((prev) => ({ ...prev, [operationId]: true }));
     try {
-      setLinesLoadingByOperationId((prev) => ({ ...prev, [operationId]: true }));
-      const lines = await getOperationLines(operationId, profile.company_id);
-      setOperationLinesByOperationId((prev) => ({ ...prev, [operationId]: lines }));
+      const rows = await getOperationLines(operationId, profile.company_id);
+      setOperationLinesByOperationId((prev) => ({ ...prev, [operationId]: rows }));
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to load operation lines",
-        variant: "destructive",
-      });
+      toast({ title: "Ошибка", description: error?.message || "Не удалось загрузить строки операции", variant: "destructive" });
     } finally {
       setLinesLoadingByOperationId((prev) => ({ ...prev, [operationId]: false }));
     }
   };
 
-  const ensureOperationLinesLoaded = async (operation: OperationWithDetails) => {
-    if (!operationLinesByOperationId[operation.id]) {
-      await loadOperationLines(operation.id);
-    }
+  const ensureLinesLoaded = async (operation: OperationWithDetails) => {
+    if (!operationLinesByOperationId[operation.id]) await loadOperationLines(operation.id);
     setLineDraftByOperationId((prev) => {
       if (prev[operation.id]) return prev;
       return { ...prev, [operation.id]: makeDefaultLineDraft(operation) };
     });
   };
 
-  const handleAddOperationLine = async (operation: OperationWithDetails) => {
-    if (!profile?.company_id || !canManageOperationLines) return;
-    const draft = lineDraftByOperationId[operation.id] || makeDefaultLineDraft(operation);
-    if (!Number.isFinite(draft.planned_area_ha) || Number(draft.planned_area_ha) < 0) {
-      toast({
-        title: "Validation",
-        description: "Planned area must be >= 0",
-        variant: "destructive",
-      });
-      return;
-    }
-    try {
-      setLineMutationBusyByOperationId((prev) => ({ ...prev, [operation.id]: true }));
-      await createOperationLine(operation.id, profile.company_id, draft);
-      await loadOperationLines(operation.id);
-      setLineDraftByOperationId((prev) => ({ ...prev, [operation.id]: makeDefaultLineDraft(operation) }));
-      toast({ title: "Success", description: "Operation line created" });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to create operation line",
-        variant: "destructive",
-      });
-    } finally {
-      setLineMutationBusyByOperationId((prev) => ({ ...prev, [operation.id]: false }));
-    }
-  };
-
-  const handleSaveFact = async (operationId: string, line: OperationLine) => {
-    if (!profile?.company_id || !canUpdateOperationFacts) return;
-    try {
-      await updateOperationLine(line.id, profile.company_id, { completed: true });
-      await loadOperationLines(operationId);
-      toast({ title: "Success", description: "Line fact saved" });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to save fact line",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handlePatchOperationLineFact = async (
-    operationId: string,
-    lineId: string,
-    patch: Partial<OperationLineFormData>
-  ) => {
-    if (!profile?.company_id || !canUpdateOperationFacts) return;
-    try {
-      await updateOperationLine(lineId, profile.company_id, patch);
-      await loadOperationLines(operationId);
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to update operation line",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleDeleteLine = async (operationId: string, lineId: string) => {
-    if (!profile?.company_id || !canManageOperationLines) return;
-    try {
-      await deleteOperationLine(lineId, profile.company_id);
-      await loadOperationLines(operationId);
-      toast({ title: "Success", description: "Operation line deleted" });
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to delete operation line",
-        variant: "destructive",
-      });
-    }
-  };
-
   const handleCreate = async (data: OperationFormData) => {
     if (!profile?.company_id) return;
     try {
-      await createOperation(profile.company_id, data);
-      setIsFormOpen(false);
+      const created = await createOperation(profile.company_id, data);
       await loadData();
-      toast({ title: "Success", description: "Operation added successfully" });
-    } catch (error: any) {
+      setIsFormOpen(false);
+      const requestMeta = (created as any)?.material_request as { created?: boolean; request_number?: string } | undefined;
       toast({
-        title: "Error",
-        description: error.message || "Failed to add operation",
-        variant: "destructive",
+        title: "Успешно",
+        description: requestMeta?.created
+          ? `Операция создана, заявка ${requestMeta.request_number || "auto"}`
+          : "Операция создана",
       });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось создать операцию", variant: "destructive" });
     }
   };
 
@@ -316,13 +253,24 @@ export default function OperationsPage() {
       setEditingOperation(null);
       setIsFormOpen(false);
       await loadData();
-      toast({ title: "Success", description: "Operation updated successfully" });
+      toast({ title: "Успешно", description: "Операция обновлена" });
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update operation",
-        variant: "destructive",
-      });
+      toast({ title: "Ошибка", description: error?.message || "Не удалось обновить операцию", variant: "destructive" });
+    }
+  };
+
+  const handleEnsureMaterialRequest = async (operation: OperationWithDetails) => {
+    if (!profile?.company_id) return;
+    try {
+      const result = await ensureOperationMaterialRequest(operation.id, profile.company_id);
+      await loadData();
+      if (result?.created) {
+        toast({ title: "Успешно", description: `Заявка создана (${String(result.request_number || "auto")})` });
+      } else {
+        toast({ title: "Инфо", description: `Без изменений (${String(result?.skipped_reason || "already synchronized")})` });
+      }
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось создать заявку", variant: "destructive" });
     }
   };
 
@@ -333,63 +281,114 @@ export default function OperationsPage() {
       setArchiveDialogOpen(false);
       setOperationToArchive(null);
       await loadData();
-      toast({ title: "Success", description: "Operation archived successfully" });
+      toast({ title: "Успешно", description: "Операция архивирована" });
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to archive operation",
-        variant: "destructive",
-      });
+      toast({ title: "Ошибка", description: error?.message || "Не удалось архивировать", variant: "destructive" });
     }
   };
 
-  const formatDate = (dateString: string) =>
-    new Date(dateString).toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
+  const handleAddOperationLine = async (operation: OperationWithDetails) => {
+    if (!profile?.company_id || !canManageOperationLines) return;
+    const draft = lineDraftByOperationId[operation.id] || makeDefaultLineDraft(operation);
+    if (!Number.isFinite(draft.planned_area_ha) || Number(draft.planned_area_ha) < 0) {
+      toast({ title: "Проверка", description: "Плановая площадь должна быть >= 0", variant: "destructive" });
+      return;
+    }
 
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      active: "bg-slate-100 text-slate-800",
-      in_progress: "bg-orange-100 text-orange-800",
-      completed: "bg-green-100 text-green-800",
-    };
-    return (
-      <Badge className={styles[status as keyof typeof styles] || "bg-slate-100 text-slate-800"}>
-        {status?.replace("_", " ") || "active"}
-      </Badge>
-    );
+    setLineMutationBusyByOperationId((prev) => ({ ...prev, [operation.id]: true }));
+    try {
+      await createOperationLine(operation.id, profile.company_id, draft);
+      await loadOperationLines(operation.id);
+      setLineDraftByOperationId((prev) => ({ ...prev, [operation.id]: makeDefaultLineDraft(operation) }));
+      toast({ title: "Успешно", description: "Строка операции добавлена" });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось добавить строку", variant: "destructive" });
+    } finally {
+      setLineMutationBusyByOperationId((prev) => ({ ...prev, [operation.id]: false }));
+    }
   };
 
-  const activeOperations = operations.filter((op) => (op.work_status || "active") === "active");
-  const inProgressOperations = operations.filter((op) => (op.work_status || "active") === "in_progress");
-  const completedOperations = operations.filter((op) => (op.work_status || "active") === "completed");
-
-  const toggleExpand = (operation: OperationWithDetails) => {
-    setExpandedIds((prev) => {
-      const nextExpanded = !prev[operation.id];
-      if (nextExpanded) void ensureOperationLinesLoaded(operation);
-      return { ...prev, [operation.id]: nextExpanded };
-    });
+  const handlePatchOperationLineFact = async (operationId: string, lineId: string, patch: Partial<OperationLineFormData>) => {
+    if (!profile?.company_id || !canUpdateOperationFacts) return;
+    try {
+      await updateOperationLine(lineId, profile.company_id, patch);
+      await loadOperationLines(operationId);
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось обновить строку", variant: "destructive" });
+    }
   };
 
-  const specialistLabelById = specialists.reduce<Record<string, string>>((acc, item) => {
-    const baseName = String(item.full_name || "").trim() || item.email;
-    acc[item.id] = `${baseName} (${item.role})`;
+  const handleSaveFact = async (operationId: string, line: OperationLine) => {
+    if (!profile?.company_id || !canUpdateOperationFacts) return;
+    try {
+      await updateOperationLine(line.id, profile.company_id, { completed: true });
+      await loadOperationLines(operationId);
+      toast({ title: "Успешно", description: "Факт сохранён" });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось сохранить факт", variant: "destructive" });
+    }
+  };
+
+  const handleDeleteLine = async (operationId: string, lineId: string) => {
+    if (!profile?.company_id || !canManageOperationLines) return;
+    try {
+      await deleteOperationLine(lineId, profile.company_id);
+      await loadOperationLines(operationId);
+      toast({ title: "Успешно", description: "Строка удалена" });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось удалить строку", variant: "destructive" });
+    }
+  };
+
+  const activeOperations = operations.filter((item) => (item.work_status || "active") === "active");
+  const inProgressOperations = operations.filter((item) => (item.work_status || "active") === "in_progress");
+  const completedOperations = operations.filter((item) => (item.work_status || "active") === "completed");
+
+  const specialistLabelById = specialists.reduce<Record<string, string>>((acc, row) => {
+    const baseName = String(row.full_name || "").trim() || row.email;
+    acc[row.id] = `${baseName} (${row.role})`;
     return acc;
   }, {});
 
-  const OperationCards = ({ ops, emptyLabel }: { ops: OperationWithDetails[]; emptyLabel: string }) => {
-    if (loading) return <div className="p-6 text-center text-slate-500">Loading...</div>;
+  const explorerRows = useMemo(() => {
+    return operations
+      .filter((operation) => (explorerField === "all" ? true : operation.field_id === explorerField))
+      .filter((operation) =>
+        explorerOperationType === "all" ? true : String(operation.operation_type_slug || operation.operation_type) === explorerOperationType
+      )
+      .filter((operation) => {
+        const token = explorerMaterialSearch.trim().toLowerCase();
+        if (!token) return true;
+        const materialNames = (operation.materials || []).map((item) => String(item.product_name || "")).join(" ").toLowerCase();
+        return materialNames.includes(token);
+      });
+  }, [explorerField, explorerMaterialSearch, explorerOperationType, operations]);
+
+  const operationTypeOptions = useMemo(() => {
+    const keys = Array.from(
+      new Set(
+        operations.map((operation) => String(operation.operation_type_slug || operation.operation_type || "").trim()).filter(Boolean)
+      )
+    );
+    return keys.sort((a, b) => a.localeCompare(b, "ru"));
+  }, [operations]);
+
+  const renderOperationCards = (ops: OperationWithDetails[], emptyLabel: string) => {
+    if (loading) return <div className="p-6 text-center text-slate-500">Загрузка...</div>;
     if (ops.length === 0) return <div className="p-6 text-center text-slate-500">{emptyLabel}</div>;
 
     return (
       <div className="space-y-3 p-4">
         {ops.map((operation) => {
-          const expanded = !!expandedIds[operation.id];
+          const isExpanded = !!expanded[operation.id];
+          const lines = operationLinesByOperationId[operation.id] || [];
+          const linesAllowed = shouldShowOperationLines(operation);
+          const rowCropContext = isRowCrop(operation.crop_name);
           const identityOptions = getOperationLineIdentityOptions(operation);
+          const materialsText = (operation.materials || [])
+            .map((item) => `${item.product_name || item.product_id} (${item.material_type}, ${item.unit})`)
+            .join("; ");
+
           return (
             <Card key={operation.id}>
               <CardHeader className="py-3">
@@ -399,13 +398,21 @@ export default function OperationsPage() {
                       {operation.operation_type} • {operation.field_name}
                     </CardTitle>
                     <div className="text-sm text-slate-500">
-                      {formatDate(operation.date)} • {operation.crop_name}
+                      {formatDate(operation.date)} • {operation.crop_name || "без культуры"} • {operation.planned_area_ha || 0} га
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {getStatusBadge(operation.work_status || "active")}
-                    <Button variant="ghost" size="sm" onClick={() => toggleExpand(operation)}>
-                      {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    {statusBadge(operation.work_status)}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        const next = !expanded[operation.id];
+                        setExpanded((prev) => ({ ...prev, [operation.id]: next }));
+                        if (next && linesAllowed) void ensureLinesLoaded(operation);
+                      }}
+                    >
+                      {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => { setEditingOperation(operation); setIsFormOpen(true); }}>
                       <Pencil className="h-4 w-4" />
@@ -416,293 +423,321 @@ export default function OperationsPage() {
                   </div>
                 </div>
               </CardHeader>
-              {expanded && (
-                <CardContent className="pt-0">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                    <div><span className="text-slate-500">Target:</span> {operation.draft_target || "-"}</div>
-                    <div><span className="text-slate-500">Основной препарат:</span> {operation.draft_main_product || "-"}</div>
-                    <div><span className="text-slate-500">Дополнительные препараты:</span> {operation.draft_additional_products || "-"}</div>
-                    <div><span className="text-slate-500">Норма препарата на га:</span> {operation.draft_rate_per_ha || "-"}</div>
-                    <div><span className="text-slate-500">Норма вылива:</span> {operation.draft_mixture_volume_per_ha || "-"}</div>
-                    <div><span className="text-slate-500">Machine / equipment:</span> {operation.draft_equipment || "-"}</div>
+
+              {isExpanded ? (
+                <CardContent className="pt-0 space-y-3">
+                  <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+                    <div><span className="text-slate-500">Категория:</span> {operation.operation_category_slug || "-"}</div>
+                    <div><span className="text-slate-500">Код типа:</span> {operation.operation_type_slug || "-"}</div>
                     <div>
-                      <span className="text-slate-500">Responsible:</span>{" "}
+                      <span className="text-slate-500">Ответственный:</span>{" "}
                       {operation.responsible_user_id
-                        ? specialistLabelById[operation.responsible_user_id] || operation.draft_responsible || operation.responsible_user_id
-                        : operation.draft_responsible || "-"}
+                        ? specialistLabelById[operation.responsible_user_id] || operation.responsible_user_id
+                        : "-"}
                     </div>
-                    <div><span className="text-slate-500">Work status:</span> {operation.work_status || "active"}</div>
-                    <div><span className="text-slate-500">Specialist comment:</span> {operation.specialist_comment || "-"}</div>
+                    <div><span className="text-slate-500">Статус заявки:</span> {requestStatusByOperationId[operation.id] || "-"}</div>
+                    <div><span className="text-slate-500">Target:</span> {operation.operation_target || "-"}</div>
                     <div>
-                      <span className="text-slate-500">Warehouse request:</span>{" "}
-                      {requestStatusByOperationId[operation.id] || "-"}
+                      <span className="text-slate-500">Нормы:</span>{" "}
+                      {operation.rate_per_ha != null ? `${operation.rate_per_ha}/га` : "-"}{" "}
+                      {operation.spray_volume_per_ha != null ? `• ${operation.spray_volume_per_ha} л/га` : ""}
+                    </div>
+                    <div className="md:col-span-2">
+                      <span className="text-slate-500">Материалы:</span>{" "}
+                      {materialsText || "не указаны"}
+                    </div>
+                    <div className="md:col-span-2">
+                      <span className="text-slate-500">Комментарий:</span> {operation.notes || "-"}
                     </div>
                   </div>
-                  <div className="mt-3 text-sm">
-                    <div className="text-slate-500">Details</div>
-                    <div className="whitespace-pre-wrap">{operation.notes || "-"}</div>
-                  </div>
 
-                  <div className="mt-4 rounded-md border p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <div className="text-sm font-semibold">Operation Lines</div>
-                      <Badge variant="outline">{(operationLinesByOperationId[operation.id] || []).length}</Badge>
+                  {canManageOperationLines && !requestStatusByOperationId[operation.id] ? (
+                    <div>
+                      <Button type="button" size="sm" variant="outline" onClick={() => void handleEnsureMaterialRequest(operation)}>
+                        Создать Material Request
+                      </Button>
                     </div>
+                  ) : null}
 
-                    {linesLoadingByOperationId[operation.id] ? (
-                      <div className="text-xs text-slate-500">Loading lines...</div>
-                    ) : null}
+                  {linesAllowed ? (
+                    <div className="rounded-md border p-3">
+                      <div className="mb-2 flex items-center justify-between">
+                        <div className="text-sm font-semibold">Operation lines</div>
+                        <Badge variant="outline">{lines.length}</Badge>
+                      </div>
 
-                    {(operationLinesByOperationId[operation.id] || []).length === 0 && !linesLoadingByOperationId[operation.id] ? (
-                      <div className="text-xs text-slate-500">No operation lines yet.</div>
-                    ) : null}
+                      {linesLoadingByOperationId[operation.id] ? (
+                        <div className="text-xs text-slate-500">Загрузка строк...</div>
+                      ) : null}
+                      {!linesLoadingByOperationId[operation.id] && lines.length === 0 ? (
+                        <div className="text-xs text-slate-500">Строк пока нет.</div>
+                      ) : null}
 
-                    <div className="space-y-2">
-                      {(operationLinesByOperationId[operation.id] || []).map((line) => {
-                        const rowCrop = isRowCrop(line.crop_name || operation.crop_name);
-                        const plantsPerHa = Number(line.calculated_plants_per_ha || 0);
-                        const totalPlants = Number(line.calculated_total_plants || 0);
-                        return (
-                          <div key={line.id} className="rounded-md border bg-slate-50 p-2 text-xs">
-                            <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
-                              <div>
-                                <div className="text-slate-500">Crop</div>
-                                <div className="font-medium">{line.crop_name || operation.crop_name || "—"}</div>
-                              </div>
-                              <div>
-                                <div className="text-slate-500">Variety</div>
-                                <div className="font-medium">{line.variety_name || "—"}</div>
-                              </div>
-                              <div>
-                                <div className="text-slate-500">Reproduction</div>
-                                <div className="font-medium">{line.reproduction_name || "—"}</div>
-                              </div>
-                              <div>
-                                <div className="text-slate-500">Plan, ha</div>
-                                <div className="font-medium">{Number(line.planned_area_ha || 0).toFixed(2)}</div>
-                              </div>
-                              <div>
-                                <div className="text-slate-500">Fact, ha</div>
-                                <Input
-                                  className="h-7 text-xs"
-                                  defaultValue={line.actual_area_ha == null ? "" : String(line.actual_area_ha)}
-                                  onBlur={(event) => {
-                                    const value = event.target.value.trim();
-                                    void handlePatchOperationLineFact(operation.id, line.id, {
-                                      actual_area_ha: value ? Number(value) : null,
-                                    });
-                                  }}
-                                  disabled={!canUpdateOperationFacts}
-                                />
-                              </div>
-                              <div className="flex items-end justify-end gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 px-2 text-xs"
-                                  onClick={() => void handleSaveFact(operation.id, line)}
-                                  disabled={!canUpdateOperationFacts}
-                                >
-                                  Mark fact
-                                </Button>
-                                {canManageOperationLines ? (
+                      <div className="space-y-2">
+                        {lines.map((line) => {
+                          const rowCrop = rowCropContext || isRowCrop(line.crop_name);
+                          const plantsPerHa = Number(line.calculated_plants_per_ha || 0);
+                          const totalPlants = Number(line.calculated_total_plants || 0);
+                          return (
+                            <div key={line.id} className="rounded-md border bg-slate-50 p-2 text-xs">
+                              <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
+                                <div>
+                                  <div className="text-slate-500">Культура</div>
+                                  <div className="font-medium">{line.crop_name || operation.crop_name || "—"}</div>
+                                </div>
+                                <div>
+                                  <div className="text-slate-500">Сорт</div>
+                                  <div className="font-medium">{line.variety_name || "—"}</div>
+                                </div>
+                                <div>
+                                  <div className="text-slate-500">Репр.</div>
+                                  <div className="font-medium">{line.reproduction_name || "—"}</div>
+                                </div>
+                                <div>
+                                  <div className="text-slate-500">План, га</div>
+                                  <div className="font-medium">{Number(line.planned_area_ha || 0).toFixed(2)}</div>
+                                </div>
+                                <div>
+                                  <div className="text-slate-500">Факт, га</div>
+                                  <Input
+                                    className="h-7 text-xs"
+                                    defaultValue={line.actual_area_ha == null ? "" : String(line.actual_area_ha)}
+                                    onBlur={(event) =>
+                                      void handlePatchOperationLineFact(operation.id, line.id, {
+                                        actual_area_ha: event.target.value.trim() ? Number(event.target.value) : null,
+                                      })
+                                    }
+                                    disabled={!canUpdateOperationFacts}
+                                  />
+                                </div>
+                                <div className="flex items-end justify-end gap-2">
                                   <Button
                                     type="button"
                                     size="sm"
-                                    variant="ghost"
-                                    className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
-                                    onClick={() => void handleDeleteLine(operation.id, line.id)}
+                                    variant="outline"
+                                    className="h-7 px-2 text-xs"
+                                    onClick={() => void handleSaveFact(operation.id, line)}
+                                    disabled={!canUpdateOperationFacts}
                                   >
-                                    Delete
+                                    Сохранить факт
                                   </Button>
-                                ) : null}
+                                  {canManageOperationLines ? (
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                                      onClick={() => void handleDeleteLine(operation.id, line.id)}
+                                    >
+                                      Удалить
+                                    </Button>
+                                  ) : null}
+                                </div>
                               </div>
+
+                              {rowCrop ? (
+                                <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-5">
+                                  <div>
+                                    <div className="text-slate-500">Рядки, шт</div>
+                                    <Input
+                                      className="h-7 text-xs"
+                                      defaultValue={line.row_count == null ? "" : String(line.row_count)}
+                                      onBlur={(event) =>
+                                        void handlePatchOperationLineFact(operation.id, line.id, {
+                                          row_count: event.target.value.trim() ? Number(event.target.value) : null,
+                                        })
+                                      }
+                                      disabled={!canUpdateOperationFacts}
+                                    />
+                                  </div>
+                                  <div>
+                                    <div className="text-slate-500">Междурядье, м</div>
+                                    <Input
+                                      className="h-7 text-xs"
+                                      defaultValue={line.row_spacing_m == null ? "" : String(line.row_spacing_m)}
+                                      onBlur={(event) =>
+                                        void handlePatchOperationLineFact(operation.id, line.id, {
+                                          row_spacing_m: event.target.value.trim() ? Number(event.target.value) : null,
+                                        })
+                                      }
+                                      disabled={!canUpdateOperationFacts}
+                                    />
+                                  </div>
+                                  <div>
+                                    <div className="text-slate-500">Межсеменное, см</div>
+                                    <Input
+                                      className="h-7 text-xs"
+                                      defaultValue={line.seed_spacing_cm == null ? "" : String(line.seed_spacing_cm)}
+                                      onBlur={(event) =>
+                                        void handlePatchOperationLineFact(operation.id, line.id, {
+                                          seed_spacing_cm: event.target.value.trim() ? Number(event.target.value) : null,
+                                        })
+                                      }
+                                      disabled={!canUpdateOperationFacts}
+                                    />
+                                  </div>
+                                  <div>
+                                    <div className="text-slate-500">Растений / га</div>
+                                    <div className="h-7 rounded border bg-white px-2 py-1 text-xs font-medium">
+                                      {plantsPerHa > 0 ? plantsPerHa.toFixed(0) : "—"}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-slate-500">Растений всего</div>
+                                    <div className="h-7 rounded border bg-white px-2 py-1 text-xs font-medium">
+                                      {totalPlants > 0 ? totalPlants.toFixed(0) : "—"}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
-
-                            {rowCrop ? (
-                              <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-5">
-                                <div>
-                                  <div className="text-slate-500">Rows, pcs</div>
-                                  <Input
-                                    className="h-7 text-xs"
-                                    defaultValue={line.row_count == null ? "" : String(line.row_count)}
-                                    onBlur={(event) => {
-                                      const value = event.target.value.trim();
-                                      void handlePatchOperationLineFact(operation.id, line.id, {
-                                        row_count: value ? Number(value) : null,
-                                      });
-                                    }}
-                                    disabled={!canUpdateOperationFacts}
-                                  />
-                                </div>
-                                <div>
-                                  <div className="text-slate-500">Row spacing, m</div>
-                                  <Input
-                                    className="h-7 text-xs"
-                                    defaultValue={line.row_spacing_m == null ? "" : String(line.row_spacing_m)}
-                                    onBlur={(event) => {
-                                      const value = event.target.value.trim();
-                                      void handlePatchOperationLineFact(operation.id, line.id, {
-                                        row_spacing_m: value ? Number(value) : null,
-                                      });
-                                    }}
-                                    disabled={!canUpdateOperationFacts}
-                                  />
-                                </div>
-                                <div>
-                                  <div className="text-slate-500">Seed spacing, cm</div>
-                                  <Input
-                                    className="h-7 text-xs"
-                                    defaultValue={line.seed_spacing_cm == null ? "" : String(line.seed_spacing_cm)}
-                                    onBlur={(event) => {
-                                      const value = event.target.value.trim();
-                                      void handlePatchOperationLineFact(operation.id, line.id, {
-                                        seed_spacing_cm: value ? Number(value) : null,
-                                      });
-                                    }}
-                                    disabled={!canUpdateOperationFacts}
-                                  />
-                                </div>
-                                <div>
-                                  <div className="text-slate-500">Plants / ha</div>
-                                  <div className="h-7 rounded border bg-white px-2 py-1 text-xs font-medium">
-                                    {plantsPerHa > 0 ? plantsPerHa.toFixed(0) : "—"}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="text-slate-500">Plants total</div>
-                                  <div className="h-7 rounded border bg-white px-2 py-1 text-xs font-medium">
-                                    {totalPlants > 0 ? totalPlants.toFixed(0) : "—"}
-                                  </div>
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {canManageOperationLines ? (
-                      <div className="mt-3 rounded-md border border-dashed p-2">
-                        <div className="mb-2 text-xs font-medium text-slate-700">Add line</div>
-                        <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
-                          <div>
-                            <div className="mb-1 text-[11px] text-slate-500">Variety</div>
-                            <Select
-                              value={lineDraftByOperationId[operation.id]?.variety_id || "__none__"}
-                              onValueChange={(value) => {
-                                const option = identityOptions.find((item) => item.varietyId === (value === "__none__" ? null : value));
-                                upsertLineDraft(operation.id, {
-                                  variety_id: value === "__none__" ? null : value,
-                                  reproduction_id: option?.reproductionId || null,
-                                });
-                              }}
-                            >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue placeholder="—" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__none__">—</SelectItem>
-                                {Array.from(
-                                  new Map(
-                                    identityOptions
-                                      .filter((item) => item.varietyId)
-                                      .map((item) => [String(item.varietyId), item])
-                                  ).values()
-                                ).map((item) => (
-                                  <SelectItem key={item.key} value={String(item.varietyId)}>
-                                    {item.label.split(" / ")[0]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <div className="mb-1 text-[11px] text-slate-500">Reproduction</div>
-                            <Select
-                              value={lineDraftByOperationId[operation.id]?.reproduction_id || "__none__"}
-                              onValueChange={(value) =>
-                                upsertLineDraft(operation.id, { reproduction_id: value === "__none__" ? null : value })
-                              }
-                            >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue placeholder="—" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="__none__">—</SelectItem>
-                                {Array.from(
-                                  new Map(
-                                    identityOptions
-                                      .filter((item) => {
-                                        const selectedVarietyId = lineDraftByOperationId[operation.id]?.variety_id || null;
-                                        if (!selectedVarietyId) return Boolean(item.reproductionId);
-                                        return String(item.varietyId || "") === String(selectedVarietyId) && Boolean(item.reproductionId);
-                                      })
-                                      .map((item) => [String(item.reproductionId), item])
-                                  ).values()
-                                ).map((item) => (
-                                  <SelectItem key={item.key} value={String(item.reproductionId)}>
-                                    {item.label.split(" / ")[1] || "—"}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <div className="mb-1 text-[11px] text-slate-500">Plan, ha</div>
-                            <Input
-                              className="h-8 text-xs"
-                              value={String(lineDraftByOperationId[operation.id]?.planned_area_ha ?? "")}
-                              onChange={(event) => upsertLineDraft(operation.id, { planned_area_ha: Number(event.target.value || 0) })}
-                            />
-                          </div>
-                          <div>
-                            <div className="mb-1 text-[11px] text-slate-500">Fact, ha</div>
-                            <Input
-                              className="h-8 text-xs"
-                              value={lineDraftByOperationId[operation.id]?.actual_area_ha == null ? "" : String(lineDraftByOperationId[operation.id]?.actual_area_ha)}
-                              onChange={(event) =>
-                                upsertLineDraft(operation.id, { actual_area_ha: event.target.value.trim() ? Number(event.target.value) : null })
-                              }
-                            />
-                          </div>
-                          <div>
-                            <div className="mb-1 text-[11px] text-slate-500">Row spacing, m</div>
-                            <Input
-                              className="h-8 text-xs"
-                              value={lineDraftByOperationId[operation.id]?.row_spacing_m == null ? "" : String(lineDraftByOperationId[operation.id]?.row_spacing_m)}
-                              onChange={(event) =>
-                                upsertLineDraft(operation.id, { row_spacing_m: event.target.value.trim() ? Number(event.target.value) : null })
-                              }
-                            />
-                          </div>
-                          <div>
-                            <div className="mb-1 text-[11px] text-slate-500">Seed spacing, cm</div>
-                            <Input
-                              className="h-8 text-xs"
-                              value={lineDraftByOperationId[operation.id]?.seed_spacing_cm == null ? "" : String(lineDraftByOperationId[operation.id]?.seed_spacing_cm)}
-                              onChange={(event) =>
-                                upsertLineDraft(operation.id, { seed_spacing_cm: event.target.value.trim() ? Number(event.target.value) : null })
-                              }
-                            />
-                          </div>
-                        </div>
-                        <div className="mt-2 flex justify-end">
-                          <Button
-                            type="button"
-                            size="sm"
-                            onClick={() => void handleAddOperationLine(operation)}
-                            disabled={lineMutationBusyByOperationId[operation.id] === true}
-                          >
-                            Add line
-                          </Button>
-                        </div>
+                          );
+                        })}
                       </div>
-                    ) : null}
-                  </div>
+
+                      {canManageOperationLines ? (
+                        <div className="mt-3 rounded-md border border-dashed p-2">
+                          <div className="mb-2 text-xs font-medium text-slate-700">Добавить line</div>
+                          <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
+                            <div>
+                              <div className="mb-1 text-[11px] text-slate-500">Сорт</div>
+                              <Select
+                                value={lineDraftByOperationId[operation.id]?.variety_id || "__none__"}
+                                onValueChange={(value) => {
+                                  const option = identityOptions.find((item) => item.varietyId === (value === "__none__" ? null : value));
+                                  upsertLineDraft(operation.id, {
+                                    variety_id: value === "__none__" ? null : value,
+                                    reproduction_id: option?.reproductionId || null,
+                                  });
+                                }}
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="—" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">—</SelectItem>
+                                  {Array.from(
+                                    new Map(
+                                      identityOptions.filter((item) => item.varietyId).map((item) => [String(item.varietyId), item])
+                                    ).values()
+                                  ).map((item) => (
+                                    <SelectItem key={item.key} value={String(item.varietyId)}>
+                                      {item.label.split(" / ")[0]}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <div className="mb-1 text-[11px] text-slate-500">Репр.</div>
+                              <Select
+                                value={lineDraftByOperationId[operation.id]?.reproduction_id || "__none__"}
+                                onValueChange={(value) =>
+                                  upsertLineDraft(operation.id, { reproduction_id: value === "__none__" ? null : value })
+                                }
+                              >
+                                <SelectTrigger className="h-8 text-xs">
+                                  <SelectValue placeholder="—" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="__none__">—</SelectItem>
+                                  {Array.from(
+                                    new Map(
+                                      identityOptions
+                                        .filter((item) => {
+                                          const selectedVarietyId = lineDraftByOperationId[operation.id]?.variety_id || null;
+                                          if (!selectedVarietyId) return Boolean(item.reproductionId);
+                                          return String(item.varietyId || "") === String(selectedVarietyId) && Boolean(item.reproductionId);
+                                        })
+                                        .map((item) => [String(item.reproductionId), item])
+                                    ).values()
+                                  ).map((item) => (
+                                    <SelectItem key={item.key} value={String(item.reproductionId)}>
+                                      {item.label.split(" / ")[1] || "—"}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <div className="mb-1 text-[11px] text-slate-500">План, га</div>
+                              <Input
+                                className="h-8 text-xs"
+                                value={String(lineDraftByOperationId[operation.id]?.planned_area_ha ?? "")}
+                                onChange={(event) =>
+                                  upsertLineDraft(operation.id, { planned_area_ha: Number(event.target.value || 0) })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <div className="mb-1 text-[11px] text-slate-500">Факт, га</div>
+                              <Input
+                                className="h-8 text-xs"
+                                value={
+                                  lineDraftByOperationId[operation.id]?.actual_area_ha == null
+                                    ? ""
+                                    : String(lineDraftByOperationId[operation.id]?.actual_area_ha)
+                                }
+                                onChange={(event) =>
+                                  upsertLineDraft(operation.id, {
+                                    actual_area_ha: event.target.value.trim() ? Number(event.target.value) : null,
+                                  })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <div className="mb-1 text-[11px] text-slate-500">Междурядье, м</div>
+                              <Input
+                                className="h-8 text-xs"
+                                value={
+                                  lineDraftByOperationId[operation.id]?.row_spacing_m == null
+                                    ? ""
+                                    : String(lineDraftByOperationId[operation.id]?.row_spacing_m)
+                                }
+                                onChange={(event) =>
+                                  upsertLineDraft(operation.id, {
+                                    row_spacing_m: event.target.value.trim() ? Number(event.target.value) : null,
+                                  })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <div className="mb-1 text-[11px] text-slate-500">Межсеменное, см</div>
+                              <Input
+                                className="h-8 text-xs"
+                                value={
+                                  lineDraftByOperationId[operation.id]?.seed_spacing_cm == null
+                                    ? ""
+                                    : String(lineDraftByOperationId[operation.id]?.seed_spacing_cm)
+                                }
+                                onChange={(event) =>
+                                  upsertLineDraft(operation.id, {
+                                    seed_spacing_cm: event.target.value.trim() ? Number(event.target.value) : null,
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-2 flex justify-end">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => void handleAddOperationLine(operation)}
+                              disabled={lineMutationBusyByOperationId[operation.id] === true}
+                            >
+                              Добавить line
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="rounded-md border border-dashed bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      Для этого типа операции строки не используются. Работайте через материалы и факт операции.
+                    </div>
+                  )}
                 </CardContent>
-              )}
+              ) : null}
             </Card>
           );
         })}
@@ -711,72 +746,117 @@ export default function OperationsPage() {
   };
 
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
         title="Operations"
-        description="Track agronomic operations and work performed on your fields"
-        action={{
-          label: "Add Operation",
-          icon: Plus,
-          onClick: () => setIsFormOpen(true),
-        }}
+        description="Production-safe workflow: Operation → Material Request → Issue → Fact"
+        action={{ label: "Add Operation", icon: Plus, onClick: () => setIsFormOpen(true) }}
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Активные ({activeOperations.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <OperationCards ops={activeOperations} emptyLabel="Нет активных операций" />
-          </CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Активные ({activeOperations.length})</CardTitle></CardHeader>
+          <CardContent className="p-0">{renderOperationCards(activeOperations, "Нет активных операций")}</CardContent>
         </Card>
-
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">В работе ({inProgressOperations.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <OperationCards ops={inProgressOperations} emptyLabel="Нет операций в работе" />
-          </CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-base">В работе ({inProgressOperations.length})</CardTitle></CardHeader>
+          <CardContent className="p-0">{renderOperationCards(inProgressOperations, "Нет операций в работе")}</CardContent>
         </Card>
-
         <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Завершенные ({completedOperations.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            <OperationCards ops={completedOperations} emptyLabel="Нет завершенных операций" />
-          </CardContent>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Завершенные ({completedOperations.length})</CardTitle></CardHeader>
+          <CardContent className="p-0">{renderOperationCards(completedOperations, "Нет завершенных операций")}</CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Картофель: расход материалов</CardTitle>
+          <CardTitle className="text-base">Field Operations Explorer</CardTitle>
         </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+            <Select value={explorerField} onValueChange={setExplorerField}>
+              <SelectTrigger><SelectValue placeholder="Поле" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все поля</SelectItem>
+                {fields.map((field) => (
+                  <SelectItem key={field.id} value={field.id}>{field.display_name || field.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={explorerOperationType} onValueChange={setExplorerOperationType}>
+              <SelectTrigger><SelectValue placeholder="Тип операции" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все типы</SelectItem>
+                {operationTypeOptions.map((value) => (
+                  <SelectItem key={value} value={value}>{value}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              placeholder="Материал (поиск)"
+              value={explorerMaterialSearch}
+              onChange={(event) => setExplorerMaterialSearch(event.target.value)}
+            />
+            <div className="rounded border px-3 py-2 text-sm text-slate-600">Найдено: {explorerRows.length}</div>
+          </div>
+
+          <div className="max-h-[320px] overflow-auto rounded border">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-slate-100 text-slate-600">
+                <tr>
+                  <th className="px-2 py-2 text-left">Дата</th>
+                  <th className="px-2 py-2 text-left">Поле</th>
+                  <th className="px-2 py-2 text-left">Операция</th>
+                  <th className="px-2 py-2 text-left">Материалы</th>
+                  <th className="px-2 py-2 text-left">Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                {explorerRows.map((row) => (
+                  <tr key={row.id} className="border-t">
+                    <td className="px-2 py-2">{formatDate(row.date)}</td>
+                    <td className="px-2 py-2">{row.field_name}</td>
+                    <td className="px-2 py-2">{row.operation_type}</td>
+                    <td className="px-2 py-2">
+                      {(row.materials || []).length > 0
+                        ? (row.materials || [])
+                            .map((item) => `${item.product_name || item.product_id} (${item.material_type})`)
+                            .join(", ")
+                        : "—"}
+                    </td>
+                    <td className="px-2 py-2">{statusBadge(row.work_status)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2"><CardTitle className="text-base">Картофель: расход материалов</CardTitle></CardHeader>
         <CardContent className="p-0">
           {potatoConsumptionLoading ? (
-            <div className="p-4 text-sm text-slate-500">Loading report...</div>
+            <div className="p-4 text-sm text-slate-500">Загрузка отчета...</div>
           ) : potatoConsumptionRows.length === 0 ? (
-            <div className="p-4 text-sm text-slate-500">No potato material data yet.</div>
+            <div className="p-4 text-sm text-slate-500">Пока нет данных по картофелю.</div>
           ) : (
             <div className="max-h-[420px] overflow-auto">
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-slate-100">
-                  <tr className="text-left text-slate-600">
-                    <th className="px-3 py-2">Field</th>
-                    <th className="px-3 py-2">Variety / repro</th>
-                    <th className="px-3 py-2">Plan ha</th>
-                    <th className="px-3 py-2">Fact ha</th>
-                    <th className="px-3 py-2">% done</th>
-                    <th className="px-3 py-2">Material</th>
-                    <th className="px-3 py-2">Issued kg</th>
-                    <th className="px-3 py-2">Fact/ha</th>
-                    <th className="px-3 py-2">Norm/ha</th>
-                    <th className="px-3 py-2">Deviation</th>
-                    <th className="px-3 py-2">Need kg</th>
-                    <th className="px-3 py-2">Remaining kg</th>
+                <thead className="sticky top-0 bg-slate-100 text-left text-slate-600">
+                  <tr>
+                    <th className="px-3 py-2">Поле</th>
+                    <th className="px-3 py-2">Сорт / репр.</th>
+                    <th className="px-3 py-2">План га</th>
+                    <th className="px-3 py-2">Факт га</th>
+                    <th className="px-3 py-2">% выполнения</th>
+                    <th className="px-3 py-2">Материал</th>
+                    <th className="px-3 py-2">Выдано</th>
+                    <th className="px-3 py-2">Факт/га</th>
+                    <th className="px-3 py-2">Норма/га</th>
+                    <th className="px-3 py-2">Отклонение</th>
+                    <th className="px-3 py-2">Потребность</th>
+                    <th className="px-3 py-2">Остаток</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -792,8 +872,8 @@ export default function OperationsPage() {
                       <td className="px-3 py-2">{row.fact_qty_per_ha == null ? "—" : row.fact_qty_per_ha.toFixed(3)}</td>
                       <td className="px-3 py-2">{row.planned_norm_per_ha == null ? "—" : row.planned_norm_per_ha.toFixed(3)}</td>
                       <td className="px-3 py-2">{row.deviation_per_ha == null ? "—" : row.deviation_per_ha.toFixed(3)}</td>
-                      <td className="px-3 py-2">{row.planned_need_kg == null ? "-" : row.planned_need_kg.toFixed(2)}</td>
-                      <td className="px-3 py-2">{row.remaining_need_kg == null ? "-" : row.remaining_need_kg.toFixed(2)}</td>
+                      <td className="px-3 py-2">{row.planned_need_kg == null ? "—" : row.planned_need_kg.toFixed(2)}</td>
+                      <td className="px-3 py-2">{row.remaining_need_kg == null ? "—" : row.remaining_need_kg.toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -815,10 +895,29 @@ export default function OperationsPage() {
             ? {
                 field_id: editingOperation.field_id,
                 crop_structure_id: editingOperation.crop_structure_id,
+                operation_category_slug: editingOperation.operation_category_slug || "",
+                operation_type_slug: editingOperation.operation_type_slug || "",
                 operation_type: editingOperation.operation_type,
+                planned_area_ha: editingOperation.planned_area_ha ?? null,
+                crop_id: editingOperation.crop_id || null,
+                machine_id: editingOperation.machine_id || null,
+                equipment_id: editingOperation.equipment_id || null,
+                transport_id: editingOperation.transport_id || null,
+                operation_target: editingOperation.operation_target || null,
+                rate_per_ha: editingOperation.rate_per_ha ?? null,
+                spray_volume_per_ha: editingOperation.spray_volume_per_ha ?? null,
                 date: editingOperation.date,
                 responsible_user_id: editingOperation.responsible_user_id,
                 notes: editingOperation.notes || "",
+                materials: (editingOperation.materials || []).map((item) => ({
+                  material_type: item.material_type,
+                  product_id: item.product_id,
+                  batch_id: item.batch_id,
+                  planned_rate: item.planned_rate,
+                  actual_rate: item.actual_rate,
+                  unit: item.unit,
+                  notes: item.notes,
+                })),
               }
             : undefined
         }
@@ -831,14 +930,14 @@ export default function OperationsPage() {
       <AlertDialog open={archiveDialogOpen} onOpenChange={setArchiveDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Archive Operation</AlertDialogTitle>
+            <AlertDialogTitle>Архивировать операцию</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to archive this operation? This will remove it from active list.
+              Эта операция будет скрыта из активного списка, но останется в истории.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleArchive}>Archive</AlertDialogAction>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction onClick={handleArchive}>Архивировать</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

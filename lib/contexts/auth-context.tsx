@@ -18,6 +18,11 @@ interface Profile {
   context_company_id?: string | null;
   is_owner: boolean;
   status: string;
+  is_impersonating?: boolean;
+  impersonated_profile_id?: string | null;
+  impersonated_company_id?: string | null;
+  impersonated_by_profile_id?: string | null;
+  impersonated_by_auth_user_id?: string | null;
   preferred_language?: 'ru' | 'kz' | 'en' | null;
   created_at: string;
   updated_at: string;
@@ -157,6 +162,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const roleIsLegacyAlias = roleRawKey !== normalizedRole;
 
       const contextCompanyId = await resolveGlobalAdminContextCompanyId(userId, normalizedRole);
+      const actorContext = await resolveActorContextFromServer();
+      const actor = actorContext?.actor || null;
 
       if (data.status === 'pending') {
         await supabase
@@ -164,33 +171,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .update({ status: 'active' })
           .eq('id', userId);
         const effectiveCompany =
-          normalizedRole === "global_admin" && contextCompanyId
+          actor?.companyId ||
+          (normalizedRole === "global_admin" && contextCompanyId
             ? contextCompanyId
-            : await resolveEffectiveCompanyId(data.company_id);
+            : await resolveEffectiveCompanyId(data.company_id));
+        const effectiveRole = parseCanonicalRole(actor?.role) || normalizedRole;
+        const effectiveProfileId = String(actor?.id || data.id || "").trim() || data.id;
         setProfile({
           ...data,
-          role: normalizedRole,
+          id: effectiveProfileId,
+          role: effectiveRole,
           role_raw_key: roleRawKey,
           role_is_legacy_alias: roleIsLegacyAlias,
           status: 'active',
           home_company_id: data.company_id,
-          context_company_id: contextCompanyId,
+          context_company_id: actor?.contextCompanyId || contextCompanyId,
           company_id: effectiveCompany || data.company_id,
+          is_impersonating: Boolean(actor?.isImpersonating),
+          impersonated_profile_id: actor?.impersonatedProfileId || null,
+          impersonated_company_id: actor?.impersonatedCompanyId || null,
+          impersonated_by_profile_id: actor?.impersonatedByProfileId || null,
+          impersonated_by_auth_user_id: actor?.impersonatedByAuthUserId || null,
         });
       } else {
         const effectiveCompany =
-          normalizedRole === "global_admin" && contextCompanyId
+          actor?.companyId ||
+          (normalizedRole === "global_admin" && contextCompanyId
             ? contextCompanyId
-            : await resolveEffectiveCompanyId(data?.company_id);
+            : await resolveEffectiveCompanyId(data?.company_id));
+        const effectiveRole = parseCanonicalRole(actor?.role) || normalizedRole;
+        const effectiveProfileId = String(actor?.id || data.id || "").trim() || data.id;
         setProfile(
           {
             ...data,
-            role: normalizedRole,
+            id: effectiveProfileId,
+            role: effectiveRole,
             role_raw_key: roleRawKey,
             role_is_legacy_alias: roleIsLegacyAlias,
             home_company_id: data.company_id,
-            context_company_id: contextCompanyId,
+            context_company_id: actor?.contextCompanyId || contextCompanyId,
             company_id: effectiveCompany || data.company_id,
+            is_impersonating: Boolean(actor?.isImpersonating),
+            impersonated_profile_id: actor?.impersonatedProfileId || null,
+            impersonated_company_id: actor?.impersonatedCompanyId || null,
+            impersonated_by_profile_id: actor?.impersonatedByProfileId || null,
+            impersonated_by_auth_user_id: actor?.impersonatedByAuthUserId || null,
           }
         );
       }
@@ -220,6 +245,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .maybeSingle();
       if (error) return null;
       return (data?.company_id as string | null) || null;
+    } catch {
+      return null;
+    }
+  };
+
+  const resolveActorContextFromServer = async (): Promise<{
+    actor?: {
+      id?: string;
+      role?: string;
+      companyId?: string | null;
+      contextCompanyId?: string | null;
+      isImpersonating?: boolean;
+      impersonatedProfileId?: string | null;
+      impersonatedCompanyId?: string | null;
+      impersonatedByProfileId?: string | null;
+      impersonatedByAuthUserId?: string | null;
+    };
+  } | null> => {
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) return null;
+      const response = await fetch("/api/auth/actor", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${data.session.access_token}` },
+        cache: "no-store",
+      });
+      if (!response.ok) return null;
+      return (await response.json()) as any;
     } catch {
       return null;
     }

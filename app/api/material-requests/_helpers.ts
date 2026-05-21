@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
@@ -77,6 +78,7 @@ export async function resolveMaterialRequestSession(
   const requestedCompanyId = options?.requestedCompanyId ?? queryCompanyId;
   const companyId = resolveCompanyForActor(actor, requestedCompanyId);
   const supabase = getServiceClient();
+  const sessionSupabase = createSessionSupabaseClient(request);
 
   await assertActorAccess({
     supabase,
@@ -85,7 +87,7 @@ export async function resolveMaterialRequestSession(
     allowedRoles: [...(options?.allowedRoles || MATERIAL_REQUEST_READ_ROLES)],
   });
 
-  return { actor, companyId, supabase };
+  return { actor, companyId, supabase, sessionSupabase };
 }
 
 export function asMaterialRequestError(error: unknown): { status: number; error: string } | null {
@@ -95,3 +97,28 @@ export function asMaterialRequestError(error: unknown): { status: number; error:
   return null;
 }
 
+function createSessionSupabaseClient(request: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !anonKey) {
+    throw new SessionAuthError("Supabase anon credentials are not configured", 500);
+  }
+
+  const authHeader = request.headers.get("authorization") || request.headers.get("Authorization") || "";
+  const token = String(authHeader.match(/^Bearer\s+(.+)$/i)?.[1] || "").trim();
+  if (!token) {
+    throw new SessionAuthError("Missing authorization token", 401);
+  }
+
+  return createClient(supabaseUrl, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  });
+}

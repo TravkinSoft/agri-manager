@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import {
   Operation,
+  OperationMaterial,
   OperationLine,
   OperationLineFormData,
   OperationFormData,
@@ -30,6 +31,14 @@ function parseOperationDraftDetails(notes: string | null | undefined) {
     draft_responsible: extractDraftValueFromNotes(notes, "Responsible"),
     draft_comments: notes ? notes.split("\n\nDraft details:")[0].trim() : undefined,
   };
+}
+
+function normalizeOperationMaterials(rows: any[] | null | undefined): OperationMaterial[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => ({
+    ...row,
+    product_name: row?.products?.trade_name || row?.products?.name || null,
+  })) as OperationMaterial[];
 }
 
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
@@ -66,6 +75,10 @@ export async function getOperations(
       crop_structure:crop_structure_id (
         crops:crop_id (name),
         varieties:variety_id (name)
+      ),
+      operation_materials:operation_materials (
+        *,
+        products:product_id (name,trade_name)
       )
     `)
     .eq("company_id", companyId)
@@ -87,6 +100,7 @@ export async function getOperations(
     field_name: op.fields?.name || "-",
     crop_name: op.crop_structure?.crops?.name || "-",
     variety_name: op.crop_structure?.varieties?.name || "-",
+    materials: normalizeOperationMaterials(op.operation_materials),
     ...parseOperationDraftDetails(op.notes),
   })) as OperationWithDetails[];
 }
@@ -103,6 +117,10 @@ export async function getSpecialistOperations(
       crop_structure:crop_structure_id (
         crops:crop_id (name),
         varieties:variety_id (name)
+      ),
+      operation_materials:operation_materials (
+        *,
+        products:product_id (name,trade_name)
       )
     `)
     .eq("company_id", companyId)
@@ -126,6 +144,7 @@ export async function getSpecialistOperations(
     field_name: op.fields?.name || "-",
     crop_name: op.crop_structure?.crops?.name || "-",
     variety_name: op.crop_structure?.varieties?.name || "-",
+    materials: normalizeOperationMaterials(op.operation_materials),
     ...parseOperationDraftDetails(op.notes),
   })) as OperationWithDetails[];
 }
@@ -147,43 +166,25 @@ export async function getOperation(operationId: string): Promise<Operation | nul
 export async function createOperation(
   companyId: string,
   operationData: OperationFormData
-): Promise<Operation> {
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-  if (authError) {
-    throw new Error(`Failed to resolve current user: ${authError.message}`);
-  }
-  if (!user?.id) {
-    throw new Error("Failed to create operation: user is not authenticated");
-  }
-
-  const safeResponsibleUserId =
-    operationData.responsible_user_id && operationData.responsible_user_id !== "none"
-      ? operationData.responsible_user_id
-      : null;
-
-  const { data, error } = await supabase
-    .from("operations")
-    .insert([
-      {
-        ...operationData,
-        responsible_user_id: safeResponsibleUserId,
-        work_status: "active",
-        company_id: companyId,
-        user_id: user.id,
-      },
-    ])
-    .select()
-    .single();
-
-  if (error) {
-    console.error("Error creating operation:", error);
-    throw new Error(`Failed to create operation: ${error.message} (${error.code || "unknown"})`);
-  }
-
-  return data as Operation;
+): Promise<Operation & { material_request?: Record<string, unknown> }> {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/operations", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      companyId,
+      ...operationData,
+      responsible_user_id:
+        operationData.responsible_user_id && operationData.responsible_user_id !== "none"
+          ? operationData.responsible_user_id
+          : null,
+    }),
+  });
+  const payload = await parseApiResponse(response);
+  return {
+    ...(payload.operation as Operation),
+    material_request: (payload.material_request || undefined) as Record<string, unknown> | undefined,
+  };
 }
 
 export async function updateOperation(
@@ -191,6 +192,8 @@ export async function updateOperation(
   operationData: Partial<OperationFormData>
 ): Promise<Operation> {
   const payload = { ...operationData } as Partial<OperationFormData>;
+  const materials = Array.isArray((payload as any).materials) ? ([...(payload as any).materials] as any[]) : null;
+  delete (payload as any).materials;
   if (payload.responsible_user_id === "none") {
     payload.responsible_user_id = null;
   }
@@ -204,6 +207,45 @@ export async function updateOperation(
 
   if (error) {
     throw new Error(error.message);
+  }
+
+  if (materials) {
+    const companyId = String((data as any).company_id || "").trim();
+    if (!companyId) {
+      throw new Error("Operation company context missing for material sync");
+    }
+    const { error: deleteError } = await supabase
+      .from("operation_materials")
+      .delete()
+      .eq("company_id", companyId)
+      .eq("operation_id", operationId);
+    if (deleteError) throw new Error(deleteError.message);
+
+    const normalizedRows = materials
+      .map((item) => {
+        const productId = String(item?.product_id || "").trim();
+        const materialType = String(item?.material_type || "").trim();
+        const unit = String(item?.unit || "").trim();
+        if (!productId || !materialType || !unit) return null;
+        return {
+          company_id: companyId,
+          operation_id: operationId,
+          operation_line_id: null,
+          product_id: productId,
+          batch_id: item?.batch_id || null,
+          material_type: materialType,
+          unit,
+          planned_rate: item?.planned_rate ?? null,
+          actual_rate: item?.actual_rate ?? null,
+          notes: item?.notes || null,
+        };
+      })
+      .filter(Boolean);
+
+    if (normalizedRows.length > 0) {
+      const { error: insertError } = await supabase.from("operation_materials").insert(normalizedRows as any[]);
+      if (insertError) throw new Error(insertError.message);
+    }
   }
 
   return data as Operation;
@@ -361,4 +403,18 @@ export async function getPotatoMaterialConsumptionReport(
   );
   const payload = await parseApiResponse(response);
   return (payload.rows || []) as PotatoMaterialConsumptionRow[];
+}
+
+export async function ensureOperationMaterialRequest(
+  operationId: string,
+  companyId: string
+): Promise<Record<string, unknown>> {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/material-request`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId }),
+  });
+  const payload = await parseApiResponse(response);
+  return (payload.material_request || {}) as Record<string, unknown>;
 }

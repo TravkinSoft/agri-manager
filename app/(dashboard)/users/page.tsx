@@ -1,28 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Clock, Shield, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Shield, UserPlus, Clock, CircleCheck as CheckCircle2 } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { supabase } from "@/lib/supabase/client";
-import { useAuth } from "@/lib/contexts/auth-context";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/contexts/language-context";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { supabase } from "@/lib/supabase/client";
 
 interface ProfileRow {
   id: string;
@@ -60,6 +53,10 @@ const ROLE_BADGE_CLASS: Record<string, string> = {
 };
 
 export default function UsersPage() {
+  const { profile } = useAuth();
+  const { toast } = useToast();
+  const { language } = useLanguage();
+
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
@@ -67,15 +64,13 @@ export default function UsersPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<(typeof INVITE_ROLES)[number]>("agronomist");
   const [inviting, setInviting] = useState(false);
-  const { profile } = useAuth();
-  const { toast } = useToast();
-  const { language } = useLanguage();
+  const [impersonatingProfileId, setImpersonatingProfileId] = useState<string | null>(null);
 
   const t = (ru: string, kz: string, en: string) =>
     language === "ru" ? ru : language === "kz" ? kz : en;
 
   const roleLabel = (role: string) => {
-    if (role === "global_admin") return t("Глобальный администратор", "Жаһандық әкімші", "Global admin");
+    if (role === "global_admin") return t("Глобальный администратор", "Жаһанды әкімші", "Global admin");
     if (role === "company_admin") return t("Администратор компании", "Компания әкімшісі", "Company admin");
     if (role === "agronomist") return t("Агроном", "Агроном", "Agronomist");
     if (role === "director") return t("Директор", "Директор", "Director");
@@ -84,15 +79,13 @@ export default function UsersPage() {
     if (role === "warehouse") return t("Склад", "Қойма", "Warehouse");
     if (role === "warehouse_operator") return t("Оператор склада", "Қойма операторы", "Warehouse operator");
     if (role === "weighman") return t("Весовщик", "Таразышы", "Weighman");
-    if (role === "fuel_operator") return t("Заправщик", "Жанармай операторы", "Fuel operator");
+    if (role === "fuel_operator") return t("Оператор ГСМ", "Жанармай операторы", "Fuel operator");
     if (role === "brigadier") return t("Бригадир", "Бригадир", "Brigadier");
     return role;
   };
 
-  useEffect(() => {
-    void loadProfiles();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.company_id]);
+  const isAdmin = profile?.role === "company_admin" || profile?.role === "global_admin";
+  const isGlobalAdmin = profile?.role === "global_admin";
 
   const loadProfiles = async () => {
     if (!profile?.company_id) return;
@@ -100,19 +93,22 @@ export default function UsersPage() {
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, full_name, email, role, status, created_at")
+        .select("id,full_name,email,role,status,created_at")
         .eq("company_id", profile.company_id)
         .order("created_at", { ascending: false });
-
       if (error) throw error;
       setProfiles((data || []) as ProfileRow[]);
     } catch (error) {
-      console.error("Error loading profiles:", error);
+      console.error("Failed to load users:", error);
       setProfiles([]);
     } finally {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    void loadProfiles();
+  }, [profile?.company_id]);
 
   const handleInvite = async () => {
     if (!inviteEmail.trim() || !inviteFullName.trim() || !profile?.company_id) return;
@@ -129,11 +125,8 @@ export default function UsersPage() {
           company_id: profile.company_id,
         }),
       });
-
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(payload?.message || payload?.error || `HTTP ${response.status}`);
-      }
+      if (!response.ok) throw new Error(payload?.message || payload?.error || `HTTP ${response.status}`);
 
       toast({
         title: t("Приглашение отправлено", "Шақыру жіберілді", "Invitation sent"),
@@ -155,7 +148,34 @@ export default function UsersPage() {
     }
   };
 
-  const isAdmin = profile?.role === "company_admin" || profile?.role === "global_admin";
+  const handleImpersonate = async (targetProfileId: string) => {
+    setImpersonatingProfileId(targetProfileId);
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) throw new Error("Session expired");
+      const response = await fetch("/api/global-admin/impersonation", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${data.session.access_token}`,
+        },
+        body: JSON.stringify({
+          targetProfileId,
+          reason: "Global admin switched from users page",
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
+      window.location.href = "/dashboard";
+    } catch (error: any) {
+      setImpersonatingProfileId(null);
+      toast({
+        title: t("Ошибка", "Қате", "Error"),
+        description: error?.message || t("Не удалось запустить impersonation", "Impersonation басталмады", "Failed to start impersonation"),
+        variant: "destructive",
+      });
+    }
+  };
 
   if (!isAdmin) {
     return (
@@ -166,7 +186,7 @@ export default function UsersPage() {
         />
         <Alert variant="destructive">
           <AlertDescription>
-            {t("Доступ запрещен. Страница только для администраторов.", "Қолжетім жоқ. Бет тек әкімшілерге.", "Access denied. Admins only.")}
+            {t("Доступ запрещен. Раздел только для администраторов.", "Қолжетім жоқ. Бұл бөлім тек әкімшілерге.", "Access denied. Admins only.")}
           </AlertDescription>
         </Alert>
       </div>
@@ -192,21 +212,22 @@ export default function UsersPage() {
               <TableRow>
                 <TableHead>{t("ФИО", "Аты-жөні", "Full name")}</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>{t("Роль", "Рөл", "Role")}</TableHead>
+                <TableHead>{t("Роль", "Рөлі", "Role")}</TableHead>
                 <TableHead>{t("Статус", "Күй", "Status")}</TableHead>
                 <TableHead>{t("Создан", "Құрылған", "Created")}</TableHead>
+                {isGlobalAdmin ? <TableHead>{t("Impersonation", "Impersonation", "Impersonation")}</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-slate-500">
+                  <TableCell colSpan={isGlobalAdmin ? 6 : 5} className="text-center text-slate-500">
                     {t("Загрузка...", "Жүктелуде...", "Loading...")}
                   </TableCell>
                 </TableRow>
               ) : profiles.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-slate-500">
+                  <TableCell colSpan={isGlobalAdmin ? 6 : 5} className="text-center text-slate-500">
                     {t("Пользователи не найдены.", "Пайдаланушылар табылмады.", "No users found.")}
                   </TableCell>
                 </TableRow>
@@ -223,18 +244,28 @@ export default function UsersPage() {
                     </TableCell>
                     <TableCell>
                       {row.status === "active" ? (
-                        <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">
-                          <CheckCircle2 className="mr-1 h-3 w-3" />
-                          {t("Активен", "Белсенді", "Active")}
-                        </Badge>
+                        <Badge className="border-emerald-200 bg-emerald-100 text-emerald-800">Active</Badge>
                       ) : (
                         <Badge className="border-amber-200 bg-amber-100 text-amber-800">
                           <Clock className="mr-1 h-3 w-3" />
-                          {t("Ожидание", "Күтілуде", "Pending")}
+                          Pending
                         </Badge>
                       )}
                     </TableCell>
                     <TableCell>{new Date(row.created_at).toLocaleDateString()}</TableCell>
+                    {isGlobalAdmin ? (
+                      <TableCell>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => void handleImpersonate(row.id)}
+                          disabled={row.id === profile.id || row.role === "global_admin" || impersonatingProfileId === row.id}
+                        >
+                          {impersonatingProfileId === row.id ? "Входим..." : "Войти как"}
+                        </Button>
+                      </TableCell>
+                    ) : null}
                   </TableRow>
                 ))
               )}
@@ -248,7 +279,7 @@ export default function UsersPage() {
           <DialogHeader>
             <DialogTitle>{t("Пригласить пользователя", "Пайдаланушыны шақыру", "Invite user")}</DialogTitle>
             <DialogDescription>
-              {t("Укажите ФИО, email и роль.", "Аты-жөні, email және рөлді көрсетіңіз.", "Provide full name, email and role.")}
+              {t("Укажите ФИО, email и роль.", "Аты-жөні, email және рөлін көрсетіңіз.", "Provide full name, email and role.")}
             </DialogDescription>
           </DialogHeader>
 
@@ -258,9 +289,9 @@ export default function UsersPage() {
               <Input
                 id="invite-full-name"
                 value={inviteFullName}
-                onChange={(e) => setInviteFullName(e.target.value)}
+                onChange={(event) => setInviteFullName(event.target.value)}
                 disabled={inviting}
-                placeholder={t("Иванов Иван Иванович", "Иванов Иван Иванович", "John Smith")}
+                placeholder={t("Иванов Иван", "Иванов Иван", "John Smith")}
               />
             </div>
             <div className="space-y-2">
@@ -269,14 +300,18 @@ export default function UsersPage() {
                 id="invite-email"
                 type="email"
                 value={inviteEmail}
-                onChange={(e) => setInviteEmail(e.target.value)}
+                onChange={(event) => setInviteEmail(event.target.value)}
                 disabled={inviting}
                 placeholder="user@example.com"
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="invite-role">{t("Роль", "Рөл", "Role")}</Label>
-              <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as (typeof INVITE_ROLES)[number])} disabled={inviting}>
+              <Label htmlFor="invite-role">{t("Роль", "Рөлі", "Role")}</Label>
+              <Select
+                value={inviteRole}
+                onValueChange={(value) => setInviteRole(value as (typeof INVITE_ROLES)[number])}
+                disabled={inviting}
+              >
                 <SelectTrigger id="invite-role">
                   <SelectValue />
                 </SelectTrigger>

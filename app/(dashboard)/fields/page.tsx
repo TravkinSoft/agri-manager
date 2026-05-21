@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -307,7 +308,9 @@ export default function FieldsPage() {
                 fields.map((field) => (
                   <TableRow key={field.id}>
                     <TableCell className="font-medium">
-                      <div>{getFieldDisplayName(field)}</div>
+                      <Link href={`/fields/${field.id}`} className="text-slate-900 hover:underline">
+                        {getFieldDisplayName(field)}
+                      </Link>
                     </TableCell>
                     <TableCell>{field.area.toFixed(2)}</TableCell>
                     <TableCell>{field.soil_type || "-"}</TableCell>

@@ -18,7 +18,7 @@ export async function POST(
     }
 
     const body = await request.json().catch(() => ({}));
-    const { actor, companyId, supabase } = await resolveMaterialRequestSession(request, {
+    const { actor, companyId, supabase, sessionSupabase } = await resolveMaterialRequestSession(request, {
       allowedRoles: MATERIAL_REQUEST_SPECIALIST_WRITE_ROLES,
       requestedCompanyId: String(body.companyId || "").trim() || null,
     });
@@ -34,9 +34,9 @@ export async function POST(
       return NextResponse.json({ error: reqError?.message || "Material request not found" }, { status: 404 });
     }
 
-    const { data: rpcData, error: rpcError } = await supabase.rpc("confirm_warehouse_request_receipt", {
+    const { data: rpcData, error: rpcError } = await sessionSupabase.rpc("confirm_warehouse_request_receipt", {
       p_request_id: requestId,
-      p_actor_user_id: actor.id,
+      p_actor_user_id: actor.authUserId,
     });
 
     if (rpcError) {
@@ -59,4 +59,3 @@ export async function POST(
     );
   }
 }
-

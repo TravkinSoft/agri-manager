@@ -55,7 +55,7 @@ export async function POST(
       issueItems.push(normalized);
     }
 
-    const { actor, companyId, supabase } = await resolveMaterialRequestSession(request, {
+    const { actor, companyId, supabase, sessionSupabase } = await resolveMaterialRequestSession(request, {
       allowedRoles: MATERIAL_REQUEST_WAREHOUSE_WRITE_ROLES,
       requestedCompanyId: String(body.companyId || "").trim() || null,
     });
@@ -71,9 +71,9 @@ export async function POST(
       return NextResponse.json({ error: reqError?.message || "Material request not found" }, { status: 404 });
     }
 
-    const { data: rpcData, error: rpcError } = await supabase.rpc("issue_warehouse_request_v2", {
+    const { data: rpcData, error: rpcError } = await sessionSupabase.rpc("issue_warehouse_request_v2", {
       p_request_id: requestId,
-      p_actor_user_id: actor.id,
+      p_actor_user_id: actor.authUserId,
       p_source_warehouse_id: sourceWarehouseId,
       p_items: issueItems.length > 0 ? issueItems : null,
     });
@@ -98,4 +98,3 @@ export async function POST(
     );
   }
 }
-
