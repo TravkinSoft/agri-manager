@@ -19,7 +19,7 @@ export function RecentOperationsTable({ data }: RecentOperationsTableProps) {
   const { t } = useLanguage();
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>{t("recent_operations_title")}</CardTitle>
       </CardHeader>
@@ -27,32 +27,47 @@ export function RecentOperationsTable({ data }: RecentOperationsTableProps) {
         {data.length === 0 ? (
           <p className="text-sm text-slate-500">{t("no_operations_data")}</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("date")}</TableHead>
-                <TableHead>{t("field")}</TableHead>
-                <TableHead>{t("crop")}</TableHead>
-                <TableHead>{t("operation_type")}</TableHead>
-                <TableHead>{t("notes")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            <div className="space-y-2 md:hidden">
               {data.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-medium">
-                    {format(new Date(item.date), "MMM dd, yyyy")}
-                  </TableCell>
-                  <TableCell>{item.fieldName}</TableCell>
-                  <TableCell>{item.cropName || "-"}</TableCell>
-                  <TableCell>{item.operationType}</TableCell>
-                  <TableCell className="max-w-xs truncate">
-                    {item.notes || "-"}
-                  </TableCell>
-                </TableRow>
+                <div key={item.id} className="rounded-lg border border-slate-200 p-3">
+                  <div className="mb-1 text-xs text-slate-500">{format(new Date(item.date), "MMM dd, yyyy")}</div>
+                  <div className="text-sm font-semibold text-slate-900">{item.operationType}</div>
+                  <div className="mt-1 text-sm text-slate-700">{item.fieldName}</div>
+                  <div className="text-xs text-slate-500">{item.cropName || "-"}</div>
+                  {item.notes ? <div className="mt-2 text-xs text-slate-600">{item.notes}</div> : null}
+                </div>
               ))}
-            </TableBody>
-          </Table>
+            </div>
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("date")}</TableHead>
+                    <TableHead>{t("field")}</TableHead>
+                    <TableHead>{t("crop")}</TableHead>
+                    <TableHead>{t("operation_type")}</TableHead>
+                    <TableHead>{t("notes")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.map((item) => (
+                    <TableRow key={item.id}>
+                      <TableCell className="font-medium">
+                        {format(new Date(item.date), "MMM dd, yyyy")}
+                      </TableCell>
+                      <TableCell>{item.fieldName}</TableCell>
+                      <TableCell>{item.cropName || "-"}</TableCell>
+                      <TableCell>{item.operationType}</TableCell>
+                      <TableCell className="max-w-xs truncate">
+                        {item.notes || "-"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

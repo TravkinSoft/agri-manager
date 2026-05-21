@@ -11,6 +11,7 @@ import { AssistantShellProvider } from "@/components/assistant/assistant-shell-p
 import { AssistantLauncher } from "@/components/assistant/assistant-launcher";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
 import { AssistantDebugMonitor } from "@/components/assistant/assistant-debug-monitor";
+import { MobileBottomNav } from "./mobile-bottom-nav";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { profile, loading } = useAuth();
@@ -39,15 +40,18 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AssistantShellProvider>
-        <div className="flex h-screen overflow-hidden">
-          <Sidebar />
-          <div className="flex flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-screen bg-slate-50">
+          <div className="hidden md:flex md:h-screen md:shrink-0">
+            <Sidebar />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col">
             <Header />
-            <main className="flex-1 overflow-y-auto bg-slate-50 p-6">
+            <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-50 p-3 pb-24 sm:p-4 md:p-6 md:pb-6">
               {children}
             </main>
           </div>
         </div>
+        <MobileBottomNav />
         <AssistantLauncher />
         <AssistantPanel />
         <AssistantDebugMonitor />

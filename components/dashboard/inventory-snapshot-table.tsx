@@ -31,7 +31,7 @@ export function InventorySnapshotTable({ data }: InventorySnapshotTableProps) {
   };
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>{t("inventory_snapshot_title")}</CardTitle>
       </CardHeader>
@@ -39,35 +39,56 @@ export function InventorySnapshotTable({ data }: InventorySnapshotTableProps) {
         {data.length === 0 ? (
           <p className="text-sm text-slate-500">{t("no_inventory_data")}</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("product")}</TableHead>
-                <TableHead>{t("type")}</TableHead>
-                <TableHead className="text-right">{t("quantity")}</TableHead>
-                <TableHead>{t("warehouse")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            <div className="space-y-2 md:hidden">
               {data.map((item, index) => (
-                <TableRow key={index}>
-                  <TableCell className="font-medium">{item.productName}</TableCell>
-                  <TableCell>
+                <div key={index} className="rounded-lg border border-slate-200 p-3">
+                  <div className="text-sm font-semibold text-slate-900">{item.productName}</div>
+                  <div className="mt-2 flex items-center justify-between gap-2">
                     <Badge
                       variant="secondary"
                       className={typeColors[item.productType] || ""}
                     >
                       {typeLabel(item.productType)}
                     </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {item.quantity.toFixed(2)}
-                  </TableCell>
-                  <TableCell>{item.warehouseName}</TableCell>
-                </TableRow>
+                    <div className="text-sm font-medium text-slate-900">{item.quantity.toFixed(2)}</div>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">{item.warehouseName}</div>
+                </div>
               ))}
-            </TableBody>
-          </Table>
+            </div>
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("product")}</TableHead>
+                    <TableHead>{t("type")}</TableHead>
+                    <TableHead className="text-right">{t("quantity")}</TableHead>
+                    <TableHead>{t("warehouse")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.map((item, index) => (
+                    <TableRow key={index}>
+                      <TableCell className="font-medium">{item.productName}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="secondary"
+                          className={typeColors[item.productType] || ""}
+                        >
+                          {typeLabel(item.productType)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {item.quantity.toFixed(2)}
+                      </TableCell>
+                      <TableCell>{item.warehouseName}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

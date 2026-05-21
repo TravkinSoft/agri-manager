@@ -18,7 +18,7 @@ export function CropDistributionTable({ data }: CropDistributionTableProps) {
   const { t } = useLanguage();
 
   return (
-    <Card>
+    <Card className="overflow-hidden">
       <CardHeader>
         <CardTitle>{t("crop_distribution_title")}</CardTitle>
       </CardHeader>
@@ -26,24 +26,43 @@ export function CropDistributionTable({ data }: CropDistributionTableProps) {
         {data.length === 0 ? (
           <p className="text-sm text-slate-500">{t("no_crop_data")}</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("crop")}</TableHead>
-                <TableHead className="text-right">{t("total_area_metric")}</TableHead>
-                <TableHead className="text-right">{t("crop_count")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            <div className="space-y-2 md:hidden">
               {data.map((item) => (
-                <TableRow key={item.crop}>
-                  <TableCell className="font-medium">{item.crop}</TableCell>
-                  <TableCell className="text-right">{item.totalArea}</TableCell>
-                  <TableCell className="text-right">{item.fieldsCount}</TableCell>
-                </TableRow>
+                <div key={item.crop} className="rounded-lg border border-slate-200 p-3">
+                  <div className="text-sm font-semibold text-slate-900">{item.crop}</div>
+                  <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                    <span>{t("total_area_metric")}</span>
+                    <span className="text-sm font-medium text-slate-900">{item.totalArea}</span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-xs text-slate-500">
+                    <span>{t("crop_count")}</span>
+                    <span className="text-sm font-medium text-slate-900">{item.fieldsCount}</span>
+                  </div>
+                </div>
               ))}
-            </TableBody>
-          </Table>
+            </div>
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("crop")}</TableHead>
+                    <TableHead className="text-right">{t("total_area_metric")}</TableHead>
+                    <TableHead className="text-right">{t("crop_count")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.map((item) => (
+                    <TableRow key={item.crop}>
+                      <TableCell className="font-medium">{item.crop}</TableCell>
+                      <TableCell className="text-right">{item.totalArea}</TableCell>
+                      <TableCell className="text-right">{item.fieldsCount}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

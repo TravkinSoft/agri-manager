@@ -141,12 +141,12 @@ export function Header() {
   };
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-white px-6">
-      <Button variant="ghost" size="icon" onClick={toggleSidebar} className="hover:bg-slate-100">
+    <header className="flex h-14 items-center justify-between border-b bg-white px-3 md:h-16 md:px-6">
+      <Button variant="ghost" size="icon" onClick={toggleSidebar} className="hidden hover:bg-slate-100 md:inline-flex">
         <Menu className="h-5 w-5" />
       </Button>
 
-      <div className="flex items-center gap-4">
+      <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2 md:gap-4">
         {isGlobal ? (
           <div className="hidden min-w-[340px] items-center gap-2 md:flex">
             <span className="text-xs font-medium text-slate-500">
@@ -170,13 +170,13 @@ export function Header() {
         ) : null}
 
         <LanguageSwitcher />
-        <Button variant="ghost" size="icon">
+        <Button variant="ghost" size="icon" className="h-9 w-9">
           <Bell className="h-5 w-5" />
         </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full">
+            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
               <User className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>

@@ -458,50 +458,69 @@ export default function WarehouseRequestsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t("request_number")}</TableHead>
-                  <TableHead>{t("status")}</TableHead>
-                  <TableHead>{t("field")}</TableHead>
-                  <TableHead>{t("recipient")}</TableHead>
-                  <TableHead>{t("planned_date")}</TableHead>
-                  <TableHead>{t("items")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={6}>{t("loading")}</TableCell>
-                  </TableRow>
-                ) : filteredRequests.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center text-slate-500">
-                      {t("no_issue_requests_found")}
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredRequests.map((row) => (
-                    <TableRow
+            {loading ? (
+              <div className="text-sm text-slate-500">{t("loading")}</div>
+            ) : filteredRequests.length === 0 ? (
+              <div className="text-center text-sm text-slate-500">{t("no_issue_requests_found")}</div>
+            ) : (
+              <>
+                <div className="space-y-2 md:hidden">
+                  {filteredRequests.map((row) => (
+                    <button
                       key={row.id}
-                      className={row.id === selectedId ? "bg-emerald-50" : ""}
+                      type="button"
+                      className={`w-full rounded-lg border p-3 text-left ${row.id === selectedId ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white"}`}
                       onClick={() => setSelectedId(row.id)}
                     >
-                      <TableCell className="font-medium">{row.request_number}</TableCell>
-                      <TableCell>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="text-sm font-semibold text-slate-900">{row.request_number}</div>
                         <Badge className={statusBadge(row.status)}>{statusLabel(row.status, t)}</Badge>
-                      </TableCell>
-                      <TableCell>{row.field_name || "-"}</TableCell>
-                      <TableCell>{row.recipient_email || "-"}</TableCell>
-                      <TableCell>
-                        {row.planned_datetime ? new Date(row.planned_datetime).toLocaleString() : "-"}
-                      </TableCell>
-                      <TableCell>{row.items?.length || 0}</TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
+                      </div>
+                      <div className="mt-2 text-xs text-slate-600">
+                        <div>{t("field")}: {row.field_name || "-"}</div>
+                        <div>{t("recipient")}: {row.recipient_email || "-"}</div>
+                        <div>{t("planned_date")}: {row.planned_datetime ? new Date(row.planned_datetime).toLocaleString() : "-"}</div>
+                        <div>{t("items")}: {row.items?.length || 0}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="hidden md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t("request_number")}</TableHead>
+                        <TableHead>{t("status")}</TableHead>
+                        <TableHead>{t("field")}</TableHead>
+                        <TableHead>{t("recipient")}</TableHead>
+                        <TableHead>{t("planned_date")}</TableHead>
+                        <TableHead>{t("items")}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredRequests.map((row) => (
+                        <TableRow
+                          key={row.id}
+                          className={row.id === selectedId ? "bg-emerald-50" : ""}
+                          onClick={() => setSelectedId(row.id)}
+                        >
+                          <TableCell className="font-medium">{row.request_number}</TableCell>
+                          <TableCell>
+                            <Badge className={statusBadge(row.status)}>{statusLabel(row.status, t)}</Badge>
+                          </TableCell>
+                          <TableCell>{row.field_name || "-"}</TableCell>
+                          <TableCell>{row.recipient_email || "-"}</TableCell>
+                          <TableCell>
+                            {row.planned_datetime ? new Date(row.planned_datetime).toLocaleString() : "-"}
+                          </TableCell>
+                          <TableCell>{row.items?.length || 0}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
           </CardContent>
         </Card>
 
@@ -566,33 +585,25 @@ export default function WarehouseRequestsPage() {
                   </div>
                 )}
 
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t("material")}</TableHead>
-                      <TableHead>{t("category")}</TableHead>
-                      <TableHead className="text-right">Planned</TableHead>
-                      <TableHead className="text-right">Issued</TableHead>
-                      <TableHead className="text-right">Remaining</TableHead>
-                      <TableHead className="text-right">To issue</TableHead>
-                      <TableHead>{t("unit")}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(selectedRequest.items || []).map((item) => {
-                      const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
-                      const issued = toQty(item.issued_quantity, 0);
-                      const remaining = Math.max(planned - issued, 0);
-                      const editable =
-                        selectedRequest.status === "ready" || selectedRequest.status === "partially_issued";
-                      return (
-                      <TableRow key={item.id}>
-                        <TableCell>{item.product_name || "-"}</TableCell>
-                        <TableCell>{item.product_type || item.product_category || "-"}</TableCell>
-                        <TableCell className="text-right">{planned.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">{issued.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">{remaining.toFixed(2)}</TableCell>
-                        <TableCell className="text-right">
+                <div className="space-y-2 md:hidden">
+                  {(selectedRequest.items || []).map((item) => {
+                    const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+                    const issued = toQty(item.issued_quantity, 0);
+                    const remaining = Math.max(planned - issued, 0);
+                    const editable =
+                      selectedRequest.status === "ready" || selectedRequest.status === "partially_issued";
+                    return (
+                      <div key={item.id} className="rounded-lg border border-slate-200 p-3 text-sm">
+                        <div className="font-medium text-slate-900">{item.product_name || "-"}</div>
+                        <div className="mt-1 text-xs text-slate-500">{item.product_type || item.product_category || "-"}</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                          <div>Planned: {planned.toFixed(2)}</div>
+                          <div>Issued: {issued.toFixed(2)}</div>
+                          <div>Remaining: {remaining.toFixed(2)}</div>
+                          <div>{t("unit")}: {localizeUnit(item.unit || item.product_unit || "kg", language)}</div>
+                        </div>
+                        <div className="mt-2">
+                          <Label className="mb-1 block text-xs">To issue</Label>
                           <Input
                             type="number"
                             step="0.01"
@@ -606,14 +617,63 @@ export default function WarehouseRequestsPage() {
                               }))
                             }
                             disabled={!editable || submitting}
-                            className="h-8 w-24 ml-auto"
+                            className="h-9"
                           />
-                        </TableCell>
-                        <TableCell>{localizeUnit(item.unit || item.product_unit || "kg", language)}</TableCell>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="hidden md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>{t("material")}</TableHead>
+                        <TableHead>{t("category")}</TableHead>
+                        <TableHead className="text-right">Planned</TableHead>
+                        <TableHead className="text-right">Issued</TableHead>
+                        <TableHead className="text-right">Remaining</TableHead>
+                        <TableHead className="text-right">To issue</TableHead>
+                        <TableHead>{t("unit")}</TableHead>
                       </TableRow>
-                    )})}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {(selectedRequest.items || []).map((item) => {
+                        const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+                        const issued = toQty(item.issued_quantity, 0);
+                        const remaining = Math.max(planned - issued, 0);
+                        const editable =
+                          selectedRequest.status === "ready" || selectedRequest.status === "partially_issued";
+                        return (
+                        <TableRow key={item.id}>
+                          <TableCell>{item.product_name || "-"}</TableCell>
+                          <TableCell>{item.product_type || item.product_category || "-"}</TableCell>
+                          <TableCell className="text-right">{planned.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{issued.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{remaining.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              max={remaining}
+                              value={issueQtyByItem[item.id] ?? "0"}
+                              onChange={(e) =>
+                                setIssueQtyByItem((prev) => ({
+                                  ...prev,
+                                  [item.id]: e.target.value,
+                                }))
+                              }
+                              disabled={!editable || submitting}
+                              className="ml-auto h-8 w-24"
+                            />
+                          </TableCell>
+                          <TableCell>{localizeUnit(item.unit || item.product_unit || "kg", language)}</TableCell>
+                        </TableRow>
+                      )})}
+                    </TableBody>
+                  </Table>
+                </div>
 
                 {canProcess && (
                   <div className="flex flex-wrap gap-2">
