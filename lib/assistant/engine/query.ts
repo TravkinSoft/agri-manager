@@ -594,9 +594,10 @@ async function generateGeneralAnswer(params: {
   settings: AssistantPlatformSettings;
   runtimeContext: any;
   actorRole: string;
+  intentName: AssistantIntentName;
 }): Promise<{ answer: string; actualModel: string | null; usage: UsageStats; llm: LlmDiagnostics }> {
-  const { message, locale, settings, runtimeContext, actorRole } = params;
-  const modelConfig = resolveAssistantModelConfig(settings);
+  const { message, locale, settings, runtimeContext, actorRole, intentName } = params;
+  const modelConfig = resolveAssistantModelConfig(settings, { intentName, message });
   const emptyUsage: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
 
   if (!process.env.OPENAI_API_KEY) {
@@ -919,7 +920,7 @@ export async function runAssistantEngine(params: {
   if (looksLikeErpDataQuestion(message) && settings.groundingRules.blockUngroundedDataAnswers) {
     return {
       answer:
-        "Похоже на запрос ERP-данных. Уточните объект (склад, поле, период), и я отвечу по фактическим данным через backend tools.",
+        "Уточните объект запроса: склад, поле или период. После этого покажу фактические данные из системы.",
       sessionState: { ...nextSessionState, lastIntent: intent.name },
       intent,
       toolCalls,
@@ -945,6 +946,7 @@ export async function runAssistantEngine(params: {
     settings,
     runtimeContext,
     actorRole: actor.role,
+    intentName: intent.name,
   });
   return {
     answer: fallback.answer,

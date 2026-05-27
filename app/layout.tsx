@@ -11,8 +11,8 @@ const inter = Inter({ subsets: ['latin', 'cyrillic'] });
 const metadataBase = new URL(getPublicAppUrl());
 
 export const metadata: Metadata = {
-  title: 'AgriManager - Agricultural Management System',
-  description: 'Comprehensive agricultural management platform for modern farming',
+  title: 'TravkinFlow — AI-native Agro ERP / AgriOS',
+  description: 'Operational AI-native platform for fields, operations, weighbridge, warehouses, ledger and harvest flow',
   metadataBase,
   openGraph: {
     images: [

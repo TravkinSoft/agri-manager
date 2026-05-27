@@ -16,18 +16,14 @@ export function AssistantConversationHost({
   if (engine.surface === "tool_first_panel") {
     return (
       <div className="h-full min-h-0">
-        <AssistantChatPane
-          runtimeContext={runtimeContext}
-          sessionId={session.sessionId}
-          access={access}
-        />
+        <AssistantChatPane runtimeContext={runtimeContext} sessionId={session.sessionId} access={access} />
       </div>
     );
   }
 
   if (engine.surface !== "legacy_persistent_chat") {
     return (
-      <div className="flex h-full items-center justify-center rounded-lg border bg-white text-sm text-slate-500">
+      <div className="flex h-full items-center justify-center rounded-lg border border-[#2B3448] bg-[#151C28] text-sm text-[#9CA3AF]">
         Режим ассистента не сконфигурирован.
       </div>
     );
@@ -35,11 +31,7 @@ export function AssistantConversationHost({
 
   return (
     <div className="h-full min-h-0">
-      <PersistentChatInterface
-        embedded
-        runtimeContext={runtimeContext}
-        assistantSessionId={session.sessionId}
-      />
+      <PersistentChatInterface embedded runtimeContext={runtimeContext} assistantSessionId={session.sessionId} />
     </div>
   );
 }

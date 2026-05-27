@@ -40,7 +40,7 @@ function detectModelSettingsSource(settingsModel: string | null): AssistantDebug
   const configured = asString(settingsModel);
   const envModel = asString(process.env.OPENAI_ASSISTANT_MODEL);
   if (configured && envModel && configured === envModel) return "env";
-  if (!configured || configured === "gpt-4.1-mini") return "default";
+  if (!configured || configured === "gpt-5.4-mini") return "default";
   return "db";
 }
 

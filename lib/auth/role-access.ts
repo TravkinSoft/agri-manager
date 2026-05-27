@@ -12,6 +12,7 @@ const WAREHOUSE_OPERATOR_ALLOWED_PREFIXES = [
   "/dashboard",
   "/warehouses",
   "/inventory",
+  "/weighbridge",
   "/auth",
 ];
 
@@ -64,10 +65,7 @@ const AGRONOMIST_ALLOWED_PREFIXES = [
   "/auth",
 ];
 
-const AGRONOMIST_ALLOWED_EXACT = [
-  "/warehouses",
-  "/weighbridge/dashboard",
-];
+const AGRONOMIST_ALLOWED_EXACT = ["/warehouses"];
 
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",
@@ -87,6 +85,11 @@ const DIRECTOR_ALLOWED_PREFIXES = [
 export function canAccessPath(role: AppRole, pathname: string): boolean {
   const path = String(pathname || "").toLowerCase();
   if (!path || path === "/") return true;
+
+  const isWeighbridgeDashboardPath = path === "/weighbridge/dashboard" || path.startsWith("/weighbridge/dashboard/");
+  if (isWeighbridgeDashboardPath) {
+    return role === "global_admin" || role === "company_admin";
+  }
 
   // Legacy assistant page is deprecated and should be reachable only by global admin.
   if (path === "/specialist" || path.startsWith("/specialist/")) {
@@ -143,7 +146,7 @@ export function getDefaultPathForRole(role: AppRole): string {
   if (role === "global_admin") return "/platform";
   if (role === "warehouse") return "/warehouses";
   if (role === "warehouse_operator") return "/warehouses";
-  if (role === "weighman") return "/weighbridge/dashboard";
+  if (role === "weighman") return "/weighbridge";
   if (role === "fuel_operator") return "/fuel";
   if (role === "brigadier") return "/operations";
   if (role === "legal_operator") return "/land-legal";

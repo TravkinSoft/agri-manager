@@ -49,9 +49,7 @@ export function Header() {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${data.session.access_token}`,
     };
-    if (contentType === "json") {
-      headers["Content-Type"] = "application/json";
-    }
+    if (contentType === "json") headers["Content-Type"] = "application/json";
     return headers;
   };
 
@@ -86,23 +84,24 @@ export function Header() {
   const getRoleBadgeColor = (role: string) => {
     switch (role) {
       case "global_admin":
-        return "bg-purple-100 text-purple-800 hover:bg-purple-100";
+        return "bg-amber-200 text-amber-900 hover:bg-amber-200";
       case "company_admin":
-        return "bg-rose-100 text-rose-800 hover:bg-rose-100";
+        return "bg-sky-200 text-sky-900 hover:bg-sky-200";
       case "agronomist":
-        return "bg-green-100 text-green-800 hover:bg-green-100";
+        return "bg-emerald-200 text-emerald-900 hover:bg-emerald-200";
       case "director":
-        return "bg-cyan-100 text-cyan-800 hover:bg-cyan-100";
+        return "bg-cyan-200 text-cyan-900 hover:bg-cyan-200";
       case "specialist":
-        return "bg-blue-100 text-blue-800 hover:bg-blue-100";
+        return "bg-blue-200 text-blue-900 hover:bg-blue-200";
       case "warehouse":
-        return "bg-orange-100 text-orange-800 hover:bg-orange-100";
+      case "warehouse_operator":
+        return "bg-orange-200 text-orange-900 hover:bg-orange-200";
       case "weighman":
-        return "bg-violet-100 text-violet-800 hover:bg-violet-100";
+        return "bg-violet-200 text-violet-900 hover:bg-violet-200";
       case "fuel_operator":
-        return "bg-sky-100 text-sky-800 hover:bg-sky-100";
+        return "bg-slate-300 text-slate-900 hover:bg-slate-300";
       default:
-        return "bg-slate-100 text-slate-800 hover:bg-slate-100";
+        return "bg-slate-200 text-slate-900 hover:bg-slate-200";
     }
   };
 
@@ -113,8 +112,11 @@ export function Header() {
     if (role === "director") return "Директор";
     if (role === "specialist") return t("role_specialist");
     if (role === "warehouse") return t("role_warehouse");
+    if (role === "warehouse_operator") return "Складской оператор";
     if (role === "weighman") return t("role_weighman");
     if (role === "fuel_operator") return "Оператор АЗС / ГСМ";
+    if (role === "brigadier") return "Бригадир";
+    if (role === "legal_operator") return "Юрист / бухгалтер";
     return role || "-";
   };
 
@@ -141,19 +143,24 @@ export function Header() {
   };
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-white px-3 md:h-16 md:px-6">
-      <Button variant="ghost" size="icon" onClick={toggleSidebar} className="hidden hover:bg-slate-100 md:inline-flex">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[#262D3D] bg-[#11151E]/95 px-3 backdrop-blur md:h-16 md:px-6">
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={toggleSidebar}
+        className="hidden text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6] md:inline-flex"
+      >
         <Menu className="h-5 w-5" />
       </Button>
 
       <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2 md:gap-4">
         {isGlobal ? (
           <div className="hidden min-w-[340px] items-center gap-2 md:flex">
-            <span className="text-xs font-medium text-slate-500">
+            <span className="text-xs font-medium text-[#9CA3AF]">
               {activeCompanyId ? "Вы в компании" : "Режим платформы"}
             </span>
             <Select value={activeCompanyId || "__none__"} onValueChange={handleSwitchCompany} disabled={switchingCompany}>
-              <SelectTrigger className="h-9">
+              <SelectTrigger className="h-9 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
                 <SelectValue placeholder="Выберите компанию" />
               </SelectTrigger>
               <SelectContent>
@@ -165,22 +172,26 @@ export function Header() {
                 ))}
               </SelectContent>
             </Select>
-            {activeCompanyName ? <span className="max-w-[150px] truncate text-xs text-slate-600">{activeCompanyName}</span> : null}
+            {activeCompanyName ? <span className="max-w-[150px] truncate text-xs text-[#9CA3AF]">{activeCompanyName}</span> : null}
           </div>
         ) : null}
 
         <LanguageSwitcher />
-        <Button variant="ghost" size="icon" className="h-9 w-9">
+        <Button variant="ghost" size="icon" className="h-9 w-9 text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]">
           <Bell className="h-5 w-5" />
         </Button>
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-full text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]"
+            >
               <User className="h-5 w-5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-56 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
             <DropdownMenuLabel className="font-normal">
               <div className="flex flex-col space-y-1">
                 <p className="text-sm font-medium leading-none">{user?.email}</p>
@@ -192,13 +203,13 @@ export function Header() {
                 ) : null}
               </div>
             </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => router.push("/settings")}>
+            <DropdownMenuSeparator className="bg-[#2C3446]" />
+            <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
               <SettingsIcon className="mr-2 h-4 w-4" />
               {t("settings_menu")}
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout} className="text-red-600">
+            <DropdownMenuSeparator className="bg-[#2C3446]" />
+            <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-red-400 focus:text-red-300">
               <LogOut className="mr-2 h-4 w-4" />
               {t("logout")}
             </DropdownMenuItem>

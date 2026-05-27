@@ -65,22 +65,23 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
       <AssistantShellProvider>
-        <div className="flex min-h-screen bg-slate-50">
+        <div className="travkin-shell flex min-h-screen bg-transparent">
           <div className="hidden md:flex md:h-screen md:shrink-0">
             <Sidebar />
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
             <Header />
             {profile?.is_impersonating ? (
-              <div className="flex items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-slate-800 md:px-6">
+              <div className="flex items-center justify-between gap-2 border-b border-amber-700/50 bg-amber-900/40 px-4 py-2 text-xs text-amber-100 md:px-6">
                 <div className="truncate">
-                  Вы вошли как <span className="font-semibold">{profile.full_name || profile.email || profile.id}</span> ({profile.role}). Все действия логируются.
+                  Вы вошли как <span className="font-semibold">{profile.full_name || profile.email || profile.id}</span> (
+                  {profile.role}). Все действия логируются.
                 </div>
                 <Button
                   type="button"
                   size="sm"
                   variant="outline"
-                  className="h-7 border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                  className="h-7 border-amber-500/50 bg-[#1A1F2B] text-amber-100 hover:bg-[#202738]"
                   onClick={() => void stopImpersonation()}
                   disabled={stoppingImpersonation}
                 >
@@ -88,8 +89,11 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </Button>
               </div>
             ) : null}
-            <main className="flex-1 overflow-x-hidden overflow-y-auto bg-slate-50 p-3 pb-24 sm:p-4 md:p-6 md:pb-6">
+            <main className="travkin-scrollbar flex-1 overflow-x-hidden overflow-y-auto bg-transparent p-3 pb-24 sm:p-4 md:p-6 md:pb-6">
               {children}
+              <footer className="mt-8 border-t border-[#262D3D] pt-3 text-center text-xs text-[#7F8A9B]">
+                Copyright © Сунгатов Айымбек
+              </footer>
             </main>
           </div>
         </div>

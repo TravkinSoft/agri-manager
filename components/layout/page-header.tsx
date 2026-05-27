@@ -19,13 +19,13 @@ export function PageHeader({ title, description, action, children }: PageHeaderP
   return (
     <div className="mb-6 flex items-center justify-between">
       <div>
-        <h1 className="text-3xl font-bold text-slate-900">{title}</h1>
+        <h1 className="text-3xl font-semibold tracking-tight text-[#F3F4F6]">{title}</h1>
         {description && (
-          <p className="mt-1 text-sm text-slate-500">{description}</p>
+          <p className="mt-1 text-sm text-[#9CA3AF]">{description}</p>
         )}
       </div>
       {children || (action && (
-        <Button onClick={action.onClick}>
+        <Button onClick={action.onClick} className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
           {ActionIcon && <ActionIcon className="mr-2 h-4 w-4" />}
           {action.label}
         </Button>

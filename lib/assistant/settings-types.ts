@@ -86,7 +86,7 @@ export type AssistantPlatformSettings = {
 export const DEFAULT_ASSISTANT_PLATFORM_SETTINGS: AssistantPlatformSettings = {
   systemPrompt: "",
   provider: "openai",
-  model: process.env.OPENAI_ASSISTANT_MODEL || "gpt-4.1-mini",
+  model: process.env.OPENAI_ASSISTANT_MODEL || "gpt-5.4-mini",
   temperature: 0.2,
   reasoningEffort: "medium",
   enabled: true,
