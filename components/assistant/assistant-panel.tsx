@@ -30,6 +30,12 @@ function pageLabel(page: string): string {
       return "АЗС / ГСМ";
     case "operations":
       return "Операции";
+    case "land-legal":
+      return "Кадастр и право";
+    case "users":
+      return "Пользователи";
+    case "analytics":
+      return "Отчеты";
     default:
       return page || "—";
   }
@@ -69,7 +75,7 @@ export function AssistantPanel() {
               <div>
                 <SheetTitle className="text-xl">Assistant</SheetTitle>
                 <SheetDescription>
-                  Глобальный операционный помощник поверх ERP.
+                  Операционный помощник по Travkin Flow.
                 </SheetDescription>
               </div>
               {debugMonitorEnabled ? (

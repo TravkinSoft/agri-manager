@@ -31,13 +31,27 @@ type ValidateResponse = {
 };
 
 const ROLE_OPTIONS = [
+  { key: "warehouse_operator", label: "Складовщик" },
+  { key: "weighman", label: "Весовщик" },
+  { key: "specialist", label: "Специалист" },
+  { key: "brigadier", label: "Бригадир" },
+  { key: "legal_operator", label: "Юрист / бухгалтер" },
+  { key: "fuel_operator", label: "Оператор ГСМ" },
   { key: "global_admin", label: "Глобальный администратор" },
   { key: "company_admin", label: "Администратор компании" },
   { key: "agronomist", label: "Агроном" },
   { key: "director", label: "Директор" },
 ] as const;
 
-const MODEL_OPTIONS = ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"] as const;
+const MODEL_OPTIONS = [
+  "gpt-5",
+  "gpt-5-mini",
+  "gpt-5.3",
+  "gpt-4.1",
+  "gpt-4.1-mini",
+  "gpt-4o",
+  "gpt-4o-mini",
+] as const;
 const REASONING_OPTIONS = ["low", "medium", "high"] as const;
 
 const TOOL_OPTIONS = [
@@ -109,6 +123,10 @@ export function AssistantPlatformSettingsForm() {
   const [validateResult, setValidateResult] = useState<ValidateResponse | null>(null);
 
   const canSave = useMemo(() => !loading && !saving, [loading, saving]);
+  const modelOptions = useMemo(() => {
+    const fromSettings = String(settings.model || "").trim();
+    return Array.from(new Set([...MODEL_OPTIONS, ...(fromSettings ? [fromSettings] : [])]));
+  }, [settings.model]);
 
   const loadSettings = async () => {
     try {
@@ -258,7 +276,7 @@ export function AssistantPlatformSettingsForm() {
                 <SelectValue placeholder="Выберите модель" />
               </SelectTrigger>
               <SelectContent>
-                {MODEL_OPTIONS.map((model) => (
+                {modelOptions.map((model) => (
                   <SelectItem key={model} value={model}>
                     {model}
                   </SelectItem>

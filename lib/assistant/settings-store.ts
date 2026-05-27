@@ -23,7 +23,18 @@ function deepMerge<T extends JsonRecord>(base: T, extra: JsonRecord): T {
 
 function normalizeRoleList(input: unknown): AssistantPlatformSettings["allowedRoles"] {
   if (!Array.isArray(input)) return [...DEFAULT_ASSISTANT_PLATFORM_SETTINGS.allowedRoles];
-  const canonicalAllowSet = new Set(["global_admin", "company_admin", "agronomist", "director"]);
+  const canonicalAllowSet = new Set([
+    "global_admin",
+    "company_admin",
+    "agronomist",
+    "director",
+    "warehouse_operator",
+    "weighman",
+    "specialist",
+    "brigadier",
+    "legal_operator",
+    "fuel_operator",
+  ]);
   const roles = input
     .map((item) => {
       const key = normalizeRoleKey(item);

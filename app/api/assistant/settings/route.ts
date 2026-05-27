@@ -8,7 +8,18 @@ import { normalizeRoleKey, parseCanonicalRole } from "@/lib/auth/role-contract";
 
 function sanitizeRoleList(input: unknown): AssistantPlatformSettings["allowedRoles"] {
   if (!Array.isArray(input)) return DEFAULT_ASSISTANT_PLATFORM_SETTINGS.allowedRoles;
-  const allowed = new Set(["global_admin", "company_admin", "agronomist", "director"]);
+  const allowed = new Set([
+    "global_admin",
+    "company_admin",
+    "agronomist",
+    "director",
+    "warehouse_operator",
+    "weighman",
+    "specialist",
+    "brigadier",
+    "legal_operator",
+    "fuel_operator",
+  ]);
   return Array.from(
     new Set(
       input

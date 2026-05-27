@@ -16,7 +16,7 @@ type NavigationDetection = {
 
 function cleanString(value: unknown): string | null {
   const text = String(value || "").trim();
-  return text.length ? text : null;
+  return text.length > 0 ? text : null;
 }
 
 function normalizeText(value: string): string {
@@ -39,7 +39,6 @@ function isLikelyNavigationMessage(text: string): boolean {
     "зайди",
     "покажи страницу",
     "покажи раздел",
-    "перенеси на страницу",
     "open",
     "go to",
     "navigate",
@@ -72,33 +71,17 @@ function extractEntityQuery(rawMessage: string, stopWords: string[]): string | n
 
 function isGenericWarehouseQuery(value: string | null): boolean {
   const token = normalizeText(value || "");
-  return [
-    "склад",
-    "склады",
-    "складов",
-    "warehouse",
-    "warehouses",
-    "страница складов",
-    "раздел складов",
-  ].includes(token);
+  return ["склад", "склады", "складов", "warehouse", "warehouses"].includes(token);
 }
 
 function isGenericFieldQuery(value: string | null): boolean {
   const token = normalizeText(value || "");
-  return ["поле", "поля", "fields", "field", "страница полей", "раздел полей"].includes(token);
+  return ["поле", "поля", "field", "fields"].includes(token);
 }
 
 function isGenericFuelQuery(value: string | null): boolean {
   const token = normalizeText(value || "");
-  return [
-    "азс",
-    "гсм",
-    "топливо",
-    "заправка",
-    "fuel",
-    "страница гсм",
-    "раздел гсм",
-  ].includes(token);
+  return ["азс", "гсм", "топливо", "заправка", "fuel"].includes(token);
 }
 
 function detectNavigationIntent(message: string, sessionState: AssistantSessionState): NavigationDetection | null {
@@ -106,7 +89,6 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
   const text = normalizeText(raw);
   if (!isLikelyNavigationMessage(text)) return null;
 
-  // Fuel must win over generic warehouse words.
   if (hasAny(text, ["азс", "гсм", "топливо", "дизель", "бензин", "заправ", "fuel"])) {
     const query = extractEntityQuery(raw, [
       "открой",
@@ -128,6 +110,8 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
       "заправку",
       "заправка",
       "fuel",
+      "мне",
+      "пожалуйста",
     ]);
 
     const entityQuery = isGenericFuelQuery(query) ? null : query;
@@ -210,6 +194,18 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
       : { page: "fields", route: "/fields", action: "open_page" };
   }
 
+  if (hasAny(text, ["кадастр", "право", "юр", "land-legal", "land legal"])) {
+    return { page: "land-legal", route: "/land-legal", action: "open_page" };
+  }
+
+  if (hasAny(text, ["пользоват", "users", "user list"])) {
+    return { page: "users", route: "/users", action: "open_page" };
+  }
+
+  if (hasAny(text, ["отчет", "отчёт", "аналит", "analytics", "report", "reports"])) {
+    return { page: "analytics", route: "/analytics", action: "open_page" };
+  }
+
   if (hasAny(text, ["весовая", "талон", "weighbridge", "ticket"])) {
     return { page: "weighbridge", route: "/weighbridge", action: "open_page" };
   }
@@ -273,8 +269,22 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
     };
   }
 
-  // Ambiguous one-word commands should ask clarification first.
-  if (["склад", "склады", "поле", "поля", "операция", "операции", "заправка", "гсм"].includes(text)) {
+  if (
+    [
+      "склад",
+      "склады",
+      "поле",
+      "поля",
+      "операция",
+      "операции",
+      "заправка",
+      "гсм",
+      "кадастр",
+      "отчеты",
+      "отчёты",
+      "users",
+    ].includes(text)
+  ) {
     return {
       name: "clarification_required",
       confidence: 0.7,

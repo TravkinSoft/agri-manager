@@ -38,6 +38,12 @@ const ASSISTANT_ALLOWED_ROLES = new Set<ServerRole>([
   "company_admin",
   "agronomist",
   "director",
+  "warehouse_operator",
+  "weighman",
+  "specialist",
+  "brigadier",
+  "legal_operator",
+  "fuel_operator",
 ]);
 
 function isAssistantAccessStrict(): boolean {

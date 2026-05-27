@@ -515,32 +515,75 @@ function buildNavigationAnswer(actions: AssistantNavigationAction[]): string {
   return `Открываю страницу ${first.page}.`;
 }
 
+function unavailableAssistantMessage(locale: "ru" | "en" | "kz"): string {
+  if (locale === "en") return "AI Assistant is temporarily unavailable. Please try again later.";
+  if (locale === "kz") return "AI Assistant уақытша қолжетімсіз. Кейінірек қайталап көріңіз.";
+  return "AI Assistant временно недоступен. Попробуйте позже.";
+}
+
+function buildTravkinSystemPrompt(params: {
+  locale: "ru" | "en" | "kz";
+  settings: AssistantPlatformSettings;
+  runtimeContext: { currentPage?: string | null; currentRoute?: string | null; companyName?: string | null; companyId?: string | null; season?: string | null };
+  actorRole: string;
+}): string {
+  const { locale, settings, runtimeContext, actorRole } = params;
+  const routeMap = [
+    "Dashboard: /dashboard",
+    "Весовая: /weighbridge",
+    "Склады: /warehouses",
+    "Операции: /operations",
+    "Поля: /fields",
+    "Кадастр и право: /land-legal",
+    "Пользователи: /users",
+    "Отчеты/Аналитика: /analytics",
+  ].join("; ");
+
+  const contextLine = [
+    `current_page=${runtimeContext.currentPage || "-"}`,
+    `current_route=${runtimeContext.currentRoute || "-"}`,
+    `company=${runtimeContext.companyName || runtimeContext.companyId || "-"}`,
+    `season=${runtimeContext.season || "-"}`,
+    `role=${actorRole || "-"}`,
+    `locale=${locale}`,
+  ].join(", ");
+
+  const lines = [
+    "You are AI Assistant inside Travkin Flow.",
+    "Travkin Flow is an operational agro ERP / AgriOS, not a generic chatbot.",
+    "Core entities: fields, crop structure, operations, material requests, issue, operation fact, field history, warehouse, weighbridge, batches, ledger, fuel, land legal.",
+    "Operational chain: Crop Structure -> Operation -> Material Request -> Issue -> Operation Fact -> Field History -> Reports.",
+    "Respond short and practical (1-4 short paragraphs).",
+    "Default language is Russian unless user explicitly asks another language.",
+    "Never fabricate numbers or company facts. If data is missing, answer exactly: \"Я не вижу этих данных в системе\".",
+    "Never perform dangerous actions automatically. Require explicit user confirmation for any mutation-like step.",
+    `Use this route map: ${routeMap}.`,
+    `Current UI context: ${contextLine}.`,
+  ];
+
+  const customPrompt = cleanString(settings.systemPrompt);
+  if (customPrompt) {
+    lines.push("Custom platform instructions:");
+    lines.push(customPrompt);
+  }
+
+  return lines.join("\n");
+}
+
 async function generateGeneralAnswer(params: {
   message: string;
   locale: "ru" | "en" | "kz";
   settings: AssistantPlatformSettings;
+  runtimeContext: any;
+  actorRole: string;
 }): Promise<{ answer: string; actualModel: string | null; usage: UsageStats }> {
-  const { message, locale, settings } = params;
+  const { message, locale, settings, runtimeContext, actorRole } = params;
   const modelConfig = resolveAssistantModelConfig(settings);
   const emptyUsage: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
 
   if (!process.env.OPENAI_API_KEY) {
-    if (locale === "en") {
-      return {
-        answer: "Assistant is ready for ERP navigation and tool-grounded answers.",
-        actualModel: null,
-        usage: emptyUsage,
-      };
-    }
-    if (locale === "kz") {
-      return {
-        answer: "Assistant ERP навигациясы және tool-grounded жауаптар үшін дайын.",
-        actualModel: null,
-        usage: emptyUsage,
-      };
-    }
     return {
-      answer: "Ассистент готов для навигации по ERP и ответов через backend-инструменты.",
+      answer: unavailableAssistantMessage(locale),
       actualModel: null,
       usage: emptyUsage,
     };
@@ -558,17 +601,25 @@ async function generateGeneralAnswer(params: {
       messages: [
         {
           role: "system",
-          content: [
-            "You are a concise ERP assistant.",
-            "Do not fabricate company facts.",
-            "If data is needed, ask the user to clarify so backend tools can be used.",
-            `Reply locale: ${locale}.`,
-          ].join("\n"),
+          content: buildTravkinSystemPrompt({
+            locale,
+            settings,
+            runtimeContext,
+            actorRole,
+          }),
         },
         { role: "user", content: message },
       ],
     }),
-  });
+  }).catch(() => null);
+
+  if (!response) {
+    return {
+      answer: unavailableAssistantMessage(locale),
+      actualModel: modelConfig.actualModel,
+      usage: emptyUsage,
+    };
+  }
 
   const data = await response.json().catch(() => ({}));
   const usage: UsageStats = {
@@ -580,9 +631,11 @@ async function generateGeneralAnswer(params: {
   };
 
   if (!response.ok) {
-    if (locale === "en") return { answer: "I can help with ERP navigation and tool-based answers.", actualModel: modelConfig.actualModel, usage };
-    if (locale === "kz") return { answer: "ERP навигациясы және tool-based жауаптар бойынша көмектесемін.", actualModel: modelConfig.actualModel, usage };
-    return { answer: "Могу помочь с навигацией по ERP и запросами через инструменты.", actualModel: modelConfig.actualModel, usage };
+    return {
+      answer: unavailableAssistantMessage(locale),
+      actualModel: modelConfig.actualModel,
+      usage,
+    };
   }
 
   const content = cleanString(data?.choices?.[0]?.message?.content);
@@ -594,9 +647,11 @@ async function generateGeneralAnswer(params: {
     };
   }
 
-  if (locale === "en") return { answer: "I can help with ERP navigation and tool-based answers.", actualModel: modelConfig.actualModel, usage };
-  if (locale === "kz") return { answer: "ERP навигациясы және tool-based жауаптар бойынша көмектесемін.", actualModel: modelConfig.actualModel, usage };
-  return { answer: "Могу помочь с навигацией по ERP и запросами через инструменты.", actualModel: modelConfig.actualModel, usage };
+  return {
+    answer: unavailableAssistantMessage(locale),
+    actualModel: modelConfig.actualModel,
+    usage,
+  };
 }
 
 export async function runAssistantEngine(params: {
@@ -822,7 +877,13 @@ export async function runAssistantEngine(params: {
   }
 
   const locale = runtimeContext.locale || "ru";
-  const fallback = await generateGeneralAnswer({ message, locale, settings });
+  const fallback = await generateGeneralAnswer({
+    message,
+    locale,
+    settings,
+    runtimeContext,
+    actorRole: actor.role,
+  });
   return {
     answer: fallback.answer,
     sessionState: { ...nextSessionState, lastIntent: intent.name },

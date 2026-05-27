@@ -1,7 +1,19 @@
 import type { CanonicalRole } from "@/lib/auth/role-contract";
 
 export type AssistantProvider = "openai";
-export type AssistantUserRole = Extract<CanonicalRole, "global_admin" | "company_admin" | "agronomist" | "director">;
+export type AssistantUserRole = Extract<
+  CanonicalRole,
+  | "global_admin"
+  | "company_admin"
+  | "agronomist"
+  | "director"
+  | "warehouse_operator"
+  | "weighman"
+  | "specialist"
+  | "brigadier"
+  | "legal_operator"
+  | "fuel_operator"
+>;
 
 export type AssistantResponseRules = {
   requireGroundingForDataQuestions: boolean;
@@ -78,7 +90,18 @@ export const DEFAULT_ASSISTANT_PLATFORM_SETTINGS: AssistantPlatformSettings = {
   temperature: 0.2,
   reasoningEffort: "medium",
   enabled: true,
-  allowedRoles: ["global_admin", "company_admin", "agronomist", "director"],
+  allowedRoles: [
+    "global_admin",
+    "company_admin",
+    "agronomist",
+    "director",
+    "warehouse_operator",
+    "weighman",
+    "specialist",
+    "brigadier",
+    "legal_operator",
+    "fuel_operator",
+  ],
   allowedTools: [
     "get_company_context",
     "get_current_season",

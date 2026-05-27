@@ -80,6 +80,16 @@ type QueryResponsePayload = {
   code?: string;
 };
 
+const QUICK_PROMPTS = [
+  "Как создать талон?",
+  "Как выдать материалы на поле?",
+  "Что такое operation fact?",
+  "Где посмотреть остатки?",
+  "Как работает карточка поля?",
+  "Почему склад не списался?",
+  "Где отчёт по картофелю?",
+] as const;
+
 const EMPTY_STATE: AssistantSessionStatePayload = {
   lastEntity: null,
   lastCrop: null,
@@ -183,6 +193,30 @@ function buildEntityFilters(action: Extract<AssistantNavigationActionPayload, { 
   if (!filters.entityId && action.entityId) filters.entityId = action.entityId;
   if (!filters.entityType && action.entityType) filters.entityType = action.entityType;
   return filters;
+}
+
+function pageLabel(page: string): string {
+  const key = String(page || "").toLowerCase();
+  switch (key) {
+    case "dashboard":
+      return "Панель";
+    case "weighbridge":
+      return "Весовая";
+    case "warehouses":
+      return "Склады";
+    case "operations":
+      return "Операции";
+    case "fields":
+      return "Поля";
+    case "land-legal":
+      return "Кадастр и право";
+    case "users":
+      return "Пользователи";
+    case "analytics":
+      return "Отчеты";
+    default:
+      return page || "—";
+  }
 }
 
 export function AssistantChatPane({
@@ -446,6 +480,22 @@ export function AssistantChatPane({
       </div>
 
       <div className="border-t p-3">
+        <div className="mb-2 text-xs text-slate-500">
+          Вы на странице: {pageLabel(runtimeContext.currentPage)}.
+        </div>
+        <div className="mb-2 flex flex-wrap gap-2">
+          {QUICK_PROMPTS.map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              onClick={() => setInput(prompt)}
+              disabled={loading || !!disabledReason}
+              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
         <form
           className="flex items-end gap-2"
           onSubmit={(event) => {
