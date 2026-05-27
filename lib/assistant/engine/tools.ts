@@ -1008,9 +1008,218 @@ const resolveFuelSourceByNameTool: AssistantToolDefinition = {
   run: resolveFuelSourceByName,
 };
 
+const getCurrentContextToolAlias: AssistantToolDefinition = {
+  name: "get_current_context",
+  description: "Текущий контекст страницы/компании/сезона",
+  domains: ["assistant", "context"],
+  run: async (context) => ({
+    title: "Текущий контекст",
+    rows: [
+      {
+        company_id: context.companyId,
+        page: context.runtimeContext.currentPage,
+        route: context.runtimeContext.currentRoute,
+        season: context.runtimeContext.season,
+        locale: context.runtimeContext.locale || "ru",
+      },
+    ],
+    source: {
+      module: "assistant",
+      tableOrView: "runtime_context",
+      season: context.runtimeContext.season,
+      fetchedAt: nowIso(),
+    },
+  }),
+};
+
+const getRoutesToolAlias: AssistantToolDefinition = {
+  name: "get_routes",
+  description: "Маршруты основных модулей Travkin Flow",
+  domains: ["navigation", "assistant"],
+  run: async (context) => ({
+    title: "Маршруты",
+    rows: [
+      { name: "Панель", route: "/dashboard" },
+      { name: "Весовая", route: "/weighbridge" },
+      { name: "Склады", route: "/warehouses" },
+      { name: "Операции", route: "/operations" },
+      { name: "Поля", route: "/fields" },
+      { name: "Кадастр и право", route: "/land-legal" },
+      { name: "Пользователи", route: "/users" },
+      { name: "Отчеты", route: "/analytics" },
+    ],
+    source: {
+      module: "assistant",
+      tableOrView: "route_map",
+      season: context.runtimeContext.season,
+      fetchedAt: nowIso(),
+    },
+  }),
+};
+
+const findFieldToolAlias: AssistantToolDefinition = {
+  name: "find_field",
+  description: "Найти поле",
+  domains: ["fields", "navigation"],
+  run: resolveFieldByNumber,
+};
+
+const findWarehouseToolAlias: AssistantToolDefinition = {
+  name: "find_warehouse",
+  description: "Найти склад",
+  domains: ["warehouses", "navigation"],
+  run: resolveWarehouseByName,
+};
+
+const findOperationToolAlias: AssistantToolDefinition = {
+  name: "find_operation",
+  description: "Найти операции по фильтру",
+  domains: ["operations"],
+  run: async (context) => {
+    const output = await getOperationsTool.run(context);
+    const query = parseSearchQuery(context);
+    return {
+      ...output,
+      rows: applyTextFilter(output.rows || [], query).slice(0, 40),
+      source: {
+        ...output.source,
+        tableOrView: "operations (find_operation)",
+      },
+    };
+  },
+};
+
+const getActiveOperationsToolAlias: AssistantToolDefinition = {
+  name: "get_active_operations",
+  description: "Активные операции компании",
+  domains: ["operations"],
+  run: async (context) => {
+    const res = await context.supabase
+      .from("operations")
+      .select("id,date,operation_type,status,field_id")
+      .eq("company_id", context.companyId)
+      .eq("archived", false)
+      .order("date", { ascending: false })
+      .limit(120);
+
+    if (res.error) throw new Error(res.error.message);
+    const rowsRaw = res.data || [];
+    const fieldsLookup = await buildLookupMaps(context, {
+      fields: Array.from(new Set(rowsRaw.map((row: any) => String(row.field_id || "")).filter(Boolean))),
+    });
+
+    const rows = rowsRaw
+      .filter((row: any) => {
+        const status = cleanString(row.status)?.toLowerCase() || "";
+        return status !== "completed" && status !== "cancelled" && status !== "verified";
+      })
+      .map((row: any) => ({
+        operation_id: String(row.id),
+        date: cleanString(row.date),
+        operation_type: cleanString(row.operation_type),
+        status: cleanString(row.status),
+        field_name: fieldsLookup.byField.get(String(row.field_id || "")) || String(row.field_id || ""),
+      }));
+
+    return {
+      title: "Активные операции",
+      rows: rows.slice(0, 60),
+      source: {
+        module: "operations",
+        tableOrView: "operations",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const getWarehouseSummaryToolAlias: AssistantToolDefinition = {
+  name: "get_warehouse_summary",
+  description: "Сводка по складам",
+  domains: ["warehouses", "inventory"],
+  run: async (context) => {
+    const output = await getWarehouseBalancesTool.run(context);
+    const grouped = new Map<string, number>();
+    (output.rows || []).forEach((row) => {
+      const warehouse = cleanString(row.warehouse_name) || "—";
+      const qty = Number(row.quantity || 0);
+      grouped.set(warehouse, (grouped.get(warehouse) || 0) + (Number.isFinite(qty) ? qty : 0));
+    });
+    const rows = Array.from(grouped.entries())
+      .map(([warehouse_name, quantity]) => ({ warehouse_name, quantity }))
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 60);
+    return {
+      title: "Сводка складов",
+      rows,
+      source: {
+        module: "warehouses",
+        tableOrView: "v_stock_balance_identity (summary)",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const getPotatoMaterialReportToolAlias: AssistantToolDefinition = {
+  name: "get_potato_material_report",
+  description: "Отчет по материалам картофеля",
+  domains: ["reports", "operations", "warehouses"],
+  run: async (context) => {
+    const viewRes = await context.supabase
+      .from("v_potato_material_consumption")
+      .select("*")
+      .eq("company_id", context.companyId)
+      .order("field_display_name", { ascending: true })
+      .limit(300);
+
+    if (!viewRes.error) {
+      return {
+        title: "Отчет по картофелю",
+        rows: (viewRes.data || []).map((row: any) => ({ ...row })),
+        source: {
+          module: "reports",
+          tableOrView: "v_potato_material_consumption",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+
+    if (isMissingRelationError(viewRes.error.message)) {
+      return {
+        title: "Отчет по картофелю",
+        rows: [
+          {
+            info: "Пока не могу открыть отчет по картофелю напрямую. Откройте Операции или Склады и уточните фильтр.",
+          },
+        ],
+        source: {
+          module: "assistant",
+          tableOrView: "fallback:get_potato_material_report",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+
+    throw new Error(viewRes.error.message);
+  },
+};
+
 const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
+  get_current_context: getCurrentContextToolAlias,
+  get_routes: getRoutesToolAlias,
   get_company_context: getCompanyContextTool,
   get_current_season: getCurrentSeasonTool,
+  find_field: findFieldToolAlias,
+  find_warehouse: findWarehouseToolAlias,
+  find_operation: findOperationToolAlias,
+  get_active_operations: getActiveOperationsToolAlias,
+  get_potato_material_report: getPotatoMaterialReportToolAlias,
+  get_warehouse_summary: getWarehouseSummaryToolAlias,
   get_fields: getFieldsTool,
   get_crop_structure: getCropStructureTool,
   get_inventory: getInventoryTool,

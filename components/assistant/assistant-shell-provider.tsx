@@ -117,7 +117,7 @@ function storageKey(userId: string | null | undefined, companyId: string | null 
 }
 
 function isDebugEnabledForRole(role: string | null | undefined): boolean {
-  if (role === "global_admin") return true;
+  if (role === "global_admin" || role === "company_admin") return true;
   return process.env.NEXT_PUBLIC_ASSISTANT_DEBUG === "1";
 }
 
@@ -301,7 +301,11 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
       try {
         const headers = await getAuthHeaders();
         const debugQuery =
-          profile?.role === "global_admin" || process.env.NEXT_PUBLIC_ASSISTANT_DEBUG === "1" ? "?debug=1" : "";
+          profile?.role === "global_admin" ||
+          profile?.role === "company_admin" ||
+          process.env.NEXT_PUBLIC_ASSISTANT_DEBUG === "1"
+            ? "?debug=1"
+            : "";
         const response = await fetch(`/api/assistant/context${debugQuery}`, {
           method: "GET",
           headers,

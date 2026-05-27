@@ -28,6 +28,24 @@ type UsageStats = {
   totalTokens: number | null;
 };
 
+type LlmDiagnostics = {
+  status: "not_called" | "ok" | "missing_api_key" | "network_error" | "http_error" | "invalid_response";
+  httpStatus: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  missingEnv: string[];
+};
+
+function llmNotCalled(): LlmDiagnostics {
+  return {
+    status: "not_called",
+    httpStatus: null,
+    errorCode: null,
+    errorMessage: null,
+    missingEnv: [],
+  };
+}
+
 function cleanString(value: unknown): string | null {
   const text = String(value || "").trim();
   return text.length ? text : null;
@@ -576,7 +594,7 @@ async function generateGeneralAnswer(params: {
   settings: AssistantPlatformSettings;
   runtimeContext: any;
   actorRole: string;
-}): Promise<{ answer: string; actualModel: string | null; usage: UsageStats }> {
+}): Promise<{ answer: string; actualModel: string | null; usage: UsageStats; llm: LlmDiagnostics }> {
   const { message, locale, settings, runtimeContext, actorRole } = params;
   const modelConfig = resolveAssistantModelConfig(settings);
   const emptyUsage: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
@@ -586,6 +604,13 @@ async function generateGeneralAnswer(params: {
       answer: unavailableAssistantMessage(locale),
       actualModel: null,
       usage: emptyUsage,
+      llm: {
+        status: "missing_api_key",
+        httpStatus: null,
+        errorCode: "OPENAI_API_KEY_MISSING",
+        errorMessage: "OPENAI_API_KEY is not configured",
+        missingEnv: ["OPENAI_API_KEY"],
+      },
     };
   }
 
@@ -618,6 +643,13 @@ async function generateGeneralAnswer(params: {
       answer: unavailableAssistantMessage(locale),
       actualModel: modelConfig.actualModel,
       usage: emptyUsage,
+      llm: {
+        status: "network_error",
+        httpStatus: null,
+        errorCode: "OPENAI_NETWORK_ERROR",
+        errorMessage: "Network request to OpenAI failed",
+        missingEnv: [],
+      },
     };
   }
 
@@ -631,10 +663,19 @@ async function generateGeneralAnswer(params: {
   };
 
   if (!response.ok) {
+    const errCode = cleanString(data?.error?.code);
+    const errMessage = cleanString(data?.error?.message) || cleanString(data?.error?.type);
     return {
       answer: unavailableAssistantMessage(locale),
       actualModel: modelConfig.actualModel,
       usage,
+      llm: {
+        status: "http_error",
+        httpStatus: response.status,
+        errorCode: errCode,
+        errorMessage: errMessage,
+        missingEnv: [],
+      },
     };
   }
 
@@ -644,6 +685,13 @@ async function generateGeneralAnswer(params: {
       answer: content,
       actualModel: modelConfig.actualModel,
       usage,
+      llm: {
+        status: "ok",
+        httpStatus: response.status,
+        errorCode: null,
+        errorMessage: null,
+        missingEnv: [],
+      },
     };
   }
 
@@ -651,6 +699,13 @@ async function generateGeneralAnswer(params: {
     answer: unavailableAssistantMessage(locale),
     actualModel: modelConfig.actualModel,
     usage,
+    llm: {
+      status: "invalid_response",
+      httpStatus: response.status,
+      errorCode: "OPENAI_EMPTY_RESPONSE",
+      errorMessage: "OpenAI response did not contain assistant message content",
+      missingEnv: [],
+    },
   };
 }
 
@@ -672,6 +727,7 @@ export async function runAssistantEngine(params: {
 
   const modelConfig = resolveAssistantModelConfig(settings);
   const emptyPerformance: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
+  const modelLlmNotCalled = llmNotCalled();
 
   if (!settings.enabled) {
     return {
@@ -688,6 +744,7 @@ export async function runAssistantEngine(params: {
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
         requestMode: "tool_first",
+        llm: modelLlmNotCalled,
       },
       performance: emptyPerformance,
     };
@@ -708,6 +765,7 @@ export async function runAssistantEngine(params: {
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
         requestMode: "tool_first",
+        llm: modelLlmNotCalled,
       },
       performance: emptyPerformance,
     };
@@ -735,6 +793,7 @@ export async function runAssistantEngine(params: {
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
         requestMode: "tool_first",
+        llm: modelLlmNotCalled,
       },
       performance: emptyPerformance,
     };
@@ -755,6 +814,7 @@ export async function runAssistantEngine(params: {
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
         requestMode: "tool_first",
+        llm: modelLlmNotCalled,
       },
       performance: emptyPerformance,
     };
@@ -850,6 +910,7 @@ export async function runAssistantEngine(params: {
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
         requestMode: "tool_first",
+        llm: modelLlmNotCalled,
       },
       performance: emptyPerformance,
     };
@@ -871,6 +932,7 @@ export async function runAssistantEngine(params: {
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
         requestMode: "tool_first",
+        llm: modelLlmNotCalled,
       },
       performance: emptyPerformance,
     };
@@ -898,6 +960,7 @@ export async function runAssistantEngine(params: {
       actualModel: fallback.actualModel,
       settingsSource: modelConfig.settingsSource,
       requestMode: "tool_first",
+      llm: fallback.llm,
     },
     performance: fallback.usage,
   };

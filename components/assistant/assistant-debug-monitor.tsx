@@ -15,9 +15,7 @@ function Row({ label, value }: { label: string; value: unknown }) {
   return (
     <div className="flex items-start justify-between gap-3 text-xs">
       <span className="text-slate-500">{label}</span>
-      <span className="max-w-[62%] text-right font-medium text-slate-900">
-        {showValue(value)}
-      </span>
+      <span className="max-w-[62%] text-right font-medium text-slate-900">{showValue(value)}</span>
     </div>
   );
 }
@@ -36,7 +34,9 @@ export function AssistantDebugMonitor() {
 
   const isAllowed =
     profile?.role === "global_admin" ||
+    profile?.role === "company_admin" ||
     process.env.NEXT_PUBLIC_ASSISTANT_DEBUG === "1";
+
   if (!enabled || !debugMonitorEnabled || !isAllowed || !debugMonitorOpen) {
     return null;
   }
@@ -46,12 +46,8 @@ export function AssistantDebugMonitor() {
       <div className="pointer-events-auto overflow-hidden rounded-xl border border-slate-300 bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b bg-slate-50 px-3 py-2">
           <div>
-            <div className="text-sm font-semibold text-slate-900">
-              Assistant Debug Monitor
-            </div>
-            <div className="text-[11px] text-slate-500">
-              Технический режим (временный)
-            </div>
+            <div className="text-sm font-semibold text-slate-900">Assistant Debug</div>
+            <div className="text-[11px] text-slate-500">Только для admin ролей</div>
           </div>
           <div className="flex items-center gap-1">
             <button
@@ -60,11 +56,7 @@ export function AssistantDebugMonitor() {
               onClick={() => setDebugMonitorCollapsed(!debugMonitorCollapsed)}
               aria-label={debugMonitorCollapsed ? "Развернуть" : "Свернуть"}
             >
-              {debugMonitorCollapsed ? (
-                <ChevronDown className="h-4 w-4" />
-              ) : (
-                <ChevronUp className="h-4 w-4" />
-              )}
+              {debugMonitorCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
             </button>
             <button
               type="button"
@@ -86,108 +78,59 @@ export function AssistantDebugMonitor() {
             ) : (
               <>
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Модель
-                  </div>
-                  <Row label="Провайдер" value={debugSnapshot.model.provider} />
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Модель</div>
+                  <Row label="Provider" value={debugSnapshot.model.provider} />
+                  <Row label="Model actual" value={debugSnapshot.model.actualModel || debugSnapshot.model.configuredModel} />
+                  <Row label="Settings source" value={debugSnapshot.model.settingsSource} />
+                  <Row label="Temperature" value={debugSnapshot.model.temperature} />
+                  <Row label="Reasoning" value={debugSnapshot.model.reasoningEffort} />
+                  <Row label="Request mode" value={debugSnapshot.model.requestMode} />
+                  <Row label="LLM status" value={debugSnapshot.model.llmStatus} />
+                  <Row label="LLM HTTP status" value={debugSnapshot.model.llmHttpStatus} />
+                  <Row label="LLM error code" value={debugSnapshot.model.llmErrorCode} />
+                  <Row label="LLM error" value={debugSnapshot.model.llmErrorMessage} />
                   <Row
-                    label="Модель (факт)"
-                    value={
-                      debugSnapshot.model.actualModel ||
-                      debugSnapshot.model.configuredModel
-                    }
-                  />
-                  <Row
-                    label="Источник настроек"
-                    value={debugSnapshot.model.settingsSource}
-                  />
-                  <Row label="Температура" value={debugSnapshot.model.temperature} />
-                  <Row
-                    label="Reasoning"
-                    value={debugSnapshot.model.reasoningEffort}
-                  />
-                  <Row
-                    label="Режим запроса"
-                    value={debugSnapshot.model.requestMode}
+                    label="Missing env"
+                    value={(debugSnapshot.model.llmMissingEnv || []).join(", ") || "—"}
                   />
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Доступ
-                  </div>
-                  <Row label="Роль" value={debugSnapshot.access.role} />
-                  <Row
-                    label="Компания"
-                    value={
-                      debugSnapshot.access.companyName ||
-                      debugSnapshot.access.companyId
-                    }
-                  />
-                  <Row
-                    label="Источник контекста"
-                    value={debugSnapshot.access.companyContextSource}
-                  />
-                  <Row label="User ID" value={debugSnapshot.access.authUserId} />
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Доступ</div>
+                  <Row label="Role" value={debugSnapshot.access.role} />
+                  <Row label="Company" value={debugSnapshot.access.companyName || debugSnapshot.access.companyId} />
+                  <Row label="Company context source" value={debugSnapshot.access.companyContextSource} />
+                  <Row label="Auth status" value={debugSnapshot.access.authStatus} />
+                  <Row label="Auth user id" value={debugSnapshot.access.authUserId} />
+                  <Row label="Profile id" value={debugSnapshot.access.profileId} />
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Контекст
-                  </div>
-                  <Row label="Страница" value={debugSnapshot.runtime.currentPage} />
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Context</div>
+                  <Row label="Page" value={debugSnapshot.runtime.currentPage} />
                   <Row label="Route" value={debugSnapshot.runtime.currentRoute} />
-                  <Row label="Объект" value={debugSnapshot.runtime.currentEntity} />
-                  <Row
-                    label="Выбрано строк"
-                    value={debugSnapshot.runtime.selectedRowsCount}
-                  />
-                  <Row
-                    label="Фильтров"
-                    value={debugSnapshot.runtime.activeFiltersCount}
-                  />
-                  <Row label="Сезон" value={debugSnapshot.runtime.season} />
+                  <Row label="Entity" value={debugSnapshot.runtime.currentEntity} />
+                  <Row label="Selected rows" value={debugSnapshot.runtime.selectedRowsCount} />
+                  <Row label="Active filters" value={debugSnapshot.runtime.activeFiltersCount} />
+                  <Row label="Season" value={debugSnapshot.runtime.season} />
                   <Row label="Locale" value={debugSnapshot.runtime.locale} />
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Engine
-                  </div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Engine</div>
                   <Row label="Endpoint" value={debugSnapshot.engine.endpoint} />
-                  <Row label="Версия" value={debugSnapshot.engine.engineVersion} />
+                  <Row label="Version" value={debugSnapshot.engine.engineVersion} />
                   <Row label="Intent" value={debugSnapshot.engine.intent} />
                   <Row label="Grounded" value={debugSnapshot.engine.grounded} />
-                  <Row
-                    label="Источник ответа"
-                    value={debugSnapshot.engine.answerSource}
-                  />
-                  <Row
-                    label="Навигация: intent"
-                    value={debugSnapshot.engine.navigationIntentDetected}
-                  />
-                  <Row
-                    label="Навигация: action"
-                    value={debugSnapshot.engine.navigationActionCreated}
-                  />
-                  <Row
-                    label="Навигация: executed"
-                    value={debugSnapshot.engine.navigationActionExecuted}
-                  />
-                  <Row
-                    label="Навигация: route"
-                    value={debugSnapshot.engine.targetRoute}
-                  />
-                  <Row
-                    label="Навигация: router error"
-                    value={debugSnapshot.engine.routerError}
-                  />
+                  <Row label="Answer source" value={debugSnapshot.engine.answerSource} />
+                  <Row label="Navigation intent" value={debugSnapshot.engine.navigationIntentDetected} />
+                  <Row label="Navigation action" value={debugSnapshot.engine.navigationActionCreated} />
+                  <Row label="Navigation executed" value={debugSnapshot.engine.navigationActionExecuted} />
+                  <Row label="Target route" value={debugSnapshot.engine.targetRoute} />
+                  <Row label="Router error" value={debugSnapshot.engine.routerError} />
                   <Row label="Tools count" value={debugSnapshot.engine.toolCount} />
-                  <Row
-                    label="Последняя ошибка tool"
-                    value={debugSnapshot.engine.lastToolError}
-                  />
-                  <div className="pt-1 text-[11px] text-slate-500">Инструменты:</div>
+                  <Row label="Last tool error" value={debugSnapshot.engine.lastToolError} />
+                  <div className="pt-1 text-[11px] text-slate-500">Tools:</div>
                   <div className="flex flex-wrap gap-1">
                     {debugSnapshot.engine.usedTools.length ? (
                       debugSnapshot.engine.usedTools.map((tool) => (
@@ -195,9 +138,7 @@ export function AssistantDebugMonitor() {
                           key={`${tool.tool}-${tool.error || "ok"}`}
                           className={cn(
                             "rounded border px-1.5 py-0.5 text-[10px]",
-                            tool.ok
-                              ? "border-green-300 bg-green-50 text-green-700"
-                              : "border-red-300 bg-red-50 text-red-700"
+                            tool.ok ? "border-green-300 bg-green-50 text-green-700" : "border-red-300 bg-red-50 text-red-700"
                           )}
                         >
                           {tool.tool}
@@ -210,53 +151,26 @@ export function AssistantDebugMonitor() {
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Память
-                  </div>
-                  <Row label="Сессия" value={debugSnapshot.memory.sessionId} />
-                  <Row
-                    label="Последняя культура"
-                    value={debugSnapshot.memory.lastCrop}
-                  />
-                  <Row
-                    label="Последний сорт"
-                    value={debugSnapshot.memory.lastVariety}
-                  />
-                  <Row
-                    label="Последний склад"
-                    value={debugSnapshot.memory.lastWarehouse}
-                  />
-                  <Row
-                    label="Последнее поле"
-                    value={debugSnapshot.memory.lastField}
-                  />
-                  <Row
-                    label="Последний intent"
-                    value={debugSnapshot.memory.lastIntent}
-                  />
-                  <Row
-                    label="Follow-up активен"
-                    value={debugSnapshot.memory.followUpActive}
-                  />
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Memory</div>
+                  <Row label="Session id" value={debugSnapshot.memory.sessionId} />
+                  <Row label="Last crop" value={debugSnapshot.memory.lastCrop} />
+                  <Row label="Last variety" value={debugSnapshot.memory.lastVariety} />
+                  <Row label="Last warehouse" value={debugSnapshot.memory.lastWarehouse} />
+                  <Row label="Last field" value={debugSnapshot.memory.lastField} />
+                  <Row label="Last intent" value={debugSnapshot.memory.lastIntent} />
+                  <Row label="Follow up active" value={debugSnapshot.memory.followUpActive} />
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Производительность
-                  </div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Performance</div>
                   <Row label="Latency (ms)" value={debugSnapshot.performance.latencyMs} />
                   <Row label="Prompt tokens" value={debugSnapshot.performance.promptTokens} />
-                  <Row
-                    label="Completion tokens"
-                    value={debugSnapshot.performance.completionTokens}
-                  />
+                  <Row label="Completion tokens" value={debugSnapshot.performance.completionTokens} />
                   <Row label="Total tokens" value={debugSnapshot.performance.totalTokens} />
                 </section>
 
                 <section className="space-y-1 rounded-md border p-2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                    Предупреждения
-                  </div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Warnings</div>
                   {debugSnapshot.warnings.length ? (
                     <div className="space-y-1">
                       {debugSnapshot.warnings.map((warning) => (

@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     ensureAssistantRole(actor);
     const debugRequested = request.nextUrl.searchParams.get("debug") === "1";
     const debugPayload =
-      actor.role === "global_admin" && debugRequested
+      (actor.role === "global_admin" || actor.role === "company_admin") && debugRequested
         ? {
             authUserId: actor.authUserId,
             profileId: actor.id,

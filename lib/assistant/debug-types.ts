@@ -26,6 +26,17 @@ export type AssistantDebugMetadata = {
     temperature: number | null;
     reasoningEffort: string | null;
     requestMode: string | null;
+    llmStatus:
+      | "not_called"
+      | "ok"
+      | "missing_api_key"
+      | "network_error"
+      | "http_error"
+      | "invalid_response";
+    llmHttpStatus: number | null;
+    llmErrorCode: string | null;
+    llmErrorMessage: string | null;
+    llmMissingEnv: string[];
   };
   access: {
     role: string | null;
@@ -34,6 +45,7 @@ export type AssistantDebugMetadata = {
     companyId: string | null;
     companyName: string | null;
     companyContextSource: string | null;
+    authStatus: "ok" | "error";
   };
   runtime: {
     currentPage: string | null;

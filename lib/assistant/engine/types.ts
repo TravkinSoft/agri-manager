@@ -3,8 +3,16 @@ import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import type { ServerActorContext } from "@/lib/auth/server-session";
 
 export type AssistantToolName =
+  | "get_current_context"
+  | "get_routes"
   | "get_company_context"
   | "get_current_season"
+  | "find_field"
+  | "find_warehouse"
+  | "find_operation"
+  | "get_active_operations"
+  | "get_potato_material_report"
+  | "get_warehouse_summary"
   | "get_fields"
   | "get_crop_structure"
   | "get_inventory"
@@ -172,6 +180,13 @@ export type AssistantEngineResult = {
     actualModel: string | null;
     settingsSource: "db" | "env" | "default";
     requestMode: "tool_first";
+    llm: {
+      status: "not_called" | "ok" | "missing_api_key" | "network_error" | "http_error" | "invalid_response";
+      httpStatus: number | null;
+      errorCode: string | null;
+      errorMessage: string | null;
+      missingEnv: string[];
+    };
   };
   performance: {
     promptTokens: number | null;

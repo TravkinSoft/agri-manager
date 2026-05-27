@@ -3,6 +3,11 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { getAssistantPlatformSettings } from "@/lib/assistant/settings-store";
 import { runAssistantEngine } from "@/lib/assistant/engine/query";
 import { writeAssistantAuditLog } from "@/lib/assistant/audit-log";
+import {
+  appendAssistantThreadMessage,
+  getAssistantThreadById,
+  updateAssistantThreadTitle,
+} from "@/lib/assistant/threads-store";
 import type { AssistantDebugMetadata, AssistantDebugSettingsSource } from "@/lib/assistant/debug-types";
 import type { AssistantEngineResult, AssistantNavigationAction } from "@/lib/assistant/engine/types";
 import {
@@ -27,7 +32,7 @@ function looksLikeErpDataQuestion(message: string): boolean {
 }
 
 function isDebugAllowed(role: string): boolean {
-  if (role === "global_admin") return true;
+  if (role === "global_admin" || role === "company_admin") return true;
   return process.env.NEXT_PUBLIC_ASSISTANT_DEBUG === "1" || process.env.ASSISTANT_DEBUG === "1";
 }
 
@@ -67,6 +72,15 @@ function resolveCompanyContextSource(role: string, actor: { contextCompanyId: st
   return "unknown";
 }
 
+function generateThreadTitle(message: string): string {
+  const cleaned = String(message || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return "Новый чат";
+  const words = cleaned.split(" ").slice(0, 8).join(" ");
+  return words.length > 80 ? `${words.slice(0, 77)}...` : words;
+}
+
 function buildDebugMetadata(params: {
   role: string;
   actorId: string;
@@ -82,6 +96,7 @@ function buildDebugMetadata(params: {
   runtimeContext: unknown;
   requestMessage: string;
   sessionId: string | null;
+  threadId: string | null;
   result: AssistantEngineResult;
   navigationActions: AssistantNavigationAction[];
   latencyMs: number;
@@ -89,6 +104,7 @@ function buildDebugMetadata(params: {
     contextCompanyId: string | null;
     homeCompanyId: string | null;
   };
+  threadPersistenceError: string | null;
 }): AssistantDebugMetadata {
   const {
     role,
@@ -100,19 +116,25 @@ function buildDebugMetadata(params: {
     runtimeContext,
     requestMessage,
     sessionId,
+    threadId,
     result,
     navigationActions,
     latencyMs,
     actor,
-  } =
-    params;
+    threadPersistenceError,
+  } = params;
+
   const runtime = (runtimeContext || {}) as Record<string, unknown>;
   const runtimeFilters = runtime.filters;
   const runtimeSelectedRows = Array.isArray(runtime.selectedRows) ? runtime.selectedRows : [];
   const lastToolError = result.toolCalls.find((tool) => !tool.ok && tool.error)?.error || null;
   const warnings: string[] = [];
+
   if (looksLikeErpDataQuestion(requestMessage) && result.answerSource === "llm_fallback") {
-    warnings.push("Внимание: ответ по ERP-данным был без tool grounding.");
+    warnings.push("Ответ по ERP-данным был без tool grounding.");
+  }
+  if (threadPersistenceError) {
+    warnings.push(`Ошибка сохранения истории: ${threadPersistenceError}`);
   }
 
   return {
@@ -125,6 +147,11 @@ function buildDebugMetadata(params: {
       temperature: Number.isFinite(Number(settings.temperature)) ? Number(settings.temperature) : null,
       reasoningEffort: asString(settings.reasoningEffort),
       requestMode: result.model.requestMode,
+      llmStatus: result.model.llm.status,
+      llmHttpStatus: result.model.llm.httpStatus,
+      llmErrorCode: result.model.llm.errorCode,
+      llmErrorMessage: result.model.llm.errorMessage,
+      llmMissingEnv: result.model.llm.missingEnv || [],
     },
     access: {
       role: asString(role),
@@ -133,6 +160,7 @@ function buildDebugMetadata(params: {
       companyId: asString(companyId),
       companyName: asString(companyName),
       companyContextSource: resolveCompanyContextSource(role, actor),
+      authStatus: authUserId ? "ok" : "error",
     },
     runtime: {
       currentPage: asString(runtime.currentPage),
@@ -164,7 +192,7 @@ function buildDebugMetadata(params: {
       lastToolError: asString(lastToolError),
     },
     memory: {
-      sessionId: asString(sessionId),
+      sessionId: asString(sessionId) || asString(threadId),
       lastCrop: asString(result.sessionState.lastCrop),
       lastVariety: asString(result.sessionState.lastVariety),
       lastWarehouse: asString(result.sessionState.lastWarehouse),
@@ -205,9 +233,11 @@ export async function POST(request: NextRequest) {
   let companyName: string | null = null;
   let role = "";
   let chatId: string | null = null;
+  let threadId: string | null = null;
   let sessionId: string | null = null;
   let requestMessage: string | null = null;
   let shouldWriteAuditLog = true;
+  let threadPersistenceError: string | null = null;
   const startedAt = Date.now();
 
   try {
@@ -225,6 +255,7 @@ export async function POST(request: NextRequest) {
 
     companyId = resolveCompanyForActor(actor, asString(payload?.companyId));
     chatId = asString(payload?.chatId);
+    threadId = asString(payload?.threadId) || chatId;
     sessionId = asString(payload?.sessionId);
 
     const supabase = getServiceClient();
@@ -232,6 +263,7 @@ export async function POST(request: NextRequest) {
     companyName = asString(companyRes.data?.name) || null;
     const settings = await getAssistantPlatformSettings(supabase, actor.id);
     shouldWriteAuditLog = !!settings.logging?.enabled;
+
     const result = await runAssistantEngine({
       supabase,
       actor,
@@ -240,12 +272,68 @@ export async function POST(request: NextRequest) {
       input: {
         message: requestMessage,
         locale: payload?.locale || "ru",
-        chatId,
+        chatId: threadId,
         chatHistory: Array.isArray(payload?.chatHistory) ? payload.chatHistory : [],
         runtimeContext: payload?.runtimeContext || null,
         sessionState: payload?.sessionState || null,
       },
     });
+
+    if (threadId) {
+      try {
+        const thread = await getAssistantThreadById({
+          supabase,
+          companyId,
+          userId: actor.id,
+          threadId,
+        });
+        if (thread) {
+          await appendAssistantThreadMessage({
+            supabase,
+            companyId,
+            userId: actor.id,
+            threadId,
+            role: "user",
+            content: requestMessage,
+            metadata: {
+              runtime_context: payload?.runtimeContext || null,
+              session_id: sessionId,
+              assistant_panel: true,
+            },
+          });
+          await appendAssistantThreadMessage({
+            supabase,
+            companyId,
+            userId: actor.id,
+            threadId,
+            role: "assistant",
+            content: result.answer,
+            metadata: {
+              intent: result.intent?.name || null,
+              source_hints: result.sourceHints || [],
+              tool_calls: result.toolCalls || [],
+              navigation_actions: result.navigationActions || [],
+              answer_source: result.answerSource,
+              grounded: result.grounded,
+              llm: result.model.llm,
+              session_id: sessionId,
+              assistant_panel: true,
+            },
+          });
+          if ((thread.title || "").trim() === "Новый чат") {
+            await updateAssistantThreadTitle({
+              supabase,
+              companyId,
+              userId: actor.id,
+              threadId,
+              title: generateThreadTitle(requestMessage),
+            });
+          }
+        }
+      } catch (error) {
+        threadPersistenceError = error instanceof Error ? error.message : "Thread persistence failed";
+      }
+    }
 
     const debugAllowed = isDebugAllowed(actor.role);
     const debug = debugAllowed
@@ -259,6 +347,7 @@ export async function POST(request: NextRequest) {
           runtimeContext: payload?.runtimeContext || null,
           requestMessage: requestMessage || "",
           sessionId,
+          threadId,
           result,
           navigationActions: result.navigationActions || [],
           latencyMs: Date.now() - startedAt,
@@ -266,6 +355,7 @@ export async function POST(request: NextRequest) {
             contextCompanyId: actor.contextCompanyId,
             homeCompanyId: actor.homeCompanyId,
           },
+          threadPersistenceError,
         })
       : undefined;
 
@@ -274,7 +364,7 @@ export async function POST(request: NextRequest) {
         actor_user_id: actor.id,
         company_id: companyId,
         role: actor.role,
-        chat_id: chatId,
+        chat_id: threadId || chatId,
         session_id: sessionId,
         intent: result.intent.name,
         tool_calls: result.toolCalls.map((toolCall) => ({
@@ -286,17 +376,19 @@ export async function POST(request: NextRequest) {
         runtime_context: payload?.runtimeContext || {},
         request_excerpt: requestMessage,
         response_excerpt: result.answer,
-        error_text: null,
+        error_text: threadPersistenceError,
       });
     }
 
     return NextResponse.json({
       response: result.answer,
       sessionState: result.sessionState,
+      threadId,
       navigationActions: result.navigationActions || [],
       meta: {
         intent: result.intent,
         sourceHints: result.sourceHints,
+        llm: result.model.llm,
       },
       ...(debug ? { debug } : {}),
     });
@@ -307,7 +399,7 @@ export async function POST(request: NextRequest) {
         actor_user_id: actorId,
         company_id: companyId,
         role,
-        chat_id: chatId,
+        chat_id: threadId || chatId,
         session_id: sessionId,
         intent: "error",
         tool_calls: [],
