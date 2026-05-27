@@ -43,7 +43,7 @@ const ADMIN_NAV: NavItem[] = [
   { label: "История полей", href: "/field-history", icon: History },
   { label: "Операции", href: "/operations", icon: Tractor },
   { label: "Склады", href: "/warehouses", icon: Package },
-  { label: "Весовая Dashboard", href: "/weighbridge/dashboard", icon: LayoutDashboard },
+  { label: "Весовая", href: "/weighbridge", icon: Scale },
   { label: "Машины", href: "/machines", icon: PackageSearch },
   { label: "Техника", href: "/technique", icon: Tractor },
   { label: "АЗС / ГСМ", href: "/fuel", icon: Droplets },

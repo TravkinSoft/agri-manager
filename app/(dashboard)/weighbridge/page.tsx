@@ -608,10 +608,19 @@ export default function WeighbridgeOperationsPage() {
     return (data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Контрагент") }));
   };
 
+  const getSessionAuthHeaders = async () => {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.access_token) {
+      throw new Error("Missing authorization token");
+    }
+    return { Authorization: `Bearer ${data.session.access_token}` };
+  };
+
   const loadMasterIdentityRefs = async (companyId: string) => {
+    const headers = await getSessionAuthHeaders();
     const resp = await fetch(
       `/api/weighbridge/master-identity?companyId=${encodeURIComponent(companyId)}`,
-      { cache: "no-store" }
+      { cache: "no-store", headers }
     );
     const json = await resp.json();
     if (!resp.ok) throw new Error(String(json?.error || "Не удалось загрузить культуры, сорта и репродукции"));
@@ -762,9 +771,10 @@ export default function WeighbridgeOperationsPage() {
       const byField: Record<string, HarvestStructureOption[]> = {};
       const incompleteByField: Record<string, boolean> = {};
       {
+        const headers = await getSessionAuthHeaders();
         const resp = await fetch(
           `/api/weighbridge/harvest-allocations?companyId=${encodeURIComponent(profile.company_id)}`,
-          { cache: "no-store" }
+          { cache: "no-store", headers }
         );
         const json = await resp.json();
         if (!resp.ok) throw new Error(String(json?.error || "Failed to load harvest allocations"));
@@ -861,11 +871,20 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
 
+    const companyId = profile.company_id;
+    const warehouseFromId = form.warehouseFromId;
     let cancelled = false;
     setStockIdentityLoading(true);
-    fetch(`/api/weighbridge/stock-identities?companyId=${encodeURIComponent(profile.company_id)}&warehouseId=${encodeURIComponent(form.warehouseFromId)}`, {
-      cache: "no-store",
-    })
+    getSessionAuthHeaders()
+      .then((headers) =>
+        fetch(
+          `/api/weighbridge/stock-identities?companyId=${encodeURIComponent(companyId)}&warehouseId=${encodeURIComponent(warehouseFromId)}`,
+          {
+            cache: "no-store",
+            headers,
+          }
+        )
+      )
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить остатки склада");

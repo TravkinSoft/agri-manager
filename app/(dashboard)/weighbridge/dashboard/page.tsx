@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,12 +17,21 @@ function isActiveStatus(status: string | null | undefined) {
 
 export default function WeighbridgeDashboardPage() {
   const { profile } = useAuth();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [tickets, setTickets] = useState<WeighbridgeTicket[]>([]);
 
   const isAgronomistObserver = profile?.role === "agronomist";
+  const isOperationalRole = profile?.role === "weighman" || profile?.role === "warehouse_operator" || profile?.role === "warehouse";
 
   useEffect(() => {
+    if (isOperationalRole) {
+      router.replace("/weighbridge");
+    }
+  }, [isOperationalRole, router]);
+
+  useEffect(() => {
+    if (isOperationalRole) return;
     (async () => {
       if (!profile?.company_id || !profile?.id) return;
       setLoading(true);
@@ -32,7 +42,9 @@ export default function WeighbridgeDashboardPage() {
         setLoading(false);
       }
     })();
-  }, [profile?.company_id, profile?.id]);
+  }, [profile?.company_id, profile?.id, isOperationalRole]);
+
+  if (isOperationalRole) return null;
 
   const metrics = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -81,7 +93,7 @@ export default function WeighbridgeDashboardPage() {
             ) : (
               <>
                 <Button asChild><Link href="/weighbridge">Создать талон</Link></Button>
-                <Button asChild variant="outline"><Link href="/weighbridge/active">Активные талоны</Link></Button>
+                <Button asChild variant="outline"><Link href="/weighbridge">Активные талоны</Link></Button>
                 <Button asChild variant="outline"><Link href="/weighbridge/history">История талонов</Link></Button>
                 <Button asChild variant="outline"><Link href="/processing">Переработка</Link></Button>
               </>
