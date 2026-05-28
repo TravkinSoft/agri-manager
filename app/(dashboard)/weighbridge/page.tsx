@@ -17,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getWeighbridgeBootstrap, listTickets, openShift, patchTicket, voidTicket } from "@/lib/services/weighbridge";
 import type { TicketDirection, TicketInput, TicketLineInput, WeighbridgeTicket } from "@/lib/types/weighbridge";
 
@@ -429,7 +430,7 @@ const formatDate = (value: string) => {
 };
 
 export default function WeighbridgeOperationsPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const { language } = useLanguage();
   const lang = getLang(language);
@@ -609,11 +610,7 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const getSessionAuthHeaders = async () => {
-    const { data, error } = await supabase.auth.getSession();
-    if (error || !data.session?.access_token) {
-      throw new Error("Missing authorization token");
-    }
-    return { Authorization: `Bearer ${data.session.access_token}` };
+    return buildClientAuthHeaders("none");
   };
 
   const loadMasterIdentityRefs = async (companyId: string) => {
@@ -632,7 +629,7 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const load = async () => {
-    if (!profile?.company_id || !profile?.id || !canView) return;
+    if (authLoading || !profile?.company_id || !profile?.id || !canView) return;
     setLoading(true);
     try {
       const [fieldsRes, warehousesRes, vehiclesRes, processingRes, productsRes, identityRefs, supplierRows, buyerRows, driverRows, ticketRows, operationsRes] = await Promise.all([
@@ -815,8 +812,9 @@ export default function WeighbridgeOperationsPage() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
     void load();
-  }, [profile?.company_id, profile?.id, profile?.role, language]);
+  }, [authLoading, profile?.company_id, profile?.id, profile?.role, language]);
 
   useEffect(() => {
     if (!persistKey) return;
@@ -1729,6 +1727,7 @@ export default function WeighbridgeOperationsPage() {
     }
   };
 
+  if (authLoading) return <PageHeader title="Весовая и движения" description="Проверка доступа..." />;
   if (!canView) return <PageHeader title="Весовая и движения" description="Доступ ограничен по роли" />;
 
   const openShiftAction = async () => {

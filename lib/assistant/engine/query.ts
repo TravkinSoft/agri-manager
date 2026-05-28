@@ -351,6 +351,7 @@ function formatGroundedToolOutput(params: {
 }): string | null {
   const { toolName, intentName, output } = params;
   const rows = output.rows || [];
+  const sourceSeason = cleanString(output.source.season);
 
   if (intentName === "inventory_balance" || toolName === "get_warehouse_balances" || toolName === "get_inventory") {
     return formatInventoryRows(rows);
@@ -362,9 +363,15 @@ function formatGroundedToolOutput(params: {
     return formatFieldsRows(rows);
   }
   if (toolName === "get_crop_structure_summary") {
+    if (!rows.length) {
+      return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
+    }
     return formatCropStructureSummaryRows(rows);
   }
   if (intentName === "crop_structure_overview" || toolName === "get_crop_structure") {
+    if (!rows.length) {
+      return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
+    }
     return formatCropStructureRows(rows);
   }
   if (intentName === "weighbridge_tickets" || toolName === "get_weighbridge_tickets") {
@@ -565,8 +572,19 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     const namespaceName = mapToolNamespace(toolName);
     return normalizeCandidates.includes(namespaceName);
   };
+  const filtered = Array.from(new Set(tools)).filter((toolName) => allowByNamespaceFallback(toolName));
+  if (filtered.length > 0) return filtered;
 
-  return Array.from(new Set(tools)).filter((toolName) => allowByNamespaceFallback(toolName));
+  // Production-safe fallback for baseline crop structure questions:
+  // if project settings are stale and do not include new tool names,
+  // still run read-only crop tools instead of returning generic clarification.
+  if (intent.name === "crop_structure_overview") {
+    return Array.from(new Set(["get_crop_structure_summary", "get_crop_structure"])).filter((toolName) =>
+      Boolean(getAssistantTool(toolName as AssistantToolName))
+    ) as AssistantToolName[];
+  }
+
+  return filtered;
 }
 
 function getNavigationActions(params: {
@@ -725,34 +743,73 @@ async function generateGeneralAnswer(params: {
     };
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: modelConfig.actualModel,
-      temperature: modelConfig.temperature,
-      messages: [
-        {
-          role: "system",
-          content: buildTravkinSystemPrompt({
-            locale,
-            settings,
-            runtimeContext,
-            actorRole,
-          }),
-        },
-        { role: "user", content: message },
-      ],
-    }),
-  }).catch(() => null);
+  const candidateModels = Array.from(
+    new Set(
+      [
+        cleanString(modelConfig.actualModel),
+        cleanString(process.env.OPENAI_ASSISTANT_FALLBACK_MODEL),
+        cleanString(process.env.OPENAI_ASSISTANT_MODEL),
+        "gpt-4o-mini",
+      ].filter((model): model is string => Boolean(model))
+    )
+  );
+
+  const systemPrompt = buildTravkinSystemPrompt({
+    locale,
+    settings,
+    runtimeContext,
+    actorRole,
+  });
+
+  let response: Response | null = null;
+  let data: any = {};
+  let usedModel = modelConfig.actualModel;
+
+  for (const candidateModel of candidateModels) {
+    const candidateResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: candidateModel,
+        temperature: modelConfig.temperature,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: message },
+        ],
+      }),
+    }).catch(() => null);
+
+    if (!candidateResponse) continue;
+
+    const candidateData = await candidateResponse.json().catch(() => ({}));
+    response = candidateResponse;
+    data = candidateData;
+    usedModel = candidateModel;
+
+    if (candidateResponse.ok) break;
+
+    const errCode = cleanString(candidateData?.error?.code);
+    const errType = cleanString(candidateData?.error?.type);
+    const errMessage = cleanString(candidateData?.error?.message)?.toLowerCase() || "";
+    const modelUnavailable =
+      errCode === "model_not_found" ||
+      errType === "invalid_request_error" ||
+      errMessage.includes("does not exist") ||
+      errMessage.includes("not found") ||
+      errMessage.includes("not available") ||
+      errMessage.includes("access") ||
+      errMessage.includes("model");
+
+    if (!modelUnavailable) break;
+  }
 
   if (!response) {
     return {
       answer: unavailableAssistantMessage(locale),
-      actualModel: modelConfig.actualModel,
+      actualModel: usedModel,
       usage: emptyUsage,
       llm: {
         status: "network_error",
@@ -764,7 +821,6 @@ async function generateGeneralAnswer(params: {
     };
   }
 
-  const data = await response.json().catch(() => ({}));
   const usage: UsageStats = {
     promptTokens: Number.isFinite(Number(data?.usage?.prompt_tokens)) ? Number(data.usage.prompt_tokens) : null,
     completionTokens: Number.isFinite(Number(data?.usage?.completion_tokens))
@@ -778,7 +834,7 @@ async function generateGeneralAnswer(params: {
     const errMessage = cleanString(data?.error?.message) || cleanString(data?.error?.type);
     return {
       answer: unavailableAssistantMessage(locale),
-      actualModel: modelConfig.actualModel,
+      actualModel: usedModel,
       usage,
       llm: {
         status: "http_error",
@@ -794,7 +850,7 @@ async function generateGeneralAnswer(params: {
   if (content) {
     return {
       answer: content,
-      actualModel: modelConfig.actualModel,
+      actualModel: usedModel,
       usage,
       llm: {
         status: "ok",
@@ -808,7 +864,7 @@ async function generateGeneralAnswer(params: {
 
   return {
     answer: unavailableAssistantMessage(locale),
-    actualModel: modelConfig.actualModel,
+    actualModel: usedModel,
     usage,
     llm: {
       status: "invalid_response",

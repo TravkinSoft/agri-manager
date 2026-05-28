@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
 
 const FUEL_ROLES = ["admin", "company_admin", "global_admin", "warehouse", "fuel_operator"] as const;
@@ -10,14 +11,14 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   try {
     const sourceId = String(params.id || "").trim();
     const body = await request.json();
-    const companyId = String(body.companyId || "").trim();
-    const actorUserId = String(body.actorUserId || "").trim();
-    if (!sourceId || !companyId || !actorUserId) {
-      return NextResponse.json({ error: "source id, companyId and actorUserId are required" }, { status: 400 });
+    const actor = await getServerActorFromSession(request);
+    const companyId = resolveCompanyForActor(actor, String(body.companyId || "").trim() || null);
+    if (!sourceId) {
+      return NextResponse.json({ error: "source id is required" }, { status: 400 });
     }
 
     const patch: Record<string, unknown> = {
-      updated_by_user_id: actorUserId,
+      updated_by_user_id: actor.id,
     };
 
     if (body.name !== undefined) patch.name = String(body.name || "").trim();
@@ -56,7 +57,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     const supabase = getServiceClient();
     await assertActorAccess({
       supabase,
-      actorUserId,
+      actorUserId: actor.id,
       companyId,
       allowedRoles: [...FUEL_ROLES],
     });
@@ -81,6 +82,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ source: data });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

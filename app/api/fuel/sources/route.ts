@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
 
 const FUEL_ROLES = ["admin", "company_admin", "global_admin", "warehouse", "fuel_operator"] as const;
@@ -8,16 +9,13 @@ const SOURCE_TYPES = new Set(["stationary_azs", "barrel", "fuel_truck", "mobile_
 
 export async function GET(request: NextRequest) {
   try {
-    const companyId = String(request.nextUrl.searchParams.get("companyId") || "").trim();
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!companyId || !actorUserId) {
-      return NextResponse.json({ error: "companyId and userId are required" }, { status: 400 });
-    }
+    const actor = await getServerActorFromSession(request);
+    const companyId = resolveCompanyForActor(actor, String(request.nextUrl.searchParams.get("companyId") || "").trim() || null);
 
     const supabase = getServiceClient();
     await assertActorAccess({
       supabase,
-      actorUserId,
+      actorUserId: actor.id,
       companyId,
       allowedRoles: [...FUEL_ROLES],
     });
@@ -32,6 +30,9 @@ export async function GET(request: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ sources: data || [] });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }
@@ -39,8 +40,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const companyId = String(body.companyId || "").trim();
-    const actorUserId = String(body.actorUserId || "").trim();
+    const actor = await getServerActorFromSession(request);
+    const companyId = resolveCompanyForActor(actor, String(body.companyId || "").trim() || null);
     const name = String(body.name || "").trim();
     const sourceType = String(body.sourceType || "stationary_azs").trim();
     const fuelType = String(body.fuelType || "diesel").trim();
@@ -50,8 +51,8 @@ export async function POST(request: NextRequest) {
     const assignedVehicleId = body.assignedVehicleId ? String(body.assignedVehicleId) : null;
     const isActive = body.isActive !== false;
 
-    if (!companyId || !actorUserId || !name) {
-      return NextResponse.json({ error: "companyId, actorUserId and name are required" }, { status: 400 });
+    if (!name) {
+      return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
     if (!SOURCE_TYPES.has(sourceType)) {
       return NextResponse.json({ error: "Invalid source type" }, { status: 400 });
@@ -66,7 +67,7 @@ export async function POST(request: NextRequest) {
     const supabase = getServiceClient();
     await assertActorAccess({
       supabase,
-      actorUserId,
+      actorUserId: actor.id,
       companyId,
       allowedRoles: [...FUEL_ROLES],
     });
@@ -84,8 +85,8 @@ export async function POST(request: NextRequest) {
         assigned_vehicle_id: assignedVehicleId,
         is_active: isActive,
         archived: false,
-        created_by_user_id: actorUserId,
-        updated_by_user_id: actorUserId,
+        created_by_user_id: actor.id,
+        updated_by_user_id: actor.id,
       })
       .select("*")
       .single();
@@ -93,6 +94,9 @@ export async function POST(request: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ source: data });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

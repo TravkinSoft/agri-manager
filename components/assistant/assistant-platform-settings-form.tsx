@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, Save, ShieldCheck } from "lucide-react";
+import { CheckCircle2, Loader2, PlayCircle, RefreshCw, Save, ShieldCheck, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import { DEFAULT_ASSISTANT_PLATFORM_SETTINGS } from "@/lib/assistant/settings-types";
+import type { AssistantSessionState } from "@/lib/assistant/engine/types";
+import { EMPTY_ASSISTANT_SESSION_STATE } from "@/lib/assistant/engine/session-state";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -17,16 +19,88 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 
 type SettingsResponse = { settings: AssistantPlatformSettings; error?: string };
+
 type ValidateResponse = {
   runtime: {
     provider: string;
     model: string;
+    actualModel?: string | null;
     temperature: number;
     reasoningEffort: string;
     enabledTools: string[];
   };
+  model: {
+    requested_model: string;
+    actual_model_used: string | null;
+    config_source: "db" | "env" | "default";
+    temperature_used: number;
+    reasoning_effort: string;
+    route_tier: "default" | "heavy";
+  };
+  checks: {
+    openai_api_key_present: boolean;
+    backend_key_visible: boolean;
+    database_settings_ok: boolean;
+    tools_enabled_count: number;
+    model_ping_ok: boolean;
+    model_ping_status: number | null;
+    model_ping_error: string | null;
+  };
   binding: Record<string, string>;
   notes: string[];
+  error?: string;
+};
+
+type TestMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+};
+
+type TestResponse = {
+  answer: string;
+  session_state: AssistantSessionState;
+  metadata: {
+    requested_model: string;
+    actual_model_used: string | null;
+    config_source: "db" | "env" | "default";
+    temperature_used: number;
+    reasoning_effort: "low" | "medium" | "high";
+    tools_enabled_count: number;
+    tools_allowed: string[];
+    mode: "erp_data" | "agro_knowledge" | "mixed";
+    latency_ms: number;
+    token_usage: {
+      prompt_tokens: number | null;
+      completion_tokens: number | null;
+      total_tokens: number | null;
+    };
+    intent: string | null;
+    answer_source: string;
+    llm: {
+      status: string;
+      http_status: number | null;
+      error_code: string | null;
+      error_message: string | null;
+      missing_env: string[];
+    };
+    test_mode: "read_only";
+    navigation_disabled: boolean;
+  };
+  tool_activity: string[];
+  tool_calls: Array<{
+    tool: string;
+    ok: boolean;
+    rows?: number;
+    error?: string;
+  }>;
+  debug?: {
+    status_code: number;
+    error_source: string;
+    error_message: string;
+    requested_model: string | null;
+    config_source: "db" | "env" | "default" | "fallback";
+  };
   error?: string;
 };
 
@@ -43,15 +117,7 @@ const ROLE_OPTIONS = [
   { key: "director", label: "Директор" },
 ] as const;
 
-const MODEL_OPTIONS = [
-  "gpt-5",
-  "gpt-5-mini",
-  "gpt-5.3",
-  "gpt-4.1",
-  "gpt-4.1-mini",
-  "gpt-4o",
-  "gpt-4o-mini",
-] as const;
+const MODEL_OPTIONS = ["gpt-5", "gpt-5-mini", "gpt-5.3", "gpt-5.4-mini", "gpt-5.5", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"] as const;
 const REASONING_OPTIONS = ["low", "medium", "high"] as const;
 
 const TOOL_OPTIONS = [
@@ -88,6 +154,15 @@ const TOOL_OPTIONS = [
   "apply_filter",
 ] as const;
 
+const QUICK_TEST_PROMPTS = [
+  "Кто ты?",
+  "Что такое TravkinFlow?",
+  "Сколько посевных площадей?",
+  "Что по зерновым?",
+  "Что такое фитофтора?",
+  "Открой весовую",
+] as const;
+
 function asMultiline(items: string[]): string {
   return (items || []).join("\n");
 }
@@ -103,6 +178,14 @@ function fromMultiline(raw: string): string[] {
   );
 }
 
+function toMessageId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function newTestThreadId(): string {
+  return `assistant-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 async function buildAuthHeaders(contentType: "json" | "none" = "json") {
   const { data, error } = await supabase.auth.getSession();
   if (error || !data?.session?.access_token) {
@@ -111,9 +194,7 @@ async function buildAuthHeaders(contentType: "json" | "none" = "json") {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${data.session.access_token}`,
   };
-  if (contentType === "json") {
-    headers["Content-Type"] = "application/json";
-  }
+  if (contentType === "json") headers["Content-Type"] = "application/json";
   return headers;
 }
 
@@ -124,7 +205,7 @@ function reasoningLabel(value: string): string {
 }
 
 function bindingLabel(value: string): string {
-  return value === "used" ? "используется движком" : "зарезервировано (пока не влияет)";
+  return value === "used" ? "используется runtime" : "зарезервировано";
 }
 
 export function AssistantPlatformSettingsForm() {
@@ -132,10 +213,20 @@ export function AssistantPlatformSettingsForm() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [testing, setTesting] = useState(false);
+
   const [settings, setSettings] = useState<AssistantPlatformSettings>(DEFAULT_ASSISTANT_PLATFORM_SETTINGS);
   const [forbiddenActionsText, setForbiddenActionsText] = useState("");
   const [groundingDomainsText, setGroundingDomainsText] = useState("");
   const [validateResult, setValidateResult] = useState<ValidateResponse | null>(null);
+
+  const [testInput, setTestInput] = useState("");
+  const [testMessages, setTestMessages] = useState<TestMessage[]>([]);
+  const [testThreadId, setTestThreadId] = useState<string>(newTestThreadId());
+  const [testSessionState, setTestSessionState] = useState<AssistantSessionState>({ ...EMPTY_ASSISTANT_SESSION_STATE });
+  const [testMeta, setTestMeta] = useState<TestResponse["metadata"] | null>(null);
+  const [testToolActivity, setTestToolActivity] = useState<string[]>([]);
+  const [testError, setTestError] = useState<TestResponse["debug"] | null>(null);
 
   const canSave = useMemo(() => !loading && !saving, [loading, saving]);
   const modelOptions = useMemo(() => {
@@ -199,7 +290,7 @@ export function AssistantPlatformSettingsForm() {
 
       toast({
         title: "Сохранено",
-        description: "Глобальные настройки ассистента обновлены.",
+        description: "Настройки ассистента обновлены. Тестовый ассистент уже использует новые параметры.",
       });
     } catch (error) {
       toast({
@@ -224,10 +315,11 @@ export function AssistantPlatformSettingsForm() {
       });
       const payload = (await response.json().catch(() => ({}))) as ValidateResponse;
       if (!response.ok) throw new Error(payload?.error || "Не удалось проверить настройки ассистента.");
+
       setValidateResult(payload);
       toast({
         title: "Проверка выполнена",
-        description: "Runtime-конфигурация ассистента прочитана успешно.",
+        description: "Backend runtime и model ping проверены.",
       });
     } catch (error) {
       toast({
@@ -237,6 +329,100 @@ export function AssistantPlatformSettingsForm() {
       });
     } finally {
       setChecking(false);
+    }
+  };
+
+  const newTest = () => {
+    setTestThreadId(newTestThreadId());
+    setTestMessages([]);
+    setTestSessionState({ ...EMPTY_ASSISTANT_SESSION_STATE });
+    setTestMeta(null);
+    setTestToolActivity([]);
+    setTestError(null);
+    setTestInput("");
+    toast({
+      title: "Новый тест",
+      description: "Создан новый тестовый контекст. История основного Copilot не затронута.",
+    });
+  };
+
+  const clearTest = () => {
+    setTestMessages([]);
+    setTestMeta(null);
+    setTestToolActivity([]);
+    setTestError(null);
+    setTestInput("");
+  };
+
+  const runTest = async (prompt?: string) => {
+    const message = String(prompt ?? testInput).trim();
+    if (!message || testing) return;
+
+    const userMessage: TestMessage = { id: toMessageId(), role: "user", content: message };
+    setTestMessages((prev) => [...prev, userMessage]);
+    setTestInput("");
+    setTesting(true);
+    setTestError(null);
+
+    try {
+      const headers = await buildAuthHeaders("json");
+      const response = await fetch("/api/assistant/test", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          message,
+          threadId: testThreadId,
+          sessionState: testSessionState,
+          runtimeContext: {
+            currentPage: "assistant-settings-test",
+            currentRoute: "/platform/assistant/settings",
+            season: testSessionState.lastSeason || null,
+            locale: "ru",
+          },
+        }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as TestResponse;
+      if (!response.ok) {
+        const errText = payload?.error || "Не удалось выполнить тестовый запрос.";
+        setTestError(
+          payload?.debug || {
+            status_code: response.status,
+            error_source: "api",
+            error_message: errText,
+            requested_model: null,
+            config_source: "fallback",
+          }
+        );
+        setTestMessages((prev) => [
+          ...prev,
+          { id: toMessageId(), role: "assistant", content: "AI Assistant временно недоступен. Проверьте debug ниже." },
+        ]);
+        return;
+      }
+
+      setTestSessionState(payload.session_state || { ...EMPTY_ASSISTANT_SESSION_STATE });
+      setTestMeta(payload.metadata || null);
+      setTestToolActivity(Array.isArray(payload.tool_activity) ? payload.tool_activity : []);
+      setTestMessages((prev) => [
+        ...prev,
+        { id: toMessageId(), role: "assistant", content: payload.answer || "Пустой ответ от ассистента." },
+      ]);
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : "Не удалось выполнить тест.";
+      setTestError({
+        status_code: 500,
+        error_source: "client",
+        error_message: messageText,
+        requested_model: null,
+        config_source: "fallback",
+      });
+      setTestMessages((prev) => [
+        ...prev,
+        { id: toMessageId(), role: "assistant", content: "AI Assistant временно недоступен. Проверьте debug ниже." },
+      ]);
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -269,14 +455,14 @@ export function AssistantPlatformSettingsForm() {
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Настройки ассистента</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Глобальные настройки ассистента (только для global_admin). Пользовательский чат работает через правую панель.
+          Глобальные настройки Copilot + встроенный тестовый ассистент для проверки реального backend-runtime.
         </p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Рантайм</CardTitle>
-          <CardDescription>Модель, провайдер и базовые ограничения ответа.</CardDescription>
+          <CardDescription>Модель, температура и базовые runtime-параметры.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
@@ -320,7 +506,7 @@ export function AssistantPlatformSettingsForm() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="reasoning">Глубина рассуждения</Label>
+            <Label htmlFor="reasoning">Уровень рассуждения</Label>
             <Select
               value={settings.reasoningEffort}
               onValueChange={(value) =>
@@ -351,7 +537,7 @@ export function AssistantPlatformSettingsForm() {
                 onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, enabled: checked }))}
                 disabled={loading || saving}
               />
-              <span className="text-sm">Ассистент включен</span>
+              <span className="text-sm">Ассистент включён</span>
             </div>
             <div className="flex items-center gap-3">
               <Switch
@@ -373,11 +559,11 @@ export function AssistantPlatformSettingsForm() {
       <Card>
         <CardHeader>
           <CardTitle>Политика</CardTitle>
-          <CardDescription>Системный промпт, роли, инструменты и запрещенные действия.</CardDescription>
+          <CardDescription>System prompt, роли, инструменты и ограничения.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="systemPrompt">Системный промпт</Label>
+            <Label htmlFor="systemPrompt">Системный prompt</Label>
             <Textarea
               id="systemPrompt"
               rows={6}
@@ -388,7 +574,7 @@ export function AssistantPlatformSettingsForm() {
           </div>
 
           <div className="space-y-2">
-            <Label>Разрешенные роли</Label>
+            <Label>Разрешённые роли</Label>
             <div className="flex flex-wrap gap-2">
               {ROLE_OPTIONS.map((role) => {
                 const active = (settings.allowedRoles || []).includes(role.key);
@@ -402,7 +588,7 @@ export function AssistantPlatformSettingsForm() {
           </div>
 
           <div className="space-y-3">
-            <Label>Разрешенные инструменты</Label>
+            <Label>Разрешённые инструменты</Label>
             <div className="grid gap-2 md:grid-cols-2">
               {TOOL_OPTIONS.map((tool) => {
                 const checked = (settings.allowedTools || []).includes(tool);
@@ -418,7 +604,7 @@ export function AssistantPlatformSettingsForm() {
 
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="forbiddenActions">Запрещенные действия (по одному на строку)</Label>
+              <Label htmlFor="forbiddenActions">Запрещённые действия (по одному на строку)</Label>
               <Textarea
                 id="forbiddenActions"
                 rows={6}
@@ -428,7 +614,7 @@ export function AssistantPlatformSettingsForm() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="groundingDomains">Домены с обязательным grounding (по одному на строку)</Label>
+              <Label htmlFor="groundingDomains">Grounding domains (по одному на строку)</Label>
               <Textarea
                 id="groundingDomains"
                 rows={6}
@@ -443,8 +629,8 @@ export function AssistantPlatformSettingsForm() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Лимиты и подтверждение</CardTitle>
-          <CardDescription>Лимиты и правила подтверждения действий пользователем.</CardDescription>
+          <CardTitle>Лимиты и подтверждения</CardTitle>
+          <CardDescription>Ограничения и policy переключатели.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
@@ -522,8 +708,9 @@ export function AssistantPlatformSettingsForm() {
                 }
                 disabled={loading || saving}
               />
-              <span className="text-sm">Блокировать ответы без данных из инструментов</span>
+              <span className="text-sm">Блокировать ответы без tool-grounding</span>
             </div>
+
             <div className="flex items-center gap-3">
               <Switch
                 checked={settings.groundingRules.disallowSeasonMixing}
@@ -540,6 +727,7 @@ export function AssistantPlatformSettingsForm() {
               />
               <span className="text-sm">Запретить смешивание сезонов</span>
             </div>
+
             <div className="flex items-center gap-3">
               <Switch
                 checked={settings.actionConfirmation.alwaysRequireHumanConfirmation}
@@ -556,6 +744,7 @@ export function AssistantPlatformSettingsForm() {
               />
               <span className="text-sm">Всегда требовать подтверждение человека</span>
             </div>
+
             <div className="flex items-center gap-3">
               <Switch
                 checked={settings.actionConfirmation.allowDraftAutofill}
@@ -579,7 +768,9 @@ export function AssistantPlatformSettingsForm() {
       <Card>
         <CardHeader>
           <CardTitle>Проверить настройки</CardTitle>
-          <CardDescription>Проверка того, что текущий runtime реально читается assistant engine.</CardDescription>
+          <CardDescription>
+            Backend health-check: ключ, модель, ping, доступ к БД и runtime binding.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <Button type="button" variant="outline" onClick={validateSettings} disabled={loading || saving || checking}>
@@ -588,42 +779,170 @@ export function AssistantPlatformSettingsForm() {
           </Button>
 
           {validateResult ? (
-            <div className="space-y-3 rounded border bg-slate-50 p-3 text-sm">
+            <div className="space-y-4 rounded border bg-slate-50 p-3 text-sm">
               <div className="flex items-center gap-2 text-emerald-700">
                 <CheckCircle2 className="h-4 w-4" />
-                <span>Рантайм-конфигурация получена</span>
+                <span>Runtime-конфигурация получена</span>
               </div>
+
               <div className="grid gap-2 md:grid-cols-2">
-                <div>
-                  Провайдер: <b>{validateResult.runtime.provider}</b>
-                </div>
-                <div>
-                  Модель: <b>{validateResult.runtime.model}</b>
-                </div>
-                <div>
-                  Температура: <b>{validateResult.runtime.temperature}</b>
-                </div>
-                <div>
-                  Глубина рассуждения: <b>{validateResult.runtime.reasoningEffort}</b>
-                </div>
+                <div>Requested model: <b>{validateResult.model.requested_model}</b></div>
+                <div>Actual model used: <b>{validateResult.model.actual_model_used || "—"}</b></div>
+                <div>Config source: <b>{validateResult.model.config_source}</b></div>
+                <div>Temperature: <b>{validateResult.model.temperature_used}</b></div>
+                <div>Reasoning: <b>{validateResult.model.reasoning_effort}</b></div>
+                <div>Tools enabled: <b>{validateResult.checks.tools_enabled_count}</b></div>
               </div>
-              <div>
-                Включенные инструменты: <b>{Array.isArray(validateResult.runtime.enabledTools) ? validateResult.runtime.enabledTools.length : 0}</b>
+
+              <div className="grid gap-2 md:grid-cols-2">
+                <div>OPENAI_API_KEY: <b>{validateResult.checks.openai_api_key_present ? "OK" : "Missing"}</b></div>
+                <div>Model ping: <b>{validateResult.checks.model_ping_ok ? "OK" : "Fail"}</b></div>
+                <div>Ping status: <b>{validateResult.checks.model_ping_status ?? "—"}</b></div>
+                <div>Ping error: <b>{validateResult.checks.model_ping_error || "—"}</b></div>
               </div>
-              <div className="space-y-1">
-                {Object.entries(validateResult.binding || {}).map(([key, value]) => (
-                  <div key={key}>
-                    {key}: <b>{bindingLabel(value)}</b>
-                  </div>
-                ))}
-              </div>
+
+              {validateResult.binding ? (
+                <div className="space-y-1">
+                  {Object.entries(validateResult.binding).map(([key, value]) => (
+                    <div key={key}>
+                      {key}: <b>{bindingLabel(value)}</b>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
               {Array.isArray(validateResult.notes) && validateResult.notes.length > 0 ? (
-                <div className="space-y-1 text-slate-600">
+                <div className="space-y-1 text-slate-700">
                   {validateResult.notes.map((note) => (
                     <div key={note}>• {note}</div>
                   ))}
                 </div>
               ) : null}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Тест ассистента</CardTitle>
+          <CardDescription>
+            Safe read-only test mode. Навигация и мутации отключены. Запрос идёт через реальный backend endpoint <code>/api/assistant/test</code>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {QUICK_TEST_PROMPTS.map((prompt) => (
+              <Button
+                key={prompt}
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={testing}
+                onClick={() => void runTest(prompt)}
+              >
+                {prompt}
+              </Button>
+            ))}
+          </div>
+
+          <div className="flex gap-2">
+            <Input
+              value={testInput}
+              onChange={(e) => setTestInput(e.target.value)}
+              placeholder="Введите тестовый запрос…"
+              disabled={testing}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void runTest();
+                }
+              }}
+            />
+            <Button type="button" onClick={() => void runTest()} disabled={testing || !testInput.trim()}>
+              {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />}
+              Отправить тест
+            </Button>
+            <Button type="button" variant="outline" onClick={newTest} disabled={testing}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Новый тест
+            </Button>
+            <Button type="button" variant="outline" onClick={clearTest} disabled={testing}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Очистить
+            </Button>
+          </div>
+
+          <div className="rounded border bg-slate-50 p-3">
+            <div className="mb-2 text-xs text-slate-600">
+              Thread: <b>{testThreadId}</b>
+            </div>
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              {testMessages.length === 0 ? (
+                <div className="text-sm text-slate-500">Здесь появится история тестового чата.</div>
+              ) : (
+                testMessages.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`rounded p-2 text-sm ${
+                      item.role === "user" ? "bg-amber-100 text-amber-950" : "bg-white text-slate-900"
+                    }`}
+                  >
+                    <div className="mb-1 text-[11px] uppercase tracking-wide text-slate-500">
+                      {item.role === "user" ? "user" : "assistant"}
+                    </div>
+                    <div className="whitespace-pre-wrap">{item.content}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {testMeta ? (
+            <div className="space-y-2 rounded border p-3 text-sm">
+              <div className="font-medium">Technical metadata</div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <div>requested_model: <b>{testMeta.requested_model}</b></div>
+                <div>actual_model_used: <b>{testMeta.actual_model_used || "not_called"}</b></div>
+                <div>config_source: <b>{testMeta.config_source}</b></div>
+                <div>temperature_used: <b>{testMeta.temperature_used}</b></div>
+                <div>reasoning_effort: <b>{testMeta.reasoning_effort}</b></div>
+                <div>tools_enabled_count: <b>{testMeta.tools_enabled_count}</b></div>
+                <div>mode: <b>{testMeta.mode}</b></div>
+                <div>intent: <b>{testMeta.intent || "—"}</b></div>
+                <div>latency_ms: <b>{testMeta.latency_ms}</b></div>
+                <div>token_usage: <b>{testMeta.token_usage.total_tokens ?? "—"}</b></div>
+                <div>llm_status: <b>{testMeta.llm.status}</b></div>
+                <div>llm_http_status: <b>{testMeta.llm.http_status ?? "—"}</b></div>
+              </div>
+
+              {testToolActivity.length > 0 ? (
+                <details className="rounded border bg-slate-50 p-2">
+                  <summary className="cursor-pointer text-xs font-medium uppercase text-slate-600">Tool activity</summary>
+                  <div className="mt-2 space-y-1 text-xs">
+                    {testToolActivity.map((entry) => (
+                      <div key={entry}>{entry}</div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
+
+              {testMeta.config_source !== "db" ? (
+                <div className="rounded bg-amber-50 p-2 text-amber-900">
+                  Эта конфигурация частично берётся из ENV/fallback. Для стабильного применения сохраните настройки в БД.
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {testError ? (
+            <div className="space-y-1 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+              <div className="font-medium">Ошибка теста</div>
+              <div>status_code: <b>{testError.status_code}</b></div>
+              <div>error_source: <b>{testError.error_source}</b></div>
+              <div>error_message: <b>{testError.error_message}</b></div>
+              <div>requested_model: <b>{testError.requested_model || "—"}</b></div>
+              <div>config_source: <b>{testError.config_source}</b></div>
             </div>
           ) : null}
         </CardContent>

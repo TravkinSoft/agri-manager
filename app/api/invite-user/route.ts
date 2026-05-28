@@ -1,6 +1,8 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getRequestOrigin } from "@/lib/utils/app-url";
+import { assertActorAccess } from "@/lib/auth/server-acl";
+import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 
 const GLOBAL_ADMIN_ALLOWED_TARGETS = [
   "company_admin",
@@ -43,7 +45,7 @@ function errorToText(err: any): string {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -56,10 +58,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { email, role, company_id, full_name, actor_user_id } = await request.json();
-    if (!email || !role || !company_id || !full_name || !actor_user_id) {
+    const { email, role, company_id, full_name } = await request.json();
+    if (!email || !role || !full_name) {
       return NextResponse.json({ success: false, message: "Missing required fields" }, { status: 400 });
     }
+    const actor = await getServerActorFromSession(request);
 
     const normalizedEmail = String(email).trim().toLowerCase();
     const normalizedRoleRaw = String(role).trim().toLowerCase();
@@ -76,24 +79,20 @@ export async function POST(request: Request) {
         persistSession: false,
       },
     });
-
-    const { data: actorProfile, error: actorProfileError } = await supabaseAdmin
-      .from("profiles")
-      .select("id, role, company_id, status")
-      .eq("id", actor_user_id)
-      .maybeSingle();
-
-    if (actorProfileError || !actorProfile?.id) {
-      return NextResponse.json({ success: false, message: "Actor profile not found" }, { status: 403 });
-    }
-
-    const actorRole = String(actorProfile.role || "").toLowerCase();
-    const actorIsGlobalAdmin = actorRole === "global_admin";
-    const actorIsCompanyAdmin = actorRole === "company_admin" || actorRole === "admin";
+    const actorIsGlobalAdmin = actor.role === "global_admin";
+    const actorIsCompanyAdmin = actor.role === "company_admin";
 
     if (!actorIsGlobalAdmin && !actorIsCompanyAdmin) {
       return NextResponse.json({ success: false, message: "Only administrators can send invites" }, { status: 403 });
     }
+    const targetCompanyId = resolveCompanyForActor(actor, String(company_id || "").trim() || null);
+
+    await assertActorAccess({
+      supabase: supabaseAdmin,
+      actorUserId: actor.id,
+      companyId: targetCompanyId,
+      allowedRoles: ["global_admin", "company_admin"],
+    });
 
     const allowedTargets: readonly string[] = actorIsGlobalAdmin
       ? GLOBAL_ADMIN_ALLOWED_TARGETS
@@ -109,14 +108,6 @@ export async function POST(request: Request) {
         },
         { status: 403 }
       );
-    }
-
-    if (String(actorProfile.status || "active") !== "active") {
-      return NextResponse.json({ success: false, message: "Actor profile is not active" }, { status: 403 });
-    }
-
-    if (!actorIsGlobalAdmin && actorProfile.company_id !== company_id) {
-      return NextResponse.json({ success: false, message: "Company admin can invite only into their own company" }, { status: 403 });
     }
 
     const origin = getRequestOrigin(request);
@@ -152,7 +143,7 @@ export async function POST(request: Request) {
           redirectTo,
           data: {
             role: normalizedRole,
-            invited_by_company: company_id,
+            invited_by_company: targetCompanyId,
             full_name: normalizedFullName,
           },
         }
@@ -190,7 +181,7 @@ export async function POST(request: Request) {
         email_confirm: true,
         user_metadata: {
           role: normalizedRole,
-          invited_by_company: company_id,
+          invited_by_company: targetCompanyId,
           full_name: normalizedFullName,
         },
       });
@@ -221,7 +212,7 @@ export async function POST(request: Request) {
     if (profileAfterTrigger) {
       await supabaseAdmin
         .from("profiles")
-        .update({ status: "pending", company_id, role: normalizedRole, full_name: normalizedFullName })
+        .update({ status: "pending", company_id: targetCompanyId, role: normalizedRole, full_name: normalizedFullName })
         .eq("id", userId);
     } else {
       await supabaseAdmin
@@ -231,7 +222,7 @@ export async function POST(request: Request) {
           full_name: normalizedFullName,
           email: normalizedEmail,
           role: normalizedRole,
-          company_id,
+          company_id: targetCompanyId,
           status: "pending",
           is_owner: false,
         });
@@ -257,6 +248,9 @@ export async function POST(request: Request) {
         : "Invitation link sent successfully",
     });
   } catch (err: any) {
+    if (err instanceof SessionAuthError) {
+      return NextResponse.json({ success: false, message: err.message }, { status: err.status });
+    }
     console.error("Invite user error:", err);
     return NextResponse.json(
       { success: false, message: errorToText(err) },

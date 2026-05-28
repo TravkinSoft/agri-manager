@@ -16,7 +16,7 @@ function isActiveStatus(status: string | null | undefined) {
 }
 
 export default function WeighbridgeDashboardPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [tickets, setTickets] = useState<WeighbridgeTicket[]>([]);
@@ -25,13 +25,14 @@ export default function WeighbridgeDashboardPage() {
   const isOperationalRole = profile?.role === "weighman" || profile?.role === "warehouse_operator" || profile?.role === "warehouse";
 
   useEffect(() => {
+    if (authLoading) return;
     if (isOperationalRole) {
       router.replace("/weighbridge");
     }
-  }, [isOperationalRole, router]);
+  }, [authLoading, isOperationalRole, router]);
 
   useEffect(() => {
-    if (isOperationalRole) return;
+    if (authLoading || isOperationalRole) return;
     (async () => {
       if (!profile?.company_id || !profile?.id) return;
       setLoading(true);
@@ -42,9 +43,9 @@ export default function WeighbridgeDashboardPage() {
         setLoading(false);
       }
     })();
-  }, [profile?.company_id, profile?.id, isOperationalRole]);
+  }, [authLoading, profile?.company_id, profile?.id, isOperationalRole]);
 
-  if (isOperationalRole) return null;
+  if (authLoading || isOperationalRole) return null;
 
   const metrics = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);

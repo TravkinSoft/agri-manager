@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
 
 function htmlEscape(value: string) {
@@ -101,10 +102,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const { id: fieldId } = await params;
     const seasonId = String(request.nextUrl.searchParams.get("seasonId") || "").trim();
-    const userId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!fieldId || !seasonId || !userId) {
-      return NextResponse.json({ error: "field id, seasonId and userId required" }, { status: 400 });
+    if (!fieldId || !seasonId) {
+      return NextResponse.json({ error: "field id and seasonId required" }, { status: 400 });
     }
+    const actor = await getServerActorFromSession(request);
 
     const supabase = getServiceClient();
     const { data: field, error: fieldError } = await supabase
@@ -118,7 +119,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     await assertActorAccess({
       supabase,
-      actorUserId: userId,
+      actorUserId: actor.id,
       companyId: field.company_id,
       allowedRoles: ["admin", "company_admin", "global_admin", "agronomist", "specialist"],
     });
@@ -199,6 +200,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       },
     });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

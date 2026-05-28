@@ -28,12 +28,17 @@ function cleanString(value: unknown): string | null {
 function normalizeText(value: string): string {
   return String(value || "")
     .toLowerCase()
+    .replace(/[.,!?;:()"'`]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function hasAny(text: string, words: string[]): boolean {
   return words.some((word) => text.includes(word));
+}
+
+function hasRegex(text: string, regex: RegExp): boolean {
+  return regex.test(text);
 }
 
 function extractQuotedValue(rawMessage: string): string | null {
@@ -59,25 +64,40 @@ function extractEntityQuery(rawMessage: string, stopWords: string[]): string | n
   return cleanString(filtered.join(" "));
 }
 
+function isCropAreaQuestion(text: string): boolean {
+  return hasRegex(
+    text,
+    /(сколько\s+(посев|засея)|посевн|сколько\s+га|общая\s+площадь\s+пол|структура\s+посев|crop structure|sown area|total hectares)/
+  );
+}
+
+function pickCropAlias(raw: string, normalized: string): string | null {
+  const quoted = extractQuotedValue(raw);
+  if (quoted) {
+    const knownQuoted = resolveKnownCropAlias(quoted);
+    if (knownQuoted) return knownQuoted;
+  }
+  const aliasesInText = findCropAliasesInText(raw);
+  if (aliasesInText.length) return aliasesInText[0];
+  const knownDirect = resolveKnownCropAlias(normalized);
+  if (knownDirect) return knownDirect;
+  if (normalized.includes("картоф")) return "potato";
+  return null;
+}
+
 function detectNavigationIntent(message: string, sessionState: AssistantSessionState): NavigationDetection | null {
   const raw = String(message || "");
   const text = normalizeText(raw);
-  const looksLikeNavigation = hasAny(text, [
-    "открой",
-    "открыть",
-    "перейди",
-    "перейти",
-    "зайди",
-    "open",
-    "go to",
-    "navigate",
-  ]);
+
+  const looksLikeNavigation =
+    hasRegex(text, /(открой|открыть|перейди|перейти|зайди|покажи\s+страниц|go to|open|navigate)/) ||
+    hasAny(text, ["open", "go to", "navigate"]);
   if (!looksLikeNavigation) return null;
 
-  if (hasAny(text, ["весов", "талон", "weighbridge", "ticket"])) {
+  if (hasRegex(text, /(весов|талон|weighbridge|ticket)/)) {
     return { page: "weighbridge", route: "/weighbridge", action: "open_page" };
   }
-  if (hasAny(text, ["склад", "warehouse"])) {
+  if (hasRegex(text, /(склад|warehouse)/)) {
     const query = extractEntityQuery(raw, [
       "открой",
       "открыть",
@@ -89,6 +109,12 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
       "склады",
       "warehouse",
       "warehouses",
+      "open",
+      "go",
+      "to",
+      "navigate",
+      "show",
+      "please",
       "мне",
       "пожалуйста",
     ]);
@@ -104,7 +130,7 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
     }
     return { page: "warehouses", route: "/warehouses", action: "open_page" };
   }
-  if (hasAny(text, ["поле", "поля", "field", "fields"])) {
+  if (hasRegex(text, /(поле|поля|field|fields)/)) {
     const fieldCode = extractFieldCode(text);
     const query =
       fieldCode ||
@@ -119,6 +145,12 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
         "поля",
         "field",
         "fields",
+        "open",
+        "go",
+        "to",
+        "navigate",
+        "show",
+        "please",
         "мне",
         "пожалуйста",
       ]);
@@ -134,17 +166,24 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
     }
     return { page: "fields", route: "/fields", action: "open_page" };
   }
-  if (hasAny(text, ["азс", "гсм", "топлив", "fuel"])) {
+  if (hasRegex(text, /(азс|гсм|топлив|fuel)/)) {
     const query = extractEntityQuery(raw, [
       "открой",
       "открыть",
       "перейди",
       "перейти",
       "зайди",
+      "покажи",
       "азс",
       "гсм",
       "топливо",
       "fuel",
+      "open",
+      "go",
+      "to",
+      "navigate",
+      "show",
+      "please",
       "мне",
       "пожалуйста",
     ]);
@@ -160,16 +199,16 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
     }
     return { page: "fuel", route: "/fuel", action: "open_page" };
   }
-  if (hasAny(text, ["кадастр", "право", "land legal"])) {
+  if (hasRegex(text, /(кадастр|право|land legal)/)) {
     return { page: "land-legal", route: "/land-legal", action: "open_page" };
   }
-  if (hasAny(text, ["операц", "operations"])) {
+  if (hasRegex(text, /(операц|operations)/)) {
     return { page: "operations", route: "/operations", action: "open_page" };
   }
-  if (hasAny(text, ["структур", "посев", "crop-structure"])) {
+  if (hasRegex(text, /(структур|посев|crop-structure)/)) {
     return { page: "crop-structure", route: "/crop-structure", action: "open_page" };
   }
-  if (hasAny(text, ["отчет по картоф", "отчёт по картоф", "potato report"])) {
+  if (hasRegex(text, /(отч[её]т\s+по\s+картоф|potato report)/)) {
     return {
       page: "analytics",
       route: "/analytics",
@@ -177,17 +216,17 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
       filters: { report: "potato-material-consumption" },
     };
   }
-  if (hasAny(text, ["отчет", "отчёт", "analytics", "report"])) {
+  if (hasRegex(text, /(отч[её]т|analytics|report)/)) {
     return { page: "analytics", route: "/analytics", action: "open_page" };
   }
-  if (hasAny(text, ["пользовател", "users"])) {
+  if (hasRegex(text, /(пользоват|users)/)) {
     return { page: "users", route: "/users", action: "open_page" };
   }
-  if (hasAny(text, ["панель", "главная", "dashboard"])) {
+  if (hasRegex(text, /(панел|главн|dashboard)/)) {
     return { page: "dashboard", route: "/dashboard", action: "open_page" };
   }
 
-  if (hasAny(text, ["открой его", "открой ее", "открой это", "перейди к нему"])) {
+  if (hasRegex(text, /(открой его|открой ее|открой это|перейди к нему|open it)/)) {
     if (sessionState.lastWarehouse) {
       return {
         page: "warehouses",
@@ -214,7 +253,7 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
 }
 
 function needsClarification(text: string): boolean {
-  return [
+  const focusWords = [
     "склад",
     "склады",
     "поле",
@@ -224,24 +263,11 @@ function needsClarification(text: string): boolean {
     "весовая",
     "талон",
     "отчет",
-    "отчеты",
     "отчёт",
+    "отчеты",
     "отчёты",
-  ].includes(text);
-}
-
-function pickCropAlias(raw: string, normalized: string): string | null {
-  const quoted = extractQuotedValue(raw);
-  if (quoted) {
-    const knownQuoted = resolveKnownCropAlias(quoted);
-    if (knownQuoted) return knownQuoted;
-  }
-  const aliasesInText = findCropAliasesInText(raw);
-  if (aliasesInText.length) return aliasesInText[0];
-  const knownDirect = resolveKnownCropAlias(normalized);
-  if (knownDirect) return knownDirect;
-  if (normalized.includes("картоф")) return "potato";
-  return null;
+  ];
+  return focusWords.includes(text);
 }
 
 function fallbackIntent(message: string, sessionState: AssistantSessionState): AssistantIntent {
@@ -268,7 +294,18 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
     };
   }
 
-  if (hasAny(text, ["создай", "подготов", "черновик", "draft"])) {
+  if (isCropAreaQuestion(text)) {
+    return {
+      name: "crop_structure_overview",
+      confidence: 0.98,
+      needsData: true,
+      parameters: {
+        query: cleanString(raw),
+      },
+    };
+  }
+
+  if (hasRegex(text, /(создай|подготов|черновик|draft)/)) {
     return {
       name: "create_draft",
       confidence: 0.8,
@@ -277,18 +314,18 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
     };
   }
 
-  if (hasAny(text, ["гсм", "азс", "топлив", "дизель", "бензин", "заправ", "fuel"])) {
+  if (hasRegex(text, /(гсм|азс|топлив|дизел|бензин|заправ|fuel)/)) {
     return { name: "fuel_movements", confidence: 0.9, needsData: true, parameters: { query: cleanString(raw) } };
   }
 
-  if (hasAny(text, ["талон", "весов", "ticket", "weighbridge"])) {
-    return { name: "weighbridge_tickets", confidence: 0.88, needsData: true, parameters: { query: cleanString(raw) } };
+  if (hasRegex(text, /(талон|весов|ticket|weighbridge)/)) {
+    return { name: "weighbridge_tickets", confidence: 0.9, needsData: true, parameters: { query: cleanString(raw) } };
   }
 
-  if (hasAny(text, ["остат", "склад", "налич", "balance", "stock", "inventory", "warehouse"])) {
+  if (hasRegex(text, /(остат|склад|налич|balance|stock|inventory|warehouse)/)) {
     return {
       name: "inventory_balance",
-      confidence: 0.91,
+      confidence: 0.95,
       needsData: true,
       parameters: {
         query: cleanString(raw),
@@ -298,11 +335,11 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
     };
   }
 
-  if (hasAny(text, ["движен", "провод", "ledger", "movement", "journal"])) {
-    return { name: "warehouse_movements", confidence: 0.82, needsData: true, parameters: { query: cleanString(raw) } };
+  if (hasRegex(text, /(движен|провод|ledger|movement|journal)/)) {
+    return { name: "warehouse_movements", confidence: 0.86, needsData: true, parameters: { query: cleanString(raw) } };
   }
 
-  if (hasAny(text, ["активные операции", "active operations", "операции в работе"])) {
+  if (hasRegex(text, /(активные\s+операц|active operations|операции в работе)/)) {
     return {
       name: "operations_recent",
       confidence: 0.86,
@@ -311,14 +348,14 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
     };
   }
 
-  if (hasAny(text, ["операц", "operations"])) {
+  if (hasRegex(text, /(операц|operations)/)) {
     return { name: "operations_recent", confidence: 0.8, needsData: true, parameters: { query: cleanString(raw) } };
   }
 
-  if (hasAny(text, ["картоф", "potato report", "материал по картоф"])) {
+  if (hasRegex(text, /(картоф|potato report|материал по картоф)/)) {
     return {
       name: "crop_structure_overview",
-      confidence: 0.9,
+      confidence: 0.93,
       needsData: true,
       parameters: {
         query: cleanString(raw),
@@ -328,10 +365,10 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
     };
   }
 
-  if (cropGroups.length || cropAlias || hasAny(text, ["структур", "посев", "посевн", "crop structure"])) {
+  if (cropGroups.length || cropAlias || hasRegex(text, /(структур|посев|посевн|crop structure)/)) {
     return {
       name: "crop_structure_overview",
-      confidence: 0.86,
+      confidence: 0.9,
       needsData: true,
       parameters: {
         query: cleanString(raw),
@@ -341,14 +378,14 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
     };
   }
 
-  if (hasAny(text, ["поле", "поля", "field", "fields"])) {
+  if (hasRegex(text, /(поле|поля|field|fields)/)) {
     return { name: "fields_overview", confidence: 0.8, needsData: true, parameters: { query: cleanString(raw) } };
   }
 
-  if (hasAny(text, ["контекст", "компания", "сезон", "context", "season", "company"])) {
+  if (hasRegex(text, /(контекст|компания|сезон|context|season|company)/)) {
     return {
       name: "company_context",
-      confidence: 0.7,
+      confidence: 0.75,
       needsData: true,
       parameters: { season: sessionState.lastSeason },
     };
@@ -357,7 +394,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
   if (needsClarification(text)) {
     return {
       name: "clarification_required",
-      confidence: 0.72,
+      confidence: 0.7,
       needsData: false,
       parameters: { query: cleanString(raw), focus: text },
     };

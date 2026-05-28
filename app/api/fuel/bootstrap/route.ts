@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
 
 const FUEL_ROLES = ["admin", "company_admin", "global_admin", "warehouse", "fuel_operator"] as const;
@@ -18,16 +19,13 @@ const monthKey = (value: string | null | undefined) => {
 
 export async function GET(request: NextRequest) {
   try {
-    const companyId = String(request.nextUrl.searchParams.get("companyId") || "").trim();
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!companyId || !actorUserId) {
-      return NextResponse.json({ error: "companyId and userId are required" }, { status: 400 });
-    }
+    const actor = await getServerActorFromSession(request);
+    const companyId = resolveCompanyForActor(actor, String(request.nextUrl.searchParams.get("companyId") || "").trim() || null);
 
     const supabase = getServiceClient();
     await assertActorAccess({
       supabase,
-      actorUserId,
+      actorUserId: actor.id,
       companyId,
       allowedRoles: [...FUEL_ROLES],
     });
@@ -213,6 +211,9 @@ export async function GET(request: NextRequest) {
       limits,
     });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

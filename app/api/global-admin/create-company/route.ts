@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getRequestOrigin } from "@/lib/utils/app-url";
+import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,30 +25,33 @@ async function assertGlobalAdmin(admin: ReturnType<typeof getAdminClient>, actor
     .maybeSingle();
 
   if (error || !profile?.id) {
-    throw new Error("Actor profile not found");
+    throw new SessionAuthError("Actor profile not found", 403);
   }
   if (String(profile.role || "").toLowerCase() !== "global_admin") {
-    throw new Error("Only global admin can create companies");
+    throw new SessionAuthError("Only global admin can create companies", 403);
   }
   if (String(profile.status || "active") !== "active") {
-    throw new Error("Global admin profile is inactive");
+    throw new SessionAuthError("Global admin profile is inactive", 403);
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
-    const { actorUserId, companyName, companyAdminEmail, companyAdminFullName } = await request.json();
-    const actorId = String(actorUserId || "").trim();
+    const actor = await getServerActorFromSession(request, { ignoreImpersonation: true });
+    const { companyName, companyAdminEmail, companyAdminFullName } = await request.json();
     const name = String(companyName || "").trim();
     const adminEmail = String(companyAdminEmail || "").trim().toLowerCase();
     const adminFullName = String(companyAdminFullName || "").trim().replace(/\s+/g, " ");
 
-    if (!actorId || !name || !adminEmail || !adminFullName) {
-      return NextResponse.json({ error: "actorUserId, companyName, companyAdminEmail and companyAdminFullName are required" }, { status: 400 });
+    if (actor.role !== "global_admin") {
+      return NextResponse.json({ error: "Only global admin can create companies" }, { status: 403 });
+    }
+    if (!name || !adminEmail || !adminFullName) {
+      return NextResponse.json({ error: "companyName, companyAdminEmail and companyAdminFullName are required" }, { status: 400 });
     }
 
     const admin = getAdminClient();
-    await assertGlobalAdmin(admin, actorId);
+    await assertGlobalAdmin(admin, actor.id);
 
     const { data: company, error: companyError } = await admin
       .from("companies")
@@ -92,6 +96,9 @@ export async function POST(request: Request) {
       company: { id: company.id, name: company.name },
     });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

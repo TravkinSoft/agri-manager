@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
+import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 import type { GlobalCatalogEntity } from "@/lib/platform/global-catalog-config";
 
 type EntityConfig = {
@@ -381,6 +382,14 @@ async function assertGlobalAdmin(userId: string) {
   return supabase;
 }
 
+async function assertGlobalAdminRequest(request: NextRequest) {
+  const actor = await getServerActorFromSession(request, { ignoreImpersonation: true });
+  if (actor.role !== "global_admin") {
+    throw new SessionAuthError("Доступ только для глобального администратора", 403);
+  }
+  return { supabase: getServiceClient(), actor };
+}
+
 function getEntityFromParams(entityRaw: string): GlobalCatalogEntity {
   if (!(entityRaw in ENTITY_CONFIG)) {
     throw new Error("Неизвестная сущность каталога");
@@ -572,11 +581,8 @@ export async function GET(
   try {
     const { entity: rawEntity } = await params;
     const entity = getEntityFromParams(rawEntity);
-    const userId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!userId) return NextResponse.json({ error: "userId обязателен" }, { status: 400 });
-
     const config = ENTITY_CONFIG[entity];
-    const supabase = await assertGlobalAdmin(userId);
+    const { supabase } = await assertGlobalAdminRequest(request);
 
     let query = supabase.from(config.table).select(config.select);
     query = config.scopeWhere(query);
@@ -680,6 +686,9 @@ export async function GET(
     const rows = hydratedRows.map((row: any) => (config.normalizeRow ? config.normalizeRow(row) : row));
     return NextResponse.json({ rows });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Неизвестная ошибка" },
       { status: 500 }
@@ -695,11 +704,9 @@ export async function POST(
     const { entity: rawEntity } = await params;
     const entity = getEntityFromParams(rawEntity);
     const body = await request.json();
-    const userId = String(body?.userId || "").trim();
-    if (!userId) return NextResponse.json({ error: "userId обязателен" }, { status: 400 });
 
     const config = ENTITY_CONFIG[entity];
-    const supabase = await assertGlobalAdmin(userId);
+    const { supabase, actor } = await assertGlobalAdminRequest(request);
     const payload = sanitizePayload(body?.payload || {});
     const normalized = config.beforeCreate ? config.beforeCreate(payload) : payload;
     const selectedActiveIngredientIds = Array.isArray(normalized.active_ingredient_ids)
@@ -737,7 +744,7 @@ export async function POST(
       }
     }
 
-    normalized.user_id = userId;
+    normalized.user_id = actor.id;
     normalized.archived = false;
     if (normalized.is_active == null) normalized.is_active = true;
 
@@ -763,6 +770,9 @@ export async function POST(
 
     return NextResponse.json({ row: config.normalizeRow ? config.normalizeRow(row) : row });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Неизвестная ошибка" },
       { status: 500 }
@@ -778,12 +788,10 @@ export async function PATCH(
     const { entity: rawEntity } = await params;
     const entity = getEntityFromParams(rawEntity);
     const body = await request.json();
-    const userId = String(body?.userId || "").trim();
     const id = String(body?.id || "").trim();
-    if (!userId || !id) return NextResponse.json({ error: "userId и id обязательны" }, { status: 400 });
-
+    if (!id) return NextResponse.json({ error: "id обязателен" }, { status: 400 });
     const config = ENTITY_CONFIG[entity];
-    const supabase = await assertGlobalAdmin(userId);
+    const { supabase } = await assertGlobalAdminRequest(request);
     const payload = sanitizePayload(body?.payload || {});
     const normalized = config.beforeUpdate ? config.beforeUpdate(payload) : payload;
     const selectedActiveIngredientIds = Array.isArray(normalized.active_ingredient_ids)
@@ -841,6 +849,9 @@ export async function PATCH(
 
     return NextResponse.json({ row: config.normalizeRow ? config.normalizeRow(row) : row });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Неизвестная ошибка" },
       { status: 500 }
@@ -856,12 +867,10 @@ export async function DELETE(
     const { entity: rawEntity } = await params;
     const entity = getEntityFromParams(rawEntity);
     const body = await request.json();
-    const userId = String(body?.userId || "").trim();
     const id = String(body?.id || "").trim();
-    if (!userId || !id) return NextResponse.json({ error: "userId и id обязательны" }, { status: 400 });
-
+    if (!id) return NextResponse.json({ error: "id обязателен" }, { status: 400 });
     const config = ENTITY_CONFIG[entity];
-    const supabase = await assertGlobalAdmin(userId);
+    const { supabase } = await assertGlobalAdminRequest(request);
     const { error } = await supabase
       .from(config.table)
       .update({ archived: true, is_active: false })
@@ -870,6 +879,9 @@ export async function DELETE(
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Неизвестная ошибка" },
       { status: 500 }

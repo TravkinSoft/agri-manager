@@ -209,12 +209,23 @@ export async function ensureMaterialRequestForOperation(params: {
     return { created: false, skipped_reason: "missing_effective_area" as const };
   }
 
-  const { data: existingRequest } = await supabase
+  const { data: existingRequests, error: existingRequestError } = await supabase
     .from("warehouse_issue_requests")
     .select("id,request_number,status")
     .eq("company_id", companyId)
     .eq("operation_id", operationId)
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (existingRequestError) {
+    return {
+      created: false,
+      skipped_reason: "request_lookup_failed" as const,
+      error: existingRequestError.message || "Failed to check existing request",
+    };
+  }
+
+  const existingRequest = Array.isArray(existingRequests) ? existingRequests[0] : null;
 
   if (existingRequest?.id) {
     return {

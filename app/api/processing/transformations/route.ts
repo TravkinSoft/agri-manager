@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
 
 const STORED_OUTPUT_TYPES = new Set([
@@ -130,23 +131,24 @@ async function loadTransformationItems(supabase: ReturnType<typeof getServiceCli
 
 export async function GET(request: NextRequest) {
   try {
-    const companyId = String(request.nextUrl.searchParams.get("companyId") || "").trim();
-    const actorUserId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!companyId || !actorUserId) {
-      return NextResponse.json({ error: "companyId and userId are required" }, { status: 400 });
-    }
+    const actor = await getServerActorFromSession(request);
+    const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
+    const companyId = resolveCompanyForActor(actor, requestedCompanyId);
 
     const supabase = getServiceClient();
     await assertActorAccess({
       supabase,
-      actorUserId,
+      actorUserId: actor.id,
       companyId,
-      allowedRoles: ["admin", "warehouse", "weighman", "agronomist"],
+      allowedRoles: ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman", "agronomist"],
     });
 
     const items = await loadTransformationItems(supabase, companyId);
     return NextResponse.json({ items });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }
@@ -154,14 +156,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const companyId = String(body.company_id || "").trim();
-    const actorUserId = String(body.actor_user_id || "").trim();
+    const actor = await getServerActorFromSession(request);
+    const companyId = resolveCompanyForActor(actor, String(body.company_id || "").trim() || null);
     const input = body.input || {};
     const outputs = Array.isArray(body.outputs) ? body.outputs : [];
 
-    if (!companyId || !actorUserId) {
-      return NextResponse.json({ error: "company_id and actor_user_id are required" }, { status: 400 });
-    }
     if (!body.transformation_type || !input.batch_id || !input.warehouse_from_id || Number(input.input_weight_kg || 0) <= 0) {
       return NextResponse.json({ error: "Заполните тип, входную партию, склад и массу входа" }, { status: 400 });
     }
@@ -191,9 +190,9 @@ export async function POST(request: NextRequest) {
     const supabase = getServiceClient();
     await assertActorAccess({
       supabase,
-      actorUserId,
+      actorUserId: actor.id,
       companyId,
-      allowedRoles: ["admin", "warehouse", "weighman"],
+      allowedRoles: ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman"],
     });
 
     const { data: batch, error: batchError } = await supabase
@@ -216,7 +215,7 @@ export async function POST(request: NextRequest) {
         status: "draft",
         source_ticket_id: body.source_ticket_id || null,
         started_at: new Date().toISOString(),
-        created_by: actorUserId,
+        created_by: actor.id,
         note: body.note || null,
       })
       .select("id")

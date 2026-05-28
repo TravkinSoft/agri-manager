@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
 
 const FUEL_ROLES = ["admin", "company_admin", "global_admin", "warehouse", "fuel_operator"] as const;
@@ -7,8 +8,8 @@ const FUEL_ROLES = ["admin", "company_admin", "global_admin", "warehouse", "fuel
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const companyId = String(body.companyId || "").trim();
-    const actorUserId = String(body.actorUserId || "").trim();
+    const actor = await getServerActorFromSession(request);
+    const companyId = resolveCompanyForActor(actor, String(body.companyId || "").trim() || null);
     const fromFuelSourceId = String(body.fromFuelSourceId || "").trim();
     const toFuelSourceId = String(body.toFuelSourceId || "").trim();
     const operatorPersonnelId = body.operatorPersonnelId ? String(body.operatorPersonnelId) : null;
@@ -16,8 +17,8 @@ export async function POST(request: NextRequest) {
     const comment = body.comment ? String(body.comment) : null;
     const transferredAt = body.transferredAt ? String(body.transferredAt) : null;
 
-    if (!companyId || !actorUserId || !fromFuelSourceId || !toFuelSourceId) {
-      return NextResponse.json({ error: "companyId, actorUserId, fromFuelSourceId and toFuelSourceId are required" }, { status: 400 });
+    if (!fromFuelSourceId || !toFuelSourceId) {
+      return NextResponse.json({ error: "fromFuelSourceId and toFuelSourceId are required" }, { status: 400 });
     }
     if (fromFuelSourceId === toFuelSourceId) {
       return NextResponse.json({ error: "Source and destination fuel sources must be different" }, { status: 400 });
@@ -29,14 +30,14 @@ export async function POST(request: NextRequest) {
     const supabase = getServiceClient();
     await assertActorAccess({
       supabase,
-      actorUserId,
+      actorUserId: actor.id,
       companyId,
       allowedRoles: [...FUEL_ROLES],
     });
 
     const { data, error } = await supabase.rpc("transfer_fuel_mvp", {
       p_company_id: companyId,
-      p_actor_user_id: actorUserId,
+      p_actor_user_id: actor.id,
       p_from_fuel_source_id: fromFuelSourceId,
       p_to_fuel_source_id: toFuelSourceId,
       p_liters: liters,
@@ -49,6 +50,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ id: data });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

@@ -237,12 +237,19 @@ async function ensureWarehouseIssueRequest(params: {
     return { requestId: null, created: false, skippedReason: "no_materials" };
   }
 
-  const { data: existingRequest } = await supabase
+  const { data: existingRequests, error: existingRequestError } = await supabase
     .from("warehouse_issue_requests")
     .select("id")
     .eq("operation_id", operationId)
     .eq("company_id", companyId)
-    .maybeSingle();
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (existingRequestError) {
+    throw new Error(existingRequestError.message || "Failed to check warehouse issue request");
+  }
+
+  const existingRequest = Array.isArray(existingRequests) ? existingRequests[0] : null;
 
   if (existingRequest?.id) {
     return { requestId: String(existingRequest.id), created: false };

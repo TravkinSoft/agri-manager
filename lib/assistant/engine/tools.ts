@@ -296,21 +296,18 @@ async function resolveSeasonContext(companyId: string, context: AssistantToolCon
       if (!byYear.error && byYear.data) {
         return { seasonYear: cleanString(byYear.data.year), seasonId: cleanString(byYear.data.id), source: "runtime_year" };
       }
-      return { seasonYear: String(Math.trunc(numericHint)), seasonId: null, source: "runtime_year_no_season_id" };
     }
   }
 
-  const active = await context.supabase
+  const byDefault2026 = await context.supabase
     .from("seasons")
-    .select("id,year,is_active")
+    .select("id,year")
     .eq("company_id", companyId)
-    .eq("is_active", true)
-    .order("year", { ascending: false })
+    .eq("year", 2026)
     .limit(1)
     .maybeSingle();
-
-  if (!active.error && active.data) {
-    return { seasonYear: cleanString(active.data.year), seasonId: cleanString(active.data.id), source: "active_season" };
+  if (!byDefault2026.error && byDefault2026.data) {
+    return { seasonYear: cleanString(byDefault2026.data.year), seasonId: cleanString(byDefault2026.data.id), source: "default_2026" };
   }
 
   const latest = await context.supabase
@@ -325,8 +322,7 @@ async function resolveSeasonContext(companyId: string, context: AssistantToolCon
     return { seasonYear: cleanString(latest.data.year), seasonId: cleanString(latest.data.id), source: "latest_season" };
   }
 
-  const fallbackYear = await getCurrentSeason(companyId, context);
-  return { seasonYear: fallbackYear, seasonId: null, source: "crop_structure_fallback" };
+  return { seasonYear: null, seasonId: null, source: "seasons_not_found" };
 }
 
 async function buildLookupMaps(
@@ -750,6 +746,9 @@ const getCropStructureToolV2: AssistantToolDefinition = {
   domains: ["crop_structure", "fields"],
   run: async (context) => {
     const seasonCtx = await resolveSeasonContext(context.companyId, context);
+    if (!seasonCtx.seasonId && !seasonCtx.seasonYear) {
+      throw new Error("Сезоны компании не найдены");
+    }
     const queryModern =
       "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)).eq(company_id).eq(archived=false)";
 

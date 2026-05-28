@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
+import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 
 async function assertGlobalAdmin(supabase: ReturnType<typeof getServiceClient>, userId: string) {
   const { data: profile, error } = await supabase
@@ -8,22 +9,24 @@ async function assertGlobalAdmin(supabase: ReturnType<typeof getServiceClient>, 
     .eq("id", userId)
     .maybeSingle();
 
-  if (error || !profile?.id) throw new Error("User profile not found");
+  if (error || !profile?.id) throw new SessionAuthError("User profile not found", 403);
   if (String(profile.role || "").toLowerCase() !== "global_admin") {
-    throw new Error("Only global admin can manage global agrochemistry");
+    throw new SessionAuthError("Only global admin can manage global agrochemistry", 403);
   }
   if (String(profile.status || "active") !== "active") {
-    throw new Error("Global admin profile is inactive");
+    throw new SessionAuthError("Global admin profile is inactive", 403);
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = String(request.nextUrl.searchParams.get("userId") || "").trim();
-    if (!userId) return NextResponse.json({ error: "userId is required" }, { status: 400 });
+    const actor = await getServerActorFromSession(request, { ignoreImpersonation: true });
+    if (actor.role !== "global_admin") {
+      throw new SessionAuthError("Only global admin can manage global agrochemistry", 403);
+    }
 
     const supabase = getServiceClient();
-    await assertGlobalAdmin(supabase, userId);
+    await assertGlobalAdmin(supabase, actor.id);
 
     const { data, error } = await supabase
       .from("products")
@@ -40,14 +43,21 @@ export async function GET(request: NextRequest) {
       })),
     });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const actor = await getServerActorFromSession(request, { ignoreImpersonation: true });
+    if (actor.role !== "global_admin") {
+      throw new SessionAuthError("Only global admin can manage global agrochemistry", 403);
+    }
+
     const body = await request.json();
-    const userId = String(body?.userId || "").trim();
     const type = String(body?.type || "").trim().toLowerCase();
     const name = String(body?.name || "").trim();
     const activeIngredient = String(body?.active_ingredient || "").trim();
@@ -55,15 +65,15 @@ export async function POST(request: Request) {
     const pesticideCategory = body?.pesticide_category ? String(body.pesticide_category).trim() : null;
     const fertilizerType = body?.fertilizer_type ? String(body.fertilizer_type).trim() : null;
 
-    if (!userId || !name || !activeIngredient || !["pesticide", "fertilizer"].includes(type)) {
+    if (!name || !activeIngredient || !["pesticide", "fertilizer"].includes(type)) {
       return NextResponse.json(
-        { error: "userId, type (pesticide|fertilizer), name, active_ingredient are required" },
+        { error: "type (pesticide|fertilizer), name, active_ingredient are required" },
         { status: 400 }
       );
     }
 
     const supabase = getServiceClient();
-    await assertGlobalAdmin(supabase, userId);
+    await assertGlobalAdmin(supabase, actor.id);
 
     const duplicate = await supabase
       .from("products")
@@ -81,7 +91,7 @@ export async function POST(request: Request) {
       name,
       type,
       company_id: null,
-      user_id: userId,
+      user_id: actor.id,
       active_ingredient: activeIngredient,
       pesticide_category: type === "pesticide" ? pesticideCategory : null,
       fertilizer_type: type === "fertilizer" ? fertilizerType : null,
@@ -102,7 +112,7 @@ export async function POST(request: Request) {
           name,
           type,
           company_id: null,
-          user_id: userId,
+          user_id: actor.id,
           active_ingredient: activeIngredient,
           unit: type === "pesticide" ? "l" : "kg",
         };
@@ -114,6 +124,9 @@ export async function POST(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ success: true, id: data.id });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

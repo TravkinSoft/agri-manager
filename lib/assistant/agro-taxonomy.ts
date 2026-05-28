@@ -122,9 +122,7 @@ export function listCropsByGroup(group: string): string[] {
 export function isAgroKnowledgeQuestion(value: string): boolean {
   const text = norm(value);
   if (!text) return false;
-  return /(болезн|фитофтор|вредител|fung|disease|междуряд|межсем|норма|риск|всход|урожайн|агроном|plant)/.test(
-    text
-  );
+  return /(болезн|фитофтор|вредител|fung|disease|междуряд|межсем|норма|риск|всход|урожайн|агроном|plant)/.test(text);
 }
 
 export function isErpDataQuestion(value: string): boolean {

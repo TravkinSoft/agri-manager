@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
 
 const FUEL_ROLES = ["admin", "company_admin", "global_admin", "warehouse", "fuel_operator"] as const;
@@ -8,8 +9,8 @@ const FUEL_TYPES = new Set(["diesel", "gasoline", "adblue", "oil", "other"]);
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const companyId = String(body.companyId || "").trim();
-    const actorUserId = String(body.actorUserId || "").trim();
+    const actor = await getServerActorFromSession(request);
+    const companyId = resolveCompanyForActor(actor, String(body.companyId || "").trim() || null);
     const periodMonth = String(body.periodMonth || "").trim();
     const fuelType = String(body.fuelType || "").trim();
     const vehicleId = body.vehicleId ? String(body.vehicleId) : null;
@@ -18,8 +19,8 @@ export async function POST(request: NextRequest) {
     const note = body.note ? String(body.note) : null;
     const isActive = body.isActive !== false;
 
-    if (!companyId || !actorUserId || !periodMonth || !fuelType) {
-      return NextResponse.json({ error: "companyId, actorUserId, periodMonth and fuelType are required" }, { status: 400 });
+    if (!periodMonth || !fuelType) {
+      return NextResponse.json({ error: "periodMonth and fuelType are required" }, { status: 400 });
     }
     if (!FUEL_TYPES.has(fuelType)) {
       return NextResponse.json({ error: "Invalid fuel type" }, { status: 400 });
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest) {
     const supabase = getServiceClient();
     await assertActorAccess({
       supabase,
-      actorUserId,
+      actorUserId: actor.id,
       companyId,
       allowedRoles: [...FUEL_ROLES],
     });
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
           limit_liters: limitLiters,
           note,
           is_active: isActive,
-          updated_by_user_id: actorUserId,
+          updated_by_user_id: actor.id,
         })
         .eq("id", existing.id)
         .select("id")
@@ -85,8 +86,8 @@ export async function POST(request: NextRequest) {
         note,
         is_active: isActive,
         archived: false,
-        created_by_user_id: actorUserId,
-        updated_by_user_id: actorUserId,
+        created_by_user_id: actor.id,
+        updated_by_user_id: actor.id,
       })
       .select("id")
       .single();
@@ -94,6 +95,9 @@ export async function POST(request: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ id: data.id });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }

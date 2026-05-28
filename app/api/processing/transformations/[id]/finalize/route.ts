@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
+import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 import { getServiceClient } from "@/lib/supabase/service";
 
 export async function POST(
@@ -7,12 +8,11 @@ export async function POST(
   context: { params: { id: string } }
 ) {
   try {
-    const body = await request.json().catch(() => ({}));
-    const actorUserId = String(body.actor_user_id || "").trim();
+    const actor = await getServerActorFromSession(request);
     const transformationId = String(context.params.id || "").trim();
 
-    if (!actorUserId || !transformationId) {
-      return NextResponse.json({ error: "actor_user_id and transformation id are required" }, { status: 400 });
+    if (!transformationId) {
+      return NextResponse.json({ error: "transformation id is required" }, { status: 400 });
     }
 
     const supabase = getServiceClient();
@@ -28,14 +28,14 @@ export async function POST(
 
     await assertActorAccess({
       supabase,
-      actorUserId,
+      actorUserId: actor.id,
       companyId: transformation.company_id,
-      allowedRoles: ["admin", "warehouse", "weighman"],
+      allowedRoles: ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman"],
     });
 
     const { error } = await supabase.rpc("finalize_batch_transformation", {
       p_transformation_id: transformationId,
-      p_actor_user_id: actorUserId,
+      p_actor_user_id: actor.id,
     });
 
     if (error) {
@@ -44,6 +44,9 @@ export async function POST(
 
     return NextResponse.json({ ok: true });
   } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
   }
 }
