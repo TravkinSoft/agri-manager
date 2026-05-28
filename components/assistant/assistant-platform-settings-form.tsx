@@ -7,6 +7,7 @@ import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import { DEFAULT_ASSISTANT_PLATFORM_SETTINGS } from "@/lib/assistant/settings-types";
 import type { AssistantSessionState } from "@/lib/assistant/engine/types";
 import { EMPTY_ASSISTANT_SESSION_STATE } from "@/lib/assistant/engine/session-state";
+import { useAuth } from "@/lib/contexts/auth-context";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -227,6 +228,7 @@ function bindingLabel(value: string): string {
 
 export function AssistantPlatformSettingsForm() {
   const { toast } = useToast();
+  const { profile } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -392,10 +394,12 @@ export function AssistantPlatformSettingsForm() {
         body: JSON.stringify({
           message,
           threadId: testThreadId,
+          companyId: profile?.company_id || null,
           sessionState: testSessionState,
           runtimeContext: {
             currentPage: "assistant-settings-test",
             currentRoute: "/platform/assistant/settings",
+            companyId: profile?.company_id || null,
             season: testSessionState.lastSeason || null,
             locale: "ru",
           },

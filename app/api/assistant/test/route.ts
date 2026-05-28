@@ -62,6 +62,11 @@ function asText(value: unknown): string | null {
   return text.length > 0 ? text : null;
 }
 
+function isUuidLike(value: string | null): value is string {
+  if (!value) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function requireGlobalAdmin(role: string | null | undefined) {
   if (role !== "global_admin") {
     throw new SessionAuthError("Assistant test is available only for global_admin", 403);
@@ -100,7 +105,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
-    const companyId = resolveCompanyForActor(actor, asText(payload?.companyId));
+    const requestedCompanyId =
+      asText(payload?.companyId) ||
+      asText((payload as any)?.runtimeContext?.companyId);
+    let companyId: string;
+    try {
+      companyId = resolveCompanyForActor(actor, requestedCompanyId);
+    } catch (error) {
+      if (
+        error instanceof SessionAuthError &&
+        actor.role === "global_admin" &&
+        error.status === 400 &&
+        String(error.message || "").includes("Global admin company context is not selected") &&
+        isUuidLike(requestedCompanyId)
+      ) {
+        companyId = requestedCompanyId;
+      } else {
+        throw error;
+      }
+    }
     const supabase = getServiceClient();
     const settings = await getAssistantPlatformSettings(supabase, actor.id);
     const testSettings = toReadOnlyTestSettings(settings);
