@@ -1,8 +1,7 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AssistantConversationHost } from "@/components/assistant/assistant-conversation-host";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 import { defaultAssistantPanelEngine } from "@/lib/assistant/panel-engine";
@@ -29,7 +28,7 @@ function pageLabel(page: string): string {
     case "users":
       return "Пользователи";
     case "analytics":
-      return "Отчёты";
+      return "Отчеты";
     default:
       return page || "—";
   }
@@ -48,24 +47,23 @@ export function AssistantPanel() {
   } = useAssistantShell();
   const engine = defaultAssistantPanelEngine;
 
-  const companyLabel = runtimeContext.companyName || "не определена";
-  const contextEntityLabel =
-    runtimeContext.entity?.label ||
-    (runtimeContext.entity ? `${runtimeContext.entity.type} ${runtimeContext.entity.id}` : null);
-
   if (!enabled) return null;
+
+  const company = runtimeContext.companyName || "Компания не выбрана";
+  const page = pageLabel(runtimeContext.currentPage);
+  const season = runtimeContext.season || "сезон не указан";
 
   return (
     <Sheet open={isOpen} onOpenChange={(next) => (next ? open() : close())}>
       <SheetContent side="right" className="w-[min(980px,calc(100vw-1rem))] max-w-none border-[#262D3D] bg-[#11151E] p-0">
         <div className="flex h-full min-h-0 flex-col">
-          <SheetHeader className="border-b border-[#262D3D] bg-[#121824] px-5 py-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <SheetTitle className="text-xl text-[#F3F4F6]">Travkin Copilot</SheetTitle>
-                <SheetDescription className="text-[#9CA3AF]">
-                  Операционный AI-помощник по полям, весовой, складам и операциям.
-                </SheetDescription>
+          <SheetHeader className="border-b border-[#262D3D] bg-[#121824] px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <SheetTitle className="truncate text-lg font-semibold text-[#F3F4F6]">Travkin Copilot</SheetTitle>
+                <div className="mt-1 truncate text-xs text-[#9CA3AF]">
+                  {company} • {page} • {season}
+                </div>
               </div>
               {debugMonitorEnabled ? (
                 <Button
@@ -79,26 +77,9 @@ export function AssistantPanel() {
                 </Button>
               ) : null}
             </div>
-
-            <div className="mt-2 flex flex-wrap gap-2">
-              <Badge variant="secondary" className="bg-[#1F2937] text-[#E5E7EB]">
-                Компания: {companyLabel}
-              </Badge>
-              <Badge variant="secondary" className="bg-[#1F2937] text-[#E5E7EB]">
-                Страница: {pageLabel(runtimeContext.currentPage)}
-              </Badge>
-              <Badge variant="secondary" className="bg-[#1F2937] text-[#E5E7EB]">
-                Сезон: {runtimeContext.season || "не указан"}
-              </Badge>
-              {contextEntityLabel ? (
-                <Badge variant="secondary" className="bg-[#1F2937] text-[#E5E7EB]">
-                  Объект: {contextEntityLabel}
-                </Badge>
-              ) : null}
-            </div>
           </SheetHeader>
 
-          <div className="assistant-surface min-h-0 flex-1 overflow-hidden bg-[#0F141E] px-4 py-4">
+          <div className="assistant-surface min-h-0 flex-1 overflow-hidden bg-[#0F141E] px-3 py-3">
             <AssistantConversationHost engine={engine} />
           </div>
         </div>

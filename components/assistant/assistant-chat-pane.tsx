@@ -2,9 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Bot, Loader2, Send, User } from "lucide-react";
+import {
+  AlertTriangle,
+  Bot,
+  Clock3,
+  Loader2,
+  MessageSquare,
+  RefreshCw,
+  Send,
+  Settings2,
+  TerminalSquare,
+  Trash2,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/contexts/auth-context";
 import type { AssistantRuntimeUiContext } from "@/lib/assistant/shell";
@@ -16,10 +29,22 @@ type AssistantChatMessage = {
   role: "user" | "assistant" | "tool" | "system";
   content: string;
   createdAt: string;
+  actions?: AssistantActionButton[];
   meta?: {
     sourceHints?: string[];
     intent?: string;
+    mode?: string;
+    toolActivity?: string[];
   };
+};
+
+type AssistantActionButton = {
+  id: string;
+  label: string;
+  kind: "navigate" | "prompt";
+  route?: string;
+  filters?: Record<string, string>;
+  prompt?: string;
 };
 
 type AssistantThread = {
@@ -80,9 +105,12 @@ type QueryResponsePayload = {
   sessionState?: Partial<AssistantSessionStatePayload>;
   threadId?: string | null;
   navigationActions?: AssistantNavigationActionPayload[];
+  actions?: AssistantActionButton[];
+  toolActivity?: string[];
   meta?: {
     sourceHints?: string[];
     intent?: { name?: string };
+    mode?: string;
     llm?: {
       status?: string;
       httpStatus?: number | null;
@@ -96,12 +124,6 @@ type QueryResponsePayload = {
   code?: string;
 };
 
-const QUICK_PROMPTS = [
-  "Открой весовую",
-  "Найди данные по складам",
-  "Объясни процесс выдачи материалов",
-] as const;
-
 const EMPTY_STATE: AssistantSessionStatePayload = {
   lastEntity: null,
   lastCrop: null,
@@ -113,6 +135,12 @@ const EMPTY_STATE: AssistantSessionStatePayload = {
   lastIntent: null,
   lastResultContext: null,
 };
+
+const TOOL_LOADING_STEPS = [
+  "Reading company context...",
+  "Fetching ERP data...",
+  "Preparing operational answer...",
+] as const;
 
 function uid() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -174,34 +202,25 @@ function buildEntityFilters(action: Extract<AssistantNavigationActionPayload, { 
   return filters;
 }
 
-function pageLabel(page: string): string {
-  const key = String(page || "").toLowerCase();
-  switch (key) {
-    case "dashboard":
-      return "Панель";
-    case "weighbridge":
-      return "Весовая";
-    case "warehouses":
-      return "Склады";
-    case "operations":
-      return "Операции";
-    case "fields":
-      return "Поля";
-    case "land-legal":
-      return "Кадастр и право";
-    case "users":
-      return "Пользователи";
-    case "analytics":
-      return "Отчеты";
-    default:
-      return page || "—";
-  }
-}
-
 function formatThreadDate(value: string): string {
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return value;
   return dt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+function quickActionsByPage(page: string): string[] {
+  const key = String(page || "").toLowerCase();
+  if (key === "crop-structure") return ["Покажи картофель", "Покажи зерновые", "Открой поля"];
+  if (key === "warehouses") return ["Покажи остатки", "Покажи движения", "Покажи отрицательные остатки"];
+  if (key === "weighbridge") return ["Покажи активные талоны", "Покажи последние талоны", "Открой терминал"];
+  if (key === "operations") return ["Покажи активные операции", "Покажи операции картофеля", "Открой поле 28"];
+  return ["Открой страницу", "Найди данные", "Объясни процесс"];
+}
+
+function rolePermissionsLabel(role: string | null): string {
+  const value = String(role || "").toLowerCase();
+  if (value === "global_admin" || value === "company_admin") return "Расширенный read-only + debug";
+  return "Read-only operational scope";
 }
 
 export function AssistantChatPane({
@@ -215,25 +234,36 @@ export function AssistantChatPane({
 }) {
   const router = useRouter();
   const { profile } = useAuth();
-  const { setDebugSnapshot, setManualFilters } = useAssistantShell();
+  const {
+    setDebugSnapshot,
+    setManualFilters,
+    debugSnapshot,
+    debugMonitorEnabled,
+    debugMonitorOpen,
+    toggleDebugMonitor,
+  } = useAssistantShell();
   const [threads, setThreads] = useState<AssistantThread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AssistantChatMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"chat" | "history" | "settings">("chat");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<AssistantSessionStatePayload>(EMPTY_STATE);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [lastMode, setLastMode] = useState<string>("erp_data");
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   const disabledReason = useMemo(() => resolveDisabledReason(access), [access]);
+  const quickActions = useMemo(() => quickActionsByPage(runtimeContext.currentPage), [runtimeContext.currentPage]);
+  const loadingText = TOOL_LOADING_STEPS[loadingStepIndex % TOOL_LOADING_STEPS.length];
 
   const storageKey = useMemo(() => {
     if (!profile?.id || !sessionId) return null;
     const companyScope = runtimeContext.companyId || profile.company_id || "no-company";
-    return `assistant-panel-v3:${profile.id}:${companyScope}:${sessionId}`;
+    return `assistant-panel-v4:${profile.id}:${companyScope}:${sessionId}`;
   }, [profile?.id, profile?.company_id, runtimeContext.companyId, sessionId]);
 
   useEffect(() => {
@@ -243,9 +273,11 @@ export function AssistantChatPane({
       if (!raw) return;
       const parsed = JSON.parse(raw) as {
         activeThreadId?: string | null;
+        activeTab?: "chat" | "history" | "settings";
         sessionState?: Partial<AssistantSessionStatePayload>;
       };
       if (parsed.activeThreadId) setActiveThreadId(String(parsed.activeThreadId));
+      if (parsed.activeTab) setActiveTab(parsed.activeTab);
       if (parsed.sessionState && typeof parsed.sessionState === "object") {
         setSessionState((prev) => ({ ...prev, ...parsed.sessionState }));
       }
@@ -260,15 +292,23 @@ export function AssistantChatPane({
       storageKey,
       JSON.stringify({
         activeThreadId,
+        activeTab,
         sessionState,
         updatedAt: new Date().toISOString(),
       })
     );
-  }, [storageKey, activeThreadId, sessionState]);
+  }, [storageKey, activeThreadId, activeTab, sessionState]);
+
+  useEffect(() => {
+    if (!loading) return;
+    setLoadingStepIndex(0);
+    const id = window.setInterval(() => setLoadingStepIndex((prev) => prev + 1), 1300);
+    return () => window.clearInterval(id);
+  }, [loading]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, loading]);
+  }, [messages, loading, activeTab]);
 
   const loadThreads = async () => {
     if (!runtimeContext.companyId || disabledReason) return;
@@ -276,7 +316,7 @@ export function AssistantChatPane({
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(
-        `/api/assistant/threads?companyId=${encodeURIComponent(runtimeContext.companyId)}&limit=50`,
+        `/api/assistant/threads?companyId=${encodeURIComponent(runtimeContext.companyId)}&limit=80`,
         {
           method: "GET",
           headers,
@@ -310,7 +350,7 @@ export function AssistantChatPane({
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(
-        `/api/assistant/threads/${encodeURIComponent(threadId)}/messages?companyId=${encodeURIComponent(runtimeContext.companyId)}&limit=300`,
+        `/api/assistant/threads/${encodeURIComponent(threadId)}/messages?companyId=${encodeURIComponent(runtimeContext.companyId)}&limit=400`,
         {
           method: "GET",
           headers,
@@ -329,19 +369,22 @@ export function AssistantChatPane({
         code?: string;
       };
       if (!response.ok) throw new Error(mapAssistantError(payload.code || null, payload.error || null));
-      const nextMessages = (payload.messages || []).map((message) => ({
-        id: String(message.id),
-        role: message.role || "assistant",
-        content: String(message.content || ""),
-        createdAt: String(message.created_at || new Date().toISOString()),
-        meta: {
-          sourceHints: Array.isArray(message.metadata?.source_hints)
-            ? (message.metadata?.source_hints as string[])
-            : [],
-          intent:
-            typeof message.metadata?.intent === "string" ? (message.metadata.intent as string) : undefined,
-        },
-      }));
+      const nextMessages = (payload.messages || []).map((message) => {
+        const metadata = (message.metadata || {}) as Record<string, unknown>;
+        return {
+          id: String(message.id),
+          role: message.role || "assistant",
+          content: String(message.content || ""),
+          createdAt: String(message.created_at || new Date().toISOString()),
+          actions: Array.isArray(metadata.actions) ? (metadata.actions as AssistantActionButton[]) : undefined,
+          meta: {
+            sourceHints: Array.isArray(metadata.source_hints) ? (metadata.source_hints as string[]) : [],
+            toolActivity: Array.isArray(metadata.tool_activity) ? (metadata.tool_activity as string[]) : [],
+            mode: typeof metadata.mode === "string" ? metadata.mode : undefined,
+            intent: typeof metadata.intent === "string" ? metadata.intent : undefined,
+          },
+        } as AssistantChatMessage;
+      });
       setMessages(nextMessages);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Не удалось загрузить сообщения.");
@@ -381,13 +424,13 @@ export function AssistantChatPane({
     setActiveThreadId(created.id);
     setMessages([]);
     setSessionState(EMPTY_STATE);
+    setLastMode("erp_data");
     return created.id;
   };
 
   useEffect(() => {
     if (access.status !== "ready" || !runtimeContext.companyId) return;
     void loadThreads();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [access.status, runtimeContext.companyId, profile?.id]);
 
   useEffect(() => {
@@ -396,8 +439,20 @@ export function AssistantChatPane({
       return;
     }
     void loadThreadMessages(activeThreadId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeThreadId]);
+
+  const executeAction = (action: AssistantActionButton) => {
+    if (action.kind === "prompt") {
+      if (action.prompt) setInput(action.prompt);
+      setActiveTab("chat");
+      return;
+    }
+    const route = action.route || "/dashboard";
+    const filters = action.filters || {};
+    setManualFilters(filters);
+    router.push(routeWithFilters(route, filters));
+    setActiveTab("chat");
+  };
 
   const sendMessage = async () => {
     const text = input.trim();
@@ -450,7 +505,11 @@ export function AssistantChatPane({
       const meta = payload.meta ?? {};
       const sourceHints = Array.isArray(meta.sourceHints) ? meta.sourceHints : [];
       const intentName = meta.intent?.name ? String(meta.intent.name) : undefined;
+      const mode = typeof meta.mode === "string" ? meta.mode : "erp_data";
       const navigationActions = Array.isArray(payload.navigationActions) ? payload.navigationActions : [];
+      const actions = Array.isArray(payload.actions) ? payload.actions : [];
+      const toolActivity = Array.isArray(payload.toolActivity) ? payload.toolActivity : [];
+      setLastMode(mode);
 
       let navigationExecuted: boolean | null = null;
       let navigationError: string | null = null;
@@ -496,9 +555,12 @@ export function AssistantChatPane({
         role: "assistant",
         content: finalAnswer,
         createdAt: new Date().toISOString(),
+        actions,
         meta: {
           sourceHints,
           intent: intentName,
+          mode,
+          toolActivity,
         },
       };
       setMessages((prev) => [...prev, assistantMessage]);
@@ -532,9 +594,19 @@ export function AssistantChatPane({
       }
       void loadThreads();
     } catch (error) {
-      setRequestError(
-        error instanceof Error ? error.message : "Не удалось выполнить запрос к ассистенту."
-      );
+      const errText =
+        error instanceof Error ? error.message : "Не удалось выполнить запрос к ассистенту.";
+      setRequestError(errText);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          role: "assistant",
+          content: errText,
+          createdAt: new Date().toISOString(),
+          meta: { intent: "error", mode: "erp_data", toolActivity: [] },
+        },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -544,170 +616,302 @@ export function AssistantChatPane({
     setRequestError(null);
     try {
       await createThread();
-      setHistoryOpen(false);
+      setActiveTab("chat");
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Не удалось создать новый чат.");
     }
   };
 
+  const clearCurrentThreadView = () => {
+    setMessages([]);
+    setSessionState(EMPTY_STATE);
+    setRequestError(null);
+  };
+
+  const canSend = !loading && !disabledReason && !!input.trim();
+
   return (
-    <div className="flex h-full min-h-0 flex-col rounded-xl border bg-white">
-      <div className="border-b px-4 py-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="text-sm text-slate-600">
-            Я могу: открыть страницу, найти данные, объяснить процесс.
-          </div>
-          <div className="flex items-center gap-2">
-            <Button type="button" size="sm" variant="outline" onClick={() => setHistoryOpen((prev) => !prev)}>
-              История
-            </Button>
-            <Button type="button" size="sm" onClick={() => void onNewChat()} disabled={!!disabledReason}>
-              Новый чат
-            </Button>
-          </div>
-        </div>
-
-        {historyOpen ? (
-          <div className="max-h-40 overflow-y-auto rounded-md border bg-slate-50 p-2">
-            {threadsLoading ? (
-              <div className="text-xs text-slate-500">Загрузка истории...</div>
-            ) : threads.length ? (
-              <div className="space-y-1">
-                {threads.map((thread) => (
-                  <button
-                    key={thread.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveThreadId(thread.id);
-                      setHistoryOpen(false);
-                    }}
-                    className={`w-full rounded-md px-2 py-1.5 text-left text-xs transition ${
-                      activeThreadId === thread.id
-                        ? "bg-slate-900 text-white"
-                        : "bg-white text-slate-700 hover:bg-slate-100"
-                    }`}
-                  >
-                    <div className="line-clamp-1 font-medium">{thread.title || "Новый чат"}</div>
-                    <div className={`text-[11px] ${activeThreadId === thread.id ? "text-slate-300" : "text-slate-500"}`}>
-                      {formatThreadDate(thread.updated_at)}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="text-xs text-slate-500">Пока нет истории. Создайте первый чат.</div>
-            )}
-          </div>
-        ) : null}
-      </div>
-
+    <div className="flex h-full min-h-0 flex-col rounded-xl border border-[#262D3D] bg-[#0F141E] text-[#E5E7EB]">
       {disabledReason ? (
-        <div className="mx-4 mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="mx-3 mt-3 rounded-md border border-amber-400/50 bg-amber-200/10 px-3 py-2 text-xs text-amber-100">
           {disabledReason}
         </div>
       ) : null}
 
       {requestError ? (
-        <div className="mx-4 mt-4 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+        <div className="mx-3 mt-3 flex items-start gap-2 rounded-md border border-red-500/50 bg-red-500/15 px-3 py-2 text-xs text-red-100">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>{requestError}</span>
         </div>
       ) : null}
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {messagesLoading ? (
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Загружаю сообщения...
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-4 text-sm text-slate-500">
-            Спросите, например: «Открой весовую» или «Покажи активные операции».
-          </div>
-        ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex gap-2 ${
-                message.role === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              {message.role !== "user" ? (
-                <div className="mt-0.5 rounded-full bg-green-100 p-1.5 text-green-700">
-                  <Bot className="h-4 w-4" />
-                </div>
-              ) : null}
-
-              <div className="max-w-[88%] space-y-1">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as "chat" | "history" | "settings")}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <TabsContent value="chat" className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+            {messagesLoading ? (
+              <div className="flex items-center gap-2 text-xs text-[#94A3B8]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Загружаю сообщения...
+              </div>
+            ) : messages.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-[#334058] px-3 py-4 text-xs text-[#94A3B8]">
+                Спросите: «Открой весовую», «Покажи остатки» или «Что по полю 28?».
+              </div>
+            ) : (
+              messages.map((message) => (
                 <div
-                  className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
-                    message.role === "user"
-                      ? "bg-green-600 text-white"
-                      : "bg-slate-100 text-slate-900"
-                  }`}
+                  key={message.id}
+                  className={`flex gap-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  {message.content}
+                  {message.role !== "user" ? (
+                    <div className="mt-0.5 rounded-full bg-[#1B2435] p-1.5 text-[#F5C542]">
+                      <Bot className="h-4 w-4" />
+                    </div>
+                  ) : null}
+
+                  <div className="max-w-[92%] space-y-1">
+                    <div
+                      className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-snug ${
+                        message.role === "user"
+                          ? "bg-[#E0B100] text-[#111827]"
+                          : "border border-[#2A3448] bg-[#151C28] text-[#E5E7EB]"
+                      }`}
+                    >
+                      {message.content}
+                    </div>
+
+                    {message.role !== "user" && message.meta?.toolActivity?.length ? (
+                      <div className="rounded-md border border-[#334058] bg-[#101725] px-2.5 py-2 text-[11px] text-[#9CA3AF]">
+                        <div className="mb-1 flex items-center gap-1 text-[#CBD5E1]">
+                          <TerminalSquare className="h-3.5 w-3.5" />
+                          Tool activity
+                        </div>
+                        <div className="space-y-0.5">
+                          {message.meta.toolActivity.slice(0, 4).map((line) => (
+                            <div key={line} className="truncate">
+                              {line}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {message.role !== "user" && message.actions?.length ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {message.actions.map((action) => (
+                          <button
+                            key={action.id}
+                            type="button"
+                            onClick={() => executeAction(action)}
+                            className="rounded-md border border-[#334058] bg-[#141B29] px-2.5 py-1 text-xs text-[#E5E7EB] hover:bg-[#202738]"
+                          >
+                            {action.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {message.role === "user" ? (
+                    <div className="mt-0.5 rounded-full bg-[#E0B100] p-1.5 text-[#111827]">
+                      <User className="h-4 w-4" />
+                    </div>
+                  ) : null}
+                </div>
+              ))
+            )}
+
+            {loading ? (
+              <div className="rounded-md border border-[#334058] bg-[#101725] px-3 py-2 text-xs text-[#CBD5E1]">
+                <div className="flex items-center gap-1.5">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  {loadingText}
                 </div>
               </div>
-
-              {message.role === "user" ? (
-                <div className="mt-0.5 rounded-full bg-green-600 p-1.5 text-white">
-                  <User className="h-4 w-4" />
-                </div>
-              ) : null}
-            </div>
-          ))
-        )}
-
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Обрабатываю запрос...
+            ) : null}
+            <div ref={bottomRef} />
           </div>
-        ) : null}
-        <div ref={bottomRef} />
-      </div>
 
-      <div className="border-t p-3">
-        <div className="mb-2 text-xs text-slate-500">Вы на странице: {pageLabel(runtimeContext.currentPage)}.</div>
-        <div className="mb-2 flex flex-wrap gap-2">
-          {QUICK_PROMPTS.map((prompt) => (
-            <button
-              key={prompt}
-              type="button"
-              onClick={() => setInput(prompt)}
-              disabled={loading || !!disabledReason}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {prompt}
-            </button>
-          ))}
-        </div>
-        <form
-          className="flex items-end gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void sendMessage();
-          }}
-        >
-          <Textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="Спросите про талон, поле, склад или операцию…"
-            className="min-h-[44px] resize-none"
-            disabled={loading || !!disabledReason}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+          <div className="border-t border-[#262D3D] bg-[#111827] px-3 py-3">
+            <div className="mb-2 flex flex-wrap gap-1.5">
+              {quickActions.map((prompt) => (
+                <button
+                  key={prompt}
+                  type="button"
+                  onClick={() => setInput(prompt)}
+                  disabled={loading || !!disabledReason}
+                  className="rounded-full border border-[#334058] bg-[#151C28] px-2.5 py-1 text-[11px] text-[#CBD5E1] hover:bg-[#202738] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {prompt}
+                </button>
+              ))}
+            </div>
+
+            <form
+              className="flex items-end gap-2"
+              onSubmit={(event) => {
                 event.preventDefault();
                 void sendMessage();
-              }
-            }}
-          />
-          <Button type="submit" size="icon" disabled={loading || !!disabledReason || !input.trim()}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          </Button>
-        </form>
-      </div>
+              }}
+            >
+              <Textarea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Спросите про поле, склад, операцию или талон..."
+                className="min-h-[42px] resize-none border-[#334058] bg-[#0F141E] text-[#E5E7EB] placeholder:text-[#64748B]"
+                disabled={loading || !!disabledReason}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void sendMessage();
+                  }
+                }}
+              />
+              <Button type="submit" size="icon" disabled={!canSend} className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              </Button>
+            </form>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="history" className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 data-[state=inactive]:hidden">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <div className="text-xs text-[#9CA3AF]">Потоки диалогов</div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void loadThreads()}
+                className="border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738]"
+              >
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                Обновить
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => void onNewChat()}
+                disabled={!!disabledReason}
+                className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]"
+              >
+                Новый чат
+              </Button>
+            </div>
+          </div>
+
+          {threadsLoading ? (
+            <div className="flex items-center gap-2 text-xs text-[#94A3B8]">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Загружаю историю...
+            </div>
+          ) : threads.length ? (
+            <div className="space-y-1.5">
+              {threads.map((thread) => (
+                <button
+                  key={thread.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveThreadId(thread.id);
+                    setActiveTab("chat");
+                  }}
+                  className={`w-full rounded-md border px-2.5 py-2 text-left transition ${
+                    activeThreadId === thread.id
+                      ? "border-[#E0B100] bg-[#1C2433] text-[#F3F4F6]"
+                      : "border-[#2A3448] bg-[#141B29] text-[#CBD5E1] hover:bg-[#202738]"
+                  }`}
+                >
+                  <div className="line-clamp-1 text-sm font-medium">{thread.title || "Новый чат"}</div>
+                  <div className="mt-0.5 text-[11px] text-[#94A3B8]">{formatThreadDate(thread.updated_at)}</div>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-md border border-dashed border-[#334058] px-3 py-4 text-xs text-[#94A3B8]">
+              История пока пустая. Создайте первый чат.
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="settings" className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 data-[state=inactive]:hidden">
+          <div className="space-y-3">
+            <div className="rounded-md border border-[#2A3448] bg-[#141B29] px-3 py-2 text-sm">
+              <div className="mb-1 text-xs text-[#94A3B8]">Режим и модель</div>
+              <div className="text-xs text-[#E5E7EB]">
+                Mode: <span className="font-semibold">{lastMode}</span>
+              </div>
+              <div className="text-xs text-[#E5E7EB]">
+                Model: <span className="font-semibold">{debugSnapshot?.model.actualModel || debugSnapshot?.model.configuredModel || "не определена"}</span>
+              </div>
+              <div className="text-xs text-[#E5E7EB]">
+                LLM status: <span className="font-semibold">{debugSnapshot?.model.llmStatus || "n/a"}</span>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-[#2A3448] bg-[#141B29] px-3 py-2 text-sm">
+              <div className="mb-1 text-xs text-[#94A3B8]">Права</div>
+              <div className="text-xs text-[#E5E7EB]">
+                Роль: <span className="font-semibold">{access.role || "не определена"}</span>
+              </div>
+              <div className="text-xs text-[#E5E7EB]">{rolePermissionsLabel(access.role)}</div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-2">
+              {debugMonitorEnabled ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={toggleDebugMonitor}
+                  className="justify-start border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738]"
+                >
+                  <Settings2 className="mr-2 h-4 w-4" />
+                  {debugMonitorOpen ? "Скрыть Debug" : "Показать Debug"}
+                </Button>
+              ) : null}
+
+              <Button
+                type="button"
+                variant="outline"
+                onClick={clearCurrentThreadView}
+                className="justify-start border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738]"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Очистить текущий поток
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+
+        <div className="border-t border-[#262D3D] bg-[#0F141E] px-2 py-2">
+          <TabsList className="grid h-auto w-full grid-cols-3 rounded-md border border-[#2A3448] bg-[#141B29] p-1">
+            <TabsTrigger
+              value="chat"
+              className="data-[state=active]:bg-[#E0B100] data-[state=active]:text-[#111827] text-[#CBD5E1]"
+            >
+              <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+              Chat
+            </TabsTrigger>
+            <TabsTrigger
+              value="history"
+              className="data-[state=active]:bg-[#E0B100] data-[state=active]:text-[#111827] text-[#CBD5E1]"
+            >
+              <Clock3 className="mr-1.5 h-3.5 w-3.5" />
+              History
+            </TabsTrigger>
+            <TabsTrigger
+              value="settings"
+              className="data-[state=active]:bg-[#E0B100] data-[state=active]:text-[#111827] text-[#CBD5E1]"
+            >
+              <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+              Settings
+            </TabsTrigger>
+          </TabsList>
+        </div>
+      </Tabs>
     </div>
   );
 }

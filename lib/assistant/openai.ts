@@ -1,5 +1,6 @@
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import type { AssistantIntentName } from "@/lib/assistant/engine/types";
+import { isAgroKnowledgeQuestion } from "@/lib/assistant/agro-taxonomy";
 
 export type AssistantSettingsSource = "db" | "env" | "default";
 
@@ -30,6 +31,7 @@ function shouldUseHeavyModel(params: {
 }): boolean {
   const intentName = params.intentName || null;
   const text = String(params.message || "").toLowerCase();
+  if (isAgroKnowledgeQuestion(text)) return true;
   if (intentName === "general_question" || intentName === "create_draft") {
     if (/(болез|disease|архитект|architecture|анализ|analytics|diagnos|рекоменд|оптимиз|strategy|стратег)/.test(text)) {
       return true;

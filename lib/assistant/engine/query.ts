@@ -21,6 +21,7 @@ import type {
 import { resolveAssistantModelConfig } from "@/lib/assistant/openai";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import type { ServerActorContext } from "@/lib/auth/server-session";
+import { isAgroKnowledgeQuestion, resolveAssistantMode } from "@/lib/assistant/agro-taxonomy";
 
 type UsageStats = {
   promptTokens: number | null;
@@ -411,14 +412,76 @@ function buildCapabilitiesAnswer(locale: "ru" | "en" | "kz"): string {
   ].join("\n");
 }
 
+function mapToolNamespace(tool: AssistantToolName): string {
+  const map: Record<string, string> = {
+    get_current_context: "context.getPageContext",
+    get_routes: "navigation.getRoutes",
+    get_company_context: "context.getCompanyContext",
+    get_current_season: "context.getCurrentSeason",
+    find_field: "fields.searchFields",
+    search_fields: "fields.searchFields",
+    get_field_card: "fields.getFieldCard",
+    get_field_timeline: "fields.getFieldTimeline",
+    get_field_materials: "fields.getFieldMaterials",
+    find_warehouse: "warehouses.searchWarehouses",
+    search_warehouses: "warehouses.searchWarehouses",
+    get_warehouse_summary: "warehouses.getWarehouseSummary",
+    get_warehouse_stock: "warehouses.getWarehouseStock",
+    get_warehouse_balances: "warehouses.getWarehouseStock",
+    get_warehouse_movements: "warehouses.getWarehouseMovements",
+    find_operation: "operations.searchOperations",
+    search_operations: "operations.searchOperations",
+    get_operation_details: "operations.getOperationDetails",
+    get_active_operations: "operations.getActiveOperations",
+    get_operations: "operations.getOperations",
+    get_weighbridge_tickets: "weighbridge.getRecentTickets",
+    get_active_tickets: "weighbridge.getActiveTickets",
+    get_recent_tickets: "weighbridge.getRecentTickets",
+    get_ticket_details: "weighbridge.getTicketDetails",
+    get_potato_material_report: "reports.getPotatoMaterialReport",
+    get_crop_structure_summary: "reports.getCropStructureSummary",
+    search_crops_by_group: "agro.searchCropsByGroup",
+    navigate_to_page: "navigation.navigateToRoute",
+    open_entity: "navigation.openEntity",
+    apply_filter: "navigation.applyFilter",
+  };
+  return map[tool] || tool;
+}
+
+function buildToolActivityLogs(toolCalls: AssistantToolCallLog[]): string[] {
+  return toolCalls.map((toolCall) => {
+    const name = mapToolNamespace(toolCall.tool);
+    if (toolCall.ok) {
+      const rows = Number.isFinite(Number(toolCall.rows)) ? Number(toolCall.rows) : 0;
+      return `Loaded ${name}${rows > 0 ? ` (${rows})` : ""}`;
+    }
+    return `Tool error ${name}: ${toolCall.error || "unknown error"}`;
+  });
+}
+
+function buildSmartFollowUp(intent: AssistantIntent, locale: "ru" | "en" | "kz"): string {
+  const ru = locale !== "en" && locale !== "kz";
+  if (intent.name === "clarification_required") {
+    const focus = cleanString(intent.parameters.focus)?.toLowerCase() || "";
+    if (focus.includes("склад")) return ru ? "По какому складу показать данные?" : "Which warehouse should I open?";
+    if (focus.includes("пол")) return ru ? "По какому полю нужен срез?" : "Which field do you want to inspect?";
+    if (focus.includes("операц")) return ru ? "Нужны активные операции или история?" : "Do you need active operations or history?";
+    if (focus.includes("весов") || focus.includes("талон")) return ru ? "Показать активные талоны или последние?" : "Show active tickets or recent ones?";
+    if (focus.includes("отчет") || focus.includes("отч")) return ru ? "За какой период и по какой культуре?" : "Which period and crop?";
+    if (focus.includes("картоф")) return ru ? "Все поля картофеля или конкретное поле?" : "All potato fields or one field?";
+    return ru ? "Уточните объект: поле, склад, операция или период?" : "Specify object: field, warehouse, operation, or period.";
+  }
+  return "";
+}
+
 function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatformSettings): AssistantToolName[] {
   const byIntent: Record<AssistantIntentName, AssistantToolName[]> = {
-    inventory_balance: ["get_warehouse_balances"],
+    inventory_balance: ["get_warehouse_stock", "get_warehouse_balances"],
     warehouse_movements: ["get_warehouse_movements"],
-    weighbridge_tickets: ["get_weighbridge_tickets"],
-    fields_overview: ["get_fields"],
-    crop_structure_overview: ["get_crop_structure"],
-    operations_recent: ["get_operations"],
+    weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets"],
+    fields_overview: ["search_fields", "get_field_card", "get_fields", "find_field"],
+    crop_structure_overview: ["get_crop_structure_summary", "search_crops_by_group", "get_crop_structure"],
+    operations_recent: ["get_active_operations", "search_operations", "get_operations"],
     fuel_movements: ["get_fuel_movements"],
     entity_resolution: [],
     company_context: ["get_company_context"],
@@ -431,6 +494,8 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   const action = cleanString(intent.parameters.action);
   const entityType = cleanString(intent.parameters.entityType);
   const queryText = cleanString(intent.parameters.query)?.toLowerCase() || "";
+  const cropGroup = cleanString(intent.parameters.crop_group);
+  const status = cleanString(intent.parameters.status);
   const tools = [...(byIntent[intent.name] || [])];
 
   if (intent.name === "navigation_help" && action === "open_entity") {
@@ -456,7 +521,36 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     }
   }
 
-  return tools.filter((toolName) => (settings.allowedTools || []).includes(toolName));
+  if (intent.name === "fields_overview" && queryText) {
+    tools.unshift("search_fields");
+    tools.push("get_field_timeline", "get_field_materials");
+  }
+
+  if (intent.name === "weighbridge_tickets" && queryText) {
+    tools.unshift("get_ticket_details");
+  }
+
+  if (intent.name === "operations_recent" && queryText) {
+    tools.unshift("search_operations", "get_operation_details");
+  }
+
+  if (intent.name === "operations_recent" && status === "active") {
+    tools.unshift("get_active_operations");
+  }
+
+  if (intent.name === "crop_structure_overview" && (cropGroup || queryText)) {
+    tools.unshift("search_crops_by_group");
+  }
+
+  const allowedTools = new Set(settings.allowedTools || []);
+  const normalizeCandidates = (settings.allowedTools || []).map((value) => String(value || "").trim());
+  const allowByNamespaceFallback = (toolName: AssistantToolName) => {
+    if (allowedTools.has(toolName)) return true;
+    const namespaceName = mapToolNamespace(toolName);
+    return normalizeCandidates.includes(namespaceName);
+  };
+
+  return Array.from(new Set(tools)).filter((toolName) => allowByNamespaceFallback(toolName));
 }
 
 function getNavigationActions(params: {
@@ -719,6 +813,7 @@ export async function runAssistantEngine(params: {
 }): Promise<AssistantEngineResult> {
   const { supabase, actor, companyId, settings, input } = params;
   const message = String(input.message || "").trim();
+  const assistantMode = resolveAssistantMode(message);
   const runtimeContext = normalizeAssistantUiContext(input.runtimeContext);
   const normalizedState = normalizeSessionState(input.sessionState);
   const initialSessionState: AssistantSessionState = {
@@ -735,7 +830,9 @@ export async function runAssistantEngine(params: {
       answer: "Ассистент отключён в глобальных настройках.",
       sessionState: initialSessionState,
       intent: { name: "general_question", confidence: 1, needsData: false, parameters: {} },
+      mode: assistantMode,
       toolCalls: [],
+      toolActivity: [],
       navigationActions: [],
       sourceHints: [],
       answerSource: "disabled",
@@ -756,7 +853,9 @@ export async function runAssistantEngine(params: {
       answer: "Для вашей роли ассистент недоступен.",
       sessionState: initialSessionState,
       intent: { name: "general_question", confidence: 1, needsData: false, parameters: {} },
+      mode: assistantMode,
       toolCalls: [],
+      toolActivity: [],
       navigationActions: [],
       sourceHints: [],
       answerSource: "access_denied",
@@ -780,11 +879,14 @@ export async function runAssistantEngine(params: {
   });
 
   if (intent.name === "clarification_required") {
+    const smartFollowup = buildSmartFollowUp(intent, runtimeContext.locale || "ru");
     return {
-      answer: "Уточните, пожалуйста: открыть страницу, показать данные или подготовить действие?",
+      answer: smartFollowup || "Уточните объект запроса.",
       sessionState: { ...initialSessionState, lastIntent: intent.name },
       intent,
+      mode: assistantMode,
       toolCalls: [],
+      toolActivity: [],
       navigationActions: [],
       sourceHints: [],
       answerSource: "no_data",
@@ -805,7 +907,9 @@ export async function runAssistantEngine(params: {
       answer: buildCapabilitiesAnswer(runtimeContext.locale || "ru"),
       sessionState: { ...initialSessionState, lastIntent: intent.name },
       intent,
+      mode: assistantMode,
       toolCalls: [],
+      toolActivity: [],
       navigationActions: [],
       sourceHints: [],
       answerSource: "llm_fallback",
@@ -895,13 +999,16 @@ export async function runAssistantEngine(params: {
     answerBlocks.unshift(buildNavigationAnswer(navigationActions));
   }
 
+  const toolActivity = buildToolActivityLogs(toolCalls);
   const hasToolsAnswer = answerBlocks.length > 0;
   if (hasToolsAnswer) {
     return {
       answer: answerBlocks.join("\n\n"),
       sessionState: { ...nextSessionState, lastIntent: intent.name },
       intent,
+      mode: assistantMode,
       toolCalls,
+      toolActivity,
       navigationActions,
       sourceHints: uniqueStrings(sourceHints),
       answerSource: "tools",
@@ -918,12 +1025,17 @@ export async function runAssistantEngine(params: {
   }
 
   if (looksLikeErpDataQuestion(message) && settings.groundingRules.blockUngroundedDataAnswers) {
+    const followup = buildSmartFollowUp(
+      { ...intent, name: "clarification_required", parameters: { ...intent.parameters, focus: cleanString(intent.parameters.query) || "данные" } },
+      runtimeContext.locale || "ru"
+    );
     return {
-      answer:
-        "Уточните объект запроса: склад, поле или период. После этого покажу фактические данные из системы.",
+      answer: followup || "Уточните объект запроса: склад, поле или период.",
       sessionState: { ...nextSessionState, lastIntent: intent.name },
       intent,
+      mode: assistantMode,
       toolCalls,
+      toolActivity,
       navigationActions,
       sourceHints: uniqueStrings(sourceHints),
       answerSource: "policy_block",
@@ -952,7 +1064,9 @@ export async function runAssistantEngine(params: {
     answer: fallback.answer,
     sessionState: { ...nextSessionState, lastIntent: intent.name },
     intent,
+    mode: isAgroKnowledgeQuestion(message) ? "agro_knowledge" : assistantMode,
     toolCalls,
+    toolActivity,
     navigationActions,
     sourceHints: uniqueStrings(sourceHints),
     answerSource: "llm_fallback",

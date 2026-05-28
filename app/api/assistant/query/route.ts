@@ -81,6 +81,111 @@ function generateThreadTitle(message: string): string {
   return words.length > 80 ? `${words.slice(0, 77)}...` : words;
 }
 
+function mapToolNamespace(tool: string): string {
+  const map: Record<string, string> = {
+    get_current_context: "context.getPageContext",
+    get_routes: "navigation.getRoutes",
+    get_company_context: "context.getCompanyContext",
+    get_current_season: "context.getCurrentSeason",
+    find_field: "fields.searchFields",
+    search_fields: "fields.searchFields",
+    get_field_card: "fields.getFieldCard",
+    get_field_timeline: "fields.getFieldTimeline",
+    get_field_materials: "fields.getFieldMaterials",
+    find_warehouse: "warehouses.searchWarehouses",
+    search_warehouses: "warehouses.searchWarehouses",
+    get_warehouse_summary: "warehouses.getWarehouseSummary",
+    get_warehouse_stock: "warehouses.getWarehouseStock",
+    get_warehouse_balances: "warehouses.getWarehouseStock",
+    get_warehouse_movements: "warehouses.getWarehouseMovements",
+    find_operation: "operations.searchOperations",
+    search_operations: "operations.searchOperations",
+    get_operation_details: "operations.getOperationDetails",
+    get_active_operations: "operations.getActiveOperations",
+    get_operations: "operations.getOperations",
+    get_active_tickets: "weighbridge.getActiveTickets",
+    get_recent_tickets: "weighbridge.getRecentTickets",
+    get_ticket_details: "weighbridge.getTicketDetails",
+    get_weighbridge_tickets: "weighbridge.getRecentTickets",
+    get_potato_material_report: "reports.getPotatoMaterialReport",
+    get_crop_structure_summary: "reports.getCropStructureSummary",
+    search_crops_by_group: "agro.searchCropsByGroup",
+    navigate_to_page: "navigation.navigateToRoute",
+    open_entity: "navigation.openEntity",
+    apply_filter: "navigation.applyFilter",
+  };
+  return map[tool] || tool;
+}
+
+type AssistantActionButton = {
+  id: string;
+  label: string;
+  kind: "navigate" | "prompt";
+  route?: string;
+  filters?: Record<string, string>;
+  prompt?: string;
+};
+
+function buildActionButtons(params: {
+  intentName: string | null;
+  requestMessage: string;
+  navigationActions: AssistantNavigationAction[];
+}): AssistantActionButton[] {
+  const { intentName, requestMessage, navigationActions } = params;
+  const actions: AssistantActionButton[] = [];
+  const add = (action: AssistantActionButton) => {
+    if (!actions.some((item) => item.id === action.id)) actions.push(action);
+  };
+
+  if (navigationActions.length) {
+    const first = navigationActions[0];
+    if (first.type === "open_page") {
+      add({
+        id: "open_page",
+        label: "Открыть страницу",
+        kind: "navigate",
+        route: first.route,
+      });
+    }
+    if (first.type === "open_page_with_filter" || first.type === "apply_filter" || first.type === "open_entity") {
+      add({
+        id: "open_filtered",
+        label: first.type === "open_entity" ? "Открыть объект" : "Открыть с фильтром",
+        kind: "navigate",
+        route: first.route,
+        filters: first.filters || {},
+      });
+    }
+  }
+
+  const lower = String(requestMessage || "").toLowerCase();
+  if (intentName === "fields_overview" || lower.includes("пол")) {
+    add({ id: "goto_fields", label: "Открыть поле", kind: "navigate", route: "/fields" });
+    add({ id: "prompt_field_timeline", label: "История поля", kind: "prompt", prompt: "Покажи timeline поля" });
+    add({ id: "prompt_field_materials", label: "Материалы поля", kind: "prompt", prompt: "Покажи материалы по полю" });
+  } else if (intentName === "inventory_balance" || lower.includes("склад")) {
+    add({ id: "goto_warehouses", label: "Открыть склады", kind: "navigate", route: "/warehouses" });
+    add({ id: "prompt_negative_stock", label: "Отрицательные остатки", kind: "prompt", prompt: "Покажи отрицательные остатки" });
+    add({ id: "prompt_warehouse_moves", label: "Последние движения", kind: "prompt", prompt: "Покажи последние движения склада" });
+  } else if (intentName === "operations_recent" || lower.includes("операц")) {
+    add({ id: "goto_operations", label: "Открыть операции", kind: "navigate", route: "/operations" });
+    add({ id: "prompt_active_ops", label: "Активные операции", kind: "prompt", prompt: "Покажи активные операции" });
+  } else if (intentName === "weighbridge_tickets" || lower.includes("весов")) {
+    add({ id: "goto_weighbridge", label: "Открыть весовую", kind: "navigate", route: "/weighbridge" });
+    add({ id: "prompt_active_tickets", label: "Активные талоны", kind: "prompt", prompt: "Покажи активные талоны" });
+  } else if (lower.includes("картоф")) {
+    add({
+      id: "goto_potato_report",
+      label: "Отчёт по картофелю",
+      kind: "navigate",
+      route: "/analytics",
+      filters: { report: "potato-material-consumption" },
+    });
+  }
+
+  return actions.slice(0, 3);
+}
+
 function buildDebugMetadata(params: {
   role: string;
   actorId: string;
@@ -175,6 +280,7 @@ function buildDebugMetadata(params: {
       endpoint: "/api/assistant/query",
       engineVersion: "assistant-engine-v2",
       intent: asString(result.intent.name),
+      mode: asString(result.mode),
       grounded: result.grounded,
       answerSource: result.answerSource,
       navigationIntentDetected: result.intent.name === "navigation_help",
@@ -184,7 +290,7 @@ function buildDebugMetadata(params: {
       routerError: null,
       toolCount: result.toolCalls.length,
       usedTools: result.toolCalls.map((toolCall) => ({
-        tool: toolCall.tool,
+        tool: mapToolNamespace(toolCall.tool),
         ok: toolCall.ok,
         rows: Number.isFinite(Number(toolCall.rows)) ? Number(toolCall.rows) : 0,
         error: asString(toolCall.error),
@@ -310,7 +416,14 @@ export async function POST(request: NextRequest) {
             content: result.answer,
             metadata: {
               intent: result.intent?.name || null,
+              mode: result.mode || null,
               source_hints: result.sourceHints || [],
+              tool_activity: result.toolActivity || [],
+              actions: buildActionButtons({
+                intentName: result.intent?.name || null,
+                requestMessage: requestMessage || "",
+                navigationActions: result.navigationActions || [],
+              }),
               tool_calls: result.toolCalls || [],
               navigation_actions: result.navigationActions || [],
               answer_source: result.answerSource,
@@ -385,8 +498,15 @@ export async function POST(request: NextRequest) {
       sessionState: result.sessionState,
       threadId,
       navigationActions: result.navigationActions || [],
+      actions: buildActionButtons({
+        intentName: result.intent?.name || null,
+        requestMessage: requestMessage || "",
+        navigationActions: result.navigationActions || [],
+      }),
+      toolActivity: result.toolActivity || [],
       meta: {
         intent: result.intent,
+        mode: result.mode,
         sourceHints: result.sourceHints,
         llm: result.model.llm,
       },

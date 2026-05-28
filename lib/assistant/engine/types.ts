@@ -7,11 +7,24 @@ export type AssistantToolName =
   | "get_routes"
   | "get_company_context"
   | "get_current_season"
+  | "search_fields"
+  | "get_field_card"
+  | "get_field_timeline"
+  | "get_field_materials"
   | "find_field"
+  | "search_warehouses"
+  | "get_warehouse_stock"
   | "find_warehouse"
+  | "search_operations"
+  | "get_operation_details"
   | "find_operation"
   | "get_active_operations"
+  | "get_active_tickets"
+  | "get_recent_tickets"
+  | "get_ticket_details"
   | "get_potato_material_report"
+  | "get_crop_structure_summary"
+  | "search_crops_by_group"
   | "get_warehouse_summary"
   | "get_fields"
   | "get_crop_structure"
@@ -170,7 +183,9 @@ export type AssistantEngineResult = {
   answer: string;
   sessionState: AssistantSessionState;
   intent: AssistantIntent;
+  mode: "erp_data" | "agro_knowledge" | "mixed";
   toolCalls: AssistantToolCallLog[];
+  toolActivity: string[];
   navigationActions: AssistantNavigationAction[];
   sourceHints: string[];
   answerSource: "tools" | "llm_fallback" | "policy_block" | "disabled" | "access_denied" | "no_data";

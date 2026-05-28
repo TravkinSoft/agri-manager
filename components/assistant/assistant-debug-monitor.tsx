@@ -121,6 +121,7 @@ export function AssistantDebugMonitor() {
                   <Row label="Endpoint" value={debugSnapshot.engine.endpoint} />
                   <Row label="Version" value={debugSnapshot.engine.engineVersion} />
                   <Row label="Intent" value={debugSnapshot.engine.intent} />
+                  <Row label="Mode" value={debugSnapshot.engine.mode} />
                   <Row label="Grounded" value={debugSnapshot.engine.grounded} />
                   <Row label="Answer source" value={debugSnapshot.engine.answerSource} />
                   <Row label="Navigation intent" value={debugSnapshot.engine.navigationIntentDetected} />

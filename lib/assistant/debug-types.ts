@@ -60,6 +60,7 @@ export type AssistantDebugMetadata = {
     endpoint: string;
     engineVersion: string;
     intent: string | null;
+    mode: string | null;
     grounded: boolean | null;
     answerSource: AssistantDebugAnswerSource;
     navigationIntentDetected: boolean;

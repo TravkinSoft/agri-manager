@@ -1,5 +1,11 @@
 import type { AssistantToolContext, AssistantToolDefinition, AssistantToolName } from "@/lib/assistant/engine/types";
 import { getFieldDisplayName } from "@/lib/fields/display";
+import {
+  findCropGroupsInText,
+  getAgroTaxonomySnapshot,
+  listCropsByGroup,
+  normalizeCropAlias,
+} from "@/lib/assistant/agro-taxonomy";
 
 function cleanString(value: unknown): string | null {
   const text = String(value || "").trim();
@@ -23,6 +29,38 @@ function parseSearchQuery(context: AssistantToolContext): string | null {
     context.sessionState.lastCrop ||
     null
   );
+}
+
+function parseLimit(value: unknown, fallback = 30, min = 1, max = 300): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function parseFieldQueryFromContext(context: AssistantToolContext): string | null {
+  const fromQuery = parseSearchQuery(context);
+  if (fromQuery) return fromQuery;
+  const entity = context.runtimeContext.entity;
+  if (entity?.type?.toLowerCase() === "fields" || entity?.type?.toLowerCase() === "field") {
+    return cleanString(entity.label) || cleanString(entity.id);
+  }
+  return null;
+}
+
+function parseFiltersJsonSafe(value: unknown): Record<string, string> {
+  const raw = cleanString(value);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    Object.entries(parsed || {}).forEach(([key, val]) => {
+      const text = cleanString(val);
+      if (text) out[key] = text;
+    });
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 function applyTextFilter(rows: Array<Record<string, unknown>>, query: string | null): Array<Record<string, unknown>> {
@@ -1017,9 +1055,18 @@ const getCurrentContextToolAlias: AssistantToolDefinition = {
     rows: [
       {
         company_id: context.companyId,
+        company_name: context.runtimeContext.companyName || null,
+        user_role: context.actor.role,
         page: context.runtimeContext.currentPage,
         route: context.runtimeContext.currentRoute,
         season: context.runtimeContext.season,
+        selected_field:
+          cleanString(context.runtimeContext.filters.field) ||
+          (context.runtimeContext.entity?.type === "field" ? cleanString(context.runtimeContext.entity?.id) : null),
+        selected_warehouse:
+          cleanString(context.runtimeContext.filters.warehouse) ||
+          (context.runtimeContext.entity?.type === "warehouse" ? cleanString(context.runtimeContext.entity?.id) : null),
+        filters: context.runtimeContext.filters || {},
         locale: context.runtimeContext.locale || "ru",
       },
     ],
@@ -1069,6 +1116,49 @@ const findWarehouseToolAlias: AssistantToolDefinition = {
   description: "Найти склад",
   domains: ["warehouses", "navigation"],
   run: resolveWarehouseByName,
+};
+
+const searchFieldsToolAlias: AssistantToolDefinition = {
+  name: "search_fields",
+  description: "Search fields",
+  domains: ["fields", "navigation"],
+  run: async (context) => {
+    const output = await getFieldsTool.run(context);
+    const query = parseFieldQueryFromContext(context);
+    return {
+      ...output,
+      rows: applyTextFilter(output.rows || [], query).slice(0, 80),
+      source: {
+        ...output.source,
+        tableOrView: "fields (search_fields)",
+      },
+    };
+  },
+};
+
+const searchWarehousesToolAlias: AssistantToolDefinition = {
+  name: "search_warehouses",
+  description: "Search warehouses",
+  domains: ["warehouses", "navigation"],
+  run: resolveWarehouseByName,
+};
+
+const searchOperationsToolAlias: AssistantToolDefinition = {
+  name: "search_operations",
+  description: "Search operations",
+  domains: ["operations"],
+  run: async (context) => {
+    const output = await getOperationsTool.run(context);
+    const query = parseSearchQuery(context);
+    return {
+      ...output,
+      rows: applyTextFilter(output.rows || [], query).slice(0, 100),
+      source: {
+        ...output.source,
+        tableOrView: "operations (search_operations)",
+      },
+    };
+  },
 };
 
 const findOperationToolAlias: AssistantToolDefinition = {
@@ -1134,6 +1224,152 @@ const getActiveOperationsToolAlias: AssistantToolDefinition = {
   },
 };
 
+const getOperationDetailsToolAlias: AssistantToolDefinition = {
+  name: "get_operation_details",
+  description: "Operation details",
+  domains: ["operations"],
+  run: async (context) => {
+    const query = parseSearchQuery(context);
+    const limit = parseLimit(context.intent.parameters.limit, 1, 1, 10);
+    let opQuery = context.supabase
+      .from("operations")
+      .select("id,date,operation_type,status,field_id,crop_id,planned_area_ha,notes")
+      .eq("company_id", context.companyId)
+      .eq("archived", false)
+      .order("date", { ascending: false })
+      .limit(limit);
+    if (query) {
+      opQuery = opQuery.or(`operation_type.ilike.%${query}%,notes.ilike.%${query}%`);
+    }
+    const opRes = await opQuery;
+    if (opRes.error) throw new Error(opRes.error.message);
+    const ops = opRes.data || [];
+
+    const lookup = await buildLookupMaps(context, {
+      fields: Array.from(new Set(ops.map((x: any) => String(x.field_id || "")).filter(Boolean))),
+      products: Array.from(new Set(ops.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
+    });
+    const opIds = ops.map((item: any) => String(item.id));
+
+    let requestRows: Array<Record<string, unknown>> = [];
+    if (opIds.length) {
+      const reqRes = await context.supabase
+        .from("warehouse_issue_requests")
+        .select("operation_id,status,request_number")
+        .eq("company_id", context.companyId)
+        .in("operation_id", opIds);
+      if (!reqRes.error) requestRows = reqRes.data || [];
+    }
+
+    return {
+      title: "Детали операции",
+      rows: ops.map((row: any) => {
+        const opId = String(row.id);
+        const req = requestRows.find((item) => String(item.operation_id || "") === opId);
+        return {
+          operation_id: opId,
+          date: cleanString(row.date),
+          operation_type: cleanString(row.operation_type),
+          status: cleanString(row.status),
+          field_name: lookup.byField.get(String(row.field_id || "")) || String(row.field_id || ""),
+          crop_name: lookup.byProduct.get(String(row.crop_id || "")) || String(row.crop_id || ""),
+          planned_area_ha: Number(row.planned_area_ha || 0),
+          material_request_number: cleanString(req?.request_number),
+          material_request_status: cleanString(req?.status),
+          notes: cleanString(row.notes),
+        };
+      }),
+      source: {
+        module: "operations",
+        tableOrView: "operations + warehouse_issue_requests",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const getActiveTicketsToolAlias: AssistantToolDefinition = {
+  name: "get_active_tickets",
+  description: "Active weighbridge tickets",
+  domains: ["weighbridge"],
+  run: async (context) => {
+    const res = await context.supabase
+      .from("tickets")
+      .select("id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg")
+      .eq("company_id", context.companyId)
+      .eq("is_voided", false)
+      .in("status", ["draft", "open", "active", "ready_to_close"])
+      .order("created_at", { ascending: false })
+      .limit(120);
+    if (res.error) throw new Error(res.error.message);
+    return {
+      title: "Активные талоны",
+      rows: (res.data || []).map((row: any) => ({
+        ticket_id: String(row.id),
+        ticket_no: cleanString(row.ticket_no) || String(row.id),
+        status: cleanString(row.status),
+        type: cleanString(row.op_type),
+        gross_kg: Number(row.gross_weight_kg || 0),
+        tare_kg: Number(row.tare_weight_kg || 0),
+        net_kg: Number(row.net_weight_kg || 0),
+        date: cleanString(row.created_at),
+      })),
+      source: {
+        module: "weighbridge",
+        tableOrView: "tickets (active)",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const getRecentTicketsToolAlias: AssistantToolDefinition = {
+  name: "get_recent_tickets",
+  description: "Recent weighbridge tickets",
+  domains: ["weighbridge"],
+  run: getWeighbridgeTicketsTool.run,
+};
+
+const getTicketDetailsToolAlias: AssistantToolDefinition = {
+  name: "get_ticket_details",
+  description: "Ticket details",
+  domains: ["weighbridge"],
+  run: async (context) => {
+    const query = parseSearchQuery(context);
+    let q = context.supabase
+      .from("tickets")
+      .select("id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg")
+      .eq("company_id", context.companyId)
+      .eq("is_voided", false)
+      .order("created_at", { ascending: false })
+      .limit(40);
+    if (query) q = q.or(`ticket_no.ilike.%${query}%`);
+    const res = await q;
+    if (res.error) throw new Error(res.error.message);
+    return {
+      title: "Детали талона",
+      rows: (res.data || []).map((row: any) => ({
+        ticket_id: String(row.id),
+        ticket_no: cleanString(row.ticket_no) || String(row.id),
+        type: cleanString(row.op_type),
+        status: cleanString(row.status),
+        gross_kg: Number(row.gross_weight_kg || 0),
+        tare_kg: Number(row.tare_weight_kg || 0),
+        net_kg: Number(row.net_weight_kg || 0),
+        date: cleanString(row.created_at),
+      })),
+      source: {
+        module: "weighbridge",
+        tableOrView: "tickets (details)",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
 const getWarehouseSummaryToolAlias: AssistantToolDefinition = {
   name: "get_warehouse_summary",
   description: "Сводка по складам",
@@ -1156,6 +1392,124 @@ const getWarehouseSummaryToolAlias: AssistantToolDefinition = {
       source: {
         module: "warehouses",
         tableOrView: "v_stock_balance_identity (summary)",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const getWarehouseStockToolAlias: AssistantToolDefinition = {
+  name: "get_warehouse_stock",
+  description: "Warehouse stock",
+  domains: ["warehouses", "inventory"],
+  run: async (context) => {
+    const output = await getWarehouseBalancesTool.run(context);
+    const query =
+      cleanString(context.intent.parameters.entityQuery) ||
+      cleanString(context.runtimeContext.filters.warehouse) ||
+      parseSearchQuery(context);
+    const rows = query
+      ? (output.rows || []).filter((row) =>
+          String(row.warehouse_name || "")
+            .toLowerCase()
+            .includes(String(query).toLowerCase())
+        )
+      : output.rows || [];
+    return {
+      ...output,
+      title: "Остатки склада",
+      rows: rows.slice(0, 200),
+      source: {
+        ...output.source,
+        tableOrView: "v_stock_balance_identity (warehouse_stock)",
+      },
+    };
+  },
+};
+
+const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
+  name: "get_crop_structure_summary",
+  description: "Crop structure summary",
+  domains: ["reports", "crop_structure"],
+  run: async (context) => {
+    const output = await getCropStructureTool.run(context);
+    const query = parseSearchQuery(context);
+    const rows = applyTextFilter(output.rows || [], query);
+    const grouped = new Map<string, { crop_name: string; area_ha: number; fields: Set<string> }>();
+
+    rows.forEach((row) => {
+      const crop = cleanString(row.crop_name) || "Не указано";
+      const area = Number(row.area_ha || 0);
+      const field = cleanString(row.field_name) || "—";
+      const current = grouped.get(crop) || { crop_name: crop, area_ha: 0, fields: new Set<string>() };
+      current.area_ha += Number.isFinite(area) ? area : 0;
+      current.fields.add(field);
+      grouped.set(crop, current);
+    });
+
+    return {
+      title: "Сводка структуры посевов",
+      rows: Array.from(grouped.values())
+        .map((item) => ({
+          crop_name: item.crop_name,
+          area_ha: Number(item.area_ha.toFixed(3)),
+          fields_count: item.fields.size,
+        }))
+        .sort((a, b) => b.area_ha - a.area_ha)
+        .slice(0, 120),
+      source: {
+        module: "crop_structure",
+        tableOrView: "crop_structure (summary)",
+        season: output.source.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const searchCropsByGroupToolAlias: AssistantToolDefinition = {
+  name: "search_crops_by_group",
+  description: "Crop groups and aliases",
+  domains: ["agro", "reference"],
+  run: async (context) => {
+    const query = parseSearchQuery(context);
+    const groupFromIntent = cleanString(context.intent.parameters.crop_group);
+    const groups = groupFromIntent ? [groupFromIntent] : query ? findCropGroupsInText(query) : [];
+    const normalizedAlias = query ? normalizeCropAlias(query) : null;
+    const taxonomy = getAgroTaxonomySnapshot();
+
+    if (groups.length) {
+      return {
+        title: "Группы культур",
+        rows: groups.flatMap((group) =>
+          listCropsByGroup(group).map((crop) => ({
+            crop_group: group,
+            crop_name: crop,
+            query_alias: normalizedAlias,
+          }))
+        ),
+        source: {
+          module: "agro",
+          tableOrView: "static_crop_taxonomy",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+
+    return {
+      title: "Группы культур",
+      rows: Object.entries(taxonomy.groups).flatMap(([group, crops]) =>
+        crops.map((crop) => ({
+          crop_group: group,
+          crop_name: crop,
+          query_alias: normalizedAlias,
+        }))
+      ),
+      source: {
+        module: "agro",
+        tableOrView: "static_crop_taxonomy",
         season: context.runtimeContext.season,
         fetchedAt: nowIso(),
       },
@@ -1209,16 +1563,357 @@ const getPotatoMaterialReportToolAlias: AssistantToolDefinition = {
   },
 };
 
+const getFieldCardToolAlias: AssistantToolDefinition = {
+  name: "get_field_card",
+  description: "Field card summary",
+  domains: ["fields", "operations", "inventory", "weighbridge"],
+  run: async (context) => {
+    const query = parseFieldQueryFromContext(context);
+    if (!query) {
+      return {
+        title: "Карточка поля",
+        rows: [],
+        source: {
+          module: "fields",
+          tableOrView: "fields (field_card)",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+        summary: "Уточните поле: номер или название.",
+      };
+    }
+
+    const fieldRes = await context.supabase
+      .from("fields")
+      .select("id,name,area,notes")
+      .eq("company_id", context.companyId)
+      .eq("archived", false)
+      .ilike("name", `%${query}%`)
+      .limit(1)
+      .maybeSingle();
+    if (fieldRes.error) throw new Error(fieldRes.error.message);
+    if (!fieldRes.data) {
+      return {
+        title: "Карточка поля",
+        rows: [],
+        source: {
+          module: "fields",
+          tableOrView: "fields (field_card)",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+        summary: "Поле не найдено.",
+      };
+    }
+
+    const fieldId = String(fieldRes.data.id);
+    const [opsRes, allocRes, ledgerRes, ticketRes] = await Promise.all([
+      context.supabase
+        .from("operations")
+        .select("id,status")
+        .eq("company_id", context.companyId)
+        .eq("archived", false)
+        .eq("field_id", fieldId),
+      context.supabase
+        .from("crop_structure")
+        .select("crop_id,variety_id,reproduction_id,area")
+        .eq("company_id", context.companyId)
+        .eq("archived", false)
+        .eq("field_id", fieldId)
+        .limit(120),
+      context.supabase
+        .from("stock_ledger_entries")
+        .select("qty_abs,direction")
+        .eq("company_id", context.companyId)
+        .eq("field_id", fieldId)
+        .limit(600),
+      context.supabase
+        .from("tickets")
+        .select("net_weight_kg")
+        .eq("company_id", context.companyId)
+        .eq("field_id", fieldId)
+        .eq("is_voided", false)
+        .limit(300),
+    ]);
+
+    const allocations = allocRes.error ? [] : allocRes.data || [];
+    const crops = new Set<string>();
+    const varieties = new Set<string>();
+    const reproductions = new Set<string>();
+    const lookup = await buildLookupMaps(context, {
+      products: Array.from(new Set(allocations.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
+      varieties: Array.from(new Set(allocations.map((x: any) => String(x.variety_id || "")).filter(Boolean))),
+      reproductions: Array.from(new Set(allocations.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
+    });
+
+    allocations.forEach((row: any) => {
+      const cropId = cleanString(row.crop_id);
+      const varietyId = cleanString(row.variety_id);
+      const reproductionId = cleanString(row.reproduction_id);
+      if (cropId) crops.add(lookup.byProduct.get(cropId) || cropId);
+      if (varietyId) varieties.add(lookup.byVariety.get(varietyId) || varietyId);
+      if (reproductionId) reproductions.add(lookup.byReproduction.get(reproductionId) || reproductionId);
+    });
+
+    const issuedKg = (ledgerRes.error ? [] : ledgerRes.data || []).reduce((acc: number, row: any) => {
+      const qty = Number(row.qty_abs || 0);
+      const dir = cleanString(row.direction)?.toLowerCase() || "";
+      if (!(dir === "out" || dir === "outgoing")) return acc;
+      return acc + (Number.isFinite(qty) ? Math.abs(qty) : 0);
+    }, 0);
+
+    const harvestKg = (ticketRes.error ? [] : ticketRes.data || []).reduce((acc: number, row: any) => {
+      const qty = Number(row.net_weight_kg || 0);
+      return acc + (Number.isFinite(qty) ? qty : 0);
+    }, 0);
+
+    const activeOperations = (opsRes.error ? [] : opsRes.data || []).filter((item: any) => {
+      const status = cleanString(item.status)?.toLowerCase() || "";
+      return !["completed", "verified", "cancelled"].includes(status);
+    }).length;
+
+    return {
+      title: "Карточка поля",
+      rows: [
+        {
+          field_id: fieldId,
+          field_name: getFieldDisplayName(fieldRes.data) || String(fieldRes.data.name || fieldId),
+          area_ha: Number(fieldRes.data.area || 0),
+          crops: Array.from(crops).sort(),
+          varieties: Array.from(varieties).sort(),
+          reproductions: Array.from(reproductions).sort(),
+          active_operations_count: activeOperations,
+          material_issued_kg: Number(issuedKg.toFixed(3)),
+          harvest_net_kg: Number(harvestKg.toFixed(3)),
+        },
+      ],
+      source: {
+        module: "fields",
+        tableOrView: "fields + operations + crop_structure + stock_ledger_entries + tickets",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const getFieldTimelineToolAlias: AssistantToolDefinition = {
+  name: "get_field_timeline",
+  description: "Field timeline",
+  domains: ["fields", "operations", "inventory", "weighbridge"],
+  run: async (context) => {
+    const query = parseFieldQueryFromContext(context);
+    if (!query) {
+      return {
+        title: "Timeline поля",
+        rows: [],
+        source: {
+          module: "fields",
+          tableOrView: "field_timeline",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+
+    const fieldRes = await context.supabase
+      .from("fields")
+      .select("id,name")
+      .eq("company_id", context.companyId)
+      .eq("archived", false)
+      .ilike("name", `%${query}%`)
+      .limit(1)
+      .maybeSingle();
+    if (fieldRes.error) throw new Error(fieldRes.error.message);
+    if (!fieldRes.data) {
+      return {
+        title: "Timeline поля",
+        rows: [],
+        source: {
+          module: "fields",
+          tableOrView: "field_timeline",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+    const fieldId = String(fieldRes.data.id);
+    const [opsRes, ledgerRes, ticketsRes] = await Promise.all([
+      context.supabase
+        .from("operations")
+        .select("id,date,operation_type,status")
+        .eq("company_id", context.companyId)
+        .eq("archived", false)
+        .eq("field_id", fieldId)
+        .limit(200),
+      context.supabase
+        .from("stock_ledger_entries")
+        .select("id,created_at,direction,qty_abs,reason_type")
+        .eq("company_id", context.companyId)
+        .eq("field_id", fieldId)
+        .limit(400),
+      context.supabase
+        .from("tickets")
+        .select("id,ticket_no,created_at,op_type,status,net_weight_kg")
+        .eq("company_id", context.companyId)
+        .eq("field_id", fieldId)
+        .eq("is_voided", false)
+        .limit(400),
+    ]);
+
+    const rows: Array<Record<string, unknown>> = [];
+    if (!opsRes.error) {
+      (opsRes.data || []).forEach((row: any) =>
+        rows.push({
+          event_type: "operation_fact",
+          date: cleanString(row.date),
+          title: cleanString(row.operation_type),
+          status: cleanString(row.status),
+          ref_id: cleanString(row.id),
+        })
+      );
+    }
+    if (!ledgerRes.error) {
+      (ledgerRes.data || []).forEach((row: any) =>
+        rows.push({
+          event_type: "issue",
+          date: cleanString(row.created_at),
+          qty_kg: Number(row.qty_abs || 0),
+          direction: cleanString(row.direction),
+          reason: cleanString(row.reason_type),
+          ref_id: cleanString(row.id),
+        })
+      );
+    }
+    if (!ticketsRes.error) {
+      (ticketsRes.data || []).forEach((row: any) =>
+        rows.push({
+          event_type: "weighbridge",
+          date: cleanString(row.created_at),
+          title: cleanString(row.ticket_no),
+          ticket_type: cleanString(row.op_type),
+          status: cleanString(row.status),
+          net_kg: Number(row.net_weight_kg || 0),
+          ref_id: cleanString(row.id),
+        })
+      );
+    }
+
+    rows.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+    return {
+      title: "Timeline поля",
+      rows: rows.slice(0, 220),
+      source: {
+        module: "fields",
+        tableOrView: "operations + stock_ledger_entries + tickets",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const getFieldMaterialsToolAlias: AssistantToolDefinition = {
+  name: "get_field_materials",
+  description: "Field materials fact",
+  domains: ["fields", "inventory", "ledger"],
+  run: async (context) => {
+    const query = parseFieldQueryFromContext(context);
+    if (!query) {
+      return {
+        title: "Материалы поля",
+        rows: [],
+        source: {
+          module: "fields",
+          tableOrView: "field_materials",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+    const fieldRes = await context.supabase
+      .from("fields")
+      .select("id,name")
+      .eq("company_id", context.companyId)
+      .eq("archived", false)
+      .ilike("name", `%${query}%`)
+      .limit(1)
+      .maybeSingle();
+    if (fieldRes.error) throw new Error(fieldRes.error.message);
+    if (!fieldRes.data) {
+      return {
+        title: "Материалы поля",
+        rows: [],
+        source: {
+          module: "fields",
+          tableOrView: "field_materials",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+
+    const fieldId = String(fieldRes.data.id);
+    const ledgerRes = await context.supabase
+      .from("stock_ledger_entries")
+      .select("product_id,qty_abs,direction")
+      .eq("company_id", context.companyId)
+      .eq("field_id", fieldId)
+      .limit(2000);
+    if (ledgerRes.error) throw new Error(ledgerRes.error.message);
+    const raw = ledgerRes.data || [];
+    const lookup = await buildLookupMaps(context, {
+      products: Array.from(new Set(raw.map((x: any) => String(x.product_id || "")).filter(Boolean))),
+    });
+
+    const grouped = new Map<string, number>();
+    raw.forEach((row: any) => {
+      const dir = cleanString(row.direction)?.toLowerCase() || "";
+      if (!(dir === "out" || dir === "outgoing")) return;
+      const productId = cleanString(row.product_id);
+      const product = productId ? lookup.byProduct.get(productId) || productId : "Материал";
+      grouped.set(product, (grouped.get(product) || 0) + Math.abs(Number(row.qty_abs || 0)));
+    });
+
+    return {
+      title: "Материалы поля",
+      rows: Array.from(grouped.entries())
+        .map(([product_name, qty_kg]) => ({ product_name, qty_kg: Number(qty_kg.toFixed(3)) }))
+        .sort((a, b) => b.qty_kg - a.qty_kg)
+        .slice(0, 200),
+      source: {
+        module: "fields",
+        tableOrView: "stock_ledger_entries",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
 const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
   get_current_context: getCurrentContextToolAlias,
   get_routes: getRoutesToolAlias,
   get_company_context: getCompanyContextTool,
   get_current_season: getCurrentSeasonTool,
+  search_fields: searchFieldsToolAlias,
+  get_field_card: getFieldCardToolAlias,
+  get_field_timeline: getFieldTimelineToolAlias,
+  get_field_materials: getFieldMaterialsToolAlias,
   find_field: findFieldToolAlias,
+  search_warehouses: searchWarehousesToolAlias,
+  get_warehouse_stock: getWarehouseStockToolAlias,
   find_warehouse: findWarehouseToolAlias,
+  search_operations: searchOperationsToolAlias,
+  get_operation_details: getOperationDetailsToolAlias,
   find_operation: findOperationToolAlias,
   get_active_operations: getActiveOperationsToolAlias,
+  get_active_tickets: getActiveTicketsToolAlias,
+  get_recent_tickets: getRecentTicketsToolAlias,
+  get_ticket_details: getTicketDetailsToolAlias,
   get_potato_material_report: getPotatoMaterialReportToolAlias,
+  get_crop_structure_summary: getCropStructureSummaryToolAlias,
+  search_crops_by_group: searchCropsByGroupToolAlias,
   get_warehouse_summary: getWarehouseSummaryToolAlias,
   get_fields: getFieldsTool,
   get_crop_structure: getCropStructureTool,

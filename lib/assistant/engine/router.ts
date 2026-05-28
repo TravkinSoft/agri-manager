@@ -1,3 +1,4 @@
+import { findCropGroupsInText, normalizeCropAlias } from "@/lib/assistant/agro-taxonomy";
 import type {
   AssistantIntent,
   AssistantSessionState,
@@ -8,7 +9,7 @@ import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 type NavigationDetection = {
   page: string;
   route: string;
-  action: "open_page" | "open_entity";
+  action: "open_page" | "open_entity" | "apply_filter";
   entityType?: "warehouse" | "field" | "fuel";
   entityQuery?: string | null;
   filters?: Record<string, string>;
@@ -30,21 +31,6 @@ function hasAny(text: string, words: string[]): boolean {
   return words.some((word) => text.includes(word));
 }
 
-function isLikelyNavigationMessage(text: string): boolean {
-  return hasAny(text, [
-    "открой",
-    "открыть",
-    "перейди",
-    "перейти",
-    "зайди",
-    "покажи страницу",
-    "покажи раздел",
-    "open",
-    "go to",
-    "navigate",
-  ]);
-}
-
 function extractQuotedValue(rawMessage: string): string | null {
   const quoted = String(rawMessage || "").match(/["«](.+?)["»]/);
   return cleanString(quoted?.[1]);
@@ -64,70 +50,29 @@ function extractEntityQuery(rawMessage: string, stopWords: string[]): string | n
     .replace(/[.,!?;:()]/g, " ")
     .split(/\s+/)
     .filter(Boolean);
-
   const filtered = tokens.filter((token) => !stop.has(token.toLowerCase()));
   return cleanString(filtered.join(" "));
-}
-
-function isGenericWarehouseQuery(value: string | null): boolean {
-  const token = normalizeText(value || "");
-  return ["склад", "склады", "складов", "warehouse", "warehouses"].includes(token);
-}
-
-function isGenericFieldQuery(value: string | null): boolean {
-  const token = normalizeText(value || "");
-  return ["поле", "поля", "field", "fields"].includes(token);
-}
-
-function isGenericFuelQuery(value: string | null): boolean {
-  const token = normalizeText(value || "");
-  return ["азс", "гсм", "топливо", "заправка", "fuel"].includes(token);
 }
 
 function detectNavigationIntent(message: string, sessionState: AssistantSessionState): NavigationDetection | null {
   const raw = String(message || "");
   const text = normalizeText(raw);
-  if (!isLikelyNavigationMessage(text)) return null;
+  const looksLikeNavigation = hasAny(text, [
+    "открой",
+    "открыть",
+    "перейди",
+    "перейти",
+    "зайди",
+    "open",
+    "go to",
+    "navigate",
+  ]);
+  if (!looksLikeNavigation) return null;
 
-  if (hasAny(text, ["азс", "гсм", "топливо", "дизель", "бензин", "заправ", "fuel"])) {
-    const query = extractEntityQuery(raw, [
-      "открой",
-      "открыть",
-      "перейди",
-      "перейти",
-      "зайди",
-      "покажи",
-      "раздел",
-      "страницу",
-      "страница",
-      "в",
-      "на",
-      "азс",
-      "гсм",
-      "топливо",
-      "дизель",
-      "бензин",
-      "заправку",
-      "заправка",
-      "fuel",
-      "мне",
-      "пожалуйста",
-    ]);
-
-    const entityQuery = isGenericFuelQuery(query) ? null : query;
-    return entityQuery
-      ? {
-          page: "fuel",
-          route: "/fuel",
-          action: "open_entity",
-          entityType: "fuel",
-          entityQuery,
-          filters: { search: entityQuery },
-        }
-      : { page: "fuel", route: "/fuel", action: "open_page" };
+  if (hasAny(text, ["весов", "талон", "weighbridge", "ticket"])) {
+    return { page: "weighbridge", route: "/weighbridge", action: "open_page" };
   }
-
-  if (hasAny(text, ["склады", "склад", "warehouse", "warehouses"])) {
+  if (hasAny(text, ["склад", "warehouse"])) {
     const query = extractEntityQuery(raw, [
       "открой",
       "открыть",
@@ -135,31 +80,25 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
       "перейти",
       "зайди",
       "покажи",
-      "раздел",
-      "страницу",
-      "страница",
       "склад",
       "склады",
-      "складов",
       "warehouse",
       "warehouses",
       "мне",
       "пожалуйста",
     ]);
-
-    const entityQuery = isGenericWarehouseQuery(query) ? null : query;
-    return entityQuery
-      ? {
-          page: "warehouses",
-          route: "/warehouses",
-          action: "open_entity",
-          entityType: "warehouse",
-          entityQuery,
-          filters: { search: entityQuery },
-        }
-      : { page: "warehouses", route: "/warehouses", action: "open_page" };
+    if (query) {
+      return {
+        page: "warehouses",
+        route: "/warehouses",
+        action: "open_entity",
+        entityType: "warehouse",
+        entityQuery: query,
+        filters: { search: query },
+      };
+    }
+    return { page: "warehouses", route: "/warehouses", action: "open_page" };
   }
-
   if (hasAny(text, ["поле", "поля", "field", "fields"])) {
     const fieldCode = extractFieldCode(text);
     const query =
@@ -171,8 +110,6 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
         "перейти",
         "зайди",
         "покажи",
-        "раздел",
-        "страницу",
         "поле",
         "поля",
         "field",
@@ -180,44 +117,67 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
         "мне",
         "пожалуйста",
       ]);
-
-    const entityQuery = isGenericFieldQuery(query) ? null : query;
-    return entityQuery
-      ? {
-          page: "fields",
-          route: "/fields",
-          action: "open_entity",
-          entityType: "field",
-          entityQuery,
-          filters: { search: entityQuery },
-        }
-      : { page: "fields", route: "/fields", action: "open_page" };
+    if (query) {
+      return {
+        page: "fields",
+        route: "/fields",
+        action: "open_entity",
+        entityType: "field",
+        entityQuery: query,
+        filters: { search: query },
+      };
+    }
+    return { page: "fields", route: "/fields", action: "open_page" };
   }
-
-  if (hasAny(text, ["кадастр", "право", "юр", "land-legal", "land legal"])) {
+  if (hasAny(text, ["азс", "гсм", "топлив", "fuel"])) {
+    const query = extractEntityQuery(raw, [
+      "открой",
+      "открыть",
+      "перейди",
+      "перейти",
+      "зайди",
+      "азс",
+      "гсм",
+      "топливо",
+      "fuel",
+      "мне",
+      "пожалуйста",
+    ]);
+    if (query) {
+      return {
+        page: "fuel",
+        route: "/fuel",
+        action: "open_entity",
+        entityType: "fuel",
+        entityQuery: query,
+        filters: { search: query },
+      };
+    }
+    return { page: "fuel", route: "/fuel", action: "open_page" };
+  }
+  if (hasAny(text, ["кадастр", "право", "land legal"])) {
     return { page: "land-legal", route: "/land-legal", action: "open_page" };
   }
-
-  if (hasAny(text, ["пользоват", "users", "user list"])) {
-    return { page: "users", route: "/users", action: "open_page" };
-  }
-
-  if (hasAny(text, ["отчет", "отчёт", "аналит", "analytics", "report", "reports"])) {
-    return { page: "analytics", route: "/analytics", action: "open_page" };
-  }
-
-  if (hasAny(text, ["весовая", "талон", "weighbridge", "ticket"])) {
-    return { page: "weighbridge", route: "/weighbridge", action: "open_page" };
-  }
-
-  if (hasAny(text, ["операции", "операция", "operations"])) {
+  if (hasAny(text, ["операц", "operations"])) {
     return { page: "operations", route: "/operations", action: "open_page" };
   }
-
-  if (hasAny(text, ["структура посевов", "посев", "crop-structure"])) {
+  if (hasAny(text, ["структур", "посев", "crop-structure"])) {
     return { page: "crop-structure", route: "/crop-structure", action: "open_page" };
   }
-
+  if (hasAny(text, ["отчет по картоф", "отчёт по картоф", "potato report"])) {
+    return {
+      page: "analytics",
+      route: "/analytics",
+      action: "apply_filter",
+      filters: { report: "potato-material-consumption" },
+    };
+  }
+  if (hasAny(text, ["отчет", "отчёт", "analytics", "report"])) {
+    return { page: "analytics", route: "/analytics", action: "open_page" };
+  }
+  if (hasAny(text, ["пользовател", "users"])) {
+    return { page: "users", route: "/users", action: "open_page" };
+  }
   if (hasAny(text, ["панель", "главная", "dashboard"])) {
     return { page: "dashboard", route: "/dashboard", action: "open_page" };
   }
@@ -248,10 +208,28 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
   return { page: "dashboard", route: "/dashboard", action: "open_page" };
 }
 
+function needsClarification(text: string): boolean {
+  return [
+    "склад",
+    "склады",
+    "поле",
+    "поля",
+    "операция",
+    "операции",
+    "весовая",
+    "талон",
+    "отчет",
+    "отчеты",
+    "картофель",
+  ].includes(text);
+}
+
 function fallbackIntent(message: string, sessionState: AssistantSessionState): AssistantIntent {
   const raw = String(message || "");
   const text = normalizeText(raw);
   const navigation = detectNavigationIntent(raw, sessionState);
+  const cropGroups = findCropGroupsInText(text);
+  const normalizedAlias = normalizeCropAlias(text);
 
   if (navigation) {
     return {
@@ -269,71 +247,83 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
     };
   }
 
-  if (
-    [
-      "склад",
-      "склады",
-      "поле",
-      "поля",
-      "операция",
-      "операции",
-      "заправка",
-      "гсм",
-      "кадастр",
-      "отчеты",
-      "отчёты",
-      "users",
-    ].includes(text)
-  ) {
+  if (needsClarification(text)) {
     return {
       name: "clarification_required",
-      confidence: 0.7,
+      confidence: 0.72,
       needsData: false,
-      parameters: { query: cleanString(raw) },
+      parameters: { query: cleanString(raw), focus: text },
     };
   }
 
-  if (hasAny(text, ["создай", "подготовь", "сделай черновик", "draft"])) {
+  if (hasAny(text, ["создай", "подготов", "черновик", "draft"])) {
     return {
       name: "create_draft",
-      confidence: 0.74,
+      confidence: 0.8,
       needsData: true,
       parameters: { query: cleanString(raw) },
     };
   }
 
-  if (hasAny(text, ["гсм", "азс", "топливо", "дизель", "бензин", "заправ", "fuel"])) {
-    return { name: "fuel_movements", confidence: 0.84, needsData: true, parameters: { query: cleanString(raw) } };
-  }
-
-  if (hasAny(text, ["остат", "склад", "налич", "balance", "stock", "inventory", "warehouse"])) {
-    return { name: "inventory_balance", confidence: 0.8, needsData: true, parameters: { query: cleanString(raw) } };
-  }
-
-  if (hasAny(text, ["движен", "провод", "ledger", "movement", "journal"])) {
-    return { name: "warehouse_movements", confidence: 0.76, needsData: true, parameters: {} };
+  if (hasAny(text, ["гсм", "азс", "топлив", "дизель", "бензин", "заправ", "fuel"])) {
+    return { name: "fuel_movements", confidence: 0.9, needsData: true, parameters: { query: cleanString(raw) } };
   }
 
   if (hasAny(text, ["талон", "весов", "ticket", "weighbridge"])) {
-    return { name: "weighbridge_tickets", confidence: 0.74, needsData: true, parameters: {} };
+    return { name: "weighbridge_tickets", confidence: 0.88, needsData: true, parameters: { query: cleanString(raw) } };
   }
 
-  if (hasAny(text, ["структура посев", "посевная", "crop structure"])) {
-    return { name: "crop_structure_overview", confidence: 0.72, needsData: true, parameters: {} };
+  if (hasAny(text, ["остат", "склад", "налич", "balance", "stock", "inventory", "warehouse"])) {
+    return { name: "inventory_balance", confidence: 0.9, needsData: true, parameters: { query: cleanString(raw) } };
   }
 
-  if (hasAny(text, ["поле", "поля", "field", "fields"])) {
-    return { name: "fields_overview", confidence: 0.7, needsData: true, parameters: { query: cleanString(raw) } };
+  if (hasAny(text, ["движен", "провод", "ledger", "movement", "journal"])) {
+    return { name: "warehouse_movements", confidence: 0.82, needsData: true, parameters: { query: cleanString(raw) } };
+  }
+
+  if (hasAny(text, ["активные операции", "active operations", "операции в работе"])) {
+    return {
+      name: "operations_recent",
+      confidence: 0.86,
+      needsData: true,
+      parameters: { query: cleanString(raw), status: "active" },
+    };
   }
 
   if (hasAny(text, ["операц", "operations"])) {
-    return { name: "operations_recent", confidence: 0.68, needsData: true, parameters: {} };
+    return { name: "operations_recent", confidence: 0.8, needsData: true, parameters: { query: cleanString(raw) } };
+  }
+
+  if (hasAny(text, ["картоф", "potato report", "материал по картоф"])) {
+    return {
+      name: "crop_structure_overview",
+      confidence: 0.84,
+      needsData: true,
+      parameters: { query: cleanString(raw), crop: "картофель" },
+    };
+  }
+
+  if (cropGroups.length || hasAny(text, ["структур", "посев", "crop structure"])) {
+    return {
+      name: "crop_structure_overview",
+      confidence: 0.8,
+      needsData: true,
+      parameters: {
+        query: cleanString(raw),
+        crop_group: cropGroups[0] || null,
+        crop_alias: normalizedAlias,
+      },
+    };
+  }
+
+  if (hasAny(text, ["поле", "поля", "field", "fields"])) {
+    return { name: "fields_overview", confidence: 0.8, needsData: true, parameters: { query: cleanString(raw) } };
   }
 
   if (hasAny(text, ["контекст", "компания", "сезон", "context", "season", "company"])) {
     return {
       name: "company_context",
-      confidence: 0.64,
+      confidence: 0.7,
       needsData: true,
       parameters: { season: sessionState.lastSeason },
     };
@@ -341,7 +331,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
 
   return {
     name: "general_question",
-    confidence: 0.4,
+    confidence: 0.45,
     needsData: false,
     parameters: {},
   };
