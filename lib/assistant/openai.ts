@@ -32,10 +32,15 @@ function shouldUseHeavyModel(params: {
   const intentName = params.intentName || null;
   const text = String(params.message || "").toLowerCase();
   if (isAgroKnowledgeQuestion(text)) return true;
+  if (
+    /(болез|disease|архитект|architecture|анализ|analytics|diagnos|рекоменд|оптимиз|strategy|стратег|риски|risk|прогноз|yield|урожайн|фитофтор)/.test(
+      text
+    )
+  ) {
+    return true;
+  }
   if (intentName === "general_question" || intentName === "create_draft") {
-    if (/(болез|disease|архитект|architecture|анализ|analytics|diagnos|рекоменд|оптимиз|strategy|стратег)/.test(text)) {
-      return true;
-    }
+    if (/(план\/факт|plan.?fact|mixed|compare|сравни|перерасход|deviation)/.test(text)) return true;
   }
   return false;
 }

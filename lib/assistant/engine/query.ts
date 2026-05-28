@@ -439,30 +439,30 @@ function mapToolNamespace(tool: AssistantToolName): string {
     get_routes: "navigation.getRoutes",
     get_company_context: "context.getCompanyContext",
     get_current_season: "context.getCurrentSeason",
-    find_field: "fields.searchFields",
-    search_fields: "fields.searchFields",
-    get_field_card: "fields.getFieldCard",
-    get_field_timeline: "fields.getFieldTimeline",
-    get_field_materials: "fields.getFieldMaterials",
-    find_warehouse: "warehouses.searchWarehouses",
-    search_warehouses: "warehouses.searchWarehouses",
-    get_warehouse_summary: "warehouses.getWarehouseSummary",
-    get_warehouse_stock: "warehouses.getWarehouseStock",
-    get_warehouse_balances: "warehouses.getWarehouseStock",
-    get_warehouse_movements: "warehouses.getWarehouseMovements",
-    find_operation: "operations.searchOperations",
-    search_operations: "operations.searchOperations",
-    get_operation_details: "operations.getOperationDetails",
-    get_active_operations: "operations.getActiveOperations",
-    get_operations: "operations.getOperations",
-    get_weighbridge_tickets: "weighbridge.getRecentTickets",
-    get_active_tickets: "weighbridge.getActiveTickets",
-    get_recent_tickets: "weighbridge.getRecentTickets",
-    get_ticket_details: "weighbridge.getTicketDetails",
-    get_potato_material_report: "reports.getPotatoMaterialReport",
-    get_crop_structure_summary: "reports.getCropStructureSummary",
-    get_crop_structure: "reports.getCropStructure",
-    search_crops_by_group: "agro.searchCropsByGroup",
+    find_field: "field.search",
+    search_fields: "field.search",
+    get_field_card: "field.summary",
+    get_field_timeline: "field.history",
+    get_field_materials: "field.materials",
+    find_warehouse: "inventory.resolveWarehouse",
+    search_warehouses: "inventory.searchWarehouses",
+    get_warehouse_summary: "inventory.summary",
+    get_warehouse_stock: "inventory.balance",
+    get_warehouse_balances: "inventory.balance",
+    get_warehouse_movements: "inventory.movements",
+    find_operation: "operation.search",
+    search_operations: "operation.search",
+    get_operation_details: "operation.details",
+    get_active_operations: "operation.active",
+    get_operations: "operation.search",
+    get_weighbridge_tickets: "weighbridge.tickets",
+    get_active_tickets: "weighbridge.tickets",
+    get_recent_tickets: "weighbridge.tickets",
+    get_ticket_details: "weighbridge.ticketDetails",
+    get_potato_material_report: "report.potato",
+    get_crop_structure_summary: "crop.structure",
+    get_crop_structure: "crop.structureRows",
+    search_crops_by_group: "crop.group",
     navigate_to_page: "navigation.navigateToRoute",
     open_entity: "navigation.openEntity",
     apply_filter: "navigation.applyFilter",
@@ -498,12 +498,12 @@ function buildSmartFollowUp(intent: AssistantIntent, locale: "ru" | "en" | "kz")
 
 function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatformSettings): AssistantToolName[] {
   const byIntent: Record<AssistantIntentName, AssistantToolName[]> = {
-    inventory_balance: ["get_warehouse_stock"],
+    inventory_balance: ["get_warehouse_stock", "get_warehouse_summary", "get_warehouse_balances"],
     warehouse_movements: ["get_warehouse_movements"],
-    weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets"],
-    fields_overview: ["search_fields", "get_field_card", "get_fields", "find_field"],
-    crop_structure_overview: ["get_crop_structure_summary"],
-    operations_recent: ["get_active_operations", "search_operations", "get_operations"],
+    weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets", "get_ticket_details"],
+    fields_overview: ["search_fields", "get_field_card", "get_field_timeline", "get_field_materials", "get_fields", "find_field"],
+    crop_structure_overview: ["get_crop_structure_summary", "get_crop_structure"],
+    operations_recent: ["get_active_operations", "search_operations", "get_operations", "get_operation_details"],
     fuel_movements: ["get_fuel_movements"],
     entity_resolution: [],
     company_context: ["get_company_context"],
@@ -519,6 +519,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   const cropGroup = cleanString(intent.parameters.crop_group);
   const cropAlias = cleanString(intent.parameters.crop_alias) || cleanString(intent.parameters.crop);
   const status = cleanString(intent.parameters.status);
+  const intentGroup = cleanString(intent.parameters.intent_group)?.toLowerCase() || "";
   const tools = [...(byIntent[intent.name] || [])];
 
   if (intent.name === "navigation_help" && action === "open_entity") {
@@ -561,8 +562,24 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     tools.unshift("get_active_operations");
   }
 
+  if (intent.name === "operations_recent" && (intentGroup === "materials" || intentGroup === "potato" || /картоф|гала|сорая|диамм|удобр|сзр|семян/.test(queryText))) {
+    tools.unshift("get_potato_material_report");
+  }
+
   if (intent.name === "crop_structure_overview" && (cropGroup || cropAlias)) {
     tools.unshift("search_crops_by_group");
+  }
+
+  if (intent.name === "crop_structure_overview" && /картоф|гала|сорая|балтик|азилит|коломбо|импала/.test(queryText)) {
+    tools.unshift("get_potato_material_report");
+  }
+
+  if (intent.name === "inventory_balance" && /отрицатель|negative/.test(queryText)) {
+    tools.unshift("get_warehouse_balances");
+  }
+
+  if (intent.name === "inventory_balance" && /движен|журнал|пришло|ушло/.test(queryText)) {
+    tools.unshift("get_warehouse_movements");
   }
 
   const allowedTools = new Set(settings.allowedTools || []);
@@ -575,13 +592,25 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   const filtered = Array.from(new Set(tools)).filter((toolName) => allowByNamespaceFallback(toolName));
   if (filtered.length > 0) return filtered;
 
-  // Production-safe fallback for baseline crop structure questions:
-  // if project settings are stale and do not include new tool names,
-  // still run read-only crop tools instead of returning generic clarification.
-  if (intent.name === "crop_structure_overview") {
-    return Array.from(new Set(["get_crop_structure_summary", "get_crop_structure"])).filter((toolName) =>
-      Boolean(getAssistantTool(toolName as AssistantToolName))
-    ) as AssistantToolName[];
+  const staleSettingsFallback: Record<AssistantIntentName, AssistantToolName[]> = {
+    inventory_balance: ["get_warehouse_stock", "get_warehouse_balances"],
+    warehouse_movements: ["get_warehouse_movements"],
+    weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets"],
+    fields_overview: ["search_fields", "get_field_card", "get_field_timeline", "get_field_materials"],
+    crop_structure_overview: ["get_crop_structure_summary", "search_crops_by_group", "get_crop_structure"],
+    operations_recent: ["get_active_operations", "search_operations", "get_operations"],
+    fuel_movements: ["get_fuel_movements"],
+    entity_resolution: [],
+    company_context: ["get_company_context"],
+    navigation_help: ["navigate_to_page"],
+    create_draft: ["create_operation_draft"],
+    clarification_required: [],
+    general_question: [],
+  };
+
+  if (!filtered.length) {
+    return (staleSettingsFallback[intent.name] || [])
+      .filter((toolName) => Boolean(getAssistantTool(toolName))) as AssistantToolName[];
   }
 
   return filtered;
@@ -949,6 +978,8 @@ export async function runAssistantEngine(params: {
     sessionState: initialSessionState,
     settings,
   });
+  const resolvedMode: AssistantEngineResult["mode"] =
+    intent.name === "navigation_help" ? "navigation" : assistantMode;
 
   if (intent.name === "clarification_required") {
     const smartFollowup = buildSmartFollowUp(intent, runtimeContext.locale || "ru");
@@ -956,7 +987,7 @@ export async function runAssistantEngine(params: {
       answer: smartFollowup || "Уточните объект запроса.",
       sessionState: { ...initialSessionState, lastIntent: intent.name },
       intent,
-      mode: assistantMode,
+      mode: resolvedMode,
       toolCalls: [],
       toolActivity: [],
       navigationActions: [],
@@ -979,7 +1010,7 @@ export async function runAssistantEngine(params: {
       answer: buildCapabilitiesAnswer(runtimeContext.locale || "ru"),
       sessionState: { ...initialSessionState, lastIntent: intent.name },
       intent,
-      mode: assistantMode,
+      mode: resolvedMode,
       toolCalls: [],
       toolActivity: [],
       navigationActions: [],
@@ -1078,7 +1109,7 @@ export async function runAssistantEngine(params: {
       answer: answerBlocks.join("\n\n"),
       sessionState: { ...nextSessionState, lastIntent: intent.name },
       intent,
-      mode: assistantMode,
+      mode: resolvedMode,
       toolCalls,
       toolActivity,
       navigationActions,
@@ -1117,7 +1148,7 @@ export async function runAssistantEngine(params: {
       answer: fallbackByIntent[intent.name] || "Не смог получить данные. Ошибка в инструменте.",
       sessionState: { ...nextSessionState, lastIntent: intent.name },
       intent,
-      mode: assistantMode,
+      mode: resolvedMode,
       toolCalls,
       toolActivity,
       navigationActions,
@@ -1144,7 +1175,7 @@ export async function runAssistantEngine(params: {
       answer: followup || "Уточните объект запроса: склад, поле или период.",
       sessionState: { ...nextSessionState, lastIntent: intent.name },
       intent,
-      mode: assistantMode,
+      mode: resolvedMode,
       toolCalls,
       toolActivity,
       navigationActions,
@@ -1175,7 +1206,7 @@ export async function runAssistantEngine(params: {
     answer: fallback.answer,
     sessionState: { ...nextSessionState, lastIntent: intent.name },
     intent,
-    mode: isAgroKnowledgeQuestion(message) ? "agro_knowledge" : assistantMode,
+    mode: intent.name === "navigation_help" ? "navigation" : isAgroKnowledgeQuestion(message) ? "agro_knowledge" : assistantMode,
     toolCalls,
     toolActivity,
     navigationActions,

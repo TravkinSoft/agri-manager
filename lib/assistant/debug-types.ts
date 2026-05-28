@@ -15,6 +15,9 @@ export type AssistantDebugToolLog = {
   ok: boolean;
   rows: number;
   error: string | null;
+  args?: Record<string, unknown> | null;
+  resolvedSeason?: string | null;
+  companyId?: string | null;
 };
 
 export type AssistantDebugMetadata = {

@@ -183,7 +183,7 @@ export type AssistantEngineResult = {
   answer: string;
   sessionState: AssistantSessionState;
   intent: AssistantIntent;
-  mode: "erp_data" | "agro_knowledge" | "mixed";
+  mode: "erp_data" | "agro_knowledge" | "mixed" | "navigation";
   toolCalls: AssistantToolCallLog[];
   toolActivity: string[];
   navigationActions: AssistantNavigationAction[];

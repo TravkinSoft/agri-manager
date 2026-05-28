@@ -68,7 +68,7 @@ type TestResponse = {
     reasoning_effort: "low" | "medium" | "high";
     tools_enabled_count: number;
     tools_allowed: string[];
-    mode: "erp_data" | "agro_knowledge" | "mixed";
+    mode: "erp_data" | "agro_knowledge" | "mixed" | "navigation";
     latency_ms: number;
     token_usage: {
       prompt_tokens: number | null;

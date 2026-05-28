@@ -25,10 +25,14 @@ const CROP_ALIASES: Record<string, string> = {
   импала: "impala",
   impala: "impala",
   картофель: "potato",
+  картошка: "potato",
   картофеля: "potato",
   potato: "potato",
   "seed potato": "potato",
   "семенной картофель": "potato",
+  диамофоска: "диаммофоска",
+  диаммофоска: "диаммофоска",
+  dap: "диаммофоска",
   пшеница: "wheat",
   wheat: "wheat",
   ячмень: "barley",
@@ -66,6 +70,7 @@ const GROUP_ALIASES: Record<string, string> = {
   "row crops": "row crops",
   "row crop": "row crops",
   "рядковые культуры": "row crops",
+  rowcrops: "row crops",
 };
 
 function norm(value: string): string {
