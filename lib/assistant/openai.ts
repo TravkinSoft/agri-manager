@@ -49,7 +49,8 @@ export function resolveAssistantModelConfig(
   settings: AssistantPlatformSettings,
   options?: { intentName?: AssistantIntentName | null; message?: string | null }
 ): AssistantResolvedModelConfig {
-  const defaultModel = asText(process.env.OPENAI_ASSISTANT_MODEL) || "gpt-5.4-mini";
+  const envDefaultModel = asText(process.env.OPENAI_ASSISTANT_MODEL);
+  const defaultModel = envDefaultModel || "gpt-5.4-mini";
   const heavyModel = asText(process.env.OPENAI_ASSISTANT_HEAVY_MODEL) || "gpt-5.5";
   const dbModel = asText(settings.model);
   const useHeavy = shouldUseHeavyModel({
@@ -59,7 +60,7 @@ export function resolveAssistantModelConfig(
 
   const routedModel = useHeavy ? heavyModel : defaultModel;
   const actualModel = dbModel || routedModel;
-  const settingsSource: AssistantSettingsSource = dbModel ? "db" : "env";
+  const settingsSource: AssistantSettingsSource = dbModel ? "db" : envDefaultModel ? "env" : "default";
 
   const reasoningEffort: "low" | "medium" | "high" =
     settings.reasoningEffort === "low" || settings.reasoningEffort === "high" ? settings.reasoningEffort : "medium";

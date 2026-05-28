@@ -23,11 +23,23 @@ import { resolveAssistantModelConfig } from "@/lib/assistant/openai";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import type { ServerActorContext } from "@/lib/auth/server-session";
 import { isAgroKnowledgeQuestion, resolveAssistantMode } from "@/lib/assistant/agro-taxonomy";
+import {
+  resolveTravkinCorePrompt,
+  TRAVKIN_CORE_PROMPT_UPDATED_AT,
+  TRAVKIN_CORE_PROMPT_VERSION,
+  type TravkinPromptSource,
+} from "@/lib/assistant/prompts/travkin-core-prompt";
 
 type UsageStats = {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
+};
+
+type PromptMeta = {
+  promptVersion: string;
+  promptSource: TravkinPromptSource;
+  promptUpdatedAt: string;
 };
 
 type LlmDiagnostics = {
@@ -805,64 +817,15 @@ function unavailableAssistantMessage(locale: "ru" | "en" | "kz"): string {
   return "AI Assistant временно недоступен. Попробуйте позже.";
 }
 
-function buildTravkinSystemPrompt(params: {
-  locale: "ru" | "en" | "kz";
-  settings: AssistantPlatformSettings;
-  runtimeContext: { currentPage?: string | null; currentRoute?: string | null; companyName?: string | null; companyId?: string | null; season?: string | null };
-  actorRole: string;
-}): string {
-  const { locale, settings, runtimeContext, actorRole } = params;
-  const routeMap = [
-    "Dashboard: /dashboard",
-    "Весовая: /weighbridge",
-    "Склады: /warehouses",
-    "Операции: /operations",
-    "Поля: /fields",
-    "Кадастр и право: /land-legal",
-    "Пользователи: /users",
-    "Отчеты/Аналитика: /analytics",
-  ].join("; ");
-
-  const contextLine = [
-    `current_page=${runtimeContext.currentPage || "-"}`,
-    `current_route=${runtimeContext.currentRoute || "-"}`,
-    `company=${runtimeContext.companyName || runtimeContext.companyId || "-"}`,
-    `season=${runtimeContext.season || "-"}`,
-    `role=${actorRole || "-"}`,
-    `locale=${locale}`,
-  ].join(", ");
-
-  const lines = [
-    "You are AI Assistant inside Travkin Flow.",
-    "Travkin Flow is an operational agro ERP / AgriOS, not a generic chatbot.",
-    "Core entities: fields, crop structure, operations, material requests, issue, operation fact, field history, warehouse, weighbridge, batches, ledger, fuel, land legal.",
-    "Operational chain: Crop Structure -> Operation -> Material Request -> Issue -> Operation Fact -> Field History -> Reports.",
-    "Respond short and practical (1-4 short paragraphs).",
-    "Default language is Russian unless user explicitly asks another language.",
-    "Never fabricate numbers or company facts. If data is missing, answer exactly: \"Я не вижу этих данных в системе\".",
-    "Never perform dangerous actions automatically. Require explicit user confirmation for any mutation-like step.",
-    `Use this route map: ${routeMap}.`,
-    `Current UI context: ${contextLine}.`,
-  ];
-
-  const customPrompt = cleanString(settings.systemPrompt);
-  if (customPrompt) {
-    lines.push("Custom platform instructions:");
-    lines.push(customPrompt);
-  }
-
-  return lines.join("\n");
-}
-
 async function generateGeneralAnswer(params: {
   message: string;
   locale: "ru" | "en" | "kz";
   settings: AssistantPlatformSettings;
-  runtimeContext: any;
-  actorRole: string;
   intentName: AssistantIntentName;
-}): Promise<{ answer: string; actualModel: string | null; usage: UsageStats; llm: LlmDiagnostics }> {
-  const { message, locale, settings, runtimeContext, actorRole, intentName } = params;
+  systemPrompt: string;
+  promptMeta: PromptMeta;
+}): Promise<{ answer: string; actualModel: string | null; usage: UsageStats; llm: LlmDiagnostics; promptMeta: PromptMeta }> {
+  const { message, locale, settings, intentName, systemPrompt, promptMeta } = params;
   const modelConfig = resolveAssistantModelConfig(settings, { intentName, message });
   const emptyUsage: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
 
@@ -878,6 +841,7 @@ async function generateGeneralAnswer(params: {
         errorMessage: "OPENAI_API_KEY is not configured",
         missingEnv: ["OPENAI_API_KEY"],
       },
+      promptMeta,
     };
   }
 
@@ -891,13 +855,6 @@ async function generateGeneralAnswer(params: {
       ].filter((model): model is string => Boolean(model))
     )
   );
-
-  const systemPrompt = buildTravkinSystemPrompt({
-    locale,
-    settings,
-    runtimeContext,
-    actorRole,
-  });
 
   let response: Response | null = null;
   let data: any = {};
@@ -956,6 +913,7 @@ async function generateGeneralAnswer(params: {
         errorMessage: "Network request to OpenAI failed",
         missingEnv: [],
       },
+      promptMeta,
     };
   }
 
@@ -981,6 +939,7 @@ async function generateGeneralAnswer(params: {
         errorMessage: errMessage,
         missingEnv: [],
       },
+      promptMeta,
     };
   }
 
@@ -997,6 +956,7 @@ async function generateGeneralAnswer(params: {
         errorMessage: null,
         missingEnv: [],
       },
+      promptMeta,
     };
   }
 
@@ -1011,6 +971,7 @@ async function generateGeneralAnswer(params: {
       errorMessage: "OpenAI response did not contain assistant message content",
       missingEnv: [],
     },
+    promptMeta,
   };
 }
 
@@ -1025,6 +986,17 @@ export async function runAssistantEngine(params: {
   const message = String(input.message || "").trim();
   const assistantMode = resolveAssistantMode(message);
   const runtimeContext = normalizeAssistantUiContext(input.runtimeContext);
+  const promptBundle = resolveTravkinCorePrompt({
+    settings,
+    runtimeContext,
+    actorRole: actor.role,
+    locale: runtimeContext.locale || "ru",
+  });
+  const promptMeta: PromptMeta = {
+    promptVersion: promptBundle.version || TRAVKIN_CORE_PROMPT_VERSION,
+    promptSource: promptBundle.source,
+    promptUpdatedAt: promptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
+  };
   const normalizedState = normalizeSessionState(input.sessionState);
   const initialSessionState: AssistantSessionState = {
     ...EMPTY_ASSISTANT_SESSION_STATE,
@@ -1052,6 +1024,9 @@ export async function runAssistantEngine(params: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
+        promptVersion: promptMeta.promptVersion,
+        promptSource: promptMeta.promptSource,
+        promptUpdatedAt: promptMeta.promptUpdatedAt,
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
@@ -1076,6 +1051,9 @@ export async function runAssistantEngine(params: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
+        promptVersion: promptMeta.promptVersion,
+        promptSource: promptMeta.promptSource,
+        promptUpdatedAt: promptMeta.promptUpdatedAt,
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
@@ -1111,6 +1089,9 @@ export async function runAssistantEngine(params: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
+        promptVersion: promptMeta.promptVersion,
+        promptSource: promptMeta.promptSource,
+        promptUpdatedAt: promptMeta.promptUpdatedAt,
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
@@ -1135,6 +1116,9 @@ export async function runAssistantEngine(params: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
+        promptVersion: promptMeta.promptVersion,
+        promptSource: promptMeta.promptSource,
+        promptUpdatedAt: promptMeta.promptUpdatedAt,
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
@@ -1237,6 +1221,9 @@ export async function runAssistantEngine(params: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
+        promptVersion: promptMeta.promptVersion,
+        promptSource: promptMeta.promptSource,
+        promptUpdatedAt: promptMeta.promptUpdatedAt,
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
@@ -1277,6 +1264,9 @@ export async function runAssistantEngine(params: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
+        promptVersion: promptMeta.promptVersion,
+        promptSource: promptMeta.promptSource,
+        promptUpdatedAt: promptMeta.promptUpdatedAt,
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
@@ -1305,6 +1295,9 @@ export async function runAssistantEngine(params: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
         settingsSource: modelConfig.settingsSource,
+        promptVersion: promptMeta.promptVersion,
+        promptSource: promptMeta.promptSource,
+        promptUpdatedAt: promptMeta.promptUpdatedAt,
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
@@ -1317,9 +1310,9 @@ export async function runAssistantEngine(params: {
     message,
     locale,
     settings,
-    runtimeContext,
-    actorRole: actor.role,
     intentName: intent.name,
+    systemPrompt: promptBundle.text,
+    promptMeta,
   });
   return {
     answer: fallback.answer,
@@ -1337,6 +1330,9 @@ export async function runAssistantEngine(params: {
       configuredModel: modelConfig.configuredModel,
       actualModel: fallback.actualModel,
       settingsSource: modelConfig.settingsSource,
+      promptVersion: fallback.promptMeta.promptVersion,
+      promptSource: fallback.promptMeta.promptSource,
+      promptUpdatedAt: fallback.promptMeta.promptUpdatedAt,
       requestMode: "tool_first",
       llm: fallback.llm,
     },

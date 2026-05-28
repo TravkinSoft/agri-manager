@@ -204,6 +204,9 @@ export type AssistantEngineResult = {
     configuredModel: string | null;
     actualModel: string | null;
     settingsSource: "db" | "env" | "default";
+    promptVersion: string;
+    promptSource: "code_default" | "db_override" | "env_override";
+    promptUpdatedAt: string;
     requestMode: "tool_first";
     llm: {
       status: "not_called" | "ok" | "missing_api_key" | "network_error" | "http_error" | "invalid_response";

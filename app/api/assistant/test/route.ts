@@ -20,6 +20,9 @@ type TestResponse = {
     requested_model: string;
     actual_model_used: string | null;
     config_source: "db" | "env" | "default";
+    prompt_version: string;
+    prompt_source: "code_default" | "db_override" | "env_override";
+    prompt_updated_at: string;
     temperature_used: number;
     reasoning_effort: "low" | "medium" | "high";
     tools_enabled_count: number;
@@ -132,6 +135,9 @@ export async function POST(request: NextRequest) {
         requested_model: modelConfig.configuredModel,
         actual_model_used: result.model.actualModel,
         config_source: result.model.settingsSource,
+        prompt_version: result.model.promptVersion,
+        prompt_source: result.model.promptSource,
+        prompt_updated_at: result.model.promptUpdatedAt,
         temperature_used: modelConfig.temperature,
         reasoning_effort: modelConfig.reasoningEffort,
         tools_enabled_count: testSettings.allowedTools.length,

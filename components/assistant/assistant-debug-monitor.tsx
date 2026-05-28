@@ -82,6 +82,9 @@ export function AssistantDebugMonitor() {
                   <Row label="Provider" value={debugSnapshot.model.provider} />
                   <Row label="Model actual" value={debugSnapshot.model.actualModel || debugSnapshot.model.configuredModel} />
                   <Row label="Settings source" value={debugSnapshot.model.settingsSource} />
+                  <Row label="Prompt version" value={debugSnapshot.model.promptVersion} />
+                  <Row label="Prompt source" value={debugSnapshot.model.promptSource} />
+                  <Row label="Prompt updated" value={debugSnapshot.model.promptUpdatedAt} />
                   <Row label="Temperature" value={debugSnapshot.model.temperature} />
                   <Row label="Reasoning" value={debugSnapshot.model.reasoningEffort} />
                   <Row label="Request mode" value={debugSnapshot.model.requestMode} />

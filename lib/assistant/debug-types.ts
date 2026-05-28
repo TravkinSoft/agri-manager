@@ -27,6 +27,9 @@ export type AssistantDebugMetadata = {
     configuredModel: string | null;
     actualModel: string | null;
     settingsSource: AssistantDebugSettingsSource;
+    promptVersion: string | null;
+    promptSource: "code_default" | "db_override" | "env_override" | null;
+    promptUpdatedAt: string | null;
     temperature: number | null;
     reasoningEffort: string | null;
     requestMode: string | null;

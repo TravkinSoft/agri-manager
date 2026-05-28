@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { getAssistantPlatformSettings } from "@/lib/assistant/settings-store";
 import { resolveAssistantModelConfig } from "@/lib/assistant/openai";
+import { resolveTravkinCorePrompt } from "@/lib/assistant/prompts/travkin-core-prompt";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 
 export const runtime = "nodejs";
@@ -82,6 +83,16 @@ export async function GET(request: NextRequest) {
     const supabase = getServiceClient();
     const settings = await getAssistantPlatformSettings(supabase, actor.id);
     const modelConfig = resolveAssistantModelConfig(settings, { intentName: "general_question", message: "health check" });
+    const promptBundle = resolveTravkinCorePrompt({
+      settings,
+      runtimeContext: {
+        currentPage: "assistant-settings",
+        currentRoute: "/platform/assistant/settings",
+        season: "2026",
+      },
+      actorRole: actor.role,
+      locale: "ru",
+    });
 
     const apiKey = process.env.OPENAI_API_KEY || null;
     const ping = await runModelPing({
@@ -115,6 +126,9 @@ export async function GET(request: NextRequest) {
         requested_model: modelConfig.configuredModel,
         actual_model_used: ping.actualModel || null,
         config_source: configSource,
+        prompt_version: promptBundle.version,
+        prompt_source: promptBundle.source,
+        prompt_updated_at: promptBundle.updatedAt,
         temperature_used: modelConfig.temperature,
         reasoning_effort: modelConfig.reasoningEffort,
         route_tier: modelConfig.routeTier,

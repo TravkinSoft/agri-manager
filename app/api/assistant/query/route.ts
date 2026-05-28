@@ -36,14 +36,6 @@ function isDebugAllowed(role: string): boolean {
   return process.env.NEXT_PUBLIC_ASSISTANT_DEBUG === "1" || process.env.ASSISTANT_DEBUG === "1";
 }
 
-function detectModelSettingsSource(settingsModel: string | null): AssistantDebugSettingsSource {
-  const configured = asString(settingsModel);
-  const envModel = asString(process.env.OPENAI_ASSISTANT_MODEL);
-  if (configured && envModel && configured === envModel) return "env";
-  if (!configured || configured === "gpt-5.4-mini") return "default";
-  return "db";
-}
-
 function countActiveFilters(filters: unknown): number {
   if (!filters || typeof filters !== "object") return 0;
   return Object.values(filters as Record<string, unknown>).reduce((acc: number, value) => {
@@ -249,7 +241,10 @@ function buildDebugMetadata(params: {
       provider: asString(settings.provider),
       configuredModel: asString(settings.model),
       actualModel: asString(result.model.actualModel),
-      settingsSource: detectModelSettingsSource(settings.model || null),
+      settingsSource: result.model.settingsSource as AssistantDebugSettingsSource,
+      promptVersion: asString(result.model.promptVersion),
+      promptSource: result.model.promptSource,
+      promptUpdatedAt: asString(result.model.promptUpdatedAt),
       temperature: Number.isFinite(Number(settings.temperature)) ? Number(settings.temperature) : null,
       reasoningEffort: asString(settings.reasoningEffort),
       requestMode: result.model.requestMode,
@@ -437,6 +432,9 @@ export async function POST(request: NextRequest) {
               answer_source: result.answerSource,
               grounded: result.grounded,
               llm: result.model.llm,
+              prompt_version: result.model.promptVersion,
+              prompt_source: result.model.promptSource,
+              prompt_updated_at: result.model.promptUpdatedAt,
               session_id: sessionId,
               assistant_panel: true,
             },
@@ -519,6 +517,11 @@ export async function POST(request: NextRequest) {
         outputType: result.outputType,
         sourceHints: result.sourceHints,
         llm: result.model.llm,
+        prompt: {
+          version: result.model.promptVersion,
+          source: result.model.promptSource,
+          updated_at: result.model.promptUpdatedAt,
+        },
       },
       ...(debug ? { debug } : {}),
     });

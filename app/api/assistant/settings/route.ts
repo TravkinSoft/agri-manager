@@ -5,6 +5,7 @@ import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import { DEFAULT_ASSISTANT_PLATFORM_SETTINGS } from "@/lib/assistant/settings-types";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 import { normalizeRoleKey, parseCanonicalRole } from "@/lib/auth/role-contract";
+import { resolveTravkinCorePrompt } from "@/lib/assistant/prompts/travkin-core-prompt";
 
 function sanitizeRoleList(input: unknown): AssistantPlatformSettings["allowedRoles"] {
   if (!Array.isArray(input)) return DEFAULT_ASSISTANT_PLATFORM_SETTINGS.allowedRoles;
@@ -103,7 +104,25 @@ export async function GET(request: NextRequest) {
     requireGlobalAdmin(actor.role);
     const supabase = getServiceClient();
     const settings = await getAssistantPlatformSettings(supabase, actor.id);
-    return NextResponse.json({ settings });
+    const promptBundle = resolveTravkinCorePrompt({
+      settings,
+      runtimeContext: {
+        currentPage: "assistant-settings",
+        currentRoute: "/platform/assistant/settings",
+        season: "2026",
+      },
+      actorRole: actor.role,
+      locale: "ru",
+    });
+    return NextResponse.json({
+      settings,
+      prompt: {
+        version: promptBundle.version,
+        source: promptBundle.source,
+        updated_at: promptBundle.updatedAt,
+        active_prompt: promptBundle.text,
+      },
+    });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -121,7 +140,25 @@ export async function PUT(request: NextRequest) {
     const settings = sanitizeSettingsPayload(payload?.settings ?? payload);
     const supabase = getServiceClient();
     const saved = await saveAssistantPlatformSettings(supabase, actor.id, settings);
-    return NextResponse.json({ settings: saved });
+    const promptBundle = resolveTravkinCorePrompt({
+      settings: saved,
+      runtimeContext: {
+        currentPage: "assistant-settings",
+        currentRoute: "/platform/assistant/settings",
+        season: "2026",
+      },
+      actorRole: actor.role,
+      locale: "ru",
+    });
+    return NextResponse.json({
+      settings: saved,
+      prompt: {
+        version: promptBundle.version,
+        source: promptBundle.source,
+        updated_at: promptBundle.updatedAt,
+        active_prompt: promptBundle.text,
+      },
+    });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

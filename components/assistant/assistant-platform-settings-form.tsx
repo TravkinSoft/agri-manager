@@ -18,7 +18,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 
-type SettingsResponse = { settings: AssistantPlatformSettings; error?: string };
+type PromptRuntimeInfo = {
+  version: string;
+  source: "code_default" | "db_override" | "env_override";
+  updated_at: string;
+  active_prompt: string;
+};
+
+type SettingsResponse = {
+  settings: AssistantPlatformSettings;
+  prompt?: PromptRuntimeInfo;
+  error?: string;
+};
 
 type ValidateResponse = {
   runtime: {
@@ -33,6 +44,9 @@ type ValidateResponse = {
     requested_model: string;
     actual_model_used: string | null;
     config_source: "db" | "env" | "default";
+    prompt_version: string;
+    prompt_source: "code_default" | "db_override" | "env_override";
+    prompt_updated_at: string;
     temperature_used: number;
     reasoning_effort: string;
     route_tier: "default" | "heavy";
@@ -64,6 +78,9 @@ type TestResponse = {
     requested_model: string;
     actual_model_used: string | null;
     config_source: "db" | "env" | "default";
+    prompt_version: string;
+    prompt_source: "code_default" | "db_override" | "env_override";
+    prompt_updated_at: string;
     temperature_used: number;
     reasoning_effort: "low" | "medium" | "high";
     tools_enabled_count: number;
@@ -216,6 +233,7 @@ export function AssistantPlatformSettingsForm() {
   const [testing, setTesting] = useState(false);
 
   const [settings, setSettings] = useState<AssistantPlatformSettings>(DEFAULT_ASSISTANT_PLATFORM_SETTINGS);
+  const [activePromptInfo, setActivePromptInfo] = useState<PromptRuntimeInfo | null>(null);
   const [forbiddenActionsText, setForbiddenActionsText] = useState("");
   const [groundingDomainsText, setGroundingDomainsText] = useState("");
   const [validateResult, setValidateResult] = useState<ValidateResponse | null>(null);
@@ -244,6 +262,7 @@ export function AssistantPlatformSettingsForm() {
 
       const next = payload.settings || DEFAULT_ASSISTANT_PLATFORM_SETTINGS;
       setSettings(next);
+      setActivePromptInfo(payload.prompt || null);
       setForbiddenActionsText(asMultiline(next.forbiddenActions || []));
       setGroundingDomainsText(asMultiline(next.groundingRules?.requireToolForDomains || []));
     } catch (error) {
@@ -285,6 +304,7 @@ export function AssistantPlatformSettingsForm() {
 
       const saved = data.settings || payload;
       setSettings(saved);
+      setActivePromptInfo(data.prompt || null);
       setForbiddenActionsText(asMultiline(saved.forbiddenActions || []));
       setGroundingDomainsText(asMultiline(saved.groundingRules?.requireToolForDomains || []));
 
@@ -562,6 +582,32 @@ export function AssistantPlatformSettingsForm() {
           <CardDescription>System prompt, роли, инструменты и ограничения.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
+          <div className="space-y-2 rounded border bg-slate-50 p-3 text-sm">
+            <div className="font-medium">Active core prompt</div>
+            <div className="grid gap-2 md:grid-cols-3">
+              <div>
+                version: <b>{activePromptInfo?.version || "travkin-core-v1"}</b>
+              </div>
+              <div>
+                source: <b>{activePromptInfo?.source || "code_default"}</b>
+              </div>
+              <div>
+                updated_at: <b>{activePromptInfo?.updated_at || "2026-05-28"}</b>
+              </div>
+            </div>
+            <details>
+              <summary className="cursor-pointer text-xs font-medium uppercase text-slate-600">
+                Preview active prompt
+              </summary>
+              <Textarea
+                className="mt-2"
+                rows={10}
+                readOnly
+                value={activePromptInfo?.active_prompt || "Core prompt preview is unavailable."}
+              />
+            </details>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="systemPrompt">Системный prompt</Label>
             <Textarea
@@ -789,6 +835,9 @@ export function AssistantPlatformSettingsForm() {
                 <div>Requested model: <b>{validateResult.model.requested_model}</b></div>
                 <div>Actual model used: <b>{validateResult.model.actual_model_used || "—"}</b></div>
                 <div>Config source: <b>{validateResult.model.config_source}</b></div>
+                <div>Prompt version: <b>{validateResult.model.prompt_version}</b></div>
+                <div>Prompt source: <b>{validateResult.model.prompt_source}</b></div>
+                <div>Prompt updated: <b>{validateResult.model.prompt_updated_at}</b></div>
                 <div>Temperature: <b>{validateResult.model.temperature_used}</b></div>
                 <div>Reasoning: <b>{validateResult.model.reasoning_effort}</b></div>
                 <div>Tools enabled: <b>{validateResult.checks.tools_enabled_count}</b></div>
@@ -905,6 +954,9 @@ export function AssistantPlatformSettingsForm() {
                 <div>requested_model: <b>{testMeta.requested_model}</b></div>
                 <div>actual_model_used: <b>{testMeta.actual_model_used || "not_called"}</b></div>
                 <div>config_source: <b>{testMeta.config_source}</b></div>
+                <div>prompt_version: <b>{testMeta.prompt_version}</b></div>
+                <div>prompt_source: <b>{testMeta.prompt_source}</b></div>
+                <div>prompt_updated_at: <b>{testMeta.prompt_updated_at}</b></div>
                 <div>temperature_used: <b>{testMeta.temperature_used}</b></div>
                 <div>reasoning_effort: <b>{testMeta.reasoning_effort}</b></div>
                 <div>tools_enabled_count: <b>{testMeta.tools_enabled_count}</b></div>
