@@ -24,6 +24,48 @@ const CROP_ALIASES: Record<string, string> = {
   colombo: "colombo",
   импала: "impala",
   impala: "impala",
+  картофель: "potato",
+  картофеля: "potato",
+  potato: "potato",
+  "seed potato": "potato",
+  "семенной картофель": "potato",
+  пшеница: "wheat",
+  wheat: "wheat",
+  ячмень: "barley",
+  barley: "barley",
+  кукуруза: "corn",
+  corn: "corn",
+};
+
+const GROUP_ALIASES: Record<string, string> = {
+  зерновые: "зерновые",
+  зерновым: "зерновые",
+  зерновых: "зерновые",
+  grain: "зерновые",
+  grains: "зерновые",
+  cereals: "зерновые",
+  масличные: "масличные",
+  масличным: "масличные",
+  масличных: "масличные",
+  oilseeds: "масличные",
+  овощные: "овощные",
+  овощным: "овощные",
+  овощных: "овощные",
+  vegetables: "овощные",
+  кормовые: "кормовые",
+  кормовым: "кормовые",
+  кормовых: "кормовые",
+  forage: "кормовые",
+  бобовые: "бобовые",
+  бобовым: "бобовые",
+  бобовых: "бобовые",
+  legumes: "бобовые",
+  технические: "технические",
+  technical: "технические",
+  industrial: "технические",
+  "row crops": "row crops",
+  "row crop": "row crops",
+  "рядковые культуры": "row crops",
 };
 
 function norm(value: string): string {
@@ -40,14 +82,40 @@ export function normalizeCropAlias(value: string): string | null {
   return CROP_ALIASES[key] || key;
 }
 
+export function resolveKnownCropAlias(value: string): string | null {
+  const key = norm(value);
+  if (!key) return null;
+  return CROP_ALIASES[key] || null;
+}
+
+export function findCropAliasesInText(value: string): string[] {
+  const text = ` ${norm(value)} `;
+  if (!text.trim()) return [];
+  const found = new Set<string>();
+
+  Object.entries(CROP_ALIASES).forEach(([alias, canonical]) => {
+    if (text.includes(` ${alias} `)) {
+      found.add(canonical);
+    }
+  });
+
+  return Array.from(found);
+}
+
 export function findCropGroupsInText(value: string): string[] {
-  const text = norm(value);
-  if (!text) return [];
-  return Object.keys(CROP_GROUPS).filter((group) => text.includes(group));
+  const text = ` ${norm(value)} `;
+  if (!text.trim()) return [];
+  const found = new Set<string>();
+  Object.entries(GROUP_ALIASES).forEach(([alias, group]) => {
+    if (text.includes(` ${alias} `)) {
+      found.add(group);
+    }
+  });
+  return Array.from(found);
 }
 
 export function listCropsByGroup(group: string): string[] {
-  const key = norm(group);
+  const key = GROUP_ALIASES[norm(group)] || norm(group);
   return CROP_GROUPS[key] ? [...CROP_GROUPS[key]] : [];
 }
 
@@ -79,5 +147,6 @@ export function getAgroTaxonomySnapshot() {
   return {
     groups: { ...CROP_GROUPS },
     aliases: { ...CROP_ALIASES },
+    groupAliases: { ...GROUP_ALIASES },
   };
 }

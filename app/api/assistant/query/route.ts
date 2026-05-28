@@ -109,6 +109,7 @@ function mapToolNamespace(tool: string): string {
     get_weighbridge_tickets: "weighbridge.getRecentTickets",
     get_potato_material_report: "reports.getPotatoMaterialReport",
     get_crop_structure_summary: "reports.getCropStructureSummary",
+    get_crop_structure: "reports.getCropStructure",
     search_crops_by_group: "agro.searchCropsByGroup",
     navigate_to_page: "navigation.navigateToRoute",
     open_entity: "navigation.openEntity",

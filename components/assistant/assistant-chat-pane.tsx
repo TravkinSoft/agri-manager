@@ -136,11 +136,7 @@ const EMPTY_STATE: AssistantSessionStatePayload = {
   lastResultContext: null,
 };
 
-const TOOL_LOADING_STEPS = [
-  "Reading company context...",
-  "Fetching ERP data...",
-  "Preparing operational answer...",
-] as const;
+const TOOL_LOADING_STEPS = ["Запрашиваю данные..."] as const;
 
 function uid() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -684,7 +680,7 @@ export function AssistantChatPane({
                       {message.content}
                     </div>
 
-                    {message.role !== "user" && message.meta?.toolActivity?.length ? (
+                    {debugMonitorEnabled && debugMonitorOpen && message.role !== "user" && message.meta?.toolActivity?.length ? (
                       <div className="rounded-md border border-[#334058] bg-[#101725] px-2.5 py-2 text-[11px] text-[#9CA3AF]">
                         <div className="mb-1 flex items-center gap-1 text-[#CBD5E1]">
                           <TerminalSquare className="h-3.5 w-3.5" />

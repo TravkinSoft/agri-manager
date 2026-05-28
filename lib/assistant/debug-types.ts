@@ -7,6 +7,7 @@ export type AssistantDebugAnswerSource =
   | "disabled"
   | "access_denied"
   | "no_data"
+  | "tool_error"
   | "unknown";
 
 export type AssistantDebugToolLog = {

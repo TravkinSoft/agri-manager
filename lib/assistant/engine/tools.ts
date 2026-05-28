@@ -1,10 +1,12 @@
 import type { AssistantToolContext, AssistantToolDefinition, AssistantToolName } from "@/lib/assistant/engine/types";
 import { getFieldDisplayName } from "@/lib/fields/display";
 import {
+  findCropAliasesInText,
   findCropGroupsInText,
   getAgroTaxonomySnapshot,
   listCropsByGroup,
   normalizeCropAlias,
+  resolveKnownCropAlias,
 } from "@/lib/assistant/agro-taxonomy";
 
 function cleanString(value: unknown): string | null {
@@ -19,6 +21,132 @@ function nowIso(): string {
 function isMissingRelationError(message: string): boolean {
   const text = String(message || "").toLowerCase();
   return text.includes("does not exist") || text.includes("schema cache") || text.includes("not found");
+}
+
+function normalizeSearchText(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[.,!?;:()"'`]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.filter((value): value is string => !!value && value.trim().length > 0)));
+}
+
+function cropAliasToSearchTerms(alias: string): string[] {
+  const key = normalizeSearchText(alias);
+  if (!key) return [];
+  const map: Record<string, string[]> = {
+    potato: ["potato", "картофель", "картофеля", "seed potato", "семенной картофель"],
+    gala: ["gala", "гала"],
+    soraya: ["soraya", "сорая"],
+    "baltic rose": ["baltic rose", "балтик роуз"],
+    azilit: ["azilit", "азилит"],
+    colombo: ["colombo", "коломбо"],
+    impala: ["impala", "импала"],
+    wheat: ["wheat", "пшеница"],
+    barley: ["barley", "ячмень"],
+    corn: ["corn", "кукуруза"],
+  };
+  return map[key] || [key];
+}
+
+function buildSearchTerms(value: string | null): string[] {
+  const normalized = normalizeSearchText(value);
+  if (!normalized) return [];
+  const stopwords = new Set([
+    "и",
+    "в",
+    "во",
+    "на",
+    "по",
+    "с",
+    "со",
+    "у",
+    "к",
+    "за",
+    "что",
+    "как",
+    "есть",
+    "ли",
+    "мне",
+    "покажи",
+    "сколько",
+    "наличие",
+    "остатки",
+    "остаток",
+    "show",
+    "with",
+    "for",
+    "have",
+    "stock",
+  ]);
+
+  const tokens = normalized.split(" ").filter(Boolean);
+  const terms = new Set<string>();
+  terms.add(normalized);
+  tokens
+    .filter((token) => token.length > 2 && !stopwords.has(token))
+    .forEach((token) => terms.add(token));
+
+  for (let index = 0; index < tokens.length - 1; index += 1) {
+    terms.add(`${tokens[index]} ${tokens[index + 1]}`);
+  }
+
+  const aliases = findCropAliasesInText(normalized);
+  aliases.forEach((alias) => {
+    terms.add(normalizeSearchText(alias));
+    cropAliasToSearchTerms(alias).forEach((item) => terms.add(normalizeSearchText(item)));
+  });
+  const known = resolveKnownCropAlias(normalized);
+  if (known) {
+    terms.add(normalizeSearchText(known));
+    cropAliasToSearchTerms(known).forEach((item) => terms.add(normalizeSearchText(item)));
+  }
+
+  return Array.from(terms).filter((term) => term.length > 0);
+}
+
+function matchesAnyTerm(haystack: unknown, terms: string[]): boolean {
+  if (!terms.length) return true;
+  const text = normalizeSearchText(haystack);
+  if (!text) return false;
+  return terms.some((term) => term && text.includes(term));
+}
+
+function inferAclResult(context: AssistantToolContext): string {
+  if (context.actor.role === "global_admin") return "global_admin_context";
+  if (context.actor.homeCompanyId && context.actor.homeCompanyId === context.companyId) return "company_scope_home_match";
+  if (context.actor.contextCompanyId && context.actor.contextCompanyId === context.companyId) {
+    return "company_scope_context_match";
+  }
+  return "company_scope_unverified";
+}
+
+function logToolEvent(
+  context: AssistantToolContext,
+  toolName: string,
+  phase: "start" | "success" | "error",
+  details: Record<string, unknown>
+) {
+  const payload = {
+    ts: nowIso(),
+    tool: toolName,
+    phase,
+    company_id: context.companyId,
+    user_id: context.actor.id,
+    role: context.actor.role,
+    acl_result: inferAclResult(context),
+    ...details,
+  };
+
+  if (phase === "error") {
+    console.error("[assistant-tool]", payload);
+    return;
+  }
+  console.info("[assistant-tool]", payload);
 }
 
 function parseSearchQuery(context: AssistantToolContext): string | null {
@@ -70,6 +198,24 @@ function applyTextFilter(rows: Array<Record<string, unknown>>, query: string | n
 }
 
 async function getCurrentSeason(companyId: string, context: AssistantToolContext): Promise<string | null> {
+  const seasonHint = cleanString(context.runtimeContext.season) || context.sessionState.lastSeason || null;
+
+  if (seasonHint) {
+    const numericHint = Number(seasonHint);
+    if (Number.isFinite(numericHint)) {
+      const byYear = await context.supabase
+        .from("seasons")
+        .select("year")
+        .eq("company_id", companyId)
+        .eq("year", Math.trunc(numericHint))
+        .limit(1)
+        .maybeSingle();
+      if (!byYear.error && byYear.data?.year != null) {
+        return String(byYear.data.year);
+      }
+    }
+  }
+
   const seasonRes = await context.supabase
     .from("seasons")
     .select("year,is_active")
@@ -85,17 +231,102 @@ async function getCurrentSeason(companyId: string, context: AssistantToolContext
 
   const cropRes = await context.supabase
     .from("crop_structure")
+    .select("season_id,seasons:season_id(year)")
+    .eq("company_id", companyId)
+    .eq("archived", false)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (!cropRes.error && (cropRes.data || []).length > 0) {
+    const yearFromJoin = cleanString((cropRes.data?.[0] as any)?.seasons?.year);
+    if (yearFromJoin) return yearFromJoin;
+  }
+
+  const fallbackOldSeasonYear = await context.supabase
+    .from("crop_structure")
     .select("season_year")
     .eq("company_id", companyId)
     .eq("archived", false)
     .order("season_year", { ascending: false })
     .limit(1);
 
-  if (!cropRes.error && (cropRes.data || []).length > 0) {
-    return cleanString(cropRes.data?.[0]?.season_year);
+  if (!fallbackOldSeasonYear.error && (fallbackOldSeasonYear.data || []).length > 0) {
+    return cleanString((fallbackOldSeasonYear.data?.[0] as any)?.season_year);
+  }
+
+  const fallbackOldSeason = await context.supabase
+    .from("crop_structure")
+    .select("season")
+    .eq("company_id", companyId)
+    .eq("archived", false)
+    .order("season", { ascending: false })
+    .limit(1);
+
+  if (!fallbackOldSeason.error && (fallbackOldSeason.data || []).length > 0) {
+    return cleanString((fallbackOldSeason.data?.[0] as any)?.season);
   }
 
   return null;
+}
+
+async function resolveSeasonContext(companyId: string, context: AssistantToolContext): Promise<{ seasonYear: string | null; seasonId: string | null; source: string }> {
+  const hint = cleanString(context.runtimeContext.season) || context.sessionState.lastSeason || null;
+
+  if (hint) {
+    const byId = await context.supabase
+      .from("seasons")
+      .select("id,year")
+      .eq("company_id", companyId)
+      .eq("id", hint)
+      .limit(1)
+      .maybeSingle();
+    if (!byId.error && byId.data) {
+      return { seasonYear: cleanString(byId.data.year), seasonId: cleanString(byId.data.id), source: "runtime_season_id" };
+    }
+
+    const numericHint = Number(hint);
+    if (Number.isFinite(numericHint)) {
+      const byYear = await context.supabase
+        .from("seasons")
+        .select("id,year")
+        .eq("company_id", companyId)
+        .eq("year", Math.trunc(numericHint))
+        .limit(1)
+        .maybeSingle();
+      if (!byYear.error && byYear.data) {
+        return { seasonYear: cleanString(byYear.data.year), seasonId: cleanString(byYear.data.id), source: "runtime_year" };
+      }
+      return { seasonYear: String(Math.trunc(numericHint)), seasonId: null, source: "runtime_year_no_season_id" };
+    }
+  }
+
+  const active = await context.supabase
+    .from("seasons")
+    .select("id,year,is_active")
+    .eq("company_id", companyId)
+    .eq("is_active", true)
+    .order("year", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!active.error && active.data) {
+    return { seasonYear: cleanString(active.data.year), seasonId: cleanString(active.data.id), source: "active_season" };
+  }
+
+  const latest = await context.supabase
+    .from("seasons")
+    .select("id,year")
+    .eq("company_id", companyId)
+    .order("year", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!latest.error && latest.data) {
+    return { seasonYear: cleanString(latest.data.year), seasonId: cleanString(latest.data.id), source: "latest_season" };
+  }
+
+  const fallbackYear = await getCurrentSeason(companyId, context);
+  return { seasonYear: fallbackYear, seasonId: null, source: "crop_structure_fallback" };
 }
 
 async function buildLookupMaps(
@@ -103,18 +334,22 @@ async function buildLookupMaps(
   ids: {
     warehouses?: string[];
     products?: string[];
+    crops?: string[];
     varieties?: string[];
     reproductions?: string[];
     fields?: string[];
     fuelSources?: string[];
   }
 ) {
-  const [warehousesRes, productsRes, varietiesRes, reproductionsRes, fieldsRes, fuelSourcesRes] = await Promise.all([
+  const [warehousesRes, productsRes, cropsRes, varietiesRes, reproductionsRes, fieldsRes, fuelSourcesRes] = await Promise.all([
     (ids.warehouses || []).length
       ? context.supabase.from("warehouses").select("id,name").in("id", ids.warehouses as string[])
       : Promise.resolve({ data: [], error: null } as any),
     (ids.products || []).length
       ? context.supabase.from("products").select("id,name,trade_name").in("id", ids.products as string[])
+      : Promise.resolve({ data: [], error: null } as any),
+    (ids.crops || []).length
+      ? context.supabase.from("crops").select("id,name,name_ru,name_en").in("id", ids.crops as string[])
       : Promise.resolve({ data: [], error: null } as any),
     (ids.varieties || []).length
       ? context.supabase.from("varieties").select("id,name").in("id", ids.varieties as string[])
@@ -138,6 +373,11 @@ async function buildLookupMaps(
     byProduct.set(String(row.id), String(row.trade_name || row.name || row.id))
   );
 
+  const byCrop = new Map<string, string>();
+  (cropsRes.data || []).forEach((row: any) =>
+    byCrop.set(String(row.id), String(row.name_ru || row.name || row.name_en || row.id))
+  );
+
   const byVariety = new Map<string, string>();
   (varietiesRes.data || []).forEach((row: any) => byVariety.set(String(row.id), String(row.name || row.id)));
 
@@ -150,7 +390,7 @@ async function buildLookupMaps(
   const byFuelSource = new Map<string, string>();
   (fuelSourcesRes.data || []).forEach((row: any) => byFuelSource.set(String(row.id), String(row.name || row.id)));
 
-  return { byWarehouse, byProduct, byVariety, byReproduction, byField, byFuelSource };
+  return { byWarehouse, byProduct, byCrop, byVariety, byReproduction, byField, byFuelSource };
 }
 
 const getCompanyContextTool: AssistantToolDefinition = {
@@ -204,85 +444,142 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
   domains: ["inventory", "warehouses", "batches", "identity"],
   run: async (context) => {
     const searchQuery = parseSearchQuery(context);
-    const identityRes = await context.supabase
-      .from("v_stock_balance_identity")
-      .select("warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity")
-      .eq("company_id", context.companyId)
-      .gt("quantity", 0)
-      .limit(500);
+    const explicitProduct =
+      cleanString(context.intent.parameters.product) ||
+      cleanString(context.intent.parameters.crop) ||
+      cleanString(context.intent.parameters.crop_alias);
+    const explicitWarehouse =
+      cleanString(context.intent.parameters.warehouse) ||
+      cleanString(context.runtimeContext.filters.warehouse);
+    const allWarehouses =
+      context.intent.parameters.allWarehouses === true ||
+      cleanString(context.intent.parameters.allWarehouses)?.toLowerCase() === "true";
 
-    let rows: Array<Record<string, unknown>> = [];
-    let viewName = "v_stock_balance_identity";
+    const productTerms = buildSearchTerms(explicitProduct || searchQuery);
+    const warehouseTerms = !allWarehouses && explicitWarehouse ? buildSearchTerms(explicitWarehouse) : [];
+    const queryUsed =
+      "v_stock_balance_identity.select(warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity).eq(company_id).gt(quantity,0)";
 
-    if (!identityRes.error) {
-      const raw = identityRes.data || [];
-      const lookup = await buildLookupMaps(context, {
-        warehouses: Array.from(new Set(raw.map((x: any) => String(x.warehouse_id || "")).filter(Boolean))),
-        products: Array.from(new Set(raw.map((x: any) => String(x.product_id || "")).filter(Boolean))),
-        varieties: Array.from(new Set(raw.map((x: any) => String(x.variety_id || "")).filter(Boolean))),
-        reproductions: Array.from(new Set(raw.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
-      });
+    logToolEvent(context, "get_warehouse_balances", "start", {
+      input_args: context.intent.parameters,
+      resolved_season: cleanString(context.runtimeContext.season),
+      query_used: queryUsed,
+      search_query: searchQuery,
+      product_hint: explicitProduct,
+      warehouse_hint: explicitWarehouse,
+      all_warehouses: allWarehouses,
+      rls_acl_result: inferAclResult(context),
+    });
 
-      rows = raw.map((row: any) => {
-        const warehouseId = String(row.warehouse_id || "");
-        const productId = String(row.product_id || "");
-        const varietyId = cleanString(row.variety_id);
-        const reproductionId = cleanString(row.reproduction_id);
-        return {
-          warehouse_name: lookup.byWarehouse.get(warehouseId) || warehouseId,
-          product_name: lookup.byProduct.get(productId) || productId,
-          variety_name: varietyId ? lookup.byVariety.get(varietyId) || "-" : "-",
-          reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || "-" : "-",
-          batch_id: cleanString(row.batch_id),
-          batch_class: cleanString(row.batch_class) || "commodity",
-          quantity: Number(row.quantity || 0),
-        };
-      });
-    } else if (isMissingRelationError(identityRes.error.message)) {
-      viewName = "v_stock_balance_canonical";
-      const fallbackRes = await context.supabase
-        .from("v_stock_balance_canonical")
-        .select("warehouse_id,product_id,quantity")
+    try {
+      const identityRes = await context.supabase
+        .from("v_stock_balance_identity")
+        .select("warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity")
         .eq("company_id", context.companyId)
         .gt("quantity", 0)
         .limit(500);
 
-      if (fallbackRes.error) throw new Error(fallbackRes.error.message);
-      const raw = fallbackRes.data || [];
-      const lookup = await buildLookupMaps(context, {
-        warehouses: Array.from(new Set(raw.map((x: any) => String(x.warehouse_id || "")).filter(Boolean))),
-        products: Array.from(new Set(raw.map((x: any) => String(x.product_id || "")).filter(Boolean))),
+      let rows: Array<Record<string, unknown>> = [];
+      let viewName = "v_stock_balance_identity";
+
+      if (!identityRes.error) {
+        const raw = identityRes.data || [];
+        const lookup = await buildLookupMaps(context, {
+          warehouses: Array.from(new Set(raw.map((x: any) => String(x.warehouse_id || "")).filter(Boolean))),
+          products: Array.from(new Set(raw.map((x: any) => String(x.product_id || "")).filter(Boolean))),
+          varieties: Array.from(new Set(raw.map((x: any) => String(x.variety_id || "")).filter(Boolean))),
+          reproductions: Array.from(new Set(raw.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
+        });
+
+        rows = raw.map((row: any) => {
+          const warehouseId = String(row.warehouse_id || "");
+          const productId = String(row.product_id || "");
+          const varietyId = cleanString(row.variety_id);
+          const reproductionId = cleanString(row.reproduction_id);
+          return {
+            warehouse_name: lookup.byWarehouse.get(warehouseId) || warehouseId,
+            product_name: lookup.byProduct.get(productId) || productId,
+            variety_name: varietyId ? lookup.byVariety.get(varietyId) || "-" : "-",
+            reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || "-" : "-",
+            batch_id: cleanString(row.batch_id),
+            batch_class: cleanString(row.batch_class) || "commodity",
+            quantity: Number(row.quantity || 0),
+          };
+        });
+      } else if (isMissingRelationError(identityRes.error.message)) {
+        viewName = "v_stock_balance_canonical";
+        const fallbackRes = await context.supabase
+          .from("v_stock_balance_canonical")
+          .select("warehouse_id,product_id,quantity")
+          .eq("company_id", context.companyId)
+          .gt("quantity", 0)
+          .limit(500);
+
+        if (fallbackRes.error) throw new Error(fallbackRes.error.message);
+        const raw = fallbackRes.data || [];
+        const lookup = await buildLookupMaps(context, {
+          warehouses: Array.from(new Set(raw.map((x: any) => String(x.warehouse_id || "")).filter(Boolean))),
+          products: Array.from(new Set(raw.map((x: any) => String(x.product_id || "")).filter(Boolean))),
+        });
+        rows = raw.map((row: any) => {
+          const warehouseId = String(row.warehouse_id || "");
+          const productId = String(row.product_id || "");
+          return {
+            warehouse_name: lookup.byWarehouse.get(warehouseId) || warehouseId,
+            product_name: lookup.byProduct.get(productId) || productId,
+            variety_name: "-",
+            reproduction_name: "-",
+            batch_id: null,
+            batch_class: "commodity",
+            quantity: Number(row.quantity || 0),
+          };
+        });
+      } else {
+        throw new Error(identityRes.error.message);
+      }
+
+      const filtered = rows
+        .filter((row) => {
+          if (warehouseTerms.length && !matchesAnyTerm(row.warehouse_name, warehouseTerms)) return false;
+          if (productTerms.length) {
+            const productBlob = [row.product_name, row.variety_name, row.reproduction_name, row.batch_class].join(" ");
+            return matchesAnyTerm(productBlob, productTerms);
+          }
+          return true;
+        })
+        .slice(0, 200);
+
+      logToolEvent(context, "get_warehouse_balances", "success", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: queryUsed,
+        rows_count: filtered.length,
+        total_rows_before_filter: rows.length,
+        rls_acl_result: inferAclResult(context),
       });
-      rows = raw.map((row: any) => {
-        const warehouseId = String(row.warehouse_id || "");
-        const productId = String(row.product_id || "");
-        return {
-          warehouse_name: lookup.byWarehouse.get(warehouseId) || warehouseId,
-          product_name: lookup.byProduct.get(productId) || productId,
-          variety_name: "-",
-          reproduction_name: "-",
-          batch_id: null,
-          batch_class: "commodity",
-          quantity: Number(row.quantity || 0),
-        };
+
+      return {
+        title: "Складские остатки",
+        rows: filtered,
+        source: {
+          module: "warehouses",
+          tableOrView: viewName,
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+        summary: `Найдено строк: ${filtered.length}`,
+      };
+    } catch (error) {
+      logToolEvent(context, "get_warehouse_balances", "error", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: queryUsed,
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
       });
-    } else {
-      throw new Error(identityRes.error.message);
+      throw error;
     }
-
-    const filtered = applyTextFilter(rows, searchQuery).slice(0, 120);
-
-    return {
-      title: "Складские остатки",
-      rows: filtered,
-      source: {
-        module: "warehouses",
-        tableOrView: viewName,
-        season: context.runtimeContext.season,
-        fetchedAt: nowIso(),
-      },
-      summary: `Найдено строк: ${filtered.length}`,
-    };
   },
 };
 
@@ -412,6 +709,7 @@ const getCropStructureTool: AssistantToolDefinition = {
     const raw = res.data || [];
     const lookup = await buildLookupMaps(context, {
       fields: Array.from(new Set(raw.map((x: any) => String(x.field_id || "")).filter(Boolean))),
+      crops: Array.from(new Set(raw.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
       products: Array.from(new Set(raw.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
       varieties: Array.from(new Set(raw.map((x: any) => String(x.variety_id || "")).filter(Boolean))),
       reproductions: Array.from(new Set(raw.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
@@ -426,7 +724,7 @@ const getCropStructureTool: AssistantToolDefinition = {
         allocation_id: String(row.id),
         season_year: String(row.season_year || "-"),
         field_name: lookup.byField.get(fieldId) || fieldId,
-        crop_name: lookup.byProduct.get(cropId) || cropId,
+        crop_name: lookup.byCrop.get(cropId) || lookup.byProduct.get(cropId) || cropId,
         variety_name: varietyId ? lookup.byVariety.get(varietyId) || "-" : "-",
         reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || "-" : "-",
         area_ha: Number(row.area || 0),
@@ -443,6 +741,160 @@ const getCropStructureTool: AssistantToolDefinition = {
         fetchedAt: nowIso(),
       },
     };
+  },
+};
+
+const getCropStructureToolV2: AssistantToolDefinition = {
+  name: "get_crop_structure",
+  description: "Структура посевов",
+  domains: ["crop_structure", "fields"],
+  run: async (context) => {
+    const seasonCtx = await resolveSeasonContext(context.companyId, context);
+    const queryModern =
+      "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)).eq(company_id).eq(archived=false)";
+
+    logToolEvent(context, "get_crop_structure", "start", {
+      input_args: context.intent.parameters,
+      resolved_season: seasonCtx.seasonYear,
+      resolved_season_id: seasonCtx.seasonId,
+      season_source: seasonCtx.source,
+      query_used: queryModern,
+      rls_acl_result: inferAclResult(context),
+    });
+
+    try {
+      let modernQuery = context.supabase
+        .from("crop_structure")
+        .select("id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)")
+        .eq("company_id", context.companyId)
+        .eq("archived", false)
+        .order("created_at", { ascending: false })
+        .limit(500);
+
+      if (seasonCtx.seasonId) {
+        modernQuery = modernQuery.eq("season_id", seasonCtx.seasonId);
+      }
+
+      let modernRes = await modernQuery;
+      if (modernRes.error && isMissingRelationError(modernRes.error.message)) {
+        const fallbackQueryYear =
+          "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_year,area).eq(company_id).eq(archived=false)";
+        let fallbackBySeasonYear = context.supabase
+          .from("crop_structure")
+          .select("id,field_id,crop_id,variety_id,reproduction_id,season_year,area")
+          .eq("company_id", context.companyId)
+          .eq("archived", false)
+          .order("created_at", { ascending: false })
+          .limit(500);
+
+        if (seasonCtx.seasonYear) {
+          fallbackBySeasonYear = fallbackBySeasonYear.eq("season_year", seasonCtx.seasonYear);
+        }
+
+        const seasonYearRes = await fallbackBySeasonYear;
+        if (!seasonYearRes.error) {
+          modernRes = {
+            data: (seasonYearRes.data || []).map((row: any) => ({
+              ...row,
+              seasons: { year: row.season_year },
+            })),
+            error: null,
+          } as any;
+        } else if (isMissingRelationError(seasonYearRes.error.message)) {
+          const fallbackQuerySeason =
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season,area).eq(company_id).eq(archived=false)";
+          let fallbackBySeason = context.supabase
+            .from("crop_structure")
+            .select("id,field_id,crop_id,variety_id,reproduction_id,season,area")
+            .eq("company_id", context.companyId)
+            .eq("archived", false)
+            .order("created_at", { ascending: false })
+            .limit(500);
+
+          if (seasonCtx.seasonYear) {
+            fallbackBySeason = fallbackBySeason.eq("season", Number(seasonCtx.seasonYear));
+          }
+
+          const seasonRes = await fallbackBySeason;
+          if (seasonRes.error) {
+            throw new Error(`${fallbackQuerySeason} :: ${seasonRes.error.message}`);
+          }
+
+          modernRes = {
+            data: (seasonRes.data || []).map((row: any) => ({
+              ...row,
+              seasons: { year: row.season },
+            })),
+            error: null,
+          } as any;
+        } else {
+          throw new Error(`${fallbackQueryYear} :: ${seasonYearRes.error.message}`);
+        }
+      } else if (modernRes.error) {
+        throw new Error(`${queryModern} :: ${modernRes.error.message}`);
+      }
+
+      const raw = modernRes.data || [];
+      const lookup = await buildLookupMaps(context, {
+        fields: Array.from(new Set(raw.map((x: any) => String(x.field_id || "")).filter(Boolean))),
+        crops: Array.from(new Set(raw.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
+        varieties: Array.from(new Set(raw.map((x: any) => String(x.variety_id || "")).filter(Boolean))),
+        reproductions: Array.from(new Set(raw.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
+      });
+
+      const rows = raw.map((row: any) => {
+        const fieldId = String(row.field_id || "");
+        const cropId = String(row.crop_id || "");
+        const varietyId = cleanString(row.variety_id);
+        const reproductionId = cleanString(row.reproduction_id);
+        const seasonYear =
+          cleanString(row?.seasons?.year) ||
+          cleanString(row.season_year) ||
+          cleanString(row.season) ||
+          seasonCtx.seasonYear ||
+          "-";
+        return {
+          allocation_id: String(row.id),
+          season_year: seasonYear,
+          field_name: lookup.byField.get(fieldId) || fieldId,
+          crop_name: lookup.byCrop.get(cropId) || lookup.byProduct.get(cropId) || cropId,
+          variety_name: varietyId ? lookup.byVariety.get(varietyId) || "-" : "-",
+          reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || "-" : "-",
+          area_ha: Number(row.area ?? row.area_ha ?? 0),
+        };
+      });
+
+      logToolEvent(context, "get_crop_structure", "success", {
+        input_args: context.intent.parameters,
+        resolved_season: seasonCtx.seasonYear,
+        resolved_season_id: seasonCtx.seasonId,
+        query_used: queryModern,
+        rows_count: rows.length,
+        rls_acl_result: inferAclResult(context),
+      });
+
+      return {
+        title: "Структура посевов",
+        rows: rows.slice(0, 220),
+        source: {
+          module: "crop_structure",
+          tableOrView: "crop_structure + seasons",
+          season: seasonCtx.seasonYear,
+          fetchedAt: nowIso(),
+        },
+      };
+    } catch (error) {
+      logToolEvent(context, "get_crop_structure", "error", {
+        input_args: context.intent.parameters,
+        resolved_season: seasonCtx.seasonYear,
+        resolved_season_id: seasonCtx.seasonId,
+        query_used: queryModern,
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
+      });
+      throw error;
+    }
   },
 };
 
@@ -685,6 +1137,7 @@ const getBatchesTool: AssistantToolDefinition = {
 
     const raw = res.data || [];
     const lookup = await buildLookupMaps(context, {
+      crops: Array.from(new Set(raw.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
       products: Array.from(new Set(raw.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
       varieties: Array.from(new Set(raw.map((x: any) => String(x.variety_id || "")).filter(Boolean))),
       reproductions: Array.from(new Set(raw.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
@@ -695,7 +1148,7 @@ const getBatchesTool: AssistantToolDefinition = {
       const reproductionId = cleanString(row.reproduction_id);
       return {
         batch_code: cleanString(row.batch_code),
-        crop_name: cropId ? lookup.byProduct.get(cropId) || cropId : "-",
+        crop_name: cropId ? lookup.byCrop.get(cropId) || lookup.byProduct.get(cropId) || cropId : "-",
         variety_name: varietyId ? lookup.byVariety.get(varietyId) || "-" : "-",
         reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || "-" : "-",
         batch_class: cleanString(row.batch_class) || "commodity",
@@ -1123,16 +1576,43 @@ const searchFieldsToolAlias: AssistantToolDefinition = {
   description: "Search fields",
   domains: ["fields", "navigation"],
   run: async (context) => {
-    const output = await getFieldsTool.run(context);
     const query = parseFieldQueryFromContext(context);
-    return {
-      ...output,
-      rows: applyTextFilter(output.rows || [], query).slice(0, 80),
-      source: {
-        ...output.source,
-        tableOrView: "fields (search_fields)",
-      },
-    };
+    logToolEvent(context, "search_fields", "start", {
+      input_args: context.intent.parameters,
+      resolved_season: cleanString(context.runtimeContext.season),
+      query_used: "fields.select(id,name,notes,area,archived).eq(company_id).eq(archived=false)",
+      search_query: query,
+      rls_acl_result: inferAclResult(context),
+    });
+    try {
+      const output = await getFieldsTool.run(context);
+      const rows = applyTextFilter(output.rows || [], query).slice(0, 80);
+      logToolEvent(context, "search_fields", "success", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: "fields (search_fields)",
+        rows_count: rows.length,
+        rls_acl_result: inferAclResult(context),
+      });
+      return {
+        ...output,
+        rows,
+        source: {
+          ...output.source,
+          tableOrView: "fields (search_fields)",
+        },
+      };
+    } catch (error) {
+      logToolEvent(context, "search_fields", "error", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: "fields (search_fields)",
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
+      });
+      throw error;
+    }
   },
 };
 
@@ -1247,6 +1727,7 @@ const getOperationDetailsToolAlias: AssistantToolDefinition = {
 
     const lookup = await buildLookupMaps(context, {
       fields: Array.from(new Set(ops.map((x: any) => String(x.field_id || "")).filter(Boolean))),
+      crops: Array.from(new Set(ops.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
       products: Array.from(new Set(ops.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
     });
     const opIds = ops.map((item: any) => String(item.id));
@@ -1272,7 +1753,10 @@ const getOperationDetailsToolAlias: AssistantToolDefinition = {
           operation_type: cleanString(row.operation_type),
           status: cleanString(row.status),
           field_name: lookup.byField.get(String(row.field_id || "")) || String(row.field_id || ""),
-          crop_name: lookup.byProduct.get(String(row.crop_id || "")) || String(row.crop_id || ""),
+          crop_name:
+            lookup.byCrop.get(String(row.crop_id || "")) ||
+            lookup.byProduct.get(String(row.crop_id || "")) ||
+            String(row.crop_id || ""),
           planned_area_ha: Number(row.planned_area_ha || 0),
           material_request_number: cleanString(req?.request_number),
           material_request_status: cleanString(req?.status),
@@ -1375,27 +1859,52 @@ const getWarehouseSummaryToolAlias: AssistantToolDefinition = {
   description: "Сводка по складам",
   domains: ["warehouses", "inventory"],
   run: async (context) => {
-    const output = await getWarehouseBalancesTool.run(context);
-    const grouped = new Map<string, number>();
-    (output.rows || []).forEach((row) => {
-      const warehouse = cleanString(row.warehouse_name) || "—";
-      const qty = Number(row.quantity || 0);
-      grouped.set(warehouse, (grouped.get(warehouse) || 0) + (Number.isFinite(qty) ? qty : 0));
+    logToolEvent(context, "get_warehouse_summary", "start", {
+      input_args: context.intent.parameters,
+      resolved_season: cleanString(context.runtimeContext.season),
+      query_used: "v_stock_balance_identity (summary by warehouse_name)",
+      rls_acl_result: inferAclResult(context),
     });
-    const rows = Array.from(grouped.entries())
-      .map(([warehouse_name, quantity]) => ({ warehouse_name, quantity }))
-      .sort((a, b) => b.quantity - a.quantity)
-      .slice(0, 60);
-    return {
-      title: "Сводка складов",
-      rows,
-      source: {
-        module: "warehouses",
-        tableOrView: "v_stock_balance_identity (summary)",
-        season: context.runtimeContext.season,
-        fetchedAt: nowIso(),
-      },
-    };
+    try {
+      const output = await getWarehouseBalancesTool.run(context);
+      const grouped = new Map<string, number>();
+      (output.rows || []).forEach((row) => {
+        const warehouse = cleanString(row.warehouse_name) || "—";
+        const qty = Number(row.quantity || 0);
+        grouped.set(warehouse, (grouped.get(warehouse) || 0) + (Number.isFinite(qty) ? qty : 0));
+      });
+      const rows = Array.from(grouped.entries())
+        .map(([warehouse_name, quantity]) => ({ warehouse_name, quantity }))
+        .sort((a, b) => b.quantity - a.quantity)
+        .slice(0, 60);
+      logToolEvent(context, "get_warehouse_summary", "success", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: "v_stock_balance_identity (summary by warehouse_name)",
+        rows_count: rows.length,
+        rls_acl_result: inferAclResult(context),
+      });
+      return {
+        title: "Сводка складов",
+        rows,
+        source: {
+          module: "warehouses",
+          tableOrView: "v_stock_balance_identity (summary)",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    } catch (error) {
+      logToolEvent(context, "get_warehouse_summary", "error", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: "v_stock_balance_identity (summary by warehouse_name)",
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
+      });
+      throw error;
+    }
   },
 };
 
@@ -1404,27 +1913,69 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
   description: "Warehouse stock",
   domains: ["warehouses", "inventory"],
   run: async (context) => {
-    const output = await getWarehouseBalancesTool.run(context);
-    const query =
+    const warehouseQuery =
       cleanString(context.intent.parameters.entityQuery) ||
-      cleanString(context.runtimeContext.filters.warehouse) ||
+      cleanString(context.intent.parameters.warehouse) ||
+      cleanString(context.runtimeContext.filters.warehouse);
+    const productQuery =
+      cleanString(context.intent.parameters.product) ||
+      cleanString(context.intent.parameters.crop) ||
+      cleanString(context.intent.parameters.crop_alias) ||
       parseSearchQuery(context);
-    const rows = query
-      ? (output.rows || []).filter((row) =>
-          String(row.warehouse_name || "")
-            .toLowerCase()
-            .includes(String(query).toLowerCase())
-        )
-      : output.rows || [];
-    return {
-      ...output,
-      title: "Остатки склада",
-      rows: rows.slice(0, 200),
-      source: {
-        ...output.source,
-        tableOrView: "v_stock_balance_identity (warehouse_stock)",
-      },
-    };
+
+    logToolEvent(context, "get_warehouse_stock", "start", {
+      input_args: context.intent.parameters,
+      resolved_season: cleanString(context.runtimeContext.season),
+      query_used: "v_stock_balance_identity (warehouse_stock alias)",
+      warehouse_query: warehouseQuery,
+      product_query: productQuery,
+      rls_acl_result: inferAclResult(context),
+    });
+
+    try {
+      const output = await getWarehouseBalancesTool.run(context);
+      const warehouseTerms = warehouseQuery ? buildSearchTerms(warehouseQuery) : [];
+      const productTerms = productQuery ? buildSearchTerms(productQuery) : [];
+
+      const rows = (output.rows || [])
+        .filter((row) => {
+          if (warehouseTerms.length && !matchesAnyTerm(row.warehouse_name, warehouseTerms)) return false;
+          if (productTerms.length) {
+            const productBlob = [row.product_name, row.variety_name, row.reproduction_name, row.batch_class].join(" ");
+            return matchesAnyTerm(productBlob, productTerms);
+          }
+          return true;
+        })
+        .slice(0, 200);
+
+      logToolEvent(context, "get_warehouse_stock", "success", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: "v_stock_balance_identity (warehouse_stock alias)",
+        rows_count: rows.length,
+        rls_acl_result: inferAclResult(context),
+      });
+
+      return {
+        ...output,
+        title: "Остатки склада",
+        rows,
+        source: {
+          ...output.source,
+          tableOrView: "v_stock_balance_identity (warehouse_stock)",
+        },
+      };
+    } catch (error) {
+      logToolEvent(context, "get_warehouse_stock", "error", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: "v_stock_balance_identity (warehouse_stock alias)",
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
+      });
+      throw error;
+    }
   },
 };
 
@@ -1433,38 +1984,106 @@ const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
   description: "Crop structure summary",
   domains: ["reports", "crop_structure"],
   run: async (context) => {
-    const output = await getCropStructureTool.run(context);
     const query = parseSearchQuery(context);
-    const rows = applyTextFilter(output.rows || [], query);
-    const grouped = new Map<string, { crop_name: string; area_ha: number; fields: Set<string> }>();
+    const cropGroup =
+      cleanString(context.intent.parameters.crop_group) ||
+      findCropGroupsInText(query || "")[0] ||
+      null;
+    const cropAliasTerms = uniqueStrings([
+      cleanString(context.intent.parameters.crop_alias),
+      cleanString(context.intent.parameters.crop),
+      resolveKnownCropAlias(query || ""),
+      ...findCropAliasesInText(query || ""),
+    ]);
 
-    rows.forEach((row) => {
-      const crop = cleanString(row.crop_name) || "Не указано";
-      const area = Number(row.area_ha || 0);
-      const field = cleanString(row.field_name) || "—";
-      const current = grouped.get(crop) || { crop_name: crop, area_ha: 0, fields: new Set<string>() };
-      current.area_ha += Number.isFinite(area) ? area : 0;
-      current.fields.add(field);
-      grouped.set(crop, current);
+    logToolEvent(context, "get_crop_structure_summary", "start", {
+      input_args: context.intent.parameters,
+      resolved_season: cleanString(context.runtimeContext.season),
+      query_used: "get_crop_structure + group by crop_name",
+      query_text: query,
+      crop_group: cropGroup,
+      crop_aliases: cropAliasTerms,
+      rls_acl_result: inferAclResult(context),
     });
 
-    return {
-      title: "Сводка структуры посевов",
-      rows: Array.from(grouped.values())
+    try {
+      const output = await getCropStructureToolV2.run(context);
+      const groupCrops = cropGroup ? listCropsByGroup(cropGroup).map((item) => normalizeSearchText(item)) : [];
+      const aliasTerms = cropAliasTerms
+        .flatMap((alias) => buildSearchTerms(alias))
+        .concat(groupCrops)
+        .filter(Boolean);
+
+      const filtered = (output.rows || []).filter((row) => {
+        if (!aliasTerms.length) return true;
+        const searchBlob = [row.crop_name, row.variety_name, row.reproduction_name].join(" ");
+        return matchesAnyTerm(searchBlob, aliasTerms);
+      });
+
+      const queryTerms = buildSearchTerms(query);
+      const queryWordCount = normalizeSearchText(query || "").split(" ").filter(Boolean).length;
+      const shouldApplyFreeText = !aliasTerms.length && queryWordCount > 0 && queryWordCount <= 2;
+      const rows = shouldApplyFreeText
+        ? filtered.filter((row) => {
+            const searchBlob = [row.crop_name, row.variety_name, row.reproduction_name, row.field_name].join(" ");
+            return matchesAnyTerm(searchBlob, queryTerms);
+          })
+        : filtered;
+      const grouped = new Map<string, { crop_name: string; area_ha: number; fields: Set<string> }>();
+      const varietyAliases = new Set(["gala", "soraya", "baltic rose", "azilit", "colombo", "impala"]);
+      const groupByVariety = cropAliasTerms.some((alias) => varietyAliases.has(normalizeSearchText(alias || "")));
+
+      rows.forEach((row) => {
+        const crop = cleanString(row.crop_name) || "Не указано";
+        const variety = cleanString(row.variety_name);
+        const cropKey = groupByVariety && variety ? `${crop} / ${variety}` : crop;
+        const area = Number(row.area_ha || 0);
+        const field = cleanString(row.field_name) || "—";
+        const current = grouped.get(cropKey) || { crop_name: cropKey, area_ha: 0, fields: new Set<string>() };
+        current.area_ha += Number.isFinite(area) ? area : 0;
+        current.fields.add(field);
+        grouped.set(cropKey, current);
+      });
+
+      const summaryRows = Array.from(grouped.values())
         .map((item) => ({
           crop_name: item.crop_name,
           area_ha: Number(item.area_ha.toFixed(3)),
           fields_count: item.fields.size,
         }))
         .sort((a, b) => b.area_ha - a.area_ha)
-        .slice(0, 120),
-      source: {
-        module: "crop_structure",
-        tableOrView: "crop_structure (summary)",
-        season: output.source.season,
-        fetchedAt: nowIso(),
-      },
-    };
+        .slice(0, 120);
+
+      logToolEvent(context, "get_crop_structure_summary", "success", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(output.source.season),
+        query_used: "get_crop_structure + group by crop_name",
+        rows_count: summaryRows.length,
+        raw_rows_count: rows.length,
+        rls_acl_result: inferAclResult(context),
+      });
+
+      return {
+        title: "Сводка структуры посевов",
+        rows: summaryRows,
+        source: {
+          module: "crop_structure",
+          tableOrView: "crop_structure (summary)",
+          season: output.source.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    } catch (error) {
+      logToolEvent(context, "get_crop_structure_summary", "error", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: "get_crop_structure + group by crop_name",
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
+      });
+      throw error;
+    }
   },
 };
 
@@ -1478,42 +2097,100 @@ const searchCropsByGroupToolAlias: AssistantToolDefinition = {
     const groups = groupFromIntent ? [groupFromIntent] : query ? findCropGroupsInText(query) : [];
     const normalizedAlias = query ? normalizeCropAlias(query) : null;
     const taxonomy = getAgroTaxonomySnapshot();
+    const queryUsed = "agro_taxonomy + crop_structure_summary";
 
-    if (groups.length) {
-      return {
-        title: "Группы культур",
-        rows: groups.flatMap((group) =>
+    logToolEvent(context, "search_crops_by_group", "start", {
+      input_args: context.intent.parameters,
+      resolved_season: cleanString(context.runtimeContext.season),
+      query_used: queryUsed,
+      query_text: query,
+      crop_group: groups,
+      crop_alias: normalizedAlias,
+      rls_acl_result: inferAclResult(context),
+    });
+
+    try {
+      const structureOutput = await getCropStructureSummaryToolAlias.run({
+        ...context,
+        intent: {
+          ...context.intent,
+          parameters: {
+            ...context.intent.parameters,
+            crop_group: groups[0] || context.intent.parameters.crop_group || null,
+            crop_alias: normalizedAlias || context.intent.parameters.crop_alias || null,
+          },
+        },
+      });
+
+      if (groups.length) {
+        const groupRows = groups.flatMap((group) =>
           listCropsByGroup(group).map((crop) => ({
             crop_group: group,
             crop_name: crop,
             query_alias: normalizedAlias,
           }))
-        ),
-        source: {
-          module: "agro",
-          tableOrView: "static_crop_taxonomy",
-          season: context.runtimeContext.season,
-          fetchedAt: nowIso(),
-        },
-      };
-    }
+        );
+        const summaryRows = (structureOutput.rows || []).map((row) => ({
+          crop_group: groups[0],
+          crop_name: cleanString(row.crop_name) || "—",
+          query_alias: normalizedAlias,
+          area_ha: Number(row.area_ha || 0),
+        }));
+        const rows = summaryRows.length ? summaryRows : groupRows;
+        logToolEvent(context, "search_crops_by_group", "success", {
+          input_args: context.intent.parameters,
+          resolved_season: cleanString(structureOutput.source.season),
+          query_used: queryUsed,
+          rows_count: rows.length,
+          rls_acl_result: inferAclResult(context),
+        });
+        return {
+          title: "Группы культур",
+          rows,
+          source: {
+            module: "agro",
+            tableOrView: "static_crop_taxonomy + crop_structure_summary",
+            season: structureOutput.source.season,
+            fetchedAt: nowIso(),
+          },
+        };
+      }
 
-    return {
-      title: "Группы культур",
-      rows: Object.entries(taxonomy.groups).flatMap(([group, crops]) =>
+      const rows = Object.entries(taxonomy.groups).flatMap(([group, crops]) =>
         crops.map((crop) => ({
           crop_group: group,
           crop_name: crop,
           query_alias: normalizedAlias,
         }))
-      ),
-      source: {
-        module: "agro",
-        tableOrView: "static_crop_taxonomy",
-        season: context.runtimeContext.season,
-        fetchedAt: nowIso(),
-      },
-    };
+      );
+      logToolEvent(context, "search_crops_by_group", "success", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(structureOutput.source.season),
+        query_used: queryUsed,
+        rows_count: rows.length,
+        rls_acl_result: inferAclResult(context),
+      });
+      return {
+        title: "Группы культур",
+        rows,
+        source: {
+          module: "agro",
+          tableOrView: "static_crop_taxonomy",
+          season: structureOutput.source.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    } catch (error) {
+      logToolEvent(context, "search_crops_by_group", "error", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: queryUsed,
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
+      });
+      throw error;
+    }
   },
 };
 
@@ -1522,44 +2199,79 @@ const getPotatoMaterialReportToolAlias: AssistantToolDefinition = {
   description: "Отчет по материалам картофеля",
   domains: ["reports", "operations", "warehouses"],
   run: async (context) => {
-    const viewRes = await context.supabase
-      .from("v_potato_material_consumption")
-      .select("*")
-      .eq("company_id", context.companyId)
-      .order("field_display_name", { ascending: true })
-      .limit(300);
+    const queryUsed = "v_potato_material_consumption.select(*)";
+    logToolEvent(context, "get_potato_material_report", "start", {
+      input_args: context.intent.parameters,
+      resolved_season: cleanString(context.runtimeContext.season),
+      query_used: queryUsed,
+      rls_acl_result: inferAclResult(context),
+    });
+    try {
+      const viewRes = await context.supabase
+        .from("v_potato_material_consumption")
+        .select("*")
+        .eq("company_id", context.companyId)
+        .order("field_display_name", { ascending: true })
+        .limit(300);
 
-    if (!viewRes.error) {
-      return {
-        title: "Отчет по картофелю",
-        rows: (viewRes.data || []).map((row: any) => ({ ...row })),
-        source: {
-          module: "reports",
-          tableOrView: "v_potato_material_consumption",
-          season: context.runtimeContext.season,
-          fetchedAt: nowIso(),
-        },
-      };
-    }
+      if (!viewRes.error) {
+        const rows = (viewRes.data || []).map((row: any) => ({ ...row }));
+        logToolEvent(context, "get_potato_material_report", "success", {
+          input_args: context.intent.parameters,
+          resolved_season: cleanString(context.runtimeContext.season),
+          query_used: queryUsed,
+          rows_count: rows.length,
+          rls_acl_result: inferAclResult(context),
+        });
+        return {
+          title: "Отчет по картофелю",
+          rows,
+          source: {
+            module: "reports",
+            tableOrView: "v_potato_material_consumption",
+            season: context.runtimeContext.season,
+            fetchedAt: nowIso(),
+          },
+        };
+      }
 
-    if (isMissingRelationError(viewRes.error.message)) {
-      return {
-        title: "Отчет по картофелю",
-        rows: [
+      if (isMissingRelationError(viewRes.error.message)) {
+        const rows = [
           {
             info: "Пока не могу открыть отчет по картофелю напрямую. Откройте Операции или Склады и уточните фильтр.",
           },
-        ],
-        source: {
-          module: "assistant",
-          tableOrView: "fallback:get_potato_material_report",
-          season: context.runtimeContext.season,
-          fetchedAt: nowIso(),
-        },
-      };
-    }
+        ];
+        logToolEvent(context, "get_potato_material_report", "success", {
+          input_args: context.intent.parameters,
+          resolved_season: cleanString(context.runtimeContext.season),
+          query_used: "fallback:get_potato_material_report",
+          rows_count: rows.length,
+          rls_acl_result: inferAclResult(context),
+        });
+        return {
+          title: "Отчет по картофелю",
+          rows,
+          source: {
+            module: "assistant",
+            tableOrView: "fallback:get_potato_material_report",
+            season: context.runtimeContext.season,
+            fetchedAt: nowIso(),
+          },
+        };
+      }
 
-    throw new Error(viewRes.error.message);
+      throw new Error(viewRes.error.message);
+    } catch (error) {
+      logToolEvent(context, "get_potato_material_report", "error", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: queryUsed,
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
+      });
+      throw error;
+    }
   },
 };
 
@@ -1641,6 +2353,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
     const varieties = new Set<string>();
     const reproductions = new Set<string>();
     const lookup = await buildLookupMaps(context, {
+      crops: Array.from(new Set(allocations.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
       products: Array.from(new Set(allocations.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
       varieties: Array.from(new Set(allocations.map((x: any) => String(x.variety_id || "")).filter(Boolean))),
       reproductions: Array.from(new Set(allocations.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
@@ -1650,7 +2363,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
       const cropId = cleanString(row.crop_id);
       const varietyId = cleanString(row.variety_id);
       const reproductionId = cleanString(row.reproduction_id);
-      if (cropId) crops.add(lookup.byProduct.get(cropId) || cropId);
+      if (cropId) crops.add(lookup.byCrop.get(cropId) || lookup.byProduct.get(cropId) || cropId);
       if (varietyId) varieties.add(lookup.byVariety.get(varietyId) || varietyId);
       if (reproductionId) reproductions.add(lookup.byReproduction.get(reproductionId) || reproductionId);
     });
@@ -1916,7 +2629,7 @@ const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
   search_crops_by_group: searchCropsByGroupToolAlias,
   get_warehouse_summary: getWarehouseSummaryToolAlias,
   get_fields: getFieldsTool,
-  get_crop_structure: getCropStructureTool,
+  get_crop_structure: getCropStructureToolV2,
   get_inventory: getInventoryTool,
   get_batches: getBatchesTool,
   get_warehouse_balances: getWarehouseBalancesTool,

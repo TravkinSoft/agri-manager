@@ -188,7 +188,7 @@ export type AssistantEngineResult = {
   toolActivity: string[];
   navigationActions: AssistantNavigationAction[];
   sourceHints: string[];
-  answerSource: "tools" | "llm_fallback" | "policy_block" | "disabled" | "access_denied" | "no_data";
+  answerSource: "tools" | "llm_fallback" | "policy_block" | "disabled" | "access_denied" | "no_data" | "tool_error";
   grounded: boolean;
   model: {
     configuredModel: string | null;

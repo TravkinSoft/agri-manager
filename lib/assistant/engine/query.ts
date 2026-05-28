@@ -180,7 +180,7 @@ function isCapabilitiesQuestion(message: string): boolean {
 }
 
 function formatInventoryRows(rows: Array<Record<string, unknown>>): string {
-  if (!rows.length) return "По текущему фильтру складские остатки не найдены.";
+  if (!rows.length) return "По всем складам по текущему фильтру остатки не найдены.";
 
   const buckets = new Map<
     string,
@@ -289,6 +289,17 @@ function formatCropStructureRows(rows: Array<Record<string, unknown>>): string {
   return `Структура посевов:\n\n${lines.join("\n")}`;
 }
 
+function formatCropStructureSummaryRows(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "Структура посевов по текущему сезону не найдена.";
+  const totalArea = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
+  const lines = rows.slice(0, 12).map((row) => {
+    const fieldsCount = Number.isFinite(Number(row.fields_count)) ? Number(row.fields_count) : 0;
+    const fieldsLabel = fieldsCount > 0 ? ` (${fieldsCount} полей)` : "";
+    return `• ${safeText(row.crop_name)} — ${formatNumber(asNumber(row.area_ha), 2)} га${fieldsLabel}`;
+  });
+  return `Всего посевных площадей: ${formatNumber(totalArea, 2)} га\n\n${lines.join("\n")}`;
+}
+
 function formatTicketsRows(rows: Array<Record<string, unknown>>): string {
   if (!rows.length) return "Талоны не найдены.";
   const lines = rows.slice(0, 10).map((row) => {
@@ -349,6 +360,9 @@ function formatGroundedToolOutput(params: {
   }
   if (intentName === "fields_overview" || toolName === "get_fields") {
     return formatFieldsRows(rows);
+  }
+  if (toolName === "get_crop_structure_summary") {
+    return formatCropStructureSummaryRows(rows);
   }
   if (intentName === "crop_structure_overview" || toolName === "get_crop_structure") {
     return formatCropStructureRows(rows);
@@ -440,6 +454,7 @@ function mapToolNamespace(tool: AssistantToolName): string {
     get_ticket_details: "weighbridge.getTicketDetails",
     get_potato_material_report: "reports.getPotatoMaterialReport",
     get_crop_structure_summary: "reports.getCropStructureSummary",
+    get_crop_structure: "reports.getCropStructure",
     search_crops_by_group: "agro.searchCropsByGroup",
     navigate_to_page: "navigation.navigateToRoute",
     open_entity: "navigation.openEntity",
@@ -453,9 +468,9 @@ function buildToolActivityLogs(toolCalls: AssistantToolCallLog[]): string[] {
     const name = mapToolNamespace(toolCall.tool);
     if (toolCall.ok) {
       const rows = Number.isFinite(Number(toolCall.rows)) ? Number(toolCall.rows) : 0;
-      return `Loaded ${name}${rows > 0 ? ` (${rows})` : ""}`;
+      return `${name}: ${rows} rows`;
     }
-    return `Tool error ${name}: ${toolCall.error || "unknown error"}`;
+    return `${name}: error (${toolCall.error || "unknown error"})`;
   });
 }
 
@@ -476,11 +491,11 @@ function buildSmartFollowUp(intent: AssistantIntent, locale: "ru" | "en" | "kz")
 
 function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatformSettings): AssistantToolName[] {
   const byIntent: Record<AssistantIntentName, AssistantToolName[]> = {
-    inventory_balance: ["get_warehouse_stock", "get_warehouse_balances"],
+    inventory_balance: ["get_warehouse_stock"],
     warehouse_movements: ["get_warehouse_movements"],
     weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets"],
     fields_overview: ["search_fields", "get_field_card", "get_fields", "find_field"],
-    crop_structure_overview: ["get_crop_structure_summary", "search_crops_by_group", "get_crop_structure"],
+    crop_structure_overview: ["get_crop_structure_summary"],
     operations_recent: ["get_active_operations", "search_operations", "get_operations"],
     fuel_movements: ["get_fuel_movements"],
     entity_resolution: [],
@@ -495,6 +510,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   const entityType = cleanString(intent.parameters.entityType);
   const queryText = cleanString(intent.parameters.query)?.toLowerCase() || "";
   const cropGroup = cleanString(intent.parameters.crop_group);
+  const cropAlias = cleanString(intent.parameters.crop_alias) || cleanString(intent.parameters.crop);
   const status = cleanString(intent.parameters.status);
   const tools = [...(byIntent[intent.name] || [])];
 
@@ -538,7 +554,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     tools.unshift("get_active_operations");
   }
 
-  if (intent.name === "crop_structure_overview" && (cropGroup || queryText)) {
+  if (intent.name === "crop_structure_overview" && (cropGroup || cropAlias)) {
     tools.unshift("search_crops_by_group");
   }
 
@@ -1013,6 +1029,45 @@ export async function runAssistantEngine(params: {
       sourceHints: uniqueStrings(sourceHints),
       answerSource: "tools",
       grounded: true,
+      model: {
+        configuredModel: modelConfig.configuredModel,
+        actualModel: null,
+        settingsSource: modelConfig.settingsSource,
+        requestMode: "tool_first",
+        llm: modelLlmNotCalled,
+      },
+      performance: emptyPerformance,
+    };
+  }
+
+  const firstToolError = toolCalls.find((call) => !call.ok);
+  if (firstToolError) {
+    const fallbackByIntent: Record<AssistantIntentName, string> = {
+      inventory_balance: "Не смог получить остатки со складов. Ошибка в инструменте.",
+      warehouse_movements: "Не смог получить движения склада. Ошибка в инструменте.",
+      weighbridge_tickets: "Не смог получить данные весовой. Ошибка в инструменте.",
+      fields_overview: "Не смог получить данные по полям. Ошибка в инструменте.",
+      crop_structure_overview: "Не смог получить структуру посевов. Ошибка в инструменте.",
+      operations_recent: "Не смог получить операции. Ошибка в инструменте.",
+      fuel_movements: "Не смог получить данные по ГСМ. Ошибка в инструменте.",
+      entity_resolution: "Не смог найти объект. Ошибка в инструменте.",
+      company_context: "Не смог получить контекст компании. Ошибка в инструменте.",
+      navigation_help: "Не смог выполнить навигацию. Ошибка в инструменте.",
+      create_draft: "Не смог подготовить черновик. Ошибка в инструменте.",
+      clarification_required: "Не смог обработать запрос. Ошибка в инструменте.",
+      general_question: "Не смог обработать запрос. Ошибка в инструменте.",
+    };
+    return {
+      answer: fallbackByIntent[intent.name] || "Не смог получить данные. Ошибка в инструменте.",
+      sessionState: { ...nextSessionState, lastIntent: intent.name },
+      intent,
+      mode: assistantMode,
+      toolCalls,
+      toolActivity,
+      navigationActions,
+      sourceHints: uniqueStrings(sourceHints),
+      answerSource: "tool_error",
+      grounded: false,
       model: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,

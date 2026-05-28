@@ -1,4 +1,9 @@
-import { findCropGroupsInText, normalizeCropAlias } from "@/lib/assistant/agro-taxonomy";
+import {
+  findCropAliasesInText,
+  findCropGroupsInText,
+  normalizeCropAlias,
+  resolveKnownCropAlias,
+} from "@/lib/assistant/agro-taxonomy";
 import type {
   AssistantIntent,
   AssistantSessionState,
@@ -220,8 +225,23 @@ function needsClarification(text: string): boolean {
     "талон",
     "отчет",
     "отчеты",
-    "картофель",
+    "отчёт",
+    "отчёты",
   ].includes(text);
+}
+
+function pickCropAlias(raw: string, normalized: string): string | null {
+  const quoted = extractQuotedValue(raw);
+  if (quoted) {
+    const knownQuoted = resolveKnownCropAlias(quoted);
+    if (knownQuoted) return knownQuoted;
+  }
+  const aliasesInText = findCropAliasesInText(raw);
+  if (aliasesInText.length) return aliasesInText[0];
+  const knownDirect = resolveKnownCropAlias(normalized);
+  if (knownDirect) return knownDirect;
+  if (normalized.includes("картоф")) return "potato";
+  return null;
 }
 
 function fallbackIntent(message: string, sessionState: AssistantSessionState): AssistantIntent {
@@ -230,6 +250,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
   const navigation = detectNavigationIntent(raw, sessionState);
   const cropGroups = findCropGroupsInText(text);
   const normalizedAlias = normalizeCropAlias(text);
+  const cropAlias = pickCropAlias(raw, text);
 
   if (navigation) {
     return {
@@ -244,15 +265,6 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         entityQuery: navigation.entityQuery || null,
         filters: navigation.filters ? JSON.stringify(navigation.filters) : null,
       },
-    };
-  }
-
-  if (needsClarification(text)) {
-    return {
-      name: "clarification_required",
-      confidence: 0.72,
-      needsData: false,
-      parameters: { query: cleanString(raw), focus: text },
     };
   }
 
@@ -274,7 +286,16 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
   }
 
   if (hasAny(text, ["остат", "склад", "налич", "balance", "stock", "inventory", "warehouse"])) {
-    return { name: "inventory_balance", confidence: 0.9, needsData: true, parameters: { query: cleanString(raw) } };
+    return {
+      name: "inventory_balance",
+      confidence: 0.91,
+      needsData: true,
+      parameters: {
+        query: cleanString(raw),
+        product: cropAlias || null,
+        allWarehouses: true,
+      },
+    };
   }
 
   if (hasAny(text, ["движен", "провод", "ledger", "movement", "journal"])) {
@@ -297,21 +318,25 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
   if (hasAny(text, ["картоф", "potato report", "материал по картоф"])) {
     return {
       name: "crop_structure_overview",
-      confidence: 0.84,
+      confidence: 0.9,
       needsData: true,
-      parameters: { query: cleanString(raw), crop: "картофель" },
+      parameters: {
+        query: cleanString(raw),
+        crop: "картофель",
+        crop_alias: cropAlias || "potato",
+      },
     };
   }
 
-  if (cropGroups.length || hasAny(text, ["структур", "посев", "crop structure"])) {
+  if (cropGroups.length || cropAlias || hasAny(text, ["структур", "посев", "посевн", "crop structure"])) {
     return {
       name: "crop_structure_overview",
-      confidence: 0.8,
+      confidence: 0.86,
       needsData: true,
       parameters: {
         query: cleanString(raw),
         crop_group: cropGroups[0] || null,
-        crop_alias: normalizedAlias,
+        crop_alias: cropAlias || normalizedAlias,
       },
     };
   }
@@ -326,6 +351,15 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       confidence: 0.7,
       needsData: true,
       parameters: { season: sessionState.lastSeason },
+    };
+  }
+
+  if (needsClarification(text)) {
+    return {
+      name: "clarification_required",
+      confidence: 0.72,
+      needsData: false,
+      parameters: { query: cleanString(raw), focus: text },
     };
   }
 
