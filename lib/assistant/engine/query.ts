@@ -13,6 +13,7 @@ import type {
   AssistantIntent,
   AssistantIntentName,
   AssistantNavigationAction,
+  AssistantOutputType,
   AssistantSessionState,
   AssistantToolCallLog,
   AssistantToolName,
@@ -167,6 +168,39 @@ function parseFiltersJson(value: unknown): Record<string, string> | null {
   }
 }
 
+function resolveOutputType(intent: AssistantIntent): AssistantOutputType {
+  const raw = cleanString(intent.parameters.output_type);
+  if (
+    raw === "summary_total" ||
+    raw === "filtered_summary" ||
+    raw === "list" ||
+    raw === "action_navigation" ||
+    raw === "balance" ||
+    raw === "movements"
+  ) {
+    return raw;
+  }
+
+  const fallbackByIntent: Record<AssistantIntentName, AssistantOutputType> = {
+    inventory_balance: "balance",
+    warehouse_movements: "movements",
+    weighbridge_tickets: "filtered_summary",
+    fields_overview: "list",
+    crop_structure_overview: "summary_total",
+    operations_recent: "list",
+    fuel_balance: "balance",
+    fuel_movements: "movements",
+    entity_resolution: "filtered_summary",
+    company_context: "summary_total",
+    navigation_help: "action_navigation",
+    create_draft: "filtered_summary",
+    clarification_required: "filtered_summary",
+    general_question: "filtered_summary",
+  };
+
+  return fallbackByIntent[intent.name] || "filtered_summary";
+}
+
 function looksLikeErpDataQuestion(message: string): boolean {
   const text = String(message || "").toLowerCase();
   return /(остат|склад|парт|движен|провод|ledger|inventory|warehouse|batch|stock|balance|талон|весов|гсм|топлив|азс|поле|посев|операц|урожа)/.test(
@@ -300,6 +334,33 @@ function formatCropStructureSummaryRows(rows: Array<Record<string, unknown>>): s
   return `Всего посевных площадей: ${formatNumber(totalArea, 2)} га\n\n${lines.join("\n")}`;
 }
 
+function formatCropStructureSummaryRowsV2(
+  rows: Array<Record<string, unknown>>,
+  outputType: AssistantOutputType
+): string {
+  if (!rows.length) return "По сезону 2026 данных не найдено.";
+  const totalArea = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
+  const cropsCount = rows.length;
+  const fieldsTotal = rows.reduce((acc, row) => acc + asNumber(row.fields_count), 0);
+  const topRowsLimit = outputType === "summary_total" ? 5 : 10;
+  const topRows = rows.slice(0, topRowsLimit).map((row) => {
+    const fieldsCount = Number.isFinite(Number(row.fields_count)) ? Number(row.fields_count) : 0;
+    const fieldsLabel = fieldsCount > 0 ? ` (${fieldsCount} полей)` : "";
+    return `• ${safeText(row.crop_name)} — ${formatNumber(asNumber(row.area_ha), 2)} га${fieldsLabel}`;
+  });
+
+  const header = [
+    `Всего посевных площадей: ${formatNumber(totalArea, 2)} га`,
+    `Культур: ${cropsCount}`,
+    fieldsTotal > 0 ? `Полей в разрезе структуры: ${fieldsTotal}` : "Заполнено/не заполнено: нет данных",
+  ];
+
+  if (outputType === "summary_total") {
+    return [...header, "", ...topRows].join("\n");
+  }
+  return [...header, "", ...topRows].join("\n");
+}
+
 function formatTicketsRows(rows: Array<Record<string, unknown>>): string {
   if (!rows.length) return "Талоны не найдены.";
   const lines = rows.slice(0, 10).map((row) => {
@@ -333,6 +394,15 @@ function formatFuelRows(rows: Array<Record<string, unknown>>): string {
   return `Движения ГСМ:\n\n${lines.join("\n")}`;
 }
 
+function formatFuelBalanceRows(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "По всем источникам ГСМ остатки не найдены.";
+  const totalLiters = rows.reduce((sum, row) => sum + asNumber(row.balance_liters), 0);
+  const lines = rows
+    .slice(0, 10)
+    .map((row) => `• ${safeText(row.fuel_source_name)} — ${formatNumber(asNumber(row.balance_liters), 0)} л`);
+  return [`В наличии топлива: ${formatNumber(totalLiters, 0)} л`, "", ...lines].join("\n");
+}
+
 function formatCompanyContextRows(rows: Array<Record<string, unknown>>): string {
   if (!rows.length) return "Контекст компании не определён.";
   const row = rows[0];
@@ -347,9 +417,11 @@ function formatCompanyContextRows(rows: Array<Record<string, unknown>>): string 
 function formatGroundedToolOutput(params: {
   toolName: AssistantToolName;
   intentName: AssistantIntentName;
+  outputType: AssistantOutputType;
+  intentParams: AssistantIntent["parameters"];
   output: AssistantToolOutput;
 }): string | null {
-  const { toolName, intentName, output } = params;
+  const { toolName, intentName, output, outputType, intentParams } = params;
   const rows = output.rows || [];
   const sourceSeason = cleanString(output.source.season);
 
@@ -364,11 +436,20 @@ function formatGroundedToolOutput(params: {
   }
   if (toolName === "get_crop_structure_summary") {
     if (!rows.length) {
+      const queryText = cleanString(intentParams.query)?.toLowerCase() || "";
+      const cropText = `${cleanString(intentParams.crop) || ""} ${cleanString(intentParams.crop_alias) || ""}`.toLowerCase();
+      const potatoRequested = /картоф|potato|гала|gala|сорая|soraya|балтик|baltic|азилит|azilit/.test(
+        `${cropText} ${queryText}`
+      );
+      if (potatoRequested) {
+        return `В структуре ${sourceSeason || "2026"} картофель не найден.`;
+      }
       return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
     }
-    return formatCropStructureSummaryRows(rows);
+    return formatCropStructureSummaryRowsV2(rows, outputType);
   }
   if (intentName === "crop_structure_overview" || toolName === "get_crop_structure") {
+    if (outputType !== "list") return null;
     if (!rows.length) {
       return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
     }
@@ -380,7 +461,10 @@ function formatGroundedToolOutput(params: {
   if (intentName === "operations_recent" || toolName === "get_operations") {
     return formatOperationsRows(rows);
   }
-  if (intentName === "fuel_movements" || toolName === "get_fuel_movements" || toolName === "get_fuel_balances") {
+  if (intentName === "fuel_balance" || toolName === "get_fuel_balances") {
+    return formatFuelBalanceRows(rows);
+  }
+  if (intentName === "fuel_movements" || toolName === "get_fuel_movements") {
     return formatFuelRows(rows);
   }
   if (intentName === "company_context" || toolName === "get_company_context" || toolName === "get_current_season") {
@@ -463,6 +547,8 @@ function mapToolNamespace(tool: AssistantToolName): string {
     get_crop_structure_summary: "crop.structure",
     get_crop_structure: "crop.structureRows",
     search_crops_by_group: "crop.group",
+    get_fuel_balances: "fuel.balance",
+    get_fuel_movements: "fuel.movements",
     navigate_to_page: "navigation.navigateToRoute",
     open_entity: "navigation.openEntity",
     apply_filter: "navigation.applyFilter",
@@ -502,8 +588,9 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     warehouse_movements: ["get_warehouse_movements"],
     weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets", "get_ticket_details"],
     fields_overview: ["search_fields", "get_field_card", "get_field_timeline", "get_field_materials", "get_fields", "find_field"],
-    crop_structure_overview: ["get_crop_structure_summary", "get_crop_structure"],
+    crop_structure_overview: ["get_crop_structure_summary"],
     operations_recent: ["get_active_operations", "search_operations", "get_operations", "get_operation_details"],
+    fuel_balance: ["get_fuel_balances"],
     fuel_movements: ["get_fuel_movements"],
     entity_resolution: [],
     company_context: ["get_company_context"],
@@ -582,6 +669,10 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     tools.unshift("get_warehouse_movements");
   }
 
+  if (intent.name === "crop_structure_overview" && resolveOutputType(intent) === "list") {
+    tools.push("get_crop_structure");
+  }
+
   const allowedTools = new Set(settings.allowedTools || []);
   const normalizeCandidates = (settings.allowedTools || []).map((value) => String(value || "").trim());
   const allowByNamespaceFallback = (toolName: AssistantToolName) => {
@@ -597,8 +688,9 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     warehouse_movements: ["get_warehouse_movements"],
     weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets"],
     fields_overview: ["search_fields", "get_field_card", "get_field_timeline", "get_field_materials"],
-    crop_structure_overview: ["get_crop_structure_summary", "search_crops_by_group", "get_crop_structure"],
+    crop_structure_overview: ["get_crop_structure_summary", "search_crops_by_group"],
     operations_recent: ["get_active_operations", "search_operations", "get_operations"],
+    fuel_balance: ["get_fuel_balances"],
     fuel_movements: ["get_fuel_movements"],
     entity_resolution: [],
     company_context: ["get_company_context"],
@@ -642,6 +734,8 @@ function getNavigationActions(params: {
       : null;
 
   if (action === "open_entity" && entityType && ["warehouse", "field", "fuel"].includes(entityType)) {
+    if (!resolvedId && !resolvedRoute) return [];
+    if (entityType === "field" && !resolvedId) return [];
     return [
       {
         type: "open_entity",
@@ -688,6 +782,21 @@ function buildNavigationAnswer(actions: AssistantNavigationAction[]): string {
   }
 
   return `Открываю страницу ${first.page}.`;
+}
+
+function buildNavigationAnswerV2(actions: AssistantNavigationAction[]): string {
+  if (!actions.length) {
+    return "Не смог открыть: route не найден.";
+  }
+  const first = actions[0];
+  if (first.type === "open_entity") {
+    const label = first.entityQuery || first.entityId || first.page;
+    return `Подготовил переход к объекту: ${label}.`;
+  }
+  if (first.type === "open_page_with_filter" || first.type === "apply_filter") {
+    return `Подготовил переход на страницу ${first.page} с фильтром.`;
+  }
+  return `Подготовил переход на страницу ${first.page}.`;
 }
 
 function unavailableAssistantMessage(locale: "ru" | "en" | "kz"): string {
@@ -931,6 +1040,7 @@ export async function runAssistantEngine(params: {
       answer: "Ассистент отключён в глобальных настройках.",
       sessionState: initialSessionState,
       intent: { name: "general_question", confidence: 1, needsData: false, parameters: {} },
+      outputType: "filtered_summary",
       mode: assistantMode,
       toolCalls: [],
       toolActivity: [],
@@ -954,6 +1064,7 @@ export async function runAssistantEngine(params: {
       answer: "Для вашей роли ассистент недоступен.",
       sessionState: initialSessionState,
       intent: { name: "general_question", confidence: 1, needsData: false, parameters: {} },
+      outputType: "filtered_summary",
       mode: assistantMode,
       toolCalls: [],
       toolActivity: [],
@@ -980,6 +1091,7 @@ export async function runAssistantEngine(params: {
   });
   const resolvedMode: AssistantEngineResult["mode"] =
     intent.name === "navigation_help" ? "navigation" : assistantMode;
+  const resolvedOutputType = resolveOutputType(intent);
 
   if (intent.name === "clarification_required") {
     const smartFollowup = buildSmartFollowUp(intent, runtimeContext.locale || "ru");
@@ -987,6 +1099,7 @@ export async function runAssistantEngine(params: {
       answer: smartFollowup || "Уточните объект запроса.",
       sessionState: { ...initialSessionState, lastIntent: intent.name },
       intent,
+      outputType: resolvedOutputType,
       mode: resolvedMode,
       toolCalls: [],
       toolActivity: [],
@@ -1010,6 +1123,7 @@ export async function runAssistantEngine(params: {
       answer: buildCapabilitiesAnswer(runtimeContext.locale || "ru"),
       sessionState: { ...initialSessionState, lastIntent: intent.name },
       intent,
+      outputType: resolvedOutputType,
       mode: resolvedMode,
       toolCalls: [],
       toolActivity: [],
@@ -1066,6 +1180,8 @@ export async function runAssistantEngine(params: {
         const formatted = formatGroundedToolOutput({
           toolName: tool.name,
           intentName: intent.name,
+          outputType: resolvedOutputType,
+          intentParams: intent.parameters,
           output,
         });
         if (formatted) answerBlocks.push(formatted);
@@ -1099,7 +1215,7 @@ export async function runAssistantEngine(params: {
 
   const navigationActions = getNavigationActions({ intent, outputs });
   if (intent.name === "navigation_help") {
-    answerBlocks.unshift(buildNavigationAnswer(navigationActions));
+    answerBlocks.unshift(buildNavigationAnswerV2(navigationActions));
   }
 
   const toolActivity = buildToolActivityLogs(toolCalls);
@@ -1109,6 +1225,7 @@ export async function runAssistantEngine(params: {
       answer: answerBlocks.join("\n\n"),
       sessionState: { ...nextSessionState, lastIntent: intent.name },
       intent,
+      outputType: resolvedOutputType,
       mode: resolvedMode,
       toolCalls,
       toolActivity,
@@ -1129,7 +1246,7 @@ export async function runAssistantEngine(params: {
 
   const firstToolError = toolCalls.find((call) => !call.ok);
   if (firstToolError) {
-    const fallbackByIntent: Record<AssistantIntentName, string> = {
+    const fallbackByIntent: Partial<Record<AssistantIntentName, string>> = {
       inventory_balance: "Не смог получить остатки со складов. Ошибка в инструменте.",
       warehouse_movements: "Не смог получить движения склада. Ошибка в инструменте.",
       weighbridge_tickets: "Не смог получить данные весовой. Ошибка в инструменте.",
@@ -1148,6 +1265,7 @@ export async function runAssistantEngine(params: {
       answer: fallbackByIntent[intent.name] || "Не смог получить данные. Ошибка в инструменте.",
       sessionState: { ...nextSessionState, lastIntent: intent.name },
       intent,
+      outputType: resolvedOutputType,
       mode: resolvedMode,
       toolCalls,
       toolActivity,
@@ -1175,6 +1293,7 @@ export async function runAssistantEngine(params: {
       answer: followup || "Уточните объект запроса: склад, поле или период.",
       sessionState: { ...nextSessionState, lastIntent: intent.name },
       intent,
+      outputType: resolvedOutputType,
       mode: resolvedMode,
       toolCalls,
       toolActivity,
@@ -1206,6 +1325,7 @@ export async function runAssistantEngine(params: {
     answer: fallback.answer,
     sessionState: { ...nextSessionState, lastIntent: intent.name },
     intent,
+    outputType: resolvedOutputType,
     mode: intent.name === "navigation_help" ? "navigation" : isAgroKnowledgeQuestion(message) ? "agro_knowledge" : assistantMode,
     toolCalls,
     toolActivity,

@@ -61,6 +61,7 @@ export type AssistantIntentName =
   | "fields_overview"
   | "crop_structure_overview"
   | "operations_recent"
+  | "fuel_balance"
   | "fuel_movements"
   | "entity_resolution"
   | "company_context"
@@ -68,6 +69,14 @@ export type AssistantIntentName =
   | "create_draft"
   | "clarification_required"
   | "general_question";
+
+export type AssistantOutputType =
+  | "summary_total"
+  | "filtered_summary"
+  | "list"
+  | "action_navigation"
+  | "balance"
+  | "movements";
 
 export type AssistantUiContext = {
   currentPage: string;
@@ -183,6 +192,7 @@ export type AssistantEngineResult = {
   answer: string;
   sessionState: AssistantSessionState;
   intent: AssistantIntent;
+  outputType: AssistantOutputType;
   mode: "erp_data" | "agro_knowledge" | "mixed" | "navigation";
   toolCalls: AssistantToolCallLog[];
   toolActivity: string[];

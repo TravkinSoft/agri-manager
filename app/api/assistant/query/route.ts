@@ -424,6 +424,7 @@ export async function POST(request: NextRequest) {
             metadata: {
               intent: result.intent?.name || null,
               mode: result.mode || null,
+              output_type: result.outputType || null,
               source_hints: result.sourceHints || [],
               tool_activity: result.toolActivity || [],
               actions: buildActionButtons({
@@ -515,6 +516,7 @@ export async function POST(request: NextRequest) {
       meta: {
         intent: result.intent,
         mode: result.mode,
+        outputType: result.outputType,
         sourceHints: result.sourceHints,
         llm: result.model.llm,
       },

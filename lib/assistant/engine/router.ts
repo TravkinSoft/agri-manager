@@ -115,6 +115,10 @@ function isCropAreaQuestion(text: string): boolean {
   );
 }
 
+function isListRequest(text: string): boolean {
+  return hasRegex(text, /(список|перечень|покажи поля|какие поля|list|show list)/);
+}
+
 function pickCropAlias(raw: string, normalized: string): string | null {
   return resolveProductAlias(raw, normalized);
 }
@@ -321,6 +325,14 @@ function isMaterialUsageQuestion(text: string): boolean {
   return hasRegex(text, /(сколько .*ушло|сколько .*внесл|перерасход|норма .*га|диаммофос|сзр|фунгицид|удобрени|семян)/);
 }
 
+function isFuelMovementQuestion(text: string): boolean {
+  return hasRegex(text, /(движени|выдач|приход|журнал|история|movement|issued|refill|transfer)/);
+}
+
+function isFuelBalanceQuestion(text: string): boolean {
+  return hasRegex(text, /(в наличии|остат|сколько есть|сколько бензина|сколько топлива|balance|available|наличие)/);
+}
+
 function isCadastreQuestion(text: string): boolean {
   return hasRegex(text, /(кадастр|договор|собственник|без кадастра|land legal)/);
 }
@@ -360,6 +372,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
   const cropGroups = findCropGroupsInText(text);
   const normalizedAlias = normalizeCropAlias(text);
   const cropAlias = pickCropAlias(raw, text);
+  const listRequested = isListRequest(text);
 
   if (navigation) {
     return withCommonDefaults({
@@ -373,6 +386,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         entityType: navigation.entityType || null,
         entityQuery: navigation.entityQuery || null,
         filters: navigation.filters ? JSON.stringify(navigation.filters) : null,
+        output_type: "action_navigation",
       },
     }, text);
   }
@@ -385,6 +399,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       parameters: {
         query: cleanString(raw),
         intent_group: "crop_structure",
+        output_type: listRequested ? "list" : "summary_total",
       },
     }, text);
   }
@@ -400,10 +415,14 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
 
   if (hasRegex(text, /(гсм|азс|топлив|дизел|бензин|заправ|fuel)/)) {
     return withCommonDefaults({
-      name: "fuel_movements",
+      name: isFuelMovementQuestion(text) && !isFuelBalanceQuestion(text) ? "fuel_movements" : "fuel_balance",
       confidence: 0.9,
       needsData: true,
-      parameters: { query: cleanString(raw), intent_group: "fuel" },
+      parameters: {
+        query: cleanString(raw),
+        intent_group: "fuel",
+        output_type: isFuelMovementQuestion(text) && !isFuelBalanceQuestion(text) ? "movements" : "balance",
+      },
     }, text);
   }
 
@@ -419,6 +438,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         status: wantOpen ? "active" : null,
         limit: wantRecent ? 30 : null,
         intent_group: "weighbridge",
+        output_type: listRequested ? "list" : "filtered_summary",
       },
     }, text);
   }
@@ -433,6 +453,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         allWarehouses: true,
         negative_only: true,
         intent_group: "inventory",
+        output_type: "balance",
       },
     }, text);
   }
@@ -448,6 +469,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         limit: hasRegex(text, /(последн|latest|last)/) ? 30 : null,
         direction,
         intent_group: "inventory",
+        output_type: "movements",
       },
     }, text);
   }
@@ -464,6 +486,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         allWarehouses: true,
         warehouse_alias: resolveWarehouseAlias(text),
         intent_group: "inventory",
+        output_type: "balance",
       },
     }, text);
   }
@@ -473,7 +496,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       name: "warehouse_movements",
       confidence: 0.86,
       needsData: true,
-      parameters: { query: cleanString(raw), limit: 30, intent_group: "inventory" },
+      parameters: { query: cleanString(raw), limit: 30, intent_group: "inventory", output_type: "movements" },
     }, text);
   }
 
@@ -482,7 +505,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       name: "operations_recent",
       confidence: 0.86,
       needsData: true,
-      parameters: { query: cleanString(raw), status: "active", intent_group: "operations" },
+      parameters: { query: cleanString(raw), status: "active", intent_group: "operations", output_type: "list" },
     }, text);
   }
 
@@ -502,6 +525,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         query: cleanString(raw),
         status,
         intent_group: isMaterialUsageQuestion(text) ? "materials" : isHarvestQuestion(text) ? "harvest" : "operations",
+        output_type: "list",
       },
     }, text);
   }
@@ -511,7 +535,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       name: "operations_recent",
       confidence: 0.8,
       needsData: true,
-      parameters: { query: cleanString(raw), intent_group: "operations" },
+      parameters: { query: cleanString(raw), intent_group: "operations", output_type: "list" },
     }, text);
   }
 
@@ -525,6 +549,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         crop: "картофель",
         crop_alias: cropAlias || "potato",
         intent_group: "potato",
+        output_type: listRequested ? "list" : "filtered_summary",
       },
     }, text);
   }
@@ -539,6 +564,10 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         crop_group: cropGroups[0] || null,
         crop_alias: cropAlias || normalizedAlias,
         intent_group: cropGroups.length ? "crop_group" : cropAlias ? "crop_alias" : "crop_structure",
+        output_type:
+          cropGroups.length || cropAlias
+            ? (listRequested ? "list" : "filtered_summary")
+            : (listRequested ? "list" : "summary_total"),
       },
     }, text);
   }
@@ -564,6 +593,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         query: cleanString(raw),
         field: extractFieldCode(text),
         intent_group: "fields",
+        output_type: "list",
       },
     }, text);
   }
@@ -579,6 +609,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         page,
         route,
         action: "open_page",
+        output_type: "action_navigation",
       },
     }, text);
   }
@@ -588,7 +619,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       name: "company_context",
       confidence: 0.75,
       needsData: true,
-      parameters: { season: sessionState.lastSeason },
+      parameters: { season: sessionState.lastSeason, output_type: "summary_total" },
     }, text);
   }
 

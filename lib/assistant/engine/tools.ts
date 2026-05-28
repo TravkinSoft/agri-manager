@@ -1046,7 +1046,7 @@ const getCropStructureToolV2: AssistantToolDefinition = {
         reproductions: Array.from(new Set(raw.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
       });
 
-      const rows = raw.map((row: any) => {
+      const mappedRows = raw.map((row: any) => {
         const fieldId = String(row.field_id || "");
         const cropId = String(row.crop_id || "");
         const varietyId = cleanString(row.variety_id);
@@ -1066,6 +1066,42 @@ const getCropStructureToolV2: AssistantToolDefinition = {
           reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || "-" : "-",
           area_ha: Number(row.area ?? row.area_ha ?? 0),
         };
+      });
+
+      const queryText = parseSearchQuery(context) || "";
+      const cropGroup = cleanString(context.intent.parameters.crop_group);
+      const cropAliasTerm =
+        cleanString(context.intent.parameters.crop_alias) ||
+        cleanString(context.intent.parameters.crop) ||
+        resolveKnownCropAlias(queryText) ||
+        findCropAliasesInText(queryText)[0] ||
+        null;
+      const varietyFilter = cleanString(context.intent.parameters.variety);
+      const seasonFilter =
+        cleanString(context.intent.parameters.season) ||
+        cleanString(context.runtimeContext.season) ||
+        forcedSeasonYear ||
+        null;
+
+      const groupTerms = cropGroup ? listCropsByGroup(cropGroup).map((item) => normalizeSearchText(item)) : [];
+      const cropTerms = buildSearchTerms(cropAliasTerm).concat(groupTerms).filter(Boolean);
+      const varietyTerms = buildSearchTerms(varietyFilter);
+
+      const rows = mappedRows.filter((row) => {
+        if (seasonFilter && cleanString(row.season_year) && cleanString(row.season_year) !== seasonFilter) {
+          return false;
+        }
+
+        if (cropTerms.length) {
+          const cropBlob = [row.crop_name, row.variety_name, row.reproduction_name].join(" ");
+          if (!matchesAnyTerm(cropBlob, cropTerms)) return false;
+        }
+
+        if (varietyTerms.length && !matchesAnyTerm(row.variety_name, varietyTerms)) {
+          return false;
+        }
+
+        return true;
       });
 
       logToolEvent(context, "get_crop_structure", "success", {
@@ -1463,13 +1499,13 @@ async function resolveFieldByNumber(context: AssistantToolContext) {
   return {
     title: "Найденные поля",
     rows: (res.data || []).map((row: any) => ({
-      entity_type: "field",
-      entity_id: String(row.id),
-      entity_name: String(row.name || row.id),
-      page: "fields",
-      route: "/fields",
-      filters: { search: String(row.name || query) },
-    })),
+        entity_type: "field",
+        entity_id: String(row.id),
+        entity_name: String(row.name || row.id),
+        page: "fields",
+        route: `/fields/${String(row.id)}`,
+        filters: { search: String(row.name || query) },
+      })),
     source: { module: "assistant", tableOrView: "resolve_field_by_number", fetchedAt: nowIso() },
   };
 }
