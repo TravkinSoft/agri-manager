@@ -13,6 +13,7 @@ export type AssistantToolName =
   | "get_field_materials"
   | "find_field"
   | "search_warehouses"
+  | "get_warehouse_count"
   | "get_warehouse_stock"
   | "find_warehouse"
   | "search_operations"
@@ -55,9 +56,13 @@ export type AssistantToolName =
   | "apply_filter";
 
 export type AssistantIntentName =
+  | "warehouse_count"
   | "inventory_balance"
   | "warehouse_movements"
   | "weighbridge_tickets"
+  | "crop_structure_area"
+  | "field_total_area"
+  | "rotation_history"
   | "fields_overview"
   | "crop_structure_overview"
   | "operations_recent"
@@ -110,6 +115,23 @@ export type AssistantSessionState = {
   lastSeason: string | null;
   lastIntent: AssistantIntentName | null;
   lastResultContext: string | null;
+  lastWarehouseCount: number | null;
+  lastInventoryTotalKg: number | null;
+  lastCropStructureAreaHa: number | null;
+  lastFieldsAreaHa: number | null;
+  lastDetectedInconsistency: string | null;
+  lastInconsistencyAt: string | null;
+};
+
+export type AssistantAnswerDiagnostics = {
+  expectedAnswerType: AssistantOutputType | null;
+  selectedSource: string | null;
+  selectedTool: string | null;
+  fallbackSource: string | null;
+  previousRelatedMemory: string | null;
+  consistencyCheck: "pass" | "fail" | "skipped";
+  contradictionDetected: boolean;
+  correctionApplied: boolean;
 };
 
 export type AssistantIntent = {
@@ -226,6 +248,7 @@ export type AssistantEngineResult = {
       missingEnv: string[];
     };
   };
+  diagnostics: AssistantAnswerDiagnostics;
   performance: {
     promptTokens: number | null;
     completionTokens: number | null;

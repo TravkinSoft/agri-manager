@@ -71,6 +71,12 @@ type AssistantSessionStatePayload = {
   lastSeason: string | null;
   lastIntent: string | null;
   lastResultContext: string | null;
+  lastWarehouseCount: number | null;
+  lastInventoryTotalKg: number | null;
+  lastCropStructureAreaHa: number | null;
+  lastFieldsAreaHa: number | null;
+  lastDetectedInconsistency: string | null;
+  lastInconsistencyAt: string | null;
 };
 
 type AssistantNavigationActionPayload =
@@ -135,6 +141,12 @@ const EMPTY_STATE: AssistantSessionStatePayload = {
   lastSeason: null,
   lastIntent: null,
   lastResultContext: null,
+  lastWarehouseCount: null,
+  lastInventoryTotalKg: null,
+  lastCropStructureAreaHa: null,
+  lastFieldsAreaHa: null,
+  lastDetectedInconsistency: null,
+  lastInconsistencyAt: null,
 };
 
 const TOOL_LOADING_STEPS = ["Смотрю данные..."] as const;

@@ -10,11 +10,22 @@ export const EMPTY_ASSISTANT_SESSION_STATE: AssistantSessionState = {
   lastSeason: null,
   lastIntent: null,
   lastResultContext: null,
+  lastWarehouseCount: null,
+  lastInventoryTotalKg: null,
+  lastCropStructureAreaHa: null,
+  lastFieldsAreaHa: null,
+  lastDetectedInconsistency: null,
+  lastInconsistencyAt: null,
 };
 
 function cleanString(value: unknown): string | null {
   const raw = String(value || "").trim();
   return raw.length > 0 ? raw : null;
+}
+
+function asNumber(value: unknown): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function normalizeSessionState(input: Partial<AssistantSessionState> | null | undefined): AssistantSessionState {
@@ -28,6 +39,16 @@ export function normalizeSessionState(input: Partial<AssistantSessionState> | nu
     lastSeason: cleanString(input?.lastSeason),
     lastIntent: input?.lastIntent || null,
     lastResultContext: cleanString(input?.lastResultContext),
+    lastWarehouseCount:
+      Number.isFinite(Number(input?.lastWarehouseCount)) ? Number(input?.lastWarehouseCount) : null,
+    lastInventoryTotalKg:
+      Number.isFinite(Number(input?.lastInventoryTotalKg)) ? Number(input?.lastInventoryTotalKg) : null,
+    lastCropStructureAreaHa:
+      Number.isFinite(Number(input?.lastCropStructureAreaHa)) ? Number(input?.lastCropStructureAreaHa) : null,
+    lastFieldsAreaHa:
+      Number.isFinite(Number(input?.lastFieldsAreaHa)) ? Number(input?.lastFieldsAreaHa) : null,
+    lastDetectedInconsistency: cleanString(input?.lastDetectedInconsistency),
+    lastInconsistencyAt: cleanString(input?.lastInconsistencyAt),
   };
 }
 
@@ -49,6 +70,13 @@ export function updateSessionStateFromToolOutput(params: {
 }): AssistantSessionState {
   const { previous, intent, output, seasonFromContext } = params;
   const rows = output?.rows || [];
+  const inventoryTotalKg = rows.reduce((acc, row) => acc + asNumber(row.quantity), 0);
+  const cropAreaHa = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
+  const fieldsAreaHa = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
+  const warehouseCount =
+    rows.length && Number.isFinite(Number(rows[0]?.warehouses_total))
+      ? Number(rows[0]?.warehouses_total)
+      : rows.length;
 
   return {
     ...previous,
@@ -61,6 +89,17 @@ export function updateSessionStateFromToolOutput(params: {
     lastField: findValue(rows, ["field_name"]) || previous.lastField,
     lastSeason: cleanString(seasonFromContext) || findValue(rows, ["season_year", "season"]) || previous.lastSeason,
     lastResultContext: output?.title || previous.lastResultContext,
+    lastWarehouseCount:
+      intent.name === "warehouse_count" ? warehouseCount : previous.lastWarehouseCount,
+    lastInventoryTotalKg:
+      intent.name === "inventory_balance" ? Number(inventoryTotalKg.toFixed(3)) : previous.lastInventoryTotalKg,
+    lastCropStructureAreaHa:
+      intent.name === "crop_structure_area" || intent.name === "crop_structure_overview"
+        ? Number(cropAreaHa.toFixed(3))
+        : previous.lastCropStructureAreaHa,
+    lastFieldsAreaHa:
+      intent.name === "field_total_area" || intent.name === "fields_overview"
+        ? Number(fieldsAreaHa.toFixed(3))
+        : previous.lastFieldsAreaHa,
   };
 }
-

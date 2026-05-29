@@ -67,9 +67,17 @@ export type AssistantDebugMetadata = {
     endpoint: string;
     engineVersion: string;
     intent: string | null;
+    expectedAnswerType: string | null;
+    selectedSource: string | null;
+    selectedTool: string | null;
+    fallbackSource: string | null;
     mode: string | null;
     grounded: boolean | null;
     answerSource: AssistantDebugAnswerSource;
+    consistencyCheck: "pass" | "fail" | "skipped";
+    contradictionDetected: boolean;
+    correctionApplied: boolean;
+    previousRelatedMemory: string | null;
     navigationIntentDetected: boolean;
     navigationActionCreated: boolean;
     navigationActionExecuted: boolean | null;

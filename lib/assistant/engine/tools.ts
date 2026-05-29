@@ -1939,6 +1939,82 @@ const searchWarehousesToolAlias: AssistantToolDefinition = {
   run: resolveWarehouseByName,
 };
 
+const getWarehouseCountToolAlias: AssistantToolDefinition = {
+  name: "get_warehouse_count",
+  description: "Warehouse count/list",
+  domains: ["warehouses"],
+  run: async (context) => {
+    const query = parseSearchQuery(context);
+    const queryUsed = "warehouses.select(id,name,warehouse_type,archived,is_archived)";
+    logToolEvent(context, "get_warehouse_count", "start", {
+      input_args: context.intent.parameters,
+      resolved_season: cleanString(context.runtimeContext.season),
+      query_used: queryUsed,
+      query_text: query,
+      rls_acl_result: inferAclResult(context),
+    });
+
+    try {
+      let res: any = await context.supabase
+        .from("warehouses")
+        .select("id,name,warehouse_type,archived,is_archived")
+        .eq("company_id", context.companyId)
+        .order("name", { ascending: true })
+        .limit(500);
+      if (res.error && String(res.error.message || "").toLowerCase().includes("is_archived")) {
+        res = await context.supabase
+          .from("warehouses")
+          .select("id,name,warehouse_type,archived")
+          .eq("company_id", context.companyId)
+          .order("name", { ascending: true })
+          .limit(500);
+      }
+      if (res.error) throw new Error(res.error.message);
+
+      const terms = buildSearchTerms(query);
+      const baseRows = (res.data || []).map((row: any) => ({
+        warehouse_id: String(row.id),
+        warehouse_name: cleanString(row.name) || String(row.id),
+        warehouse_type: cleanString(row.warehouse_type) || "не указан",
+        archived: Boolean(row.archived || row.is_archived),
+        is_archived: Boolean(row.is_archived || row.archived),
+      }));
+      const rows = terms.length
+        ? baseRows.filter((row: any) => matchesAnyTerm(`${row.warehouse_name} ${row.warehouse_type}`, terms))
+        : baseRows;
+
+      logToolEvent(context, "get_warehouse_count", "success", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: queryUsed,
+        rows_count: rows.length,
+        rls_acl_result: inferAclResult(context),
+      });
+
+      return {
+        title: "Склады компании",
+        rows,
+        source: {
+          module: "warehouses",
+          tableOrView: "warehouses (count/list)",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    } catch (error) {
+      logToolEvent(context, "get_warehouse_count", "error", {
+        input_args: context.intent.parameters,
+        resolved_season: cleanString(context.runtimeContext.season),
+        query_used: queryUsed,
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
+      });
+      throw error;
+    }
+  },
+};
+
 const searchOperationsToolAlias: AssistantToolDefinition = {
   name: "search_operations",
   description: "Search operations",
@@ -2949,6 +3025,7 @@ const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
   get_field_materials: getFieldMaterialsToolAlias,
   find_field: findFieldToolAlias,
   search_warehouses: searchWarehousesToolAlias,
+  get_warehouse_count: getWarehouseCountToolAlias,
   get_warehouse_stock: getWarehouseStockToolAlias,
   find_warehouse: findWarehouseToolAlias,
   search_operations: searchOperationsToolAlias,

@@ -123,6 +123,27 @@ function isFarmAreaQuestion(text: string): boolean {
   );
 }
 
+function isWarehouseCountQuestion(text: string): boolean {
+  return hasRegex(
+    text,
+    /(сколько.*склад|количеств[оа]\s+склад|какие\s+склад|список\s+склад|склады\s+есть|warehouse count|warehouses list)/
+  );
+}
+
+function isRotationHistoryQuestion(text: string): boolean {
+  return hasRegex(
+    text,
+    /(севооборот|истори[яи]\s+пол|предшественник|что\s+было\s+раньше|прошл(ые|ых)\s+год|rotation history)/
+  );
+}
+
+function isGeneralHectaresQuestion(text: string): boolean {
+  return hasRegex(
+    text,
+    /(сколько\s+общ.*га|сколько\s+га\s+у\s+нас|общая\s+площадь|сколько\s+гектар)/
+  );
+}
+
 function isListRequest(text: string): boolean {
   return hasRegex(text, /(список|перечень|покажи поля|какие поля|list|show list)/);
 }
@@ -376,8 +397,11 @@ function withSeasonDefault(
 function withCommonDefaults(intent: AssistantIntent, text: string, runtimeContext: AssistantUiContext): AssistantIntent {
   const needsSeason =
     intent.name === "crop_structure_overview" ||
+    intent.name === "crop_structure_area" ||
     intent.name === "operations_recent" ||
-    intent.name === "fields_overview";
+    intent.name === "fields_overview" ||
+    intent.name === "field_total_area" ||
+    intent.name === "rotation_history";
   const nextParams = needsSeason ? withSeasonDefault(intent.parameters, text, runtimeContext) : intent.parameters;
   return {
     ...intent,
@@ -420,6 +444,77 @@ function fallbackIntent(
     }, text, runtimeContext);
   }
 
+  if (isWarehouseCountQuestion(text)) {
+    return withCommonDefaults(
+      {
+        name: "warehouse_count",
+        confidence: 0.99,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          intent_group: "warehouses",
+          output_type: listRequested ? "list" : "summary_total",
+        },
+      },
+      text,
+      runtimeContext
+    );
+  }
+
+  if (isRotationHistoryQuestion(text)) {
+    return withCommonDefaults(
+      {
+        name: "rotation_history",
+        confidence: 0.96,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          field: extractFieldCode(text),
+          intent_group: "fields",
+          output_type: listRequested ? "list" : "filtered_summary",
+        },
+      },
+      text,
+      runtimeContext
+    );
+  }
+
+  if (isCropAreaQuestion(text) || isGeneralHectaresQuestion(text)) {
+    return withCommonDefaults(
+      {
+        name: "crop_structure_area",
+        confidence: 0.99,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          crop_group: cropGroups[0] || null,
+          crop_alias: cropAlias || normalizedAlias || null,
+          intent_group: "crop_structure",
+          output_type: listRequested ? "list" : "summary_total",
+        },
+      },
+      text,
+      runtimeContext
+    );
+  }
+
+  if (isFarmAreaQuestion(text)) {
+    return withCommonDefaults(
+      {
+        name: "field_total_area",
+        confidence: 0.97,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          intent_group: "fields",
+          output_type: listRequested ? "list" : "summary_total",
+        },
+      },
+      text,
+      runtimeContext
+    );
+  }
+
   // Context-driven short query priority:
   // crop-structure page -> crop structure intent first
   // warehouses page -> inventory balance intent first
@@ -427,7 +522,7 @@ function fallbackIntent(
   if (shortQuery && (currentPage === "crop-structure" || currentModule === "crop-structure")) {
     return withCommonDefaults(
       {
-        name: "crop_structure_overview",
+        name: "crop_structure_area",
         confidence: 0.96,
         needsData: true,
         parameters: {
@@ -484,32 +579,6 @@ function fallbackIntent(
       text,
       runtimeContext
     );
-  }
-
-  if (isFarmAreaQuestion(text)) {
-    return withCommonDefaults({
-      name: "fields_overview",
-      confidence: 0.94,
-      needsData: true,
-      parameters: {
-        query: cleanString(raw),
-        intent_group: "fields",
-        output_type: listRequested ? "list" : "summary_total",
-      },
-    }, text, runtimeContext);
-  }
-
-  if (isCropAreaQuestion(text)) {
-    return withCommonDefaults({
-      name: "crop_structure_overview",
-      confidence: 0.98,
-      needsData: true,
-      parameters: {
-        query: cleanString(raw),
-        intent_group: "crop_structure",
-        output_type: listRequested ? "list" : "summary_total",
-      },
-    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(создай|подготов|черновик|draft)/)) {
@@ -649,7 +718,7 @@ function fallbackIntent(
 
   if (hasRegex(text, /(картоф|potato report|материал по картоф)/)) {
     return withCommonDefaults({
-      name: "crop_structure_overview",
+      name: "crop_structure_area",
       confidence: 0.93,
       needsData: true,
       parameters: {
@@ -665,7 +734,7 @@ function fallbackIntent(
   if (isKnownCropMention(text) && (shortQuery || hasRegex(text, /(сколько|план|посаж|посев|га|гектар|поля|где)/))) {
     return withCommonDefaults(
       {
-        name: "crop_structure_overview",
+        name: "crop_structure_area",
         confidence: 0.9,
         needsData: true,
         parameters: {
@@ -683,7 +752,7 @@ function fallbackIntent(
 
   if (cropGroups.length || cropAlias || hasRegex(text, /(структур|посев|посевн|crop structure)/)) {
     return withCommonDefaults({
-      name: "crop_structure_overview",
+      name: "crop_structure_area",
       confidence: 0.9,
       needsData: true,
       parameters: {

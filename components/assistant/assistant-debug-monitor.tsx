@@ -124,9 +124,17 @@ export function AssistantDebugMonitor() {
                   <Row label="Endpoint" value={debugSnapshot.engine.endpoint} />
                   <Row label="Version" value={debugSnapshot.engine.engineVersion} />
                   <Row label="Intent" value={debugSnapshot.engine.intent} />
+                  <Row label="Expected answer type" value={debugSnapshot.engine.expectedAnswerType} />
+                  <Row label="Selected source" value={debugSnapshot.engine.selectedSource} />
+                  <Row label="Selected tool" value={debugSnapshot.engine.selectedTool} />
+                  <Row label="Fallback source" value={debugSnapshot.engine.fallbackSource} />
                   <Row label="Mode" value={debugSnapshot.engine.mode} />
                   <Row label="Grounded" value={debugSnapshot.engine.grounded} />
                   <Row label="Answer source" value={debugSnapshot.engine.answerSource} />
+                  <Row label="Consistency check" value={debugSnapshot.engine.consistencyCheck} />
+                  <Row label="Contradiction detected" value={debugSnapshot.engine.contradictionDetected} />
+                  <Row label="Correction applied" value={debugSnapshot.engine.correctionApplied} />
+                  <Row label="Previous memory" value={debugSnapshot.engine.previousRelatedMemory} />
                   <Row label="Navigation intent" value={debugSnapshot.engine.navigationIntentDetected} />
                   <Row label="Navigation action" value={debugSnapshot.engine.navigationActionCreated} />
                   <Row label="Action type" value={debugSnapshot.engine.navigationActionType} />

@@ -8,6 +8,7 @@ import {
   updateSessionStateFromToolOutput,
 } from "@/lib/assistant/engine/session-state";
 import type {
+  AssistantAnswerDiagnostics,
   AssistantEngineInput,
   AssistantEngineResult,
   AssistantIntent,
@@ -214,9 +215,13 @@ function resolveOutputType(intent: AssistantIntent): AssistantOutputType {
   }
 
   const fallbackByIntent: Record<AssistantIntentName, AssistantOutputType> = {
+    warehouse_count: "summary_total",
     inventory_balance: "balance",
     warehouse_movements: "movements",
     weighbridge_tickets: "filtered_summary",
+    crop_structure_area: "summary_total",
+    field_total_area: "summary_total",
+    rotation_history: "filtered_summary",
     fields_overview: "list",
     crop_structure_overview: "summary_total",
     operations_recent: "list",
@@ -233,6 +238,208 @@ function resolveOutputType(intent: AssistantIntent): AssistantOutputType {
   return fallbackByIntent[intent.name] || "filtered_summary";
 }
 
+function getExpectedAnswerType(intentName: AssistantIntentName): AssistantOutputType | null {
+  const map: Record<AssistantIntentName, AssistantOutputType | null> = {
+    warehouse_count: "summary_total",
+    inventory_balance: "balance",
+    warehouse_movements: "movements",
+    weighbridge_tickets: "filtered_summary",
+    crop_structure_area: "summary_total",
+    field_total_area: "summary_total",
+    rotation_history: "filtered_summary",
+    fields_overview: "list",
+    crop_structure_overview: "summary_total",
+    operations_recent: "list",
+    fuel_balance: "balance",
+    fuel_movements: "movements",
+    entity_resolution: "filtered_summary",
+    company_context: "summary_total",
+    navigation_help: "action_navigation",
+    create_draft: "filtered_summary",
+    clarification_required: null,
+    general_question: null,
+  };
+  return map[intentName] ?? null;
+}
+
+function getSelectedSource(intentName: AssistantIntentName): string | null {
+  const map: Record<AssistantIntentName, string | null> = {
+    warehouse_count: "warehouses",
+    inventory_balance: "inventory_balance_view",
+    warehouse_movements: "stock_ledger_entries",
+    weighbridge_tickets: "tickets",
+    crop_structure_area: "crop_structure",
+    field_total_area: "fields",
+    rotation_history: "field_history",
+    fields_overview: "fields",
+    crop_structure_overview: "crop_structure",
+    operations_recent: "operations",
+    fuel_balance: "fuel_balances",
+    fuel_movements: "fuel_movements",
+    entity_resolution: "entity_resolver",
+    company_context: "company_context",
+    navigation_help: "route_registry",
+    create_draft: "draft_engine",
+    clarification_required: null,
+    general_question: null,
+  };
+  return map[intentName] ?? null;
+}
+
+function summarizeMemoryForIntent(state: AssistantSessionState, intentName: AssistantIntentName): string | null {
+  switch (intentName) {
+    case "warehouse_count":
+      return state.lastWarehouseCount !== null ? `last_warehouse_count=${state.lastWarehouseCount}` : null;
+    case "inventory_balance":
+      return state.lastInventoryTotalKg !== null ? `last_inventory_kg=${state.lastInventoryTotalKg}` : null;
+    case "crop_structure_area":
+      return state.lastCropStructureAreaHa !== null ? `last_crop_structure_area_ha=${state.lastCropStructureAreaHa}` : null;
+    case "field_total_area":
+      return state.lastFieldsAreaHa !== null ? `last_fields_area_ha=${state.lastFieldsAreaHa}` : null;
+    default:
+      return null;
+  }
+}
+
+function collectMetricsFromOutputs(outputs: AssistantToolOutput[]): {
+  warehouseCount: number | null;
+  inventoryTotalKg: number | null;
+  cropAreaHa: number | null;
+  fieldsAreaHa: number | null;
+  primaryTool: string | null;
+} {
+  let warehouseCount: number | null = null;
+  let inventoryTotalKg: number | null = null;
+  let cropAreaHa: number | null = null;
+  let fieldsAreaHa: number | null = null;
+  const primaryTool = outputs[0]?.source.tableOrView || null;
+
+  outputs.forEach((output) => {
+    const table = String(output.source.tableOrView || "").toLowerCase();
+    const rows = output.rows || [];
+
+    if (table.includes("warehouse") && !table.includes("balance")) {
+      warehouseCount = rows.length;
+    }
+
+    const qtySum = rows.reduce((acc, row) => acc + asNumber(row.quantity), 0);
+    if (table.includes("balance") || table.includes("stock")) {
+      inventoryTotalKg = Number(qtySum.toFixed(3));
+    }
+
+    const areaSum = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
+    if (table.includes("crop_structure")) {
+      cropAreaHa = Number(areaSum.toFixed(3));
+    }
+    if (table === "fields" || table.includes("fields")) {
+      fieldsAreaHa = Number(areaSum.toFixed(3));
+    }
+  });
+
+  return { warehouseCount, inventoryTotalKg, cropAreaHa, fieldsAreaHa, primaryTool };
+}
+
+function validateAnswerDataByIntent(params: {
+  intent: AssistantIntent;
+  outputs: AssistantToolOutput[];
+  nextState: AssistantSessionState;
+}): {
+  pass: boolean;
+  contradictionDetected: boolean;
+  correctionApplied: boolean;
+  correctionText: string | null;
+  inconsistencyText: string | null;
+} {
+  const { intent, outputs, nextState } = params;
+  const metrics = collectMetricsFromOutputs(outputs);
+  let contradictionDetected = false;
+  let correctionApplied = false;
+  let correctionText: string | null = null;
+  let inconsistencyText: string | null = null;
+  let pass = true;
+
+  if (intent.name === "warehouse_count") {
+    const count = metrics.warehouseCount ?? 0;
+    if (count <= 0 && (nextState.lastInventoryTotalKg || 0) > 0) {
+      pass = false;
+      contradictionDetected = true;
+      correctionApplied = true;
+      correctionText =
+        `Вы правы: остатки на складах были найдены ранее (${formatKgAndTons(nextState.lastInventoryTotalKg || 0)}), значит склады есть. ` +
+        "Ошибка была в выборе источника для вопроса о количестве складов.";
+    }
+  }
+
+  if (intent.name === "inventory_balance") {
+    const total = metrics.inventoryTotalKg ?? 0;
+    if (total <= 0 && (nextState.lastInventoryTotalKg || 0) > 0) {
+      pass = false;
+      contradictionDetected = true;
+      correctionApplied = true;
+      correctionText =
+        `Вижу расхождение с предыдущим ответом: ранее было найдено ${formatKgAndTons(nextState.lastInventoryTotalKg || 0)}. ` +
+        "Проверю баланс повторно по всем складам.";
+    }
+  }
+
+  if (intent.name === "field_total_area") {
+    const fieldArea = metrics.fieldsAreaHa ?? 0;
+    const cropArea = metrics.cropAreaHa ?? 0;
+    if (fieldArea <= 0 && cropArea > 0) {
+      pass = false;
+      contradictionDetected = true;
+      inconsistencyText =
+        `Вижу расхождение: модуль полей вернул ${formatNumber(fieldArea, 2)} га, ` +
+        `а структура посевов показывает ${formatNumber(cropArea, 2)} га. Для посевных площадей использую структуру посевов.`;
+    }
+  }
+
+  if (intent.name === "crop_structure_area") {
+    const cropArea = metrics.cropAreaHa ?? 0;
+    if (cropArea <= 0 && (nextState.lastCropStructureAreaHa || 0) > 0) {
+      pass = false;
+      contradictionDetected = true;
+      correctionApplied = true;
+      correctionText =
+        `Ранее в этом диалоге структура посевов уже давала ${formatNumber(nextState.lastCropStructureAreaHa || 0, 2)} га. ` +
+        "Сейчас инструмент вернул 0 строк — это похоже на фильтрацию/контекст, а не на отсутствие данных.";
+    }
+  }
+
+  return {
+    pass,
+    contradictionDetected,
+    correctionApplied,
+    correctionText,
+    inconsistencyText,
+  };
+}
+
+function validateExpectedAnswerType(params: {
+  intent: AssistantIntent;
+  expected: AssistantOutputType | null;
+  outputs: AssistantToolOutput[];
+}): boolean {
+  const { intent, expected, outputs } = params;
+  if (!expected) return true;
+
+  const metrics = collectMetricsFromOutputs(outputs);
+  switch (intent.name) {
+    case "warehouse_count":
+      return metrics.warehouseCount !== null;
+    case "inventory_balance":
+      return metrics.inventoryTotalKg !== null;
+    case "crop_structure_area":
+      return metrics.cropAreaHa !== null;
+    case "field_total_area":
+      return metrics.fieldsAreaHa !== null;
+    case "rotation_history":
+      return outputs.some((output) => (output.rows || []).length > 0) || outputs.length > 0;
+    default:
+      return true;
+  }
+}
+
 function looksLikeErpDataQuestion(message: string): boolean {
   const text = String(message || "").toLowerCase();
   return /(остат|склад|парт|движен|провод|ledger|inventory|warehouse|batch|stock|balance|талон|весов|гсм|топлив|азс|поле|посев|операц|урожа)/.test(
@@ -243,6 +450,31 @@ function looksLikeErpDataQuestion(message: string): boolean {
 function isCapabilitiesQuestion(message: string): boolean {
   const text = String(message || "").toLowerCase();
   return /(что ты умеешь|твои возможности|чем поможешь|help|what can you do)/.test(text);
+}
+
+function isContradictionQuestion(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  return /(почему|как так|противореч|ошиб|сказал|говорил).*(склад|остат|нет данных|нет склад)/.test(text);
+}
+
+function buildContradictionExplanation(state: AssistantSessionState): string | null {
+  const hasInventory = Number(state.lastInventoryTotalKg || 0) > 0;
+  const hasWarehouses = Number(state.lastWarehouseCount || 0) > 0;
+  if (!hasInventory && !hasWarehouses) return null;
+  if (hasInventory && hasWarehouses) {
+    return `Вы правы. Исправляю: склады есть (${formatNumber(state.lastWarehouseCount || 0, 0)}), и остатки тоже есть (${formatKgAndTons(
+      state.lastInventoryTotalKg || 0
+    )}). Ошибка была в выборе источника для вопроса.`;
+  }
+  if (hasInventory) {
+    return `Вы правы. Исправляю: остатки на складах найдены (${formatKgAndTons(
+      state.lastInventoryTotalKg || 0
+    )}), значит склады в компании есть. Ошибка была в маршрутизации вопроса.`;
+  }
+  return `Вы правы. Исправляю: склады в компании есть (${formatNumber(
+    state.lastWarehouseCount || 0,
+    0
+  )}).`;
 }
 
 function formatInventoryRows(rows: Array<Record<string, unknown>>): string {
@@ -281,6 +513,29 @@ function formatInventoryRows(rows: Array<Record<string, unknown>>): string {
   return lines.join("\n");
 }
 
+function formatWarehouseCountRows(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "Склады в компании не найдены.";
+
+  const total = rows.length;
+  const active = rows.filter((row) => {
+    const archivedFlag = String(row.archived ?? row.is_archived ?? "").toLowerCase();
+    return archivedFlag !== "true" && archivedFlag !== "1";
+  }).length;
+  const byType = new Map<string, number>();
+  rows.forEach((row) => {
+    const type = safeText(row.warehouse_type, "не указан");
+    byType.set(type, (byType.get(type) || 0) + 1);
+  });
+  const typeBreakdown = Array.from(byType.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 4)
+    .map(([type, count]) => `• ${type}: ${count}`);
+
+  return [`Всего складов: ${total}.`, `Активных: ${active}.`, typeBreakdown.length ? "По типам:" : "", ...typeBreakdown]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function formatWarehouseMovementsRows(rows: Array<Record<string, unknown>>): string {
   if (!rows.length) return "Последние движения по складам не найдены.";
   const lines = rows.slice(0, 12).map((row) => {
@@ -312,6 +567,18 @@ function formatFieldsSummaryRows(rows: Array<Record<string, unknown>>): string {
     `Полей: ${formatNumber(fieldsCount, 0)}`,
     `Заполнено по площади: ${formatNumber(filledAreaCount, 0)}, без площади: ${formatNumber(withoutAreaCount, 0)}`,
   ].join("\n");
+}
+
+function formatFieldTimelineRows(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "История поля не найдена.";
+  const lines = rows.slice(0, 8).map((row) => {
+    const date = formatDateTime(row.date);
+    const eventType = safeText(row.event_type, "event");
+    const title = safeText(row.title, "");
+    const qty = Number.isFinite(Number(row.qty_kg)) ? ` · ${formatKg(row.qty_kg)}` : "";
+    return `• ${date} · ${eventType}${title ? ` · ${title}` : ""}${qty}`;
+  });
+  return `История поля:\n\n${lines.join("\n")}`;
 }
 
 function formatCropStructureRows(rows: Array<Record<string, unknown>>): string {
@@ -448,14 +715,23 @@ function formatGroundedToolOutput(params: {
   const rows = output.rows || [];
   const sourceSeason = cleanString(output.source.season);
 
+  if (intentName === "warehouse_count" || toolName === "search_warehouses") {
+    return formatWarehouseCountRows(rows);
+  }
   if (intentName === "inventory_balance" || toolName === "get_warehouse_balances" || toolName === "get_inventory") {
     return formatInventoryRows(rows);
   }
   if (intentName === "warehouse_movements" || toolName === "get_warehouse_movements") {
     return formatWarehouseMovementsRows(rows);
   }
+  if (intentName === "field_total_area") {
+    return formatFieldsSummaryRows(rows);
+  }
   if (intentName === "fields_overview" || toolName === "get_fields") {
     return outputType === "summary_total" ? formatFieldsSummaryRows(rows) : formatFieldsRows(rows);
+  }
+  if (intentName === "rotation_history" || toolName === "get_field_timeline") {
+    return formatFieldTimelineRows(rows);
   }
   if (toolName === "get_crop_structure_summary") {
     if (!rows.length) {
@@ -470,6 +746,10 @@ function formatGroundedToolOutput(params: {
       return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
     }
     return formatCropStructureSummaryRowsV2(rows, outputType, sourceSeason || "2026", intentParams);
+  }
+  if (intentName === "crop_structure_area") {
+    if (!rows.length) return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
+    return formatCropStructureSummaryRowsV2(rows, "summary_total", sourceSeason || "2026", intentParams);
   }
   if (intentName === "crop_structure_overview" || toolName === "get_crop_structure") {
     if (outputType !== "list") return null;
@@ -553,6 +833,7 @@ function mapToolNamespace(tool: AssistantToolName): string {
     get_field_materials: "field.materials",
     find_warehouse: "inventory.resolveWarehouse",
     search_warehouses: "inventory.searchWarehouses",
+    get_warehouse_count: "inventory.warehouseCount",
     get_warehouse_summary: "inventory.summary",
     get_warehouse_stock: "inventory.balance",
     get_warehouse_balances: "inventory.balance",
@@ -607,9 +888,13 @@ function buildSmartFollowUp(intent: AssistantIntent, locale: "ru" | "en" | "kz")
 
 function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatformSettings): AssistantToolName[] {
   const byIntent: Record<AssistantIntentName, AssistantToolName[]> = {
+    warehouse_count: ["get_warehouse_count"],
     inventory_balance: ["get_warehouse_stock", "get_warehouse_summary", "get_warehouse_balances"],
     warehouse_movements: ["get_warehouse_movements"],
     weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets", "get_ticket_details"],
+    crop_structure_area: ["get_crop_structure_summary"],
+    field_total_area: ["get_fields", "get_crop_structure_summary"],
+    rotation_history: ["get_field_timeline", "search_fields"],
     fields_overview: ["search_fields", "get_field_card", "get_field_timeline", "get_field_materials", "get_fields", "find_field"],
     crop_structure_overview: ["get_crop_structure_summary"],
     operations_recent: ["get_active_operations", "search_operations", "get_operations", "get_operation_details"],
@@ -660,6 +945,14 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     tools.push("get_field_timeline", "get_field_materials");
   }
 
+  if (intent.name === "rotation_history") {
+    tools.unshift("get_field_timeline");
+  }
+
+  if (intent.name === "warehouse_count") {
+    tools.unshift("get_warehouse_count");
+  }
+
   if (intent.name === "weighbridge_tickets" && queryText) {
     tools.unshift("get_ticket_details");
   }
@@ -680,6 +973,14 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     tools.unshift("search_crops_by_group");
   }
 
+  if (intent.name === "crop_structure_area" && (cropGroup || cropAlias)) {
+    tools.unshift("search_crops_by_group");
+  }
+
+  if (intent.name === "crop_structure_area" && /картоф|гала|сорая|балтик|азилит|коломбо|импала|potato|gala|soraya|baltic rose/.test(queryText)) {
+    tools.unshift("get_potato_material_report");
+  }
+
   if (intent.name === "crop_structure_overview" && /картоф|гала|сорая|балтик|азилит|коломбо|импала/.test(queryText)) {
     tools.unshift("get_potato_material_report");
   }
@@ -693,6 +994,10 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
 
   if (intent.name === "crop_structure_overview" && resolveOutputType(intent) === "list") {
+    tools.push("get_crop_structure");
+  }
+
+  if (intent.name === "crop_structure_area" && resolveOutputType(intent) === "list") {
     tools.push("get_crop_structure");
   }
 
@@ -716,9 +1021,13 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   if (merged.length > 0) return merged;
 
   const staleSettingsFallback: Record<AssistantIntentName, AssistantToolName[]> = {
+    warehouse_count: ["get_warehouse_count"],
     inventory_balance: ["get_warehouse_stock", "get_warehouse_balances"],
     warehouse_movements: ["get_warehouse_movements"],
     weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets"],
+    crop_structure_area: ["get_crop_structure_summary", "search_crops_by_group"],
+    field_total_area: ["get_fields", "get_crop_structure_summary"],
+    rotation_history: ["get_field_timeline", "search_fields"],
     fields_overview: ["search_fields", "get_field_card", "get_field_timeline", "get_field_materials"],
     crop_structure_overview: ["get_crop_structure_summary", "search_crops_by_group"],
     operations_recent: ["get_active_operations", "search_operations", "get_operations"],
@@ -1053,6 +1362,19 @@ export async function runAssistantEngine(params: {
     ...(overrides || {}),
   });
   const modelLlmNotCalled = llmNotCalled();
+  const buildDiagnostics = (
+    overrides?: Partial<AssistantAnswerDiagnostics>
+  ): AssistantAnswerDiagnostics => ({
+    expectedAnswerType: null,
+    selectedSource: null,
+    selectedTool: null,
+    fallbackSource: null,
+    previousRelatedMemory: null,
+    consistencyCheck: "skipped",
+    contradictionDetected: false,
+    correctionApplied: false,
+    ...(overrides || {}),
+  });
 
   if (!settings.enabled) {
     return {
@@ -1077,6 +1399,7 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
+      diagnostics: buildDiagnostics(),
       performance: buildPerformance(),
     };
   }
@@ -1104,6 +1427,7 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
+      diagnostics: buildDiagnostics(),
       performance: buildPerformance(),
     };
   }
@@ -1119,6 +1443,48 @@ export async function runAssistantEngine(params: {
   const resolvedMode: AssistantEngineResult["mode"] =
     intent.name === "navigation_help" ? "navigation" : assistantMode;
   const resolvedOutputType = resolveOutputType(intent);
+  const expectedAnswerType = getExpectedAnswerType(intent.name);
+  const selectedSource = getSelectedSource(intent.name);
+  const previousRelatedMemory = summarizeMemoryForIntent(initialSessionState, intent.name);
+
+  if (isContradictionQuestion(messageForRouting)) {
+    const correction = buildContradictionExplanation(initialSessionState);
+    if (correction) {
+      return {
+        answer: correction,
+        sessionState: { ...initialSessionState, lastIntent: intent.name },
+        intent,
+        outputType: resolvedOutputType,
+        mode: resolvedMode,
+        toolCalls: [],
+        toolActivity: [],
+        navigationActions: [],
+        sourceHints: [],
+        answerSource: "tools",
+        grounded: true,
+        model: {
+          configuredModel: modelConfig.configuredModel,
+          actualModel: null,
+          settingsSource: modelConfig.settingsSource,
+          promptVersion: promptMeta.promptVersion,
+          promptSource: promptMeta.promptSource,
+          promptUpdatedAt: promptMeta.promptUpdatedAt,
+          requestMode: "tool_first",
+          llm: modelLlmNotCalled,
+        },
+        diagnostics: buildDiagnostics({
+          expectedAnswerType,
+          selectedSource: "session_memory",
+          selectedTool: "session_memory",
+          previousRelatedMemory,
+          consistencyCheck: "pass",
+          contradictionDetected: true,
+          correctionApplied: true,
+        }),
+        performance: buildPerformance(),
+      };
+    }
+  }
 
   if (intent.name === "clarification_required") {
     const smartFollowup = buildSmartFollowUp(intent, runtimeContext.locale || "ru");
@@ -1144,6 +1510,11 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType,
+        selectedSource,
+        previousRelatedMemory,
+      }),
       performance: buildPerformance(),
     };
   }
@@ -1171,6 +1542,11 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType,
+        selectedSource,
+        previousRelatedMemory,
+      }),
       performance: buildPerformance(),
     };
   }
@@ -1256,9 +1632,41 @@ export async function runAssistantEngine(params: {
   const toolActivity = buildToolActivityLogs(toolCalls);
   const hasToolsAnswer = answerBlocks.length > 0;
   if (hasToolsAnswer) {
+    const answerTypeValid = validateExpectedAnswerType({
+      intent,
+      expected: expectedAnswerType,
+      outputs,
+    });
+    const consistency = validateAnswerDataByIntent({
+      intent,
+      outputs,
+      nextState: nextSessionState,
+    });
+
+    const answerParts = [...answerBlocks];
+    if (!answerTypeValid) {
+      answerParts.unshift("Уточняю результат по корректному источнику данных: предыдущий инструмент вернул неполный формат ответа.");
+    }
+    if (consistency.correctionText) {
+      answerParts.unshift(consistency.correctionText);
+    }
+    if (consistency.inconsistencyText) {
+      answerParts.push(consistency.inconsistencyText);
+    }
+
+    const updatedState: AssistantSessionState = {
+      ...nextSessionState,
+      lastIntent: intent.name,
+      lastDetectedInconsistency: consistency.inconsistencyText || (consistency.contradictionDetected ? consistency.correctionText : null) || nextSessionState.lastDetectedInconsistency,
+      lastInconsistencyAt:
+        (consistency.inconsistencyText || consistency.contradictionDetected)
+          ? new Date().toISOString()
+          : nextSessionState.lastInconsistencyAt,
+    };
+
     return {
-      answer: answerBlocks.join("\n\n"),
-      sessionState: { ...nextSessionState, lastIntent: intent.name },
+      answer: answerParts.join("\n\n"),
+      sessionState: updatedState,
       intent,
       outputType: resolvedOutputType,
       mode: resolvedMode,
@@ -1278,6 +1686,15 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType,
+        selectedSource,
+        selectedTool: outputs[0]?.source.tableOrView || null,
+        previousRelatedMemory,
+        consistencyCheck: consistency.pass && answerTypeValid ? "pass" : "fail",
+        contradictionDetected: consistency.contradictionDetected,
+        correctionApplied: consistency.correctionApplied || !answerTypeValid,
+      }),
       performance: buildPerformance(),
     };
   }
@@ -1285,6 +1702,7 @@ export async function runAssistantEngine(params: {
   const firstToolError = toolCalls.find((call) => !call.ok);
   if (firstToolError) {
     const fallbackByIntent: Partial<Record<AssistantIntentName, string>> = {
+      warehouse_count: "Не смог получить список складов. Ошибка в инструменте.",
       inventory_balance: "Не смог получить остатки со складов. Ошибка в инструменте.",
       warehouse_movements: "Не смог получить движения склада. Ошибка в инструменте.",
       weighbridge_tickets: "Не смог получить данные весовой. Ошибка в инструменте.",
@@ -1321,6 +1739,14 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType,
+        selectedSource,
+        selectedTool: toolCalls[0]?.tool || null,
+        previousRelatedMemory,
+        fallbackSource: "tool_error",
+        consistencyCheck: "skipped",
+      }),
       performance: buildPerformance(),
     };
   }
@@ -1352,6 +1778,14 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType,
+        selectedSource,
+        selectedTool: null,
+        previousRelatedMemory,
+        fallbackSource: "policy_block",
+        consistencyCheck: "skipped",
+      }),
       performance: buildPerformance(),
     };
   }
@@ -1419,6 +1853,14 @@ export async function runAssistantEngine(params: {
       requestMode: "tool_first",
       llm: fallback.llm,
     },
+    diagnostics: buildDiagnostics({
+      expectedAnswerType,
+      selectedSource,
+      selectedTool: toolCalls[0]?.tool || null,
+      previousRelatedMemory,
+      fallbackSource: "llm_fallback",
+      consistencyCheck: "skipped",
+    }),
     performance: buildPerformance({
       promptTokens: fallback.usage.promptTokens,
       completionTokens: fallback.usage.completionTokens,
