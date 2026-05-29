@@ -5,7 +5,6 @@ import {
   findCropGroupsInText,
   getAgroTaxonomySnapshot,
   listCropsByGroup,
-  normalizeCropAlias,
   resolveKnownCropAlias,
 } from "@/lib/assistant/agro-taxonomy";
 import { applySemanticExpansions } from "@/lib/assistant/knowledge/semantic-memory";
@@ -540,9 +539,34 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
     const explicitWarehouse = resolveWarehouseAliasQuery(rawWarehouseQuery);
     const allWarehouses = parseBoolish(context.intent.parameters.allWarehouses) || !explicitWarehouse;
     const negativeOnly = parseBoolish(context.intent.parameters.negative_only);
+    const queryAliasHint = searchQuery
+      ? resolveKnownCropAlias(searchQuery) || findCropAliasesInText(searchQuery)[0] || null
+      : null;
+    const queryMaterialHint = (() => {
+      const normalized = normalizeSearchText(searchQuery || "");
+      if (!normalized) return null;
+      if (/(\u0443\u0434\u043e\u0431\u0440|fertiliz|dap|\u0430\u043c\u043c\u043e\u0444)/.test(normalized)) return "удобрение";
+      if (/(\u0441\u0437\u0440|\u0445\u0438\u043c|pestic|fungic|herbic)/.test(normalized)) return "сзр";
+      if (/(\u0441\u0435\u043c\u044f\u043d|seed)/.test(normalized)) return "семена";
+      if (/(\u0431\u0435\u043d\u0437|\u0441\u043e\u043b\u044f\u0440|\u0434\u0438\u0437\u0435\u043b|\u0433\u0441\u043c|fuel)/.test(normalized)) return "топливо";
+      return null;
+    })();
+    const effectiveProductHint = explicitProduct || queryAliasHint || queryMaterialHint;
 
-    const productTerms = buildSearchTerms(explicitProduct || searchQuery);
+    const productTerms = effectiveProductHint ? buildSearchTerms(effectiveProductHint) : [];
     const warehouseTerms = !allWarehouses && explicitWarehouse ? buildSearchTerms(explicitWarehouse) : [];
+    const warehouseScope = normalizeSearchText(explicitWarehouse || "");
+    const warehouseSpecificTerms = warehouseTerms.filter((term) => {
+      const normalized = normalizeSearchText(term);
+      return normalized && normalized !== "СЃРєР»Р°Рґ" && normalized !== "warehouse" && normalized !== "storage";
+    });
+    const matchesWarehouseScope = (warehouseName: unknown): boolean => {
+      if (!warehouseTerms.length) return true;
+      const normalizedName = normalizeSearchText(warehouseName);
+      if (warehouseScope && normalizedName.includes(warehouseScope)) return true;
+      const terms = warehouseSpecificTerms.length ? warehouseSpecificTerms : warehouseTerms;
+      return terms.every((term) => matchesAnyTerm(warehouseName, [term]));
+    };
     const queryUsed =
       "v_stock_balance_identity.select(warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity).eq(company_id).gt(quantity,0)";
 
@@ -551,7 +575,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
       resolved_season: cleanString(context.runtimeContext.season),
       query_used: queryUsed,
       search_query: searchQuery,
-      product_hint: explicitProduct,
+      product_hint: effectiveProductHint,
       warehouse_hint: explicitWarehouse,
       all_warehouses: allWarehouses,
       negative_only: negativeOnly,
@@ -701,7 +725,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
 
       const filtered = rows
         .filter((row) => {
-          if (warehouseTerms.length && !matchesAnyTerm(row.warehouse_name, warehouseTerms)) return false;
+          if (!matchesWarehouseScope(row.warehouse_name)) return false;
           if (productTerms.length) {
             const productBlob = [row.product_name, row.variety_name, row.reproduction_name, row.batch_class].join(" ");
             return matchesAnyTerm(productBlob, productTerms);
@@ -1944,7 +1968,11 @@ const getWarehouseCountToolAlias: AssistantToolDefinition = {
   description: "Warehouse count/list",
   domains: ["warehouses"],
   run: async (context) => {
-    const query = parseSearchQuery(context);
+    const query = resolveWarehouseAliasQuery(
+      cleanString(context.intent.parameters.entityQuery) ||
+        cleanString(context.intent.parameters.warehouse) ||
+        cleanString(context.intent.parameters.warehouse_alias)
+    );
     const queryUsed = "warehouses.select(id,name,warehouse_type,archived,is_archived)";
     logToolEvent(context, "get_warehouse_count", "start", {
       input_args: context.intent.parameters,
@@ -1971,7 +1999,7 @@ const getWarehouseCountToolAlias: AssistantToolDefinition = {
       }
       if (res.error) throw new Error(res.error.message);
 
-      const terms = buildSearchTerms(query);
+      const terms = query ? buildSearchTerms(query) : [];
       const baseRows = (res.data || []).map((row: any) => ({
         warehouse_id: String(row.id),
         warehouse_name: cleanString(row.name) || String(row.id),
@@ -2103,17 +2131,24 @@ const getOperationDetailsToolAlias: AssistantToolDefinition = {
   run: async (context) => {
     const query = parseSearchQuery(context);
     const limit = parseLimit(context.intent.parameters.limit, 1, 1, 10);
-    let opQuery = context.supabase
-      .from("operations")
-      .select("id,date,operation_type,status,field_id,crop_id,planned_area_ha,notes")
-      .eq("company_id", context.companyId)
-      .eq("archived", false)
-      .order("date", { ascending: false })
-      .limit(limit);
-    if (query) {
-      opQuery = opQuery.or(`operation_type.ilike.%${query}%,notes.ilike.%${query}%`);
+    const runOperationQuery = async (selectColumns: string) => {
+      let opQuery = context.supabase
+        .from("operations")
+        .select(selectColumns)
+        .eq("company_id", context.companyId)
+        .eq("archived", false)
+        .order("date", { ascending: false })
+        .limit(limit);
+      if (query) {
+        opQuery = opQuery.or(`operation_type.ilike.%${query}%,notes.ilike.%${query}%`);
+      }
+      return opQuery;
+    };
+
+    let opRes = await runOperationQuery("id,date,operation_type,status,field_id,crop_id,planned_area_ha,notes");
+    if (opRes.error && /column\\s+operations\\.(crop_id|planned_area_ha)\\s+does not exist/i.test(opRes.error.message || "")) {
+      opRes = await runOperationQuery("id,date,operation_type,status,field_id,notes");
     }
-    const opRes = await opQuery;
     if (opRes.error) throw new Error(opRes.error.message);
     const ops = opRes.data || [];
 
@@ -2305,17 +2340,30 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
   description: "Warehouse stock",
   domains: ["warehouses", "inventory"],
   run: async (context) => {
+    const searchQuery = parseSearchQuery(context);
     const warehouseQueryRaw =
       cleanString(context.intent.parameters.entityQuery) ||
       cleanString(context.intent.parameters.warehouse) ||
       cleanString(context.intent.parameters.warehouse_alias) ||
       cleanString(context.runtimeContext.filters.warehouse);
     const warehouseQuery = resolveWarehouseAliasQuery(warehouseQueryRaw);
-    const productQuery =
+    const explicitProductQuery =
       cleanString(context.intent.parameters.product) ||
       cleanString(context.intent.parameters.crop) ||
-      cleanString(context.intent.parameters.crop_alias) ||
-      parseSearchQuery(context);
+      cleanString(context.intent.parameters.crop_alias);
+    const queryAliasHint = searchQuery
+      ? resolveKnownCropAlias(searchQuery) || findCropAliasesInText(searchQuery)[0] || null
+      : null;
+    const queryMaterialHint = (() => {
+      const normalized = normalizeSearchText(searchQuery || "");
+      if (!normalized) return null;
+      if (/(\u0443\u0434\u043e\u0431\u0440|fertiliz|dap|\u0430\u043c\u043c\u043e\u0444)/.test(normalized)) return "СѓРґРѕР±СЂРµРЅРёРµ";
+      if (/(\u0441\u0437\u0440|\u0445\u0438\u043c|pestic|fungic|herbic)/.test(normalized)) return "СЃР·СЂ";
+      if (/(\u0441\u0435\u043c\u044f\u043d|seed)/.test(normalized)) return "СЃРµРјРµРЅР°";
+      if (/(\u0431\u0435\u043d\u0437|\u0441\u043e\u043b\u044f\u0440|\u0434\u0438\u0437\u0435\u043b|\u0433\u0441\u043c|fuel)/.test(normalized)) return "С‚РѕРїР»РёРІРѕ";
+      return null;
+    })();
+    const productQuery = explicitProductQuery || queryAliasHint || queryMaterialHint || null;
     const allWarehouses = parseBoolish(context.intent.parameters.allWarehouses) || !warehouseQuery;
     const negativeOnly = parseBoolish(context.intent.parameters.negative_only);
 
@@ -2338,17 +2386,30 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
           parameters: {
             ...context.intent.parameters,
             warehouse: warehouseQuery,
+            product: productQuery,
             allWarehouses,
             negative_only: negativeOnly,
           },
         },
       });
       const warehouseTerms = !allWarehouses && warehouseQuery ? buildSearchTerms(warehouseQuery) : [];
+      const warehouseScope = normalizeSearchText(warehouseQuery || "");
+      const warehouseSpecificTerms = warehouseTerms.filter((term) => {
+        const normalized = normalizeSearchText(term);
+        return normalized && normalized !== "СЃРєР»Р°Рґ" && normalized !== "warehouse" && normalized !== "storage";
+      });
+      const matchesWarehouseScope = (warehouseName: unknown): boolean => {
+        if (!warehouseTerms.length) return true;
+        const normalizedName = normalizeSearchText(warehouseName);
+        if (warehouseScope && normalizedName.includes(warehouseScope)) return true;
+        const terms = warehouseSpecificTerms.length ? warehouseSpecificTerms : warehouseTerms;
+        return terms.every((term) => matchesAnyTerm(warehouseName, [term]));
+      };
       const productTerms = productQuery ? buildSearchTerms(productQuery) : [];
 
       const rows = (output.rows || [])
         .filter((row) => {
-          if (warehouseTerms.length && !matchesAnyTerm(row.warehouse_name, warehouseTerms)) return false;
+          if (!matchesWarehouseScope(row.warehouse_name)) return false;
           if (productTerms.length) {
             const productBlob = [row.product_name, row.variety_name, row.reproduction_name, row.batch_class].join(" ");
             return matchesAnyTerm(productBlob, productTerms);
@@ -2399,9 +2460,19 @@ const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
       cleanString(context.intent.parameters.crop_group) ||
       findCropGroupsInText(query || "")[0] ||
       null;
+    const explicitAliasRaw = cleanString(context.intent.parameters.crop_alias);
+    const explicitCropRaw = cleanString(context.intent.parameters.crop);
+    const explicitAlias =
+      (explicitAliasRaw
+        ? resolveKnownCropAlias(explicitAliasRaw) || findCropAliasesInText(explicitAliasRaw)[0] || null
+        : null);
+    const explicitCrop =
+      (explicitCropRaw
+        ? resolveKnownCropAlias(explicitCropRaw) || findCropAliasesInText(explicitCropRaw)[0] || null
+        : null);
     const cropAliasTerms = uniqueStrings([
-      cleanString(context.intent.parameters.crop_alias),
-      cleanString(context.intent.parameters.crop),
+      explicitAlias,
+      explicitCrop,
       resolveKnownCropAlias(query || ""),
       ...findCropAliasesInText(query || ""),
     ]);
@@ -2431,8 +2502,15 @@ const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
       });
 
       const queryTerms = buildSearchTerms(query);
-      const queryWordCount = normalizeSearchText(query || "").split(" ").filter(Boolean).length;
-      const shouldApplyFreeText = !aliasTerms.length && queryWordCount > 0 && queryWordCount <= 8;
+      const normalizedQuery = normalizeSearchText(query || "");
+      const queryWordCount = normalizedQuery.split(" ").filter(Boolean).length;
+      const queryLooksSpecific =
+        /\b\d{1,3}(?:-\d{1,3}){0,2}\b/.test(normalizedQuery) ||
+        /(\u043a\u0430\u0440\u0442\u043e\u0444|\u043f\u0448\u0435\u043d|\u044f\u0447\u043c\u0435\u043d|\u043a\u0443\u043a\u0443\u0440\u0443\u0437|\u0440\u0430\u043f\u0441|\u0441\u043e\u044f|\u043e\u0432\u0435\u0441|\u043b\u0435\u043d|\u043b\u0451\u043d|\u043c\u043e\u0440\u043a\u043e\u0432|\u043b\u0443\u043a|gala|soraya|baltic|azilit|colombo|impala|potato|wheat|barley|corn)/.test(
+          normalizedQuery
+        );
+      const shouldApplyFreeText =
+        !aliasTerms.length && queryWordCount > 0 && queryWordCount <= 8 && queryLooksSpecific;
       const rows = shouldApplyFreeText
         ? filtered.filter((row) => {
             const searchBlob = [row.crop_name, row.variety_name, row.reproduction_name, row.field_name].join(" ");
@@ -2505,7 +2583,9 @@ const searchCropsByGroupToolAlias: AssistantToolDefinition = {
     const query = parseSearchQuery(context);
     const groupFromIntent = cleanString(context.intent.parameters.crop_group);
     const groups = groupFromIntent ? [groupFromIntent] : query ? findCropGroupsInText(query) : [];
-    const normalizedAlias = query ? normalizeCropAlias(query) : null;
+    const normalizedAlias = query
+      ? resolveKnownCropAlias(query) || findCropAliasesInText(query)[0] || null
+      : null;
     const taxonomy = getAgroTaxonomySnapshot();
     const queryUsed = "agro_taxonomy + crop_structure_summary";
 

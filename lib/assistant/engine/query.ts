@@ -79,6 +79,21 @@ function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function dedupeAnswerBlocks(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  values.forEach((value) => {
+    const normalized = String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    result.push(String(value));
+  });
+  return result;
+}
+
 function safeText(value: unknown, fallback = "—"): string {
   return cleanString(value) || fallback;
 }
@@ -477,8 +492,14 @@ function buildContradictionExplanation(state: AssistantSessionState): string | n
   )}).`;
 }
 
-function formatInventoryRows(rows: Array<Record<string, unknown>>): string {
-  if (!rows.length) return "По всем складам по текущему фильтру остатки не найдены.";
+function formatInventoryRows(
+  rows: Array<Record<string, unknown>>,
+  intentParams?: AssistantIntent["parameters"]
+): string {
+  const warehouseAlias = cleanString(intentParams?.warehouse_alias) || cleanString(intentParams?.warehouse);
+  const scopeLabel = warehouseAlias ? `По складу «${warehouseAlias}»` : "По всем складам";
+
+  if (!rows.length) return `${scopeLabel} по текущему фильтру остатки не найдены.`;
   const byProduct = new Map<string, number>();
   const byWarehouse = new Map<string, number>();
   let total = 0;
@@ -499,7 +520,7 @@ function formatInventoryRows(rows: Array<Record<string, unknown>>): string {
     .slice(0, 5);
   const majorWarehouse = Array.from(byWarehouse.entries()).sort((a, b) => b[1] - a[1])[0];
   const lines: string[] = [];
-  lines.push(`По всем складам: ${formatKgAndTons(total)}.`);
+  lines.push(`${scopeLabel}: ${formatKgAndTons(total)}.`);
   if (majorWarehouse) {
     lines.push(`Основной объём: ${majorWarehouse[0]} — ${formatKgAndTons(majorWarehouse[1])}.`);
   }
@@ -661,12 +682,23 @@ function formatTicketsRows(rows: Array<Record<string, unknown>>): string {
   return `Талоны весовой:\n\n${lines.join("\n")}`;
 }
 
-function formatOperationsRows(rows: Array<Record<string, unknown>>): string {
-  if (!rows.length) return "Последние операции не найдены.";
+function formatOperationsRows(
+  rows: Array<Record<string, unknown>>,
+  intentParams?: AssistantIntent["parameters"]
+): string {
+  const status = cleanString(intentParams?.status)?.toLowerCase();
+  const title =
+    status === "active"
+      ? "Активные операции"
+      : status === "waiting_materials"
+        ? "Операции в ожидании материалов"
+        : "Последние операции";
+
+  if (!rows.length) return `${title} не найдены.`;
   const lines = rows
     .slice(0, 10)
     .map((row) => `• ${formatDateTime(row.date)} · ${safeText(row.operation_type)} · поле ${safeText(row.field_name)}`);
-  return `Последние операции:\n\n${lines.join("\n")}`;
+  return `${title}:\n\n${lines.join("\n")}`;
 }
 
 function formatFuelRows(rows: Array<Record<string, unknown>>): string {
@@ -719,7 +751,7 @@ function formatGroundedToolOutput(params: {
     return formatWarehouseCountRows(rows);
   }
   if (intentName === "inventory_balance" || toolName === "get_warehouse_balances" || toolName === "get_inventory") {
-    return formatInventoryRows(rows);
+    return formatInventoryRows(rows, intentParams);
   }
   if (intentName === "warehouse_movements" || toolName === "get_warehouse_movements") {
     return formatWarehouseMovementsRows(rows);
@@ -748,6 +780,13 @@ function formatGroundedToolOutput(params: {
     return formatCropStructureSummaryRowsV2(rows, outputType, sourceSeason || "2026", intentParams);
   }
   if (intentName === "crop_structure_area") {
+    if (toolName !== "get_crop_structure" && toolName !== "search_crops_by_group") {
+      return null;
+    }
+    const hasAreaColumn = rows.some((row) => Object.prototype.hasOwnProperty.call(row, "area_ha"));
+    const hasPositiveArea = rows.some((row) => asNumber((row as any).area_ha) > 0);
+    if (!hasAreaColumn) return null;
+    if (toolName === "search_crops_by_group" && !hasPositiveArea) return null;
     if (!rows.length) return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
     return formatCropStructureSummaryRowsV2(rows, "summary_total", sourceSeason || "2026", intentParams);
   }
@@ -762,7 +801,7 @@ function formatGroundedToolOutput(params: {
     return formatTicketsRows(rows);
   }
   if (intentName === "operations_recent" || toolName === "get_operations") {
-    return formatOperationsRows(rows);
+    return formatOperationsRows(rows, intentParams);
   }
   if (intentName === "fuel_balance" || toolName === "get_fuel_balances") {
     return formatFuelBalanceRows(rows);
@@ -897,7 +936,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     rotation_history: ["get_field_timeline", "search_fields"],
     fields_overview: ["search_fields", "get_field_card", "get_field_timeline", "get_field_materials", "get_fields", "find_field"],
     crop_structure_overview: ["get_crop_structure_summary"],
-    operations_recent: ["get_active_operations", "search_operations", "get_operations", "get_operation_details"],
+    operations_recent: ["get_active_operations", "search_operations", "get_operations"],
     fuel_balance: ["get_fuel_balances"],
     fuel_movements: ["get_fuel_movements"],
     entity_resolution: [],
@@ -958,7 +997,10 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
 
   if (intent.name === "operations_recent" && queryText) {
-    tools.unshift("search_operations", "get_operation_details");
+    tools.unshift("search_operations");
+    if (/(\bop[-_\s]?\d+\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.test(queryText)) {
+      tools.unshift("get_operation_details");
+    }
   }
 
   if (intent.name === "operations_recent" && status === "active") {
@@ -970,10 +1012,6 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
 
   if (intent.name === "crop_structure_overview" && (cropGroup || cropAlias)) {
-    tools.unshift("search_crops_by_group");
-  }
-
-  if (intent.name === "crop_structure_area" && (cropGroup || cropAlias)) {
     tools.unshift("search_crops_by_group");
   }
 
@@ -1013,6 +1051,18 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     if (entityType === "warehouse") requiredTools.push("resolve_warehouse_by_name");
     if (entityType === "field") requiredTools.push("resolve_field_by_number");
     if (entityType === "fuel") requiredTools.push("resolve_fuel_source_by_name");
+  }
+  if (intent.name === "crop_structure_area") {
+    requiredTools.push("get_crop_structure_summary");
+  }
+  if (intent.name === "warehouse_count") {
+    requiredTools.push("get_warehouse_count");
+  }
+  if (intent.name === "inventory_balance") {
+    requiredTools.push("get_warehouse_stock");
+  }
+  if (intent.name === "operations_recent" && status === "active") {
+    requiredTools.push("get_active_operations");
   }
 
   const filtered = Array.from(new Set(tools)).filter((toolName) => allowByNamespaceFallback(toolName));
@@ -1643,7 +1693,7 @@ export async function runAssistantEngine(params: {
       nextState: nextSessionState,
     });
 
-    const answerParts = [...answerBlocks];
+    const answerParts = dedupeAnswerBlocks([...answerBlocks]);
     if (!answerTypeValid) {
       answerParts.unshift("Уточняю результат по корректному источнику данных: предыдущий инструмент вернул неполный формат ответа.");
     }

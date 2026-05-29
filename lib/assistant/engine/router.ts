@@ -1,7 +1,6 @@
 import {
   findCropAliasesInText,
   findCropGroupsInText,
-  normalizeCropAlias,
   resolveKnownCropAlias,
 } from "@/lib/assistant/agro-taxonomy";
 import { applySemanticExpansions } from "@/lib/assistant/knowledge/semantic-memory";
@@ -423,8 +422,9 @@ function fallbackIntent(
   const currentModule = normalizeText(runtimeContext.currentModule || runtimeContext.currentPage || "");
   const navigation = detectNavigationIntent(raw, sessionState);
   const cropGroups = findCropGroupsInText(text);
-  const normalizedAlias = normalizeCropAlias(text);
+  const normalizedAlias = resolveKnownCropAlias(text) || findCropAliasesInText(text)[0] || null;
   const cropAlias = pickCropAlias(raw, text);
+  const warehouseAlias = resolveWarehouseAlias(text);
   const listRequested = isListRequest(text);
 
   if (navigation) {
@@ -444,7 +444,11 @@ function fallbackIntent(
     }, text, runtimeContext);
   }
 
-  if (isWarehouseCountQuestion(text)) {
+  const inventorySignalForWarehouseQuestion = hasRegex(
+    text,
+    /(\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u043d\u0430\s+\u0441\u043a\u043b\u0430\u0434\u0430\u0445|\u043d\u0430\s+\u0441\u043a\u043b\u0430\u0434\u0435|\u043a\u0430\u0440\u0442\u043e\u0444|\u0441\u0435\u043c\u044f\u043d|\u0443\u0434\u043e\u0431\u0440|\u0441\u0437\u0440|\u0433\u0441\u043c|\u0442\u043e\u043f\u043b\u0438\u0432|fuel|inventory|stock|product)/
+  );
+  if (isWarehouseCountQuestion(text) && !inventorySignalForWarehouseQuestion) {
     return withCommonDefaults(
       {
         name: "warehouse_count",
@@ -547,8 +551,8 @@ function fallbackIntent(
         parameters: {
           query: cleanString(raw),
           product: cropAlias || normalizedAlias || null,
-          allWarehouses: true,
-          warehouse_alias: resolveWarehouseAlias(text),
+          allWarehouses: warehouseAlias ? false : true,
+          warehouse_alias: warehouseAlias,
           intent_group: "inventory",
           output_type: "balance",
         },
@@ -660,8 +664,8 @@ function fallbackIntent(
       parameters: {
         query: cleanString(raw),
         product: productAlias || null,
-        allWarehouses: true,
-        warehouse_alias: resolveWarehouseAlias(text),
+        allWarehouses: warehouseAlias ? false : true,
+        warehouse_alias: warehouseAlias,
         intent_group: "inventory",
         output_type: "balance",
       },
