@@ -120,6 +120,28 @@ function formatDateTime(value: unknown): string {
   return date.toLocaleString("ru-RU");
 }
 
+function formatShortDate(value: unknown): string {
+  const text = cleanString(value);
+  if (!text) return "вЂ”";
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+}
+
+function parseListLimit(params?: AssistantIntent["parameters"], fallback = 5): number {
+  const parsed = Number(params?.limit);
+  let value = Number.isFinite(parsed) ? Math.trunc(parsed) : NaN;
+  if (!Number.isFinite(value)) {
+    const queryText = `${cleanString(params?.query) || ""} ${cleanString(params?.entityQuery) || ""}`;
+    const match = queryText.match(/\b([1-8])\b/);
+    if (match) {
+      value = Number(match[1]);
+    }
+  }
+  if (!Number.isFinite(value)) return fallback;
+  return Math.max(1, Math.min(8, value));
+}
+
 function displayCropLabel(value: string | null): string | null {
   const key = safeText(value, "").toLowerCase();
   if (!key) return null;
@@ -497,9 +519,8 @@ function formatInventoryRows(
   intentParams?: AssistantIntent["parameters"]
 ): string {
   const warehouseAlias = cleanString(intentParams?.warehouse_alias) || cleanString(intentParams?.warehouse);
-  const scopeLabel = warehouseAlias ? `По складу «${warehouseAlias}»` : "По всем складам";
-
-  if (!rows.length) return `${scopeLabel} по текущему фильтру остатки не найдены.`;
+  const resolvedScopeLabel = warehouseAlias ? `По складу «${warehouseAlias}»` : "По всем активным складам";
+  if (!rows.length) return `${resolvedScopeLabel.toLowerCase()} по текущему фильтру остатки не найдены.`;
   const byProduct = new Map<string, number>();
   const byWarehouse = new Map<string, number>();
   let total = 0;
@@ -517,21 +538,22 @@ function formatInventoryRows(
 
   const topProducts = Array.from(byProduct.entries())
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 5);
+    .slice(0, 3);
   const majorWarehouse = Array.from(byWarehouse.entries()).sort((a, b) => b[1] - a[1])[0];
-  const lines: string[] = [];
-  lines.push(`${scopeLabel}: ${formatKgAndTons(total)}.`);
+  const compactLines: string[] = [];
+  compactLines.push(`${resolvedScopeLabel}: ${formatKgAndTons(total)}.`);
   if (majorWarehouse) {
-    lines.push(`Основной объём: ${majorWarehouse[0]} — ${formatKgAndTons(majorWarehouse[1])}.`);
+    compactLines.push(`Основной объём: ${majorWarehouse[0]} — ${formatKgAndTons(majorWarehouse[1])}.`);
   }
-  lines.push("Разбивка:");
-  topProducts.forEach(([product, qty]) => {
-    lines.push(`• ${product}: ${formatKgAndTons(qty)}`);
-  });
+  compactLines.push("Короткая разбивка:");
+  topProducts.forEach(([product, qty]) => compactLines.push(`• ${product}: ${formatKgAndTons(qty)}`));
+  if (rows.length > topProducts.length) {
+    compactLines.push(`Показываю топ ${topProducts.length} из ${rows.length}.`);
+  }
   if (hasNegative) {
-    lines.push("⚠ Есть отрицательные остатки. Проверьте ledger и последние движения.");
+    compactLines.push("⚠ Есть отрицательные остатки. Проверьте ledger и последние движения.");
   }
-  return lines.join("\n");
+  return compactLines.join("\n");
 }
 
 function formatWarehouseCountRows(
@@ -769,6 +791,162 @@ function formatCompanyContextRows(rows: Array<Record<string, unknown>>): string 
   ].join("\n");
 }
 
+function formatWarehouseCountRowsV2(
+  rows: Array<Record<string, unknown>>,
+  outputType: AssistantOutputType
+): string {
+  if (!rows.length) return "Активные склады не найдены.";
+  const total = rows.length;
+  const active = rows.filter((row) => {
+    const archivedFlag = String(row.archived ?? row.is_archived ?? "").toLowerCase();
+    return archivedFlag !== "true" && archivedFlag !== "1";
+  }).length;
+
+  const byType = new Map<string, number>();
+  rows.forEach((row) => {
+    const type = safeText((row as any).warehouse_type, "не указан");
+    byType.set(type, (byType.get(type) || 0) + 1);
+  });
+  const topTypes = Array.from(byType.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([type, count]) => `• ${type}: ${count}`);
+
+  if (outputType !== "list") {
+    return [
+      `Активных складов: ${active}.`,
+      topTypes.length ? "По типам:" : "",
+      ...topTypes,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  const shown = rows.slice(0, 5).map((row) => {
+    const name = safeText((row as any).warehouse_name ?? (row as any).name);
+    const type = safeText((row as any).warehouse_type, "не указан");
+    return `• ${name} (${type})`;
+  });
+  const tail = total > shown.length ? `Показываю ${shown.length} из ${total}.` : "";
+  return [`Активных складов: ${active}.`, ...shown, tail].filter(Boolean).join("\n");
+}
+
+function formatWarehouseMovementsRowsV2(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "Последние движения по складам не найдены.";
+  const shown = rows.slice(0, 5);
+  const lines = shown.map((row) =>
+    `• ${formatShortDate(row.date)}: ${mapDirectionLabel(row.direction)} ${safeText(row.product_name)} (${formatKg(
+      row.quantity
+    )}) — ${safeText(row.warehouse_name)}`
+  );
+  const tail = rows.length > shown.length ? `Показываю последние ${shown.length} из ${rows.length}.` : "";
+  return [`Последние движения:`, ...lines, tail].filter(Boolean).join("\n");
+}
+
+function formatFieldsRowsV2(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "Поля по текущему фильтру не найдены.";
+  const shown = rows.slice(0, 5);
+  const lines = shown.map((row) => `• ${safeText(row.field_name)} — ${formatNumber(asNumber(row.area_ha), 2)} га`);
+  const tail = rows.length > shown.length ? `Показываю ${shown.length} из ${rows.length}.` : "";
+  return [`Поля:`, ...lines, tail].filter(Boolean).join("\n");
+}
+
+function formatFieldsSummaryRowsV2(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "Поля компании не найдены.";
+  const totalArea = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
+  const fieldsCount = rows.length;
+  const filledAreaCount = rows.reduce((acc, row) => acc + (asNumber(row.area_ha) > 0 ? 1 : 0), 0);
+  const withoutAreaCount = Math.max(0, fieldsCount - filledAreaCount);
+  return [
+    `Общая площадь полей: ${formatNumber(totalArea, 2)} га.`,
+    `Полей: ${formatNumber(fieldsCount, 0)}.`,
+    `С площадью: ${formatNumber(filledAreaCount, 0)}, без площади: ${formatNumber(withoutAreaCount, 0)}.`,
+  ].join("\n");
+}
+
+function formatFieldTimelineRowsV2(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "История поля не найдена.";
+  const labelByType: Record<string, string> = {
+    issue: "выдача материалов",
+    weighbridge: "весовая",
+    operation_fact: "факт операции",
+    harvest: "уборка",
+  };
+  const shown = rows.slice(0, 4);
+  const lines = shown.map((row) => {
+    const eventType = safeText(row.event_type, "event").toLowerCase();
+    const eventLabel = labelByType[eventType] || eventType;
+    const title = cleanString(row.title);
+    const qty = Number.isFinite(Number((row as any).qty_kg))
+      ? `${formatNumber(asNumber((row as any).qty_kg), 2)} кг`
+      : Number.isFinite(Number((row as any).net_kg))
+        ? `${formatNumber(asNumber((row as any).net_kg), 2)} кг`
+        : null;
+    return `• ${formatShortDate(row.date)}: ${eventLabel}${title ? ` — ${title}` : ""}${qty ? `, ${qty}` : ""}`;
+  });
+  const tail = rows.length > shown.length ? `Показываю последние ${shown.length} из ${rows.length}.` : "";
+  return [`Последние события по полю:`, ...lines, tail].filter(Boolean).join("\n");
+}
+
+function formatFieldMaterialsRowsV2(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "Фактические материалы по полю не найдены.";
+  const total = rows.reduce((acc, row) => acc + asNumber((row as any).qty_kg), 0);
+  const shown = rows.slice(0, 3);
+  const lines = shown.map(
+    (row) => `• ${safeText((row as any).product_name)} — ${formatNumber(asNumber((row as any).qty_kg), 3)} кг`
+  );
+  const tail = rows.length > shown.length ? `Показываю топ ${shown.length} из ${rows.length}.` : "";
+  return [`Материалы по полю: ${formatNumber(total, 3)} кг.`, ...lines, tail].filter(Boolean).join("\n");
+}
+
+function formatTicketsRowsV2(
+  rows: Array<Record<string, unknown>>,
+  intentParams?: AssistantIntent["parameters"]
+): string {
+  if (!rows.length) return "Талоны не найдены.";
+  const queryText = `${cleanString(intentParams?.query) || ""} ${cleanString(intentParams?.entityQuery) || ""}`.toLowerCase();
+  const showTare = /(тара|tare|закрыт|закрытие|взвешиван)/i.test(queryText);
+  const showTicketNo = /(номер|ticket|талон\s*№|wb-)/i.test(queryText);
+  const wantsSingle = /(последн(ий|его)?\s+талон|last ticket)/i.test(queryText);
+  const shown = rows.slice(0, wantsSingle ? 1 : parseListLimit(intentParams, 3));
+  const lines = shown.map((row, index) => {
+    const vehicle = safeText((row as any).vehicle_label || (row as any).vehicle_name, "машина не указана");
+    const driver = safeText((row as any).driver_name, "водитель не указан");
+    const product = cleanString((row as any).product_name);
+    const variety = cleanString((row as any).variety_name);
+    const cropLabel = [product, variety && variety !== "-" ? variety : null].filter(Boolean).join(" ");
+    const net = asNumber((row as any).net_kg);
+    const gross = asNumber((row as any).gross_kg);
+    const tare = asNumber((row as any).tare_kg);
+    const status = safeText((row as any).status, "").toLowerCase();
+    const isFinal = status === "finalized" || status === "closed";
+    const weightPart = net > 0 && isFinal ? `Нетто ${formatNumber(net, 3)} кг` : `Брутто ${formatNumber(gross, 3)} кг`;
+    const tarePart = showTare && tare > 0 ? `, тара ${formatNumber(tare, 3)} кг` : "";
+    const statusPart = isFinal ? `, закрыт ${formatShortDate((row as any).date)}` : ", талон открыт";
+    const no = showTicketNo ? `${safeText((row as any).ticket_no)}: ` : "";
+    const prefix = shown.length === 1 ? "Последний талон" : `${index + 1})`;
+    return `${prefix}: ${no}${vehicle}, ${driver}${cropLabel ? `, ${cropLabel}` : ""}. ${weightPart}${tarePart}${statusPart}.`;
+  });
+  const tail = rows.length > shown.length ? `Показываю последние ${shown.length} из ${rows.length}.` : "";
+  return [...lines, tail].filter(Boolean).join("\n");
+}
+
+function formatFieldCardRowsV2(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "Поле не найдено.";
+  const row = rows[0];
+  const area = formatNumber(asNumber((row as any).area_ha), 2);
+  const cropList = Array.isArray((row as any).crops) ? ((row as any).crops as string[]).filter(Boolean) : [];
+  const cropText = cropList.length ? cropList.slice(0, 3).join(", ") : "культура не указана";
+  const activeOps = asNumber((row as any).active_operations_count);
+  const issued = formatNumber(asNumber((row as any).material_issued_kg), 3);
+  const harvest = formatNumber(asNumber((row as any).harvest_net_kg), 3);
+  return [
+    `${safeText((row as any).field_name)}: ${area} га.`,
+    `По плану: ${cropText}.`,
+    `Активные операции: ${activeOps}. Материалы факт: ${issued} кг, урожай факт: ${harvest} кг.`,
+  ].join("\n");
+}
+
 function formatGroundedToolOutput(params: {
   toolName: AssistantToolName;
   intentName: AssistantIntentName;
@@ -781,28 +959,31 @@ function formatGroundedToolOutput(params: {
   const sourceSeason = cleanString(output.source.season);
 
   if (intentName === "warehouse_count" || toolName === "search_warehouses") {
-    return formatWarehouseCountRows(rows, outputType);
+    return formatWarehouseCountRowsV2(rows, outputType);
   }
   if (intentName === "inventory_balance" || toolName === "get_warehouse_balances" || toolName === "get_inventory") {
     return formatInventoryRows(rows, intentParams);
   }
   if (intentName === "warehouse_movements" || toolName === "get_warehouse_movements") {
-    return formatWarehouseMovementsRows(rows);
+    return formatWarehouseMovementsRowsV2(rows);
   }
   if (intentName === "field_total_area") {
-    return formatFieldsSummaryRows(rows);
+    return formatFieldsSummaryRowsV2(rows);
   }
   if (
     intentName === "fields_overview" &&
     (toolName === "search_fields" || toolName === "get_fields" || toolName === "find_field")
   ) {
-    return outputType === "summary_total" ? formatFieldsSummaryRows(rows) : formatFieldsRows(rows);
+    return outputType === "summary_total" ? formatFieldsSummaryRowsV2(rows) : formatFieldsRowsV2(rows);
   }
   if (intentName === "rotation_history" || toolName === "get_field_timeline") {
-    return formatFieldTimelineRows(rows);
+    return formatFieldTimelineRowsV2(rows);
   }
   if (toolName === "get_field_materials") {
-    return formatFieldMaterialsRows(rows);
+    return formatFieldMaterialsRowsV2(rows);
+  }
+  if (toolName === "get_field_card") {
+    return formatFieldCardRowsV2(rows);
   }
   if (toolName === "get_crop_structure_summary") {
     if (!rows.length) {
@@ -840,7 +1021,10 @@ function formatGroundedToolOutput(params: {
     if (toolName !== "get_weighbridge_tickets" && toolName !== "get_ticket_details") {
       return null;
     }
-    return formatTicketsRows(rows);
+    return formatTicketsRowsV2(rows, intentParams);
+  }
+  if (toolName === "get_active_tickets" || toolName === "get_recent_tickets") {
+    return formatTicketsRowsV2(rows, intentParams);
   }
   if (intentName === "operations_recent" || toolName === "get_operations") {
     return formatOperationsRows(rows, intentParams);
@@ -970,15 +1154,15 @@ function buildSmartFollowUp(intent: AssistantIntent, locale: "ru" | "en" | "kz")
 function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatformSettings): AssistantToolName[] {
   const byIntent: Record<AssistantIntentName, AssistantToolName[]> = {
     warehouse_count: ["get_warehouse_count"],
-    inventory_balance: ["get_warehouse_stock", "get_warehouse_summary", "get_warehouse_balances"],
+    inventory_balance: ["get_warehouse_stock"],
     warehouse_movements: ["get_warehouse_movements"],
-    weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets", "get_ticket_details"],
+    weighbridge_tickets: ["get_weighbridge_tickets"],
     crop_structure_area: ["get_crop_structure_summary"],
     field_total_area: ["get_fields", "get_crop_structure_summary"],
-    rotation_history: ["get_field_timeline", "search_fields"],
-    fields_overview: ["search_fields", "get_field_card", "get_field_timeline", "get_field_materials", "get_fields", "find_field"],
+    rotation_history: ["get_field_timeline"],
+    fields_overview: ["get_field_card", "search_fields", "get_fields"],
     crop_structure_overview: ["get_crop_structure_summary"],
-    operations_recent: ["get_active_operations", "search_operations", "get_operations"],
+    operations_recent: ["get_active_operations", "search_operations"],
     fuel_balance: ["get_fuel_balances"],
     fuel_movements: ["get_fuel_movements"],
     entity_resolution: [],
@@ -1026,8 +1210,13 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     if (resolvedType === "summary_total") {
       tools.splice(0, tools.length, "get_fields");
     } else if (queryText) {
-      tools.unshift("search_fields");
-      tools.push("get_field_timeline", "get_field_materials");
+      tools.splice(0, tools.length, "get_field_card");
+      if (/(материал|удобр|сзр|семен)/i.test(queryText)) {
+        tools.push("get_field_materials");
+      }
+      if (/(истори|севооборот|прошл|timeline)/i.test(queryText)) {
+        tools.push("get_field_timeline");
+      }
     }
   }
 
@@ -1051,9 +1240,9 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     const wantsRecent = Number(intent.parameters.limit || 0) > 0 || /(сегодня|последн|today|recent|last)/i.test(queryText);
 
     if (wantsActive) {
-      tools.splice(0, tools.length, "get_active_tickets", "get_weighbridge_tickets");
+      tools.splice(0, tools.length, "get_active_tickets");
     } else if (wantsRecent) {
-      tools.splice(0, tools.length, "get_recent_tickets", "get_weighbridge_tickets");
+      tools.splice(0, tools.length, "get_recent_tickets");
     } else {
       tools.splice(0, tools.length, "get_weighbridge_tickets");
     }
@@ -1135,13 +1324,13 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
 
   const staleSettingsFallback: Record<AssistantIntentName, AssistantToolName[]> = {
     warehouse_count: ["get_warehouse_count"],
-    inventory_balance: ["get_warehouse_stock", "get_warehouse_balances"],
+    inventory_balance: ["get_warehouse_stock"],
     warehouse_movements: ["get_warehouse_movements"],
     weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets"],
     crop_structure_area: ["get_crop_structure_summary", "search_crops_by_group"],
     field_total_area: ["get_fields", "get_crop_structure_summary"],
     rotation_history: ["get_field_timeline", "search_fields"],
-    fields_overview: ["search_fields", "get_field_card", "get_field_timeline", "get_field_materials"],
+    fields_overview: ["get_field_card", "search_fields", "get_fields"],
     crop_structure_overview: ["get_crop_structure_summary", "search_crops_by_group"],
     operations_recent: ["get_active_operations", "search_operations", "get_operations"],
     fuel_balance: ["get_fuel_balances"],

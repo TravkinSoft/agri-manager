@@ -12,6 +12,14 @@ import { getAssistantRouteRegistry } from "@/lib/assistant/route-registry";
 
 const DEFAULT_SEASON_YEAR = "2026";
 
+const WAREHOUSE_ALIAS_RULES_RU: Array<{ match: RegExp; normalized: string }> = [
+  { match: /(овощн|картофел|овощехранил|хранилищ|vegetable|potato)/i, normalized: "овощной склад" },
+  { match: /(семенн|seed)/i, normalized: "склад семян" },
+  { match: /(зернов|grain)/i, normalized: "зерновой склад" },
+  { match: /(удобр|fertiliz|диам|dap|аммоф)/i, normalized: "склад удобрений" },
+  { match: /(сзр|хим|pestic|fungic|herbic)/i, normalized: "склад сзр" },
+];
+
 const WAREHOUSE_ALIAS_RULES_V2: Array<{ match: RegExp; normalized: string }> = [
   { match: /(овощн|картофел|картофелехранил|хранилищ|vegetable)/i, normalized: "овощной склад" },
   { match: /(семенн|seed)/i, normalized: "склад семян" },
@@ -56,9 +64,35 @@ function parseBoolish(value: unknown): boolean {
   return text === "true" || text === "1" || text === "yes";
 }
 
+function hasArchiveWords(value: unknown): boolean {
+  const text = normalizeSearchText(value);
+  if (!text) return false;
+  return /(архив|неактив|стар(ые|ый)?|including archive|with archive|inactive)/i.test(text);
+}
+
+function hasArchiveWordsV2(value: unknown): boolean {
+  const text = normalizeSearchText(value);
+  if (!text) return false;
+  return /(архив|неактив|стар(ые|ый)?|including archive|with archive|inactive|old)/i.test(text);
+}
+
+function includeArchivedByRequest(context: AssistantToolContext): boolean {
+  if (parseBoolish(context.intent.parameters.include_archived)) return true;
+  const directQuery = cleanString(context.intent.parameters.query);
+  if (hasArchiveWordsV2(directQuery) || hasArchiveWords(directQuery)) return true;
+  const searchQuery = parseSearchQuery(context);
+  if (hasArchiveWordsV2(searchQuery) || hasArchiveWords(searchQuery)) return true;
+  return false;
+}
+
 function resolveWarehouseAliasQuery(raw: string | null): string | null {
   const text = normalizeSearchText(raw);
   if (!text) return null;
+  for (const rule of WAREHOUSE_ALIAS_RULES_RU) {
+    if (rule.match.test(text)) {
+      return rule.normalized;
+    }
+  }
   for (const rule of WAREHOUSE_ALIAS_RULES_V2) {
     if (rule.match.test(text)) {
       return rule.normalized;
@@ -558,6 +592,241 @@ async function buildLookupMaps(
   return { byWarehouse, byProduct, byCrop, byVariety, byReproduction, byField, byFuelSource };
 }
 
+async function getWarehouseScope(
+  context: AssistantToolContext,
+  includeArchived: boolean
+): Promise<{ ids: Set<string>; names: Set<string> } | null> {
+  if (includeArchived) return null;
+
+  let res: any = await context.supabase
+    .from("warehouses")
+    .select("id,name,archived,is_archived")
+    .eq("company_id", context.companyId)
+    .limit(1500);
+
+  if (res.error && String(res.error.message || "").toLowerCase().includes("is_archived")) {
+    res = await context.supabase
+      .from("warehouses")
+      .select("id,name,archived")
+      .eq("company_id", context.companyId)
+      .limit(1500);
+  }
+  if (res.error) throw new Error(res.error.message);
+
+  const rows = (res.data || []).filter((row: any) => {
+    const archivedFlag = Boolean(row.archived || row.is_archived);
+    return !archivedFlag;
+  });
+
+  return {
+    ids: new Set(rows.map((row: any) => String(row.id))),
+    names: new Set(rows.map((row: any) => normalizeSearchText(row.name))),
+  };
+}
+
+function extractFieldCode(value: string | null): string | null {
+  const normalized = normalizeSearchText(value || "");
+  if (!normalized) return null;
+  const codeMatch = normalized.match(/\b\d{1,3}(?:-\d{1,3}){0,2}\b/);
+  return cleanString(codeMatch?.[0]);
+}
+
+async function resolveBestFieldMatches(
+  context: AssistantToolContext,
+  rawQuery: string,
+  maxRows = 6
+): Promise<Array<{ id: string; name: string; area: number; notes: string | null; score: number }>> {
+  const query = normalizeSearchText(rawQuery);
+  if (!query) return [];
+  const code = extractFieldCode(rawQuery);
+  const exactQuery = cleanString(rawQuery);
+  const byId = new Map<string, { id: string; name: string; area: number; notes: string | null }>();
+
+  const exactTerms = uniqueStrings([exactQuery, code]);
+  for (const term of exactTerms) {
+    const exactRes = await context.supabase
+      .from("fields")
+      .select("id,name,area,notes")
+      .eq("company_id", context.companyId)
+      .eq("archived", false)
+      .eq("name", term)
+      .limit(12);
+    if (exactRes.error) throw new Error(exactRes.error.message);
+    (exactRes.data || []).forEach((row: any) => {
+      const id = String(row.id);
+      if (!byId.has(id)) {
+        byId.set(id, {
+          id,
+          name: String(row.name || row.id),
+          area: Number(row.area || 0),
+          notes: cleanString(row.notes),
+        });
+      }
+    });
+  }
+
+  const fuzzyNeedle = code || query;
+  const fuzzyRes = await context.supabase
+    .from("fields")
+    .select("id,name,area,notes")
+    .eq("company_id", context.companyId)
+    .eq("archived", false)
+    .ilike("name", `%${fuzzyNeedle}%`)
+    .order("name", { ascending: true })
+    .limit(260);
+
+  if (fuzzyRes.error) throw new Error(fuzzyRes.error.message);
+  (fuzzyRes.data || []).forEach((row: any) => {
+    const id = String(row.id);
+    if (!byId.has(id)) {
+      byId.set(id, {
+        id,
+        name: String(row.name || row.id),
+        area: Number(row.area || 0),
+        notes: cleanString(row.notes),
+      });
+    }
+  });
+
+  const scoreField = (nameRaw: unknown): number => {
+    const name = normalizeSearchText(nameRaw);
+    if (!name) return 0;
+    let score = 0;
+
+    if (code) {
+      if (name === code) score += 500;
+      if (name.startsWith(`${code} `) || name.startsWith(`${code}-`) || name.includes(` ${code} `)) score += 300;
+    }
+    if (name === query) score += 240;
+    if (name.startsWith(query)) score += 140;
+    if (name.includes(query)) score += 80;
+
+    return score;
+  };
+
+  return Array.from(byId.values())
+    .map((row) => ({
+      ...row,
+      score: scoreField(row.name),
+    }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name, "ru"))
+    .slice(0, maxRows);
+}
+
+async function resolveSingleFieldMatch(
+  context: AssistantToolContext,
+  rawQuery: string | null
+): Promise<{ id: string; name: string; area: number; notes: string | null } | null> {
+  if (!cleanString(rawQuery)) return null;
+  const matched = await resolveBestFieldMatches(context, String(rawQuery), 1);
+  if (!matched.length) return null;
+  const first = matched[0];
+  return {
+    id: first.id,
+    name: first.name,
+    area: first.area,
+    notes: first.notes,
+  };
+}
+
+async function enrichTickets(
+  context: AssistantToolContext,
+  rawRows: Array<Record<string, unknown>>
+): Promise<Array<Record<string, unknown>>> {
+  if (!rawRows.length) return [];
+
+  const ticketIds = Array.from(
+    new Set(rawRows.map((row) => cleanString(row.id)).filter(Boolean))
+  ) as string[];
+  const driverIds = Array.from(
+    new Set(rawRows.map((row) => cleanString(row.driver_id)).filter(Boolean))
+  ) as string[];
+  const vehicleIds = Array.from(
+    new Set(rawRows.map((row) => cleanString(row.vehicle_id)).filter(Boolean))
+  ) as string[];
+  const fieldIds = Array.from(
+    new Set(rawRows.map((row) => cleanString(row.field_id)).filter(Boolean))
+  ) as string[];
+
+  const [linesRes, driversRes, vehiclesRes, lookup] = await Promise.all([
+    ticketIds.length
+      ? context.supabase
+          .from("ticket_lines")
+          .select("ticket_id,product_id,variety_id")
+          .in("ticket_id", ticketIds)
+          .limit(1200)
+      : Promise.resolve({ data: [], error: null } as any),
+    driverIds.length
+      ? context.supabase
+          .from("reference_personnel")
+          .select("id,full_name,email")
+          .in("id", driverIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    vehicleIds.length
+      ? context.supabase
+          .from("reference_vehicles")
+          .select("id,name,plate_number")
+          .in("id", vehicleIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    buildLookupMaps(context, { fields: fieldIds }),
+  ]);
+
+  const productIds = Array.from(
+    new Set((linesRes.data || []).map((row: any) => cleanString(row.product_id)).filter(Boolean))
+  ) as string[];
+  const varietyIds = Array.from(
+    new Set((linesRes.data || []).map((row: any) => cleanString(row.variety_id)).filter(Boolean))
+  ) as string[];
+  const lineLookup = await buildLookupMaps(context, {
+    products: productIds,
+    varieties: varietyIds,
+  });
+
+  const firstLineByTicket = new Map<string, { product_name: string | null; variety_name: string | null }>();
+  (linesRes.data || []).forEach((row: any) => {
+    const ticketId = cleanString(row.ticket_id);
+    if (!ticketId || firstLineByTicket.has(ticketId)) return;
+    const productId = cleanString(row.product_id);
+    const varietyId = cleanString(row.variety_id);
+    firstLineByTicket.set(ticketId, {
+      product_name: productId ? lineLookup.byProduct.get(productId) || productId : null,
+      variety_name: varietyId ? lineLookup.byVariety.get(varietyId) || varietyId : null,
+    });
+  });
+
+  const driverMap = new Map<string, string>();
+  if (!driversRes.error) {
+    (driversRes.data || []).forEach((row: any) => {
+      driverMap.set(String(row.id), cleanString(row.full_name) || cleanString(row.email) || String(row.id));
+    });
+  }
+
+  const vehicleMap = new Map<string, string>();
+  if (!vehiclesRes.error) {
+    (vehiclesRes.data || []).forEach((row: any) => {
+      const label = cleanString(row.plate_number) || cleanString(row.name) || String(row.id);
+      vehicleMap.set(String(row.id), label);
+    });
+  }
+
+  return rawRows.map((row) => {
+    const id = cleanString(row.id);
+    const driverId = cleanString(row.driver_id);
+    const vehicleId = cleanString(row.vehicle_id);
+    const fieldId = cleanString(row.field_id);
+    const line = id ? firstLineByTicket.get(id) : null;
+    return {
+      ...row,
+      driver_name: driverId ? driverMap.get(driverId) || null : null,
+      vehicle_label: vehicleId ? vehicleMap.get(vehicleId) || null : null,
+      field_name: fieldId ? lookup.byField.get(fieldId) || null : null,
+      product_name: line?.product_name || null,
+      variety_name: line?.variety_name || null,
+    };
+  });
+}
+
 const getCompanyContextTool: AssistantToolDefinition = {
   name: "get_company_context",
   description: "Текущий контекст компании и сезона",
@@ -609,6 +878,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
   domains: ["inventory", "warehouses", "batches", "identity"],
   run: async (context) => {
     const searchQuery = parseSearchQuery(context);
+    const includeArchived = includeArchivedByRequest(context);
     const explicitProduct =
       cleanString(context.intent.parameters.product) ||
       cleanString(context.intent.parameters.crop) ||
@@ -663,11 +933,13 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
       product_hint: effectiveProductHint,
       warehouse_hint: explicitWarehouse,
       all_warehouses: allWarehouses,
+      include_archived: includeArchived,
       negative_only: negativeOnly,
       rls_acl_result: inferAclResult(context),
     });
 
     try {
+      const activeWarehouseScope = await getWarehouseScope(context, includeArchived);
       const identityRes = await context.supabase
         .from("v_stock_balance_identity")
         .select("warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity")
@@ -693,6 +965,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
           const varietyId = cleanString(row.variety_id);
           const reproductionId = cleanString(row.reproduction_id);
           return {
+            warehouse_id: warehouseId,
             warehouse_name: lookup.byWarehouse.get(warehouseId) || warehouseId,
             product_name: lookup.byProduct.get(productId) || productId,
             variety_name: varietyId ? lookup.byVariety.get(varietyId) || "-" : "-",
@@ -721,6 +994,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
             const warehouseId = String(row.warehouse_id || "");
             const productId = String(row.product_id || "");
             return {
+              warehouse_id: warehouseId,
               warehouse_name: lookup.byWarehouse.get(warehouseId) || warehouseId,
               product_name: lookup.byProduct.get(productId) || productId,
               variety_name: "-",
@@ -793,6 +1067,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
           });
 
           rows = raw.map((row) => ({
+            warehouse_id: row.warehouse_id,
             warehouse_name: lookup.byWarehouse.get(row.warehouse_id) || row.warehouse_id,
             product_name: lookup.byProduct.get(row.product_id) || row.product_id,
             variety_name: row.variety_id ? lookup.byVariety.get(row.variety_id) || "-" : "-",
@@ -810,6 +1085,13 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
 
       const filtered = rows
         .filter((row) => {
+          if (activeWarehouseScope) {
+            const id = cleanString((row as any).warehouse_id);
+            const name = normalizeSearchText((row as any).warehouse_name);
+            if (id && !activeWarehouseScope.ids.has(id) && !activeWarehouseScope.names.has(name)) {
+              return false;
+            }
+          }
           if (!matchesWarehouseScope(row.warehouse_name)) return false;
           if (productTerms.length) {
             const productBlob = [row.product_name, row.variety_name, row.reproduction_name, row.batch_class].join(" ");
@@ -1261,7 +1543,9 @@ const getWeighbridgeTicketsTool: AssistantToolDefinition = {
     const normalizedStatuses = normalizeTicketStatuses(status);
     let query = context.supabase
       .from("tickets")
-      .select("id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg")
+      .select(
+        "id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,driver_id,vehicle_id,field_id"
+      )
       .eq("company_id", context.companyId)
       .eq("is_voided", false)
       .order("created_at", { ascending: false })
@@ -1273,18 +1557,24 @@ const getWeighbridgeTicketsTool: AssistantToolDefinition = {
     }
     const res = await query;
     if (res.error) throw new Error(res.error.message);
+    const mappedRows = (res.data || []).map((row: any) => ({
+      id: String(row.id),
+      ticket_no: String(row.ticket_no || row.id),
+      status: String(row.status || "-"),
+      operation: String(row.op_type || "-"),
+      gross_kg: Number(row.gross_weight_kg || 0),
+      tare_kg: Number(row.tare_weight_kg || 0),
+      net_kg: Number(row.net_weight_kg || 0),
+      date: String(row.created_at || ""),
+      driver_id: cleanString(row.driver_id),
+      vehicle_id: cleanString(row.vehicle_id),
+      field_id: cleanString(row.field_id),
+    }));
+    const rows = await enrichTickets(context, mappedRows);
 
     return {
       title: "Талоны весовой",
-      rows: (res.data || []).map((row: any) => ({
-        ticket_no: String(row.ticket_no || row.id),
-        status: String(row.status || "-"),
-        operation: String(row.op_type || "-"),
-        gross_kg: Number(row.gross_weight_kg || 0),
-        tare_kg: Number(row.tare_weight_kg || 0),
-        net_kg: Number(row.net_weight_kg || 0),
-        date: String(row.created_at || ""),
-      })),
+      rows,
       source: {
         module: "weighbridge",
         tableOrView: "tickets",
@@ -1553,6 +1843,7 @@ const getBatchesTool: AssistantToolDefinition = {
 async function resolveWarehouseByName(context: AssistantToolContext) {
   const queryRaw = parseSearchQuery(context);
   const query = resolveWarehouseAliasQuery(queryRaw);
+  const includeArchived = includeArchivedByRequest(context);
   if (!query) {
     return {
       title: "Поиск склада",
@@ -1562,13 +1853,20 @@ async function resolveWarehouseByName(context: AssistantToolContext) {
     };
   }
 
-  const res = await context.supabase
+  let res: any = await context.supabase
     .from("warehouses")
-    .select("id,name")
+    .select("id,name,archived,is_archived")
     .eq("company_id", context.companyId)
-    .eq("archived", false)
     .order("name", { ascending: true })
-    .limit(200);
+    .limit(600);
+  if (res.error && String(res.error.message || "").toLowerCase().includes("is_archived")) {
+    res = await context.supabase
+      .from("warehouses")
+      .select("id,name,archived")
+      .eq("company_id", context.companyId)
+      .order("name", { ascending: true })
+      .limit(600);
+  }
   if (res.error) throw new Error(res.error.message);
 
   const terms = buildSearchTerms(query);
@@ -1579,7 +1877,8 @@ async function resolveWarehouseByName(context: AssistantToolContext) {
     return normalized && !genericWarehouseTerms.has(normalized);
   });
 
-  const scored = (res.data || [])
+  const scored: Array<{ row: any; score: number; normalizedName: string }> = (res.data || [])
+    .filter((row: any) => includeArchived || !(row.archived || row.is_archived))
     .map((row: any) => {
       const name = String(row.name || "");
       const normalizedName = normalizeSearchText(name);
@@ -1593,15 +1892,18 @@ async function resolveWarehouseByName(context: AssistantToolContext) {
       });
       return { row, score, normalizedName };
     })
-    .filter((item) => {
+    .filter((item: { row: any; score: number; normalizedName: string }) => {
       if (item.score <= 0) return false;
       if (!specificTerms.length) return true;
       return specificTerms.some((term) => matchesAnyTerm(item.normalizedName, [term]));
     })
-    .sort((a, b) => (b.score - a.score) || a.normalizedName.localeCompare(b.normalizedName, "ru"))
+    .sort(
+      (a: { row: any; score: number; normalizedName: string }, b: { row: any; score: number; normalizedName: string }) =>
+        (b.score - a.score) || a.normalizedName.localeCompare(b.normalizedName, "ru")
+    )
     .slice(0, 8);
 
-  const matched = scored.map((item) => item.row);
+  const matched = scored.map((item: { row: any; score: number; normalizedName: string }) => item.row);
 
   return {
     title: "Найденные склады",
@@ -1633,26 +1935,21 @@ async function resolveFieldByNumber(context: AssistantToolContext) {
     };
   }
 
-  const res = await context.supabase
-    .from("fields")
-    .select("id,name")
-    .eq("company_id", context.companyId)
-    .eq("archived", false)
-    .ilike("name", `%${query}%`)
-    .limit(5);
-  if (res.error) throw new Error(res.error.message);
+  const matched = await resolveBestFieldMatches(context, query, 8);
 
   return {
     title: "Найденные поля",
-    rows: (res.data || []).map((row: any) => ({
+    rows: matched.map((row) => ({
         entity_type: "field",
-        entity_id: String(row.id),
-        entity_name: String(row.name || row.id),
-        page: "fields",
-        route: `/fields/${String(row.id)}`,
+        entity_id: row.id,
+        entity_name: row.name,
+        page: "field-card",
+        route: `/fields/${row.id}`,
         filters: {
-          search: String(row.name || query),
-          entityId: String(row.id),
+          search: row.name || query,
+          field: row.name || query,
+          fieldId: row.id,
+          entityId: row.id,
           entityType: "field",
         },
       })),
@@ -2080,6 +2377,7 @@ const getWarehouseCountToolAlias: AssistantToolDefinition = {
   description: "Warehouse count/list",
   domains: ["warehouses"],
   run: async (context) => {
+    const includeArchived = includeArchivedByRequest(context);
     const query = resolveWarehouseAliasQuery(
       cleanString(context.intent.parameters.entityQuery) ||
         cleanString(context.intent.parameters.warehouse) ||
@@ -2091,6 +2389,7 @@ const getWarehouseCountToolAlias: AssistantToolDefinition = {
       resolved_season: cleanString(context.runtimeContext.season),
       query_used: queryUsed,
       query_text: query,
+      include_archived: includeArchived,
       rls_acl_result: inferAclResult(context),
     });
 
@@ -2119,9 +2418,12 @@ const getWarehouseCountToolAlias: AssistantToolDefinition = {
         archived: Boolean(row.archived || row.is_archived),
         is_archived: Boolean(row.is_archived || row.archived),
       }));
+      const activeScoped = includeArchived
+        ? baseRows
+        : baseRows.filter((row: { archived: boolean; is_archived: boolean }) => !(row.archived || row.is_archived));
       const rows = terms.length
-        ? baseRows.filter((row: any) => matchesAnyTerm(`${row.warehouse_name} ${row.warehouse_type}`, terms))
-        : baseRows;
+        ? activeScoped.filter((row: any) => matchesAnyTerm(`${row.warehouse_name} ${row.warehouse_type}`, terms))
+        : activeScoped;
 
       logToolEvent(context, "get_warehouse_count", "success", {
         input_args: context.intent.parameters,
@@ -2319,25 +2621,34 @@ const getActiveTicketsToolAlias: AssistantToolDefinition = {
   run: async (context) => {
     const res = await context.supabase
       .from("tickets")
-      .select("id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg")
+      .select(
+        "id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,driver_id,vehicle_id,field_id"
+      )
       .eq("company_id", context.companyId)
       .eq("is_voided", false)
       .in("status", ["draft", "active", "ready_to_close"])
       .order("created_at", { ascending: false })
       .limit(120);
     if (res.error) throw new Error(res.error.message);
+    const mappedRows = (res.data || []).map((row: any) => ({
+      id: String(row.id),
+      ticket_id: String(row.id),
+      ticket_no: cleanString(row.ticket_no) || String(row.id),
+      status: cleanString(row.status),
+      type: cleanString(row.op_type),
+      operation: cleanString(row.op_type),
+      gross_kg: Number(row.gross_weight_kg || 0),
+      tare_kg: Number(row.tare_weight_kg || 0),
+      net_kg: Number(row.net_weight_kg || 0),
+      date: cleanString(row.created_at),
+      driver_id: cleanString(row.driver_id),
+      vehicle_id: cleanString(row.vehicle_id),
+      field_id: cleanString(row.field_id),
+    }));
+    const rows = await enrichTickets(context, mappedRows);
     return {
       title: "Активные талоны",
-      rows: (res.data || []).map((row: any) => ({
-        ticket_id: String(row.id),
-        ticket_no: cleanString(row.ticket_no) || String(row.id),
-        status: cleanString(row.status),
-        type: cleanString(row.op_type),
-        gross_kg: Number(row.gross_weight_kg || 0),
-        tare_kg: Number(row.tare_weight_kg || 0),
-        net_kg: Number(row.net_weight_kg || 0),
-        date: cleanString(row.created_at),
-      })),
+      rows,
       source: {
         module: "weighbridge",
         tableOrView: "tickets (active)",
@@ -2363,7 +2674,9 @@ const getTicketDetailsToolAlias: AssistantToolDefinition = {
     const query = parseSearchQuery(context);
     let q = context.supabase
       .from("tickets")
-      .select("id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg")
+      .select(
+        "id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,driver_id,vehicle_id,field_id"
+      )
       .eq("company_id", context.companyId)
       .eq("is_voided", false)
       .order("created_at", { ascending: false })
@@ -2371,18 +2684,25 @@ const getTicketDetailsToolAlias: AssistantToolDefinition = {
     if (query) q = q.or(`ticket_no.ilike.%${query}%`);
     const res = await q;
     if (res.error) throw new Error(res.error.message);
+    const mappedRows = (res.data || []).map((row: any) => ({
+      id: String(row.id),
+      ticket_id: String(row.id),
+      ticket_no: cleanString(row.ticket_no) || String(row.id),
+      type: cleanString(row.op_type),
+      operation: cleanString(row.op_type),
+      status: cleanString(row.status),
+      gross_kg: Number(row.gross_weight_kg || 0),
+      tare_kg: Number(row.tare_weight_kg || 0),
+      net_kg: Number(row.net_weight_kg || 0),
+      date: cleanString(row.created_at),
+      driver_id: cleanString(row.driver_id),
+      vehicle_id: cleanString(row.vehicle_id),
+      field_id: cleanString(row.field_id),
+    }));
+    const rows = await enrichTickets(context, mappedRows);
     return {
       title: "Детали талона",
-      rows: (res.data || []).map((row: any) => ({
-        ticket_id: String(row.id),
-        ticket_no: cleanString(row.ticket_no) || String(row.id),
-        type: cleanString(row.op_type),
-        status: cleanString(row.status),
-        gross_kg: Number(row.gross_weight_kg || 0),
-        tare_kg: Number(row.tare_weight_kg || 0),
-        net_kg: Number(row.net_weight_kg || 0),
-        date: cleanString(row.created_at),
-      })),
+      rows,
       source: {
         module: "weighbridge",
         tableOrView: "tickets (details)",
@@ -2901,16 +3221,8 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
       };
     }
 
-    const fieldRes = await context.supabase
-      .from("fields")
-      .select("id,name,area,notes")
-      .eq("company_id", context.companyId)
-      .eq("archived", false)
-      .ilike("name", `%${query}%`)
-      .limit(1)
-      .maybeSingle();
-    if (fieldRes.error) throw new Error(fieldRes.error.message);
-    if (!fieldRes.data) {
+    // Resolve exact/fuzzy field match in one place; avoid extra pre-query here.
+    if (false) {
       return {
         title: "Карточка поля",
         rows: [],
@@ -2924,7 +3236,22 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
       };
     }
 
-    const fieldId = String(fieldRes.data.id);
+    const matchedField = await resolveSingleFieldMatch(context, query);
+    if (!matchedField) {
+      return {
+        title: "РљР°СЂС‚РѕС‡РєР° РїРѕР»СЏ",
+        rows: [],
+        source: {
+          module: "fields",
+          tableOrView: "fields (field_card)",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+        summary: "РџРѕР»Рµ РЅРµ РЅР°Р№РґРµРЅРѕ.",
+      };
+    }
+
+    const fieldId = String(matchedField.id);
     const [opsRes, allocRes, consumptionRes, ticketRes] = await Promise.all([
       context.supabase
         .from("operations")
@@ -2994,8 +3321,8 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
       rows: [
         {
           field_id: fieldId,
-          field_name: getFieldDisplayName(fieldRes.data) || String(fieldRes.data.name || fieldId),
-          area_ha: Number(fieldRes.data.area || 0),
+          field_name: matchedField.name,
+          area_ha: Number(matchedField.area || 0),
           crops: Array.from(crops).sort(),
           varieties: Array.from(varieties).sort(),
           reproductions: Array.from(reproductions).sort(),
@@ -3033,16 +3360,7 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
       };
     }
 
-    const fieldRes = await context.supabase
-      .from("fields")
-      .select("id,name")
-      .eq("company_id", context.companyId)
-      .eq("archived", false)
-      .ilike("name", `%${query}%`)
-      .limit(1)
-      .maybeSingle();
-    if (fieldRes.error) throw new Error(fieldRes.error.message);
-    if (!fieldRes.data) {
+    if (false) {
       return {
         title: "Timeline поля",
         rows: [],
@@ -3054,7 +3372,20 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
         },
       };
     }
-    const fieldId = String(fieldRes.data.id);
+    const matchedField = await resolveSingleFieldMatch(context, query);
+    if (!matchedField) {
+      return {
+        title: "Timeline РїРѕР»СЏ",
+        rows: [],
+        source: {
+          module: "fields",
+          tableOrView: "field_timeline",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+    const fieldId = String(matchedField.id);
     const [opsRes, ticketsRes] = await Promise.all([
       context.supabase
         .from("operations")
@@ -3152,16 +3483,7 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
         },
       };
     }
-    const fieldRes = await context.supabase
-      .from("fields")
-      .select("id,name")
-      .eq("company_id", context.companyId)
-      .eq("archived", false)
-      .ilike("name", `%${query}%`)
-      .limit(1)
-      .maybeSingle();
-    if (fieldRes.error) throw new Error(fieldRes.error.message);
-    if (!fieldRes.data) {
+    if (false) {
       return {
         title: "Материалы поля",
         rows: [],
@@ -3174,7 +3496,21 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
       };
     }
 
-    const fieldId = String(fieldRes.data.id);
+    const matchedField = await resolveSingleFieldMatch(context, query);
+    if (!matchedField) {
+      return {
+        title: "РњР°С‚РµСЂРёР°Р»С‹ РїРѕР»СЏ",
+        rows: [],
+        source: {
+          module: "fields",
+          tableOrView: "field_materials",
+          season: context.runtimeContext.season,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+
+    const fieldId = String(matchedField.id);
     const consumptionsRes = await context.supabase
       .from("field_material_consumptions")
       .select("product_id,quantity_kg")

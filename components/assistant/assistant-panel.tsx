@@ -74,6 +74,7 @@ export function AssistantPanel() {
       <SheetContent
         side="right"
         showOverlay={false}
+        forceMount
         className="travkin-scrollbar w-[min(980px,calc(100vw-1rem))] max-w-none border-[#262D3D] bg-[#11151E] p-0"
       >
         <div className="flex h-full min-h-0 flex-col">
