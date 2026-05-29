@@ -711,8 +711,17 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     const namespaceName = mapToolNamespace(toolName);
     return normalizeCandidates.includes(namespaceName);
   };
+  const requiredTools: AssistantToolName[] = [];
+  if (intent.name === "navigation_help" && action === "open_entity") {
+    if (entityType === "warehouse") requiredTools.push("resolve_warehouse_by_name");
+    if (entityType === "field") requiredTools.push("resolve_field_by_number");
+    if (entityType === "fuel") requiredTools.push("resolve_fuel_source_by_name");
+  }
+
   const filtered = Array.from(new Set(tools)).filter((toolName) => allowByNamespaceFallback(toolName));
-  if (filtered.length > 0) return filtered;
+  const forced = requiredTools.filter((toolName) => Boolean(getAssistantTool(toolName)));
+  const merged = Array.from(new Set([...forced, ...filtered]));
+  if (merged.length > 0) return merged;
 
   const staleSettingsFallback: Record<AssistantIntentName, AssistantToolName[]> = {
     inventory_balance: ["get_warehouse_stock", "get_warehouse_balances"],
