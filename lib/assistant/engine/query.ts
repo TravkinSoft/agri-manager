@@ -19,7 +19,7 @@ import type {
   AssistantToolName,
   AssistantToolOutput,
 } from "@/lib/assistant/engine/types";
-import { resolveAssistantModelConfig } from "@/lib/assistant/openai";
+import { buildAssistantModelCandidateList, resolveAssistantModelConfig } from "@/lib/assistant/openai";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import type { ServerActorContext } from "@/lib/auth/server-session";
 import { isAgroKnowledgeQuestion, resolveAssistantMode } from "@/lib/assistant/agro-taxonomy";
@@ -878,16 +878,7 @@ async function generateGeneralAnswer(params: {
     };
   }
 
-  const candidateModels = Array.from(
-    new Set(
-      [
-        cleanString(modelConfig.actualModel),
-        cleanString(process.env.OPENAI_ASSISTANT_FALLBACK_MODEL),
-        cleanString(process.env.OPENAI_ASSISTANT_MODEL),
-        "gpt-4o-mini",
-      ].filter((model): model is string => Boolean(model))
-    )
-  );
+  const candidateModels = buildAssistantModelCandidateList(modelConfig.actualModel);
 
   let response: Response | null = null;
   let data: any = {};

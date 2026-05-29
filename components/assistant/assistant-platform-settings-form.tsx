@@ -37,6 +37,9 @@ type ValidateResponse = {
     provider: string;
     model: string;
     actualModel?: string | null;
+    modelCandidates?: string[];
+    fallbackModel?: string | null;
+    fallbackReason?: string | null;
     temperature: number;
     reasoningEffort: string;
     enabledTools: string[];
@@ -44,6 +47,9 @@ type ValidateResponse = {
   model: {
     requested_model: string;
     actual_model_used: string | null;
+    fallback_model?: string | null;
+    fallback_reason?: string | null;
+    requested_model_accessible?: boolean | null;
     config_source: "db" | "env" | "default";
     prompt_version: string;
     prompt_source: "code_default" | "db_override" | "env_override";
@@ -57,6 +63,9 @@ type ValidateResponse = {
     backend_key_visible: boolean;
     database_settings_ok: boolean;
     tools_enabled_count: number;
+    model_list_ok?: boolean;
+    model_list_status?: number | null;
+    model_list_error?: string | null;
     model_ping_ok: boolean;
     model_ping_status: number | null;
     model_ping_error: string | null;
@@ -135,7 +144,7 @@ const ROLE_OPTIONS = [
   { key: "director", label: "Директор" },
 ] as const;
 
-const MODEL_OPTIONS = ["gpt-5", "gpt-5-mini", "gpt-5.3", "gpt-5.4-mini", "gpt-5.5", "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini"] as const;
+const MODEL_OPTIONS = ["gpt-5.4-mini", "gpt-5.5"] as const;
 const REASONING_OPTIONS = ["low", "medium", "high"] as const;
 
 const TOOL_OPTIONS = [
@@ -838,6 +847,19 @@ export function AssistantPlatformSettingsForm() {
               <div className="grid gap-2 md:grid-cols-2">
                 <div>Requested model: <b>{validateResult.model.requested_model}</b></div>
                 <div>Actual model used: <b>{validateResult.model.actual_model_used || "—"}</b></div>
+                <div>
+                  Requested model accessible:{" "}
+                  <b>
+                    {validateResult.model.requested_model_accessible === null ||
+                    validateResult.model.requested_model_accessible === undefined
+                      ? "unknown"
+                      : validateResult.model.requested_model_accessible
+                        ? "yes"
+                        : "no"}
+                  </b>
+                </div>
+                <div>Fallback model: <b>{validateResult.model.fallback_model || "—"}</b></div>
+                <div className="md:col-span-2">Fallback reason: <b>{validateResult.model.fallback_reason || "—"}</b></div>
                 <div>Config source: <b>{validateResult.model.config_source}</b></div>
                 <div>Prompt version: <b>{validateResult.model.prompt_version}</b></div>
                 <div>Prompt source: <b>{validateResult.model.prompt_source}</b></div>
@@ -849,6 +871,9 @@ export function AssistantPlatformSettingsForm() {
 
               <div className="grid gap-2 md:grid-cols-2">
                 <div>OPENAI_API_KEY: <b>{validateResult.checks.openai_api_key_present ? "OK" : "Missing"}</b></div>
+                <div>Model list: <b>{validateResult.checks.model_list_ok ? "OK" : "Fail"}</b></div>
+                <div>Model list status: <b>{validateResult.checks.model_list_status ?? "—"}</b></div>
+                <div>Model list error: <b>{validateResult.checks.model_list_error || "—"}</b></div>
                 <div>Model ping: <b>{validateResult.checks.model_ping_ok ? "OK" : "Fail"}</b></div>
                 <div>Ping status: <b>{validateResult.checks.model_ping_status ?? "—"}</b></div>
                 <div>Ping error: <b>{validateResult.checks.model_ping_error || "—"}</b></div>
