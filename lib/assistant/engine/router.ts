@@ -147,6 +147,10 @@ function isListRequest(text: string): boolean {
   return hasRegex(text, /(список|перечень|покажи поля|какие поля|list|show list)/);
 }
 
+function isFieldCountQuestion(text: string): boolean {
+  return hasRegex(text, /(сколько полей|количеств[оа]\s+полей|how many fields)/i);
+}
+
 function pickCropAlias(raw: string, normalized: string): string | null {
   return resolveProductAlias(raw, normalized);
 }
@@ -426,6 +430,10 @@ function fallbackIntent(
   const cropAlias = pickCropAlias(raw, text);
   const warehouseAlias = resolveWarehouseAlias(text);
   const listRequested = isListRequest(text);
+  const shortQueryOperationalSignal = hasRegex(
+    text,
+    /(\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u0441\u043a\u043b\u0430\u0434|\u0434\u0432\u0438\u0436\u0435\u043d|\u0436\u0443\u0440\u043d\u0430\u043b|\u0442\u0430\u043b\u043e\u043d|\u0432\u0435\u0441\u043e\u0432|\u043e\u043f\u0435\u0440\u0430\u0446|\u0433\u0441\u043c|\u0442\u043e\u043f\u043b\u0438\u0432|ledger|warehouse|inventory|stock|ticket|movement|fuel|operation)/
+  );
 
   if (navigation) {
     return withCommonDefaults({
@@ -448,7 +456,11 @@ function fallbackIntent(
     text,
     /(\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u043d\u0430\s+\u0441\u043a\u043b\u0430\u0434\u0430\u0445|\u043d\u0430\s+\u0441\u043a\u043b\u0430\u0434\u0435|\u043a\u0430\u0440\u0442\u043e\u0444|\u0441\u0435\u043c\u044f\u043d|\u0443\u0434\u043e\u0431\u0440|\u0441\u0437\u0440|\u0433\u0441\u043c|\u0442\u043e\u043f\u043b\u0438\u0432|fuel|inventory|stock|product)/
   );
-  if (isWarehouseCountQuestion(text) && !inventorySignalForWarehouseQuestion) {
+  const warehouseListSignal = hasRegex(
+    text,
+    /(\u043f\u043e\u043a\u0430\u0436\u0438\s+\u0441\u043a\u043b\u0430\u0434|\u0441\u043f\u0438\u0441\u043e\u043a\s+\u0441\u043a\u043b\u0430\u0434|show\s+warehouses?)/i
+  );
+  if (warehouseListSignal && !inventorySignalForWarehouseQuestion) {
     return withCommonDefaults(
       {
         name: "warehouse_count",
@@ -457,7 +469,27 @@ function fallbackIntent(
         parameters: {
           query: cleanString(raw),
           intent_group: "warehouses",
-          output_type: listRequested ? "list" : "summary_total",
+          output_type: "list",
+        },
+      },
+      text,
+      runtimeContext
+    );
+  }
+  if (isWarehouseCountQuestion(text) && !inventorySignalForWarehouseQuestion) {
+    const warehouseListRequested = hasRegex(
+      text,
+      /(покажи\s+склад|какие\s+склад|список\s+склад|show\s+warehouses?|warehouse\s+list)/i
+    );
+    return withCommonDefaults(
+      {
+        name: "warehouse_count",
+        confidence: 0.99,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          intent_group: "warehouses",
+          output_type: listRequested || warehouseListRequested ? "list" : "summary_total",
         },
       },
       text,
@@ -523,7 +555,12 @@ function fallbackIntent(
   // crop-structure page -> crop structure intent first
   // warehouses page -> inventory balance intent first
   // weighbridge page + "активные" -> active tickets
-  if (shortQuery && (currentPage === "crop-structure" || currentModule === "crop-structure")) {
+  if (
+    shortQuery &&
+    (currentPage === "crop-structure" || currentModule === "crop-structure") &&
+    !shortQueryOperationalSignal &&
+    (cropGroups.length > 0 || !!cropAlias || !!normalizedAlias || isKnownCropMention(text) || hasRegex(text, /(структур|посев|га|гектар|crop structure|sown)/))
+  ) {
     return withCommonDefaults(
       {
         name: "crop_structure_area",
@@ -793,7 +830,7 @@ function fallbackIntent(
         query: cleanString(raw),
         field: extractFieldCode(text),
         intent_group: "fields",
-        output_type: "list",
+        output_type: isFieldCountQuestion(text) ? "summary_total" : "list",
       },
     }, text, runtimeContext);
   }

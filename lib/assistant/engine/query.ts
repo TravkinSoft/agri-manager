@@ -534,7 +534,10 @@ function formatInventoryRows(
   return lines.join("\n");
 }
 
-function formatWarehouseCountRows(rows: Array<Record<string, unknown>>): string {
+function formatWarehouseCountRows(
+  rows: Array<Record<string, unknown>>,
+  outputType: AssistantOutputType
+): string {
   if (!rows.length) return "Склады в компании не найдены.";
 
   const total = rows.length;
@@ -552,9 +555,30 @@ function formatWarehouseCountRows(rows: Array<Record<string, unknown>>): string 
     .slice(0, 4)
     .map(([type, count]) => `• ${type}: ${count}`);
 
-  return [`Всего складов: ${total}.`, `Активных: ${active}.`, typeBreakdown.length ? "По типам:" : "", ...typeBreakdown]
+  const header = [
+    `Всего складов: ${total}.`,
+    `Активных: ${active}.`,
+    typeBreakdown.length ? "По типам:" : "",
+    ...typeBreakdown,
+  ]
     .filter(Boolean)
     .join("\n");
+
+  if (outputType !== "list") {
+    return header;
+  }
+
+  const listLines = rows
+    .slice(0, 12)
+    .map((row) => {
+      const name = safeText((row as any).warehouse_name ?? (row as any).name);
+      const type = safeText((row as any).warehouse_type, "не указан");
+      const archived = String((row as any).archived ?? (row as any).is_archived ?? "").toLowerCase();
+      const status = archived === "true" || archived === "1" ? "архив" : "активный";
+      return `• ${name} (${type}) — ${status}`;
+    });
+
+  return [header, "", "Список складов:", ...listLines].join("\n");
 }
 
 function formatWarehouseMovementsRows(rows: Array<Record<string, unknown>>): string {
@@ -600,6 +624,15 @@ function formatFieldTimelineRows(rows: Array<Record<string, unknown>>): string {
     return `• ${date} · ${eventType}${title ? ` · ${title}` : ""}${qty}`;
   });
   return `История поля:\n\n${lines.join("\n")}`;
+}
+
+function formatFieldMaterialsRows(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "Материалы по полю не найдены.";
+  const total = rows.reduce((acc, row) => acc + asNumber(row.qty_kg), 0);
+  const lines = rows
+    .slice(0, 8)
+    .map((row) => `• ${safeText(row.product_name)} — ${formatNumber(asNumber(row.qty_kg), 3)} кг`);
+  return [`Материалы по полю: ${formatNumber(total, 3)} кг`, "", ...lines].join("\n");
 }
 
 function formatCropStructureRows(rows: Array<Record<string, unknown>>): string {
@@ -748,7 +781,7 @@ function formatGroundedToolOutput(params: {
   const sourceSeason = cleanString(output.source.season);
 
   if (intentName === "warehouse_count" || toolName === "search_warehouses") {
-    return formatWarehouseCountRows(rows);
+    return formatWarehouseCountRows(rows, outputType);
   }
   if (intentName === "inventory_balance" || toolName === "get_warehouse_balances" || toolName === "get_inventory") {
     return formatInventoryRows(rows, intentParams);
@@ -759,11 +792,17 @@ function formatGroundedToolOutput(params: {
   if (intentName === "field_total_area") {
     return formatFieldsSummaryRows(rows);
   }
-  if (intentName === "fields_overview" || toolName === "get_fields") {
+  if (
+    intentName === "fields_overview" &&
+    (toolName === "search_fields" || toolName === "get_fields" || toolName === "find_field")
+  ) {
     return outputType === "summary_total" ? formatFieldsSummaryRows(rows) : formatFieldsRows(rows);
   }
   if (intentName === "rotation_history" || toolName === "get_field_timeline") {
     return formatFieldTimelineRows(rows);
+  }
+  if (toolName === "get_field_materials") {
+    return formatFieldMaterialsRows(rows);
   }
   if (toolName === "get_crop_structure_summary") {
     if (!rows.length) {
@@ -797,7 +836,10 @@ function formatGroundedToolOutput(params: {
     }
     return formatCropStructureRows(rows);
   }
-  if (intentName === "weighbridge_tickets" || toolName === "get_weighbridge_tickets") {
+  if (intentName === "weighbridge_tickets") {
+    if (toolName !== "get_weighbridge_tickets" && toolName !== "get_ticket_details") {
+      return null;
+    }
     return formatTicketsRows(rows);
   }
   if (intentName === "operations_recent" || toolName === "get_operations") {
@@ -954,6 +996,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   const cropAlias = cleanString(intent.parameters.crop_alias) || cleanString(intent.parameters.crop);
   const status = cleanString(intent.parameters.status);
   const intentGroup = cleanString(intent.parameters.intent_group)?.toLowerCase() || "";
+  const resolvedType = resolveOutputType(intent);
   const tools = [...(byIntent[intent.name] || [])];
 
   if (intent.name === "navigation_help" && action === "open_entity") {
@@ -979,9 +1022,13 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     }
   }
 
-  if (intent.name === "fields_overview" && queryText) {
-    tools.unshift("search_fields");
-    tools.push("get_field_timeline", "get_field_materials");
+  if (intent.name === "fields_overview") {
+    if (resolvedType === "summary_total") {
+      tools.splice(0, tools.length, "get_fields");
+    } else if (queryText) {
+      tools.unshift("search_fields");
+      tools.push("get_field_timeline", "get_field_materials");
+    }
   }
 
   if (intent.name === "rotation_history") {
@@ -992,8 +1039,24 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     tools.unshift("get_warehouse_count");
   }
 
-  if (intent.name === "weighbridge_tickets" && queryText) {
+  if (
+    intent.name === "weighbridge_tickets" &&
+    /(\bwb-\d+\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.test(queryText)
+  ) {
     tools.unshift("get_ticket_details");
+  }
+
+  if (intent.name === "weighbridge_tickets") {
+    const wantsActive = status === "active" || /(активн|открыт|open)/i.test(queryText);
+    const wantsRecent = Number(intent.parameters.limit || 0) > 0 || /(сегодня|последн|today|recent|last)/i.test(queryText);
+
+    if (wantsActive) {
+      tools.splice(0, tools.length, "get_active_tickets", "get_weighbridge_tickets");
+    } else if (wantsRecent) {
+      tools.splice(0, tools.length, "get_recent_tickets", "get_weighbridge_tickets");
+    } else {
+      tools.splice(0, tools.length, "get_weighbridge_tickets");
+    }
   }
 
   if (intent.name === "operations_recent" && queryText) {
@@ -1031,11 +1094,11 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     tools.unshift("get_warehouse_movements");
   }
 
-  if (intent.name === "crop_structure_overview" && resolveOutputType(intent) === "list") {
+  if (intent.name === "crop_structure_overview" && resolvedType === "list") {
     tools.push("get_crop_structure");
   }
 
-  if (intent.name === "crop_structure_area" && resolveOutputType(intent) === "list") {
+  if (intent.name === "crop_structure_area" && resolvedType === "list") {
     tools.push("get_crop_structure");
   }
 

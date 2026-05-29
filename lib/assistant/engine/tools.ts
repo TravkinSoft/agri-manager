@@ -12,6 +12,14 @@ import { getAssistantRouteRegistry } from "@/lib/assistant/route-registry";
 
 const DEFAULT_SEASON_YEAR = "2026";
 
+const WAREHOUSE_ALIAS_RULES_V2: Array<{ match: RegExp; normalized: string }> = [
+  { match: /(овощн|картофел|картофелехранил|хранилищ|vegetable)/i, normalized: "овощной склад" },
+  { match: /(семенн|seed)/i, normalized: "склад семян" },
+  { match: /(зернов|grain)/i, normalized: "зерновой склад" },
+  { match: /(удобр|fertiliz|диам|dap|аммоф)/i, normalized: "склад удобрений" },
+  { match: /(сзр|хим|pestic|fungic|гербиц)/i, normalized: "склад сзр" },
+];
+
 const WAREHOUSE_ALIAS_RULES: Array<{ match: RegExp; normalized: string }> = [
   { match: /(овощн|картофельн|картофелехранил|хранилищ)/i, normalized: "овощной склад" },
   { match: /(семенн|seed)/i, normalized: "склад семян" },
@@ -51,6 +59,11 @@ function parseBoolish(value: unknown): boolean {
 function resolveWarehouseAliasQuery(raw: string | null): string | null {
   const text = normalizeSearchText(raw);
   if (!text) return null;
+  for (const rule of WAREHOUSE_ALIAS_RULES_V2) {
+    if (rule.match.test(text)) {
+      return rule.normalized;
+    }
+  }
   for (const rule of WAREHOUSE_ALIAS_RULES) {
     if (rule.match.test(text)) {
       return rule.normalized;
@@ -215,12 +228,80 @@ function parseLimit(value: unknown, fallback = 30, min = 1, max = 300): number {
 }
 
 function parseFieldQueryFromContext(context: AssistantToolContext): string | null {
+  const explicitField = cleanString(context.intent.parameters.field);
+  if (explicitField) return explicitField;
+
+  const explicitEntityQuery = cleanString(context.intent.parameters.entityQuery);
+  if (explicitEntityQuery) return explicitEntityQuery;
+
   const fromQuery = parseSearchQuery(context);
-  if (fromQuery) return fromQuery;
+  if (fromQuery) {
+    const normalized = normalizeSearchText(fromQuery);
+    const codeMatch = normalized.match(/\b\d{1,3}(?:-\d{1,3}){0,2}\b/);
+    if (codeMatch?.[0]) return codeMatch[0];
+
+    const withoutPrefix = normalized
+      .replace(/^(что на|что по|покажи|открой|поле|fields?|field)\s+/i, "")
+      .trim();
+    const genericFieldQuery =
+      /^(поля|поле|какие есть поля|какие поля|список полей|сколько полей|все поля)$/i.test(normalized) ||
+      /^(fields?|field list|all fields)$/i.test(normalized);
+
+    if (!genericFieldQuery && withoutPrefix.length > 0 && withoutPrefix.length <= 48) {
+      return withoutPrefix;
+    }
+  }
+
   const entity = context.runtimeContext.entity;
   if (entity?.type?.toLowerCase() === "fields" || entity?.type?.toLowerCase() === "field") {
     return cleanString(entity.label) || cleanString(entity.id);
   }
+
+  const fieldFromFilter =
+    cleanString(context.runtimeContext.selectedFieldId) ||
+    cleanString(context.runtimeContext.filters.field) ||
+    cleanString(context.runtimeContext.filters.fieldId);
+  if (fieldFromFilter) return fieldFromFilter;
+
+  return null;
+}
+
+function parseFieldQueryFromContextV2(context: AssistantToolContext): string | null {
+  const explicitField = cleanString(context.intent.parameters.field);
+  if (explicitField) return explicitField;
+
+  const explicitEntityQuery = cleanString(context.intent.parameters.entityQuery);
+  if (explicitEntityQuery) return explicitEntityQuery;
+
+  const fromQuery = parseSearchQuery(context);
+  if (fromQuery) {
+    const normalized = normalizeSearchText(fromQuery);
+    const codeMatch = normalized.match(/\b\d{1,3}(?:-\d{1,3}){0,2}\b/);
+    if (codeMatch?.[0]) return codeMatch[0];
+
+    const withoutPrefix = normalized
+      .replace(/^(что на|что по|покажи|открой|поле|fields?|field)\s+/i, "")
+      .trim();
+    const genericFieldQuery =
+      /^(поля|поле|какие есть поля|какие поля|список полей|сколько полей|все поля)$/i.test(normalized) ||
+      /^(fields?|field list|all fields)$/i.test(normalized);
+
+    if (!genericFieldQuery && withoutPrefix.length > 0 && withoutPrefix.length <= 48) {
+      return withoutPrefix;
+    }
+  }
+
+  const entity = context.runtimeContext.entity;
+  if (entity?.type?.toLowerCase() === "fields" || entity?.type?.toLowerCase() === "field") {
+    return cleanString(entity.label) || cleanString(entity.id);
+  }
+
+  const fieldFromFilter =
+    cleanString(context.runtimeContext.selectedFieldId) ||
+    cleanString(context.runtimeContext.filters.field) ||
+    cleanString(context.runtimeContext.filters.fieldId);
+  if (fieldFromFilter) return fieldFromFilter;
+
   return null;
 }
 
@@ -556,6 +637,10 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
     const productTerms = effectiveProductHint ? buildSearchTerms(effectiveProductHint) : [];
     const warehouseTerms = !allWarehouses && explicitWarehouse ? buildSearchTerms(explicitWarehouse) : [];
     const warehouseScope = normalizeSearchText(explicitWarehouse || "");
+    const warehouseSpecificTermsSafe = warehouseTerms.filter((term) => {
+      const normalized = normalizeSearchText(term);
+      return normalized && normalized !== "склад" && normalized !== "warehouse" && normalized !== "storage";
+    });
     const warehouseSpecificTerms = warehouseTerms.filter((term) => {
       const normalized = normalizeSearchText(term);
       return normalized && normalized !== "СЃРєР»Р°Рґ" && normalized !== "warehouse" && normalized !== "storage";
@@ -564,7 +649,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
       if (!warehouseTerms.length) return true;
       const normalizedName = normalizeSearchText(warehouseName);
       if (warehouseScope && normalizedName.includes(warehouseScope)) return true;
-      const terms = warehouseSpecificTerms.length ? warehouseSpecificTerms : warehouseTerms;
+      const terms = warehouseSpecificTermsSafe.length ? warehouseSpecificTermsSafe : warehouseTerms;
       return terms.every((term) => matchesAnyTerm(warehouseName, [term]));
     };
     const queryUsed =
@@ -850,7 +935,7 @@ const getWarehouseMovementsTool: AssistantToolDefinition = {
       rows,
       source: {
         module: "ledger",
-        tableOrView: "stock_ledger_entries",
+        tableOrView: "field_material_consumptions",
         season: context.runtimeContext.season,
         fetchedAt: nowIso(),
       },
@@ -863,7 +948,7 @@ const getFieldsTool: AssistantToolDefinition = {
   description: "Список полей",
   domains: ["fields"],
   run: async (context) => {
-    const searchQuery = parseSearchQuery(context);
+    const searchQuery = parseFieldQueryFromContextV2(context);
     const outputType = cleanString(context.intent.parameters.output_type);
     const shouldApplySearchFilter = outputType === "list" || outputType === "filtered_summary";
     const res = await context.supabase
@@ -1487,9 +1572,36 @@ async function resolveWarehouseByName(context: AssistantToolContext) {
   if (res.error) throw new Error(res.error.message);
 
   const terms = buildSearchTerms(query);
-  const matched = (res.data || [])
-    .filter((row: any) => matchesAnyTerm(row.name, terms))
+  const normalizedQuery = normalizeSearchText(query);
+  const genericWarehouseTerms = new Set(["склад", "склады", "warehouse", "warehouses", "storage"]);
+  const specificTerms = terms.filter((term) => {
+    const normalized = normalizeSearchText(term);
+    return normalized && !genericWarehouseTerms.has(normalized);
+  });
+
+  const scored = (res.data || [])
+    .map((row: any) => {
+      const name = String(row.name || "");
+      const normalizedName = normalizeSearchText(name);
+      let score = 0;
+      if (normalizedName === normalizedQuery) score += 120;
+      if (normalizedQuery && normalizedName.startsWith(normalizedQuery)) score += 80;
+      if (normalizedQuery && normalizedName.includes(normalizedQuery)) score += 50;
+      if (!specificTerms.length && matchesAnyTerm(name, terms)) score += 20;
+      specificTerms.forEach((term) => {
+        if (matchesAnyTerm(name, [term])) score += 25;
+      });
+      return { row, score, normalizedName };
+    })
+    .filter((item) => {
+      if (item.score <= 0) return false;
+      if (!specificTerms.length) return true;
+      return specificTerms.some((term) => matchesAnyTerm(item.normalizedName, [term]));
+    })
+    .sort((a, b) => (b.score - a.score) || a.normalizedName.localeCompare(b.normalizedName, "ru"))
     .slice(0, 8);
+
+  const matched = scored.map((item) => item.row);
 
   return {
     title: "Найденные склады",
@@ -1916,7 +2028,7 @@ const searchFieldsToolAlias: AssistantToolDefinition = {
   description: "Search fields",
   domains: ["fields", "navigation"],
   run: async (context) => {
-    const query = parseFieldQueryFromContext(context);
+    const query = parseFieldQueryFromContextV2(context);
     logToolEvent(context, "search_fields", "start", {
       input_args: context.intent.parameters,
       resolved_season: cleanString(context.runtimeContext.season),
@@ -2394,6 +2506,10 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
       });
       const warehouseTerms = !allWarehouses && warehouseQuery ? buildSearchTerms(warehouseQuery) : [];
       const warehouseScope = normalizeSearchText(warehouseQuery || "");
+      const warehouseSpecificTermsSafe = warehouseTerms.filter((term) => {
+        const normalized = normalizeSearchText(term);
+        return normalized && normalized !== "склад" && normalized !== "warehouse" && normalized !== "storage";
+      });
       const warehouseSpecificTerms = warehouseTerms.filter((term) => {
         const normalized = normalizeSearchText(term);
         return normalized && normalized !== "СЃРєР»Р°Рґ" && normalized !== "warehouse" && normalized !== "storage";
@@ -2402,7 +2518,7 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
         if (!warehouseTerms.length) return true;
         const normalizedName = normalizeSearchText(warehouseName);
         if (warehouseScope && normalizedName.includes(warehouseScope)) return true;
-        const terms = warehouseSpecificTerms.length ? warehouseSpecificTerms : warehouseTerms;
+        const terms = warehouseSpecificTermsSafe.length ? warehouseSpecificTermsSafe : warehouseTerms;
         return terms.every((term) => matchesAnyTerm(warehouseName, [term]));
       };
       const productTerms = productQuery ? buildSearchTerms(productQuery) : [];
@@ -2770,7 +2886,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
   description: "Field card summary",
   domains: ["fields", "operations", "inventory", "weighbridge"],
   run: async (context) => {
-    const query = parseFieldQueryFromContext(context);
+    const query = parseFieldQueryFromContextV2(context);
     if (!query) {
       return {
         title: "Карточка поля",
@@ -2809,7 +2925,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
     }
 
     const fieldId = String(fieldRes.data.id);
-    const [opsRes, allocRes, ledgerRes, ticketRes] = await Promise.all([
+    const [opsRes, allocRes, consumptionRes, ticketRes] = await Promise.all([
       context.supabase
         .from("operations")
         .select("id,status")
@@ -2824,8 +2940,8 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
         .eq("field_id", fieldId)
         .limit(120),
       context.supabase
-        .from("stock_ledger_entries")
-        .select("qty_abs,direction")
+        .from("field_material_consumptions")
+        .select("quantity_kg")
         .eq("company_id", context.companyId)
         .eq("field_id", fieldId)
         .limit(600),
@@ -2858,10 +2974,8 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
       if (reproductionId) reproductions.add(lookup.byReproduction.get(reproductionId) || reproductionId);
     });
 
-    const issuedKg = (ledgerRes.error ? [] : ledgerRes.data || []).reduce((acc: number, row: any) => {
-      const qty = Number(row.qty_abs || 0);
-      const dir = cleanString(row.direction)?.toLowerCase() || "";
-      if (!(dir === "out" || dir === "outgoing")) return acc;
+    const issuedKg = (consumptionRes.error ? [] : consumptionRes.data || []).reduce((acc: number, row: any) => {
+      const qty = Number(row.quantity_kg || 0);
       return acc + (Number.isFinite(qty) ? Math.abs(qty) : 0);
     }, 0);
 
@@ -2892,7 +3006,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
       ],
       source: {
         module: "fields",
-        tableOrView: "fields + operations + crop_structure + stock_ledger_entries + tickets",
+        tableOrView: "fields + operations + crop_structure + field_material_consumptions + tickets",
         season: context.runtimeContext.season,
         fetchedAt: nowIso(),
       },
@@ -2905,7 +3019,7 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
   description: "Field timeline",
   domains: ["fields", "operations", "inventory", "weighbridge"],
   run: async (context) => {
-    const query = parseFieldQueryFromContext(context);
+    const query = parseFieldQueryFromContextV2(context);
     if (!query) {
       return {
         title: "Timeline поля",
@@ -2941,7 +3055,7 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
       };
     }
     const fieldId = String(fieldRes.data.id);
-    const [opsRes, ledgerRes, ticketsRes] = await Promise.all([
+    const [opsRes, ticketsRes] = await Promise.all([
       context.supabase
         .from("operations")
         .select("id,date,operation_type,status")
@@ -2950,12 +3064,6 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
         .eq("field_id", fieldId)
         .limit(200),
       context.supabase
-        .from("stock_ledger_entries")
-        .select("id,created_at,direction,qty_abs,reason_type")
-        .eq("company_id", context.companyId)
-        .eq("field_id", fieldId)
-        .limit(400),
-      context.supabase
         .from("tickets")
         .select("id,ticket_no,created_at,op_type,status,net_weight_kg")
         .eq("company_id", context.companyId)
@@ -2963,6 +3071,13 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
         .eq("is_voided", false)
         .limit(400),
     ]);
+    const consumptionsRes = await context.supabase
+      .from("field_material_consumptions")
+      .select("id,consumed_at,quantity_kg,operation_type,material_category,product_id")
+      .eq("company_id", context.companyId)
+      .eq("field_id", fieldId)
+      .limit(400);
+    if (consumptionsRes.error) throw new Error(consumptionsRes.error.message);
 
     const rows: Array<Record<string, unknown>> = [];
     if (!opsRes.error) {
@@ -2976,18 +3091,21 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
         })
       );
     }
-    if (!ledgerRes.error) {
-      (ledgerRes.data || []).forEach((row: any) =>
+    const consumptionRows = consumptionsRes.data || [];
+    const lookup = await buildLookupMaps(context, {
+      products: Array.from(new Set(consumptionRows.map((x: any) => String(x.product_id || "")).filter(Boolean))),
+    });
+    consumptionRows.forEach((row: any) =>
         rows.push({
           event_type: "issue",
-          date: cleanString(row.created_at),
-          qty_kg: Number(row.qty_abs || 0),
-          direction: cleanString(row.direction),
-          reason: cleanString(row.reason_type),
+          date: cleanString(row.consumed_at),
+          qty_kg: Number(row.quantity_kg || 0),
+          material: lookup.byProduct.get(String(row.product_id || "")) || cleanString(row.product_id) || "Материал",
+          material_category: cleanString(row.material_category),
+          reason: cleanString(row.operation_type),
           ref_id: cleanString(row.id),
         })
       );
-    }
     if (!ticketsRes.error) {
       (ticketsRes.data || []).forEach((row: any) =>
         rows.push({
@@ -3008,7 +3126,7 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
       rows: rows.slice(0, 220),
       source: {
         module: "fields",
-        tableOrView: "operations + stock_ledger_entries + tickets",
+        tableOrView: "operations + field_material_consumptions + tickets",
         season: context.runtimeContext.season,
         fetchedAt: nowIso(),
       },
@@ -3021,7 +3139,7 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
   description: "Field materials fact",
   domains: ["fields", "inventory", "ledger"],
   run: async (context) => {
-    const query = parseFieldQueryFromContext(context);
+    const query = parseFieldQueryFromContextV2(context);
     if (!query) {
       return {
         title: "Материалы поля",
@@ -3057,25 +3175,25 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
     }
 
     const fieldId = String(fieldRes.data.id);
-    const ledgerRes = await context.supabase
-      .from("stock_ledger_entries")
-      .select("product_id,qty_abs,direction")
+    const consumptionsRes = await context.supabase
+      .from("field_material_consumptions")
+      .select("product_id,quantity_kg")
       .eq("company_id", context.companyId)
       .eq("field_id", fieldId)
       .limit(2000);
-    if (ledgerRes.error) throw new Error(ledgerRes.error.message);
-    const raw = ledgerRes.data || [];
+    if (consumptionsRes.error) throw new Error(consumptionsRes.error.message);
+    const raw = consumptionsRes.data || [];
     const lookup = await buildLookupMaps(context, {
       products: Array.from(new Set(raw.map((x: any) => String(x.product_id || "")).filter(Boolean))),
     });
 
     const grouped = new Map<string, number>();
     raw.forEach((row: any) => {
-      const dir = cleanString(row.direction)?.toLowerCase() || "";
-      if (!(dir === "out" || dir === "outgoing")) return;
+      // field_material_consumptions already stores factual issued quantities for a field.
       const productId = cleanString(row.product_id);
       const product = productId ? lookup.byProduct.get(productId) || productId : "Материал";
-      grouped.set(product, (grouped.get(product) || 0) + Math.abs(Number(row.qty_abs || 0)));
+      const qtyAbs = Number(row.quantity_kg || 0);
+      grouped.set(product, (grouped.get(product) || 0) + Math.abs(Number.isFinite(qtyAbs) ? qtyAbs : 0));
     });
 
     return {
@@ -3086,7 +3204,7 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
         .slice(0, 200),
       source: {
         module: "fields",
-        tableOrView: "stock_ledger_entries",
+        tableOrView: "field_material_consumptions",
         season: context.runtimeContext.season,
         fetchedAt: nowIso(),
       },
