@@ -24,6 +24,7 @@ import type { AssistantRuntimeUiContext } from "@/lib/assistant/shell";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 import type { AssistantDebugMetadata } from "@/lib/assistant/debug-types";
 import { resolveRouteEntryByPath } from "@/lib/assistant/route-registry";
+import { buildAssistantChatExport } from "@/lib/assistant/export/chat-export";
 
 type AssistantChatMessage = {
   id: string;
@@ -209,6 +210,18 @@ function buildEntityFilters(action: Extract<AssistantNavigationActionPayload, { 
   if (!filters.entityId && action.entityId) filters.entityId = action.entityId;
   if (!filters.entityType && action.entityType) filters.entityType = action.entityType;
   return filters;
+}
+
+function downloadFile(params: { fileName: string; content: string; mimeType: string }) {
+  const blob = new Blob([params.content], { type: params.mimeType });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = params.fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(url);
 }
 
 function matchRoutePath(actualPath: string, expectedPath: string): boolean {
@@ -802,6 +815,57 @@ export function AssistantChatPane({
   };
 
   const canSend = !loading && !disabledReason && !!input.trim();
+  const canExportChat = useMemo(
+    () => messages.some((message) => message.role === "user" || message.role === "assistant"),
+    [messages]
+  );
+
+  const onExportChat = useCallback(() => {
+    if (!canExportChat) return;
+    try {
+      const result = buildAssistantChatExport({
+        format: "markdown",
+        context: {
+          companyName: runtimeContext.companyName || null,
+          season: runtimeContext.season || runtimeContext.defaultSeason || "2026",
+          userName: profile?.full_name || profile?.email || profile?.id || null,
+        },
+        messages: messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          actions: message.actions?.map((action) => ({ label: action.label, kind: action.kind })),
+        })),
+      });
+      downloadFile(result);
+      setRequestError(null);
+    } catch (error) {
+      setRequestError(error instanceof Error ? error.message : "Не удалось экспортировать чат.");
+    }
+  }, [
+    canExportChat,
+    messages,
+    profile?.email,
+    profile?.full_name,
+    profile?.id,
+    runtimeContext.companyName,
+    runtimeContext.defaultSeason,
+    runtimeContext.season,
+  ]);
+
+  useEffect(() => {
+    window.dispatchEvent(
+      new CustomEvent("travkin:assistant-export-state", {
+        detail: { enabled: canExportChat },
+      })
+    );
+  }, [canExportChat]);
+
+  useEffect(() => {
+    const handler = () => onExportChat();
+    window.addEventListener("travkin:assistant-export-trigger", handler);
+    return () => window.removeEventListener("travkin:assistant-export-trigger", handler);
+  }, [onExportChat]);
 
   return (
     <div className="flex h-full min-h-0 flex-col rounded-xl border border-[#262D3D] bg-[#0F141E] text-[#E5E7EB]">

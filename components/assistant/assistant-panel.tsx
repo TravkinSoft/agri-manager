@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AssistantConversationHost } from "@/components/assistant/assistant-conversation-host";
@@ -46,12 +48,26 @@ export function AssistantPanel() {
     toggleDebugMonitor,
   } = useAssistantShell();
   const engine = defaultAssistantPanelEngine;
+  const [exportChatEnabled, setExportChatEnabled] = useState(false);
+
+  useEffect(() => {
+    const stateHandler = (event: Event) => {
+      const custom = event as CustomEvent<{ enabled?: boolean }>;
+      setExportChatEnabled(Boolean(custom.detail?.enabled));
+    };
+    window.addEventListener("travkin:assistant-export-state", stateHandler);
+    return () => window.removeEventListener("travkin:assistant-export-state", stateHandler);
+  }, []);
 
   if (!enabled) return null;
 
   const company = runtimeContext.companyName || "Компания не выбрана";
   const page = pageLabel(runtimeContext.currentPage);
   const season = runtimeContext.season || "сезон не указан";
+
+  const onExportChat = () => {
+    window.dispatchEvent(new CustomEvent("travkin:assistant-export-trigger"));
+  };
 
   return (
     <Sheet modal={false} open={isOpen} onOpenChange={(next) => (next ? open() : close())}>
@@ -69,17 +85,31 @@ export function AssistantPanel() {
                   {company} • {page} • {season}
                 </div>
               </div>
-              {debugMonitorEnabled ? (
+
+              <div className="flex items-center gap-2">
                 <Button
                   type="button"
                   size="sm"
-                  variant={debugMonitorOpen ? "secondary" : "outline"}
-                  className="border-[#334058] bg-[#1A1F2B] text-[#E5E7EB] hover:bg-[#202738]"
-                  onClick={toggleDebugMonitor}
+                  variant="outline"
+                  disabled={!exportChatEnabled}
+                  className="border-[#334058] bg-[#1A1F2B] text-[#E5E7EB] hover:bg-[#202738] disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={onExportChat}
                 >
-                  {debugMonitorOpen ? "Debug: вкл" : "Debug"}
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  Export Chat
                 </Button>
-              ) : null}
+                {debugMonitorEnabled ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={debugMonitorOpen ? "secondary" : "outline"}
+                    className="border-[#334058] bg-[#1A1F2B] text-[#E5E7EB] hover:bg-[#202738]"
+                    onClick={toggleDebugMonitor}
+                  >
+                    {debugMonitorOpen ? "Debug: вкл" : "Debug"}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </SheetHeader>
 
