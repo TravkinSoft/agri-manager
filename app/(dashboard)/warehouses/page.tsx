@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -135,6 +136,7 @@ export default function WarehousesPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
   const { language } = useLanguage();
+  const searchParams = useSearchParams();
 
   const t = (ru: string, kz: string, en: string) =>
     language === "ru" ? ru : language === "kz" ? kz : en;
@@ -146,11 +148,23 @@ export default function WarehousesPage() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [movementDateFrom, setMovementDateFrom] = useState("");
   const [movementDateTo, setMovementDateTo] = useState("");
+  const [lastAppliedQuerySignature, setLastAppliedQuerySignature] = useState<string | null>(null);
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [balances, setBalances] = useState<InventoryBalance[]>([]);
   const [transactions, setTransactions] = useState<InventoryTransactionWithDetails[]>([]);
+
+  const querySignature = searchParams.toString();
+  const querySearchValue = (searchParams.get("search") || "").trim();
+  const queryEntityType = (searchParams.get("entityType") || "").trim().toLowerCase();
+  const queryWarehouseId = (() => {
+    const direct = (searchParams.get("warehouseId") || "").trim();
+    if (direct) return direct;
+    const entityId = (searchParams.get("entityId") || "").trim();
+    if (queryEntityType === "warehouse" && entityId) return entityId;
+    return "";
+  })();
 
   const canManageMovements =
     profile?.role === "company_admin" ||
@@ -191,6 +205,21 @@ export default function WarehousesPage() {
       void reloadData();
     }
   }, [profile?.company_id, language]);
+
+  useEffect(() => {
+    if (!querySignature) return;
+    if (lastAppliedQuerySignature === querySignature) return;
+
+    if (querySearchValue) {
+      setSearchValue(querySearchValue);
+    }
+
+    if (queryWarehouseId) {
+      setSelectedWarehouseId(queryWarehouseId);
+    }
+
+    setLastAppliedQuerySignature(querySignature);
+  }, [querySignature, querySearchValue, queryWarehouseId, lastAppliedQuerySignature]);
 
   const overviewData = useMemo<WarehouseOverview[]>(() => {
     const startOfToday = new Date();

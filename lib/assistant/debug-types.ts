@@ -73,6 +73,9 @@ export type AssistantDebugMetadata = {
     navigationIntentDetected: boolean;
     navigationActionCreated: boolean;
     navigationActionExecuted: boolean | null;
+    navigationActionType: string | null;
+    navigationEntityType: string | null;
+    navigationEntityId: string | null;
     targetRoute: string | null;
     routerError: string | null;
     toolCount: number;

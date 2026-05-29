@@ -129,6 +129,9 @@ export function AssistantDebugMonitor() {
                   <Row label="Answer source" value={debugSnapshot.engine.answerSource} />
                   <Row label="Navigation intent" value={debugSnapshot.engine.navigationIntentDetected} />
                   <Row label="Navigation action" value={debugSnapshot.engine.navigationActionCreated} />
+                  <Row label="Action type" value={debugSnapshot.engine.navigationActionType} />
+                  <Row label="Entity type" value={debugSnapshot.engine.navigationEntityType} />
+                  <Row label="Entity id" value={debugSnapshot.engine.navigationEntityId} />
                   <Row label="Navigation executed" value={debugSnapshot.engine.navigationActionExecuted} />
                   <Row label="Target route" value={debugSnapshot.engine.targetRoute} />
                   <Row label="Router error" value={debugSnapshot.engine.routerError} />

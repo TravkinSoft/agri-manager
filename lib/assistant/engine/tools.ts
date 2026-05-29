@@ -1474,7 +1474,12 @@ async function resolveWarehouseByName(context: AssistantToolContext) {
       entity_name: String(row.name || row.id),
       page: "warehouses",
       route: "/warehouses",
-      filters: { search: String(row.name || queryRaw || query) },
+      filters: {
+        search: String(row.name || queryRaw || query),
+        warehouseId: String(row.id),
+        entityId: String(row.id),
+        entityType: "warehouse",
+      },
     })),
     source: { module: "assistant", tableOrView: "resolve_warehouse_by_name", fetchedAt: nowIso() },
   };
@@ -1508,7 +1513,11 @@ async function resolveFieldByNumber(context: AssistantToolContext) {
         entity_name: String(row.name || row.id),
         page: "fields",
         route: `/fields/${String(row.id)}`,
-        filters: { search: String(row.name || query) },
+        filters: {
+          search: String(row.name || query),
+          entityId: String(row.id),
+          entityType: "field",
+        },
       })),
     source: { module: "assistant", tableOrView: "resolve_field_by_number", fetchedAt: nowIso() },
   };
@@ -1542,7 +1551,11 @@ async function resolveFuelSourceByName(context: AssistantToolContext) {
       entity_name: String(row.name || row.id),
       page: "fuel",
       route: "/fuel",
-      filters: { search: String(row.name || query) },
+      filters: {
+        search: String(row.name || query),
+        entityId: String(row.id),
+        entityType: "fuel",
+      },
     })),
     source: { module: "assistant", tableOrView: "resolve_fuel_source_by_name", fetchedAt: nowIso() },
   };

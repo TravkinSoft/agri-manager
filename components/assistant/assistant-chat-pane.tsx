@@ -514,24 +514,41 @@ export function AssistantChatPane({
       let navigationExecuted: boolean | null = null;
       let navigationError: string | null = null;
       let navigationRoute: string | null = null;
+      let navigationActionType: string | null = null;
+      let navigationEntityType: string | null = null;
+      let navigationEntityId: string | null = null;
 
       if (navigationActions.length > 0) {
         const firstAction = navigationActions[0];
+        navigationActionType = firstAction.type;
+        if (firstAction.type === "open_entity") {
+          navigationEntityType = firstAction.entityType;
+          navigationEntityId = firstAction.entityId || null;
+        }
         try {
           switch (firstAction.type) {
-            case "open_page":
+            case "open_page": {
+              if (!firstAction.route) throw new Error("Missing route for open_page");
               setManualFilters({});
               navigationRoute = routeWithFilters(firstAction.route);
               router.push(navigationRoute);
               break;
+            }
             case "open_page_with_filter":
-            case "apply_filter":
+            case "apply_filter": {
+              if (!firstAction.route) throw new Error("Missing route for filtered navigation");
               setManualFilters(firstAction.filters || {});
               navigationRoute = routeWithFilters(firstAction.route, firstAction.filters || {});
               router.push(navigationRoute);
               break;
+            }
             case "open_entity": {
+              if (!firstAction.route) throw new Error("Missing route for open_entity");
+              if (!firstAction.entityId) throw new Error("Entity id is required for open_entity");
               const filters = buildEntityFilters(firstAction);
+              if (firstAction.entityType === "warehouse" && !filters.warehouseId) {
+                filters.warehouseId = firstAction.entityId;
+              }
               setManualFilters(filters);
               navigationRoute = routeWithFilters(firstAction.route, filters);
               router.push(navigationRoute);
@@ -577,6 +594,9 @@ export function AssistantChatPane({
             navigationActionCreated:
               payload.debug.engine.navigationActionCreated || navigationActions.length > 0,
             navigationActionExecuted: navigationExecuted,
+            navigationActionType: navigationActionType || payload.debug.engine.navigationActionType || null,
+            navigationEntityType: navigationEntityType || payload.debug.engine.navigationEntityType || null,
+            navigationEntityId: navigationEntityId || payload.debug.engine.navigationEntityId || null,
             targetRoute: navigationRoute || payload.debug.engine.targetRoute || null,
             routerError: navigationError || null,
           },

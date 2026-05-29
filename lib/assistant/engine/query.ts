@@ -765,8 +765,16 @@ function getNavigationActions(params: {
       : null;
 
   if (action === "open_entity" && entityType && ["warehouse", "field", "fuel"].includes(entityType)) {
-    if (!resolvedId && !resolvedRoute) return [];
-    if (entityType === "field" && !resolvedId) return [];
+    if (!resolvedId) return [];
+    const nextFilters: Record<string, string> = {
+      ...((resolvedFilters || filters || (entityQuery ? { search: entityQuery } : {})) as Record<string, string>),
+    };
+    if (!nextFilters.search && (resolvedName || entityQuery)) {
+      nextFilters.search = resolvedName || entityQuery || "";
+    }
+    if (!nextFilters.entityId) nextFilters.entityId = resolvedId;
+    if (!nextFilters.entityType) nextFilters.entityType = entityType;
+    if (entityType === "warehouse" && !nextFilters.warehouseId) nextFilters.warehouseId = resolvedId;
     return [
       {
         type: "open_entity",
@@ -775,7 +783,7 @@ function getNavigationActions(params: {
         entityType: entityType as "warehouse" | "field" | "fuel",
         entityId: resolvedId,
         entityQuery: resolvedName || entityQuery,
-        filters: resolvedFilters || filters || (entityQuery ? { search: entityQuery } : {}),
+        filters: nextFilters,
       },
     ];
   }
@@ -815,8 +823,13 @@ function buildNavigationAnswer(actions: AssistantNavigationAction[]): string {
   return `Открываю страницу ${first.page}.`;
 }
 
-function buildNavigationAnswerV2(actions: AssistantNavigationAction[]): string {
+function buildNavigationAnswerV2(actions: AssistantNavigationAction[], intent?: AssistantIntent): string {
   if (!actions.length) {
+    const action = cleanString(intent?.parameters?.action);
+    const entityType = cleanString(intent?.parameters?.entityType);
+    if (action === "open_entity" && entityType === "warehouse") return "Склад не найден.";
+    if (action === "open_entity" && entityType === "field") return "Поле не найдено.";
+    if (action === "open_entity" && entityType === "fuel") return "Источник ГСМ не найден.";
     return "Не смог открыть: route не найден.";
   }
   const first = actions[0];
@@ -1219,7 +1232,7 @@ export async function runAssistantEngine(params: {
 
   const navigationActions = getNavigationActions({ intent, outputs });
   if (intent.name === "navigation_help") {
-    answerBlocks.unshift(buildNavigationAnswerV2(navigationActions));
+    answerBlocks.unshift(buildNavigationAnswerV2(navigationActions, intent));
   }
 
   const toolActivity = buildToolActivityLogs(toolCalls);

@@ -287,6 +287,11 @@ function buildDebugMetadata(params: {
       navigationIntentDetected: result.intent.name === "navigation_help",
       navigationActionCreated: navigationActions.length > 0,
       navigationActionExecuted: null,
+      navigationActionType: navigationActions[0]?.type || null,
+      navigationEntityType:
+        navigationActions[0]?.type === "open_entity" ? navigationActions[0].entityType : null,
+      navigationEntityId:
+        navigationActions[0]?.type === "open_entity" ? navigationActions[0].entityId : null,
       targetRoute: navigationActions[0]?.route || null,
       routerError: null,
       toolCount: result.toolCalls.length,
