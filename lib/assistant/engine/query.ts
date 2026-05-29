@@ -104,6 +104,22 @@ function formatDateTime(value: unknown): string {
   return date.toLocaleString("ru-RU");
 }
 
+function displayCropLabel(value: string | null): string | null {
+  const key = safeText(value, "").toLowerCase();
+  if (!key) return null;
+  if (key === "potato") return "картофель";
+  if (key === "wheat") return "пшеница";
+  if (key === "barley") return "ячмень";
+  if (key === "corn") return "кукуруза";
+  if (key === "soraya") return "сорая";
+  if (key === "gala") return "гала";
+  if (key === "baltic rose") return "балтик роуз";
+  if (key === "azilit") return "азилит";
+  if (key === "colombo") return "коломбо";
+  if (key === "impala") return "импала";
+  return value;
+}
+
 function mapBatchClassLabel(value: unknown): string {
   switch (safeText(value, "commodity").toLowerCase()) {
     case "seed":
@@ -231,84 +247,38 @@ function isCapabilitiesQuestion(message: string): boolean {
 
 function formatInventoryRows(rows: Array<Record<string, unknown>>): string {
   if (!rows.length) return "По всем складам по текущему фильтру остатки не найдены.";
-
-  const buckets = new Map<
-    string,
-    {
-      total: number;
-      byClass: Map<string, number>;
-      byWarehouse: Map<string, number>;
-      varieties: Set<string>;
-      reproductions: Set<string>;
-    }
-  >();
+  const byProduct = new Map<string, number>();
+  const byWarehouse = new Map<string, number>();
+  let total = 0;
+  let hasNegative = false;
 
   rows.forEach((row) => {
     const product = safeText(row.product_name);
-    const batchClass = mapBatchClassLabel(row.batch_class);
     const warehouse = safeText(row.warehouse_name);
     const qty = asNumber(row.quantity);
-    const variety = cleanString(row.variety_name);
-    const reproduction = cleanString(row.reproduction_name);
-
-    if (!buckets.has(product)) {
-      buckets.set(product, {
-        total: 0,
-        byClass: new Map<string, number>(),
-        byWarehouse: new Map<string, number>(),
-        varieties: new Set<string>(),
-        reproductions: new Set<string>(),
-      });
-    }
-    const bucket = buckets.get(product)!;
-    bucket.total += qty;
-    bucket.byClass.set(batchClass, (bucket.byClass.get(batchClass) || 0) + qty);
-    bucket.byWarehouse.set(warehouse, (bucket.byWarehouse.get(warehouse) || 0) + qty);
-    if (variety && variety !== "-") bucket.varieties.add(variety);
-    if (reproduction && reproduction !== "-") bucket.reproductions.add(reproduction);
+    total += qty;
+    if (qty < 0) hasNegative = true;
+    byProduct.set(product, (byProduct.get(product) || 0) + qty);
+    byWarehouse.set(warehouse, (byWarehouse.get(warehouse) || 0) + qty);
   });
 
-  return Array.from(buckets.entries())
-    .sort((a, b) => b[1].total - a[1].total)
-    .slice(0, 6)
-    .map(([product, bucket]) => {
-      const lines: string[] = [];
-      lines.push(`Остатки ${product.toLowerCase()}:`);
-      lines.push(`Всего: ${formatKgAndTons(bucket.total)}`);
-      lines.push("");
-      lines.push("По классам:");
-      Array.from(bucket.byClass.entries())
-        .sort((a, b) => b[1] - a[1])
-        .forEach(([cls, qty]) => lines.push(`• ${cls}: ${formatKgAndTons(qty)}`));
-      lines.push("");
-      lines.push("По складам:");
-      Array.from(bucket.byWarehouse.entries())
-        .sort((a, b) => b[1] - a[1])
-        .forEach(([warehouse, qty]) => lines.push(`• ${warehouse} — ${formatKgAndTons(qty)}`));
-
-      if (bucket.varieties.size) {
-        lines.push("");
-        lines.push("Сорта:");
-        Array.from(bucket.varieties)
-          .sort()
-          .slice(0, 12)
-          .forEach((item) => lines.push(`• ${item}`));
-      }
-
-      if (bucket.reproductions.size) {
-        lines.push("");
-        lines.push("Репродукции:");
-        Array.from(bucket.reproductions)
-          .sort()
-          .slice(0, 12)
-          .forEach((item) => lines.push(`• ${item}`));
-      }
-
-      lines.push("");
-      lines.push("Сезон в остатках не указан: это складские текущие остатки.");
-      return lines.join("\n");
-    })
-    .join("\n\n");
+  const topProducts = Array.from(byProduct.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+  const majorWarehouse = Array.from(byWarehouse.entries()).sort((a, b) => b[1] - a[1])[0];
+  const lines: string[] = [];
+  lines.push(`По всем складам: ${formatKgAndTons(total)}.`);
+  if (majorWarehouse) {
+    lines.push(`Основной объём: ${majorWarehouse[0]} — ${formatKgAndTons(majorWarehouse[1])}.`);
+  }
+  lines.push("Разбивка:");
+  topProducts.forEach(([product, qty]) => {
+    lines.push(`• ${product}: ${formatKgAndTons(qty)}`);
+  });
+  if (hasNegative) {
+    lines.push("⚠ Есть отрицательные остатки. Проверьте ledger и последние движения.");
+  }
+  return lines.join("\n");
 }
 
 function formatWarehouseMovementsRows(rows: Array<Record<string, unknown>>): string {
@@ -367,23 +337,45 @@ function formatCropStructureSummaryRows(rows: Array<Record<string, unknown>>): s
 
 function formatCropStructureSummaryRowsV2(
   rows: Array<Record<string, unknown>>,
-  outputType: AssistantOutputType
+  outputType: AssistantOutputType,
+  seasonLabel: string,
+  intentParams: AssistantIntent["parameters"]
 ): string {
-  if (!rows.length) return "По сезону 2026 данных не найдено.";
+  if (!rows.length) return `По сезону ${seasonLabel} данных не найдено.`;
   const totalArea = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
   const cropsCount = rows.length;
   const fieldsTotal = rows.reduce((acc, row) => acc + asNumber(row.fields_count), 0);
-  const topRowsLimit = outputType === "summary_total" ? 5 : 10;
+  const topRowsLimit = outputType === "summary_total" ? 3 : 8;
+  const requestedCrop =
+    cleanString(intentParams.crop_alias) ||
+    cleanString(intentParams.crop) ||
+    null;
+  const requestedCropLabel = displayCropLabel(requestedCrop);
+  const inferredCropLabel = requestedCropLabel || (rows.length === 1 ? cleanString(rows[0]?.crop_name) : null);
+  const hasFactArea = rows.some((row) => {
+    const fact =
+      asNumber((row as any).fact_area_ha) ||
+      asNumber((row as any).actual_area_ha) ||
+      asNumber((row as any).fact_ha);
+    return fact > 0;
+  });
   const topRows = rows.slice(0, topRowsLimit).map((row) => {
     const fieldsCount = Number.isFinite(Number(row.fields_count)) ? Number(row.fields_count) : 0;
     const fieldsLabel = fieldsCount > 0 ? ` (${fieldsCount} полей)` : "";
     return `• ${safeText(row.crop_name)} — ${formatNumber(asNumber(row.area_ha), 2)} га${fieldsLabel}`;
   });
 
+  const keyLine = inferredCropLabel
+    ? `По плану в структуре посевов ${seasonLabel}: ${inferredCropLabel} — ${formatNumber(totalArea, 2)} га.`
+    : `По плану в структуре посевов ${seasonLabel}: всего ${formatNumber(totalArea, 2)} га.`;
+  const factLine = hasFactArea
+    ? `По факту выполнено: ${formatNumber(rows.reduce((acc, row) => acc + asNumber((row as any).fact_area_ha || (row as any).actual_area_ha || (row as any).fact_ha), 0), 2)} га.`
+    : "Факта посева/операций пока не вижу.";
   const header = [
-    `Всего посевных площадей: ${formatNumber(totalArea, 2)} га`,
+    keyLine,
     `Культур: ${cropsCount}`,
     fieldsTotal > 0 ? `Полей в разрезе структуры: ${fieldsTotal}` : "Заполнено/не заполнено: нет данных",
+    factLine,
   ];
 
   if (outputType === "summary_total") {
@@ -477,7 +469,7 @@ function formatGroundedToolOutput(params: {
       }
       return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
     }
-    return formatCropStructureSummaryRowsV2(rows, outputType);
+    return formatCropStructureSummaryRowsV2(rows, outputType, sourceSeason || "2026", intentParams);
   }
   if (intentName === "crop_structure_overview" || toolName === "get_crop_structure") {
     if (outputType !== "list") return null;
@@ -1024,6 +1016,10 @@ export async function runAssistantEngine(params: {
   input: AssistantEngineInput;
 }): Promise<AssistantEngineResult> {
   const { supabase, actor, companyId, settings, input } = params;
+  const engineStartedAt = Date.now();
+  let routerMs: number | null = null;
+  let toolMs: number | null = null;
+  let modelMs: number | null = null;
   const message = String(input.message || "").trim();
   const messageForRouting = applySemanticExpansions(message);
   const assistantMode = resolveAssistantMode(messageForRouting);
@@ -1046,7 +1042,25 @@ export async function runAssistantEngine(params: {
   };
 
   const modelConfig = resolveAssistantModelConfig(settings);
-  const emptyPerformance: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
+  const emptyPerformance: AssistantEngineResult["performance"] = {
+    promptTokens: null,
+    completionTokens: null,
+    totalTokens: null,
+    routerMs: null,
+    toolMs: null,
+    modelMs: null,
+    totalMs: null,
+  };
+  const buildPerformance = (
+    overrides?: Partial<AssistantEngineResult["performance"]>
+  ): AssistantEngineResult["performance"] => ({
+    ...emptyPerformance,
+    routerMs,
+    toolMs,
+    modelMs,
+    totalMs: Date.now() - engineStartedAt,
+    ...(overrides || {}),
+  });
   const modelLlmNotCalled = llmNotCalled();
 
   if (!settings.enabled) {
@@ -1072,7 +1086,7 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
-      performance: emptyPerformance,
+      performance: buildPerformance(),
     };
   }
 
@@ -1099,16 +1113,18 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
-      performance: emptyPerformance,
+      performance: buildPerformance(),
     };
   }
 
+  const routerStartedAt = Date.now();
   const intent = await classifyAssistantIntent({
     message,
     runtimeContext,
     sessionState: initialSessionState,
     settings,
   });
+  routerMs = Date.now() - routerStartedAt;
   const resolvedMode: AssistantEngineResult["mode"] =
     intent.name === "navigation_help" ? "navigation" : assistantMode;
   const resolvedOutputType = resolveOutputType(intent);
@@ -1137,7 +1153,7 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
-      performance: emptyPerformance,
+      performance: buildPerformance(),
     };
   }
 
@@ -1164,7 +1180,7 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
-      performance: emptyPerformance,
+      performance: buildPerformance(),
     };
   }
 
@@ -1178,6 +1194,7 @@ export async function runAssistantEngine(params: {
   const sourceHints: string[] = [];
   let nextSessionState = initialSessionState;
 
+  const toolsStartedAt = Date.now();
   if (toolNames.length) {
     for (const toolName of toolNames) {
       const tool = getAssistantTool(toolName);
@@ -1238,6 +1255,7 @@ export async function runAssistantEngine(params: {
       }
     }
   }
+  toolMs = Date.now() - toolsStartedAt;
 
   const navigationActions = getNavigationActions({ intent, outputs });
   if (intent.name === "navigation_help") {
@@ -1269,7 +1287,7 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
-      performance: emptyPerformance,
+      performance: buildPerformance(),
     };
   }
 
@@ -1312,7 +1330,7 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
-      performance: emptyPerformance,
+      performance: buildPerformance(),
     };
   }
 
@@ -1343,7 +1361,7 @@ export async function runAssistantEngine(params: {
         requestMode: "tool_first",
         llm: modelLlmNotCalled,
       },
-      performance: emptyPerformance,
+      performance: buildPerformance(),
     };
   }
 
@@ -1373,6 +1391,7 @@ export async function runAssistantEngine(params: {
     llmPromptBundle = promptBundle;
     llmPromptMeta = promptMeta;
   }
+  const modelStartedAt = Date.now();
   const fallback = await generateGeneralAnswer({
     message,
     locale,
@@ -1381,6 +1400,7 @@ export async function runAssistantEngine(params: {
     systemPrompt: llmPromptBundle.text,
     promptMeta: llmPromptMeta,
   });
+  modelMs = Date.now() - modelStartedAt;
   return {
     answer: fallback.answer,
     sessionState: { ...nextSessionState, lastIntent: intent.name },
@@ -1408,6 +1428,11 @@ export async function runAssistantEngine(params: {
       requestMode: "tool_first",
       llm: fallback.llm,
     },
-    performance: fallback.usage,
+    performance: buildPerformance({
+      promptTokens: fallback.usage.promptTokens,
+      completionTokens: fallback.usage.completionTokens,
+      totalTokens: fallback.usage.totalTokens,
+      modelMs,
+    }),
   };
 }

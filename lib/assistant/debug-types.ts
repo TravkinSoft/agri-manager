@@ -76,6 +76,7 @@ export type AssistantDebugMetadata = {
     navigationActionType: string | null;
     navigationEntityType: string | null;
     navigationEntityId: string | null;
+    navigationFilters: Record<string, string> | null;
     targetRoute: string | null;
     routerError: string | null;
     toolCount: number;
@@ -93,6 +94,10 @@ export type AssistantDebugMetadata = {
   };
   performance: {
     latencyMs: number | null;
+    routerMs: number | null;
+    toolMs: number | null;
+    modelMs: number | null;
+    totalMs: number | null;
     promptTokens: number | null;
     completionTokens: number | null;
     totalTokens: number | null;

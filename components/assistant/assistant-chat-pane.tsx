@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -23,6 +23,7 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import type { AssistantRuntimeUiContext } from "@/lib/assistant/shell";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 import type { AssistantDebugMetadata } from "@/lib/assistant/debug-types";
+import { resolveRouteEntryByPath } from "@/lib/assistant/route-registry";
 
 type AssistantChatMessage = {
   id: string;
@@ -136,7 +137,7 @@ const EMPTY_STATE: AssistantSessionStatePayload = {
   lastResultContext: null,
 };
 
-const TOOL_LOADING_STEPS = ["Запрашиваю данные..."] as const;
+const TOOL_LOADING_STEPS = ["Смотрю данные..."] as const;
 
 function uid() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -198,6 +199,84 @@ function buildEntityFilters(action: Extract<AssistantNavigationActionPayload, { 
   return filters;
 }
 
+function matchRoutePath(actualPath: string, expectedPath: string): boolean {
+  if (actualPath === expectedPath) return true;
+  if (expectedPath.endsWith("/")) return actualPath.startsWith(expectedPath);
+  return actualPath.startsWith(`${expectedPath}/`);
+}
+
+async function confirmExecution(params: {
+  action: AssistantNavigationActionPayload;
+  targetRoute: string | null;
+  timeoutMs?: number;
+}): Promise<{ executed: boolean; error: string | null }> {
+  const { action, targetRoute, timeoutMs = 1200 } = params;
+  if (!targetRoute) {
+    return { executed: false, error: "route не задан" };
+  }
+
+  const expected = new URL(targetRoute, window.location.origin);
+  const expectedPath = expected.pathname;
+  const expectedParams = expected.searchParams;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const current = new URL(window.location.href);
+    const routeOk = matchRoutePath(current.pathname, expectedPath);
+    if (!routeOk) {
+      await new Promise((resolve) => window.setTimeout(resolve, 80));
+      continue;
+    }
+
+    let paramsOk = true;
+    expectedParams.forEach((value, key) => {
+      if ((current.searchParams.get(key) || "") !== value) {
+        paramsOk = false;
+      }
+    });
+
+    if (!paramsOk) {
+      await new Promise((resolve) => window.setTimeout(resolve, 80));
+      continue;
+    }
+
+    if (action.type === "open_entity") {
+      const entityId = action.entityId || "";
+      const inPath = Boolean(entityId) && current.pathname.includes(entityId);
+      const inQuery =
+        current.searchParams.get("entityId") === entityId ||
+        current.searchParams.get("warehouseId") === entityId ||
+        current.searchParams.get("fieldId") === entityId;
+      if (entityId && !inPath && !inQuery) {
+        await new Promise((resolve) => window.setTimeout(resolve, 80));
+        continue;
+      }
+    }
+
+    if (resolveRouteEntryByPath(current.pathname)) {
+      return { executed: true, error: null };
+    }
+    return { executed: true, error: null };
+  }
+
+  return { executed: false, error: "route/action не сработал" };
+}
+
+function firstActionToSuccessText(action: AssistantNavigationActionPayload | null): string | null {
+  if (!action) return null;
+  if (action.type === "open_entity") {
+    const label = action.entityQuery || action.entityId || "объект";
+    return `Открыл: ${label}.`;
+  }
+  if (action.type === "open_page_with_filter" || action.type === "apply_filter") {
+    return "Открыл страницу и применил фильтр.";
+  }
+  if (action.type === "open_page") {
+    return "Открыл страницу.";
+  }
+  return null;
+}
+
 function formatThreadDate(value: string): string {
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return value;
@@ -233,6 +312,7 @@ export function AssistantChatPane({
   const {
     setDebugSnapshot,
     setManualFilters,
+    isOpen,
     debugSnapshot,
     debugMonitorEnabled,
     debugMonitorOpen,
@@ -251,6 +331,12 @@ export function AssistantChatPane({
   const [sessionState, setSessionState] = useState<AssistantSessionStatePayload>(EMPTY_STATE);
   const [lastMode, setLastMode] = useState<string>("erp_data");
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const focusInput = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, []);
 
   const disabledReason = useMemo(() => resolveDisabledReason(access), [access]);
   const quickActions = useMemo(() => quickActionsByPage(runtimeContext.currentPage), [runtimeContext.currentPage]);
@@ -309,6 +395,18 @@ export function AssistantChatPane({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, loading, activeTab]);
+
+  useEffect(() => {
+    if (activeTab === "chat") {
+      focusInput();
+    }
+  }, [activeTab, focusInput]);
+
+  useEffect(() => {
+    if (isOpen) {
+      focusInput();
+    }
+  }, [isOpen, focusInput]);
 
   const loadThreads = async () => {
     if (!resolvedCompanyId || disabledReason) return;
@@ -445,6 +543,7 @@ export function AssistantChatPane({
     if (action.kind === "prompt") {
       if (action.prompt) setInput(action.prompt);
       setActiveTab("chat");
+      focusInput();
       return;
     }
     const route = action.route || "/dashboard";
@@ -452,6 +551,7 @@ export function AssistantChatPane({
     setManualFilters(filters);
     router.push(routeWithFilters(route, filters));
     setActiveTab("chat");
+    focusInput();
   };
 
   const sendMessage = async () => {
@@ -468,6 +568,7 @@ export function AssistantChatPane({
     };
     setMessages((prev) => [...prev, optimisticMessage]);
     setInput("");
+    focusInput();
 
     try {
       const headers = await getAuthHeaders();
@@ -521,6 +622,7 @@ export function AssistantChatPane({
       if (navigationActions.length > 0) {
         const firstAction = navigationActions[0];
         navigationActionType = firstAction.type;
+        let actionFiltersForDebug: Record<string, string> | null = null;
         if (firstAction.type === "open_entity") {
           navigationEntityType = firstAction.entityType;
           navigationEntityId = firstAction.entityId || null;
@@ -532,14 +634,17 @@ export function AssistantChatPane({
               setManualFilters({});
               navigationRoute = routeWithFilters(firstAction.route);
               router.push(navigationRoute);
+              actionFiltersForDebug = {};
               break;
             }
             case "open_page_with_filter":
             case "apply_filter": {
               if (!firstAction.route) throw new Error("Missing route for filtered navigation");
-              setManualFilters(firstAction.filters || {});
-              navigationRoute = routeWithFilters(firstAction.route, firstAction.filters || {});
+              const filters = firstAction.filters || {};
+              setManualFilters(filters);
+              navigationRoute = routeWithFilters(firstAction.route, filters);
               router.push(navigationRoute);
+              actionFiltersForDebug = filters;
               break;
             }
             case "open_entity": {
@@ -552,10 +657,37 @@ export function AssistantChatPane({
               setManualFilters(filters);
               navigationRoute = routeWithFilters(firstAction.route, filters);
               router.push(navigationRoute);
+              actionFiltersForDebug = filters;
               break;
             }
           }
-          navigationExecuted = true;
+          const confirmed = await confirmExecution({
+            action: firstAction,
+            targetRoute: navigationRoute,
+          });
+          navigationExecuted = confirmed.executed;
+          navigationError = confirmed.error;
+          if (payload.debug) {
+            setDebugSnapshot({
+              ...payload.debug,
+              engine: {
+                ...payload.debug.engine,
+                navigationIntentDetected:
+                  payload.debug.engine.navigationIntentDetected ||
+                  intentName === "navigation_help" ||
+                  navigationActions.length > 0,
+                navigationActionCreated:
+                  payload.debug.engine.navigationActionCreated || navigationActions.length > 0,
+                navigationActionExecuted: confirmed.executed,
+                navigationActionType: navigationActionType || payload.debug.engine.navigationActionType || null,
+                navigationEntityType: navigationEntityType || payload.debug.engine.navigationEntityType || null,
+                navigationEntityId: navigationEntityId || payload.debug.engine.navigationEntityId || null,
+                navigationFilters: actionFiltersForDebug,
+                targetRoute: navigationRoute || payload.debug.engine.targetRoute || null,
+                routerError: confirmed.error || null,
+              },
+            });
+          }
         } catch (error) {
           navigationExecuted = false;
           navigationError = error instanceof Error ? error.message : "Router push failed";
@@ -563,10 +695,16 @@ export function AssistantChatPane({
       }
 
       const answer = String(payload.response || "").trim() || "Я не вижу этих данных в системе.";
+      const successTail =
+        navigationExecuted === true && intentName === "navigation_help"
+          ? firstActionToSuccessText(navigationActions[0] || null)
+          : null;
       const finalAnswer =
         navigationExecuted === false
           ? `${answer}\n\nНе смог открыть: ${navigationError || "route не найден"}.`
-          : answer;
+          : successTail
+            ? `${answer}\n\n${successTail}`
+            : answer;
       const assistantMessage: AssistantChatMessage = {
         id: uid(),
         role: "assistant",
@@ -581,7 +719,7 @@ export function AssistantChatPane({
         },
       };
       setMessages((prev) => [...prev, assistantMessage]);
-
+      focusInput();
       if (payload.debug) {
         setDebugSnapshot({
           ...payload.debug,
@@ -593,12 +731,14 @@ export function AssistantChatPane({
               navigationActions.length > 0,
             navigationActionCreated:
               payload.debug.engine.navigationActionCreated || navigationActions.length > 0,
-            navigationActionExecuted: navigationExecuted,
+            navigationActionExecuted:
+              navigationExecuted ?? payload.debug.engine.navigationActionExecuted ?? null,
             navigationActionType: navigationActionType || payload.debug.engine.navigationActionType || null,
             navigationEntityType: navigationEntityType || payload.debug.engine.navigationEntityType || null,
             navigationEntityId: navigationEntityId || payload.debug.engine.navigationEntityId || null,
+            navigationFilters: payload.debug.engine.navigationFilters || null,
             targetRoute: navigationRoute || payload.debug.engine.targetRoute || null,
-            routerError: navigationError || null,
+            routerError: navigationError || payload.debug.engine.routerError || null,
           },
         });
       } else {
@@ -629,6 +769,7 @@ export function AssistantChatPane({
       ]);
     } finally {
       setLoading(false);
+      focusInput();
     }
   };
 
@@ -671,7 +812,7 @@ export function AssistantChatPane({
         className="flex min-h-0 flex-1 flex-col"
       >
         <TabsContent value="chat" className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+          <div className="travkin-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3">
             {messagesLoading ? (
               <div className="flex items-center gap-2 text-xs text-[#94A3B8]">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -685,7 +826,7 @@ export function AssistantChatPane({
               messages.map((message) => (
                 <div
                   key={message.id}
-                  className={`flex gap-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                  className={`flex gap-1.5 ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   {message.role !== "user" ? (
                     <div className="mt-0.5 rounded-full bg-[#1B2435] p-1.5 text-[#F5C542]">
@@ -695,7 +836,7 @@ export function AssistantChatPane({
 
                   <div className="max-w-[92%] space-y-1">
                     <div
-                      className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-snug ${
+                      className={`whitespace-pre-wrap rounded-md px-2.5 py-1.5 text-sm leading-snug ${
                         message.role === "user"
                           ? "bg-[#E0B100] text-[#111827]"
                           : "border border-[#2A3448] bg-[#151C28] text-[#E5E7EB]"
@@ -779,6 +920,7 @@ export function AssistantChatPane({
               }}
             >
               <Textarea
+                ref={inputRef}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Спросите про поле, склад, операцию или талон..."
@@ -789,6 +931,9 @@ export function AssistantChatPane({
                     event.preventDefault();
                     void sendMessage();
                   }
+                  if (event.key === "Escape") {
+                    event.stopPropagation();
+                  }
                 }}
               />
               <Button type="submit" size="icon" disabled={!canSend} className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
@@ -798,7 +943,7 @@ export function AssistantChatPane({
           </div>
         </TabsContent>
 
-        <TabsContent value="history" className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 data-[state=inactive]:hidden">
+        <TabsContent value="history" className="travkin-scrollbar mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 data-[state=inactive]:hidden">
           <div className="mb-3 flex items-center justify-between gap-2">
             <div className="text-xs text-[#9CA3AF]">Потоки диалогов</div>
             <div className="flex items-center gap-2">
@@ -857,7 +1002,7 @@ export function AssistantChatPane({
           )}
         </TabsContent>
 
-        <TabsContent value="settings" className="mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 data-[state=inactive]:hidden">
+        <TabsContent value="settings" className="travkin-scrollbar mt-0 min-h-0 flex-1 overflow-y-auto px-3 py-3 data-[state=inactive]:hidden">
           <div className="space-y-3">
             <div className="rounded-md border border-[#2A3448] bg-[#141B29] px-3 py-2 text-sm">
               <div className="mb-1 text-xs text-[#94A3B8]">Режим и модель</div>

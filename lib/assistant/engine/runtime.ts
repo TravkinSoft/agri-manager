@@ -1,5 +1,7 @@
 import type { AssistantUiContext } from "@/lib/assistant/engine/types";
 
+const DEFAULT_SEASON = "2026";
+
 function cleanString(value: unknown): string | null {
   const raw = String(value || "").trim();
   return raw.length > 0 ? raw : null;
@@ -28,10 +30,35 @@ export function normalizeAssistantUiContext(input: Partial<AssistantUiContext> |
   const entity = input?.entity;
   const entityType = cleanString(entity?.type);
   const entityId = cleanString(entity?.id);
+  const filters = normalizeFilters(input?.filters);
+  const selectedSeason = cleanString(input?.season) || cleanString((filters as any).season) || cleanString((filters as any).year);
+  const selectedEntityType = cleanString(input?.selectedEntityType) || entityType;
+  const selectedEntityId = cleanString(input?.selectedEntityId) || entityId;
+  const selectedFieldId =
+    cleanString(input?.selectedFieldId) ||
+    cleanString((filters as any).field) ||
+    cleanString((filters as any).fieldId) ||
+    (selectedEntityType?.toLowerCase() === "field" ? selectedEntityId : null);
+  const selectedWarehouseId =
+    cleanString(input?.selectedWarehouseId) ||
+    cleanString((filters as any).warehouse) ||
+    cleanString((filters as any).warehouseId) ||
+    (selectedEntityType?.toLowerCase() === "warehouse" ? selectedEntityId : null);
+  const currentPage = cleanString(input?.currentPage) || "dashboard";
+  const currentModule = cleanString(input?.currentModule) || currentPage;
+  const locale =
+    input?.locale === "en" || input?.locale === "kz" || input?.locale === "ru"
+      ? input.locale
+      : "ru";
+  const language =
+    input?.language === "en" || input?.language === "kz" || input?.language === "ru"
+      ? input.language
+      : locale;
 
   return {
-    currentPage: cleanString(input?.currentPage) || "dashboard",
+    currentPage,
     currentRoute: cleanString(input?.currentRoute) || "/dashboard",
+    currentModule,
     entity: entityType && entityId
       ? {
           type: entityType,
@@ -42,13 +69,19 @@ export function normalizeAssistantUiContext(input: Partial<AssistantUiContext> |
     selectedRows: Array.isArray(input?.selectedRows)
       ? input!.selectedRows.map((x) => String(x || "").trim()).filter(Boolean)
       : [],
-    filters: normalizeFilters(input?.filters),
-    season: cleanString(input?.season),
+    filters,
+    season: selectedSeason || DEFAULT_SEASON,
+    defaultSeason: cleanString(input?.defaultSeason) || DEFAULT_SEASON,
     companyId: cleanString(input?.companyId),
     companyName: cleanString(input?.companyName),
-    locale:
-      input?.locale === "en" || input?.locale === "kz" || input?.locale === "ru"
-        ? input.locale
-        : "ru",
+    userId: cleanString(input?.userId),
+    userRole: cleanString(input?.userRole),
+    selectedEntityType,
+    selectedEntityId,
+    selectedFieldId,
+    selectedWarehouseId,
+    selectedCrop: cleanString(input?.selectedCrop) || cleanString((filters as any).crop) || cleanString((filters as any).culture),
+    language,
+    locale,
   };
 }

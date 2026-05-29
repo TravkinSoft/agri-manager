@@ -39,9 +39,13 @@ function buildContextLine(params: {
   const { runtimeContext, actorRole, locale } = params;
   return [
     `current_page=${runtimeContext?.currentPage || "-"}`,
+    `current_module=${runtimeContext?.currentModule || runtimeContext?.currentPage || "-"}`,
     `current_route=${runtimeContext?.currentRoute || "-"}`,
     `company=${runtimeContext?.companyName || runtimeContext?.companyId || "-"}`,
-    `season=${runtimeContext?.season || "-"}`,
+    `season=${runtimeContext?.season || runtimeContext?.defaultSeason || "-"}`,
+    `selected_field=${runtimeContext?.selectedFieldId || "-"}`,
+    `selected_warehouse=${runtimeContext?.selectedWarehouseId || "-"}`,
+    `selected_crop=${runtimeContext?.selectedCrop || "-"}`,
     `role=${actorRole || "-"}`,
     `locale=${locale}`,
   ].join(", ");

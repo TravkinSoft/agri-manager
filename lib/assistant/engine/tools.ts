@@ -9,6 +9,7 @@ import {
   resolveKnownCropAlias,
 } from "@/lib/assistant/agro-taxonomy";
 import { applySemanticExpansions } from "@/lib/assistant/knowledge/semantic-memory";
+import { getAssistantRouteRegistry } from "@/lib/assistant/route-registry";
 
 const DEFAULT_SEASON_YEAR = "2026";
 
@@ -1797,18 +1798,33 @@ const getCurrentContextToolAlias: AssistantToolDefinition = {
       {
         company_id: context.companyId,
         company_name: context.runtimeContext.companyName || null,
+        user_id: context.runtimeContext.userId || context.actor.authUserId || null,
         user_role: context.actor.role,
         page: context.runtimeContext.currentPage,
+        module: context.runtimeContext.currentModule || context.runtimeContext.currentPage,
         route: context.runtimeContext.currentRoute,
-        season: context.runtimeContext.season,
+        season: context.runtimeContext.season || context.runtimeContext.defaultSeason || DEFAULT_SEASON_YEAR,
+        default_season: context.runtimeContext.defaultSeason || DEFAULT_SEASON_YEAR,
+        selected_entity_type: context.runtimeContext.selectedEntityType || cleanString(context.runtimeContext.entity?.type),
+        selected_entity_id: context.runtimeContext.selectedEntityId || cleanString(context.runtimeContext.entity?.id),
         selected_field:
+          context.runtimeContext.selectedFieldId ||
           cleanString(context.runtimeContext.filters.field) ||
+          cleanString(context.runtimeContext.filters.fieldId) ||
           (context.runtimeContext.entity?.type === "field" ? cleanString(context.runtimeContext.entity?.id) : null),
         selected_warehouse:
+          context.runtimeContext.selectedWarehouseId ||
           cleanString(context.runtimeContext.filters.warehouse) ||
+          cleanString(context.runtimeContext.filters.warehouseId) ||
           (context.runtimeContext.entity?.type === "warehouse" ? cleanString(context.runtimeContext.entity?.id) : null),
+        selected_crop:
+          context.runtimeContext.selectedCrop ||
+          cleanString(context.runtimeContext.filters.crop) ||
+          cleanString(context.runtimeContext.filters.culture) ||
+          null,
         filters: context.runtimeContext.filters || {},
-        locale: context.runtimeContext.locale || "ru",
+        language: context.runtimeContext.language || context.runtimeContext.locale || "ru",
+        locale: context.runtimeContext.locale || context.runtimeContext.language || "ru",
       },
     ],
     source: {
@@ -1824,25 +1840,37 @@ const getRoutesToolAlias: AssistantToolDefinition = {
   name: "get_routes",
   description: "Маршруты основных модулей Travkin Flow",
   domains: ["navigation", "assistant"],
-  run: async (context) => ({
-    title: "Маршруты",
-    rows: [
-      { name: "Панель", route: "/dashboard" },
-      { name: "Весовая", route: "/weighbridge" },
-      { name: "Склады", route: "/warehouses" },
-      { name: "Операции", route: "/operations" },
-      { name: "Поля", route: "/fields" },
-      { name: "Кадастр и право", route: "/land-legal" },
-      { name: "Пользователи", route: "/users" },
-      { name: "Отчеты", route: "/analytics" },
-    ],
-    source: {
-      module: "assistant",
-      tableOrView: "route_map",
-      season: context.runtimeContext.season,
-      fetchedAt: nowIso(),
-    },
-  }),
+  run: async (context) => {
+    const routeNameMap: Record<string, string> = {
+      dashboard: "Панель",
+      fields: "Поля",
+      "field-card": "Карточка поля",
+      "crop-structure": "Структура посевов",
+      "field-history": "История полей",
+      operations: "Операции",
+      warehouses: "Склады",
+      "warehouse-card": "Карточка склада",
+      weighbridge: "Весовая",
+      reports: "Отчеты",
+      cadastre: "Кадастр и право",
+    };
+    return {
+      title: "Маршруты",
+      rows: getAssistantRouteRegistry().map((entry) => ({
+        route_key: entry.routeKey,
+        name: routeNameMap[entry.routeKey] || entry.routeKey,
+        route: entry.path,
+        supported_filters: entry.supportedFilters.join(", "),
+        open_strategy: entry.openStrategy,
+      })),
+      source: {
+        module: "assistant",
+        tableOrView: "route_registry",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
 };
 
 const findFieldToolAlias: AssistantToolDefinition = {
@@ -2328,7 +2356,7 @@ const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
 
       const queryTerms = buildSearchTerms(query);
       const queryWordCount = normalizeSearchText(query || "").split(" ").filter(Boolean).length;
-      const shouldApplyFreeText = !aliasTerms.length && queryWordCount > 0 && queryWordCount <= 2;
+      const shouldApplyFreeText = !aliasTerms.length && queryWordCount > 0 && queryWordCount <= 8;
       const rows = shouldApplyFreeText
         ? filtered.filter((row) => {
             const searchBlob = [row.crop_name, row.variety_name, row.reproduction_name, row.field_name].join(" ");

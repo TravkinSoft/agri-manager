@@ -54,8 +54,12 @@ export function AssistantPanel() {
   const season = runtimeContext.season || "сезон не указан";
 
   return (
-    <Sheet open={isOpen} onOpenChange={(next) => (next ? open() : close())}>
-      <SheetContent side="right" className="w-[min(980px,calc(100vw-1rem))] max-w-none border-[#262D3D] bg-[#11151E] p-0">
+    <Sheet modal={false} open={isOpen} onOpenChange={(next) => (next ? open() : close())}>
+      <SheetContent
+        side="right"
+        showOverlay={false}
+        className="travkin-scrollbar w-[min(980px,calc(100vw-1rem))] max-w-none border-[#262D3D] bg-[#11151E] p-0"
+      >
         <div className="flex h-full min-h-0 flex-col">
           <SheetHeader className="border-b border-[#262D3D] bg-[#121824] px-4 py-3">
             <div className="flex items-center justify-between gap-3">

@@ -112,7 +112,7 @@ function extractEntityQuery(rawMessage: string, stopWords: string[]): string | n
 function isCropAreaQuestion(text: string): boolean {
   return hasRegex(
     text,
-    /(сколько\s+(посев|засея)|сколько\s+га|сколько\s+гектар|сколько\s+гектаров|посевн|структура\s+посев|общая\s+площадь\s+пол|sown area|crop structure|total hectares)/
+    /(сколько\s+(посев|засея|посаж)|сколько\s+га|сколько\s+гектар|сколько\s+гектаров|посевн|посажен|структура\s+посев|общая\s+площадь\s+пол|sown area|crop structure|total hectares)/
   );
 }
 
@@ -353,30 +353,50 @@ function isHarvestQuestion(text: string): boolean {
   return hasRegex(text, /(урожай|уборк|урожайн|партии|поступило на склад|harvest)/);
 }
 
-function withSeasonDefault(parameters: Record<string, string | number | boolean | null>, text: string): Record<string, string | number | boolean | null> {
+function isKnownCropMention(text: string): boolean {
+  return hasRegex(
+    text,
+    /(картоф|картошк|морков|лук|пшен|ячмен|кукуруз|соя|рапс|лен|лён|gala|гала|soraya|сорая|baltic|балтик|azilit|азилит|colombo|коломбо|impala|импала)/
+  );
+}
+
+function withSeasonDefault(
+  parameters: Record<string, string | number | boolean | null>,
+  text: string,
+  runtimeContext: AssistantUiContext
+): Record<string, string | number | boolean | null> {
   const explicitYear = extractYear(text);
+  const contextSeason = cleanString(runtimeContext.season) || cleanString(runtimeContext.defaultSeason);
   return {
     ...parameters,
-    season: explicitYear || DEFAULT_SEASON,
+    season: explicitYear || contextSeason || DEFAULT_SEASON,
   };
 }
 
-function withCommonDefaults(intent: AssistantIntent, text: string): AssistantIntent {
+function withCommonDefaults(intent: AssistantIntent, text: string, runtimeContext: AssistantUiContext): AssistantIntent {
   const needsSeason =
     intent.name === "crop_structure_overview" ||
     intent.name === "operations_recent" ||
     intent.name === "fields_overview";
-  const nextParams = needsSeason ? withSeasonDefault(intent.parameters, text) : intent.parameters;
+  const nextParams = needsSeason ? withSeasonDefault(intent.parameters, text, runtimeContext) : intent.parameters;
   return {
     ...intent,
     parameters: nextParams,
   };
 }
 
-function fallbackIntent(message: string, sessionState: AssistantSessionState): AssistantIntent {
+function fallbackIntent(
+  message: string,
+  sessionState: AssistantSessionState,
+  runtimeContext: AssistantUiContext
+): AssistantIntent {
   const raw = String(message || "");
   const expandedRaw = applySemanticExpansions(raw);
   const text = normalizeText(expandedRaw);
+  const tokens = text.split(" ").filter(Boolean);
+  const shortQuery = tokens.length <= 2;
+  const currentPage = normalizeText(runtimeContext.currentPage || "");
+  const currentModule = normalizeText(runtimeContext.currentModule || runtimeContext.currentPage || "");
   const navigation = detectNavigationIntent(raw, sessionState);
   const cropGroups = findCropGroupsInText(text);
   const normalizedAlias = normalizeCropAlias(text);
@@ -397,7 +417,73 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         filters: navigation.filters ? JSON.stringify(navigation.filters) : null,
         output_type: "action_navigation",
       },
-    }, text);
+    }, text, runtimeContext);
+  }
+
+  // Context-driven short query priority:
+  // crop-structure page -> crop structure intent first
+  // warehouses page -> inventory balance intent first
+  // weighbridge page + "активные" -> active tickets
+  if (shortQuery && (currentPage === "crop-structure" || currentModule === "crop-structure")) {
+    return withCommonDefaults(
+      {
+        name: "crop_structure_overview",
+        confidence: 0.96,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          crop_group: cropGroups[0] || null,
+          crop_alias: cropAlias || normalizedAlias,
+          intent_group: "crop_structure",
+          output_type: listRequested ? "list" : cropAlias || normalizedAlias || cropGroups.length ? "filtered_summary" : "summary_total",
+        },
+      },
+      text,
+      runtimeContext
+    );
+  }
+
+  if (shortQuery && (currentPage === "warehouses" || currentModule === "warehouses")) {
+    return withCommonDefaults(
+      {
+        name: "inventory_balance",
+        confidence: 0.95,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          product: cropAlias || normalizedAlias || null,
+          allWarehouses: true,
+          warehouse_alias: resolveWarehouseAlias(text),
+          intent_group: "inventory",
+          output_type: "balance",
+        },
+      },
+      text,
+      runtimeContext
+    );
+  }
+
+  if (
+    shortQuery &&
+    (currentPage === "weighbridge" || currentModule === "weighbridge") &&
+    hasRegex(text, /(активн|открыт|open|последн|recent|талон|tickets?)/)
+  ) {
+    return withCommonDefaults(
+      {
+        name: "weighbridge_tickets",
+        confidence: 0.95,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          status: hasRegex(text, /(активн|открыт|open)/) ? "active" : null,
+          limit: hasRegex(text, /(последн|recent)/) ? 30 : null,
+          intent_group: "weighbridge",
+          output_type: "filtered_summary",
+        },
+      },
+      text,
+      runtimeContext
+    );
   }
 
   if (isFarmAreaQuestion(text)) {
@@ -410,7 +496,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: "fields",
         output_type: listRequested ? "list" : "summary_total",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (isCropAreaQuestion(text)) {
@@ -423,7 +509,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: "crop_structure",
         output_type: listRequested ? "list" : "summary_total",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(создай|подготов|черновик|draft)/)) {
@@ -432,7 +518,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       confidence: 0.8,
       needsData: true,
       parameters: { query: cleanString(raw) },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(гсм|азс|топлив|дизел|бензин|заправ|fuel)/)) {
@@ -445,7 +531,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: "fuel",
         output_type: isFuelMovementQuestion(text) && !isFuelBalanceQuestion(text) ? "movements" : "balance",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (isWeighbridgeQuestion(text)) {
@@ -462,7 +548,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: "weighbridge",
         output_type: listRequested ? "list" : "filtered_summary",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (isNegativeStockQuestion(text)) {
@@ -477,7 +563,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: "inventory",
         output_type: "balance",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (isWarehouseMovementQuestion(text)) {
@@ -493,7 +579,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: "inventory",
         output_type: "movements",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(остат|склад|налич|balance|stock|inventory|warehouse)/)) {
@@ -510,7 +596,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: "inventory",
         output_type: "balance",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(движен|провод|ledger|movement|journal)/)) {
@@ -519,7 +605,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       confidence: 0.86,
       needsData: true,
       parameters: { query: cleanString(raw), limit: 30, intent_group: "inventory", output_type: "movements" },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(активные\s+операц|active operations|операции в работе)/)) {
@@ -528,7 +614,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       confidence: 0.86,
       needsData: true,
       parameters: { query: cleanString(raw), status: "active", intent_group: "operations", output_type: "list" },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (isOperationQuestion(text) || isMaterialUsageQuestion(text) || isHarvestQuestion(text)) {
@@ -549,7 +635,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: isMaterialUsageQuestion(text) ? "materials" : isHarvestQuestion(text) ? "harvest" : "operations",
         output_type: "list",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(операц|operations)/)) {
@@ -558,7 +644,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       confidence: 0.8,
       needsData: true,
       parameters: { query: cleanString(raw), intent_group: "operations", output_type: "list" },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(картоф|potato report|материал по картоф)/)) {
@@ -573,7 +659,26 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: "potato",
         output_type: listRequested ? "list" : "filtered_summary",
       },
-    }, text);
+    }, text, runtimeContext);
+  }
+
+  if (isKnownCropMention(text) && (shortQuery || hasRegex(text, /(сколько|план|посаж|посев|га|гектар|поля|где)/))) {
+    return withCommonDefaults(
+      {
+        name: "crop_structure_overview",
+        confidence: 0.9,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          crop_alias: cropAlias || null,
+          crop_group: cropGroups[0] || null,
+          intent_group: "crop_structure",
+          output_type: listRequested ? "list" : "filtered_summary",
+        },
+      },
+      text,
+      runtimeContext
+    );
   }
 
   if (cropGroups.length || cropAlias || hasRegex(text, /(структур|посев|посевн|crop structure)/)) {
@@ -591,7 +696,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
             ? (listRequested ? "list" : "filtered_summary")
             : (listRequested ? "list" : "summary_total"),
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(поле|поля|field|fields)/)) {
@@ -605,7 +710,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
           focus: "поле",
           reason: "missing_field_identifier",
         },
-      }, text);
+      }, text, runtimeContext);
     }
     return withCommonDefaults({
       name: "fields_overview",
@@ -617,7 +722,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         intent_group: "fields",
         output_type: "list",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (isCadastreQuestion(text) || isReportQuestion(text)) {
@@ -633,7 +738,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         action: "open_page",
         output_type: "action_navigation",
       },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (hasRegex(text, /(контекст|компания|сезон|context|season|company)/)) {
@@ -642,7 +747,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       confidence: 0.75,
       needsData: true,
       parameters: { season: sessionState.lastSeason, output_type: "summary_total" },
-    }, text);
+    }, text, runtimeContext);
   }
 
   if (shouldAskWarehouseClarification(text)) {
@@ -651,7 +756,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
       confidence: 0.7,
       needsData: false,
       parameters: { query: cleanString(raw), focus: "склад", reason: "missing_warehouse_identifier" },
-    }, text);
+    }, text, runtimeContext);
   }
 
   return withCommonDefaults({
@@ -659,7 +764,7 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
     confidence: 0.45,
     needsData: false,
     parameters: {},
-  }, text);
+  }, text, runtimeContext);
 }
 
 export async function classifyAssistantIntent(params: {
@@ -668,6 +773,6 @@ export async function classifyAssistantIntent(params: {
   sessionState: AssistantSessionState;
   settings: AssistantPlatformSettings;
 }): Promise<AssistantIntent> {
-  const { message, sessionState } = params;
-  return fallbackIntent(message, sessionState);
+  const { message, sessionState, runtimeContext } = params;
+  return fallbackIntent(message, sessionState, runtimeContext);
 }

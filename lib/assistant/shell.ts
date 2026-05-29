@@ -39,12 +39,22 @@ export type AssistantContextEntity = {
 export type AssistantRuntimeUiContext = {
   currentPage: string;
   currentRoute: string;
+  currentModule: string;
   entity: AssistantContextEntity | null;
   selectedRows: string[];
   filters: Record<string, string | string[]>;
   season: string | null;
+  defaultSeason: string;
   companyId: string | null;
   companyName: string | null;
+  userId: string | null;
+  userRole: AppRole | null;
+  selectedEntityType: string | null;
+  selectedEntityId: string | null;
+  selectedFieldId: string | null;
+  selectedWarehouseId: string | null;
+  selectedCrop: string | null;
+  language: "ru" | "kz" | "en" | null;
   locale: "ru" | "kz" | "en" | null;
 };
 

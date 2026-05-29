@@ -292,6 +292,10 @@ function buildDebugMetadata(params: {
         navigationActions[0]?.type === "open_entity" ? navigationActions[0].entityType : null,
       navigationEntityId:
         navigationActions[0]?.type === "open_entity" ? navigationActions[0].entityId : null,
+      navigationFilters:
+        navigationActions[0] && "filters" in navigationActions[0]
+          ? ((navigationActions[0] as any).filters || null)
+          : null,
       targetRoute: navigationActions[0]?.route || null,
       routerError: null,
       toolCount: result.toolCalls.length,
@@ -320,6 +324,10 @@ function buildDebugMetadata(params: {
     },
     performance: {
       latencyMs: Math.max(0, Math.round(latencyMs)),
+      routerMs: result.performance.routerMs,
+      toolMs: result.performance.toolMs,
+      modelMs: result.performance.modelMs,
+      totalMs: result.performance.totalMs ?? Math.max(0, Math.round(latencyMs)),
       promptTokens: result.performance.promptTokens,
       completionTokens: result.performance.completionTokens,
       totalTokens: result.performance.totalTokens,

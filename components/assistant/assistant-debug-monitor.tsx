@@ -133,6 +133,14 @@ export function AssistantDebugMonitor() {
                   <Row label="Entity type" value={debugSnapshot.engine.navigationEntityType} />
                   <Row label="Entity id" value={debugSnapshot.engine.navigationEntityId} />
                   <Row label="Navigation executed" value={debugSnapshot.engine.navigationActionExecuted} />
+                  <Row
+                    label="Navigation filters"
+                    value={
+                      debugSnapshot.engine.navigationFilters
+                        ? JSON.stringify(debugSnapshot.engine.navigationFilters)
+                        : "—"
+                    }
+                  />
                   <Row label="Target route" value={debugSnapshot.engine.targetRoute} />
                   <Row label="Router error" value={debugSnapshot.engine.routerError} />
                   <Row label="Tools count" value={debugSnapshot.engine.toolCount} />
@@ -171,6 +179,10 @@ export function AssistantDebugMonitor() {
                 <section className="space-y-1 rounded-md border p-2">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Performance</div>
                   <Row label="Latency (ms)" value={debugSnapshot.performance.latencyMs} />
+                  <Row label="Router (ms)" value={debugSnapshot.performance.routerMs} />
+                  <Row label="Tools (ms)" value={debugSnapshot.performance.toolMs} />
+                  <Row label="Model (ms)" value={debugSnapshot.performance.modelMs} />
+                  <Row label="Total (ms)" value={debugSnapshot.performance.totalMs} />
                   <Row label="Prompt tokens" value={debugSnapshot.performance.promptTokens} />
                   <Row label="Completion tokens" value={debugSnapshot.performance.completionTokens} />
                   <Row label="Total tokens" value={debugSnapshot.performance.totalTokens} />

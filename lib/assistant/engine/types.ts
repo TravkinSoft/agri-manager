@@ -81,12 +81,22 @@ export type AssistantOutputType =
 export type AssistantUiContext = {
   currentPage: string;
   currentRoute: string;
+  currentModule: string;
   entity: { type: string; id: string; label?: string | null } | null;
   selectedRows: string[];
   filters: Record<string, string | string[]>;
   season: string | null;
+  defaultSeason: string;
   companyId: string | null;
   companyName?: string | null;
+  userId: string | null;
+  userRole: string | null;
+  selectedEntityType: string | null;
+  selectedEntityId: string | null;
+  selectedFieldId: string | null;
+  selectedWarehouseId: string | null;
+  selectedCrop: string | null;
+  language: "ru" | "kz" | "en" | null;
   locale: "ru" | "kz" | "en" | null;
 };
 
@@ -220,5 +230,9 @@ export type AssistantEngineResult = {
     promptTokens: number | null;
     completionTokens: number | null;
     totalTokens: number | null;
+    routerMs: number | null;
+    toolMs: number | null;
+    modelMs: number | null;
+    totalMs: number | null;
   };
 };

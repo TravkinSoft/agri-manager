@@ -8,6 +8,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import type { AssistantContextEntity, AssistantRuntimeUiContext, AssistantSessionMeta } from "@/lib/assistant/shell";
 import { canUseAssistantShell } from "@/lib/assistant/shell";
 import type { AssistantDebugMetadata } from "@/lib/assistant/debug-types";
+import { normalizeRouteKeyFromPath } from "@/lib/assistant/route-registry";
 
 type AssistantAccessStatus = "loading" | "ready" | "missing_company" | "denied" | "error";
 
@@ -82,6 +83,8 @@ type AssistantServerContextPayload = {
   error?: string;
   code?: string;
 };
+
+const DEFAULT_ASSISTANT_SEASON = "2026";
 
 function createSessionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -370,9 +373,28 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
   }, [enabled, profile?.role, profile?.role_is_legacy_alias, user?.id]);
 
   const runtimeContext = useMemo<AssistantRuntimeUiContext>(() => {
+    const routeParts = pathname.split("/").filter(Boolean);
+    const currentPage = routeParts[0] || "dashboard";
+    const currentModule = normalizeRouteKeyFromPath(pathname);
     const routeSeason = cleanString(contextFromRoute.season) || cleanString(contextFromRoute.year);
-    const season = cleanString(serverContext?.season) || routeSeason;
+    const season = cleanString(serverContext?.season) || routeSeason || DEFAULT_ASSISTANT_SEASON;
     const entity = manualEntity || detectEntityFromPath(pathname);
+    const selectedEntityType = cleanString(entity?.type);
+    const selectedEntityId = cleanString(entity?.id);
+    const mergedFilters = { ...contextFromRoute, ...manualFilters };
+    const selectedFieldId =
+      cleanString((mergedFilters as Record<string, unknown>).field) ||
+      cleanString((mergedFilters as Record<string, unknown>).fieldId) ||
+      (selectedEntityType === "field" ? selectedEntityId : null);
+    const selectedWarehouseId =
+      cleanString((mergedFilters as Record<string, unknown>).warehouse) ||
+      cleanString((mergedFilters as Record<string, unknown>).warehouseId) ||
+      (selectedEntityType === "warehouse" ? selectedEntityId : null);
+    const selectedCrop =
+      cleanString((mergedFilters as Record<string, unknown>).crop) ||
+      cleanString((mergedFilters as Record<string, unknown>).culture) ||
+      cleanString((mergedFilters as Record<string, unknown>).variety) ||
+      null;
 
     const companyId =
       access.status === "ready"
@@ -383,14 +405,24 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
     const companyName = access.status === "ready" ? cleanString(serverContext?.company?.name) : null;
 
     return {
-      currentPage: pathname.split("/").filter(Boolean)[0] || "dashboard",
+      currentPage,
       currentRoute: pathname,
+      currentModule,
       entity,
       selectedRows,
-      filters: { ...contextFromRoute, ...manualFilters },
+      filters: mergedFilters,
       season,
+      defaultSeason: DEFAULT_ASSISTANT_SEASON,
       companyId: companyId || null,
       companyName: companyName || null,
+      userId: user?.id || null,
+      userRole: profile?.role || null,
+      selectedEntityType,
+      selectedEntityId,
+      selectedFieldId,
+      selectedWarehouseId,
+      selectedCrop,
+      language: language || "ru",
       locale: language || "ru",
     };
   }, [
@@ -403,6 +435,7 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
     serverContext?.company?.id,
     serverContext?.company?.name,
     access.status,
+    user?.id,
     profile?.role,
     profile?.context_company_id,
     profile?.company_id,
