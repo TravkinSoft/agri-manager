@@ -8,6 +8,7 @@ import {
   normalizeCropAlias,
   resolveKnownCropAlias,
 } from "@/lib/assistant/agro-taxonomy";
+import { applySemanticExpansions } from "@/lib/assistant/knowledge/semantic-memory";
 
 const DEFAULT_SEASON_YEAR = "2026";
 
@@ -101,7 +102,8 @@ function cropAliasToSearchTerms(alias: string): string[] {
 }
 
 function buildSearchTerms(value: string | null): string[] {
-  const normalized = normalizeSearchText(value);
+  const expanded = value ? applySemanticExpansions(value) : value;
+  const normalized = normalizeSearchText(expanded);
   if (!normalized) return [];
   const stopwords = new Set([
     "и",
@@ -197,13 +199,13 @@ function logToolEvent(
 }
 
 function parseSearchQuery(context: AssistantToolContext): string | null {
-  return (
+  const raw =
     cleanString(context.intent.parameters.query) ||
     cleanString(context.intent.parameters.entityQuery) ||
     cleanString(context.runtimeContext.filters.search) ||
     context.sessionState.lastCrop ||
-    null
-  );
+    null;
+  return raw ? applySemanticExpansions(raw) : null;
 }
 
 function parseLimit(value: unknown, fallback = 30, min = 1, max = 300): number {
@@ -837,6 +839,8 @@ const getFieldsTool: AssistantToolDefinition = {
   domains: ["fields"],
   run: async (context) => {
     const searchQuery = parseSearchQuery(context);
+    const outputType = cleanString(context.intent.parameters.output_type);
+    const shouldApplySearchFilter = outputType === "list" || outputType === "filtered_summary";
     const res = await context.supabase
       .from("fields")
       .select("id,name,notes,area,archived")
@@ -853,7 +857,7 @@ const getFieldsTool: AssistantToolDefinition = {
         field_name: getFieldDisplayName(row) || String(row.id),
         area_ha: Number(row.area || 0),
       })),
-      searchQuery
+      shouldApplySearchFilter ? searchQuery : null
     ).slice(0, 120);
 
     return {

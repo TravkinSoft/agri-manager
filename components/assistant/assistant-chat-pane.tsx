@@ -254,13 +254,17 @@ export function AssistantChatPane({
 
   const disabledReason = useMemo(() => resolveDisabledReason(access), [access]);
   const quickActions = useMemo(() => quickActionsByPage(runtimeContext.currentPage), [runtimeContext.currentPage]);
+  const resolvedCompanyId = useMemo(
+    () => runtimeContext.companyId || profile?.context_company_id || profile?.company_id || null,
+    [runtimeContext.companyId, profile?.context_company_id, profile?.company_id]
+  );
   const loadingText = TOOL_LOADING_STEPS[loadingStepIndex % TOOL_LOADING_STEPS.length];
 
   const storageKey = useMemo(() => {
     if (!profile?.id || !sessionId) return null;
-    const companyScope = runtimeContext.companyId || profile.company_id || "no-company";
+    const companyScope = resolvedCompanyId || "no-company";
     return `assistant-panel-v4:${profile.id}:${companyScope}:${sessionId}`;
-  }, [profile?.id, profile?.company_id, runtimeContext.companyId, sessionId]);
+  }, [profile?.id, resolvedCompanyId, sessionId]);
 
   useEffect(() => {
     if (!storageKey) return;
@@ -307,12 +311,12 @@ export function AssistantChatPane({
   }, [messages, loading, activeTab]);
 
   const loadThreads = async () => {
-    if (!runtimeContext.companyId || disabledReason) return;
+    if (!resolvedCompanyId || disabledReason) return;
     setThreadsLoading(true);
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(
-        `/api/assistant/threads?companyId=${encodeURIComponent(runtimeContext.companyId)}&limit=80`,
+        `/api/assistant/threads?companyId=${encodeURIComponent(resolvedCompanyId)}&limit=80`,
         {
           method: "GET",
           headers,
@@ -341,12 +345,12 @@ export function AssistantChatPane({
   };
 
   const loadThreadMessages = async (threadId: string) => {
-    if (!runtimeContext.companyId) return;
+    if (!resolvedCompanyId) return;
     setMessagesLoading(true);
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(
-        `/api/assistant/threads/${encodeURIComponent(threadId)}/messages?companyId=${encodeURIComponent(runtimeContext.companyId)}&limit=400`,
+        `/api/assistant/threads/${encodeURIComponent(threadId)}/messages?companyId=${encodeURIComponent(resolvedCompanyId)}&limit=400`,
         {
           method: "GET",
           headers,
@@ -391,13 +395,13 @@ export function AssistantChatPane({
   };
 
   const createThread = async () => {
-    if (!runtimeContext.companyId || disabledReason) return null;
+    if (!resolvedCompanyId || disabledReason) return null;
     const headers = await getAuthHeaders();
     const response = await fetch("/api/assistant/threads", {
       method: "POST",
       headers,
       body: JSON.stringify({
-        companyId: runtimeContext.companyId,
+        companyId: resolvedCompanyId,
         title: "Новый чат",
         currentPageContext: {
           page: runtimeContext.currentPage,
@@ -425,9 +429,9 @@ export function AssistantChatPane({
   };
 
   useEffect(() => {
-    if (access.status !== "ready" || !runtimeContext.companyId) return;
+    if (access.status !== "ready" || !resolvedCompanyId) return;
     void loadThreads();
-  }, [access.status, runtimeContext.companyId, profile?.id]);
+  }, [access.status, resolvedCompanyId, profile?.id]);
 
   useEffect(() => {
     if (!activeThreadId) {
@@ -488,7 +492,7 @@ export function AssistantChatPane({
           runtimeContext,
           sessionState,
           sessionId,
-          companyId: runtimeContext.companyId || null,
+          companyId: resolvedCompanyId,
           locale: runtimeContext.locale || "ru",
         }),
       });

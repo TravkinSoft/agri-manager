@@ -29,6 +29,10 @@ import {
   TRAVKIN_CORE_PROMPT_VERSION,
   type TravkinPromptSource,
 } from "@/lib/assistant/prompts/travkin-core-prompt";
+import {
+  applySemanticExpansions,
+  buildSemanticMemoryContext,
+} from "@/lib/assistant/knowledge/semantic-memory";
 
 type UsageStats = {
   promptTokens: number | null;
@@ -325,6 +329,21 @@ function formatFieldsRows(rows: Array<Record<string, unknown>>): string {
   return `Поля компании:\n\n${lines.join("\n")}`;
 }
 
+function formatFieldsSummaryRows(rows: Array<Record<string, unknown>>): string {
+  if (!rows.length) return "Поля по компании не найдены.";
+
+  const totalArea = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
+  const fieldsCount = rows.length;
+  const filledAreaCount = rows.reduce((acc, row) => acc + (asNumber(row.area_ha) > 0 ? 1 : 0), 0);
+  const withoutAreaCount = Math.max(0, fieldsCount - filledAreaCount);
+
+  return [
+    `Всего земли в хозяйстве: ${formatNumber(totalArea, 2)} га`,
+    `Полей: ${formatNumber(fieldsCount, 0)}`,
+    `Заполнено по площади: ${formatNumber(filledAreaCount, 0)}, без площади: ${formatNumber(withoutAreaCount, 0)}`,
+  ].join("\n");
+}
+
 function formatCropStructureRows(rows: Array<Record<string, unknown>>): string {
   if (!rows.length) return "Структура посевов по текущему сезону не найдена.";
   const lines = rows.slice(0, 12).map((row) => {
@@ -444,7 +463,7 @@ function formatGroundedToolOutput(params: {
     return formatWarehouseMovementsRows(rows);
   }
   if (intentName === "fields_overview" || toolName === "get_fields") {
-    return formatFieldsRows(rows);
+    return outputType === "summary_total" ? formatFieldsSummaryRows(rows) : formatFieldsRows(rows);
   }
   if (toolName === "get_crop_structure_summary") {
     if (!rows.length) {
@@ -984,7 +1003,8 @@ export async function runAssistantEngine(params: {
 }): Promise<AssistantEngineResult> {
   const { supabase, actor, companyId, settings, input } = params;
   const message = String(input.message || "").trim();
-  const assistantMode = resolveAssistantMode(message);
+  const messageForRouting = applySemanticExpansions(message);
+  const assistantMode = resolveAssistantMode(messageForRouting);
   const runtimeContext = normalizeAssistantUiContext(input.runtimeContext);
   const promptBundle = resolveTravkinCorePrompt({
     settings,
@@ -1099,7 +1119,7 @@ export async function runAssistantEngine(params: {
     };
   }
 
-  if (isCapabilitiesQuestion(message)) {
+  if (isCapabilitiesQuestion(messageForRouting)) {
     return {
       answer: buildCapabilitiesAnswer(runtimeContext.locale || "ru"),
       sessionState: { ...initialSessionState, lastIntent: intent.name },
@@ -1274,7 +1294,7 @@ export async function runAssistantEngine(params: {
     };
   }
 
-  if (looksLikeErpDataQuestion(message) && settings.groundingRules.blockUngroundedDataAnswers) {
+  if (looksLikeErpDataQuestion(messageForRouting) && settings.groundingRules.blockUngroundedDataAnswers) {
     const followup = buildSmartFollowUp(
       { ...intent, name: "clarification_required", parameters: { ...intent.parameters, focus: cleanString(intent.parameters.query) || "данные" } },
       runtimeContext.locale || "ru"
@@ -1306,20 +1326,50 @@ export async function runAssistantEngine(params: {
   }
 
   const locale = runtimeContext.locale || "ru";
+  let llmPromptBundle = promptBundle;
+  let llmPromptMeta = promptMeta;
+  try {
+    const semanticMemory = await buildSemanticMemoryContext({
+      message,
+      mode: resolvedMode,
+      intentName: intent.name,
+      runtimeContext,
+    });
+    llmPromptBundle = resolveTravkinCorePrompt({
+      settings,
+      runtimeContext,
+      actorRole: actor.role,
+      locale,
+      semanticMemoryContext: semanticMemory.contextText,
+    });
+    llmPromptMeta = {
+      promptVersion: llmPromptBundle.version || TRAVKIN_CORE_PROMPT_VERSION,
+      promptSource: llmPromptBundle.source,
+      promptUpdatedAt: llmPromptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
+    };
+  } catch {
+    llmPromptBundle = promptBundle;
+    llmPromptMeta = promptMeta;
+  }
   const fallback = await generateGeneralAnswer({
     message,
     locale,
     settings,
     intentName: intent.name,
-    systemPrompt: promptBundle.text,
-    promptMeta,
+    systemPrompt: llmPromptBundle.text,
+    promptMeta: llmPromptMeta,
   });
   return {
     answer: fallback.answer,
     sessionState: { ...nextSessionState, lastIntent: intent.name },
     intent,
     outputType: resolvedOutputType,
-    mode: intent.name === "navigation_help" ? "navigation" : isAgroKnowledgeQuestion(message) ? "agro_knowledge" : assistantMode,
+    mode:
+      intent.name === "navigation_help"
+        ? "navigation"
+        : isAgroKnowledgeQuestion(messageForRouting)
+          ? "agro_knowledge"
+          : assistantMode,
     toolCalls,
     toolActivity,
     navigationActions,

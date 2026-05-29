@@ -83,9 +83,14 @@ export function resolveTravkinCorePrompt(params: {
   runtimeContext: Partial<AssistantUiContext> | null | undefined;
   actorRole: string;
   locale: "ru" | "en" | "kz";
+  semanticMemoryContext?: string | null;
 }): TravkinResolvedPrompt {
-  const { settings, runtimeContext, actorRole, locale } = params;
+  const { settings, runtimeContext, actorRole, locale, semanticMemoryContext } = params;
   const corePrompt = buildCorePrompt({ runtimeContext, actorRole, locale });
+  const memoryBlock = asText(semanticMemoryContext);
+  const coreWithMemory = memoryBlock
+    ? `${corePrompt}\n\nSemantic runtime memory:\n${memoryBlock}`
+    : corePrompt;
 
   const envOverride = asText(process.env.OPENAI_ASSISTANT_SYSTEM_PROMPT);
   const dbOverride = asText(settings.systemPrompt);
@@ -94,7 +99,7 @@ export function resolveTravkinCorePrompt(params: {
 
   if (!overrideText) {
     return {
-      text: corePrompt,
+      text: coreWithMemory,
       source,
       version: TRAVKIN_CORE_PROMPT_VERSION,
       updatedAt: TRAVKIN_CORE_PROMPT_UPDATED_AT,
@@ -102,7 +107,7 @@ export function resolveTravkinCorePrompt(params: {
   }
 
   return {
-    text: `${corePrompt}\n\nДополнительные платформенные инструкции:\n${overrideText}`,
+    text: `${coreWithMemory}\n\nДополнительные платформенные инструкции:\n${overrideText}`,
     source,
     version: TRAVKIN_CORE_PROMPT_VERSION,
     updatedAt: TRAVKIN_CORE_PROMPT_UPDATED_AT,

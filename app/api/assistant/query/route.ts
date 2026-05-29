@@ -24,6 +24,11 @@ function asString(value: unknown): string | null {
   return text.length ? text : null;
 }
 
+function isUuidLike(value: string | null): value is string {
+  if (!value) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 function looksLikeErpDataQuestion(message: string): boolean {
   const text = String(message || "").toLowerCase();
   return /(остат|склад|парт|движен|провод|журнал|ledger|inventory|warehouse|batch|stock|balance|талон|весов|топлив|гсм|поле|посев|операц|урожа)/.test(
@@ -361,7 +366,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
-    companyId = resolveCompanyForActor(actor, asString(payload?.companyId));
+    const requestedCompanyId = asString(payload?.companyId) || asString((payload as any)?.runtimeContext?.companyId);
+    try {
+      companyId = resolveCompanyForActor(actor, requestedCompanyId);
+    } catch (error) {
+      if (
+        error instanceof SessionAuthError &&
+        actor.role === "global_admin" &&
+        error.status === 400 &&
+        String(error.message || "").includes("Global admin company context is not selected") &&
+        isUuidLike(requestedCompanyId)
+      ) {
+        companyId = requestedCompanyId;
+      } else {
+        throw error;
+      }
+    }
     chatId = asString(payload?.chatId);
     threadId = asString(payload?.threadId) || chatId;
     sessionId = asString(payload?.sessionId);

@@ -4,6 +4,7 @@ import {
   normalizeCropAlias,
   resolveKnownCropAlias,
 } from "@/lib/assistant/agro-taxonomy";
+import { applySemanticExpansions } from "@/lib/assistant/knowledge/semantic-memory";
 import type {
   AssistantIntent,
   AssistantSessionState,
@@ -111,7 +112,14 @@ function extractEntityQuery(rawMessage: string, stopWords: string[]): string | n
 function isCropAreaQuestion(text: string): boolean {
   return hasRegex(
     text,
-    /(сколько\s+(посев|засея)|сколько\s+га|посевн|структура\s+посев|общая\s+площадь\s+пол|sown area|crop structure|total hectares)/
+    /(сколько\s+(посев|засея)|сколько\s+га|сколько\s+гектар|сколько\s+гектаров|посевн|структура\s+посев|общая\s+площадь\s+пол|sown area|crop structure|total hectares)/
+  );
+}
+
+function isFarmAreaQuestion(text: string): boolean {
+  return hasRegex(
+    text,
+    /(сколько\s+земл|сколько\s+гектар.*хозяйств|общая\s+площадь\s+хозяйств|всего\s+земл|сколько\s+у\s+нас\s+земл)/
   );
 }
 
@@ -367,7 +375,8 @@ function withCommonDefaults(intent: AssistantIntent, text: string): AssistantInt
 
 function fallbackIntent(message: string, sessionState: AssistantSessionState): AssistantIntent {
   const raw = String(message || "");
-  const text = normalizeText(raw);
+  const expandedRaw = applySemanticExpansions(raw);
+  const text = normalizeText(expandedRaw);
   const navigation = detectNavigationIntent(raw, sessionState);
   const cropGroups = findCropGroupsInText(text);
   const normalizedAlias = normalizeCropAlias(text);
@@ -387,6 +396,19 @@ function fallbackIntent(message: string, sessionState: AssistantSessionState): A
         entityQuery: navigation.entityQuery || null,
         filters: navigation.filters ? JSON.stringify(navigation.filters) : null,
         output_type: "action_navigation",
+      },
+    }, text);
+  }
+
+  if (isFarmAreaQuestion(text)) {
+    return withCommonDefaults({
+      name: "fields_overview",
+      confidence: 0.94,
+      needsData: true,
+      parameters: {
+        query: cleanString(raw),
+        intent_group: "fields",
+        output_type: listRequested ? "list" : "summary_total",
       },
     }, text);
   }
