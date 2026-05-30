@@ -375,7 +375,10 @@ function parseFieldQueryFromContext(context: AssistantToolContext): string | nul
       /^(поля|поле|какие есть поля|какие поля|список полей|сколько полей|все поля)$/i.test(normalized) ||
       /^(fields?|field list|all fields)$/i.test(normalized);
 
-    if (!genericFieldQuery && withoutPrefix.length > 0 && withoutPrefix.length <= 48) {
+    const genericFieldQueryLoose =
+      /(какие|сколько|список|все|назови|покажи|list|all|count)/i.test(normalized) &&
+      /(поля|поле|fields?|field)/i.test(normalized);
+    if (!genericFieldQuery && !genericFieldQueryLoose && withoutPrefix.length > 0 && withoutPrefix.length <= 48) {
       return withoutPrefix;
     }
   }
@@ -414,7 +417,10 @@ function parseFieldQueryFromContextV2(context: AssistantToolContext): string | n
       /^(поля|поле|какие есть поля|какие поля|список полей|сколько полей|все поля)$/i.test(normalized) ||
       /^(fields?|field list|all fields)$/i.test(normalized);
 
-    if (!genericFieldQuery && withoutPrefix.length > 0 && withoutPrefix.length <= 48) {
+    const genericFieldQueryLoose =
+      /(какие|сколько|список|все|назови|покажи|list|all|count)/i.test(normalized) &&
+      /(поля|поле|fields?|field)/i.test(normalized);
+    if (!genericFieldQuery && !genericFieldQueryLoose && withoutPrefix.length > 0 && withoutPrefix.length <= 48) {
       return withoutPrefix;
     }
   }
@@ -2628,16 +2634,22 @@ const searchFieldsToolAlias: AssistantToolDefinition = {
   domains: ["fields", "navigation"],
   run: async (context) => {
     const query = parseFieldQueryFromContextV2(context);
+    const rawQuery = normalizeSearchText(parseSearchQuery(context) || "");
+    const genericListQuery =
+      !/\b\d{1,3}(?:-\d{1,3}){0,2}\b/.test(rawQuery) &&
+      /(какие|сколько|список|все|назови|покажи|list|all|count)/i.test(rawQuery) &&
+      /(поля|поле|fields?|field)/i.test(rawQuery);
+    const effectiveQuery = genericListQuery ? null : query;
     logToolEvent(context, "search_fields", "start", {
       input_args: context.intent.parameters,
       resolved_season: cleanString(context.runtimeContext.season),
       query_used: "fields.select(id,name,notes,area,archived).eq(company_id).eq(archived=false)",
-      search_query: query,
+      search_query: effectiveQuery,
       rls_acl_result: inferAclResult(context),
     });
     try {
       const output = await getFieldsTool.run(context);
-      const rows = applyTextFilter(output.rows || [], query).slice(0, 80);
+      const rows = applyTextFilter(output.rows || [], effectiveQuery).slice(0, 80);
       logToolEvent(context, "search_fields", "success", {
         input_args: context.intent.parameters,
         resolved_season: cleanString(context.runtimeContext.season),

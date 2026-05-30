@@ -53,7 +53,7 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
     }),
   },
   list_warehouses: {
-    assistantTool: "search_warehouses",
+    assistantTool: "get_warehouse_count",
     intentName: "warehouse_count",
     buildParams: (args, message) => ({
       query: text(args.query) || message,
@@ -487,4 +487,3 @@ export function buildPlannerIntent(params: {
     parameters: intentParams,
   };
 }
-

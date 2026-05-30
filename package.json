@@ -8,8 +8,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit --incremental false",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
+    "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",
+    "qa:assistant:full": "npx tsx scripts/qa-assistant-copilot-full-check.ts",
+    "qa:assistant:intent-router": "npx tsx scripts/qa-assistant-intent-router-2026.ts",
+    "qa:assistant:trace": "npx tsx scripts/trace-copilot-decision-flow.ts",
     "cleanup:users": "node scripts/cleanup-users-keep-admin.mjs",
     "import:structure2026:dry": "node scripts/import-structure-2026.mjs --mode dry-run",
     "import:structure2026:execute": "node scripts/import-structure-2026.mjs --mode execute --confirm-reset true"

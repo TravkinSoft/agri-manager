@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { getServiceClient } from "@/lib/supabase/service";
-import { getAssistantPlatformSettings } from "@/lib/assistant/settings-store";
-import { runAssistantEngine } from "@/lib/assistant/engine/query";
-import type { ServerActorContext } from "@/lib/auth/server-session";
-import { normalizeRoleKey, parseCanonicalRole } from "@/lib/auth/role-contract";
+import { getServiceClient } from "../lib/supabase/service";
+import { getAssistantPlatformSettings } from "../lib/assistant/settings-store";
+import { runAssistantEngine } from "../lib/assistant/engine/query";
+import type { ServerActorContext } from "../lib/auth/server-session";
+import { normalizeRoleKey, parseCanonicalRole } from "../lib/auth/role-contract";
 
 type PromptCase = {
   id: number;
@@ -62,6 +62,28 @@ const TEST_MATRIX: PromptCase[] = [
 
 function cleanText(value: unknown): string {
   return String(value ?? "").trim();
+}
+
+async function loadEnvFromProjectFile(): Promise<void> {
+  const envPath = path.join(process.cwd(), ".env");
+  const raw = await fs.readFile(envPath, "utf8").catch(() => "");
+  if (!raw) return;
+  raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .forEach((line) => {
+      const idx = line.indexOf("=");
+      if (idx <= 0) return;
+      const key = line.slice(0, idx).trim();
+      if (!key || process.env[key]) return;
+      const value = line
+        .slice(idx + 1)
+        .trim()
+        .replace(/^"(.*)"$/, "$1")
+        .replace(/^'(.*)'$/, "$1");
+      process.env[key] = value;
+    });
 }
 
 function makeActor(profile: Record<string, unknown>): ServerActorContext {
@@ -135,6 +157,7 @@ function looksFailed(result: PromptRunResult): boolean {
 }
 
 async function main() {
+  await loadEnvFromProjectFile();
   const supabase = getServiceClient();
 
   const profileRes = await supabase

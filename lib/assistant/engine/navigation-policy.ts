@@ -4,16 +4,24 @@ function normalize(value: string): string {
   return String(value || "").toLowerCase().trim();
 }
 
-const EXPLICIT_NAV_PATTERNS: RegExp[] = [
-  /\b(открой|открыть|перейди|перейти|зайди|зайти)\b/u,
-  /\b(покажи\s+страниц|открой\s+карточк)/u,
-  /\b(open|go\s+to|navigate)\b/i,
+const EXPLICIT_NAV_MARKERS = [
+  "открой",
+  "открыть",
+  "перейди",
+  "перейти",
+  "зайди",
+  "зайти",
+  "покажи страницу",
+  "открой карточк",
+  "open",
+  "go to",
+  "navigate",
 ];
 
 export function hasExplicitNavigationRequest(message: string): boolean {
   const text = normalize(message);
   if (!text) return false;
-  return EXPLICIT_NAV_PATTERNS.some((pattern) => pattern.test(text));
+  return EXPLICIT_NAV_MARKERS.some((marker) => text.includes(marker));
 }
 
 export type NavigationPolicyResult = {
@@ -52,4 +60,3 @@ export function applyNavigationPolicy(params: {
     policy: "allowed",
   };
 }
-

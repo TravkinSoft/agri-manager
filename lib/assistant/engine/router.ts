@@ -155,6 +155,19 @@ function pickCropAlias(raw: string, normalized: string): string | null {
   return resolveProductAlias(raw, normalized);
 }
 
+function inferCropAliasFromText(text: string): string | null {
+  if (hasRegex(text, /(картошк|картоф|potato)/)) return "potato";
+  if (hasRegex(text, /(морков|carrot)/)) return "морковь";
+  if (hasRegex(text, /(лук|onion)/)) return "лук";
+  if (hasRegex(text, /(пшен|wheat)/)) return "пшеница";
+  if (hasRegex(text, /(ячмен|barley)/)) return "ячмень";
+  if (hasRegex(text, /(овес|овёс|oats)/)) return "овес";
+  if (hasRegex(text, /(кукуруз|corn|maize)/)) return "кукуруза";
+  if (hasRegex(text, /(соя|soy)/)) return "соя";
+  if (hasRegex(text, /(рапс|rapeseed|canola)/)) return "рапс";
+  return null;
+}
+
 function detectNavigationIntent(message: string, sessionState: AssistantSessionState): NavigationDetection | null {
   const raw = String(message || "");
   const text = normalizeText(raw);
@@ -428,6 +441,7 @@ function fallbackIntent(
   const cropGroups = findCropGroupsInText(text);
   const normalizedAlias = resolveKnownCropAlias(text) || findCropAliasesInText(text)[0] || null;
   const cropAlias = pickCropAlias(raw, text);
+  const inferredCropAlias = cropAlias || normalizedAlias || inferCropAliasFromText(text);
   const warehouseAlias = resolveWarehouseAlias(text);
   const listRequested = isListRequest(text);
   const shortQueryOperationalSignal = hasRegex(
@@ -524,7 +538,7 @@ function fallbackIntent(
         parameters: {
           query: cleanString(raw),
           crop_group: cropGroups[0] || null,
-          crop_alias: cropAlias || normalizedAlias || null,
+          crop_alias: inferredCropAlias,
           intent_group: "crop_structure",
           output_type: listRequested ? "list" : "summary_total",
         },
@@ -559,7 +573,7 @@ function fallbackIntent(
     shortQuery &&
     (currentPage === "crop-structure" || currentModule === "crop-structure") &&
     !shortQueryOperationalSignal &&
-    (cropGroups.length > 0 || !!cropAlias || !!normalizedAlias || isKnownCropMention(text) || hasRegex(text, /(структур|посев|га|гектар|crop structure|sown)/))
+    (cropGroups.length > 0 || !!inferredCropAlias || isKnownCropMention(text) || hasRegex(text, /(структур|посев|га|гектар|crop structure|sown)/))
   ) {
     return withCommonDefaults(
       {
@@ -569,9 +583,9 @@ function fallbackIntent(
         parameters: {
           query: cleanString(raw),
           crop_group: cropGroups[0] || null,
-          crop_alias: cropAlias || normalizedAlias,
+          crop_alias: inferredCropAlias,
           intent_group: "crop_structure",
-          output_type: listRequested ? "list" : cropAlias || normalizedAlias || cropGroups.length ? "filtered_summary" : "summary_total",
+          output_type: listRequested ? "list" : inferredCropAlias || cropGroups.length ? "filtered_summary" : "summary_total",
         },
       },
       text,
@@ -587,7 +601,7 @@ function fallbackIntent(
         needsData: true,
         parameters: {
           query: cleanString(raw),
-          product: cropAlias || normalizedAlias || null,
+          product: inferredCropAlias,
           allWarehouses: warehouseAlias ? false : true,
           warehouse_alias: warehouseAlias,
           intent_group: "inventory",
@@ -765,7 +779,7 @@ function fallbackIntent(
       parameters: {
         query: cleanString(raw),
         crop: "картофель",
-        crop_alias: cropAlias || "potato",
+        crop_alias: inferredCropAlias || "potato",
         intent_group: "potato",
         output_type: listRequested ? "list" : "filtered_summary",
       },
@@ -780,7 +794,7 @@ function fallbackIntent(
         needsData: true,
         parameters: {
           query: cleanString(raw),
-          crop_alias: cropAlias || null,
+          crop_alias: inferredCropAlias,
           crop_group: cropGroups[0] || null,
           intent_group: "crop_structure",
           output_type: listRequested ? "list" : "filtered_summary",
@@ -791,7 +805,7 @@ function fallbackIntent(
     );
   }
 
-  if (cropGroups.length || cropAlias || hasRegex(text, /(структур|посев|посевн|crop structure)/)) {
+  if (cropGroups.length || inferredCropAlias || hasRegex(text, /(структур|посев|посевн|crop structure)/)) {
     return withCommonDefaults({
       name: "crop_structure_area",
       confidence: 0.9,
@@ -799,10 +813,10 @@ function fallbackIntent(
       parameters: {
         query: cleanString(raw),
         crop_group: cropGroups[0] || null,
-        crop_alias: cropAlias || normalizedAlias,
-        intent_group: cropGroups.length ? "crop_group" : cropAlias ? "crop_alias" : "crop_structure",
+        crop_alias: inferredCropAlias,
+        intent_group: cropGroups.length ? "crop_group" : inferredCropAlias ? "crop_alias" : "crop_structure",
         output_type:
-          cropGroups.length || cropAlias
+          cropGroups.length || inferredCropAlias
             ? (listRequested ? "list" : "filtered_summary")
             : (listRequested ? "list" : "summary_total"),
       },

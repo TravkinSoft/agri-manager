@@ -1135,12 +1135,14 @@ function formatGroundedToolOutput(params: {
     return formatCropStructureRows(rows);
   }
   if (intentName === "weighbridge_tickets") {
-    if (toolName !== "get_weighbridge_tickets" && toolName !== "get_ticket_details") {
+    if (
+      toolName !== "get_weighbridge_tickets" &&
+      toolName !== "get_ticket_details" &&
+      toolName !== "get_active_tickets" &&
+      toolName !== "get_recent_tickets"
+    ) {
       return null;
     }
-    return formatTicketsRowsV2(rows, intentParams);
-  }
-  if (toolName === "get_active_tickets" || toolName === "get_recent_tickets") {
     return formatTicketsRowsV2(rows, intentParams);
   }
   if (intentName === "operations_recent" || toolName === "get_operations") {
@@ -1324,8 +1326,15 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
 
   if (intent.name === "fields_overview") {
+    const fieldQuery = cleanString(intent.parameters.field) || cleanString(intent.parameters.entityQuery);
+    const genericFieldListRequested =
+      !fieldQuery &&
+      (/(какие|список|все|сколько|count|list|all)/i.test(queryText) ||
+        /(поля|поле|fields?|field)/i.test(queryText));
     if (resolvedType === "summary_total") {
       tools.splice(0, tools.length, "get_fields");
+    } else if (genericFieldListRequested) {
+      tools.splice(0, tools.length, "get_fields", "search_fields");
     } else if (queryText) {
       tools.splice(0, tools.length, "get_field_card");
       if (/(материал|удобр|сзр|семен)/i.test(queryText)) {
@@ -1429,6 +1438,24 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
   if (intent.name === "inventory_balance") {
     requiredTools.push("get_warehouse_stock");
+  }
+  if (intent.name === "weighbridge_tickets") {
+    const requestedLimit = Number(intent.parameters.limit || 0);
+    if (status === "active") {
+      requiredTools.push("get_active_tickets");
+    } else if (requestedLimit > 0) {
+      requiredTools.push("get_recent_tickets");
+    } else {
+      requiredTools.push("get_weighbridge_tickets");
+    }
+  }
+  if (intent.name === "fields_overview") {
+    const fieldQuery = cleanString(intent.parameters.field) || cleanString(intent.parameters.entityQuery);
+    if (resolvedType === "summary_total" || !fieldQuery) {
+      requiredTools.push("get_fields");
+    } else {
+      requiredTools.push("get_field_card");
+    }
   }
   if (intent.name === "operations_recent" && status === "active") {
     requiredTools.push("get_active_operations");
@@ -1890,9 +1917,12 @@ export async function runAssistantEngine(params: {
     engineMode,
   });
   if (fastPathEnabled) decisionSource = "fast_path";
+  const forceDeterministicNavigation = intent.name === "navigation_help" && explicitNavigationRequested;
+  if (forceDeterministicNavigation) decisionSource = "fast_path";
 
   const shouldUsePlanner =
-    engineMode === "model_first" || (engineMode === "hybrid" && hybridDomainEnabled && !fastPathEnabled);
+    !forceDeterministicNavigation &&
+    (engineMode === "model_first" || (engineMode === "hybrid" && hybridDomainEnabled && !fastPathEnabled));
 
   if (shouldUsePlanner) {
     plannerAttempted = true;
