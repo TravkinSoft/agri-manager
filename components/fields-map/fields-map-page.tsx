@@ -3,7 +3,7 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Download, Eye, FileUp, Filter, MapPinned, RotateCcw, Save, Trash2 } from "lucide-react";
+import { Download, Eye, FileUp, Filter, LocateFixed, MapPinned, RotateCcw, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,6 +84,10 @@ type OverlayFeatureCollection = {
 
 type MapLibreModule = typeof import("maplibre-gl");
 
+type BaseLayerMode = "map" | "satellite" | "hybrid";
+type FitBoundsReason = "initial_load" | "import_success" | "show_all_fields" | "reset_view" | "field_selected" | "none";
+type GeolocationStatus = "idle" | "requesting" | "granted" | "denied" | "unsupported" | "error";
+
 type MapRuntimeDebugState = {
   packageLoaded: boolean;
   containerReady: boolean;
@@ -93,17 +97,46 @@ type MapRuntimeDebugState = {
   tilesLoading: boolean;
   mapReady: boolean;
   errorMessage: string | null;
+  selectedBaseLayer: BaseLayerMode;
+  fitBoundsReason: FitBoundsReason;
+  userInteracted: boolean;
+  geolocationStatus: GeolocationStatus;
+  mapCenter: [number, number];
+  mapZoom: number;
 };
 
 const DEFAULT_MAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const DEFAULT_SATELLITE_TILE_URL = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const DEFAULT_HYBRID_LABELS_TILE_URL = "https://a.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png";
 const MAP_TILE_URL = process.env.NEXT_PUBLIC_MAP_TILE_URL || DEFAULT_MAP_TILE_URL;
-const MAP_RASTER_SOURCE_ID = "travkin-osm-raster";
-const MAP_RASTER_LAYER_ID = "travkin-osm-raster-layer";
+const MAP_SATELLITE_TILE_URL = process.env.NEXT_PUBLIC_MAP_SATELLITE_TILE_URL || DEFAULT_SATELLITE_TILE_URL;
+const MAP_HYBRID_LABELS_TILE_URL = process.env.NEXT_PUBLIC_MAP_HYBRID_LABELS_TILE_URL || DEFAULT_HYBRID_LABELS_TILE_URL;
+const MAP_RASTER_SOURCE_ID = "travkin-base-map-raster";
+const MAP_RASTER_LAYER_ID = "travkin-base-map-layer";
+const MAP_SATELLITE_SOURCE_ID = "travkin-satellite-raster";
+const MAP_SATELLITE_LAYER_ID = "travkin-satellite-layer";
+const MAP_HYBRID_LABELS_SOURCE_ID = "travkin-hybrid-labels-raster";
+const MAP_HYBRID_LABELS_LAYER_ID = "travkin-hybrid-labels-layer";
 const MAP_SOURCE_ID = "travkin-fields-geojson-source";
 const MAP_FILL_LAYER_ID = "travkin-fields-fill-layer";
 const MAP_LINE_LAYER_ID = "travkin-fields-line-layer";
 const DEFAULT_MAP_CENTER: [number, number] = [69.2, 54.9];
 const DEFAULT_MAP_ZOOM = 6.2;
+
+function isTileTemplateValid(url: string): boolean {
+  return url.includes("{z}") && url.includes("{x}") && url.includes("{y}");
+}
+
+function applyBaseLayerVisibility(map: any, layer: BaseLayerMode) {
+  const setVisibility = (layerId: string, visible: boolean) => {
+    if (map.getLayer(layerId)) {
+      map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+    }
+  };
+  setVisibility(MAP_RASTER_LAYER_ID, layer === "map");
+  setVisibility(MAP_SATELLITE_LAYER_ID, layer === "satellite" || layer === "hybrid");
+  setVisibility(MAP_HYBRID_LABELS_LAYER_ID, layer === "hybrid");
+}
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -258,8 +291,12 @@ export function FieldsMapPage() {
   const [mapContainerNode, setMapContainerNode] = useState<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const maplibreRef = useRef<MapLibreModule | null>(null);
+  const geoMarkerRef = useRef<any>(null);
   const popupRef = useRef<any>(null);
   const fieldLookupRef = useRef<Map<string, FieldMapFieldCard>>(new Map());
+  const fitRequestReasonRef = useRef<FitBoundsReason | null>("initial_load");
+  const userInteractedRef = useRef(false);
+  const selectedBaseLayerRef = useRef<BaseLayerMode>("satellite");
   const bindMapContainerRef = useCallback((node: HTMLDivElement | null) => {
     mapContainerRef.current = node;
     setMapContainerNode(node);
@@ -280,6 +317,9 @@ export function FieldsMapPage() {
   const [mapError, setMapError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
+  const [selectedBaseLayer, setSelectedBaseLayer] = useState<BaseLayerMode>("satellite");
+  const [geolocationStatus, setGeolocationStatus] = useState<GeolocationStatus>("idle");
+  const [fitRequestNonce, setFitRequestNonce] = useState(0);
   const [mapDebug, setMapDebug] = useState<MapRuntimeDebugState>({
     packageLoaded: false,
     containerReady: false,
@@ -289,6 +329,12 @@ export function FieldsMapPage() {
     tilesLoading: false,
     mapReady: false,
     errorMessage: null,
+    selectedBaseLayer: "satellite",
+    fitBoundsReason: "initial_load",
+    userInteracted: false,
+    geolocationStatus: "idle",
+    mapCenter: DEFAULT_MAP_CENTER,
+    mapZoom: DEFAULT_MAP_ZOOM,
   });
 
   const fields = bootstrap?.fields || [];
@@ -393,6 +439,69 @@ export function FieldsMapPage() {
     };
   }, [mappedFields, previewMapFeatures]);
 
+  const requestFitByReason = useCallback((reason: FitBoundsReason) => {
+    fitRequestReasonRef.current = reason;
+    setMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
+    setFitRequestNonce((prev) => prev + 1);
+  }, []);
+
+  const updateViewportDebug = useCallback((map: any) => {
+    const center = map.getCenter?.();
+    const zoom = map.getZoom?.();
+    if (!center || typeof zoom !== "number") return;
+    setMapDebug((prev) => ({
+      ...prev,
+      mapCenter: [Number(center.lng.toFixed(6)), Number(center.lat.toFixed(6))],
+      mapZoom: Number(zoom.toFixed(2)),
+    }));
+  }, []);
+
+  const fitMapForReason = useCallback(
+    (map: any, maplibre: MapLibreModule, reason: FitBoundsReason) => {
+      if (reason === "field_selected" && (!selectedField || !selectedField.geometry)) {
+        setMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
+        return;
+      }
+      const selectedGeometryFeatures =
+        reason === "field_selected" && selectedField?.geometry
+          ? [
+              {
+                type: "Feature" as const,
+                geometry: selectedField.geometry,
+                properties: {},
+              },
+            ]
+          : mapCollection.features;
+      const featureList = selectedGeometryFeatures || [];
+
+      if (!featureList.length) {
+        map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: 500 });
+        setMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
+        updateViewportDebug(map);
+        return;
+      }
+
+      const bounds = new maplibre.LngLatBounds();
+      let hasCoordinates = false;
+
+      featureList.forEach((feature) => {
+        visitGeometryCoordinates(feature.geometry, (lng, lat) => {
+          bounds.extend([lng, lat]);
+          hasCoordinates = true;
+        });
+      });
+
+      if (hasCoordinates) {
+        map.fitBounds(bounds, { padding: 44, duration: 650, maxZoom: 15 });
+      } else {
+        map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: 500 });
+      }
+      setMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
+      updateViewportDebug(map);
+    },
+    [mapCollection.features, selectedField, updateViewportDebug]
+  );
+
   const loadBootstrap = async (seasonId?: string) => {
     const payload = await getFieldsMapBootstrap(seasonId);
     setBootstrap(payload);
@@ -447,10 +556,11 @@ export function FieldsMapPage() {
 
     const initializeMap = async () => {
       try {
-        const tileUrlLooksValid =
-          MAP_TILE_URL.includes("{z}") && MAP_TILE_URL.includes("{x}") && MAP_TILE_URL.includes("{y}");
-        if (!tileUrlLooksValid) {
-          const message = `Invalid tile URL: ${MAP_TILE_URL}. Expected placeholders {z}/{x}/{y}.`;
+        const invalidTiles = [MAP_TILE_URL, MAP_SATELLITE_TILE_URL, MAP_HYBRID_LABELS_TILE_URL].find(
+          (tileUrl) => !isTileTemplateValid(tileUrl)
+        );
+        if (invalidTiles) {
+          const message = `Invalid tile URL: ${invalidTiles}. Expected placeholders {z}/{x}/{y}.`;
           setMapError(message);
           setMapDebug((prev) => ({ ...prev, errorMessage: message }));
           return;
@@ -482,18 +592,50 @@ export function FieldsMapPage() {
                 tileSize: 256,
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
               },
+              [MAP_SATELLITE_SOURCE_ID]: {
+                type: "raster",
+                tiles: [MAP_SATELLITE_TILE_URL],
+                tileSize: 256,
+                attribution:
+                  "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+              },
+              [MAP_HYBRID_LABELS_SOURCE_ID]: {
+                type: "raster",
+                tiles: [MAP_HYBRID_LABELS_TILE_URL],
+                tileSize: 256,
+                attribution:
+                  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; CARTO',
+              },
             },
             layers: [
               {
                 id: MAP_RASTER_LAYER_ID,
                 type: "raster",
                 source: MAP_RASTER_SOURCE_ID,
+                layout: { visibility: selectedBaseLayer === "map" ? "visible" : "none" },
+              },
+              {
+                id: MAP_SATELLITE_LAYER_ID,
+                type: "raster",
+                source: MAP_SATELLITE_SOURCE_ID,
+                layout: { visibility: selectedBaseLayer === "map" ? "none" : "visible" },
+              },
+              {
+                id: MAP_HYBRID_LABELS_LAYER_ID,
+                type: "raster",
+                source: MAP_HYBRID_LABELS_SOURCE_ID,
+                layout: { visibility: selectedBaseLayer === "hybrid" ? "visible" : "none" },
               },
             ],
           },
           center: DEFAULT_MAP_CENTER,
           zoom: DEFAULT_MAP_ZOOM,
           attributionControl: { compact: true },
+          dragPan: true,
+          scrollZoom: true,
+          doubleClickZoom: true,
+          touchZoomRotate: true,
+          keyboard: true,
         });
 
         mapRef.current = map;
@@ -506,6 +648,7 @@ export function FieldsMapPage() {
         });
 
         map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
+        applyBaseLayerVisibility(map, selectedBaseLayer);
 
         const setRuntimeError = (message: string) => {
           setMapReady(false);
@@ -542,6 +685,7 @@ export function FieldsMapPage() {
             tilesLoading: false,
             errorMessage: null,
           }));
+          updateViewportDebug(map);
         };
 
         map.on("load", () => {
@@ -560,6 +704,20 @@ export function FieldsMapPage() {
         });
         map.on("idle", () => {
           setMapDebug((prev) => ({ ...prev, tilesLoading: false }));
+        });
+        map.on("dragstart", () => {
+          userInteractedRef.current = true;
+          setMapDebug((prev) => ({ ...prev, userInteracted: true }));
+        });
+        map.on("zoomstart", () => {
+          userInteractedRef.current = true;
+          setMapDebug((prev) => ({ ...prev, userInteracted: true }));
+        });
+        map.on("moveend", () => {
+          updateViewportDebug(map);
+        });
+        map.on("zoomend", () => {
+          updateViewportDebug(map);
         });
 
         const styleLoadedImmediately =
@@ -584,10 +742,11 @@ export function FieldsMapPage() {
               : typeof event?.error === "string"
                 ? event.error
                 : "Unknown map runtime error.";
+          const activeLayer = selectedBaseLayerRef.current;
           const sourceId = typeof event?.sourceId === "string" ? event.sourceId : null;
           const message = sourceId
-            ? `${rawMessage} (source: ${sourceId}, tile: ${MAP_TILE_URL})`
-            : `${rawMessage} (tile: ${MAP_TILE_URL})`;
+            ? `${rawMessage} (source: ${sourceId}, layer: ${activeLayer})`
+            : `${rawMessage} (layer: ${activeLayer})`;
           setRuntimeError(message);
         });
 
@@ -641,7 +800,7 @@ export function FieldsMapPage() {
           });
           const fieldId = toNullableString(features[0]?.properties?.field_id);
           if (fieldId) {
-            setSelectedFieldId(fieldId);
+            handleSelectField(fieldId);
           }
         });
       } catch (error) {
@@ -662,6 +821,8 @@ export function FieldsMapPage() {
       }
       popupRef.current?.remove();
       popupRef.current = null;
+      geoMarkerRef.current?.remove?.();
+      geoMarkerRef.current = null;
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -677,42 +838,112 @@ export function FieldsMapPage() {
       containerReady: !!mapContainerNode,
       mapReady,
       errorMessage: mapError,
+      geolocationStatus,
+      selectedBaseLayer,
     }));
-  }, [loading, mapContainerNode, mapReady, mapError]);
+  }, [loading, mapContainerNode, mapReady, mapError, geolocationStatus, selectedBaseLayer]);
+
+  useEffect(() => {
+    selectedBaseLayerRef.current = selectedBaseLayer;
+  }, [selectedBaseLayer]);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current) return;
+    applyBaseLayerVisibility(mapRef.current, selectedBaseLayer);
+    setMapDebug((prev) => ({ ...prev, selectedBaseLayer }));
+  }, [mapReady, selectedBaseLayer]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !maplibreRef.current) return;
 
     const map = mapRef.current;
-    const maplibre = maplibreRef.current;
     const source = map.getSource(MAP_SOURCE_ID) as { setData: (data: OverlayFeatureCollection) => void } | undefined;
     if (!source) return;
 
     source.setData(mapCollection);
 
-    if (!mapCollection.features.length) {
-      map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: 500 });
+    const fitReason = fitRequestReasonRef.current;
+    if (!fitReason || fitReason === "none") {
+      return;
+    }
+    const maplibre = maplibreRef.current;
+    fitMapForReason(map, maplibre, fitReason);
+    fitRequestReasonRef.current = null;
+  }, [fitMapForReason, fitRequestNonce, mapCollection, mapReady]);
+
+  const handleSelectField = useCallback(
+    (fieldId: string) => {
+      setSelectedFieldId(fieldId);
+      requestFitByReason("field_selected");
+    },
+    [requestFitByReason]
+  );
+
+  const handleShowAllFields = useCallback(() => {
+    requestFitByReason("show_all_fields");
+  }, [requestFitByReason]);
+
+  const handleResetMapView = useCallback(() => {
+    userInteractedRef.current = false;
+    setMapDebug((prev) => ({ ...prev, userInteracted: false }));
+    requestFitByReason("reset_view");
+  }, [requestFitByReason]);
+
+  const handleLocateMe = useCallback(() => {
+    if (!mapReady || !mapRef.current || !maplibreRef.current) {
+      toast({ title: "Карта ещё не готова", description: "Подождите и попробуйте снова.", variant: "destructive" });
+      return;
+    }
+    if (!navigator.geolocation) {
+      setGeolocationStatus("unsupported");
+      setMapDebug((prev) => ({ ...prev, geolocationStatus: "unsupported" }));
+      toast({ title: "Геолокация недоступна", description: "Браузер не поддерживает geolocation.", variant: "destructive" });
       return;
     }
 
-    const bounds = new maplibre.LngLatBounds();
-    let hasCoordinates = false;
+    setGeolocationStatus("requesting");
+    setMapDebug((prev) => ({ ...prev, geolocationStatus: "requesting" }));
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const map = mapRef.current;
+        const maplibre = maplibreRef.current;
+        if (!map || !maplibre) return;
+        const lngLat: [number, number] = [position.coords.longitude, position.coords.latitude];
 
-    mapCollection.features.forEach((feature) => {
-      visitGeometryCoordinates(feature.geometry, (lng, lat) => {
-        bounds.extend([lng, lat]);
-        hasCoordinates = true;
-      });
-    });
-
-    if (hasCoordinates) {
-      map.fitBounds(bounds, { padding: 44, duration: 650, maxZoom: 15 });
-    }
-  }, [mapCollection, mapReady]);
+        geoMarkerRef.current?.remove?.();
+        geoMarkerRef.current = new maplibre.Marker({ color: "#22c55e" }).setLngLat(lngLat).addTo(map);
+        map.easeTo({ center: lngLat, zoom: Math.max(13, map.getZoom()), duration: 700 });
+        setGeolocationStatus("granted");
+        setMapDebug((prev) => ({
+          ...prev,
+          geolocationStatus: "granted",
+          mapCenter: [Number(lngLat[0].toFixed(6)), Number(lngLat[1].toFixed(6))],
+          mapZoom: Number(Math.max(13, map.getZoom()).toFixed(2)),
+        }));
+      },
+      (error) => {
+        let status: GeolocationStatus = "error";
+        let message = "Не удалось получить местоположение.";
+        if (error.code === error.PERMISSION_DENIED) {
+          status = "denied";
+          message = "Доступ к местоположению не разрешён.";
+        } else if (error.code === error.TIMEOUT) {
+          message = "Превышено время ожидания геолокации.";
+        } else if (error.code === error.POSITION_UNAVAILABLE) {
+          message = "Местоположение сейчас недоступно.";
+        }
+        setGeolocationStatus(status);
+        setMapDebug((prev) => ({ ...prev, geolocationStatus: status }));
+        toast({ title: "Геолокация", description: message, variant: "destructive" });
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+  }, [mapReady, toast]);
 
   const handleSeasonChange = async (seasonId: string) => {
     setSelectedSeasonId(seasonId);
     await refreshAll(seasonId);
+    requestFitByReason("show_all_fields");
   };
 
   const handleKmlSelect = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -807,6 +1038,7 @@ export function FieldsMapPage() {
       setUploadState(null);
       setOverrides({});
       await refreshAll(selectedSeasonId || undefined);
+      requestFitByReason("import_success");
     } catch (error) {
       toast({
         title: "Ошибка импорта",
@@ -968,7 +1200,7 @@ export function FieldsMapPage() {
                 <button
                   key={field.field_id}
                   type="button"
-                  onClick={() => setSelectedFieldId(field.field_id)}
+                  onClick={() => handleSelectField(field.field_id)}
                   className={`w-full rounded-lg border p-3 text-left transition ${
                     isSelected ? "border-[#E0B100] bg-[#202738]" : "border-[#2B3448] bg-[#151C28] hover:bg-[#202738]"
                   }`}
@@ -996,6 +1228,39 @@ export function FieldsMapPage() {
             <CardTitle className="text-base">Карта</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#2B3448] bg-[#151C28] p-2">
+              <div className="text-xs text-slate-400">Вид:</div>
+              <Button size="sm" variant={selectedBaseLayer === "map" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("map")}>
+                Карта
+              </Button>
+              <Button
+                size="sm"
+                variant={selectedBaseLayer === "satellite" ? "default" : "outline"}
+                onClick={() => setSelectedBaseLayer("satellite")}
+              >
+                Спутник
+              </Button>
+              <Button
+                size="sm"
+                variant={selectedBaseLayer === "hybrid" ? "default" : "outline"}
+                onClick={() => setSelectedBaseLayer("hybrid")}
+              >
+                Гибрид
+              </Button>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <Button size="sm" variant="outline" onClick={handleLocateMe}>
+                  <LocateFixed className="mr-2 h-4 w-4" />
+                  Моё местоположение
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleShowAllFields}>
+                  Показать все поля
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleResetMapView}>
+                  Сбросить вид
+                </Button>
+              </div>
+            </div>
+
             <div
               ref={bindMapContainerRef}
               className="h-[620px] w-full overflow-hidden rounded-xl border border-[#2B3448] bg-[#151C28]"
@@ -1013,6 +1278,13 @@ export function FieldsMapPage() {
               <div>load event fired: {mapDebug.loadEventFired ? "yes" : "no"}</div>
               <div>tiles loading: {mapDebug.tilesLoading ? "yes" : "no"}</div>
               <div>map ready: {mapDebug.mapReady ? "yes" : "no"}</div>
+              <div>selected base layer: {mapDebug.selectedBaseLayer}</div>
+              <div>fitBounds reason: {mapDebug.fitBoundsReason}</div>
+              <div>user interacted: {mapDebug.userInteracted ? "yes" : "no"}</div>
+              <div>geolocation status: {mapDebug.geolocationStatus}</div>
+              <div>
+                map center/zoom: {mapDebug.mapCenter[0].toFixed(5)}, {mapDebug.mapCenter[1].toFixed(5)} / {mapDebug.mapZoom}
+              </div>
               <div>error message: {mapDebug.errorMessage || "—"}</div>
             </div>
 
