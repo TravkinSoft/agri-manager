@@ -190,6 +190,54 @@ function visitGeometryCoordinates(
   visitNode(geometry.coordinates);
 }
 
+function ensureOverlayLayers(map: any): boolean {
+  if (!map || typeof map.getStyle !== "function" || !map.getStyle()) return false;
+
+  if (!map.getSource(MAP_SOURCE_ID)) {
+    map.addSource(MAP_SOURCE_ID, {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+  }
+
+  if (!map.getLayer(MAP_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_FILL_LAYER_ID,
+      type: "fill",
+      source: MAP_SOURCE_ID,
+      paint: {
+        "fill-color": ["coalesce", ["get", "fill_color"], "#3b82f6"],
+        "fill-opacity": [
+          "case",
+          ["==", ["get", "overlay_mode"], "preview"],
+          0.32,
+          0.5,
+        ],
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_LINE_LAYER_ID,
+      type: "line",
+      source: MAP_SOURCE_ID,
+      paint: {
+        "line-color": ["coalesce", ["get", "line_color"], "#3b82f6"],
+        "line-width": [
+          "case",
+          ["==", ["get", "overlay_mode"], "preview"],
+          2.1,
+          1.8,
+        ],
+        "line-opacity": 0.95,
+      },
+    });
+  }
+
+  return Boolean(map.getSource(MAP_SOURCE_ID) && map.getLayer(MAP_FILL_LAYER_ID) && map.getLayer(MAP_LINE_LAYER_ID));
+}
+
 export function FieldsMapPage() {
   const { toast } = useToast();
   const router = useRouter();
@@ -351,6 +399,8 @@ export function FieldsMapPage() {
 
   useEffect(() => {
     let cancelled = false;
+    let readyResolved = false;
+    let readyTimer: number | null = null;
     if (mapRef.current || !mapContainerRef.current) return;
 
     const initializeMap = async () => {
@@ -395,55 +445,25 @@ export function FieldsMapPage() {
 
         map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
 
-        map.on("load", () => {
-          if (cancelled) return;
-
-          if (!map.getSource(MAP_SOURCE_ID)) {
-            map.addSource(MAP_SOURCE_ID, {
-              type: "geojson",
-              data: { type: "FeatureCollection", features: [] },
-            });
+        const resolveReady = (strategy: "load" | "styledata" | "timer") => {
+          if (cancelled || readyResolved) return;
+          try {
+            ensureOverlayLayers(map);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            setMapError(`Map overlay init error (${strategy}): ${message}`);
           }
-
-          if (!map.getLayer(MAP_FILL_LAYER_ID)) {
-            map.addLayer({
-              id: MAP_FILL_LAYER_ID,
-              type: "fill",
-              source: MAP_SOURCE_ID,
-              paint: {
-                "fill-color": ["coalesce", ["get", "fill_color"], "#3b82f6"],
-                "fill-opacity": [
-                  "case",
-                  ["==", ["get", "overlay_mode"], "preview"],
-                  0.32,
-                  0.5,
-                ],
-              },
-            });
-          }
-
-          if (!map.getLayer(MAP_LINE_LAYER_ID)) {
-            map.addLayer({
-              id: MAP_LINE_LAYER_ID,
-              type: "line",
-              source: MAP_SOURCE_ID,
-              paint: {
-                "line-color": ["coalesce", ["get", "line_color"], "#3b82f6"],
-                "line-width": [
-                  "case",
-                  ["==", ["get", "overlay_mode"], "preview"],
-                  2.1,
-                  1.8,
-                ],
-                "line-opacity": 0.95,
-              },
-            });
-          }
-
+          readyResolved = true;
           map.resize();
           setMapReady(true);
           setMapError(null);
-        });
+        };
+
+        map.on("load", () => resolveReady("load"));
+        map.on("styledata", () => resolveReady("styledata"));
+
+        // Guard: on some environments `load` can be delayed; keep map visible anyway.
+        readyTimer = window.setTimeout(() => resolveReady("timer"), 1600);
 
         map.on("error", (event: any) => {
           if (cancelled) return;
@@ -520,6 +540,9 @@ export function FieldsMapPage() {
 
     return () => {
       cancelled = true;
+      if (readyTimer != null) {
+        window.clearTimeout(readyTimer);
+      }
       popupRef.current?.remove();
       popupRef.current = null;
       if (mapRef.current) {
