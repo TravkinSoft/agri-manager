@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase/client';
+import { getServiceClient } from '@/lib/supabase/service';
 
 interface FieldData {
   name: string;
@@ -26,6 +26,7 @@ interface ImportData {
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = getServiceClient();
     const data: ImportData = await request.json();
 
     const results = {
