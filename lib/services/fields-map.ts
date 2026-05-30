@@ -1,0 +1,131 @@
+import { supabase } from "@/lib/supabase/client";
+import type {
+  FieldsMapBootstrapPayload,
+  FieldMapImportSummary,
+  FieldMapPreviewMatch,
+  ParsedKmlPolygonInput,
+} from "@/lib/types/fields-map";
+
+async function buildAuthHeaders(mode: "json" | "none" = "none") {
+  const { data, error } = await supabase.auth.getSession();
+  if (error || !data?.session?.access_token) {
+    throw new Error("Session expired");
+  }
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${data.session.access_token}`,
+  };
+  if (mode === "json") headers["Content-Type"] = "application/json";
+  return headers;
+}
+
+async function parseJsonOrThrow(response: Response) {
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload?.error || "Request failed");
+  }
+  return payload;
+}
+
+export async function getFieldsMapBootstrap(seasonId?: string) {
+  const query = new URLSearchParams();
+  if (seasonId) query.set("seasonId", seasonId);
+  const headers = await buildAuthHeaders();
+  const response = await fetch(`/api/fields-map/bootstrap?${query.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  return parseJsonOrThrow(response) as Promise<FieldsMapBootstrapPayload>;
+}
+
+export async function previewFieldMapImport(payload: {
+  fileName: string;
+  kmlText: string;
+  seasonId?: string | null;
+  polygons: ParsedKmlPolygonInput[];
+}) {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/fields-map/import/preview", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  return parseJsonOrThrow(response) as Promise<{
+    import_id: string;
+    season_id: string | null;
+    file_name: string;
+    stats: {
+      total_polygons: number;
+      matched_polygons: number;
+      unmatched_polygons: number;
+      error_count: number;
+    };
+    matches: FieldMapPreviewMatch[];
+  }>;
+}
+
+export async function confirmFieldMapImport(payload: {
+  import_id: string;
+  overrides: Array<{ polygon_id: string; field_id: string }>;
+}) {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/fields-map/import/confirm", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  return parseJsonOrThrow(response) as Promise<{
+    import_id: string;
+    status: string;
+    saved_polygons: number;
+    skipped_polygons: number;
+    unresolved_polygons: string[];
+  }>;
+}
+
+export async function listFieldMapImports() {
+  const headers = await buildAuthHeaders();
+  const response = await fetch("/api/fields-map/imports", {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = (await parseJsonOrThrow(response)) as { imports: FieldMapImportSummary[] };
+  return payload.imports || [];
+}
+
+export async function updateFieldMapImportAction(importId: string, action: "activate" | "deactivate" | "delete") {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(`/api/fields-map/imports/${encodeURIComponent(importId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ action }),
+  });
+  return parseJsonOrThrow(response);
+}
+
+export async function deleteFieldMapImport(importId: string) {
+  const headers = await buildAuthHeaders();
+  const response = await fetch(`/api/fields-map/imports/${encodeURIComponent(importId)}`, {
+    method: "DELETE",
+    headers,
+  });
+  return parseJsonOrThrow(response);
+}
+
+export async function downloadFieldMapImportKml(importId: string) {
+  const headers = await buildAuthHeaders();
+  const response = await fetch(`/api/fields-map/imports/${encodeURIComponent(importId)}/download`, {
+    method: "GET",
+    headers,
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload?.error || "Download failed");
+  }
+  const blob = await response.blob();
+  const disposition = response.headers.get("content-disposition") || "";
+  const fileNameMatch = disposition.match(/filename="?([^";]+)"?/iu);
+  const fileName = fileNameMatch?.[1] || "fields-map-import.kml";
+  return { blob, fileName };
+}

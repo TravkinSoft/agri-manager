@@ -41,6 +41,8 @@ const BRIGADIER_ALLOWED_PREFIXES = [
   "/dashboard",
   "/operations",
   "/fields",
+  "/fields-map",
+  "/map",
   "/auth",
 ];
 
@@ -48,6 +50,8 @@ const LEGAL_OPERATOR_ALLOWED_PREFIXES = [
   "/dashboard",
   "/land-legal",
   "/fields",
+  "/fields-map",
+  "/map",
   "/analytics",
   "/reports",
   "/auth",
@@ -56,6 +60,8 @@ const LEGAL_OPERATOR_ALLOWED_PREFIXES = [
 const AGRONOMIST_ALLOWED_PREFIXES = [
   "/dashboard",
   "/fields",
+  "/fields-map",
+  "/map",
   "/crop-structure",
   "/field-history",
   "/operations",
@@ -70,6 +76,8 @@ const AGRONOMIST_ALLOWED_EXACT = ["/warehouses"];
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",
   "/fields",
+  "/fields-map",
+  "/map",
   "/crop-structure",
   "/field-history",
   "/operations",

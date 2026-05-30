@@ -10,6 +10,7 @@ import {
   FlaskConical,
   History,
   LayoutDashboard,
+  Map,
   MapPin,
   Package,
   PackageSearch,
@@ -37,6 +38,7 @@ interface NavItem {
 const ADMIN_NAV: NavItem[] = [
   { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
   { label: "Поля", href: "/fields", icon: MapPin },
+  { label: "Карта полей", href: "/fields-map", icon: Map },
   { label: "Кадастр и право", href: "/land-legal", icon: ScrollText },
   { label: "Структура посевов", href: "/crop-structure", icon: Sprout },
   { label: "Системы защиты и ухода", href: "/care-systems", icon: ShieldCheck },
@@ -57,6 +59,7 @@ const ADMIN_NAV: NavItem[] = [
 const AGRONOMIST_NAV: NavItem[] = [
   { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
   { label: "Поля", href: "/fields", icon: MapPin },
+  { label: "Карта полей", href: "/fields-map", icon: Map },
   { label: "Структура посевов", href: "/crop-structure", icon: Sprout },
   { label: "Системы защиты и ухода", href: "/care-systems", icon: ShieldCheck },
   { label: "История полей", href: "/field-history", icon: History },
@@ -70,6 +73,7 @@ const AGRONOMIST_NAV: NavItem[] = [
 const DIRECTOR_NAV: NavItem[] = [
   { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
   { label: "Поля", href: "/fields", icon: MapPin },
+  { label: "Карта полей", href: "/fields-map", icon: Map },
   { label: "Структура посевов", href: "/crop-structure", icon: Sprout },
   { label: "Системы защиты и ухода", href: "/care-systems", icon: ShieldCheck },
   { label: "История полей", href: "/field-history", icon: History },
@@ -117,12 +121,14 @@ const BRIGADIER_NAV: NavItem[] = [
   { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
   { label: "Операции", href: "/operations", icon: Tractor },
   { label: "Поля", href: "/fields", icon: MapPin },
+  { label: "Карта полей", href: "/fields-map", icon: Map },
 ];
 
 const LEGAL_OPERATOR_NAV: NavItem[] = [
   { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
   { label: "Кадастр и право", href: "/land-legal", icon: ScrollText },
   { label: "Поля", href: "/fields", icon: MapPin },
+  { label: "Карта полей", href: "/fields-map", icon: Map },
   { label: "Аналитика", href: "/analytics", icon: BarChart3 },
 ];
 
