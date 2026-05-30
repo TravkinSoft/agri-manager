@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 import { Download, Eye, FileUp, Filter, MapPinned, RotateCcw, Save, Trash2 } from "lucide-react";
@@ -83,6 +83,17 @@ type OverlayFeatureCollection = {
 };
 
 type MapLibreModule = typeof import("maplibre-gl");
+
+type MapRuntimeDebugState = {
+  packageLoaded: boolean;
+  containerReady: boolean;
+  mapInstanceCreated: boolean;
+  loadEventFired: boolean;
+  styleLoaded: boolean;
+  tilesLoading: boolean;
+  mapReady: boolean;
+  errorMessage: string | null;
+};
 
 const DEFAULT_MAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const MAP_TILE_URL = process.env.NEXT_PUBLIC_MAP_TILE_URL || DEFAULT_MAP_TILE_URL;
@@ -244,10 +255,15 @@ export function FieldsMapPage() {
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const [mapContainerNode, setMapContainerNode] = useState<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const maplibreRef = useRef<MapLibreModule | null>(null);
   const popupRef = useRef<any>(null);
   const fieldLookupRef = useRef<Map<string, FieldMapFieldCard>>(new Map());
+  const bindMapContainerRef = useCallback((node: HTMLDivElement | null) => {
+    mapContainerRef.current = node;
+    setMapContainerNode(node);
+  }, []);
 
   const [loading, setLoading] = useState(true);
   const [bootstrap, setBootstrap] = useState<FieldsMapBootstrapPayload | null>(null);
@@ -264,6 +280,16 @@ export function FieldsMapPage() {
   const [mapError, setMapError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
+  const [mapDebug, setMapDebug] = useState<MapRuntimeDebugState>({
+    packageLoaded: false,
+    containerReady: false,
+    mapInstanceCreated: false,
+    loadEventFired: false,
+    styleLoaded: false,
+    tilesLoading: false,
+    mapReady: false,
+    errorMessage: null,
+  });
 
   const fields = bootstrap?.fields || [];
 
@@ -398,20 +424,55 @@ export function FieldsMapPage() {
   }, [fields]);
 
   useEffect(() => {
+    if (loading) return;
+
     let cancelled = false;
     let readyResolved = false;
     let readyTimer: number | null = null;
-    if (mapRef.current || !mapContainerRef.current) return;
+    const container = mapContainerNode || mapContainerRef.current;
+    const containerReady = !!container;
+    setMapDebug((prev) => ({ ...prev, containerReady }));
+    if (mapRef.current || !container) return;
+    setMapReady(false);
+    setMapError(null);
+    setMapDebug((prev) => ({
+      ...prev,
+      mapInstanceCreated: false,
+      loadEventFired: false,
+      styleLoaded: false,
+      tilesLoading: false,
+      mapReady: false,
+      errorMessage: null,
+    }));
 
     const initializeMap = async () => {
       try {
+        const tileUrlLooksValid =
+          MAP_TILE_URL.includes("{z}") && MAP_TILE_URL.includes("{x}") && MAP_TILE_URL.includes("{y}");
+        if (!tileUrlLooksValid) {
+          const message = `Invalid tile URL: ${MAP_TILE_URL}. Expected placeholders {z}/{x}/{y}.`;
+          setMapError(message);
+          setMapDebug((prev) => ({ ...prev, errorMessage: message }));
+          return;
+        }
+
         const maplibre = await import("maplibre-gl");
-        if (cancelled || !mapContainerRef.current || mapRef.current) return;
+        if (cancelled || !container || mapRef.current) return;
+        setMapDebug((prev) => ({ ...prev, packageLoaded: true }));
+
+        const isSupported =
+          typeof (maplibre as any).supported === "function" ? (maplibre as any).supported() : true;
+        if (!isSupported) {
+          const message = "MapLibre is not supported in this browser (WebGL required).";
+          setMapError(message);
+          setMapDebug((prev) => ({ ...prev, errorMessage: message }));
+          return;
+        }
 
         maplibreRef.current = maplibre;
 
         const map = new maplibre.Map({
-          container: mapContainerRef.current,
+          container,
           style: {
             version: 8,
             sources: {
@@ -436,6 +497,7 @@ export function FieldsMapPage() {
         });
 
         mapRef.current = map;
+        setMapDebug((prev) => ({ ...prev, mapInstanceCreated: true, tilesLoading: true }));
         popupRef.current = new maplibre.Popup({
           closeButton: false,
           closeOnClick: false,
@@ -445,35 +507,88 @@ export function FieldsMapPage() {
 
         map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
 
-        const resolveReady = (strategy: "load" | "styledata" | "timer") => {
+        const setRuntimeError = (message: string) => {
+          setMapReady(false);
+          setMapError(message);
+          setMapDebug((prev) => ({
+            ...prev,
+            mapReady: false,
+            tilesLoading: false,
+            errorMessage: message,
+          }));
+        };
+
+        const resolveReady = (strategy: "load" | "styledata" | "style-check") => {
           if (cancelled || readyResolved) return;
           try {
             ensureOverlayLayers(map);
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            setMapError(`Map overlay init error (${strategy}): ${message}`);
+            setRuntimeError(`Map overlay init error (${strategy}): ${message}`);
+            return;
           }
           readyResolved = true;
+          if (readyTimer != null) {
+            window.clearTimeout(readyTimer);
+            readyTimer = null;
+          }
           map.resize();
           setMapReady(true);
           setMapError(null);
+          setMapDebug((prev) => ({
+            ...prev,
+            mapReady: true,
+            styleLoaded: true,
+            tilesLoading: false,
+            errorMessage: null,
+          }));
         };
 
-        map.on("load", () => resolveReady("load"));
-        map.on("styledata", () => resolveReady("styledata"));
+        map.on("load", () => {
+          setMapDebug((prev) => ({ ...prev, loadEventFired: true, styleLoaded: true }));
+          resolveReady("load");
+        });
+        map.on("styledata", () => {
+          const styleLoaded = typeof map.isStyleLoaded === "function" ? Boolean(map.isStyleLoaded()) : true;
+          setMapDebug((prev) => ({ ...prev, styleLoaded }));
+          if (styleLoaded) {
+            resolveReady("styledata");
+          }
+        });
+        map.on("dataloading", () => {
+          setMapDebug((prev) => ({ ...prev, tilesLoading: true }));
+        });
+        map.on("idle", () => {
+          setMapDebug((prev) => ({ ...prev, tilesLoading: false }));
+        });
 
-        // Guard: on some environments `load` can be delayed; keep map visible anyway.
-        readyTimer = window.setTimeout(() => resolveReady("timer"), 1600);
+        const styleLoadedImmediately =
+          typeof map.isStyleLoaded === "function" ? Boolean(map.isStyleLoaded()) : false;
+        if (styleLoadedImmediately) {
+          setMapDebug((prev) => ({ ...prev, styleLoaded: true }));
+          resolveReady("style-check");
+        }
+
+        readyTimer = window.setTimeout(() => {
+          if (readyResolved || cancelled) return;
+          setRuntimeError(
+            `Map initialization timeout: style/load event not received. Check tiles/CORS. URL: ${MAP_TILE_URL}`
+          );
+        }, 7000);
 
         map.on("error", (event: any) => {
           if (cancelled) return;
-          const message =
+          const rawMessage =
             event?.error instanceof Error
               ? event.error.message
               : typeof event?.error === "string"
                 ? event.error
-                : "Не удалось отрисовать карту.";
-          setMapError(message);
+                : "Unknown map runtime error.";
+          const sourceId = typeof event?.sourceId === "string" ? event.sourceId : null;
+          const message = sourceId
+            ? `${rawMessage} (source: ${sourceId}, tile: ${MAP_TILE_URL})`
+            : `${rawMessage} (tile: ${MAP_TILE_URL})`;
+          setRuntimeError(message);
         });
 
         map.on("mousemove", (event: any) => {
@@ -531,8 +646,10 @@ export function FieldsMapPage() {
         });
       } catch (error) {
         if (cancelled) return;
+        const message = error instanceof Error ? error.message : "Failed to initialize MapLibre.";
         setMapReady(false);
-        setMapError(error instanceof Error ? error.message : "Не удалось инициализировать MapLibre.");
+        setMapError(message);
+        setMapDebug((prev) => ({ ...prev, mapReady: false, tilesLoading: false, errorMessage: message }));
       }
     };
 
@@ -550,8 +667,18 @@ export function FieldsMapPage() {
         mapRef.current = null;
       }
       setMapReady(false);
+      setMapDebug((prev) => ({ ...prev, mapReady: false, tilesLoading: false }));
     };
-  }, []);
+  }, [loading, mapContainerNode]);
+
+  useEffect(() => {
+    setMapDebug((prev) => ({
+      ...prev,
+      containerReady: !!mapContainerNode,
+      mapReady,
+      errorMessage: mapError,
+    }));
+  }, [loading, mapContainerNode, mapReady, mapError]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !maplibreRef.current) return;
@@ -869,11 +996,25 @@ export function FieldsMapPage() {
             <CardTitle className="text-base">Карта</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div ref={mapContainerRef} className="h-[620px] w-full overflow-hidden rounded-xl border border-[#2B3448] bg-[#151C28]" />
+            <div
+              ref={bindMapContainerRef}
+              className="h-[620px] w-full overflow-hidden rounded-xl border border-[#2B3448] bg-[#151C28]"
+            />
 
             {!mapReady ? (
               <div className="rounded-xl border border-dashed border-[#2B3448] p-3 text-sm text-slate-400">Инициализация MapLibre…</div>
             ) : null}
+
+            <div className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3 text-xs text-slate-300">
+              <div>maplibre package loaded: {mapDebug.packageLoaded ? "yes" : "no"}</div>
+              <div>container ready: {mapDebug.containerReady ? "yes" : "no"}</div>
+              <div>map instance created: {mapDebug.mapInstanceCreated ? "yes" : "no"}</div>
+              <div>style loaded: {mapDebug.styleLoaded ? "yes" : "no"}</div>
+              <div>load event fired: {mapDebug.loadEventFired ? "yes" : "no"}</div>
+              <div>tiles loading: {mapDebug.tilesLoading ? "yes" : "no"}</div>
+              <div>map ready: {mapDebug.mapReady ? "yes" : "no"}</div>
+              <div>error message: {mapDebug.errorMessage || "—"}</div>
+            </div>
 
             <div className="flex flex-wrap gap-2">
               {CROP_COLOR_LEGEND.map((item) => (
