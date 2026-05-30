@@ -27,6 +27,8 @@ import type { FieldMapImportSummary, FieldMapPreviewMatch, FieldsMapBootstrapPay
 declare global {
   interface Window {
     google?: any;
+    gm_authFailure?: () => void;
+    travkinGoogleMapsReady?: () => void;
   }
 }
 
@@ -51,6 +53,31 @@ type UploadState = {
 };
 
 const MAP_SCRIPT_ID = "travkin-google-maps-script";
+const MAP_READY_CALLBACK = "travkinGoogleMapsReady";
+const GOOGLE_MAPS_ERROR_CODES = [
+  "RefererNotAllowedMapError",
+  "ApiNotActivatedMapError",
+  "BillingNotEnabledMapError",
+  "InvalidKeyMapError",
+  "MissingKeyMapError",
+  "ExpiredKeyMapError",
+  "ApiProjectMapError",
+  "NotLoadingAPIFromGoogleMapsError",
+  "TOSViolationMapError",
+  "NoApiKeys",
+];
+
+function detectGoogleMapsErrorCode(value: unknown): string | null {
+  const text = String(value || "");
+  for (const code of GOOGLE_MAPS_ERROR_CODES) {
+    if (text.includes(code)) return code;
+  }
+  return null;
+}
+
+function formatGoogleMapsDiagnostics(code: string): string {
+  return `Google Maps error: ${code}. Проверьте Maps JavaScript API, billing и referrer restrictions для текущего домена.`;
+}
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -105,6 +132,7 @@ export function FieldsMapPage() {
 
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [mapErrorCode, setMapErrorCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
 
@@ -185,11 +213,13 @@ export function FieldsMapPage() {
   useEffect(() => {
     if (!googleMapsApiKey) {
       setMapError("Google Maps API key не настроен.");
+      setMapErrorCode("MissingPublicKey");
       return;
     }
     if (window.google?.maps) {
       setMapReady(true);
       setMapError(null);
+      setMapErrorCode(null);
       return;
     }
 
@@ -204,13 +234,109 @@ export function FieldsMapPage() {
     script.id = MAP_SCRIPT_ID;
     script.async = true;
     script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(googleMapsApiKey)}`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+      googleMapsApiKey
+    )}&loading=async&callback=${MAP_READY_CALLBACK}`;
     script.onload = () => {
       setMapReady(true);
       setMapError(null);
+      setMapErrorCode(null);
     };
-    script.onerror = () => setMapError("Не удалось загрузить Google Maps.");
+    script.onerror = () => {
+      setMapError("Не удалось загрузить Google Maps.");
+      setMapErrorCode("ScriptLoadError");
+    };
     document.head.appendChild(script);
+  }, [googleMapsApiKey]);
+
+  useEffect(() => {
+    if (!googleMapsApiKey) return;
+
+    let cancelled = false;
+    const previousAuthFailure = window.gm_authFailure;
+    const previousReadyCallback = window[MAP_READY_CALLBACK];
+    const originalConsoleError = console.error;
+
+    const setErrorByCode = (code: string, message?: string) => {
+      if (cancelled) return;
+      setMapReady(false);
+      setMapErrorCode(code);
+      setMapError(message || formatGoogleMapsDiagnostics(code));
+    };
+
+    const onAuthFailure = () => {
+      setErrorByCode("gm_authFailure", "Google Maps authentication failed. Проверьте key restrictions и billing.");
+      if (typeof previousAuthFailure === "function") {
+        previousAuthFailure();
+      }
+    };
+
+    const onWindowError = (event: ErrorEvent) => {
+      const text = [event.message, event.filename, event.error instanceof Error ? event.error.message : ""].join(" ");
+      const code = detectGoogleMapsErrorCode(text);
+      if (code) {
+        setErrorByCode(code);
+      }
+    };
+
+    window.gm_authFailure = onAuthFailure;
+    window[MAP_READY_CALLBACK] = () => {
+      if (cancelled) return;
+      setMapReady(true);
+      setMapError(null);
+      setMapErrorCode(null);
+    };
+
+    console.error = (...args: unknown[]) => {
+      const combined = args
+        .map((arg) => {
+          if (typeof arg === "string") return arg;
+          if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
+          try {
+            return JSON.stringify(arg);
+          } catch {
+            return String(arg);
+          }
+        })
+        .join(" ");
+      const code = detectGoogleMapsErrorCode(combined);
+      if (code) {
+        setErrorByCode(code);
+      }
+      originalConsoleError(...args);
+    };
+
+    window.addEventListener("error", onWindowError);
+
+    const script = document.getElementById(MAP_SCRIPT_ID) as HTMLScriptElement | null;
+    if (script && script.src && !script.src.includes("callback=")) {
+      try {
+        const url = new URL(script.src);
+        url.searchParams.set("loading", "async");
+        url.searchParams.set("callback", MAP_READY_CALLBACK);
+        script.src = url.toString();
+      } catch {
+        // Ignore URL parsing issues and keep existing loader behavior.
+      }
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled && !window.google?.maps) {
+        setErrorByCode(
+          "GoogleMapsInitTimeout",
+          "Google Maps script loaded, but API is not initialized. Проверьте API activation, billing и referrer restrictions."
+        );
+      }
+    }, 12000);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("error", onWindowError);
+      console.error = originalConsoleError;
+      window.gm_authFailure = previousAuthFailure;
+      window[MAP_READY_CALLBACK] = previousReadyCallback;
+    };
   }, [googleMapsApiKey]);
 
   useEffect(() => {
@@ -219,17 +345,26 @@ export function FieldsMapPage() {
 
   useEffect(() => {
     if (!mapReady || !mapContainerRef.current || mapRef.current) return;
-    const center = { lat: 51.2, lng: 71.4 };
-    mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
-      center,
-      zoom: 6,
-      mapTypeId: "hybrid",
-      fullscreenControl: false,
-      streetViewControl: false,
-      mapTypeControl: true,
-    });
-    dataLayerRef.current = new window.google.maps.Data({ map: mapRef.current });
-    infoWindowRef.current = new window.google.maps.InfoWindow();
+    try {
+      const center = { lat: 51.2, lng: 71.4 };
+      mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
+        center,
+        zoom: 6,
+        mapTypeId: "roadmap",
+        fullscreenControl: false,
+        streetViewControl: false,
+        mapTypeControl: true,
+      });
+      dataLayerRef.current = new window.google.maps.Data({ map: mapRef.current });
+      infoWindowRef.current = new window.google.maps.InfoWindow();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const code = detectGoogleMapsErrorCode(message);
+      setMapReady(false);
+      setMapErrorCode(code || "MapInitError");
+      setMapError(code ? formatGoogleMapsDiagnostics(code) : `Map init failed: ${message}`);
+      return;
+    }
 
     dataLayerRef.current.addListener("click", (event: any) => {
       const fieldId = String(event.feature.getProperty("field_id") || "");
@@ -571,7 +706,10 @@ export function FieldsMapPage() {
 
       {mapError ? (
         <Card className="border-rose-500/40">
-          <CardContent className="pt-6 text-sm text-rose-200">{mapError}</CardContent>
+          <CardContent className="space-y-2 pt-6 text-sm text-rose-200">
+            <div>{mapError}</div>
+            {mapErrorCode ? <div className="text-xs text-rose-300/90">Google diagnostics code: {mapErrorCode}</div> : null}
+          </CardContent>
         </Card>
       ) : null}
 
