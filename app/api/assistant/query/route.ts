@@ -289,6 +289,12 @@ function buildDebugMetadata(params: {
       mode: asString(result.mode),
       grounded: result.grounded,
       answerSource: result.answerSource,
+      decisionSource: result.decisionSource || null,
+      explicitNavigationRequested:
+        typeof result.explicitNavigationRequested === "boolean"
+          ? result.explicitNavigationRequested
+          : undefined,
+      navigationPolicy: result.navigationPolicy || null,
       consistencyCheck: result.diagnostics.consistencyCheck,
       contradictionDetected: result.diagnostics.contradictionDetected,
       correctionApplied: result.diagnostics.correctionApplied,
@@ -557,7 +563,12 @@ export async function POST(request: NextRequest) {
         intent: result.intent,
         mode: result.mode,
         outputType: result.outputType,
+        answerSource: result.answerSource,
+        decisionSource: result.decisionSource || null,
+        explicitNavigationRequested: result.explicitNavigationRequested ?? null,
+        navigationPolicy: result.navigationPolicy || null,
         sourceHints: result.sourceHints,
+        performance: result.performance,
         llm: result.model.llm,
         prompt: {
           version: result.model.promptVersion,

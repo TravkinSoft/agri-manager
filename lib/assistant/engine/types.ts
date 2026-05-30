@@ -83,6 +83,9 @@ export type AssistantOutputType =
   | "balance"
   | "movements";
 
+export type AssistantEngineMode = "tool_first" | "hybrid" | "model_first";
+export type AssistantDecisionSource = "fast_path" | "router" | "model";
+
 export type AssistantUiContext = {
   currentPage: string;
   currentRoute: string;
@@ -230,8 +233,21 @@ export type AssistantEngineResult = {
   toolActivity: string[];
   navigationActions: AssistantNavigationAction[];
   sourceHints: string[];
-  answerSource: "tools" | "llm_fallback" | "policy_block" | "disabled" | "access_denied" | "no_data" | "tool_error";
+  answerSource:
+    | "tools"
+    | "llm_fallback"
+    | "policy_block"
+    | "disabled"
+    | "access_denied"
+    | "no_data"
+    | "tool_error"
+    | "fast_path_template"
+    | "model_grounded"
+    | "legacy_fallback";
   grounded: boolean;
+  decisionSource?: AssistantDecisionSource;
+  explicitNavigationRequested?: boolean;
+  navigationPolicy?: "allowed" | "blocked" | "not_applicable";
   model: {
     configuredModel: string | null;
     actualModel: string | null;
@@ -239,7 +255,7 @@ export type AssistantEngineResult = {
     promptVersion: string;
     promptSource: "code_default" | "db_override" | "env_override";
     promptUpdatedAt: string;
-    requestMode: "tool_first";
+    requestMode: AssistantEngineMode;
     llm: {
       status: "not_called" | "ok" | "missing_api_key" | "network_error" | "http_error" | "invalid_response";
       httpStatus: number | null;

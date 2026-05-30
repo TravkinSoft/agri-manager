@@ -8,6 +8,9 @@ export type AssistantDebugAnswerSource =
   | "access_denied"
   | "no_data"
   | "tool_error"
+  | "fast_path_template"
+  | "model_grounded"
+  | "legacy_fallback"
   | "unknown";
 
 export type AssistantDebugToolLog = {
@@ -74,6 +77,9 @@ export type AssistantDebugMetadata = {
     mode: string | null;
     grounded: boolean | null;
     answerSource: AssistantDebugAnswerSource;
+    decisionSource?: "fast_path" | "router" | "model" | null;
+    explicitNavigationRequested?: boolean;
+    navigationPolicy?: "allowed" | "blocked" | "not_applicable" | null;
     consistencyCheck: "pass" | "fail" | "skipped";
     contradictionDetected: boolean;
     correctionApplied: boolean;

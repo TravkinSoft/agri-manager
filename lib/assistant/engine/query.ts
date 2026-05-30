@@ -9,7 +9,9 @@ import {
 } from "@/lib/assistant/engine/session-state";
 import type {
   AssistantAnswerDiagnostics,
+  AssistantDecisionSource,
   AssistantEngineInput,
+  AssistantEngineMode,
   AssistantEngineResult,
   AssistantIntent,
   AssistantIntentName,
@@ -34,6 +36,9 @@ import {
   applySemanticExpansions,
   buildSemanticMemoryContext,
 } from "@/lib/assistant/knowledge/semantic-memory";
+import { runModelOrchestrator } from "@/lib/assistant/engine/model-orchestrator";
+import { applyNavigationPolicy, hasExplicitNavigationRequest } from "@/lib/assistant/engine/navigation-policy";
+import { noDataGroundedMessage, validateGroundedAnswer } from "@/lib/assistant/engine/response-validator";
 
 type UsageStats = {
   promptTokens: number | null;
@@ -512,6 +517,118 @@ function buildContradictionExplanation(state: AssistantSessionState): string | n
     state.lastWarehouseCount || 0,
     0
   )}).`;
+}
+
+function resolveAssistantEngineMode(): AssistantEngineMode {
+  const raw = String(process.env.ASSISTANT_ENGINE_MODE || "hybrid").trim().toLowerCase();
+  if (raw === "tool_first" || raw === "model_first" || raw === "hybrid") return raw;
+  return "hybrid";
+}
+
+function resolveHybridDomains(): Set<string> {
+  const raw = String(process.env.ASSISTANT_HYBRID_DOMAINS || "").trim();
+  if (!raw) return new Set(["warehouses", "weighbridge", "fields", "crop", "operations", "materials", "general"]);
+  return new Set(
+    raw
+      .split(",")
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function mapIntentToDomain(intent: AssistantIntent): string {
+  switch (intent.name) {
+    case "warehouse_count":
+    case "inventory_balance":
+    case "warehouse_movements":
+      return "warehouses";
+    case "weighbridge_tickets":
+      return "weighbridge";
+    case "fields_overview":
+    case "field_total_area":
+    case "rotation_history":
+      return "fields";
+    case "crop_structure_area":
+    case "crop_structure_overview":
+      return "crop";
+    case "operations_recent":
+      return "operations";
+    case "general_question":
+    case "clarification_required":
+    default:
+      return "general";
+  }
+}
+
+function isTicketLatestOrRecentQuestion(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  return /(талон|ticket).*(послед|latest|recent|last)|(?:послед|latest|recent|last).*(талон|ticket)/.test(text);
+}
+
+function isActiveTicketsQuestion(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  return /(активн|открыт|open).*(талон|ticket)|(?:талон|ticket).*(активн|открыт|open)/.test(text);
+}
+
+function isSimpleCountQuestion(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  return /(сколько|how many).*(склад|warehouse|полей|fields)/.test(text);
+}
+
+function isExplicitOpenCommand(message: string): boolean {
+  return hasExplicitNavigationRequest(message);
+}
+
+function isFieldFactualQuery(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  const hasField = /(поле|field)\s*[\d\-]+/.test(text) || /[\d\-]+\s*(поле|field)/.test(text);
+  if (!hasField) return false;
+  if (/(что происходит|что делали|какие проблем|какие риски|почему|что дальше)/.test(text)) return false;
+  return /(площад|культура|сорт|репродукц|area|crop|variety|reproduction)/.test(text);
+}
+
+function isFieldSemanticQuery(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  const hasField = /(поле|field)/.test(text);
+  if (!hasField) return false;
+  return /(что происходит|что делали|какие проблем|какие риски|почему|что дальше|why|issues|risks|what next|what happened)/.test(
+    text
+  );
+}
+
+function isFieldFactualQueryV2(message: string): boolean {
+  const text = String(message || "");
+  const hasFieldRef =
+    /(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)\s*[\d\-]+/i.test(text) ||
+    /[\d\-]+\s*(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)/i.test(text);
+  if (!hasFieldRef) return false;
+  const isSemantic =
+    /(?:\u0447\u0442\u043e\s+\u043f\u0440\u043e\u0438\u0441\u0445\u043e\u0434\u0438\u0442|\u0447\u0442\u043e\s+\u0434\u0435\u043b\u0430\u043b\u0438|\u043a\u0430\u043a\u0438\u0435\s+\u043f\u0440\u043e\u0431\u043b\u0435\u043c\u044b|\u043a\u0430\u043a\u0438\u0435\s+\u0440\u0438\u0441\u043a\u0438|\u043f\u043e\u0447\u0435\u043c\u0443|\u0447\u0442\u043e\s+\u0434\u0430\u043b\u044c\u0448\u0435|why|issues|risks|what next|what happened)/i.test(
+      text
+    );
+  if (isSemantic) return false;
+  return /(?:\u043f\u043b\u043e\u0449\u0430\u0434\u044c|\u043a\u0443\u043b\u044c\u0442\u0443\u0440\u0430|\u0441\u043e\u0440\u0442|\u0440\u0435\u043f\u0440\u043e\u0434\u0443\u043a\u0446|area|crop|variety|reproduction)/i.test(
+    text
+  );
+}
+
+function shouldUseFastPath(params: {
+  message: string;
+  intent: AssistantIntent;
+  engineMode: AssistantEngineMode;
+}): boolean {
+  if (params.engineMode === "tool_first") return false;
+  const text = String(params.message || "").toLowerCase();
+  if (isTicketLatestOrRecentQuestion(text)) return false;
+  if (isFieldSemanticQuery(text)) return false;
+
+  if (params.intent.name === "warehouse_count" && isSimpleCountQuestion(text)) return true;
+  if (params.intent.name === "fields_overview" && isSimpleCountQuestion(text)) return true;
+  if (params.intent.name === "navigation_help" && isExplicitOpenCommand(text)) return true;
+  if (params.intent.name === "weighbridge_tickets" && isActiveTicketsQuestion(text)) return true;
+  if (params.intent.name === "fields_overview" && (isFieldFactualQuery(text) || isFieldFactualQueryV2(text))) return true;
+
+  return false;
 }
 
 function formatInventoryRows(
@@ -1644,6 +1761,16 @@ export async function runAssistantEngine(params: {
   };
 
   const modelConfig = resolveAssistantModelConfig(settings);
+  const engineMode = resolveAssistantEngineMode();
+  const strictNavigationPolicy = String(process.env.ASSISTANT_NAV_POLICY_STRICT || "1") !== "0";
+  const enabledHybridDomains = resolveHybridDomains();
+  let decisionSource: AssistantDecisionSource = "router";
+  let explicitNavigationRequested = hasExplicitNavigationRequest(messageForRouting);
+  let navigationPolicy: "allowed" | "blocked" | "not_applicable" = "not_applicable";
+  let plannerAttempted = false;
+  let plannerSucceeded = false;
+  let legacyFallbackUsed = false;
+
   const emptyPerformance: AssistantEngineResult["performance"] = {
     promptTokens: null,
     completionTokens: null,
@@ -1691,6 +1818,9 @@ export async function runAssistantEngine(params: {
       sourceHints: [],
       answerSource: "disabled",
       grounded: false,
+      decisionSource,
+      explicitNavigationRequested,
+      navigationPolicy,
       model: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
@@ -1698,7 +1828,7 @@ export async function runAssistantEngine(params: {
         promptVersion: promptMeta.promptVersion,
         promptSource: promptMeta.promptSource,
         promptUpdatedAt: promptMeta.promptUpdatedAt,
-        requestMode: "tool_first",
+        requestMode: engineMode,
         llm: modelLlmNotCalled,
       },
       diagnostics: buildDiagnostics(),
@@ -1719,6 +1849,9 @@ export async function runAssistantEngine(params: {
       sourceHints: [],
       answerSource: "access_denied",
       grounded: false,
+      decisionSource,
+      explicitNavigationRequested,
+      navigationPolicy,
       model: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
@@ -1726,7 +1859,7 @@ export async function runAssistantEngine(params: {
         promptVersion: promptMeta.promptVersion,
         promptSource: promptMeta.promptSource,
         promptUpdatedAt: promptMeta.promptUpdatedAt,
-        requestMode: "tool_first",
+        requestMode: engineMode,
         llm: modelLlmNotCalled,
       },
       diagnostics: buildDiagnostics(),
@@ -1748,6 +1881,136 @@ export async function runAssistantEngine(params: {
   const expectedAnswerType = getExpectedAnswerType(intent.name);
   const selectedSource = getSelectedSource(intent.name);
   const previousRelatedMemory = summarizeMemoryForIntent(initialSessionState, intent.name);
+  const intentDomain = mapIntentToDomain(intent);
+  const hybridDomainEnabled =
+    enabledHybridDomains.has("all") || enabledHybridDomains.has(intentDomain) || enabledHybridDomains.has("general");
+  const fastPathEnabled = engineMode === "hybrid" && hybridDomainEnabled && shouldUseFastPath({
+    message: messageForRouting,
+    intent,
+    engineMode,
+  });
+  if (fastPathEnabled) decisionSource = "fast_path";
+
+  const shouldUsePlanner =
+    engineMode === "model_first" || (engineMode === "hybrid" && hybridDomainEnabled && !fastPathEnabled);
+
+  if (shouldUsePlanner) {
+    plannerAttempted = true;
+    decisionSource = "model";
+    const locale = runtimeContext.locale || "ru";
+    let llmPromptBundle = promptBundle;
+    let llmPromptMeta = promptMeta;
+    try {
+      const semanticMemory = await buildSemanticMemoryContext({
+        message,
+        mode: resolvedMode,
+        intentName: intent.name,
+        runtimeContext,
+      });
+      llmPromptBundle = resolveTravkinCorePrompt({
+        settings,
+        runtimeContext,
+        actorRole: actor.role,
+        locale,
+        semanticMemoryContext: semanticMemory.contextText,
+      });
+      llmPromptMeta = {
+        promptVersion: llmPromptBundle.version || TRAVKIN_CORE_PROMPT_VERSION,
+        promptSource: llmPromptBundle.source,
+        promptUpdatedAt: llmPromptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
+      };
+    } catch {
+      llmPromptBundle = promptBundle;
+      llmPromptMeta = promptMeta;
+    }
+
+    const modelStartedAt = Date.now();
+    const planner = await runModelOrchestrator({
+      message,
+      locale,
+      settings,
+      runtimeContext,
+      sessionState: initialSessionState,
+      intent,
+      systemPrompt: llmPromptBundle.text,
+      promptMeta: llmPromptMeta,
+      supabase,
+      actor,
+      companyId,
+    });
+    modelMs = Date.now() - modelStartedAt;
+
+    if (planner.ok) {
+      plannerSucceeded = true;
+      const navigationResult = applyNavigationPolicy({
+        message: messageForRouting,
+        actions: planner.navigationActions,
+        strict: strictNavigationPolicy,
+      });
+      explicitNavigationRequested = navigationResult.explicitNavigationRequested;
+      navigationPolicy = navigationResult.policy;
+
+      const validation = validateGroundedAnswer({
+        answer: planner.answer,
+        outputs: planner.outputs,
+        groundedRequired: looksLikeErpDataQuestion(messageForRouting),
+      });
+      let answer =
+        planner.outputs.length === 0 && looksLikeErpDataQuestion(messageForRouting)
+          ? noDataGroundedMessage()
+          : validation.normalizedAnswer;
+      if (
+        navigationResult.policy === "blocked" &&
+        /(открыл|открываю|перехожу|показываю страницу|i opened|opening)/i.test(String(answer).toLowerCase())
+      ) {
+        answer = "Данные показал. Если нужно, открою страницу по явной команде.";
+      }
+
+      return {
+        answer,
+        sessionState: { ...planner.sessionState, lastIntent: intent.name },
+        intent,
+        outputType: resolvedOutputType,
+        mode: resolvedMode,
+        toolCalls: planner.toolCalls,
+        toolActivity: planner.toolActivity,
+        navigationActions: navigationResult.actions,
+        sourceHints: uniqueStrings(planner.sourceHints),
+        answerSource: "model_grounded",
+        grounded: validation.pass,
+        decisionSource,
+        explicitNavigationRequested,
+        navigationPolicy,
+        model: {
+          configuredModel: modelConfig.configuredModel,
+          actualModel: planner.actualModel,
+          settingsSource: modelConfig.settingsSource,
+          promptVersion: llmPromptMeta.promptVersion,
+          promptSource: llmPromptMeta.promptSource,
+          promptUpdatedAt: llmPromptMeta.promptUpdatedAt,
+          requestMode: engineMode,
+          llm: planner.llm,
+        },
+        diagnostics: buildDiagnostics({
+          expectedAnswerType,
+          selectedSource,
+          selectedTool: planner.toolCalls[0]?.tool || null,
+          previousRelatedMemory,
+          consistencyCheck: validation.pass ? "pass" : "fail",
+          contradictionDetected: false,
+          correctionApplied: !validation.pass,
+        }),
+        performance: buildPerformance({
+          promptTokens: planner.usage.promptTokens,
+          completionTokens: planner.usage.completionTokens,
+          totalTokens: planner.usage.totalTokens,
+          modelMs,
+        }),
+      };
+    }
+
+    legacyFallbackUsed = true;
+  }
 
   if (isContradictionQuestion(messageForRouting)) {
     const correction = buildContradictionExplanation(initialSessionState);
@@ -1764,6 +2027,9 @@ export async function runAssistantEngine(params: {
         sourceHints: [],
         answerSource: "tools",
         grounded: true,
+        decisionSource,
+        explicitNavigationRequested,
+        navigationPolicy,
         model: {
           configuredModel: modelConfig.configuredModel,
           actualModel: null,
@@ -1771,7 +2037,7 @@ export async function runAssistantEngine(params: {
           promptVersion: promptMeta.promptVersion,
           promptSource: promptMeta.promptSource,
           promptUpdatedAt: promptMeta.promptUpdatedAt,
-          requestMode: "tool_first",
+          requestMode: engineMode,
           llm: modelLlmNotCalled,
         },
         diagnostics: buildDiagnostics({
@@ -1802,6 +2068,9 @@ export async function runAssistantEngine(params: {
       sourceHints: [],
       answerSource: "no_data",
       grounded: false,
+      decisionSource,
+      explicitNavigationRequested,
+      navigationPolicy,
       model: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
@@ -1809,7 +2078,7 @@ export async function runAssistantEngine(params: {
         promptVersion: promptMeta.promptVersion,
         promptSource: promptMeta.promptSource,
         promptUpdatedAt: promptMeta.promptUpdatedAt,
-        requestMode: "tool_first",
+        requestMode: engineMode,
         llm: modelLlmNotCalled,
       },
       diagnostics: buildDiagnostics({
@@ -1834,6 +2103,9 @@ export async function runAssistantEngine(params: {
       sourceHints: [],
       answerSource: "llm_fallback",
       grounded: false,
+      decisionSource,
+      explicitNavigationRequested,
+      navigationPolicy,
       model: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
@@ -1841,7 +2113,7 @@ export async function runAssistantEngine(params: {
         promptVersion: promptMeta.promptVersion,
         promptSource: promptMeta.promptSource,
         promptUpdatedAt: promptMeta.promptUpdatedAt,
-        requestMode: "tool_first",
+        requestMode: engineMode,
         llm: modelLlmNotCalled,
       },
       diagnostics: buildDiagnostics({
@@ -1927,8 +2199,16 @@ export async function runAssistantEngine(params: {
   toolMs = Date.now() - toolsStartedAt;
 
   const navigationActions = getNavigationActions({ intent, outputs });
+  const navigationResult = applyNavigationPolicy({
+    message: messageForRouting,
+    actions: navigationActions,
+    strict: strictNavigationPolicy,
+  });
+  explicitNavigationRequested = navigationResult.explicitNavigationRequested;
+  navigationPolicy = navigationResult.policy;
+  const allowedNavigationActions = navigationResult.actions;
   if (intent.name === "navigation_help") {
-    answerBlocks.unshift(buildNavigationAnswerV2(navigationActions, intent));
+    answerBlocks.unshift(buildNavigationAnswerV2(allowedNavigationActions, intent));
   }
 
   const toolActivity = buildToolActivityLogs(toolCalls);
@@ -1974,10 +2254,17 @@ export async function runAssistantEngine(params: {
       mode: resolvedMode,
       toolCalls,
       toolActivity,
-      navigationActions,
+      navigationActions: allowedNavigationActions,
       sourceHints: uniqueStrings(sourceHints),
-      answerSource: "tools",
+      answerSource: legacyFallbackUsed
+        ? "legacy_fallback"
+        : fastPathEnabled
+          ? "fast_path_template"
+          : "tools",
       grounded: true,
+      decisionSource,
+      explicitNavigationRequested,
+      navigationPolicy,
       model: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
@@ -1985,7 +2272,7 @@ export async function runAssistantEngine(params: {
         promptVersion: promptMeta.promptVersion,
         promptSource: promptMeta.promptSource,
         promptUpdatedAt: promptMeta.promptUpdatedAt,
-        requestMode: "tool_first",
+        requestMode: engineMode,
         llm: modelLlmNotCalled,
       },
       diagnostics: buildDiagnostics({
@@ -2027,10 +2314,13 @@ export async function runAssistantEngine(params: {
       mode: resolvedMode,
       toolCalls,
       toolActivity,
-      navigationActions,
+      navigationActions: allowedNavigationActions,
       sourceHints: uniqueStrings(sourceHints),
-      answerSource: "tool_error",
+      answerSource: legacyFallbackUsed ? "legacy_fallback" : "tool_error",
       grounded: false,
+      decisionSource,
+      explicitNavigationRequested,
+      navigationPolicy,
       model: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
@@ -2038,7 +2328,7 @@ export async function runAssistantEngine(params: {
         promptVersion: promptMeta.promptVersion,
         promptSource: promptMeta.promptSource,
         promptUpdatedAt: promptMeta.promptUpdatedAt,
-        requestMode: "tool_first",
+        requestMode: engineMode,
         llm: modelLlmNotCalled,
       },
       diagnostics: buildDiagnostics({
@@ -2066,10 +2356,13 @@ export async function runAssistantEngine(params: {
       mode: resolvedMode,
       toolCalls,
       toolActivity,
-      navigationActions,
+      navigationActions: allowedNavigationActions,
       sourceHints: uniqueStrings(sourceHints),
       answerSource: "policy_block",
       grounded: false,
+      decisionSource,
+      explicitNavigationRequested,
+      navigationPolicy,
       model: {
         configuredModel: modelConfig.configuredModel,
         actualModel: null,
@@ -2077,7 +2370,7 @@ export async function runAssistantEngine(params: {
         promptVersion: promptMeta.promptVersion,
         promptSource: promptMeta.promptSource,
         promptUpdatedAt: promptMeta.promptUpdatedAt,
-        requestMode: "tool_first",
+        requestMode: engineMode,
         llm: modelLlmNotCalled,
       },
       diagnostics: buildDiagnostics({
@@ -2141,10 +2434,13 @@ export async function runAssistantEngine(params: {
           : assistantMode,
     toolCalls,
     toolActivity,
-    navigationActions,
+    navigationActions: allowedNavigationActions,
     sourceHints: uniqueStrings(sourceHints),
-    answerSource: "llm_fallback",
+    answerSource: legacyFallbackUsed ? "legacy_fallback" : "llm_fallback",
     grounded: false,
+    decisionSource: legacyFallbackUsed ? "model" : decisionSource,
+    explicitNavigationRequested,
+    navigationPolicy,
     model: {
       configuredModel: modelConfig.configuredModel,
       actualModel: fallback.actualModel,
@@ -2152,7 +2448,7 @@ export async function runAssistantEngine(params: {
       promptVersion: fallback.promptMeta.promptVersion,
       promptSource: fallback.promptMeta.promptSource,
       promptUpdatedAt: fallback.promptMeta.promptUpdatedAt,
-      requestMode: "tool_first",
+      requestMode: engineMode,
       llm: fallback.llm,
     },
     diagnostics: buildDiagnostics({
