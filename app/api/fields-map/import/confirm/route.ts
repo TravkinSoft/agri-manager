@@ -51,6 +51,14 @@ function getPreviewRows(payload: unknown): FieldMapPreviewMatch[] {
         area_ha: toNumber(row.area_ha),
         geometry,
         match_status: row.match_status || "not_found",
+        match_stage:
+          row.match_stage === "auto_matched"
+            ? "auto_matched"
+            : row.match_stage === "manual_required"
+              ? "manual_required"
+              : "unmatched",
+        confidence_score: Number.isFinite(Number(row.confidence_score)) ? Number(row.confidence_score) : 0,
+        matched_by: normalizeText(row.matched_by) || null,
         field_id: isUuidLike(row.field_id) ? String(row.field_id) : null,
         field_display_name: normalizeText(row.field_display_name) || null,
         candidates: Array.isArray(row.candidates) ? row.candidates : [],

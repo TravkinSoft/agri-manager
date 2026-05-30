@@ -64,6 +64,100 @@ function parseBoolish(value: unknown): boolean {
   return text === "true" || text === "1" || text === "yes";
 }
 
+function isQaMarkerText(value: unknown): boolean {
+  const text = normalizeSearchText(value);
+  if (!text) return false;
+  return /qa[_\s-]*test[_\s-]*2026/i.test(text) || text.includes("qa_test_2026");
+}
+
+function isDebugOrTestDataAllowed(context: AssistantToolContext): boolean {
+  return (
+    parseBoolish(context.intent.parameters.include_test_data) ||
+    parseBoolish(context.intent.parameters.debug) ||
+    parseBoolish(context.intent.parameters.test_mode)
+  );
+}
+
+type AssistantSeasonScope = {
+  seasonYear: string | null;
+  seasonId: string | null;
+  source: string;
+  seasonStartIso: string | null;
+  seasonEndIso: string | null;
+};
+
+function toStartOfDayIso(value: unknown): string | null {
+  const text = cleanString(value);
+  if (!text) return null;
+  const withTime = text.includes("T") ? text : `${text}T00:00:00.000Z`;
+  const dt = new Date(withTime);
+  return Number.isNaN(dt.getTime()) ? null : dt.toISOString();
+}
+
+function toEndOfDayIso(value: unknown): string | null {
+  const text = cleanString(value);
+  if (!text) return null;
+  const withTime = text.includes("T") ? text : `${text}T23:59:59.999Z`;
+  const dt = new Date(withTime);
+  return Number.isNaN(dt.getTime()) ? null : dt.toISOString();
+}
+
+function seasonBoundariesFromYear(seasonYear: string | null): { start: string | null; end: string | null } {
+  const year = Number(seasonYear);
+  if (!Number.isFinite(year)) return { start: null, end: null };
+  const normalizedYear = Math.trunc(year);
+  return {
+    start: `${normalizedYear}-01-01T00:00:00.000Z`,
+    end: `${normalizedYear}-12-31T23:59:59.999Z`,
+  };
+}
+
+function isDateWithinSeasonRange(
+  value: unknown,
+  seasonStartIso: string | null,
+  seasonEndIso: string | null
+): boolean {
+  const text = cleanString(value);
+  if (!text) return false;
+  const dt = new Date(text);
+  if (Number.isNaN(dt.getTime())) return false;
+  const ts = dt.getTime();
+  const start = seasonStartIso ? new Date(seasonStartIso).getTime() : Number.NEGATIVE_INFINITY;
+  const end = seasonEndIso ? new Date(seasonEndIso).getTime() : Number.POSITIVE_INFINITY;
+  return ts >= start && ts <= end;
+}
+
+function matchesSeasonIdentity(
+  seasonScope: AssistantSeasonScope,
+  row: Record<string, unknown>,
+  options?: { allowDateFallback?: boolean; dateKeys?: string[] }
+): boolean {
+  const allowDateFallback = Boolean(options?.allowDateFallback);
+  const dateKeys = options?.dateKeys || ["date", "consumed_at", "finalized_at", "created_at"];
+  const rowSeasonId = cleanString((row as any).season_id);
+  if (seasonScope.seasonId && rowSeasonId) {
+    return rowSeasonId === seasonScope.seasonId;
+  }
+
+  const rowSeasonYear =
+    cleanString((row as any).season_year) ||
+    cleanString((row as any).season) ||
+    cleanString((row as any).year) ||
+    cleanString((row as any).harvest_year) ||
+    null;
+  if (seasonScope.seasonYear && rowSeasonYear) {
+    return String(rowSeasonYear) === String(seasonScope.seasonYear);
+  }
+
+  if (!allowDateFallback) return false;
+  for (const key of dateKeys) {
+    if (isDateWithinSeasonRange((row as any)[key], seasonScope.seasonStartIso, seasonScope.seasonEndIso)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function hasArchiveWords(value: unknown): boolean {
   const text = normalizeSearchText(value);
   if (!text) return false;
@@ -528,6 +622,100 @@ async function resolveSeasonContext(companyId: string, context: AssistantToolCon
   return { seasonYear: null, seasonId: null, source: "seasons_not_found" };
 }
 
+async function resolveSeasonScope(companyId: string, context: AssistantToolContext): Promise<AssistantSeasonScope> {
+  const base = await resolveSeasonContext(companyId, context);
+  let seasonYear = base.seasonYear || null;
+  let seasonId = base.seasonId || null;
+  let seasonStartIso: string | null = null;
+  let seasonEndIso: string | null = null;
+
+  if (seasonId) {
+    const byId = await context.supabase
+      .from("seasons")
+      .select("id,year,start_date,end_date")
+      .eq("company_id", companyId)
+      .eq("id", seasonId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!byId.error && byId.data) {
+      seasonYear = cleanString(byId.data.year) || seasonYear;
+      seasonStartIso = toStartOfDayIso((byId.data as any).start_date);
+      seasonEndIso = toEndOfDayIso((byId.data as any).end_date);
+    }
+  } else if (seasonYear) {
+    const yearNum = Number(seasonYear);
+    if (Number.isFinite(yearNum)) {
+      const byYear = await context.supabase
+        .from("seasons")
+        .select("id,year,start_date,end_date")
+        .eq("company_id", companyId)
+        .eq("year", Math.trunc(yearNum))
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!byYear.error && byYear.data) {
+        seasonId = cleanString(byYear.data.id) || seasonId;
+        seasonYear = cleanString(byYear.data.year) || seasonYear;
+        seasonStartIso = toStartOfDayIso((byYear.data as any).start_date);
+        seasonEndIso = toEndOfDayIso((byYear.data as any).end_date);
+      }
+    }
+  }
+
+  if (!seasonStartIso || !seasonEndIso) {
+    const boundaries = seasonBoundariesFromYear(seasonYear);
+    seasonStartIso = seasonStartIso || boundaries.start;
+    seasonEndIso = seasonEndIso || boundaries.end;
+  }
+
+  return {
+    seasonYear,
+    seasonId,
+    source: base.source,
+    seasonStartIso,
+    seasonEndIso,
+  };
+}
+
+async function queryLookupRowsById(
+  context: AssistantToolContext,
+  table: string,
+  select: string,
+  ids: string[],
+  strictActive: boolean
+): Promise<any[]> {
+  if (!ids.length) return [];
+
+  const attempts = strictActive
+    ? [
+        () => context.supabase.from(table).select(select).in("id", ids).eq("archived", false).eq("is_active", true),
+        () => context.supabase.from(table).select(select).in("id", ids).eq("archived", false),
+        () => context.supabase.from(table).select(select).in("id", ids).eq("is_active", true),
+        () => context.supabase.from(table).select(select).in("id", ids),
+      ]
+    : [() => context.supabase.from(table).select(select).in("id", ids)];
+
+  let lastError: string | null = null;
+  for (const attempt of attempts) {
+    const res: any = await attempt();
+    if (!res.error) {
+      return res.data || [];
+    }
+    const message = String(res.error?.message || res.error || "");
+    lastError = message;
+    if (isMissingRelationError(message)) {
+      continue;
+    }
+  }
+
+  if (lastError) {
+    throw new Error(lastError);
+  }
+  return [];
+}
+
 async function buildLookupMaps(
   context: AssistantToolContext,
   ids: {
@@ -538,26 +726,34 @@ async function buildLookupMaps(
     reproductions?: string[];
     fields?: string[];
     fuelSources?: string[];
-  }
+  },
+  options?: { strictActive?: boolean }
 ) {
+  const strictActive = Boolean(options?.strictActive);
   const [warehousesRes, productsRes, cropsRes, varietiesRes, reproductionsRes, fieldsRes, fuelSourcesRes] = await Promise.all([
     (ids.warehouses || []).length
       ? context.supabase.from("warehouses").select("id,name").in("id", ids.warehouses as string[])
       : Promise.resolve({ data: [], error: null } as any),
     (ids.products || []).length
-      ? context.supabase.from("products").select("id,name,trade_name").in("id", ids.products as string[])
+      ? queryLookupRowsById(context, "products", "id,name,trade_name", ids.products as string[], strictActive)
       : Promise.resolve({ data: [], error: null } as any),
     (ids.crops || []).length
-      ? context.supabase.from("crops").select("id,name,name_ru,name_en").in("id", ids.crops as string[])
+      ? queryLookupRowsById(context, "crops", "id,name,name_ru,name_en", ids.crops as string[], strictActive)
       : Promise.resolve({ data: [], error: null } as any),
     (ids.varieties || []).length
-      ? context.supabase.from("varieties").select("id,name").in("id", ids.varieties as string[])
+      ? queryLookupRowsById(context, "varieties", "id,name", ids.varieties as string[], strictActive)
       : Promise.resolve({ data: [], error: null } as any),
     (ids.reproductions || []).length
-      ? context.supabase.from("seed_reproductions").select("id,name").in("id", ids.reproductions as string[])
+      ? queryLookupRowsById(context, "seed_reproductions", "id,name", ids.reproductions as string[], strictActive)
       : Promise.resolve({ data: [], error: null } as any),
     (ids.fields || []).length
-      ? context.supabase.from("fields").select("id,name,notes").in("id", ids.fields as string[])
+      ? (strictActive
+          ? context.supabase
+              .from("fields")
+              .select("id,name,notes")
+              .in("id", ids.fields as string[])
+              .eq("archived", false)
+          : context.supabase.from("fields").select("id,name,notes").in("id", ids.fields as string[]))
       : Promise.resolve({ data: [], error: null } as any),
     (ids.fuelSources || []).length
       ? context.supabase.from("fuel_sources").select("id,name").in("id", ids.fuelSources as string[])
@@ -565,29 +761,33 @@ async function buildLookupMaps(
   ]);
 
   const byWarehouse = new Map<string, string>();
-  (warehousesRes.data || []).forEach((row: any) => byWarehouse.set(String(row.id), String(row.name || row.id)));
+  (warehousesRes.data || warehousesRes || []).forEach((row: any) => byWarehouse.set(String(row.id), String(row.name || row.id)));
 
   const byProduct = new Map<string, string>();
-  (productsRes.data || []).forEach((row: any) =>
+  (productsRes.data || productsRes || []).forEach((row: any) =>
     byProduct.set(String(row.id), String(row.trade_name || row.name || row.id))
   );
 
   const byCrop = new Map<string, string>();
-  (cropsRes.data || []).forEach((row: any) =>
+  (cropsRes.data || cropsRes || []).forEach((row: any) =>
     byCrop.set(String(row.id), String(row.name_ru || row.name || row.name_en || row.id))
   );
 
   const byVariety = new Map<string, string>();
-  (varietiesRes.data || []).forEach((row: any) => byVariety.set(String(row.id), String(row.name || row.id)));
+  (varietiesRes.data || varietiesRes || []).forEach((row: any) => byVariety.set(String(row.id), String(row.name || row.id)));
 
   const byReproduction = new Map<string, string>();
-  (reproductionsRes.data || []).forEach((row: any) => byReproduction.set(String(row.id), String(row.name || row.id)));
+  (reproductionsRes.data || reproductionsRes || []).forEach((row: any) =>
+    byReproduction.set(String(row.id), String(row.name || row.id))
+  );
 
   const byField = new Map<string, string>();
-  (fieldsRes.data || []).forEach((row: any) => byField.set(String(row.id), getFieldDisplayName(row) || String(row.id)));
+  (fieldsRes.data || fieldsRes || []).forEach((row: any) =>
+    byField.set(String(row.id), getFieldDisplayName(row) || String(row.id))
+  );
 
   const byFuelSource = new Map<string, string>();
-  (fuelSourcesRes.data || []).forEach((row: any) => byFuelSource.set(String(row.id), String(row.name || row.id)));
+  (fuelSourcesRes.data || fuelSourcesRes || []).forEach((row: any) => byFuelSource.set(String(row.id), String(row.name || row.id)));
 
   return { byWarehouse, byProduct, byCrop, byVariety, byReproduction, byField, byFuelSource };
 }
@@ -635,12 +835,14 @@ async function resolveBestFieldMatches(
   context: AssistantToolContext,
   rawQuery: string,
   maxRows = 6
-): Promise<Array<{ id: string; name: string; area: number; notes: string | null; score: number }>> {
+): Promise<
+  Array<{ id: string; name: string; displayName: string; area: number; notes: string | null; score: number; reason: string }>
+> {
   const query = normalizeSearchText(rawQuery);
   if (!query) return [];
   const code = extractFieldCode(rawQuery);
   const exactQuery = cleanString(rawQuery);
-  const byId = new Map<string, { id: string; name: string; area: number; notes: string | null }>();
+  const byId = new Map<string, { id: string; name: string; displayName: string; area: number; notes: string | null }>();
 
   const exactTerms = uniqueStrings([exactQuery, code]);
   for (const term of exactTerms) {
@@ -658,6 +860,7 @@ async function resolveBestFieldMatches(
         byId.set(id, {
           id,
           name: String(row.name || row.id),
+          displayName: getFieldDisplayName(row) || String(row.name || row.id),
           area: Number(row.area || 0),
           notes: cleanString(row.notes),
         });
@@ -682,36 +885,135 @@ async function resolveBestFieldMatches(
       byId.set(id, {
         id,
         name: String(row.name || row.id),
+        displayName: getFieldDisplayName(row) || String(row.name || row.id),
         area: Number(row.area || 0),
         notes: cleanString(row.notes),
       });
     }
   });
 
-  const scoreField = (nameRaw: unknown): number => {
+  const scoreField = (nameRaw: unknown, displayRaw: unknown): { score: number; reason: string } => {
     const name = normalizeSearchText(nameRaw);
-    if (!name) return 0;
+    const display = normalizeSearchText(displayRaw);
+    if (!name) return { score: 0, reason: "empty_name" };
     let score = 0;
+    const reasons: string[] = [];
 
     if (code) {
-      if (name === code) score += 500;
-      if (name.startsWith(`${code} `) || name.startsWith(`${code}-`) || name.includes(` ${code} `)) score += 300;
+      if (display === code) {
+        score += 900;
+        reasons.push("display_exact_code");
+      }
+      if (name === code) {
+        score += 500;
+        reasons.push("name_exact_code");
+      }
+      if (name.startsWith(`${code} `) || name.startsWith(`${code}-`) || name.includes(` ${code} `)) {
+        score += 300;
+        reasons.push("name_contains_code");
+      }
     }
-    if (name === query) score += 240;
-    if (name.startsWith(query)) score += 140;
-    if (name.includes(query)) score += 80;
+    if (display === query) {
+      score += 800;
+      reasons.push("display_exact_query");
+    }
+    if (name === query) {
+      score += 240;
+      reasons.push("name_exact_query");
+    }
+    if (name.startsWith(query)) {
+      score += 140;
+      reasons.push("name_starts_query");
+    }
+    if (name.includes(query)) {
+      score += 80;
+      reasons.push("name_contains_query");
+    }
 
-    return score;
+    return { score, reason: reasons.join("|") || "score_0" };
   };
 
   return Array.from(byId.values())
-    .map((row) => ({
-      ...row,
-      score: scoreField(row.name),
-    }))
+    .map((row) => {
+      const scored = scoreField(row.name, row.displayName);
+      return {
+        ...row,
+        score: scored.score,
+        reason: scored.reason,
+      };
+    })
     .filter((row) => row.score > 0)
-    .sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name, "ru"))
+    .sort((a, b) => (b.score - a.score) || a.displayName.localeCompare(b.displayName, "ru") || a.name.localeCompare(b.name, "ru"))
     .slice(0, maxRows);
+}
+
+async function resolveFieldSelection(
+  context: AssistantToolContext,
+  rawQuery: string | null,
+  maxRows = 8
+): Promise<{
+  selected: { id: string; name: string; displayName: string; area: number; notes: string | null } | null;
+  candidates: Array<{ id: string; name: string; displayName: string; area: number; notes: string | null; score: number; reason: string }>;
+  ambiguityReason: string | null;
+}> {
+  if (!cleanString(rawQuery)) {
+    return { selected: null, candidates: [], ambiguityReason: null };
+  }
+
+  const query = normalizeSearchText(rawQuery);
+  const matches = await resolveBestFieldMatches(context, String(rawQuery), maxRows);
+  if (!matches.length) {
+    return { selected: null, candidates: [], ambiguityReason: null };
+  }
+
+  const selectedFieldIdFromContext =
+    cleanString(context.runtimeContext.selectedFieldId) ||
+    cleanString(context.runtimeContext.selectedEntityId) ||
+    cleanString(context.runtimeContext.entity?.id);
+
+  const displayExact = matches.filter((item) => normalizeSearchText(item.displayName) === query);
+  if (displayExact.length === 1) {
+    return { selected: displayExact[0], candidates: matches, ambiguityReason: null };
+  }
+  if (displayExact.length > 1) {
+    if (selectedFieldIdFromContext) {
+      const contextual = displayExact.find((item) => item.id === selectedFieldIdFromContext);
+      if (contextual) {
+        return { selected: contextual, candidates: matches, ambiguityReason: null };
+      }
+    }
+    return { selected: null, candidates: displayExact, ambiguityReason: "multiple_segments_for_display_key" };
+  }
+
+  const rawExact = matches.filter((item) => normalizeSearchText(item.name) === query);
+  if (rawExact.length === 1) {
+    return { selected: rawExact[0], candidates: matches, ambiguityReason: null };
+  }
+
+  if (rawExact.length > 1) {
+    if (selectedFieldIdFromContext) {
+      const contextual = rawExact.find((item) => item.id === selectedFieldIdFromContext);
+      if (contextual) {
+        return { selected: contextual, candidates: matches, ambiguityReason: null };
+      }
+    }
+    return { selected: null, candidates: rawExact, ambiguityReason: "multiple_exact_raw_matches" };
+  }
+
+  const bestScore = matches[0].score;
+  const topGroup = matches.filter((item) => item.score === bestScore);
+  const segmentAgnosticNumericQuery = /^\d{1,3}$/u.test(query);
+  if (segmentAgnosticNumericQuery && topGroup.length > 1) {
+    if (selectedFieldIdFromContext) {
+      const contextual = topGroup.find((item) => item.id === selectedFieldIdFromContext);
+      if (contextual) {
+        return { selected: contextual, candidates: matches, ambiguityReason: null };
+      }
+    }
+    return { selected: null, candidates: topGroup, ambiguityReason: "multiple_segment_candidates" };
+  }
+
+  return { selected: matches[0], candidates: matches, ambiguityReason: null };
 }
 
 async function resolveSingleFieldMatch(
@@ -719,9 +1021,9 @@ async function resolveSingleFieldMatch(
   rawQuery: string | null
 ): Promise<{ id: string; name: string; area: number; notes: string | null } | null> {
   if (!cleanString(rawQuery)) return null;
-  const matched = await resolveBestFieldMatches(context, String(rawQuery), 1);
-  if (!matched.length) return null;
-  const first = matched[0];
+  const resolved = await resolveFieldSelection(context, String(rawQuery), 6);
+  if (!resolved.selected) return null;
+  const first = resolved.selected;
   return {
     id: first.id,
     name: first.name,
@@ -3207,6 +3509,8 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
   domains: ["fields", "operations", "inventory", "weighbridge"],
   run: async (context) => {
     const query = parseFieldQueryFromContextV2(context);
+    const seasonScope = await resolveSeasonScope(context.companyId, context);
+    const seasonLabel = seasonScope.seasonYear || DEFAULT_SEASON_YEAR;
     if (!query) {
       return {
         title: "Карточка поля",
@@ -3236,7 +3540,35 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
       };
     }
 
-    const matchedField = await resolveSingleFieldMatch(context, query);
+    const allowTestData = isDebugOrTestDataAllowed(context);
+    const selection = await resolveFieldSelection(context, query, 10);
+    if (!selection.selected && selection.ambiguityReason && selection.candidates.length > 1) {
+      return {
+        title: "РљР°СЂС‚РѕС‡РєР° РїРѕР»СЏ",
+        rows: selection.candidates.slice(0, 8).map((item) => ({
+          field_id: item.id,
+          field_name: item.displayName,
+          field_segment: item.name,
+          area_ha: Number(item.area || 0),
+          selection_reason: "ambiguous_segments",
+        })),
+        source: {
+          module: "fields",
+          tableOrView: "fields (field_card resolver)",
+          season: seasonLabel,
+          fetchedAt: nowIso(),
+        },
+        summary: "РќР°Р№РґРµРЅРѕ РЅРµСЃРєРѕР»СЊРєРѕ СЃРµРіРјРµРЅС‚РѕРІ РїРѕР»СЏ. РЈС‚РѕС‡РЅРёС‚Рµ РїРѕРґРїРѕР»Рµ (РЅР°РїСЂРёРјРµСЂ, 28-1).",
+      };
+    }
+    const matchedField = selection.selected
+      ? {
+          id: selection.selected.id,
+          name: selection.selected.name,
+          area: selection.selected.area,
+          notes: selection.selected.notes,
+        }
+      : null;
     if (!matchedField) {
       return {
         title: "РљР°СЂС‚РѕС‡РєР° РїРѕР»СЏ",
@@ -3252,89 +3584,226 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
     }
 
     const fieldId = String(matchedField.id);
+    const fieldLabel = getFieldDisplayName({ name: matchedField.name, notes: matchedField.notes } as any) || matchedField.name;
+    logToolEvent(context, "get_field_card", "start", {
+      input_args: context.intent.parameters,
+      resolved_field_query: query,
+      resolved_field_id: fieldId,
+      resolved_season: seasonLabel,
+      resolved_season_id: seasonScope.seasonId,
+      season_source: seasonScope.source,
+      query_used:
+        "fields + operations(season scope) + crop_structure(plan scope) + field_material_consumptions(fact scope) + tickets(harvest only)",
+      rls_acl_result: inferAclResult(context),
+    });
     const [opsRes, allocRes, consumptionRes, ticketRes] = await Promise.all([
       context.supabase
         .from("operations")
-        .select("id,status")
+        .select("id,status,work_status,date,created_at,crop_structure_id")
         .eq("company_id", context.companyId)
         .eq("archived", false)
-        .eq("field_id", fieldId),
+        .eq("field_id", fieldId)
+        .limit(1200),
       context.supabase
         .from("crop_structure")
-        .select("crop_id,variety_id,reproduction_id,area")
+        .select("*")
         .eq("company_id", context.companyId)
         .eq("archived", false)
         .eq("field_id", fieldId)
-        .limit(120),
+        .limit(800),
       context.supabase
         .from("field_material_consumptions")
-        .select("quantity_kg")
+        .select("product_id,quantity_kg,season_id,consumed_at,notes")
         .eq("company_id", context.companyId)
         .eq("field_id", fieldId)
-        .limit(600),
+        .limit(2400),
       context.supabase
         .from("tickets")
-        .select("net_weight_kg")
+        .select("season_id,harvest_year,net_weight_kg,finalized_at,created_at,op_type,is_finalized,is_voided")
         .eq("company_id", context.companyId)
         .eq("field_id", fieldId)
         .eq("is_voided", false)
-        .limit(300),
+        .eq("op_type", "harvest_incoming")
+        .eq("is_finalized", true)
+        .limit(1200),
     ]);
 
-    const allocations = allocRes.error ? [] : allocRes.data || [];
+    if (opsRes.error) throw new Error(opsRes.error.message);
+    if (allocRes.error) throw new Error(allocRes.error.message);
+    if (consumptionRes.error) throw new Error(consumptionRes.error.message);
+    if (ticketRes.error) throw new Error(ticketRes.error.message);
+
+    const rawAllocations = allocRes.data || [];
+    const allocationsBySeason = rawAllocations.filter((row: any) =>
+      matchesSeasonIdentity(seasonScope, row as Record<string, unknown>, { allowDateFallback: false })
+    );
+    const allocations = allocationsBySeason.filter((row: any) => {
+      if (allowTestData) return true;
+      return !isQaMarkerText(row.notes);
+    });
     const crops = new Set<string>();
     const varieties = new Set<string>();
     const reproductions = new Set<string>();
-    const lookup = await buildLookupMaps(context, {
-      crops: Array.from(new Set(allocations.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
-      products: Array.from(new Set(allocations.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
-      varieties: Array.from(new Set(allocations.map((x: any) => String(x.variety_id || "")).filter(Boolean))),
-      reproductions: Array.from(new Set(allocations.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
-    });
+    const lookup = await buildLookupMaps(
+      context,
+      {
+        crops: Array.from(new Set(allocations.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
+        products: Array.from(new Set(allocations.map((x: any) => String(x.crop_id || "")).filter(Boolean))),
+        varieties: Array.from(new Set(allocations.map((x: any) => String(x.variety_id || "")).filter(Boolean))),
+        reproductions: Array.from(new Set(allocations.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
+      },
+      { strictActive: true }
+    );
 
     allocations.forEach((row: any) => {
       const cropId = cleanString(row.crop_id);
       const varietyId = cleanString(row.variety_id);
       const reproductionId = cleanString(row.reproduction_id);
-      if (cropId) crops.add(lookup.byCrop.get(cropId) || lookup.byProduct.get(cropId) || cropId);
-      if (varietyId) varieties.add(lookup.byVariety.get(varietyId) || varietyId);
-      if (reproductionId) reproductions.add(lookup.byReproduction.get(reproductionId) || reproductionId);
+      if (cropId) {
+        const cropName = lookup.byCrop.get(cropId) || lookup.byProduct.get(cropId);
+        if (cropName) crops.add(cropName);
+      }
+      if (varietyId) {
+        const varietyName = lookup.byVariety.get(varietyId);
+        if (varietyName) varieties.add(varietyName);
+      }
+      if (reproductionId) {
+        const reproductionName = lookup.byReproduction.get(reproductionId);
+        if (reproductionName) reproductions.add(reproductionName);
+      }
     });
 
-    const issuedKg = (consumptionRes.error ? [] : consumptionRes.data || []).reduce((acc: number, row: any) => {
+    const rawConsumptions = consumptionRes.data || [];
+    const consumptionsBySeason = rawConsumptions.filter((row: any) =>
+      matchesSeasonIdentity(seasonScope, row as Record<string, unknown>, {
+        allowDateFallback: true,
+        dateKeys: ["consumed_at", "created_at"],
+      })
+    );
+    const productLookup = await buildLookupMaps(
+      context,
+      {
+        products: Array.from(new Set(consumptionsBySeason.map((x: any) => String(x.product_id || "")).filter(Boolean))),
+      },
+      { strictActive: true }
+    );
+    const consumptions = consumptionsBySeason.filter((row: any) => {
+      const productId = cleanString(row.product_id);
+      const productName = productId ? productLookup.byProduct.get(productId) : null;
+      if (productId && !productName) return false;
+      if (allowTestData) return true;
+      return !isQaMarkerText(productName) && !isQaMarkerText(row.notes);
+    });
+    const issuedKg = consumptions.reduce((acc: number, row: any) => {
       const qty = Number(row.quantity_kg || 0);
       return acc + (Number.isFinite(qty) ? Math.abs(qty) : 0);
     }, 0);
 
-    const harvestKg = (ticketRes.error ? [] : ticketRes.data || []).reduce((acc: number, row: any) => {
+    const rawTickets = ticketRes.data || [];
+    const harvestTickets = rawTickets.filter((row: any) =>
+      matchesSeasonIdentity(seasonScope, row as Record<string, unknown>, {
+        allowDateFallback: true,
+        dateKeys: ["finalized_at", "created_at"],
+      })
+    );
+    const harvestKg = harvestTickets.reduce((acc: number, row: any) => {
       const qty = Number(row.net_weight_kg || 0);
       return acc + (Number.isFinite(qty) ? qty : 0);
     }, 0);
 
-    const activeOperations = (opsRes.error ? [] : opsRes.data || []).filter((item: any) => {
+    const rawOperations = opsRes.data || [];
+    const cropStructureIds = Array.from(
+      new Set(rawOperations.map((row: any) => cleanString(row.crop_structure_id)).filter(Boolean))
+    ) as string[];
+    let seasonCropStructureIds = new Set<string>();
+    if (cropStructureIds.length > 0) {
+      const opStructureRes = await context.supabase
+        .from("crop_structure")
+        .select("*")
+        .in("id", cropStructureIds)
+        .eq("company_id", context.companyId)
+        .eq("archived", false)
+        .limit(2400);
+      if (opStructureRes.error) throw new Error(opStructureRes.error.message);
+      seasonCropStructureIds = new Set(
+        (opStructureRes.data || [])
+          .filter((row: any) => matchesSeasonIdentity(seasonScope, row as Record<string, unknown>, { allowDateFallback: false }))
+          .filter((row: any) => (allowTestData ? true : !isQaMarkerText(row.notes)))
+          .map((row: any) => String(row.id))
+      );
+    }
+    const operations = rawOperations.filter((row: any) => {
+      const cropStructureId = cleanString(row.crop_structure_id);
+      if (cropStructureId) return seasonCropStructureIds.has(cropStructureId);
+      return matchesSeasonIdentity(seasonScope, row as Record<string, unknown>, {
+        allowDateFallback: true,
+        dateKeys: ["date", "created_at"],
+      });
+    });
+
+    const activeOperations = operations.filter((item: any) => {
       const status = cleanString(item.status)?.toLowerCase() || "";
       return !["completed", "verified", "cancelled"].includes(status);
     }).length;
+
+    logToolEvent(context, "get_field_card", "success", {
+      resolved_field_id: fieldId,
+      resolved_season: seasonLabel,
+      resolved_season_id: seasonScope.seasonId,
+      rows_count: 1,
+      plan_rows_count: allocations.length,
+      fact_operations_rows_count: operations.length,
+      fact_material_rows_count: consumptions.length,
+      fact_harvest_ticket_rows_count: harvestTickets.length,
+      qa_filtered_plan_rows: allocationsBySeason.length - allocations.length,
+      qa_filtered_rows: consumptionsBySeason.length - consumptions.length,
+      rls_acl_result: inferAclResult(context),
+    });
 
     return {
       title: "Карточка поля",
       rows: [
         {
           field_id: fieldId,
-          field_name: matchedField.name,
+          field_name: fieldLabel,
+          field_segment: matchedField.name,
           area_ha: Number(matchedField.area || 0),
+          season_year: seasonLabel,
+          season_id: seasonScope.seasonId,
+          plan: {
+            crops: Array.from(crops).sort(),
+            varieties: Array.from(varieties).sort(),
+            reproductions: Array.from(reproductions).sort(),
+          },
+          fact: {
+            active_operations_count: activeOperations,
+            material_issued_kg: Number(issuedKg.toFixed(3)),
+            harvest_net_kg: Number(harvestKg.toFixed(3)),
+          },
           crops: Array.from(crops).sort(),
           varieties: Array.from(varieties).sort(),
           reproductions: Array.from(reproductions).sort(),
           active_operations_count: activeOperations,
           material_issued_kg: Number(issuedKg.toFixed(3)),
           harvest_net_kg: Number(harvestKg.toFixed(3)),
+          debug_meta: {
+            season_source: seasonScope.source,
+            plan_rows_count: allocations.length,
+            fact_rows_count: {
+              operations: operations.length,
+              materials: consumptions.length,
+              harvest_tickets: harvestTickets.length,
+            },
+            qa_filtered_rows: consumptionsBySeason.length - consumptions.length,
+            qa_filtered_plan_rows: allocationsBySeason.length - allocations.length,
+          },
         },
       ],
       source: {
         module: "fields",
-        tableOrView: "fields + operations + crop_structure + field_material_consumptions + tickets",
-        season: context.runtimeContext.season,
+        tableOrView:
+          "fields + operations(season scoped) + crop_structure(plan) + field_material_consumptions(fact) + tickets(harvest_incoming finalized)",
+        season: seasonLabel,
         fetchedAt: nowIso(),
       },
     };
@@ -3347,6 +3816,8 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
   domains: ["fields", "operations", "inventory", "weighbridge"],
   run: async (context) => {
     const query = parseFieldQueryFromContextV2(context);
+    const seasonScope = await resolveSeasonScope(context.companyId, context);
+    const seasonLabel = seasonScope.seasonYear || DEFAULT_SEASON_YEAR;
     if (!query) {
       return {
         title: "Timeline поля",
@@ -3354,7 +3825,7 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
         source: {
           module: "fields",
           tableOrView: "field_timeline",
-          season: context.runtimeContext.season,
+          season: seasonLabel,
           fetchedAt: nowIso(),
         },
       };
@@ -3367,12 +3838,39 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
         source: {
           module: "fields",
           tableOrView: "field_timeline",
-          season: context.runtimeContext.season,
+          season: seasonLabel,
           fetchedAt: nowIso(),
         },
       };
     }
-    const matchedField = await resolveSingleFieldMatch(context, query);
+    const allowTestData = isDebugOrTestDataAllowed(context);
+    const selection = await resolveFieldSelection(context, query, 10);
+    if (!selection.selected && selection.ambiguityReason && selection.candidates.length > 1) {
+      return {
+        title: "РњР°С‚РµСЂРёР°Р»С‹ РїРѕР»СЏ",
+        rows: selection.candidates.slice(0, 8).map((item) => ({
+          field_id: item.id,
+          field_name: item.displayName,
+          field_segment: item.name,
+          area_ha: Number(item.area || 0),
+          selection_reason: "ambiguous_segments",
+        })),
+        source: {
+          module: "fields",
+          tableOrView: "field_timeline resolver",
+          season: seasonLabel,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+    const matchedField = selection.selected
+      ? {
+          id: selection.selected.id,
+          name: selection.selected.name,
+          area: selection.selected.area,
+          notes: selection.selected.notes,
+        }
+      : null;
     if (!matchedField) {
       return {
         title: "Timeline РїРѕР»СЏ",
@@ -3380,7 +3878,7 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
         source: {
           module: "fields",
           tableOrView: "field_timeline",
-          season: context.runtimeContext.season,
+          season: seasonLabel,
           fetchedAt: nowIso(),
         },
       };
@@ -3471,6 +3969,8 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
   domains: ["fields", "inventory", "ledger"],
   run: async (context) => {
     const query = parseFieldQueryFromContextV2(context);
+    const seasonScope = await resolveSeasonScope(context.companyId, context);
+    const seasonLabel = seasonScope.seasonYear || DEFAULT_SEASON_YEAR;
     if (!query) {
       return {
         title: "Материалы поля",
@@ -3478,7 +3978,7 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
         source: {
           module: "fields",
           tableOrView: "field_materials",
-          season: context.runtimeContext.season,
+          season: seasonLabel,
           fetchedAt: nowIso(),
         },
       };
@@ -3490,13 +3990,40 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
         source: {
           module: "fields",
           tableOrView: "field_materials",
-          season: context.runtimeContext.season,
+          season: seasonLabel,
           fetchedAt: nowIso(),
         },
       };
     }
 
-    const matchedField = await resolveSingleFieldMatch(context, query);
+    const allowTestData = isDebugOrTestDataAllowed(context);
+    const selection = await resolveFieldSelection(context, query, 10);
+    if (!selection.selected && selection.ambiguityReason && selection.candidates.length > 1) {
+      return {
+        title: "РњР°С‚РµСЂРёР°Р»С‹ РїРѕР»СЏ",
+        rows: selection.candidates.slice(0, 8).map((item) => ({
+          field_id: item.id,
+          field_name: item.displayName,
+          field_segment: item.name,
+          area_ha: Number(item.area || 0),
+          selection_reason: "ambiguous_segments",
+        })),
+        source: {
+          module: "fields",
+          tableOrView: "field_materials resolver",
+          season: seasonLabel,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
+    const matchedField = selection.selected
+      ? {
+          id: selection.selected.id,
+          name: selection.selected.name,
+          area: selection.selected.area,
+          notes: selection.selected.notes,
+        }
+      : null;
     if (!matchedField) {
       return {
         title: "РњР°С‚РµСЂРёР°Р»С‹ РїРѕР»СЏ",
@@ -3504,7 +4031,7 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
         source: {
           module: "fields",
           tableOrView: "field_materials",
-          season: context.runtimeContext.season,
+          season: seasonLabel,
           fetchedAt: nowIso(),
         },
       };
@@ -3513,23 +4040,34 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
     const fieldId = String(matchedField.id);
     const consumptionsRes = await context.supabase
       .from("field_material_consumptions")
-      .select("product_id,quantity_kg")
+      .select("product_id,quantity_kg,season_id,consumed_at,notes")
       .eq("company_id", context.companyId)
       .eq("field_id", fieldId)
       .limit(2000);
     if (consumptionsRes.error) throw new Error(consumptionsRes.error.message);
-    const raw = consumptionsRes.data || [];
-    const lookup = await buildLookupMaps(context, {
-      products: Array.from(new Set(raw.map((x: any) => String(x.product_id || "")).filter(Boolean))),
-    });
+    const raw = (consumptionsRes.data || []).filter((row: any) =>
+      matchesSeasonIdentity(seasonScope, row as Record<string, unknown>, {
+        allowDateFallback: true,
+        dateKeys: ["consumed_at", "created_at"],
+      })
+    );
+    const lookup = await buildLookupMaps(
+      context,
+      {
+        products: Array.from(new Set(raw.map((x: any) => String(x.product_id || "")).filter(Boolean))),
+      },
+      { strictActive: true }
+    );
 
     const grouped = new Map<string, number>();
     raw.forEach((row: any) => {
       // field_material_consumptions already stores factual issued quantities for a field.
       const productId = cleanString(row.product_id);
-      const product = productId ? lookup.byProduct.get(productId) || productId : "Материал";
+      const product = productId ? lookup.byProduct.get(productId) : null;
+      if (productId && !product) return;
+      if (!allowTestData && (isQaMarkerText(product) || isQaMarkerText(row.notes))) return;
       const qtyAbs = Number(row.quantity_kg || 0);
-      grouped.set(product, (grouped.get(product) || 0) + Math.abs(Number.isFinite(qtyAbs) ? qtyAbs : 0));
+      grouped.set(product || "Материал", (grouped.get(product || "Материал") || 0) + Math.abs(Number.isFinite(qtyAbs) ? qtyAbs : 0));
     });
 
     return {
@@ -3541,7 +4079,7 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
       source: {
         module: "fields",
         tableOrView: "field_material_consumptions",
-        season: context.runtimeContext.season,
+        season: seasonLabel,
         fetchedAt: nowIso(),
       },
     };

@@ -14,6 +14,7 @@ export type GeoJsonMultiPolygon = {
 export type GeoJsonGeometry = GeoJsonPolygon | GeoJsonMultiPolygon;
 
 export type MapMatchStatus = "matched" | "ambiguous" | "not_found";
+export type MapMatchStage = "auto_matched" | "manual_required" | "unmatched";
 export type FieldMapImportStatus = "draft" | "imported" | "archived" | "failed";
 
 export interface ParsedKmlPolygonInput {
@@ -29,6 +30,9 @@ export interface FieldMapPreviewMatch {
   area_ha: number | null;
   geometry: GeoJsonGeometry;
   match_status: MapMatchStatus;
+  match_stage: MapMatchStage;
+  confidence_score: number;
+  matched_by: string | null;
   field_id: string | null;
   field_display_name: string | null;
   candidates: Array<{
@@ -76,6 +80,7 @@ export interface FieldMapFieldCard {
     date: string | null;
     status: string | null;
   }>;
+  work_status: "not_started" | "in_progress" | "completed" | "problem" | "no_data";
 }
 
 export interface FieldsMapBootstrapPayload {
@@ -83,4 +88,20 @@ export interface FieldsMapBootstrapPayload {
   seasons: Array<{ id: string; year: number; name: string | null }>;
   selected_season_id: string | null;
   fields: FieldMapFieldCard[];
+}
+
+export interface FieldMapPreviewDiagnostics {
+  request_id: string;
+  preview_status: "success" | "error";
+  company_id: string;
+  season_id: string | null;
+  file_name: string;
+  file_size_bytes: number;
+  polygons_received: number;
+  polygons_valid: number;
+  matched_count: number;
+  ambiguous_count: number;
+  unmatched_count: number;
+  error_stage: string | null;
+  error_message: string | null;
 }

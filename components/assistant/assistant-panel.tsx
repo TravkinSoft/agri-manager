@@ -49,6 +49,7 @@ export function AssistantPanel() {
   } = useAssistantShell();
   const engine = defaultAssistantPanelEngine;
   const [exportChatEnabled, setExportChatEnabled] = useState(false);
+  const [isMobileView, setIsMobileView] = useState(false);
 
   useEffect(() => {
     const stateHandler = (event: Event) => {
@@ -57,6 +58,14 @@ export function AssistantPanel() {
     };
     window.addEventListener("travkin:assistant-export-state", stateHandler);
     return () => window.removeEventListener("travkin:assistant-export-state", stateHandler);
+  }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobileView(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
   }, []);
 
   if (!enabled) return null;
@@ -72,10 +81,14 @@ export function AssistantPanel() {
   return (
     <Sheet modal={false} open={isOpen} onOpenChange={(next) => (next ? open() : close())}>
       <SheetContent
-        side="right"
+        side={isMobileView ? "bottom" : "right"}
         showOverlay={false}
         forceMount
-        className="travkin-scrollbar w-[min(980px,calc(100vw-1rem))] max-w-none border-[#262D3D] bg-[#11151E] p-0"
+        className={
+          isMobileView
+            ? "travkin-scrollbar h-[82vh] w-full max-w-none rounded-t-2xl border-[#262D3D] bg-[#11151E] p-0"
+            : "travkin-scrollbar w-[min(980px,calc(100vw-1rem))] max-w-none border-[#262D3D] bg-[#11151E] p-0"
+        }
       >
         <div className="flex h-full min-h-0 flex-col">
           <SheetHeader className="border-b border-[#262D3D] bg-[#121824] px-4 py-3">

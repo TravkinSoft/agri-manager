@@ -5,6 +5,12 @@ type CropLegendItem = {
   aliases: string[];
 };
 
+type WorkStatusLegendItem = {
+  key: "not_started" | "in_progress" | "completed" | "problem" | "no_data";
+  label: string;
+  color: string;
+};
+
 export const CROP_COLOR_LEGEND: CropLegendItem[] = [
   { key: "potato", label: "Картофель", color: "#d97706", aliases: ["картофель", "картошка", "potato"] },
   { key: "wheat", label: "Пшеница", color: "#facc15", aliases: ["пшеница", "wheat"] },
@@ -22,6 +28,14 @@ export const CROP_COLOR_LEGEND: CropLegendItem[] = [
   { key: "unknown", label: "Неизвестно", color: "#475569", aliases: [] },
 ];
 
+export const WORK_STATUS_COLOR_LEGEND: WorkStatusLegendItem[] = [
+  { key: "not_started", label: "Не начато", color: "#64748b" },
+  { key: "in_progress", label: "В работе", color: "#eab308" },
+  { key: "completed", label: "Завершено", color: "#22c55e" },
+  { key: "problem", label: "Проблема", color: "#ef4444" },
+  { key: "no_data", label: "Нет данных", color: "#475569" },
+];
+
 function normalize(value: string | null | undefined): string {
   return String(value || "").trim().toLowerCase().replace(/\s+/gu, " ");
 }
@@ -37,4 +51,12 @@ export function resolveCropColor(cropName: string | null | undefined): string {
   }
 
   return CROP_COLOR_LEGEND.find((item) => item.key === "unknown")?.color || "#475569";
+}
+
+export function resolveWorkStatusColor(
+  status: "not_started" | "in_progress" | "completed" | "problem" | "no_data" | null | undefined
+): string {
+  const item = WORK_STATUS_COLOR_LEGEND.find((entry) => entry.key === status);
+  if (item) return item.color;
+  return WORK_STATUS_COLOR_LEGEND.find((entry) => entry.key === "no_data")?.color || "#475569";
 }

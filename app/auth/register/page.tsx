@@ -57,10 +57,10 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
-      <Card className="w-full max-w-lg">
+    <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
+      <Card className="w-full max-w-lg shadow-xl">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Регистрация компании</CardTitle>
+          <CardTitle className="text-center text-2xl font-bold">Регистрация компании</CardTitle>
           <CardDescription className="text-center">
             Первый пользователь компании получает роль администратора компании.
           </CardDescription>
@@ -85,6 +85,7 @@ export default function RegisterPage() {
                 value={companyName}
                 onChange={(e) => setCompanyName(e.target.value)}
                 placeholder="ТОО Агро..."
+                className="h-12"
                 disabled={loading}
                 required
               />
@@ -97,6 +98,7 @@ export default function RegisterPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Иванов Иван Иванович"
+                className="h-12"
                 disabled={loading}
                 required
               />
@@ -110,6 +112,7 @@ export default function RegisterPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com"
+                className="h-12"
                 disabled={loading}
                 required
               />
@@ -122,6 +125,7 @@ export default function RegisterPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                className="h-12"
                 disabled={loading}
                 required
               />
@@ -134,19 +138,20 @@ export default function RegisterPage() {
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                className="h-12"
                 disabled={loading}
                 required
               />
             </div>
           </CardContent>
           <CardFooter className="flex flex-col gap-3">
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            <Button type="submit" className="h-12 w-full" disabled={loading}>
+              {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Создать компанию
             </Button>
-            <div className="text-sm text-center text-slate-600">
+            <div className="text-center text-sm text-slate-600">
               Уже есть приглашение?{" "}
-              <Link href="/auth/login" className="text-blue-600 hover:underline font-medium">
+              <Link href="/auth/login" className="font-medium text-blue-600 hover:underline">
                 Войти
               </Link>
             </div>

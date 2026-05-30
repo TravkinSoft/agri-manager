@@ -89,7 +89,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 </Button>
               </div>
             ) : null}
-            <main className="travkin-scrollbar flex-1 overflow-x-hidden overflow-y-auto bg-transparent p-3 pb-24 sm:p-4 md:p-6 md:pb-6">
+            <main className="travkin-scrollbar flex-1 overflow-x-hidden overflow-y-auto bg-transparent p-3 pb-[calc(env(safe-area-inset-bottom)+6rem)] sm:p-4 md:p-6 md:pb-6">
               {children}
               <footer className="mt-8 border-t border-[#262D3D] pt-3 text-center text-xs text-[#7F8A9B]">
                 Copyright © Сунгатов Айымбек

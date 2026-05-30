@@ -1,10 +1,22 @@
 import { supabase } from "@/lib/supabase/client";
 import type {
+  FieldMapPreviewDiagnostics,
   FieldsMapBootstrapPayload,
   FieldMapImportSummary,
   FieldMapPreviewMatch,
   ParsedKmlPolygonInput,
 } from "@/lib/types/fields-map";
+
+export class FieldsMapApiError extends Error {
+  status: number;
+  payload: any;
+  constructor(message: string, status: number, payload: any) {
+    super(message);
+    this.name = "FieldsMapApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
 
 async function buildAuthHeaders(mode: "json" | "none" = "none") {
   const { data, error } = await supabase.auth.getSession();
@@ -21,7 +33,14 @@ async function buildAuthHeaders(mode: "json" | "none" = "none") {
 async function parseJsonOrThrow(response: Response) {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error || "Request failed");
+    const debugMessage = String(payload?.debug?.error_message || payload?.technical || "").trim();
+    const requestId = String(payload?.request_id || "").trim();
+    const suffix = [debugMessage, requestId ? `request_id=${requestId}` : ""].filter(Boolean).join(" · ");
+    throw new FieldsMapApiError(
+      `${payload?.error || "Request failed"}${suffix ? ` (${suffix})` : ""}`,
+      response.status,
+      payload
+    );
   }
   return payload;
 }
@@ -61,6 +80,7 @@ export async function previewFieldMapImport(payload: {
       error_count: number;
     };
     matches: FieldMapPreviewMatch[];
+    debug?: FieldMapPreviewDiagnostics;
   }>;
 }
 

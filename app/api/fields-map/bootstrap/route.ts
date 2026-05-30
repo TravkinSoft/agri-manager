@@ -62,6 +62,34 @@ type CropRow = {
   seed_reproductions?: { name?: string | null } | null;
 };
 
+function resolveWorkStatus(operationRows: any[]): FieldMapFieldCard["work_status"] {
+  const rows = operationRows || [];
+  if (!rows.length) return "not_started";
+
+  const statuses = rows
+    .map((row) => String(row?.status || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (!statuses.length) return "no_data";
+
+  const problemStatuses = new Set(["failed", "cancelled", "blocked", "overdue", "error", "rejected"]);
+  if (statuses.some((status) => problemStatuses.has(status))) {
+    return "problem";
+  }
+
+  const activeStatuses = new Set(["active", "in_progress", "open", "pending", "draft", "assigned"]);
+  if (statuses.some((status) => activeStatuses.has(status))) {
+    return "in_progress";
+  }
+
+  const doneStatuses = new Set(["completed", "verified", "closed", "done", "finished", "finalized"]);
+  if (statuses.every((status) => doneStatuses.has(status))) {
+    return "completed";
+  }
+
+  return "no_data";
+}
+
 function buildFieldCards(params: {
   fields: any[];
   geometryRows: any[];
@@ -103,6 +131,7 @@ function buildFieldCards(params: {
         date: item.operation_date == null ? null : String(item.operation_date),
         status: item.status == null ? null : String(item.status),
       }));
+    const fieldOperations = operationsByField.get(fieldId) || [];
 
     return {
       field_id: fieldId,
@@ -123,6 +152,7 @@ function buildFieldCards(params: {
           }
         : null,
       recent_operations: recentOps,
+      work_status: resolveWorkStatus(fieldOperations),
     } as FieldMapFieldCard;
   });
 }

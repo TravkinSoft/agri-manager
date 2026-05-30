@@ -6,6 +6,7 @@ import { MetricCard } from "@/components/dashboard/metric-card";
 import { CropDistributionTable } from "@/components/dashboard/crop-distribution-table";
 import { RecentOperationsTable } from "@/components/dashboard/recent-operations-table";
 import { InventorySnapshotTable } from "@/components/dashboard/inventory-snapshot-table";
+import { Card, CardContent } from "@/components/ui/card";
 import { MapPin, Sprout, Maximize2, Warehouse, Package, ArrowRightLeft } from "lucide-react";
 import {
   getDashboardMetrics,
@@ -110,17 +111,48 @@ export default function DashboardPage() {
   }
 
   if (profile?.role === "warehouse") {
+    const topStock = inventory[0];
     return (
-      <div>
+      <div className="space-y-4">
         <PageHeader
           title={t("warehouse_dashboard_title")}
           description={t("warehouse_dashboard_desc")}
         />
-        <div className="grid gap-6 md:grid-cols-3 mb-6">
+
+        <div className="grid gap-3 md:hidden">
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-sm text-slate-500">{t("warehouses_metric")}</div>
+              <div className="mt-1 text-2xl font-semibold">{warehouseCount}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-sm text-slate-500">{t("stock_positions_metric")}</div>
+              <div className="mt-1 text-2xl font-semibold">{stockRows}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-sm text-slate-500">{t("recent_confirmed_movements_metric")}</div>
+              <div className="mt-1 text-2xl font-semibold">{recentMovements}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="pt-4">
+              <div className="text-sm text-slate-500">Ключевой остаток</div>
+              <div className="mt-1 text-base font-semibold">{topStock ? topStock.productName : "Нет данных"}</div>
+              {topStock ? <div className="text-sm text-slate-500">{topStock.quantity.toFixed(2)}</div> : null}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="hidden gap-6 md:grid md:grid-cols-3 md:mb-6">
           <MetricCard title={t("warehouses_metric")} value={warehouseCount} icon={Warehouse} />
           <MetricCard title={t("stock_positions_metric")} value={stockRows} icon={Package} />
           <MetricCard title={t("recent_confirmed_movements_metric")} value={recentMovements} icon={ArrowRightLeft} />
         </div>
+
         <div className="grid gap-6">
           <InventorySnapshotTable data={inventory} />
         </div>
@@ -128,29 +160,78 @@ export default function DashboardPage() {
     );
   }
 
+  const dominantCrop = cropDistribution[0];
+  const lastOperation = recentOperations[0];
+  const inventoryPreview = inventory.slice(0, 3);
+
   return (
-    <div>
+    <div className="space-y-4">
       <PageHeader
         title={t("dashboard_title")}
         description={t("dashboard_desc")}
       />
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-6">
+      <div className="grid gap-3 md:hidden">
+        <Card>
+          <CardContent className="pt-4">
+            <div className="text-sm text-slate-500">Активные операции</div>
+            <div className="mt-1 text-2xl font-semibold">{recentOperations.length}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="text-sm text-slate-500">{t("total_area_metric")}</div>
+            <div className="mt-1 text-2xl font-semibold">{metrics.totalArea}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="text-sm text-slate-500">Проблемные поля</div>
+            <div className="mt-1 text-2xl font-semibold">{Math.max(metrics.totalFields - metrics.activeCrops, 0)}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="text-sm text-slate-500">Доминирующая культура</div>
+            <div className="mt-1 text-base font-semibold">{dominantCrop ? dominantCrop.crop : "Нет данных"}</div>
+            {dominantCrop ? <div className="text-sm text-slate-500">{dominantCrop.totalArea} га</div> : null}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="text-sm text-slate-500">Последние события</div>
+            <div className="mt-1 text-base font-semibold">
+              {lastOperation ? `${lastOperation.operationType} — ${lastOperation.fieldName}` : "Событий пока нет"}
+            </div>
+            {lastOperation?.cropName ? <div className="text-sm text-slate-500">{lastOperation.cropName}</div> : null}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4">
+            <div className="text-sm text-slate-500">Остатки материалов</div>
+            <div className="mt-1 text-base font-semibold">
+              {inventoryPreview.length ? inventoryPreview.map((item) => item.productName).join(", ") : "Нет данных"}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="hidden gap-6 md:grid md:grid-cols-2 lg:grid-cols-4 md:mb-6">
         <MetricCard title={t("total_fields_metric")} value={metrics.totalFields} icon={MapPin} />
         <MetricCard title={t("total_area_metric")} value={metrics.totalArea} icon={Maximize2} />
         <MetricCard title={t("active_crops_metric")} value={metrics.activeCrops} icon={Sprout} />
         <MetricCard title={t("warehouses_metric")} value={metrics.totalWarehouses} icon={Warehouse} />
       </div>
 
-      <div className="grid gap-6 mb-6">
+      <div className="hidden gap-6 md:grid md:mb-6">
         <CropDistributionTable data={cropDistribution} />
       </div>
 
-      <div className="grid gap-6 mb-6">
+      <div className="hidden gap-6 md:grid md:mb-6">
         <RecentOperationsTable data={recentOperations} />
       </div>
 
-      <div className="grid gap-6">
+      <div className="hidden gap-6 md:grid">
         <InventorySnapshotTable data={inventory} />
       </div>
     </div>

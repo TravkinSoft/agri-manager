@@ -113,6 +113,7 @@ export default function OperationsPage() {
   const [explorerField, setExplorerField] = useState<string>("all");
   const [explorerOperationType, setExplorerOperationType] = useState<string>("all");
   const [explorerMaterialSearch, setExplorerMaterialSearch] = useState<string>("");
+  const [mobileLaneFilter, setMobileLaneFilter] = useState<"active" | "in_progress" | "completed" | "all">("active");
 
   const canManageOperationLines =
     profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "agronomist";
@@ -343,6 +344,14 @@ export default function OperationsPage() {
   const activeOperations = operations.filter((item) => (item.work_status || "active") === "active");
   const inProgressOperations = operations.filter((item) => (item.work_status || "active") === "in_progress");
   const completedOperations = operations.filter((item) => (item.work_status || "active") === "completed");
+  const mobileOperations =
+    mobileLaneFilter === "active"
+      ? activeOperations
+      : mobileLaneFilter === "in_progress"
+        ? inProgressOperations
+        : mobileLaneFilter === "completed"
+          ? completedOperations
+          : operations;
 
   const specialistLabelById = specialists.reduce<Record<string, string>>((acc, row) => {
     const baseName = String(row.full_name || "").trim() || row.email;
@@ -753,7 +762,49 @@ export default function OperationsPage() {
         action={{ label: "Add Operation", icon: Plus, onClick: () => setIsFormOpen(true) }}
       />
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <div className="flex flex-wrap gap-2 md:hidden">
+        <Button
+          type="button"
+          variant={mobileLaneFilter === "active" ? "default" : "outline"}
+          onClick={() => setMobileLaneFilter("active")}
+          className="h-11"
+        >
+          Активные ({activeOperations.length})
+        </Button>
+        <Button
+          type="button"
+          variant={mobileLaneFilter === "in_progress" ? "default" : "outline"}
+          onClick={() => setMobileLaneFilter("in_progress")}
+          className="h-11"
+        >
+          В работе ({inProgressOperations.length})
+        </Button>
+        <Button
+          type="button"
+          variant={mobileLaneFilter === "completed" ? "default" : "outline"}
+          onClick={() => setMobileLaneFilter("completed")}
+          className="h-11"
+        >
+          Завершенные ({completedOperations.length})
+        </Button>
+        <Button
+          type="button"
+          variant={mobileLaneFilter === "all" ? "default" : "outline"}
+          onClick={() => setMobileLaneFilter("all")}
+          className="h-11"
+        >
+          Все ({operations.length})
+        </Button>
+      </div>
+
+      <Card className="md:hidden">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Лента операций</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">{renderOperationCards(mobileOperations, "Операции не найдены")}</CardContent>
+      </Card>
+
+      <div className="hidden grid-cols-1 gap-4 md:grid xl:grid-cols-3">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-base">Активные ({activeOperations.length})</CardTitle></CardHeader>
           <CardContent className="p-0">{renderOperationCards(activeOperations, "Нет активных операций")}</CardContent>
@@ -768,7 +819,30 @@ export default function OperationsPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="md:hidden">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Быстрый обзор по полям</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div className="rounded-lg border border-slate-200 p-3">
+            <div className="text-slate-500">Найдено операций по фильтру</div>
+            <div className="mt-1 text-xl font-semibold">{explorerRows.length}</div>
+          </div>
+          <div className="space-y-2">
+            {explorerRows.slice(0, 3).map((row) => (
+              <div key={`mobile-explorer-${row.id}`} className="rounded-lg border border-slate-200 p-3">
+                <div className="text-sm font-semibold">{row.operation_type}</div>
+                <div className="text-xs text-slate-500">
+                  {row.field_name} • {formatDate(row.date)}
+                </div>
+                <div className="mt-1 text-xs text-slate-600">{row.crop_name || "Без культуры"}</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="hidden md:block">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Field Operations Explorer</CardTitle>
         </CardHeader>
@@ -833,7 +907,34 @@ export default function OperationsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="md:hidden">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Картофель: материалы</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {potatoConsumptionLoading ? (
+            <div className="text-sm text-slate-500">Загрузка отчета...</div>
+          ) : potatoConsumptionRows.length === 0 ? (
+            <div className="text-sm text-slate-500">Данных по картофелю пока нет.</div>
+          ) : (
+            <>
+              <div className="rounded-lg border border-slate-200 p-3 text-sm">
+                Записей: <span className="font-semibold">{potatoConsumptionRows.length}</span>
+              </div>
+              {potatoConsumptionRows.slice(0, 3).map((row, index) => (
+                <div key={`mobile-potato-${index}`} className="rounded-lg border border-slate-200 p-3 text-sm">
+                  <div className="font-semibold">{row.field_name}</div>
+                  <div className="text-xs text-slate-500">
+                    {row.material_name} • выдано {Number(row.issued_qty_kg || 0).toFixed(2)} кг
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="hidden md:block">
         <CardHeader className="pb-2"><CardTitle className="text-base">Картофель: расход материалов</CardTitle></CardHeader>
         <CardContent className="p-0">
           {potatoConsumptionLoading ? (

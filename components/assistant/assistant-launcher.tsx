@@ -11,7 +11,7 @@ export function AssistantLauncher() {
   if (!enabled) return null;
 
   return (
-    <div className="pointer-events-none fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
+    <div className="pointer-events-none fixed bottom-6 right-6 z-40 hidden flex-col items-end gap-2 md:flex">
       {debugMonitorEnabled ? (
         <Button
           type="button"

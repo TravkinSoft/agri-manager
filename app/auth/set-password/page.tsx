@@ -98,8 +98,8 @@ export default function SetPasswordPage() {
 
   if (!authLoading && !sessionResolving && !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
-        <Card className="w-full max-w-md">
+      <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
+        <Card className="w-full max-w-md shadow-xl">
           <CardHeader>
             <CardTitle className="text-2xl font-bold text-center">Invite Link Required</CardTitle>
             <CardDescription className="text-center">
@@ -107,7 +107,7 @@ export default function SetPasswordPage() {
             </CardDescription>
           </CardHeader>
           <CardFooter>
-            <Button className="w-full" onClick={() => router.push('/auth/login')}>
+            <Button className="h-12 w-full" onClick={() => router.push('/auth/login')}>
               Go to Login
             </Button>
           </CardFooter>
@@ -117,8 +117,8 @@ export default function SetPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
-      <Card className="w-full max-w-md">
+    <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
+      <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Set Password</CardTitle>
           <CardDescription className="text-center">
@@ -139,11 +139,11 @@ export default function SetPasswordPage() {
             )}
             <div className="space-y-2">
               <Label>Email</Label>
-              <Input value={fixedEmail} readOnly disabled />
+              <Input value={fixedEmail} readOnly disabled className="h-12" />
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
-              <Input value={fixedRole || 'assigned by admin'} readOnly disabled />
+              <Input value={fixedRole || 'assigned by admin'} readOnly disabled className="h-12" />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
@@ -153,6 +153,7 @@ export default function SetPasswordPage() {
                 placeholder="At least 6 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                className="h-12"
                 required
                 minLength={6}
                 disabled={loading}
@@ -166,13 +167,14 @@ export default function SetPasswordPage() {
                 placeholder="Confirm your password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                className="h-12"
                 required
                 disabled={loading}
               />
             </div>
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="w-full" disabled={loading || authLoading || sessionResolving || !user}>
+            <Button type="submit" className="h-12 w-full" disabled={loading || authLoading || sessionResolving || !user}>
               {(loading || authLoading || sessionResolving) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Set Password
             </Button>

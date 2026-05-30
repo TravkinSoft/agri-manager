@@ -45,8 +45,8 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4">
-      <Card className="w-full max-w-md">
+    <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
+      <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold text-center">Set Your Password</CardTitle>
           <CardDescription className="text-center">
@@ -68,6 +68,7 @@ export default function ResetPasswordPage() {
                 placeholder="At least 6 characters"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                className="h-12"
                 required
                 disabled={loading}
                 minLength={6}
@@ -81,6 +82,7 @@ export default function ResetPasswordPage() {
                 placeholder="Confirm your password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                className="h-12"
                 required
                 disabled={loading}
               />
@@ -89,7 +91,7 @@ export default function ResetPasswordPage() {
           <CardFooter>
             <Button
               type="submit"
-              className="w-full"
+              className="h-12 w-full"
               disabled={loading}
             >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

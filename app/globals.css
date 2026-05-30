@@ -51,6 +51,7 @@
   html,
   body {
     min-height: 100%;
+    overflow-x: hidden;
   }
 
   body {
@@ -60,6 +61,7 @@
       radial-gradient(1000px 600px at 105% 0%, rgba(37, 99, 235, 0.1), transparent 58%),
       var(--travkin-bg);
     color: var(--travkin-text);
+    overscroll-behavior-x: none;
   }
 
   a {
@@ -154,6 +156,19 @@
 }
 
 @layer utilities {
+  .mobile-safe-bottom {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);
+  }
+
+  .mobile-safe-top {
+    padding-top: calc(env(safe-area-inset-top) + 0.25rem);
+  }
+
+  .mobile-tap {
+    min-height: 48px;
+    min-width: 48px;
+  }
+
   .travkin-glow {
     box-shadow: 0 0 0 1px rgba(224, 177, 0, 0.18), 0 8px 24px rgba(0, 0, 0, 0.45);
   }

@@ -16,6 +16,9 @@ export type FieldMatchCandidate = {
 
 export type FieldMatchResult = {
   status: "matched" | "ambiguous" | "not_found";
+  stage: "auto_matched" | "manual_required" | "unmatched";
+  confidence_score: number;
+  matched_by: string | null;
   field_id: string | null;
   field_display_name: string | null;
   candidates: FieldMatchCandidate[];
@@ -135,42 +138,121 @@ function addSet(target: Set<string>, source: Set<string>) {
   source.forEach((id) => target.add(id));
 }
 
+function createResult(params: {
+  status: FieldMatchResult["status"];
+  confidence_score: number;
+  matched_by: string | null;
+  candidates: FieldMatchCandidate[];
+  field_id?: string | null;
+  field_display_name?: string | null;
+}): FieldMatchResult {
+  const stage =
+    params.status === "matched"
+      ? "auto_matched"
+      : params.status === "ambiguous"
+        ? "manual_required"
+        : "unmatched";
+  return {
+    status: params.status,
+    stage,
+    confidence_score: Number(params.confidence_score.toFixed(2)),
+    matched_by: params.matched_by,
+    field_id: params.field_id ?? null,
+    field_display_name: params.field_display_name ?? null,
+    candidates: params.candidates,
+  };
+}
+
 export function resolveFieldByPolygonName(name: string, index: AliasIndex): FieldMatchResult {
   const compact = normalizeCompact(name);
   const aliases = fieldAliasVariants(name);
-  const matched = new Set<string>();
+  const directSteps: Array<{
+    map: Map<string, Set<string>>;
+    matchedBy: string;
+    confidence: number;
+  }> = [
+    { map: index.displayMap, matchedBy: "display_name_exact", confidence: 1 },
+    { map: index.originalMap, matchedBy: "original_field_key_exact", confidence: 0.97 },
+    { map: index.technicalMap, matchedBy: "technical_key_exact", confidence: 0.95 },
+    { map: index.nameMap, matchedBy: "raw_name_exact", confidence: 0.93 },
+  ];
 
-  addSet(matched, takeExact(index.displayMap, compact));
-  if (matched.size === 0) addSet(matched, takeExact(index.originalMap, compact));
-  if (matched.size === 0) addSet(matched, takeExact(index.technicalMap, compact));
-  if (matched.size === 0) addSet(matched, takeExact(index.nameMap, compact));
-
-  if (matched.size === 0) {
-    aliases.forEach((variant) => addSet(matched, takeExact(index.aliasMap, variant)));
-  }
-
-  const candidates = collectCandidates(index, matched);
-  if (candidates.length === 1) {
-    return {
-      status: "matched",
-      field_id: candidates[0].field_id,
-      field_display_name: candidates[0].field_display_name,
-      candidates,
-    };
-  }
-  if (candidates.length > 1) {
-    return {
+  for (const step of directSteps) {
+    const matched = takeExact(step.map, compact);
+    if (matched.size === 0) continue;
+    const candidates = collectCandidates(index, matched);
+    if (candidates.length === 1) {
+      return createResult({
+        status: "matched",
+        confidence_score: step.confidence,
+        matched_by: step.matchedBy,
+        field_id: candidates[0].field_id,
+        field_display_name: candidates[0].field_display_name,
+        candidates,
+      });
+    }
+    return createResult({
       status: "ambiguous",
-      field_id: null,
-      field_display_name: null,
+      confidence_score: 0.5,
+      matched_by: step.matchedBy,
       candidates,
-    };
+    });
   }
 
-  return {
+  const aliasMatched = new Set<string>();
+  aliases.forEach((variant) => addSet(aliasMatched, takeExact(index.aliasMap, variant)));
+  if (aliasMatched.size > 0) {
+    const candidates = collectCandidates(index, aliasMatched);
+    if (candidates.length === 1) {
+      return createResult({
+        status: "matched",
+        confidence_score: 0.88,
+        matched_by: "normalized_alias",
+        field_id: candidates[0].field_id,
+        field_display_name: candidates[0].field_display_name,
+        candidates,
+      });
+    }
+    return createResult({
+      status: "ambiguous",
+      confidence_score: 0.45,
+      matched_by: "normalized_alias",
+      candidates,
+    });
+  }
+
+  if (compact.length >= 2) {
+    const fuzzy = new Set<string>();
+    index.aliasMap.forEach((ids, key) => {
+      if (key.includes(compact) || compact.includes(key)) {
+        addSet(fuzzy, ids);
+      }
+    });
+    const candidates = collectCandidates(index, fuzzy);
+    if (candidates.length === 1) {
+      return createResult({
+        status: "matched",
+        confidence_score: 0.63,
+        matched_by: "fuzzy_alias",
+        field_id: candidates[0].field_id,
+        field_display_name: candidates[0].field_display_name,
+        candidates,
+      });
+    }
+    if (candidates.length > 1) {
+      return createResult({
+        status: "ambiguous",
+        confidence_score: 0.35,
+        matched_by: "fuzzy_alias",
+        candidates: candidates.slice(0, 10),
+      });
+    }
+  }
+
+  return createResult({
     status: "not_found",
-    field_id: null,
-    field_display_name: null,
+    confidence_score: 0,
+    matched_by: null,
     candidates: [],
-  };
+  });
 }

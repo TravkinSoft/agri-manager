@@ -3,7 +3,7 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Download, Eye, FileUp, Filter, LocateFixed, MapPinned, RotateCcw, Save, Trash2 } from "lucide-react";
+import { Crosshair, Download, Eye, FileUp, Filter, LocateFixed, MapPinned, Ruler, Search, Route, RotateCcw, Save, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,9 +11,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { CROP_COLOR_LEGEND, resolveCropColor } from "@/lib/fields-map/colors";
+import {
+  CROP_COLOR_LEGEND,
+  WORK_STATUS_COLOR_LEGEND,
+  resolveCropColor,
+  resolveWorkStatusColor,
+} from "@/lib/fields-map/colors";
 import { parseKmlToGeoJson } from "@/lib/fields-map/kml";
 import {
+  FieldsMapApiError,
   confirmFieldMapImport,
   deleteFieldMapImport,
   downloadFieldMapImportKml,
@@ -24,6 +30,7 @@ import {
 } from "@/lib/services/fields-map";
 import type {
   FieldMapFieldCard,
+  FieldMapPreviewDiagnostics,
   FieldMapImportSummary,
   FieldMapPreviewMatch,
   FieldsMapBootstrapPayload,
@@ -42,6 +49,7 @@ type PreviewState = {
     error_count: number;
   };
   matches: FieldMapPreviewMatch[];
+  debug: FieldMapPreviewDiagnostics | null;
 };
 
 type UploadState = {
@@ -64,6 +72,7 @@ type OverlayFeatureProperties = {
   field_id: string | null;
   field_display_name: string | null;
   crop_name: string | null;
+  work_status: "not_started" | "in_progress" | "completed" | "problem" | "no_data" | null;
   label: string | null;
   area_ha: number | null;
   match_status: "matched" | "ambiguous" | "not_found" | null;
@@ -85,8 +94,18 @@ type OverlayFeatureCollection = {
 type MapLibreModule = typeof import("maplibre-gl");
 
 type BaseLayerMode = "map" | "satellite" | "hybrid";
+type ColorMode = "crop" | "work_status";
 type FitBoundsReason = "initial_load" | "import_success" | "show_all_fields" | "reset_view" | "field_selected" | "none";
 type GeolocationStatus = "idle" | "requesting" | "granted" | "denied" | "unsupported" | "error";
+type PreviewApiStatus = "idle" | "pending" | "success" | "error";
+type MeasurementMode = "none" | "distance" | "area";
+
+type MeasurementPoint = {
+  id: string;
+  lng: number;
+  lat: number;
+  source: "manual" | "follow";
+};
 
 type MapRuntimeDebugState = {
   packageLoaded: boolean;
@@ -98,11 +117,19 @@ type MapRuntimeDebugState = {
   mapReady: boolean;
   errorMessage: string | null;
   selectedBaseLayer: BaseLayerMode;
+  colorMode: ColorMode;
   fitBoundsReason: FitBoundsReason;
   userInteracted: boolean;
   geolocationStatus: GeolocationStatus;
   mapCenter: [number, number];
   mapZoom: number;
+  maxZoom: number;
+  previewApiStatus: PreviewApiStatus;
+  matchingCount: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  selectedMeasurementMode: MeasurementMode;
+  measurementPointsCount: number;
 };
 
 const DEFAULT_MAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -120,8 +147,19 @@ const MAP_HYBRID_LABELS_LAYER_ID = "travkin-hybrid-labels-layer";
 const MAP_SOURCE_ID = "travkin-fields-geojson-source";
 const MAP_FILL_LAYER_ID = "travkin-fields-fill-layer";
 const MAP_LINE_LAYER_ID = "travkin-fields-line-layer";
+const MAP_MEASURE_SOURCE_ID = "travkin-measure-source";
+const MAP_MEASURE_LINE_LAYER_ID = "travkin-measure-line";
+const MAP_MEASURE_AREA_FILL_LAYER_ID = "travkin-measure-area-fill";
+const MAP_MEASURE_AREA_LINE_LAYER_ID = "travkin-measure-area-line";
+const MAP_MEASURE_POINT_LAYER_ID = "travkin-measure-point";
 const DEFAULT_MAP_CENTER: [number, number] = [69.2, 54.9];
 const DEFAULT_MAP_ZOOM = 6.2;
+const BASE_LAYER_MAX_ZOOM: Record<BaseLayerMode, number> = {
+  map: 19,
+  satellite: 18,
+  hybrid: 18,
+};
+const MAP_DEFAULT_MAX_ZOOM = Math.max(...Object.values(BASE_LAYER_MAX_ZOOM));
 
 function isTileTemplateValid(url: string): boolean {
   return url.includes("{z}") && url.includes("{x}") && url.includes("{y}");
@@ -188,6 +226,99 @@ function toNullableNumber(value: unknown): number | null {
     if (Number.isFinite(parsed)) return parsed;
   }
   return null;
+}
+
+function normalizeToken(value: string | null | undefined): string {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[№#]/gu, "")
+    .replace(/\bполе\b/gu, "")
+    .replace(/[^0-9a-zа-яё\-\s]/giu, "")
+    .replace(/\s+/gu, " ")
+    .replace(/-+/gu, "-")
+    .trim();
+}
+
+function compactToken(value: string | null | undefined): string {
+  return normalizeToken(value).replace(/\s+/gu, "");
+}
+
+function tokenizeField(field: FieldMapFieldCard): string[] {
+  const variants = new Set<string>();
+  const display = field.field_display_name || "";
+  const raw = field.field_name || "";
+  [display, raw].forEach((item) => {
+    const normalized = normalizeToken(item);
+    const compact = compactToken(item);
+    if (normalized) variants.add(normalized);
+    if (compact) variants.add(compact);
+    const digits = compact.match(/\d+/gu) || [];
+    if (digits.length) {
+      const first = digits[0];
+      if (first) variants.add(first);
+      variants.add(digits.join("-"));
+    }
+  });
+  return Array.from(variants);
+}
+
+function haversineMeters(a: [number, number], b: [number, number]): number {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const dLat = toRad(b[1] - a[1]);
+  const dLng = toRad(b[0] - a[0]);
+  const lat1 = toRad(a[1]);
+  const lat2 = toRad(b[1]);
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLng = Math.sin(dLng / 2);
+  const aa = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+  const c = 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+  return 6371008.8 * c;
+}
+
+function computeDistanceMeters(points: MeasurementPoint[]): number {
+  if (points.length < 2) return 0;
+  let total = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    total += haversineMeters([points[index - 1].lng, points[index - 1].lat], [points[index].lng, points[index].lat]);
+  }
+  return total;
+}
+
+function computeAreaSqMeters(points: MeasurementPoint[]): number {
+  if (points.length < 3) return 0;
+  const ring = points.map((point) => [point.lng, point.lat] as [number, number]);
+  const closed = [...ring, ring[0]];
+  const latRef = (closed.reduce((sum, point) => sum + point[1], 0) / closed.length) * (Math.PI / 180);
+  const earthRadius = 6378137;
+  const projected = closed.map(([lng, lat]) => {
+    const x = (lng * Math.PI / 180) * earthRadius * Math.cos(latRef);
+    const y = (lat * Math.PI / 180) * earthRadius;
+    return [x, y] as [number, number];
+  });
+  let sum = 0;
+  for (let index = 0; index < projected.length - 1; index += 1) {
+    const [x1, y1] = projected[index];
+    const [x2, y2] = projected[index + 1];
+    sum += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(sum / 2);
+}
+
+function formatDistance(valueMeters: number): string {
+  if (!Number.isFinite(valueMeters) || valueMeters <= 0) return "0 м";
+  if (valueMeters >= 1000) {
+    return `${(valueMeters / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} км`;
+  }
+  return `${valueMeters.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} м`;
+}
+
+function formatSquare(valueSquareMeters: number): string {
+  if (!Number.isFinite(valueSquareMeters) || valueSquareMeters <= 0) return "0 м² / 0 га";
+  const hectares = valueSquareMeters / 10000;
+  return `${valueSquareMeters.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} м² / ${hectares.toLocaleString("ru-RU", {
+    maximumFractionDigits: 4,
+  })} га`;
 }
 
 function buildPopupHtml(feature: OverlayFeatureProperties, field: FieldMapFieldCard | null): string {
@@ -282,6 +413,114 @@ function ensureOverlayLayers(map: any): boolean {
   return Boolean(map.getSource(MAP_SOURCE_ID) && map.getLayer(MAP_FILL_LAYER_ID) && map.getLayer(MAP_LINE_LAYER_ID));
 }
 
+function ensureMeasurementLayers(map: any): boolean {
+  if (!map || typeof map.getStyle !== "function" || !map.getStyle()) return false;
+
+  if (!map.getSource(MAP_MEASURE_SOURCE_ID)) {
+    map.addSource(MAP_MEASURE_SOURCE_ID, {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+  }
+
+  if (!map.getLayer(MAP_MEASURE_AREA_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_MEASURE_AREA_FILL_LAYER_ID,
+      type: "fill",
+      source: MAP_MEASURE_SOURCE_ID,
+      filter: ["==", ["get", "mode"], "area"],
+      paint: {
+        "fill-color": "#22c55e",
+        "fill-opacity": 0.2,
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_MEASURE_AREA_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_MEASURE_AREA_LINE_LAYER_ID,
+      type: "line",
+      source: MAP_MEASURE_SOURCE_ID,
+      filter: ["==", ["get", "mode"], "area"],
+      paint: {
+        "line-color": "#22c55e",
+        "line-width": 2.2,
+        "line-opacity": 0.9,
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_MEASURE_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_MEASURE_LINE_LAYER_ID,
+      type: "line",
+      source: MAP_MEASURE_SOURCE_ID,
+      filter: ["==", ["get", "mode"], "distance"],
+      paint: {
+        "line-color": "#eab308",
+        "line-width": 2.4,
+        "line-opacity": 0.95,
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_MEASURE_POINT_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_MEASURE_POINT_LAYER_ID,
+      type: "circle",
+      source: MAP_MEASURE_SOURCE_ID,
+      filter: ["==", ["get", "point"], true],
+      paint: {
+        "circle-radius": 5,
+        "circle-color": "#f8fafc",
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#0f172a",
+      },
+    });
+  }
+
+  return Boolean(
+    map.getSource(MAP_MEASURE_SOURCE_ID) &&
+      map.getLayer(MAP_MEASURE_POINT_LAYER_ID) &&
+      map.getLayer(MAP_MEASURE_LINE_LAYER_ID) &&
+      map.getLayer(MAP_MEASURE_AREA_FILL_LAYER_ID)
+  );
+}
+
+function buildMeasurementFeatureCollection(mode: MeasurementMode, points: MeasurementPoint[]) {
+  const features: Array<{ type: "Feature"; geometry: any; properties: Record<string, unknown> }> = [];
+  points.forEach((point, index) => {
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [point.lng, point.lat] },
+      properties: { point: true, mode, pointIndex: index, pointId: point.id, source: point.source },
+    });
+  });
+
+  if (mode === "distance" && points.length >= 2) {
+    features.push({
+      type: "Feature",
+      geometry: { type: "LineString", coordinates: points.map((point) => [point.lng, point.lat]) },
+      properties: { point: false, mode: "distance" },
+    });
+  }
+
+  if (mode === "area" && points.length >= 3) {
+    const ring = points.map((point) => [point.lng, point.lat]);
+    ring.push([points[0].lng, points[0].lat]);
+    features.push({
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: [ring] },
+      properties: { point: false, mode: "area" },
+    });
+  }
+
+  return {
+    type: "FeatureCollection" as const,
+    features,
+  };
+}
+
 export function FieldsMapPage() {
   const { toast } = useToast();
   const router = useRouter();
@@ -292,11 +531,15 @@ export function FieldsMapPage() {
   const mapRef = useRef<any>(null);
   const maplibreRef = useRef<MapLibreModule | null>(null);
   const geoMarkerRef = useRef<any>(null);
+  const geolocationWatchIdRef = useRef<number | null>(null);
   const popupRef = useRef<any>(null);
   const fieldLookupRef = useRef<Map<string, FieldMapFieldCard>>(new Map());
   const fitRequestReasonRef = useRef<FitBoundsReason | null>("initial_load");
   const userInteractedRef = useRef(false);
   const selectedBaseLayerRef = useRef<BaseLayerMode>("satellite");
+  const layerFallbackLockedRef = useRef(false);
+  const measurementModeRef = useRef<MeasurementMode>("none");
+  const measurementDraggingIndexRef = useRef<number | null>(null);
   const bindMapContainerRef = useCallback((node: HTMLDivElement | null) => {
     mapContainerRef.current = node;
     setMapContainerNode(node);
@@ -308,6 +551,7 @@ export function FieldsMapPage() {
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>("");
   const [selectedCrop, setSelectedCrop] = useState<string>("all");
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [showFieldListMobile, setShowFieldListMobile] = useState(false);
 
   const [uploadState, setUploadState] = useState<UploadState | null>(null);
   const [previewState, setPreviewState] = useState<PreviewState | null>(null);
@@ -318,7 +562,14 @@ export function FieldsMapPage() {
   const [busy, setBusy] = useState(false);
   const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
   const [selectedBaseLayer, setSelectedBaseLayer] = useState<BaseLayerMode>("satellite");
+  const [colorMode, setColorMode] = useState<ColorMode>("crop");
   const [geolocationStatus, setGeolocationStatus] = useState<GeolocationStatus>("idle");
+  const [previewApiStatus, setPreviewApiStatus] = useState<PreviewApiStatus>("idle");
+  const [previewDiagnostics, setPreviewDiagnostics] = useState<FieldMapPreviewDiagnostics | null>(null);
+  const [fieldSearch, setFieldSearch] = useState("");
+  const [measurementMode, setMeasurementMode] = useState<MeasurementMode>("none");
+  const [measurementPoints, setMeasurementPoints] = useState<MeasurementPoint[]>([]);
+  const [followMeasureActive, setFollowMeasureActive] = useState(false);
   const [fitRequestNonce, setFitRequestNonce] = useState(0);
   const [mapDebug, setMapDebug] = useState<MapRuntimeDebugState>({
     packageLoaded: false,
@@ -330,11 +581,19 @@ export function FieldsMapPage() {
     mapReady: false,
     errorMessage: null,
     selectedBaseLayer: "satellite",
+    colorMode: "crop",
     fitBoundsReason: "initial_load",
     userInteracted: false,
     geolocationStatus: "idle",
     mapCenter: DEFAULT_MAP_CENTER,
     mapZoom: DEFAULT_MAP_ZOOM,
+    maxZoom: BASE_LAYER_MAX_ZOOM.satellite,
+    previewApiStatus: "idle",
+    matchingCount: 0,
+    matchedCount: 0,
+    unmatchedCount: 0,
+    selectedMeasurementMode: "none",
+    measurementPointsCount: 0,
   });
 
   const fields = bootstrap?.fields || [];
@@ -360,9 +619,30 @@ export function FieldsMapPage() {
     [fields, selectedFieldId]
   );
 
-  const unresolvedRows = useMemo(
-    () => (previewState?.matches || []).filter((row) => row.match_status !== "matched"),
-    [previewState]
+  const previewRows = previewState?.matches || [];
+  const unresolvedRows = useMemo(() => previewRows.filter((row) => row.match_status !== "matched"), [previewRows]);
+
+  const searchResults = useMemo(() => {
+    const query = compactToken(fieldSearch);
+    if (!query) return [];
+    const exact: FieldMapFieldCard[] = [];
+    const fallback: FieldMapFieldCard[] = [];
+    fields.forEach((field) => {
+      const tokens = tokenizeField(field);
+      if (tokens.some((token) => token === query)) {
+        exact.push(field);
+        return;
+      }
+      if (tokens.some((token) => token.includes(query) || query.includes(token))) {
+        fallback.push(field);
+      }
+    });
+    return [...exact, ...fallback].slice(0, 12);
+  }, [fieldSearch, fields]);
+
+  const matchedBySearch = useMemo(
+    () => (fieldSearch.trim().length ? searchResults.map((item) => item.field_id) : []),
+    [fieldSearch, searchResults]
   );
 
   const previewMapFeatures = useMemo<PreviewMapFeature[]>(() => {
@@ -403,6 +683,7 @@ export function FieldsMapPage() {
               field_id: row.fieldId,
               field_display_name: null,
               crop_name: null,
+              work_status: null,
               label: row.label,
               area_ha: row.areaHa,
               match_status: row.matchStatus,
@@ -419,7 +700,10 @@ export function FieldsMapPage() {
       features: mappedFields
         .filter((field): field is FieldMapFieldCard & { geometry: GeoJsonGeometry } => !!field.geometry)
         .map((field) => {
-          const color = resolveCropColor(field.crop_plan?.crop_name || "");
+          const color =
+            colorMode === "work_status"
+              ? resolveWorkStatusColor(field.work_status)
+              : resolveCropColor(field.crop_plan?.crop_name || "");
           return {
             type: "Feature",
             geometry: field.geometry,
@@ -428,6 +712,7 @@ export function FieldsMapPage() {
               field_id: field.field_id,
               field_display_name: field.field_display_name,
               crop_name: field.crop_plan?.crop_name || null,
+              work_status: field.work_status,
               label: field.field_display_name,
               area_ha: field.field_area_ha,
               match_status: null,
@@ -437,7 +722,17 @@ export function FieldsMapPage() {
           };
         }),
     };
-  }, [mappedFields, previewMapFeatures]);
+  }, [colorMode, mappedFields, previewMapFeatures]);
+
+  const measurementDistanceMeters = useMemo(
+    () => (measurementMode === "distance" ? computeDistanceMeters(measurementPoints) : 0),
+    [measurementMode, measurementPoints]
+  );
+
+  const measurementAreaSqMeters = useMemo(
+    () => (measurementMode === "area" ? computeAreaSqMeters(measurementPoints) : 0),
+    [measurementMode, measurementPoints]
+  );
 
   const requestFitByReason = useCallback((reason: FitBoundsReason) => {
     fitRequestReasonRef.current = reason;
@@ -526,6 +821,33 @@ export function FieldsMapPage() {
 
   useEffect(() => {
     void refreshAll();
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("travkin_fields_map_measurement_draft");
+      if (!raw) return;
+      const payload = JSON.parse(raw) as {
+        mode?: MeasurementMode;
+        points?: MeasurementPoint[];
+      };
+      if (!payload || !Array.isArray(payload.points) || payload.points.length === 0) return;
+      const mode: MeasurementMode = payload.mode === "area" ? "area" : payload.mode === "distance" ? "distance" : "none";
+      if (mode === "none") return;
+      const points: MeasurementPoint[] = payload.points
+        .map((point): MeasurementPoint => ({
+          id: String(point.id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+          lng: Number(point.lng),
+          lat: Number(point.lat),
+          source: point.source === "follow" ? "follow" : "manual",
+        }))
+        .filter((point) => Number.isFinite(point.lng) && Number.isFinite(point.lat));
+      if (!points.length) return;
+      setMeasurementMode(mode);
+      setMeasurementPoints(points.slice(0, 100));
+    } catch {
+      // ignore invalid draft payload
+    }
   }, []);
 
   useEffect(() => {
@@ -630,6 +952,7 @@ export function FieldsMapPage() {
           },
           center: DEFAULT_MAP_CENTER,
           zoom: DEFAULT_MAP_ZOOM,
+          maxZoom: MAP_DEFAULT_MAX_ZOOM,
           attributionControl: { compact: true },
           dragPan: true,
           scrollZoom: true,
@@ -648,6 +971,7 @@ export function FieldsMapPage() {
         });
 
         map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
+        map.addControl(new maplibre.ScaleControl({ maxWidth: 120, unit: "metric" }), "bottom-right");
         applyBaseLayerVisibility(map, selectedBaseLayer);
 
         const setRuntimeError = (message: string) => {
@@ -665,6 +989,7 @@ export function FieldsMapPage() {
           if (cancelled || readyResolved) return;
           try {
             ensureOverlayLayers(map);
+            ensureMeasurementLayers(map);
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             setRuntimeError(`Map overlay init error (${strategy}): ${message}`);
@@ -744,6 +1069,27 @@ export function FieldsMapPage() {
                 : "Unknown map runtime error.";
           const activeLayer = selectedBaseLayerRef.current;
           const sourceId = typeof event?.sourceId === "string" ? event.sourceId : null;
+          const normalizedMessage = rawMessage.toLowerCase();
+          const likelyTileGap =
+            normalizedMessage.includes("map data not available") ||
+            normalizedMessage.includes("tile") ||
+            normalizedMessage.includes("404");
+          const fromSatellite =
+            sourceId === MAP_SATELLITE_SOURCE_ID ||
+            sourceId === MAP_HYBRID_LABELS_SOURCE_ID ||
+            activeLayer === "satellite" ||
+            activeLayer === "hybrid";
+          if (likelyTileGap && fromSatellite && activeLayer !== "map" && !layerFallbackLockedRef.current) {
+            layerFallbackLockedRef.current = true;
+            setSelectedBaseLayer("map");
+            setMapError("Спутниковый слой недоступен на текущем масштабе. Выполнен fallback на карту.");
+            setMapDebug((prev) => ({
+              ...prev,
+              selectedBaseLayer: "map",
+              errorMessage: "satellite_tile_unavailable_fallback_to_map",
+            }));
+            return;
+          }
           const message = sourceId
             ? `${rawMessage} (source: ${sourceId}, layer: ${activeLayer})`
             : `${rawMessage} (layer: ${activeLayer})`;
@@ -751,6 +1097,9 @@ export function FieldsMapPage() {
         });
 
         map.on("mousemove", (event: any) => {
+          if (measurementDraggingIndexRef.current != null) {
+            return;
+          }
           if (!map.getLayer(MAP_FILL_LAYER_ID)) return;
           const features = map.queryRenderedFeatures(event.point, {
             layers: [MAP_FILL_LAYER_ID],
@@ -769,6 +1118,18 @@ export function FieldsMapPage() {
             field_id: toNullableString(properties.field_id),
             field_display_name: toNullableString(properties.field_display_name),
             crop_name: toNullableString(properties.crop_name),
+            work_status:
+              toNullableString(properties.work_status) === "not_started"
+                ? "not_started"
+                : toNullableString(properties.work_status) === "in_progress"
+                  ? "in_progress"
+                  : toNullableString(properties.work_status) === "completed"
+                    ? "completed"
+                    : toNullableString(properties.work_status) === "problem"
+                      ? "problem"
+                      : toNullableString(properties.work_status) === "no_data"
+                        ? "no_data"
+                        : null,
             label: toNullableString(properties.label),
             area_ha: toNullableNumber(properties.area_ha),
             match_status:
@@ -794,6 +1155,24 @@ export function FieldsMapPage() {
         });
 
         map.on("click", (event: any) => {
+          const activeMeasureMode = measurementModeRef.current;
+          if (activeMeasureMode !== "none") {
+            const lng = Number(event?.lngLat?.lng);
+            const lat = Number(event?.lngLat?.lat);
+            if (Number.isFinite(lng) && Number.isFinite(lat)) {
+              setMeasurementPoints((prev) => {
+                if (activeMeasureMode === "area" && prev.length >= 100) return prev;
+                const point: MeasurementPoint = {
+                  id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                  lng,
+                  lat,
+                  source: "manual",
+                };
+                return [...prev, point];
+              });
+            }
+            return;
+          }
           if (!map.getLayer(MAP_FILL_LAYER_ID)) return;
           const features = map.queryRenderedFeatures(event.point, {
             layers: [MAP_FILL_LAYER_ID],
@@ -802,6 +1181,34 @@ export function FieldsMapPage() {
           if (fieldId) {
             handleSelectField(fieldId);
           }
+        });
+
+        map.on("mousedown", MAP_MEASURE_POINT_LAYER_ID, (event: any) => {
+          if (measurementModeRef.current === "none") return;
+          const pointIndexRaw = event?.features?.[0]?.properties?.pointIndex;
+          const pointIndex = Number(pointIndexRaw);
+          if (!Number.isFinite(pointIndex)) return;
+          measurementDraggingIndexRef.current = pointIndex;
+          map.getCanvas().style.cursor = "grabbing";
+          map.dragPan.disable();
+        });
+
+        map.on("mousemove", (event: any) => {
+          const dragIndex = measurementDraggingIndexRef.current;
+          if (dragIndex == null) return;
+          const lng = Number(event?.lngLat?.lng);
+          const lat = Number(event?.lngLat?.lat);
+          if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+          setMeasurementPoints((prev) =>
+            prev.map((point, index) => (index === dragIndex ? { ...point, lng, lat } : point))
+          );
+        });
+
+        map.on("mouseup", () => {
+          if (measurementDraggingIndexRef.current == null) return;
+          measurementDraggingIndexRef.current = null;
+          map.getCanvas().style.cursor = "";
+          map.dragPan.enable();
         });
       } catch (error) {
         if (cancelled) return;
@@ -818,6 +1225,10 @@ export function FieldsMapPage() {
       cancelled = true;
       if (readyTimer != null) {
         window.clearTimeout(readyTimer);
+      }
+      if (geolocationWatchIdRef.current != null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(geolocationWatchIdRef.current);
+        geolocationWatchIdRef.current = null;
       }
       popupRef.current?.remove();
       popupRef.current = null;
@@ -840,27 +1251,70 @@ export function FieldsMapPage() {
       errorMessage: mapError,
       geolocationStatus,
       selectedBaseLayer,
+      colorMode,
+      maxZoom: BASE_LAYER_MAX_ZOOM[selectedBaseLayer],
+      previewApiStatus,
+      matchingCount: previewRows.length,
+      matchedCount: previewRows.filter((item) => item.match_status === "matched").length,
+      unmatchedCount: previewRows.filter((item) => item.match_status !== "matched").length,
+      selectedMeasurementMode: measurementMode,
+      measurementPointsCount: measurementPoints.length,
     }));
-  }, [loading, mapContainerNode, mapReady, mapError, geolocationStatus, selectedBaseLayer]);
+  }, [
+    loading,
+    mapContainerNode,
+    mapReady,
+    mapError,
+    geolocationStatus,
+    selectedBaseLayer,
+    colorMode,
+    previewApiStatus,
+    previewRows,
+    measurementMode,
+    measurementPoints.length,
+  ]);
 
   useEffect(() => {
     selectedBaseLayerRef.current = selectedBaseLayer;
+    layerFallbackLockedRef.current = false;
   }, [selectedBaseLayer]);
 
   useEffect(() => {
+    measurementModeRef.current = measurementMode;
+    setMapDebug((prev) => ({
+      ...prev,
+      selectedMeasurementMode: measurementMode,
+      measurementPointsCount: measurementPoints.length,
+    }));
+  }, [measurementMode, measurementPoints.length]);
+
+  useEffect(() => {
     if (!mapReady || !mapRef.current) return;
-    applyBaseLayerVisibility(mapRef.current, selectedBaseLayer);
-    setMapDebug((prev) => ({ ...prev, selectedBaseLayer }));
+    const map = mapRef.current;
+    applyBaseLayerVisibility(map, selectedBaseLayer);
+    const layerMaxZoom = BASE_LAYER_MAX_ZOOM[selectedBaseLayer];
+    const currentZoom = Number(map.getZoom?.() || DEFAULT_MAP_ZOOM);
+    if (Number.isFinite(currentZoom) && currentZoom > layerMaxZoom) {
+      map.easeTo({ zoom: layerMaxZoom, duration: 250 });
+    }
+    setMapDebug((prev) => ({ ...prev, selectedBaseLayer, maxZoom: layerMaxZoom }));
   }, [mapReady, selectedBaseLayer]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !maplibreRef.current) return;
 
     const map = mapRef.current;
+    ensureOverlayLayers(map);
+    ensureMeasurementLayers(map);
+
     const source = map.getSource(MAP_SOURCE_ID) as { setData: (data: OverlayFeatureCollection) => void } | undefined;
-    if (!source) return;
+    const measureSource = map.getSource(MAP_MEASURE_SOURCE_ID) as
+      | { setData: (data: { type: "FeatureCollection"; features: any[] }) => void }
+      | undefined;
+    if (!source || !measureSource) return;
 
     source.setData(mapCollection);
+    measureSource.setData(buildMeasurementFeatureCollection(measurementMode, measurementPoints));
 
     const fitReason = fitRequestReasonRef.current;
     if (!fitReason || fitReason === "none") {
@@ -869,7 +1323,7 @@ export function FieldsMapPage() {
     const maplibre = maplibreRef.current;
     fitMapForReason(map, maplibre, fitReason);
     fitRequestReasonRef.current = null;
-  }, [fitMapForReason, fitRequestNonce, mapCollection, mapReady]);
+  }, [fitMapForReason, fitRequestNonce, mapCollection, mapReady, measurementMode, measurementPoints]);
 
   const handleSelectField = useCallback(
     (fieldId: string) => {
@@ -940,6 +1394,144 @@ export function FieldsMapPage() {
     );
   }, [mapReady, toast]);
 
+  const clearMeasurement = useCallback(() => {
+    setMeasurementPoints([]);
+    setFollowMeasureActive(false);
+    if (geolocationWatchIdRef.current != null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(geolocationWatchIdRef.current);
+      geolocationWatchIdRef.current = null;
+    }
+  }, []);
+
+  const handleMeasurementMode = useCallback(
+    (mode: MeasurementMode) => {
+      if (mode === "none") {
+        setMeasurementMode("none");
+        clearMeasurement();
+        return;
+      }
+      if (measurementMode === mode) {
+        setMeasurementMode("none");
+        clearMeasurement();
+        return;
+      }
+      setMeasurementMode(mode);
+      clearMeasurement();
+    },
+    [clearMeasurement, measurementMode]
+  );
+
+  const handleSaveMeasurementDraft = useCallback(() => {
+    if (measurementMode === "none" || measurementPoints.length === 0) {
+      toast({ title: "Замер пустой", description: "Добавьте точки, затем сохраните черновик." });
+      return;
+    }
+    const payload = {
+      mode: measurementMode,
+      points: measurementPoints,
+      saved_at: new Date().toISOString(),
+      company_id: bootstrap?.company?.id || null,
+      season_id: selectedSeasonId || null,
+    };
+    localStorage.setItem("travkin_fields_map_measurement_draft", JSON.stringify(payload));
+    toast({ title: "Черновик сохранён", description: "Замер сохранён локально в браузере." });
+  }, [bootstrap?.company?.id, measurementMode, measurementPoints, selectedSeasonId, toast]);
+
+  const handleToggleFollowMeasure = useCallback(() => {
+    if (!navigator.geolocation) {
+      setGeolocationStatus("unsupported");
+      toast({ title: "Геолокация недоступна", description: "Браузер не поддерживает geolocation.", variant: "destructive" });
+      return;
+    }
+    if (measurementMode === "none") {
+      toast({
+        title: "Выберите режим замера",
+        description: "Сначала включите «Измерить расстояние» или «Измерить площадь».",
+      });
+      return;
+    }
+    if (!mapReady || !mapRef.current) {
+      toast({ title: "Карта ещё не готова", description: "Подождите и попробуйте снова.", variant: "destructive" });
+      return;
+    }
+
+    if (followMeasureActive && geolocationWatchIdRef.current != null) {
+      navigator.geolocation.clearWatch(geolocationWatchIdRef.current);
+      geolocationWatchIdRef.current = null;
+      setFollowMeasureActive(false);
+      const keepDraft = window.confirm("Сохранить текущий след как черновик замера?");
+      if (keepDraft) {
+        handleSaveMeasurementDraft();
+      }
+      return;
+    }
+
+    setGeolocationStatus("requesting");
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setGeolocationStatus("granted");
+        setFollowMeasureActive(true);
+        const lng = Number(position.coords.longitude);
+        const lat = Number(position.coords.latitude);
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+        setMeasurementPoints((prev) => {
+          const nextPoint: MeasurementPoint = {
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            lng,
+            lat,
+            source: "follow",
+          };
+          const last = prev[prev.length - 1];
+          if (last) {
+            const meters = haversineMeters([last.lng, last.lat], [lng, lat]);
+            if (meters < 2) return prev;
+          }
+          if (measurementMode === "area" && prev.length >= 100) {
+            return prev;
+          }
+          return [...prev, nextPoint];
+        });
+        mapRef.current?.easeTo({ center: [lng, lat], duration: 250 });
+      },
+      (error) => {
+        let status: GeolocationStatus = "error";
+        let message = "Не удалось получить геолокацию для follow mode.";
+        if (error.code === error.PERMISSION_DENIED) {
+          status = "denied";
+          message = "Доступ к местоположению не разрешён.";
+        }
+        setGeolocationStatus(status);
+        setFollowMeasureActive(false);
+        if (geolocationWatchIdRef.current != null) {
+          navigator.geolocation.clearWatch(geolocationWatchIdRef.current);
+          geolocationWatchIdRef.current = null;
+        }
+        toast({ title: "Follow mode", description: message, variant: "destructive" });
+      },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+    );
+    geolocationWatchIdRef.current = watchId;
+  }, [followMeasureActive, handleSaveMeasurementDraft, mapReady, measurementMode, toast]);
+
+  const runFieldSearch = useCallback(() => {
+    const query = fieldSearch.trim();
+    if (!query) return;
+    if (!searchResults.length) {
+      toast({ title: "Поле не найдено", description: "Проверьте номер или название поля." });
+      return;
+    }
+    const exact = searchResults[0];
+    setSelectedFieldId(exact.field_id);
+    if (!exact.geometry) {
+      toast({
+        title: `Поле ${exact.field_display_name} найдено`,
+        description: "Геометрия ещё не загружена.",
+      });
+      return;
+    }
+    requestFitByReason("field_selected");
+  }, [fieldSearch, requestFitByReason, searchResults, toast]);
+
   const handleSeasonChange = async (seasonId: string) => {
     setSelectedSeasonId(seasonId);
     await refreshAll(seasonId);
@@ -968,12 +1560,18 @@ export function FieldsMapPage() {
         errors: parsed.errors,
       });
       setPreviewState(null);
+      setPreviewApiStatus("idle");
+      setPreviewDiagnostics(null);
       setOverrides({});
       toast({
         title: "KML загружен",
         description: `Найдено полигонов: ${parsed.features.length}. Нажмите "Проверить совпадения полей".`,
       });
     } catch (error) {
+      setPreviewApiStatus("error");
+      if (error instanceof FieldsMapApiError) {
+        setPreviewDiagnostics((error.payload?.debug || null) as FieldMapPreviewDiagnostics | null);
+      }
       toast({
         title: "Ошибка",
         description: error instanceof Error ? error.message : "Не удалось прочитать файл",
@@ -986,6 +1584,8 @@ export function FieldsMapPage() {
 
   const runPreview = async () => {
     if (!uploadState) return;
+    setPreviewApiStatus("pending");
+    setPreviewDiagnostics(null);
     setBusy(true);
     try {
       const preview = await previewFieldMapImport({
@@ -1000,7 +1600,10 @@ export function FieldsMapPage() {
         fileName: preview.file_name,
         stats: preview.stats,
         matches: preview.matches,
+        debug: preview.debug || null,
       });
+      setPreviewDiagnostics(preview.debug || null);
+      setPreviewApiStatus("success");
       setOverrides({});
       toast({
         title: "Preview готов",
@@ -1035,6 +1638,8 @@ export function FieldsMapPage() {
         description: `Сохранено полигонов: ${result.saved_polygons}, пропущено: ${result.skipped_polygons}.`,
       });
       setPreviewState(null);
+      setPreviewApiStatus("idle");
+      setPreviewDiagnostics(null);
       setUploadState(null);
       setOverrides({});
       await refreshAll(selectedSeasonId || undefined);
@@ -1053,6 +1658,8 @@ export function FieldsMapPage() {
   const cancelImport = () => {
     setUploadState(null);
     setPreviewState(null);
+    setPreviewApiStatus("idle");
+    setPreviewDiagnostics(null);
     setOverrides({});
   };
 
@@ -1168,6 +1775,9 @@ export function FieldsMapPage() {
           </div>
 
           <div className="ml-auto flex items-end gap-2">
+            <Button variant="outline" className="md:hidden" onClick={() => setShowFieldListMobile((prev) => !prev)}>
+              {showFieldListMobile ? "Скрыть поля" : `Поля (${filteredFields.length})`}
+            </Button>
             <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
               <FileUp className="mr-2 h-4 w-4" />
               Загрузить KML
@@ -1189,20 +1799,63 @@ export function FieldsMapPage() {
       </Card>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[340px_1fr]">
-        <Card>
+        <Card className={`${showFieldListMobile ? "block" : "hidden"} order-2 md:block xl:order-1`}>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Поля ({filteredFields.length})</CardTitle>
           </CardHeader>
           <CardContent className="travkin-scrollbar max-h-[700px] space-y-2 overflow-y-auto">
+            <div className="mb-2 space-y-2 rounded-lg border border-[#2B3448] bg-[#151C28] p-2">
+              <div className="text-xs text-slate-400">Найти поле</div>
+              <div className="flex items-center gap-2">
+                <input
+                  value={fieldSearch}
+                  onChange={(event) => setFieldSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      runFieldSearch();
+                    }
+                  }}
+                  placeholder="Найти поле..."
+                  className="h-9 w-full rounded-md border border-[#2B3448] bg-[#0C121D] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100]"
+                />
+                <Button size="sm" variant="outline" onClick={runFieldSearch}>
+                  <Search className="mr-2 h-4 w-4" />
+                  Найти
+                </Button>
+              </div>
+              {fieldSearch.trim() && searchResults.length > 1 ? (
+                <div className="flex flex-wrap gap-1">
+                  {searchResults.slice(0, 6).map((field) => (
+                    <Button
+                      key={`quick-search-${field.field_id}`}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setSelectedFieldId(field.field_id);
+                        if (field.geometry) requestFitByReason("field_selected");
+                      }}
+                    >
+                      {field.field_display_name}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             {filteredFields.map((field) => {
               const isSelected = selectedFieldId === field.field_id;
+              const isSearchMatch = matchedBySearch.includes(field.field_id);
               return (
                 <button
                   key={field.field_id}
                   type="button"
                   onClick={() => handleSelectField(field.field_id)}
                   className={`w-full rounded-lg border p-3 text-left transition ${
-                    isSelected ? "border-[#E0B100] bg-[#202738]" : "border-[#2B3448] bg-[#151C28] hover:bg-[#202738]"
+                    isSelected
+                      ? "border-[#E0B100] bg-[#202738]"
+                      : isSearchMatch
+                        ? "border-[#60a5fa] bg-[#1b2433]"
+                        : "border-[#2B3448] bg-[#151C28] hover:bg-[#202738]"
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
@@ -1223,7 +1876,7 @@ export function FieldsMapPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="order-1 xl:order-2">
           <CardHeader className="pb-3">
             <CardTitle className="text-base">Карта</CardTitle>
           </CardHeader>
@@ -1247,6 +1900,17 @@ export function FieldsMapPage() {
               >
                 Гибрид
               </Button>
+              <div className="ml-2 text-xs text-slate-400">Цвет:</div>
+              <Button size="sm" variant={colorMode === "crop" ? "default" : "outline"} onClick={() => setColorMode("crop")}>
+                Культура
+              </Button>
+              <Button
+                size="sm"
+                variant={colorMode === "work_status" ? "default" : "outline"}
+                onClick={() => setColorMode("work_status")}
+              >
+                Статус работ
+              </Button>
               <div className="ml-auto flex flex-wrap items-center gap-2">
                 <Button size="sm" variant="outline" onClick={handleLocateMe}>
                   <LocateFixed className="mr-2 h-4 w-4" />
@@ -1261,13 +1925,66 @@ export function FieldsMapPage() {
               </div>
             </div>
 
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#2B3448] bg-[#151C28] p-2">
+              <div className="text-xs text-slate-400">Цвет:</div>
+              <Button size="sm" variant={colorMode === "crop" ? "default" : "outline"} onClick={() => setColorMode("crop")}>
+                Культура
+              </Button>
+              <Button
+                size="sm"
+                variant={colorMode === "work_status" ? "default" : "outline"}
+                onClick={() => setColorMode("work_status")}
+              >
+                Статус работ
+              </Button>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={measurementMode === "distance" ? "default" : "outline"}
+                  onClick={() => handleMeasurementMode("distance")}
+                >
+                  <Route className="mr-2 h-4 w-4" />
+                  Измерить расстояние
+                </Button>
+                <Button
+                  size="sm"
+                  variant={measurementMode === "area" ? "default" : "outline"}
+                  onClick={() => handleMeasurementMode("area")}
+                >
+                  <Ruler className="mr-2 h-4 w-4" />
+                  Измерить площадь
+                </Button>
+                <Button size="sm" variant={followMeasureActive ? "default" : "outline"} onClick={handleToggleFollowMeasure}>
+                  <Crosshair className="mr-2 h-4 w-4" />
+                  {followMeasureActive ? "Стоп follow" : "Старт follow"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleSaveMeasurementDraft}>
+                  <Save className="mr-2 h-4 w-4" />
+                  Сохранить черновик
+                </Button>
+                <Button size="sm" variant="outline" onClick={clearMeasurement}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Очистить замер
+                </Button>
+              </div>
+            </div>
+
             <div
               ref={bindMapContainerRef}
-              className="h-[620px] w-full overflow-hidden rounded-xl border border-[#2B3448] bg-[#151C28]"
+              className="h-[72vh] min-h-[420px] w-full overflow-hidden rounded-xl border border-[#2B3448] bg-[#151C28] md:h-[620px]"
             />
 
             {!mapReady ? (
               <div className="rounded-xl border border-dashed border-[#2B3448] p-3 text-sm text-slate-400">Инициализация MapLibre…</div>
+            ) : null}
+
+            {measurementMode !== "none" ? (
+              <div className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3 text-sm text-slate-200">
+                <div className="font-medium">Замер: {measurementMode === "distance" ? "Расстояние" : "Площадь"}</div>
+                <div>Точек: {measurementPoints.length}</div>
+                {measurementMode === "distance" ? <div>Длина: {formatDistance(measurementDistanceMeters)}</div> : null}
+                {measurementMode === "area" ? <div>Площадь: {formatSquare(measurementAreaSqMeters)}</div> : null}
+              </div>
             ) : null}
 
             <div className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3 text-xs text-slate-300">
@@ -1279,9 +1996,16 @@ export function FieldsMapPage() {
               <div>tiles loading: {mapDebug.tilesLoading ? "yes" : "no"}</div>
               <div>map ready: {mapDebug.mapReady ? "yes" : "no"}</div>
               <div>selected base layer: {mapDebug.selectedBaseLayer}</div>
+              <div>color mode: {mapDebug.colorMode}</div>
+              <div>zoom/maxZoom: {mapDebug.mapZoom} / {mapDebug.maxZoom}</div>
               <div>fitBounds reason: {mapDebug.fitBoundsReason}</div>
               <div>user interacted: {mapDebug.userInteracted ? "yes" : "no"}</div>
               <div>geolocation status: {mapDebug.geolocationStatus}</div>
+              <div>preview API status: {mapDebug.previewApiStatus}</div>
+              <div>matching count: {mapDebug.matchingCount}</div>
+              <div>matched/unmatched: {mapDebug.matchedCount}/{mapDebug.unmatchedCount}</div>
+              <div>selected measurement mode: {mapDebug.selectedMeasurementMode}</div>
+              <div>measurement points count: {mapDebug.measurementPointsCount}</div>
               <div>
                 map center/zoom: {mapDebug.mapCenter[0].toFixed(5)}, {mapDebug.mapCenter[1].toFixed(5)} / {mapDebug.mapZoom}
               </div>
@@ -1289,7 +2013,7 @@ export function FieldsMapPage() {
             </div>
 
             <div className="flex flex-wrap gap-2">
-              {CROP_COLOR_LEGEND.map((item) => (
+              {(colorMode === "crop" ? CROP_COLOR_LEGEND : WORK_STATUS_COLOR_LEGEND).map((item) => (
                 <div key={item.key} className="flex items-center gap-2 rounded-md border border-[#2B3448] px-2 py-1 text-xs text-slate-300">
                   <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: item.color }} />
                   {item.label}
@@ -1421,6 +2145,97 @@ export function FieldsMapPage() {
                   Все полигоны сопоставлены автоматически. Можно подтверждать импорт.
                 </div>
               )}
+
+              {previewDiagnostics ? (
+                <div className="rounded-lg border border-[#2B3448] bg-[#0f1624] p-2 text-xs text-slate-300">
+                  <div>request_id: {previewDiagnostics.request_id}</div>
+                  <div>preview_status: {previewDiagnostics.preview_status}</div>
+                  <div>season_id: {previewDiagnostics.season_id || "—"}</div>
+                  <div>polygons received/valid: {previewDiagnostics.polygons_received}/{previewDiagnostics.polygons_valid}</div>
+                  <div>error stage: {previewDiagnostics.error_stage || "—"}</div>
+                  <div>error message: {previewDiagnostics.error_message || "—"}</div>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-slate-100">Сопоставление полигонов</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead className="text-xs uppercase tracking-wide text-slate-400">
+                      <tr>
+                        <th className="px-2 py-2">KML полигон</th>
+                        <th className="px-2 py-2">Площадь</th>
+                        <th className="px-2 py-2">Статус</th>
+                        <th className="px-2 py-2">Travkin поле</th>
+                        <th className="px-2 py-2">Confidence</th>
+                        <th className="px-2 py-2">Manual</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {previewRows.map((row) => {
+                        const isMatched = row.match_status === "matched";
+                        const statusLabel = isMatched
+                          ? "auto matched"
+                          : row.match_status === "ambiguous"
+                            ? "manual required"
+                            : "unmatched";
+                        const selectedOverride = overrides[row.polygon_id] || "none";
+                        const resolvedFieldLabel = row.field_display_name
+                          ? `Поле ${row.field_display_name}`
+                          : row.candidates[0]?.field_display_name
+                            ? `Кандидат: ${row.candidates[0]?.field_display_name}`
+                            : "—";
+
+                        return (
+                          <tr key={`preview-all-${row.polygon_id}`} className="border-t border-[#2B3448] align-top">
+                            <td className="px-2 py-2">
+                              <div className="font-medium text-slate-200">{row.polygon_name}</div>
+                              <div className="text-xs text-slate-400">{row.polygon_id}</div>
+                            </td>
+                            <td className="px-2 py-2">{formatHa(row.area_ha)}</td>
+                            <td className="px-2 py-2">
+                              <Badge variant={isMatched ? "default" : "outline"}>{statusLabel}</Badge>
+                              {row.matched_by ? <div className="mt-1 text-xs text-slate-400">by: {row.matched_by}</div> : null}
+                            </td>
+                            <td className="px-2 py-2">
+                              <div className="text-slate-200">{resolvedFieldLabel}</div>
+                              {row.candidates.length > 0 ? (
+                                <div className="mt-1 text-xs text-slate-400">
+                                  candidates: {row.candidates.map((candidate) => candidate.field_display_name).join(", ")}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="px-2 py-2">{(Number(row.confidence_score || 0) * 100).toFixed(0)}%</td>
+                            <td className="px-2 py-2">
+                              <Select
+                                value={selectedOverride}
+                                onValueChange={(value) =>
+                                  setOverrides((prev) => ({
+                                    ...prev,
+                                    [row.polygon_id]: value === "none" ? "" : value,
+                                  }))
+                                }
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Выбрать поле" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="none">Не выбрано</SelectItem>
+                                  {fields.map((field) => (
+                                    <SelectItem key={`manual-${row.polygon_id}-${field.field_id}`} value={field.field_id}>
+                                      Поле {field.field_display_name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           ) : null}
         </CardContent>

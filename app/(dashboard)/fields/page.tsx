@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,7 +30,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, MoveHorizontal as MoreHorizontal, Pencil, Archive } from "lucide-react";
+import { Plus, MoveHorizontal as MoreHorizontal, Pencil, Archive, Search } from "lucide-react";
 import { FieldFormDialog } from "@/components/fields/field-form-dialog";
 import { Field, FieldFormData } from "@/lib/types/field";
 import {
@@ -140,6 +141,7 @@ const pageText: Record<Language, Record<string, string>> = {
 
 export default function FieldsPage() {
   const [fields, setFields] = useState<Field[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingField, setEditingField] = useState<Field | null>(null);
@@ -149,6 +151,18 @@ export default function FieldsPage() {
   const { profile } = useAuth();
   const { language } = useLanguage();
   const text = pageText[language];
+
+  const filteredFields = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return fields;
+    return fields.filter((field) => {
+      const displayName = getFieldDisplayName(field).toLowerCase();
+      const rawName = String(field.name || "").toLowerCase();
+      const soil = String(field.soil_type || "").toLowerCase();
+      const notes = String(field.notes || "").toLowerCase();
+      return displayName.includes(query) || rawName.includes(query) || soil.includes(query) || notes.includes(query);
+    });
+  }, [fields, searchQuery]);
 
   const renderFieldNotes = (field: Field) => {
     const metadata = getFieldMetadata(field);
@@ -280,73 +294,129 @@ export default function FieldsPage() {
 
       <Card>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{text.fieldName}</TableHead>
-                <TableHead>{text.area} ({localizeUnit("ha", language)})</TableHead>
-                <TableHead>{text.soilType}</TableHead>
-                <TableHead>{text.notes}</TableHead>
-                <TableHead>{text.createdAt}</TableHead>
-                <TableHead className="w-[70px]">{text.actions}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
+          <div className="border-b border-slate-200 p-3 md:p-4">
+            <div className="relative max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={`${text.fieldName}...`}
+                className="h-11 pl-9"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2 p-3 md:hidden">
+            {loading ? (
+              <div className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
+                {text.loading}
+              </div>
+            ) : filteredFields.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center text-sm text-slate-500">
+                {searchQuery.trim() ? "Поля по вашему запросу не найдены." : text.empty}
+              </div>
+            ) : (
+              filteredFields.map((field) => (
+                <div key={`mobile-${field.id}`} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <Link href={`/fields/${field.id}`} className="block rounded-md focus:outline-none focus:ring-2 focus:ring-amber-400">
+                    <div className="text-base font-semibold text-slate-900">{getFieldDisplayName(field)}</div>
+                    <div className="mt-1 text-sm text-slate-600">
+                      {text.area}: {field.area.toFixed(2)} {localizeUnit("ha", language)}
+                    </div>
+                    <div className="mt-1 text-sm text-slate-600">
+                      {text.soilType}: {field.soil_type || "-"}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">{renderFieldNotes(field)}</div>
+                  </Link>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <Button type="button" variant="outline" className="h-11" onClick={() => openEditDialog(field)}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      {text.edit}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-11 border-red-200 text-red-600 hover:bg-red-50"
+                      onClick={() => openArchiveDialog(field)}
+                    >
+                      <Archive className="mr-2 h-4 w-4" />
+                      {text.archive}
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="hidden md:block">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-slate-500">
-                    {text.loading}
-                  </TableCell>
+                  <TableHead>{text.fieldName}</TableHead>
+                  <TableHead>{text.area} ({localizeUnit("ha", language)})</TableHead>
+                  <TableHead>{text.soilType}</TableHead>
+                  <TableHead>{text.notes}</TableHead>
+                  <TableHead>{text.createdAt}</TableHead>
+                  <TableHead className="w-[70px]">{text.actions}</TableHead>
                 </TableRow>
-              ) : fields.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-center text-slate-500">
-                    {text.empty}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                fields.map((field) => (
-                  <TableRow key={field.id}>
-                    <TableCell className="font-medium">
-                      <Link href={`/fields/${field.id}`} className="text-slate-900 hover:underline">
-                        {getFieldDisplayName(field)}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{field.area.toFixed(2)}</TableCell>
-                    <TableCell>{field.soil_type || "-"}</TableCell>
-                    <TableCell className="max-w-xs truncate">
-                      {renderFieldNotes(field)}
-                    </TableCell>
-                    <TableCell>
-                      {format(new Date(field.created_at), "MMM d, yyyy")}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="sm">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditDialog(field)}>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            {text.edit}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => openArchiveDialog(field)}
-                            className="text-red-600"
-                          >
-                            <Archive className="mr-2 h-4 w-4" />
-                            {text.archive}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+              </TableHeader>
+              <TableBody>
+                {loading ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-slate-500">
+                      {text.loading}
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : filteredFields.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-slate-500">
+                      {searchQuery.trim() ? "No fields match this query." : text.empty}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredFields.map((field) => (
+                    <TableRow key={field.id}>
+                      <TableCell className="font-medium">
+                        <Link href={`/fields/${field.id}`} className="text-slate-900 hover:underline">
+                          {getFieldDisplayName(field)}
+                        </Link>
+                      </TableCell>
+                      <TableCell>{field.area.toFixed(2)}</TableCell>
+                      <TableCell>{field.soil_type || "-"}</TableCell>
+                      <TableCell className="max-w-xs truncate">
+                        {renderFieldNotes(field)}
+                      </TableCell>
+                      <TableCell>
+                        {format(new Date(field.created_at), "MMM d, yyyy")}
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => openEditDialog(field)}>
+                              <Pencil className="mr-2 h-4 w-4" />
+                              {text.edit}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => openArchiveDialog(field)}
+                              className="text-red-600"
+                            >
+                              <Archive className="mr-2 h-4 w-4" />
+                              {text.archive}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
