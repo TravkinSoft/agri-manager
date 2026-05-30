@@ -22,15 +22,14 @@ import {
   previewFieldMapImport,
   updateFieldMapImportAction,
 } from "@/lib/services/fields-map";
-import type { FieldMapImportSummary, FieldMapPreviewMatch, FieldsMapBootstrapPayload, ParsedKmlPolygonInput } from "@/lib/types/fields-map";
-
-declare global {
-  interface Window {
-    google?: any;
-    gm_authFailure?: () => void;
-    travkinGoogleMapsReady?: () => void;
-  }
-}
+import type {
+  FieldMapFieldCard,
+  FieldMapImportSummary,
+  FieldMapPreviewMatch,
+  FieldsMapBootstrapPayload,
+  GeoJsonGeometry,
+  ParsedKmlPolygonInput,
+} from "@/lib/types/fields-map";
 
 type PreviewState = {
   importId: string;
@@ -52,32 +51,48 @@ type UploadState = {
   errors: string[];
 };
 
-const MAP_SCRIPT_ID = "travkin-google-maps-script";
-const MAP_READY_CALLBACK = "travkinGoogleMapsReady";
-const GOOGLE_MAPS_ERROR_CODES = [
-  "RefererNotAllowedMapError",
-  "ApiNotActivatedMapError",
-  "BillingNotEnabledMapError",
-  "InvalidKeyMapError",
-  "MissingKeyMapError",
-  "ExpiredKeyMapError",
-  "ApiProjectMapError",
-  "NotLoadingAPIFromGoogleMapsError",
-  "TOSViolationMapError",
-  "NoApiKeys",
-];
+type PreviewMapFeature = {
+  geometry: GeoJsonGeometry;
+  fieldId: string | null;
+  label: string;
+  areaHa: number | null;
+  matchStatus: "matched" | "ambiguous" | "not_found";
+};
 
-function detectGoogleMapsErrorCode(value: unknown): string | null {
-  const text = String(value || "");
-  for (const code of GOOGLE_MAPS_ERROR_CODES) {
-    if (text.includes(code)) return code;
-  }
-  return null;
-}
+type OverlayFeatureProperties = {
+  overlay_mode: "field" | "preview";
+  field_id: string | null;
+  field_display_name: string | null;
+  crop_name: string | null;
+  label: string | null;
+  area_ha: number | null;
+  match_status: "matched" | "ambiguous" | "not_found" | null;
+  fill_color: string;
+  line_color: string;
+};
 
-function formatGoogleMapsDiagnostics(code: string): string {
-  return `Google Maps error: ${code}. Проверьте Maps JavaScript API, billing и referrer restrictions для текущего домена.`;
-}
+type OverlayFeature = {
+  type: "Feature";
+  geometry: GeoJsonGeometry;
+  properties: OverlayFeatureProperties;
+};
+
+type OverlayFeatureCollection = {
+  type: "FeatureCollection";
+  features: OverlayFeature[];
+};
+
+type MapLibreModule = typeof import("maplibre-gl");
+
+const DEFAULT_MAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const MAP_TILE_URL = process.env.NEXT_PUBLIC_MAP_TILE_URL || DEFAULT_MAP_TILE_URL;
+const MAP_RASTER_SOURCE_ID = "travkin-osm-raster";
+const MAP_RASTER_LAYER_ID = "travkin-osm-raster-layer";
+const MAP_SOURCE_ID = "travkin-fields-geojson-source";
+const MAP_FILL_LAYER_ID = "travkin-fields-fill-layer";
+const MAP_LINE_LAYER_ID = "travkin-fields-line-layer";
+const DEFAULT_MAP_CENTER: [number, number] = [69.2, 54.9];
+const DEFAULT_MAP_ZOOM = 6.2;
 
 function downloadBlob(blob: Blob, fileName: string) {
   const url = URL.createObjectURL(blob);
@@ -107,17 +122,84 @@ function includeByCrop(cropName: string | null | undefined, selected: string): b
   return String(cropName || "").trim() === selected;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function toNullableString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function buildPopupHtml(feature: OverlayFeatureProperties, field: FieldMapFieldCard | null): string {
+  if (feature.overlay_mode === "preview") {
+    const statusLabel =
+      feature.match_status === "matched"
+        ? "сопоставлено"
+        : feature.match_status === "ambiguous"
+          ? "несколько совпадений"
+          : "не сопоставлено";
+    return `
+      <div style="font-size:12px;line-height:1.4;padding:4px 2px;min-width:180px;">
+        <div style="font-weight:600;">${escapeHtml(feature.label || "Полигон")}</div>
+        <div>Площадь: ${escapeHtml(formatHa(feature.area_ha))}</div>
+        <div>Статус: ${escapeHtml(statusLabel)}</div>
+      </div>
+    `;
+  }
+
+  const displayName = field?.field_display_name || feature.field_display_name || "—";
+  const crop = field?.crop_plan?.crop_name || feature.crop_name || "Нет культуры";
+
+  return `
+    <div style="font-size:12px;line-height:1.4;padding:4px 2px;min-width:180px;">
+      <div style="font-weight:600;">Поле ${escapeHtml(displayName)}</div>
+      <div>Площадь: ${escapeHtml(formatHa(field?.field_area_ha ?? feature.area_ha))}</div>
+      <div>Культура: ${escapeHtml(crop)}</div>
+    </div>
+  `;
+}
+
+function visitGeometryCoordinates(
+  geometry: GeoJsonGeometry,
+  visitor: (longitude: number, latitude: number) => void
+) {
+  const visitNode = (node: unknown) => {
+    if (!Array.isArray(node)) return;
+    if (node.length >= 2 && typeof node[0] === "number" && typeof node[1] === "number") {
+      visitor(node[0], node[1]);
+      return;
+    }
+    node.forEach(visitNode);
+  };
+  visitNode(geometry.coordinates);
+}
+
 export function FieldsMapPage() {
   const { toast } = useToast();
   const router = useRouter();
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
-  const dataLayerRef = useRef<any>(null);
-  const infoWindowRef = useRef<any>(null);
-  const fieldLookupRef = useRef<Map<string, any>>(new Map());
-
-  const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+  const maplibreRef = useRef<MapLibreModule | null>(null);
+  const popupRef = useRef<any>(null);
+  const fieldLookupRef = useRef<Map<string, FieldMapFieldCard>>(new Map());
 
   const [loading, setLoading] = useState(true);
   const [bootstrap, setBootstrap] = useState<FieldsMapBootstrapPayload | null>(null);
@@ -132,11 +214,11 @@ export function FieldsMapPage() {
 
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
-  const [mapErrorCode, setMapErrorCode] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [historyBusyId, setHistoryBusyId] = useState<string | null>(null);
 
   const fields = bootstrap?.fields || [];
+
   const cropOptions = useMemo(() => {
     const set = new Set<string>();
     fields.forEach((field) => {
@@ -162,7 +244,8 @@ export function FieldsMapPage() {
     () => (previewState?.matches || []).filter((row) => row.match_status !== "matched"),
     [previewState]
   );
-  const previewMapFeatures = useMemo(() => {
+
+  const previewMapFeatures = useMemo<PreviewMapFeature[]>(() => {
     if (previewState) {
       return previewState.matches.map((row) => ({
         geometry: row.geometry,
@@ -172,17 +255,69 @@ export function FieldsMapPage() {
         matchStatus: row.match_status,
       }));
     }
+
     if (uploadState) {
       return uploadState.polygons.map((row) => ({
         geometry: row.geometry,
         fieldId: null,
         label: row.name,
         areaHa: row.area_ha,
-        matchStatus: "not_found" as const,
+        matchStatus: "not_found",
       }));
     }
+
     return [];
   }, [previewState, uploadState]);
+
+  const mapCollection = useMemo<OverlayFeatureCollection>(() => {
+    if (previewMapFeatures.length > 0) {
+      return {
+        type: "FeatureCollection",
+        features: previewMapFeatures.map((row) => {
+          const color = row.matchStatus === "matched" ? "#22c55e" : row.matchStatus === "ambiguous" ? "#eab308" : "#ef4444";
+          return {
+            type: "Feature",
+            geometry: row.geometry,
+            properties: {
+              overlay_mode: "preview",
+              field_id: row.fieldId,
+              field_display_name: null,
+              crop_name: null,
+              label: row.label,
+              area_ha: row.areaHa,
+              match_status: row.matchStatus,
+              fill_color: color,
+              line_color: color,
+            },
+          };
+        }),
+      };
+    }
+
+    return {
+      type: "FeatureCollection",
+      features: mappedFields
+        .filter((field): field is FieldMapFieldCard & { geometry: GeoJsonGeometry } => !!field.geometry)
+        .map((field) => {
+          const color = resolveCropColor(field.crop_plan?.crop_name || "");
+          return {
+            type: "Feature",
+            geometry: field.geometry,
+            properties: {
+              overlay_mode: "field",
+              field_id: field.field_id,
+              field_display_name: field.field_display_name,
+              crop_name: field.crop_plan?.crop_name || null,
+              label: field.field_display_name,
+              area_ha: field.field_area_ha,
+              match_status: null,
+              fill_color: color,
+              line_color: color,
+            },
+          };
+        }),
+    };
+  }, [mappedFields, previewMapFeatures]);
 
   const loadBootstrap = async (seasonId?: string) => {
     const payload = await getFieldsMapBootstrap(seasonId);
@@ -211,308 +346,219 @@ export function FieldsMapPage() {
   }, []);
 
   useEffect(() => {
-    if (!googleMapsApiKey) {
-      setMapError("Google Maps API key не настроен.");
-      setMapErrorCode("MissingPublicKey");
-      return;
-    }
-    if (window.google?.maps) {
-      setMapReady(true);
-      setMapError(null);
-      setMapErrorCode(null);
-      return;
-    }
-
-    const existing = document.getElementById(MAP_SCRIPT_ID) as HTMLScriptElement | null;
-    if (existing) {
-      existing.addEventListener("load", () => setMapReady(true));
-      existing.addEventListener("error", () => setMapError("Не удалось загрузить Google Maps."));
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.id = MAP_SCRIPT_ID;
-    script.async = true;
-    script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
-      googleMapsApiKey
-    )}&loading=async&callback=${MAP_READY_CALLBACK}`;
-    script.onload = () => {
-      setMapReady(true);
-      setMapError(null);
-      setMapErrorCode(null);
-    };
-    script.onerror = () => {
-      setMapError("Не удалось загрузить Google Maps.");
-      setMapErrorCode("ScriptLoadError");
-    };
-    document.head.appendChild(script);
-  }, [googleMapsApiKey]);
-
-  useEffect(() => {
-    if (!googleMapsApiKey) return;
-
-    let cancelled = false;
-    const previousAuthFailure = window.gm_authFailure;
-    const previousReadyCallback = window[MAP_READY_CALLBACK];
-    const originalConsoleError = console.error;
-
-    const setErrorByCode = (code: string, message?: string) => {
-      if (cancelled) return;
-      setMapReady(false);
-      setMapErrorCode(code);
-      setMapError(message || formatGoogleMapsDiagnostics(code));
-    };
-
-    const onAuthFailure = () => {
-      setErrorByCode("gm_authFailure", "Google Maps authentication failed. Проверьте key restrictions и billing.");
-      if (typeof previousAuthFailure === "function") {
-        previousAuthFailure();
-      }
-    };
-
-    const onWindowError = (event: ErrorEvent) => {
-      const text = [event.message, event.filename, event.error instanceof Error ? event.error.message : ""].join(" ");
-      const code = detectGoogleMapsErrorCode(text);
-      if (code) {
-        setErrorByCode(code);
-      }
-    };
-
-    window.gm_authFailure = onAuthFailure;
-    window[MAP_READY_CALLBACK] = () => {
-      if (cancelled) return;
-      setMapReady(true);
-      setMapError(null);
-      setMapErrorCode(null);
-    };
-
-    console.error = (...args: unknown[]) => {
-      const combined = args
-        .map((arg) => {
-          if (typeof arg === "string") return arg;
-          if (arg instanceof Error) return `${arg.name}: ${arg.message}`;
-          try {
-            return JSON.stringify(arg);
-          } catch {
-            return String(arg);
-          }
-        })
-        .join(" ");
-      const code = detectGoogleMapsErrorCode(combined);
-      if (code) {
-        setErrorByCode(code);
-      }
-      originalConsoleError(...args);
-    };
-
-    window.addEventListener("error", onWindowError);
-
-    const script = document.getElementById(MAP_SCRIPT_ID) as HTMLScriptElement | null;
-    if (script && script.src && !script.src.includes("callback=")) {
-      try {
-        const url = new URL(script.src);
-        url.searchParams.set("loading", "async");
-        url.searchParams.set("callback", MAP_READY_CALLBACK);
-        script.src = url.toString();
-      } catch {
-        // Ignore URL parsing issues and keep existing loader behavior.
-      }
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      if (!cancelled && !window.google?.maps) {
-        setErrorByCode(
-          "GoogleMapsInitTimeout",
-          "Google Maps script loaded, but API is not initialized. Проверьте API activation, billing и referrer restrictions."
-        );
-      }
-    }, 12000);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeoutId);
-      window.removeEventListener("error", onWindowError);
-      console.error = originalConsoleError;
-      window.gm_authFailure = previousAuthFailure;
-      window[MAP_READY_CALLBACK] = previousReadyCallback;
-    };
-  }, [googleMapsApiKey]);
-
-  useEffect(() => {
     fieldLookupRef.current = new Map(fields.map((field) => [field.field_id, field]));
   }, [fields]);
 
   useEffect(() => {
-    if (!mapReady || !mapContainerRef.current || mapRef.current) return;
-    try {
-      const center = { lat: 51.2, lng: 71.4 };
-      mapRef.current = new window.google.maps.Map(mapContainerRef.current, {
-        center,
-        zoom: 6,
-        mapTypeId: "roadmap",
-        fullscreenControl: false,
-        streetViewControl: false,
-        mapTypeControl: true,
-      });
-      dataLayerRef.current = new window.google.maps.Data({ map: mapRef.current });
-      infoWindowRef.current = new window.google.maps.InfoWindow();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const code = detectGoogleMapsErrorCode(message);
+    let cancelled = false;
+    if (mapRef.current || !mapContainerRef.current) return;
+
+    const initializeMap = async () => {
+      try {
+        const maplibre = await import("maplibre-gl");
+        if (cancelled || !mapContainerRef.current || mapRef.current) return;
+
+        maplibreRef.current = maplibre;
+
+        const map = new maplibre.Map({
+          container: mapContainerRef.current,
+          style: {
+            version: 8,
+            sources: {
+              [MAP_RASTER_SOURCE_ID]: {
+                type: "raster",
+                tiles: [MAP_TILE_URL],
+                tileSize: 256,
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+              },
+            },
+            layers: [
+              {
+                id: MAP_RASTER_LAYER_ID,
+                type: "raster",
+                source: MAP_RASTER_SOURCE_ID,
+              },
+            ],
+          },
+          center: DEFAULT_MAP_CENTER,
+          zoom: DEFAULT_MAP_ZOOM,
+          attributionControl: { compact: true },
+        });
+
+        mapRef.current = map;
+        popupRef.current = new maplibre.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          maxWidth: "280px",
+          offset: 12,
+        });
+
+        map.addControl(new maplibre.NavigationControl({ showCompass: false }), "top-right");
+
+        map.on("load", () => {
+          if (cancelled) return;
+
+          if (!map.getSource(MAP_SOURCE_ID)) {
+            map.addSource(MAP_SOURCE_ID, {
+              type: "geojson",
+              data: { type: "FeatureCollection", features: [] },
+            });
+          }
+
+          if (!map.getLayer(MAP_FILL_LAYER_ID)) {
+            map.addLayer({
+              id: MAP_FILL_LAYER_ID,
+              type: "fill",
+              source: MAP_SOURCE_ID,
+              paint: {
+                "fill-color": ["coalesce", ["get", "fill_color"], "#3b82f6"],
+                "fill-opacity": [
+                  "case",
+                  ["==", ["get", "overlay_mode"], "preview"],
+                  0.32,
+                  0.5,
+                ],
+              },
+            });
+          }
+
+          if (!map.getLayer(MAP_LINE_LAYER_ID)) {
+            map.addLayer({
+              id: MAP_LINE_LAYER_ID,
+              type: "line",
+              source: MAP_SOURCE_ID,
+              paint: {
+                "line-color": ["coalesce", ["get", "line_color"], "#3b82f6"],
+                "line-width": [
+                  "case",
+                  ["==", ["get", "overlay_mode"], "preview"],
+                  2.1,
+                  1.8,
+                ],
+                "line-opacity": 0.95,
+              },
+            });
+          }
+
+          map.resize();
+          setMapReady(true);
+          setMapError(null);
+        });
+
+        map.on("error", (event: any) => {
+          if (cancelled) return;
+          const message =
+            event?.error instanceof Error
+              ? event.error.message
+              : typeof event?.error === "string"
+                ? event.error
+                : "Не удалось отрисовать карту.";
+          setMapError(message);
+        });
+
+        map.on("mousemove", (event: any) => {
+          if (!map.getLayer(MAP_FILL_LAYER_ID)) return;
+          const features = map.queryRenderedFeatures(event.point, {
+            layers: [MAP_FILL_LAYER_ID],
+          });
+          const feature = features[0];
+          if (!feature) {
+            map.getCanvas().style.cursor = "";
+            popupRef.current?.remove();
+            return;
+          }
+
+          map.getCanvas().style.cursor = "pointer";
+          const properties = (feature.properties || {}) as Record<string, unknown>;
+          const parsedProperties: OverlayFeatureProperties = {
+            overlay_mode: toNullableString(properties.overlay_mode) === "preview" ? "preview" : "field",
+            field_id: toNullableString(properties.field_id),
+            field_display_name: toNullableString(properties.field_display_name),
+            crop_name: toNullableString(properties.crop_name),
+            label: toNullableString(properties.label),
+            area_ha: toNullableNumber(properties.area_ha),
+            match_status:
+              toNullableString(properties.match_status) === "matched"
+                ? "matched"
+                : toNullableString(properties.match_status) === "ambiguous"
+                  ? "ambiguous"
+                  : toNullableString(properties.match_status) === "not_found"
+                    ? "not_found"
+                    : null,
+            fill_color: toNullableString(properties.fill_color) || "#3b82f6",
+            line_color: toNullableString(properties.line_color) || "#3b82f6",
+          };
+          const relatedField = parsedProperties.field_id ? fieldLookupRef.current.get(parsedProperties.field_id) || null : null;
+
+          const html = buildPopupHtml(parsedProperties, relatedField);
+          popupRef.current?.setLngLat(event.lngLat).setHTML(html).addTo(map);
+        });
+
+        map.on("mouseout", () => {
+          map.getCanvas().style.cursor = "";
+          popupRef.current?.remove();
+        });
+
+        map.on("click", (event: any) => {
+          if (!map.getLayer(MAP_FILL_LAYER_ID)) return;
+          const features = map.queryRenderedFeatures(event.point, {
+            layers: [MAP_FILL_LAYER_ID],
+          });
+          const fieldId = toNullableString(features[0]?.properties?.field_id);
+          if (fieldId) {
+            setSelectedFieldId(fieldId);
+          }
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setMapReady(false);
+        setMapError(error instanceof Error ? error.message : "Не удалось инициализировать MapLibre.");
+      }
+    };
+
+    void initializeMap();
+
+    return () => {
+      cancelled = true;
+      popupRef.current?.remove();
+      popupRef.current = null;
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
       setMapReady(false);
-      setMapErrorCode(code || "MapInitError");
-      setMapError(code ? formatGoogleMapsDiagnostics(code) : `Map init failed: ${message}`);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapReady || !mapRef.current || !maplibreRef.current) return;
+
+    const map = mapRef.current;
+    const maplibre = maplibreRef.current;
+    const source = map.getSource(MAP_SOURCE_ID) as { setData: (data: OverlayFeatureCollection) => void } | undefined;
+    if (!source) return;
+
+    source.setData(mapCollection);
+
+    if (!mapCollection.features.length) {
+      map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: 500 });
       return;
     }
 
-    dataLayerRef.current.addListener("click", (event: any) => {
-      const fieldId = String(event.feature.getProperty("field_id") || "");
-      if (fieldId) setSelectedFieldId(fieldId);
-    });
+    const bounds = new maplibre.LngLatBounds();
+    let hasCoordinates = false;
 
-    dataLayerRef.current.addListener("mouseover", (event: any) => {
-      const overlayMode = String(event.feature.getProperty("overlay_mode") || "field");
-      if (overlayMode === "preview") {
-        const label = String(event.feature.getProperty("label") || "Полигон");
-        const area = event.feature.getProperty("area_ha");
-        const matchStatus = String(event.feature.getProperty("match_status") || "not_found");
-        const statusLabel =
-          matchStatus === "matched"
-            ? "сопоставлено"
-            : matchStatus === "ambiguous"
-              ? "несколько совпадений"
-              : "не сопоставлено";
-        const content = `
-          <div style="font-size:12px;line-height:1.4;padding:4px 2px;min-width:180px;">
-            <div style="font-weight:600;">${label}</div>
-            <div>Площадь: ${formatHa(Number(area || 0))}</div>
-            <div>Статус: ${statusLabel}</div>
-          </div>
-        `;
-        infoWindowRef.current.setContent(content);
-        infoWindowRef.current.setPosition(event.latLng);
-        infoWindowRef.current.open(mapRef.current);
-        return;
-      }
-
-      const fieldId = String(event.feature.getProperty("field_id") || "");
-      const field = fieldLookupRef.current.get(fieldId);
-      if (!field || !infoWindowRef.current) return;
-      const crop = field.crop_plan?.crop_name || "Нет культуры";
-      const content = `
-        <div style="font-size:12px;line-height:1.4;padding:4px 2px;min-width:180px;">
-          <div style="font-weight:600;">Поле ${field.field_display_name}</div>
-          <div>Площадь: ${formatHa(field.field_area_ha)}</div>
-          <div>Культура: ${crop}</div>
-        </div>
-      `;
-      infoWindowRef.current.setContent(content);
-      infoWindowRef.current.setPosition(event.latLng);
-      infoWindowRef.current.open(mapRef.current);
-    });
-
-    dataLayerRef.current.addListener("mouseout", () => {
-      infoWindowRef.current?.close();
-    });
-  }, [mapReady]);
-
-  useEffect(() => {
-    if (!dataLayerRef.current || !mapRef.current || !window.google?.maps) return;
-    dataLayerRef.current.forEach((feature: any) => dataLayerRef.current.remove(feature));
-    const bounds = new window.google.maps.LatLngBounds();
-
-    const usePreviewOverlay = previewMapFeatures.length > 0;
-    if (usePreviewOverlay) {
-      previewMapFeatures.forEach((item, index) => {
-        const featureCollection = {
-          type: "FeatureCollection" as const,
-          features: [
-            {
-              type: "Feature" as const,
-              geometry: item.geometry,
-              properties: {
-                overlay_mode: "preview",
-                feature_index: index,
-                field_id: item.fieldId,
-                label: item.label,
-                area_ha: item.areaHa,
-                match_status: item.matchStatus,
-              },
-            },
-          ],
-        };
-        dataLayerRef.current.addGeoJson(featureCollection as any);
-        const visitCoords = (coords: any) => {
-          if (!Array.isArray(coords)) return;
-          if (typeof coords[0] === "number" && typeof coords[1] === "number") {
-            bounds.extend(new window.google.maps.LatLng(coords[1], coords[0]));
-            return;
-          }
-          coords.forEach((child: any) => visitCoords(child));
-        };
-        visitCoords((item.geometry as any).coordinates);
+    mapCollection.features.forEach((feature) => {
+      visitGeometryCoordinates(feature.geometry, (lng, lat) => {
+        bounds.extend([lng, lat]);
+        hasCoordinates = true;
       });
-    } else {
-      mappedFields.forEach((field) => {
-        if (!field.geometry) return;
-        const featureCollection = {
-          type: "FeatureCollection" as const,
-          features: [
-            {
-              type: "Feature" as const,
-              geometry: field.geometry,
-              properties: {
-                overlay_mode: "field",
-                field_id: field.field_id,
-                crop_name: field.crop_plan?.crop_name || null,
-                field_display_name: field.field_display_name,
-              },
-            },
-          ],
-        };
-        dataLayerRef.current.addGeoJson(featureCollection as any);
-
-        const visitCoords = (coords: any) => {
-          if (!Array.isArray(coords)) return;
-          if (typeof coords[0] === "number" && typeof coords[1] === "number") {
-            bounds.extend(new window.google.maps.LatLng(coords[1], coords[0]));
-            return;
-          }
-          coords.forEach((child: any) => visitCoords(child));
-        };
-        visitCoords((field.geometry as any).coordinates);
-      });
-    }
-
-    dataLayerRef.current.setStyle((feature: any) => {
-      const overlayMode = String(feature.getProperty("overlay_mode") || "field");
-      if (overlayMode === "preview") {
-        const matchStatus = String(feature.getProperty("match_status") || "not_found");
-        const color = matchStatus === "matched" ? "#22c55e" : matchStatus === "ambiguous" ? "#eab308" : "#ef4444";
-        return {
-          fillColor: color,
-          fillOpacity: 0.32,
-          strokeColor: color,
-          strokeWeight: 2.1,
-          strokeOpacity: 0.95,
-        };
-      }
-
-      const crop = String(feature.getProperty("crop_name") || "");
-      const color = resolveCropColor(crop);
-      return {
-        fillColor: color,
-        fillOpacity: 0.5,
-        strokeColor: color,
-        strokeWeight: 1.8,
-      };
     });
 
-    if (!bounds.isEmpty()) {
-      mapRef.current.fitBounds(bounds);
+    if (hasCoordinates) {
+      map.fitBounds(bounds, { padding: 44, duration: 650, maxZoom: 15 });
     }
-  }, [mappedFields, previewMapFeatures]);
+  }, [mapCollection, mapReady]);
 
   const handleSeasonChange = async (seasonId: string) => {
     setSelectedSeasonId(seasonId);
@@ -686,7 +732,7 @@ export function FieldsMapPage() {
     <div className="space-y-4">
       <PageHeader
         title="Карта полей"
-        description="Google Maps + KML импорт + цвета полей по культуре сезона"
+        description="MapLibre + KML импорт + цвета полей по культуре сезона"
         action={{
           label: "Загрузить KML",
           icon: FileUp,
@@ -696,19 +742,10 @@ export function FieldsMapPage() {
 
       <input ref={fileInputRef} type="file" accept=".kml" className="hidden" onChange={handleKmlSelect} />
 
-      {!googleMapsApiKey ? (
-        <Card className="border-amber-500/40">
-          <CardContent className="pt-6 text-sm text-amber-200">
-            Google Maps API key не настроен. Добавьте `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` в ENV.
-          </CardContent>
-        </Card>
-      ) : null}
-
       {mapError ? (
         <Card className="border-rose-500/40">
           <CardContent className="space-y-2 pt-6 text-sm text-rose-200">
             <div>{mapError}</div>
-            {mapErrorCode ? <div className="text-xs text-rose-300/90">Google diagnostics code: {mapErrorCode}</div> : null}
           </CardContent>
         </Card>
       ) : null}
@@ -788,7 +825,11 @@ export function FieldsMapPage() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-medium text-slate-100">Поле {field.field_display_name}</div>
-                    {field.geometry ? <Badge className="bg-emerald-600 text-white">На карте</Badge> : <Badge variant="outline">Без геометрии</Badge>}
+                    {field.geometry ? (
+                      <Badge className="bg-emerald-600 text-white">На карте</Badge>
+                    ) : (
+                      <Badge variant="outline">Без геометрии</Badge>
+                    )}
                   </div>
                   <div className="mt-1 text-xs text-slate-400">
                     {formatHa(field.field_area_ha)} · {field.crop_plan?.crop_name || "Культура не задана"}
@@ -806,6 +847,10 @@ export function FieldsMapPage() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div ref={mapContainerRef} className="h-[620px] w-full overflow-hidden rounded-xl border border-[#2B3448] bg-[#151C28]" />
+
+            {!mapReady ? (
+              <div className="rounded-xl border border-dashed border-[#2B3448] p-3 text-sm text-slate-400">Инициализация MapLibre…</div>
+            ) : null}
 
             <div className="flex flex-wrap gap-2">
               {CROP_COLOR_LEGEND.map((item) => (
@@ -957,7 +1002,7 @@ export function FieldsMapPage() {
                   <th className="px-2 py-2">Файл</th>
                   <th className="px-2 py-2">Дата</th>
                   <th className="px-2 py-2">Пользователь</th>
-                  <th className="px-2 py-2">Полигоны</th>
+                  <th className="px-2 py-2">Полигонов</th>
                   <th className="px-2 py-2">Совпадения</th>
                   <th className="px-2 py-2">Ошибки</th>
                   <th className="px-2 py-2">Статус</th>
@@ -974,9 +1019,7 @@ export function FieldsMapPage() {
                     <td className="px-2 py-2">{row.matched_polygons}</td>
                     <td className="px-2 py-2">{row.error_count}</td>
                     <td className="px-2 py-2">
-                      <Badge variant={row.is_active ? "default" : "outline"}>
-                        {row.is_active ? "Активен" : row.status}
-                      </Badge>
+                      <Badge variant={row.is_active ? "default" : "outline"}>{row.is_active ? "Активен" : row.status}</Badge>
                     </td>
                     <td className="px-2 py-2">
                       <div className="flex flex-wrap gap-1">
