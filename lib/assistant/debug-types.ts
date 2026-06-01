@@ -77,7 +77,7 @@ export type AssistantDebugMetadata = {
     mode: string | null;
     grounded: boolean | null;
     answerSource: AssistantDebugAnswerSource;
-    decisionSource?: "fast_path" | "router" | "model" | null;
+    decisionSource?: "fast_path" | "router" | "model" | "memory_followup" | null;
     explicitNavigationRequested?: boolean;
     navigationPolicy?: "allowed" | "blocked" | "not_applicable" | null;
     consistencyCheck: "pass" | "fail" | "skipped";

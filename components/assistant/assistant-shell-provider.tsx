@@ -386,10 +386,16 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
       cleanString((mergedFilters as Record<string, unknown>).field) ||
       cleanString((mergedFilters as Record<string, unknown>).fieldId) ||
       (selectedEntityType === "field" ? selectedEntityId : null);
+    const selectedFieldLabel =
+      cleanString((mergedFilters as Record<string, unknown>).fieldLabel) ||
+      (selectedEntityType === "field" ? cleanString(entity?.label) : null);
     const selectedWarehouseId =
       cleanString((mergedFilters as Record<string, unknown>).warehouse) ||
       cleanString((mergedFilters as Record<string, unknown>).warehouseId) ||
       (selectedEntityType === "warehouse" ? selectedEntityId : null);
+    const selectedWarehouseLabel =
+      cleanString((mergedFilters as Record<string, unknown>).warehouseLabel) ||
+      (selectedEntityType === "warehouse" ? cleanString(entity?.label) : null);
     const selectedCrop =
       cleanString((mergedFilters as Record<string, unknown>).crop) ||
       cleanString((mergedFilters as Record<string, unknown>).culture) ||
@@ -420,7 +426,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
       selectedEntityType,
       selectedEntityId,
       selectedFieldId,
+      selectedFieldLabel,
       selectedWarehouseId,
+      selectedWarehouseLabel,
       selectedCrop,
       language: language || "ru",
       locale: language || "ru",

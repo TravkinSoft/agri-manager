@@ -84,7 +84,7 @@ export type AssistantOutputType =
   | "movements";
 
 export type AssistantEngineMode = "tool_first" | "hybrid" | "model_first";
-export type AssistantDecisionSource = "fast_path" | "router" | "model";
+export type AssistantDecisionSource = "fast_path" | "router" | "model" | "memory_followup";
 
 export type AssistantUiContext = {
   currentPage: string;
@@ -102,7 +102,9 @@ export type AssistantUiContext = {
   selectedEntityType: string | null;
   selectedEntityId: string | null;
   selectedFieldId: string | null;
+  selectedFieldLabel: string | null;
   selectedWarehouseId: string | null;
+  selectedWarehouseLabel: string | null;
   selectedCrop: string | null;
   language: "ru" | "kz" | "en" | null;
   locale: "ru" | "kz" | "en" | null;
@@ -114,8 +116,15 @@ export type AssistantSessionState = {
   lastVariety: string | null;
   lastBatchClass: string | null;
   lastWarehouse: string | null;
+  lastWarehouseId: string | null;
+  lastWarehouseLabel: string | null;
   lastField: string | null;
+  lastFieldId: string | null;
+  lastFieldLabel: string | null;
   lastSeason: string | null;
+  lastModule: string | null;
+  lastToolSource: string | null;
+  lastAnswerType: string | null;
   lastIntent: AssistantIntentName | null;
   lastResultContext: string | null;
   lastWarehouseCount: number | null;

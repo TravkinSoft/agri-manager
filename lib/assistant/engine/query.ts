@@ -18,6 +18,7 @@ import type {
   AssistantNavigationAction,
   AssistantOutputType,
   AssistantSessionState,
+  AssistantUiContext,
   AssistantToolCallLog,
   AssistantToolName,
   AssistantToolOutput,
@@ -629,6 +630,113 @@ function shouldUseFastPath(params: {
   if (params.intent.name === "fields_overview" && (isFieldFactualQuery(text) || isFieldFactualQueryV2(text))) return true;
 
   return false;
+}
+
+type MemoryRoutingResolution = {
+  routingMessage: string;
+  used: boolean;
+  keysUsed: string[];
+  resolvedEntitySource: "explicit_user_text" | "session_memory" | "page_context" | "default";
+};
+
+function normalizeRoutingText(value: string): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[.,!?;:()"'`]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasExplicitFieldInText(text: string): boolean {
+  if (/(?:поле|field)\s*\d{1,3}(?:-\d{1,3}){0,2}/i.test(text)) return true;
+  if (/\d{1,3}(?:-\d{1,3}){0,2}\s*(?:поле|field)/i.test(text)) return true;
+  return false;
+}
+
+function hasExplicitWarehouseInText(text: string): boolean {
+  if (!/(?:склад|warehouse)/i.test(text)) return false;
+  return /(овощн|семенн|зернов|удобр|сзр|seed|grain|fertiliz|chemical|хранилищ)/i.test(text);
+}
+
+function resolveRoutingMessageWithMemory(params: {
+  message: string;
+  state: AssistantSessionState;
+  runtimeContext: AssistantUiContext;
+}): MemoryRoutingResolution {
+  const raw = String(params.message || "").trim();
+  const normalized = normalizeRoutingText(raw);
+  if (!normalized) {
+    return {
+      routingMessage: raw,
+      used: false,
+      keysUsed: [],
+      resolvedEntitySource: "default",
+    };
+  }
+
+  const hasExplicitField = hasExplicitFieldInText(normalized);
+  const hasExplicitWarehouse = hasExplicitWarehouseInText(normalized);
+  if (hasExplicitField || hasExplicitWarehouse) {
+    return {
+      routingMessage: raw,
+      used: false,
+      keysUsed: [],
+      resolvedEntitySource: "explicit_user_text",
+    };
+  }
+
+  const fieldRef =
+    cleanString(params.state.lastFieldLabel) ||
+    cleanString(params.state.lastField) ||
+    cleanString(params.state.lastFieldId) ||
+    cleanString(params.runtimeContext.selectedFieldLabel) ||
+    cleanString(params.runtimeContext.selectedFieldId);
+  const warehouseRef =
+    cleanString(params.state.lastWarehouseLabel) ||
+    cleanString(params.state.lastWarehouse) ||
+    cleanString(params.state.lastWarehouseId) ||
+    cleanString(params.runtimeContext.selectedWarehouseLabel) ||
+    cleanString(params.runtimeContext.selectedWarehouseId);
+
+  const mentionsMaterials = /(материал|удобр|сзр|семен|внесл|расход|выдали|списан)/i.test(normalized);
+  const mentionsOperations = /(операц|работ|делал|выполн|в работе)/i.test(normalized);
+  const mentionsHarvest = /(урож|уборк|собрал|собрали|yield|harvest)/i.test(normalized);
+  const mentionsWarehouseMoves = /(движ|журнал|приход|ушл|расход|movement|ledger)/i.test(normalized);
+  const mentionsWarehouseFollowup = /(по складу|по нему|по этому складу|а по складу)/i.test(normalized);
+
+  if ((mentionsMaterials || mentionsOperations || mentionsHarvest) && fieldRef) {
+    const suffix = `по полю ${fieldRef}`;
+    return {
+      routingMessage: `${raw} ${suffix}`.trim(),
+      used: true,
+      keysUsed: ["lastFieldLabel", "lastField", "lastFieldId"],
+      resolvedEntitySource: cleanString(params.state.lastFieldLabel) || cleanString(params.state.lastField) || cleanString(params.state.lastFieldId)
+        ? "session_memory"
+        : "page_context",
+    };
+  }
+
+  if ((mentionsWarehouseMoves || mentionsWarehouseFollowup) && warehouseRef) {
+    const suffix = `по складу ${warehouseRef}`;
+    return {
+      routingMessage: `${raw} ${suffix}`.trim(),
+      used: true,
+      keysUsed: ["lastWarehouseLabel", "lastWarehouse", "lastWarehouseId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastWarehouseLabel) ||
+        cleanString(params.state.lastWarehouse) ||
+        cleanString(params.state.lastWarehouseId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  return {
+    routingMessage: raw,
+    used: false,
+    keysUsed: [],
+    resolvedEntitySource: "default",
+  };
 }
 
 function formatInventoryRows(
@@ -1767,9 +1875,19 @@ export async function runAssistantEngine(params: {
   let toolMs: number | null = null;
   let modelMs: number | null = null;
   const message = String(input.message || "").trim();
-  const messageForRouting = applySemanticExpansions(message);
-  const assistantMode = resolveAssistantMode(messageForRouting);
   const runtimeContext = normalizeAssistantUiContext(input.runtimeContext);
+  const normalizedState = normalizeSessionState(input.sessionState);
+  const initialSessionState: AssistantSessionState = {
+    ...EMPTY_ASSISTANT_SESSION_STATE,
+    ...normalizedState,
+  };
+  const memoryRouting = resolveRoutingMessageWithMemory({
+    message,
+    state: initialSessionState,
+    runtimeContext,
+  });
+  const messageForRouting = applySemanticExpansions(memoryRouting.routingMessage);
+  const assistantMode = resolveAssistantMode(messageForRouting);
   const promptBundle = resolveTravkinCorePrompt({
     settings,
     runtimeContext,
@@ -1781,18 +1899,13 @@ export async function runAssistantEngine(params: {
     promptSource: promptBundle.source,
     promptUpdatedAt: promptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
   };
-  const normalizedState = normalizeSessionState(input.sessionState);
-  const initialSessionState: AssistantSessionState = {
-    ...EMPTY_ASSISTANT_SESSION_STATE,
-    ...normalizedState,
-  };
 
   const modelConfig = resolveAssistantModelConfig(settings);
   const engineMode = resolveAssistantEngineMode();
   const strictNavigationPolicy = String(process.env.ASSISTANT_NAV_POLICY_STRICT || "1") !== "0";
   const enabledHybridDomains = resolveHybridDomains();
   let decisionSource: AssistantDecisionSource = "router";
-  let explicitNavigationRequested = hasExplicitNavigationRequest(messageForRouting);
+  let explicitNavigationRequested = hasExplicitNavigationRequest(applySemanticExpansions(message));
   let navigationPolicy: "allowed" | "blocked" | "not_applicable" = "not_applicable";
   let plannerAttempted = false;
   let plannerSucceeded = false;
@@ -1896,17 +2009,21 @@ export async function runAssistantEngine(params: {
 
   const routerStartedAt = Date.now();
   const intent = await classifyAssistantIntent({
-    message,
+    message: memoryRouting.routingMessage,
     runtimeContext,
     sessionState: initialSessionState,
     settings,
   });
   routerMs = Date.now() - routerStartedAt;
+  if (memoryRouting.used) {
+    decisionSource = "memory_followup";
+  }
   const resolvedMode: AssistantEngineResult["mode"] =
     intent.name === "navigation_help" ? "navigation" : assistantMode;
   const resolvedOutputType = resolveOutputType(intent);
   const expectedAnswerType = getExpectedAnswerType(intent.name);
   const selectedSource = getSelectedSource(intent.name);
+  const effectiveSelectedSource = memoryRouting.used ? "session_memory" : selectedSource;
   const previousRelatedMemory = summarizeMemoryForIntent(initialSessionState, intent.name);
   const intentDomain = mapIntentToDomain(intent);
   const hybridDomainEnabled =
@@ -1956,7 +2073,7 @@ export async function runAssistantEngine(params: {
 
     const modelStartedAt = Date.now();
     const planner = await runModelOrchestrator({
-      message,
+      message: memoryRouting.routingMessage,
       locale,
       settings,
       runtimeContext,
@@ -2023,7 +2140,7 @@ export async function runAssistantEngine(params: {
         },
         diagnostics: buildDiagnostics({
           expectedAnswerType,
-          selectedSource,
+          selectedSource: effectiveSelectedSource,
           selectedTool: planner.toolCalls[0]?.tool || null,
           previousRelatedMemory,
           consistencyCheck: validation.pass ? "pass" : "fail",
@@ -2113,7 +2230,7 @@ export async function runAssistantEngine(params: {
       },
       diagnostics: buildDiagnostics({
         expectedAnswerType,
-        selectedSource,
+        selectedSource: effectiveSelectedSource,
         previousRelatedMemory,
       }),
       performance: buildPerformance(),
@@ -2148,7 +2265,7 @@ export async function runAssistantEngine(params: {
       },
       diagnostics: buildDiagnostics({
         expectedAnswerType,
-        selectedSource,
+        selectedSource: effectiveSelectedSource,
         previousRelatedMemory,
       }),
       performance: buildPerformance(),
@@ -2307,7 +2424,7 @@ export async function runAssistantEngine(params: {
       },
       diagnostics: buildDiagnostics({
         expectedAnswerType,
-        selectedSource,
+        selectedSource: effectiveSelectedSource,
         selectedTool: outputs[0]?.source.tableOrView || null,
         previousRelatedMemory,
         consistencyCheck: consistency.pass && answerTypeValid ? "pass" : "fail",
@@ -2363,7 +2480,7 @@ export async function runAssistantEngine(params: {
       },
       diagnostics: buildDiagnostics({
         expectedAnswerType,
-        selectedSource,
+        selectedSource: effectiveSelectedSource,
         selectedTool: toolCalls[0]?.tool || null,
         previousRelatedMemory,
         fallbackSource: "tool_error",
@@ -2405,7 +2522,7 @@ export async function runAssistantEngine(params: {
       },
       diagnostics: buildDiagnostics({
         expectedAnswerType,
-        selectedSource,
+        selectedSource: effectiveSelectedSource,
         selectedTool: null,
         previousRelatedMemory,
         fallbackSource: "policy_block",
@@ -2419,11 +2536,11 @@ export async function runAssistantEngine(params: {
   let llmPromptBundle = promptBundle;
   let llmPromptMeta = promptMeta;
   try {
-    const semanticMemory = await buildSemanticMemoryContext({
-      message,
-      mode: resolvedMode,
-      intentName: intent.name,
-      runtimeContext,
+      const semanticMemory = await buildSemanticMemoryContext({
+        message: memoryRouting.routingMessage,
+        mode: resolvedMode,
+        intentName: intent.name,
+        runtimeContext,
     });
     llmPromptBundle = resolveTravkinCorePrompt({
       settings,
@@ -2443,7 +2560,7 @@ export async function runAssistantEngine(params: {
   }
   const modelStartedAt = Date.now();
   const fallback = await generateGeneralAnswer({
-    message,
+    message: memoryRouting.routingMessage,
     locale,
     settings,
     intentName: intent.name,
@@ -2483,7 +2600,7 @@ export async function runAssistantEngine(params: {
     },
     diagnostics: buildDiagnostics({
       expectedAnswerType,
-      selectedSource,
+      selectedSource: effectiveSelectedSource,
       selectedTool: toolCalls[0]?.tool || null,
       previousRelatedMemory,
       fallbackSource: "llm_fallback",

@@ -52,7 +52,9 @@ export type AssistantRuntimeUiContext = {
   selectedEntityType: string | null;
   selectedEntityId: string | null;
   selectedFieldId: string | null;
+  selectedFieldLabel: string | null;
   selectedWarehouseId: string | null;
+  selectedWarehouseLabel: string | null;
   selectedCrop: string | null;
   language: "ru" | "kz" | "en" | null;
   locale: "ru" | "kz" | "en" | null;

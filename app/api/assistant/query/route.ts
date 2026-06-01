@@ -18,6 +18,7 @@ import {
 } from "@/lib/auth/server-session";
 
 export const runtime = "nodejs";
+const DEFAULT_ASSISTANT_SEASON = "2026";
 
 function asString(value: unknown): string | null {
   const text = String(value || "").trim();
@@ -67,6 +68,33 @@ function resolveCompanyContextSource(role: string, actor: { contextCompanyId: st
   if (actor.homeCompanyId) return "profile";
   if (actor.contextCompanyId) return "context";
   return "unknown";
+}
+
+function buildRuntimeContextPayload(params: {
+  payload: any;
+  actor: { id: string; role: string };
+  companyId: string;
+  companyName: string | null;
+}): Record<string, unknown> {
+  const raw =
+    params.payload?.runtimeContext && typeof params.payload.runtimeContext === "object"
+      ? { ...(params.payload.runtimeContext as Record<string, unknown>) }
+      : {};
+  const season =
+    asString(raw.season) ||
+    asString(raw.selected_season) ||
+    asString((raw.filters as Record<string, unknown> | undefined)?.season) ||
+    DEFAULT_ASSISTANT_SEASON;
+
+  return {
+    ...raw,
+    companyId: params.companyId,
+    companyName: params.companyName,
+    userId: params.actor.id,
+    userRole: params.actor.role,
+    season,
+    defaultSeason: asString(raw.defaultSeason) || DEFAULT_ASSISTANT_SEASON,
+  };
 }
 
 function generateThreadTitle(message: string): string {
@@ -419,6 +447,12 @@ export async function POST(request: NextRequest) {
     companyName = asString(companyRes.data?.name) || null;
     const settings = await getAssistantPlatformSettings(supabase, actor.id);
     shouldWriteAuditLog = !!settings.logging?.enabled;
+    const runtimeContextPayload = buildRuntimeContextPayload({
+      payload,
+      actor: { id: actor.id, role: actor.role },
+      companyId,
+      companyName,
+    });
 
     const result = await runAssistantEngine({
       supabase,
@@ -430,7 +464,7 @@ export async function POST(request: NextRequest) {
         locale: payload?.locale || "ru",
         chatId: threadId,
         chatHistory: Array.isArray(payload?.chatHistory) ? payload.chatHistory : [],
-        runtimeContext: payload?.runtimeContext || null,
+        runtimeContext: runtimeContextPayload,
         sessionState: payload?.sessionState || null,
       },
     });
@@ -453,6 +487,7 @@ export async function POST(request: NextRequest) {
             content: requestMessage,
             metadata: {
               runtime_context: payload?.runtimeContext || null,
+              runtime_context_server: runtimeContextPayload,
               session_id: sessionId,
               assistant_panel: true,
             },
@@ -512,7 +547,7 @@ export async function POST(request: NextRequest) {
           companyId,
           companyName,
           settings,
-          runtimeContext: payload?.runtimeContext || null,
+          runtimeContext: runtimeContextPayload,
           requestMessage: requestMessage || "",
           sessionId,
           threadId,
@@ -541,7 +576,10 @@ export async function POST(request: NextRequest) {
           rows: toolCall.rows || 0,
           error: toolCall.error || null,
         })),
-        runtime_context: payload?.runtimeContext || {},
+        runtime_context: {
+          ...(payload?.runtimeContext || {}),
+          _server: runtimeContextPayload,
+        },
         request_excerpt: requestMessage,
         response_excerpt: result.answer,
         error_text: threadPersistenceError,

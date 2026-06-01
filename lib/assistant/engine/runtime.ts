@@ -39,11 +39,19 @@ export function normalizeAssistantUiContext(input: Partial<AssistantUiContext> |
     cleanString((filters as any).field) ||
     cleanString((filters as any).fieldId) ||
     (selectedEntityType?.toLowerCase() === "field" ? selectedEntityId : null);
+  const selectedFieldLabel =
+    cleanString(input?.selectedFieldLabel) ||
+    cleanString((filters as any).fieldLabel) ||
+    (selectedEntityType?.toLowerCase() === "field" ? cleanString(entity?.label) : null);
   const selectedWarehouseId =
     cleanString(input?.selectedWarehouseId) ||
     cleanString((filters as any).warehouse) ||
     cleanString((filters as any).warehouseId) ||
     (selectedEntityType?.toLowerCase() === "warehouse" ? selectedEntityId : null);
+  const selectedWarehouseLabel =
+    cleanString(input?.selectedWarehouseLabel) ||
+    cleanString((filters as any).warehouseLabel) ||
+    (selectedEntityType?.toLowerCase() === "warehouse" ? cleanString(entity?.label) : null);
   const currentPage = cleanString(input?.currentPage) || "dashboard";
   const currentModule = cleanString(input?.currentModule) || currentPage;
   const locale =
@@ -79,7 +87,9 @@ export function normalizeAssistantUiContext(input: Partial<AssistantUiContext> |
     selectedEntityType,
     selectedEntityId,
     selectedFieldId,
+    selectedFieldLabel,
     selectedWarehouseId,
+    selectedWarehouseLabel,
     selectedCrop: cleanString(input?.selectedCrop) || cleanString((filters as any).crop) || cleanString((filters as any).culture),
     language,
     locale,

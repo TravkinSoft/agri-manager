@@ -6,8 +6,15 @@ export const EMPTY_ASSISTANT_SESSION_STATE: AssistantSessionState = {
   lastVariety: null,
   lastBatchClass: null,
   lastWarehouse: null,
+  lastWarehouseId: null,
+  lastWarehouseLabel: null,
   lastField: null,
+  lastFieldId: null,
+  lastFieldLabel: null,
   lastSeason: null,
+  lastModule: null,
+  lastToolSource: null,
+  lastAnswerType: null,
   lastIntent: null,
   lastResultContext: null,
   lastWarehouseCount: null,
@@ -35,8 +42,15 @@ export function normalizeSessionState(input: Partial<AssistantSessionState> | nu
     lastVariety: cleanString(input?.lastVariety),
     lastBatchClass: cleanString(input?.lastBatchClass),
     lastWarehouse: cleanString(input?.lastWarehouse),
+    lastWarehouseId: cleanString(input?.lastWarehouseId),
+    lastWarehouseLabel: cleanString(input?.lastWarehouseLabel),
     lastField: cleanString(input?.lastField),
+    lastFieldId: cleanString(input?.lastFieldId),
+    lastFieldLabel: cleanString(input?.lastFieldLabel),
     lastSeason: cleanString(input?.lastSeason),
+    lastModule: cleanString(input?.lastModule),
+    lastToolSource: cleanString(input?.lastToolSource),
+    lastAnswerType: cleanString(input?.lastAnswerType),
     lastIntent: input?.lastIntent || null,
     lastResultContext: cleanString(input?.lastResultContext),
     lastWarehouseCount:
@@ -77,6 +91,11 @@ export function updateSessionStateFromToolOutput(params: {
     rows.length && Number.isFinite(Number(rows[0]?.warehouses_total))
       ? Number(rows[0]?.warehouses_total)
       : rows.length;
+  const nextFieldId = findValue(rows, ["field_id", "fieldId"]);
+  const nextFieldLabel = findValue(rows, ["field_name", "field_label"]);
+  const nextWarehouseId = findValue(rows, ["warehouse_id", "warehouse_from_id", "warehouse_to_id", "warehouseId"]);
+  const nextWarehouseLabel = findValue(rows, ["warehouse_name", "warehouse_from_name", "warehouse_to_name", "warehouse_label"]);
+  const resolvedAnswerType = cleanString(intent.parameters.output_type);
 
   return {
     ...previous,
@@ -86,8 +105,15 @@ export function updateSessionStateFromToolOutput(params: {
     lastVariety: findValue(rows, ["variety_name"]) || previous.lastVariety,
     lastBatchClass: findValue(rows, ["batch_class"]) || previous.lastBatchClass,
     lastWarehouse: findValue(rows, ["warehouse_name", "warehouse_from_name", "warehouse_to_name"]) || previous.lastWarehouse,
+    lastWarehouseId: nextWarehouseId || previous.lastWarehouseId,
+    lastWarehouseLabel: nextWarehouseLabel || previous.lastWarehouseLabel,
     lastField: findValue(rows, ["field_name"]) || previous.lastField,
+    lastFieldId: nextFieldId || previous.lastFieldId,
+    lastFieldLabel: nextFieldLabel || previous.lastFieldLabel,
     lastSeason: cleanString(seasonFromContext) || findValue(rows, ["season_year", "season"]) || previous.lastSeason,
+    lastModule: cleanString(output?.source.module) || previous.lastModule,
+    lastToolSource: cleanString(output?.source.tableOrView) || previous.lastToolSource,
+    lastAnswerType: resolvedAnswerType || previous.lastAnswerType,
     lastResultContext: output?.title || previous.lastResultContext,
     lastWarehouseCount:
       intent.name === "warehouse_count" ? warehouseCount : previous.lastWarehouseCount,
