@@ -160,6 +160,8 @@ const BASE_LAYER_MAX_ZOOM: Record<BaseLayerMode, number> = {
   hybrid: 18,
 };
 const MAP_DEFAULT_MAX_ZOOM = Math.max(...Object.values(BASE_LAYER_MAX_ZOOM));
+const EMPTY_FIELDS: FieldMapFieldCard[] = [];
+const EMPTY_PREVIEW_ROWS: FieldMapPreviewMatch[] = [];
 
 function isTileTemplateValid(url: string): boolean {
   return url.includes("{z}") && url.includes("{x}") && url.includes("{y}");
@@ -605,7 +607,7 @@ export function FieldsMapPage() {
     measurementPointsCount: 0,
   });
 
-  const fields = bootstrap?.fields || [];
+  const fields = bootstrap?.fields || EMPTY_FIELDS;
 
   const cropOptions = useMemo(() => {
     const set = new Set<string>();
@@ -628,7 +630,7 @@ export function FieldsMapPage() {
     [fields, selectedFieldId]
   );
 
-  const previewRows = previewState?.matches || [];
+  const previewRows = previewState?.matches || EMPTY_PREVIEW_ROWS;
   const unresolvedRows = useMemo(() => previewRows.filter((row) => row.match_status !== "matched"), [previewRows]);
 
   const searchResults = useMemo(() => {
