@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType } from "react";
+import type { ComponentType, MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bot, LayoutDashboard, Map, Package, Tractor } from "lucide-react";
@@ -26,6 +26,18 @@ const BASE_ITEMS: BottomItem[] = [
 ];
 
 const HIDE_GLOBAL_MOBILE_NAV_PREFIXES = ["/tasks", "/warehouses/requests"];
+
+function handleHardNavigation(event: MouseEvent<HTMLAnchorElement>, href: string) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+  event.preventDefault();
+  const target = new URL(href, window.location.origin);
+  const current = new URL(window.location.href);
+  if (target.pathname === current.pathname && target.search === current.search && target.hash === current.hash) {
+    return;
+  }
+  window.location.assign(target.href);
+}
 
 function isActivePath(pathname: string, href?: string): boolean {
   if (!href) return false;
@@ -84,6 +96,7 @@ export function MobileBottomNav() {
             <Link
               key={item.href}
               href={item.href || "/dashboard"}
+              onClick={(event) => handleHardNavigation(event, item.href || "/dashboard")}
               className={cn(
                 "flex min-h-12 flex-col items-center justify-center rounded-xl px-1 py-1 text-[10px] font-medium",
                 active

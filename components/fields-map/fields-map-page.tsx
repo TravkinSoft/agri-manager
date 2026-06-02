@@ -187,6 +187,15 @@ function downloadBlob(blob: Blob, fileName: string) {
   URL.revokeObjectURL(url);
 }
 
+function safeRemoveMapResource(resource: any, label: string) {
+  if (!resource || typeof resource.remove !== "function") return;
+  try {
+    resource.remove();
+  } catch (error) {
+    console.warn(`Fields map cleanup failed for ${label}:`, error);
+  }
+}
+
 function formatHa(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "-";
   return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
@@ -1230,13 +1239,14 @@ export function FieldsMapPage() {
         navigator.geolocation.clearWatch(geolocationWatchIdRef.current);
         geolocationWatchIdRef.current = null;
       }
-      popupRef.current?.remove();
+      safeRemoveMapResource(popupRef.current, "popup");
       popupRef.current = null;
-      geoMarkerRef.current?.remove?.();
+      safeRemoveMapResource(geoMarkerRef.current, "geolocation marker");
       geoMarkerRef.current = null;
       if (mapRef.current) {
-        mapRef.current.remove();
+        const map = mapRef.current;
         mapRef.current = null;
+        safeRemoveMapResource(map, "map instance");
       }
       setMapReady(false);
       setMapDebug((prev) => ({ ...prev, mapReady: false, tilesLoading: false }));

@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -34,6 +35,18 @@ interface NavItem {
   label: string;
   href: string;
   icon: any;
+}
+
+function handleHardNavigation(event: MouseEvent<HTMLAnchorElement>, href: string) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+  event.preventDefault();
+  const target = new URL(href, window.location.origin);
+  const current = new URL(window.location.href);
+  if (target.pathname === current.pathname && target.search === current.search && target.hash === current.hash) {
+    return;
+  }
+  window.location.assign(target.href);
 }
 
 const ADMIN_NAV: NavItem[] = [
@@ -185,6 +198,7 @@ export function Sidebar() {
               <Link
                 key={`${item.href}-${label}`}
                 href={item.href}
+                onClick={(event) => handleHardNavigation(event, item.href)}
                 className={cn(
                   "flex items-center rounded-lg text-sm font-medium transition-all duration-200",
                   isCollapsed ? "justify-center px-3 py-2" : "gap-3 px-3 py-2",
@@ -229,4 +243,3 @@ export function Sidebar() {
     </div>
   );
 }
-
