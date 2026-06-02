@@ -163,6 +163,18 @@ const MAP_DEFAULT_MAX_ZOOM = Math.max(...Object.values(BASE_LAYER_MAX_ZOOM));
 const EMPTY_FIELDS: FieldMapFieldCard[] = [];
 const EMPTY_PREVIEW_ROWS: FieldMapPreviewMatch[] = [];
 
+function isSameDebugValue(left: unknown, right: unknown): boolean {
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((item, index) => Object.is(item, right[index]));
+  }
+  return Object.is(left, right);
+}
+
+function isSameMapDebugState(left: MapRuntimeDebugState, right: MapRuntimeDebugState): boolean {
+  const keys = Object.keys(left) as Array<keyof MapRuntimeDebugState>;
+  return keys.every((key) => isSameDebugValue(left[key], right[key]));
+}
+
 function isTileTemplateValid(url: string): boolean {
   return url.includes("{z}") && url.includes("{x}") && url.includes("{y}");
 }
@@ -606,6 +618,12 @@ export function FieldsMapPage() {
     selectedMeasurementMode: "none",
     measurementPointsCount: 0,
   });
+  const updateMapDebug = useCallback((updater: (prev: MapRuntimeDebugState) => MapRuntimeDebugState) => {
+    setMapDebug((prev) => {
+      const next = updater(prev);
+      return isSameMapDebugState(prev, next) ? prev : next;
+    });
+  }, []);
 
   const fields = bootstrap?.fields || EMPTY_FIELDS;
 
@@ -747,25 +765,25 @@ export function FieldsMapPage() {
 
   const requestFitByReason = useCallback((reason: FitBoundsReason) => {
     fitRequestReasonRef.current = reason;
-    setMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
+    updateMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
     setFitRequestNonce((prev) => prev + 1);
-  }, []);
+  }, [updateMapDebug]);
 
   const updateViewportDebug = useCallback((map: any) => {
     const center = map.getCenter?.();
     const zoom = map.getZoom?.();
     if (!center || typeof zoom !== "number") return;
-    setMapDebug((prev) => ({
+    updateMapDebug((prev) => ({
       ...prev,
       mapCenter: [Number(center.lng.toFixed(6)), Number(center.lat.toFixed(6))],
       mapZoom: Number(zoom.toFixed(2)),
     }));
-  }, []);
+  }, [updateMapDebug]);
 
   const fitMapForReason = useCallback(
     (map: any, maplibre: MapLibreModule, reason: FitBoundsReason) => {
       if (reason === "field_selected" && (!selectedField || !selectedField.geometry)) {
-        setMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
+        updateMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
         return;
       }
       const selectedGeometryFeatures =
@@ -782,7 +800,7 @@ export function FieldsMapPage() {
 
       if (!featureList.length) {
         map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: 500 });
-        setMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
+        updateMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
         updateViewportDebug(map);
         return;
       }
@@ -802,10 +820,10 @@ export function FieldsMapPage() {
       } else {
         map.easeTo({ center: DEFAULT_MAP_CENTER, zoom: DEFAULT_MAP_ZOOM, duration: 500 });
       }
-      setMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
+      updateMapDebug((prev) => ({ ...prev, fitBoundsReason: reason }));
       updateViewportDebug(map);
     },
-    [mapCollection.features, selectedField, updateViewportDebug]
+    [mapCollection.features, selectedField, updateMapDebug, updateViewportDebug]
   );
 
   const loadBootstrap = async (seasonId?: string) => {
@@ -873,11 +891,11 @@ export function FieldsMapPage() {
     let readyTimer: number | null = null;
     const container = mapContainerNode || mapContainerRef.current;
     const containerReady = !!container;
-    setMapDebug((prev) => ({ ...prev, containerReady }));
+    updateMapDebug((prev) => ({ ...prev, containerReady }));
     if (mapRef.current || !container) return;
     setMapReady(false);
     setMapError(null);
-    setMapDebug((prev) => ({
+    updateMapDebug((prev) => ({
       ...prev,
       mapInstanceCreated: false,
       loadEventFired: false,
@@ -895,20 +913,20 @@ export function FieldsMapPage() {
         if (invalidTiles) {
           const message = `Invalid tile URL: ${invalidTiles}. Expected placeholders {z}/{x}/{y}.`;
           setMapError(message);
-          setMapDebug((prev) => ({ ...prev, errorMessage: message }));
+          updateMapDebug((prev) => ({ ...prev, errorMessage: message }));
           return;
         }
 
         const maplibre = await import("maplibre-gl");
         if (cancelled || !container || mapRef.current) return;
-        setMapDebug((prev) => ({ ...prev, packageLoaded: true }));
+        updateMapDebug((prev) => ({ ...prev, packageLoaded: true }));
 
         const isSupported =
           typeof (maplibre as any).supported === "function" ? (maplibre as any).supported() : true;
         if (!isSupported) {
           const message = "MapLibre is not supported in this browser (WebGL required).";
           setMapError(message);
-          setMapDebug((prev) => ({ ...prev, errorMessage: message }));
+          updateMapDebug((prev) => ({ ...prev, errorMessage: message }));
           return;
         }
 
@@ -973,7 +991,7 @@ export function FieldsMapPage() {
         });
 
         mapRef.current = map;
-        setMapDebug((prev) => ({ ...prev, mapInstanceCreated: true, tilesLoading: true }));
+        updateMapDebug((prev) => ({ ...prev, mapInstanceCreated: true, tilesLoading: true }));
         popupRef.current = new maplibre.Popup({
           closeButton: false,
           closeOnClick: false,
@@ -988,7 +1006,7 @@ export function FieldsMapPage() {
         const setRuntimeError = (message: string) => {
           setMapReady(false);
           setMapError(message);
-          setMapDebug((prev) => ({
+          updateMapDebug((prev) => ({
             ...prev,
             mapReady: false,
             tilesLoading: false,
@@ -1014,7 +1032,7 @@ export function FieldsMapPage() {
           map.resize();
           setMapReady(true);
           setMapError(null);
-          setMapDebug((prev) => ({
+          updateMapDebug((prev) => ({
             ...prev,
             mapReady: true,
             styleLoaded: true,
@@ -1025,29 +1043,29 @@ export function FieldsMapPage() {
         };
 
         map.on("load", () => {
-          setMapDebug((prev) => ({ ...prev, loadEventFired: true, styleLoaded: true }));
+          updateMapDebug((prev) => ({ ...prev, loadEventFired: true, styleLoaded: true }));
           resolveReady("load");
         });
         map.on("styledata", () => {
           const styleLoaded = typeof map.isStyleLoaded === "function" ? Boolean(map.isStyleLoaded()) : true;
-          setMapDebug((prev) => ({ ...prev, styleLoaded }));
+          updateMapDebug((prev) => ({ ...prev, styleLoaded }));
           if (styleLoaded) {
             resolveReady("styledata");
           }
         });
         map.on("dataloading", () => {
-          setMapDebug((prev) => ({ ...prev, tilesLoading: true }));
+          updateMapDebug((prev) => ({ ...prev, tilesLoading: true }));
         });
         map.on("idle", () => {
-          setMapDebug((prev) => ({ ...prev, tilesLoading: false }));
+          updateMapDebug((prev) => ({ ...prev, tilesLoading: false }));
         });
         map.on("dragstart", () => {
           userInteractedRef.current = true;
-          setMapDebug((prev) => ({ ...prev, userInteracted: true }));
+          updateMapDebug((prev) => ({ ...prev, userInteracted: true }));
         });
         map.on("zoomstart", () => {
           userInteractedRef.current = true;
-          setMapDebug((prev) => ({ ...prev, userInteracted: true }));
+          updateMapDebug((prev) => ({ ...prev, userInteracted: true }));
         });
         map.on("moveend", () => {
           updateViewportDebug(map);
@@ -1059,7 +1077,7 @@ export function FieldsMapPage() {
         const styleLoadedImmediately =
           typeof map.isStyleLoaded === "function" ? Boolean(map.isStyleLoaded()) : false;
         if (styleLoadedImmediately) {
-          setMapDebug((prev) => ({ ...prev, styleLoaded: true }));
+          updateMapDebug((prev) => ({ ...prev, styleLoaded: true }));
           resolveReady("style-check");
         }
 
@@ -1094,7 +1112,7 @@ export function FieldsMapPage() {
             layerFallbackLockedRef.current = true;
             setSelectedBaseLayer("map");
             setMapError("Спутниковый слой недоступен на текущем масштабе. Выполнен fallback на карту.");
-            setMapDebug((prev) => ({
+            updateMapDebug((prev) => ({
               ...prev,
               selectedBaseLayer: "map",
               errorMessage: "satellite_tile_unavailable_fallback_to_map",
@@ -1226,7 +1244,7 @@ export function FieldsMapPage() {
         const message = error instanceof Error ? error.message : "Failed to initialize MapLibre.";
         setMapReady(false);
         setMapError(message);
-        setMapDebug((prev) => ({ ...prev, mapReady: false, tilesLoading: false, errorMessage: message }));
+        updateMapDebug((prev) => ({ ...prev, mapReady: false, tilesLoading: false, errorMessage: message }));
       }
     };
 
@@ -1251,12 +1269,12 @@ export function FieldsMapPage() {
         safeRemoveMapResource(map, "map instance");
       }
       setMapReady(false);
-      setMapDebug((prev) => ({ ...prev, mapReady: false, tilesLoading: false }));
+      updateMapDebug((prev) => ({ ...prev, mapReady: false, tilesLoading: false }));
     };
-  }, [loading, mapContainerNode]);
+  }, [loading, mapContainerNode, updateMapDebug]);
 
   useEffect(() => {
-    setMapDebug((prev) => ({
+    updateMapDebug((prev) => ({
       ...prev,
       containerReady: !!mapContainerNode,
       mapReady,
@@ -1284,6 +1302,7 @@ export function FieldsMapPage() {
     previewRows,
     measurementMode,
     measurementPoints.length,
+    updateMapDebug,
   ]);
 
   useEffect(() => {
@@ -1293,12 +1312,12 @@ export function FieldsMapPage() {
 
   useEffect(() => {
     measurementModeRef.current = measurementMode;
-    setMapDebug((prev) => ({
+    updateMapDebug((prev) => ({
       ...prev,
       selectedMeasurementMode: measurementMode,
       measurementPointsCount: measurementPoints.length,
     }));
-  }, [measurementMode, measurementPoints.length]);
+  }, [measurementMode, measurementPoints.length, updateMapDebug]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
@@ -1309,8 +1328,8 @@ export function FieldsMapPage() {
     if (Number.isFinite(currentZoom) && currentZoom > layerMaxZoom) {
       map.easeTo({ zoom: layerMaxZoom, duration: 250 });
     }
-    setMapDebug((prev) => ({ ...prev, selectedBaseLayer, maxZoom: layerMaxZoom }));
-  }, [mapReady, selectedBaseLayer]);
+    updateMapDebug((prev) => ({ ...prev, selectedBaseLayer, maxZoom: layerMaxZoom }));
+  }, [mapReady, selectedBaseLayer, updateMapDebug]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !maplibreRef.current) return;
@@ -1351,9 +1370,9 @@ export function FieldsMapPage() {
 
   const handleResetMapView = useCallback(() => {
     userInteractedRef.current = false;
-    setMapDebug((prev) => ({ ...prev, userInteracted: false }));
+    updateMapDebug((prev) => ({ ...prev, userInteracted: false }));
     requestFitByReason("reset_view");
-  }, [requestFitByReason]);
+  }, [requestFitByReason, updateMapDebug]);
 
   const handleLocateMe = useCallback(() => {
     if (!mapReady || !mapRef.current || !maplibreRef.current) {
@@ -1362,13 +1381,13 @@ export function FieldsMapPage() {
     }
     if (!navigator.geolocation) {
       setGeolocationStatus("unsupported");
-      setMapDebug((prev) => ({ ...prev, geolocationStatus: "unsupported" }));
+      updateMapDebug((prev) => ({ ...prev, geolocationStatus: "unsupported" }));
       toast({ title: "Геолокация недоступна", description: "Браузер не поддерживает geolocation.", variant: "destructive" });
       return;
     }
 
     setGeolocationStatus("requesting");
-    setMapDebug((prev) => ({ ...prev, geolocationStatus: "requesting" }));
+    updateMapDebug((prev) => ({ ...prev, geolocationStatus: "requesting" }));
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const map = mapRef.current;
@@ -1380,7 +1399,7 @@ export function FieldsMapPage() {
         geoMarkerRef.current = new maplibre.Marker({ color: "#22c55e" }).setLngLat(lngLat).addTo(map);
         map.easeTo({ center: lngLat, zoom: Math.max(13, map.getZoom()), duration: 700 });
         setGeolocationStatus("granted");
-        setMapDebug((prev) => ({
+        updateMapDebug((prev) => ({
           ...prev,
           geolocationStatus: "granted",
           mapCenter: [Number(lngLat[0].toFixed(6)), Number(lngLat[1].toFixed(6))],
@@ -1399,12 +1418,12 @@ export function FieldsMapPage() {
           message = "Местоположение сейчас недоступно.";
         }
         setGeolocationStatus(status);
-        setMapDebug((prev) => ({ ...prev, geolocationStatus: status }));
+        updateMapDebug((prev) => ({ ...prev, geolocationStatus: status }));
         toast({ title: "Геолокация", description: message, variant: "destructive" });
       },
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
-  }, [mapReady, toast]);
+  }, [mapReady, toast, updateMapDebug]);
 
   const clearMeasurement = useCallback(() => {
     setMeasurementPoints([]);
