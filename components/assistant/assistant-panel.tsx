@@ -83,7 +83,6 @@ export function AssistantPanel() {
       <SheetContent
         side={isMobileView ? "bottom" : "right"}
         showOverlay={false}
-        forceMount
         className={
           isMobileView
             ? "travkin-scrollbar h-[82vh] w-full max-w-none rounded-t-2xl border-[#262D3D] bg-[#11151E] p-0"
