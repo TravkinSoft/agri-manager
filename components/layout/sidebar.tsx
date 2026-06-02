@@ -23,6 +23,7 @@ import {
   Tractor,
   Upload,
   Users,
+  UtensilsCrossed,
 } from "lucide-react";
 import { useSidebar } from "@/lib/contexts/sidebar-context";
 import { useAuth } from "@/lib/contexts/auth-context";
@@ -45,6 +46,7 @@ const ADMIN_NAV: NavItem[] = [
   { label: "История полей", href: "/field-history", icon: History },
   { label: "Операции", href: "/operations", icon: Tractor },
   { label: "Склады", href: "/warehouses", icon: Package },
+  { label: "Питание / Термосы", href: "/meal-thermoses", icon: UtensilsCrossed },
   { label: "Весовая", href: "/weighbridge", icon: Scale },
   { label: "Машины", href: "/machines", icon: PackageSearch },
   { label: "Техника", href: "/technique", icon: Tractor },
@@ -92,6 +94,7 @@ const WAREHOUSE_NAV: NavItem[] = [
   { label: "Движение запасов", href: "/warehouses/transactions", icon: History },
   { label: "Заявки на выдачу", href: "/warehouses/requests", icon: CheckSquare },
   { label: "Складские справочники", href: "/warehouses/manage", icon: BookOpen },
+  { label: "Питание / Термосы", href: "/meal-thermoses", icon: UtensilsCrossed },
 ];
 
 const WAREHOUSE_OPERATOR_NAV: NavItem[] = [
@@ -101,6 +104,7 @@ const WAREHOUSE_OPERATOR_NAV: NavItem[] = [
   { label: "Инвентарь", href: "/inventory", icon: Package },
   { label: "Движение запасов", href: "/warehouses/transactions", icon: History },
   { label: "Заявки на выдачу", href: "/warehouses/requests", icon: CheckSquare },
+  { label: "Питание / Термосы", href: "/meal-thermoses", icon: UtensilsCrossed },
 ];
 
 const WEIGHMAN_NAV: NavItem[] = [
@@ -122,6 +126,7 @@ const BRIGADIER_NAV: NavItem[] = [
   { label: "Операции", href: "/operations", icon: Tractor },
   { label: "Поля", href: "/fields", icon: MapPin },
   { label: "Карта полей", href: "/fields-map", icon: Map },
+  { label: "Питание / Термосы", href: "/meal-thermoses", icon: UtensilsCrossed },
 ];
 
 const LEGAL_OPERATOR_NAV: NavItem[] = [
@@ -224,3 +229,4 @@ export function Sidebar() {
     </div>
   );
 }
+

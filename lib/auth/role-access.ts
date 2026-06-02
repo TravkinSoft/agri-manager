@@ -5,6 +5,7 @@ const WAREHOUSE_ALLOWED_PREFIXES = [
   "/dashboard",
   "/warehouses",
   "/inventory",
+  "/meal-thermoses",
   "/auth",
 ];
 
@@ -13,6 +14,7 @@ const WAREHOUSE_OPERATOR_ALLOWED_PREFIXES = [
   "/warehouses",
   "/inventory",
   "/weighbridge",
+  "/meal-thermoses",
   "/auth",
 ];
 
@@ -43,6 +45,7 @@ const BRIGADIER_ALLOWED_PREFIXES = [
   "/fields",
   "/fields-map",
   "/map",
+  "/meal-thermoses",
   "/auth",
 ];
 

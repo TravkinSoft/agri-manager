@@ -1,0 +1,559 @@
+Travkin Copilot - Stage 1.1 Migration Plan (file-level)
+Status: architecture plan only, no code changes
+Date: 2026-06-01
+
+========================================================================
+1) FILE-BY-FILE MIGRATION MATRIX
+========================================================================
+
+FILE: app/api/assistant/query/route.ts
+Current role:
+- HTTP entrypoint, runtimeContext/sessionState intake, response/debug payload.
+Future role:
+- Thin orchestration gateway with stable API contract.
+What moves:
+- No core reasoning logic.
+What stays:
+- Auth/actor/company checks, request validation, output contract, trace transport.
+Risk:
+- Debug monitor schema drift.
+Rollback:
+- Keep backward-compatible response fields; fallback by ASSISTANT_ENGINE_MODE=tool_first.
+
+FILE: app/api/assistant/context/route.ts
+Current role:
+- Runtime context snapshot API.
+Future role:
+- Stable context snapshot provider for Context Collector.
+What moves:
+- Nothing semantic; only stricter context shape guarantees.
+What stays:
+- Company/page/season/entity extraction.
+Risk:
+- Context mismatch between API and engine if schema changes.
+Rollback:
+- Keep previous fields and add new fields as optional only.
+
+FILE: lib/assistant/engine/runtime.ts
+Current role:
+- Runtime context helpers.
+Future role:
+- Canonical Context Collector normalization layer.
+What moves:
+- Context merge rules (user text > explicit entity > page hint > defaults) consolidated here.
+What stays:
+- Helper utilities and normalization.
+Risk:
+- Wrong context merge can lock intent to wrong module.
+Rollback:
+- Fallback to legacy context parser in query.ts by feature flag.
+
+FILE: lib/assistant/engine/session-state.ts
+Current role:
+- Memory update from tool outputs.
+Future role:
+- Core conversation memory layer for follow-ups.
+What moves:
+- Strong memory keys: last_entity, last_field, last_warehouse, last_module, last_season, last_tool_source.
+What stays:
+- Lightweight session-level fact store.
+Risk:
+- Stale memory contaminates next answer.
+Rollback:
+- Thread-level memory reset and selective key disable.
+
+FILE: lib/assistant/engine/query.ts
+Current role:
+- Main decision hub: router, fast-path, planner branch, legacy fallback, formatting branches.
+Future role:
+- Coordinator only: fast-path gate + planner-first dispatch + fallback control.
+What moves:
+- Hard intent/tool decision branches away from router-style logic toward planner policy.
+What stays:
+- Engine-mode switch, fast-path gating, final safety fallbacks.
+Risk:
+- Regression of currently working deterministic intents.
+Rollback:
+- Instant env rollback: ASSISTANT_ENGINE_MODE=tool_first.
+
+FILE: lib/assistant/engine/router.ts
+Current role:
+- Rule-based fallbackIntent (regex + context).
+Future role:
+- Cheap pre-classifier and emergency fallback only.
+What moves:
+- Most semantic intent decisions to GPT planner.
+What stays:
+- Deterministic regex for obvious commands, emergency fallback for model/tool failure.
+Risk:
+- Losing fast deterministic behavior on trivial prompts.
+Rollback:
+- Keep fallbackIntent intact and callable; narrow hybrid domains if needed.
+
+FILE: lib/assistant/engine/model-orchestrator.ts
+Current role:
+- Planner path with tool_choice=auto and tool loop.
+Future role:
+- Primary reasoning pipeline for semantic queries.
+What moves:
+- Intent/tool reasoning priority for non-deterministic questions.
+What stays:
+- Model fallback list, tool execution loop, usage metadata, llm diagnostics.
+Risk:
+- Latency and token-cost growth.
+Rollback:
+- Restrict planner domains using ASSISTANT_HYBRID_DOMAINS.
+
+FILE: lib/assistant/engine/tool-schema.ts
+Current role:
+- Planner-visible tool schema and mapping.
+Future role:
+- Canonical model-facing tool contract.
+What moves:
+- Missing domain actions/tools (rotation/materials/driver-centric questions) into planner schema.
+What stays:
+- Mapping to existing assistant tools (no DB schema changes).
+Risk:
+- Wrong schema can force wrong tool calls.
+Rollback:
+- Versioned schema strategy (keep v1 mapping available).
+
+FILE: lib/assistant/engine/tools.ts
+Current role:
+- Source-of-truth tool implementations (Supabase queries, RLS scope, logs).
+Future role:
+- Same role; data truth layer.
+What moves:
+- Nothing architectural from here.
+What stays:
+- SQL/query semantics, scope enforcement, rows_count/error logging.
+Risk:
+- Accidental behavior changes in critical tools.
+Rollback:
+- Preserve signatures; revert tool-only commits if needed.
+
+FILE: lib/assistant/engine/navigation-policy.ts
+Current role:
+- Explicit-navigation detector and action allow/block.
+Future role:
+- Mandatory post-planner policy gate.
+What moves:
+- All final action filtering centralized here.
+What stays:
+- Explicit command requirement logic.
+Risk:
+- Overblocking legitimate navigation.
+Rollback:
+- Temporary relax through ASSISTANT_NAV_POLICY_STRICT=0.
+
+FILE: lib/assistant/engine/response-validator.ts
+Current role:
+- Grounded answer validator (basic).
+Future role:
+- Final anti-hallucination and answer-type gate.
+What moves:
+- Answer type validation and contradiction handling from scattered branches into validator layer.
+What stays:
+- Grounded/no-data normalization.
+Risk:
+- False positives (valid answers blocked).
+Rollback:
+- Downgrade to basic validator mode (feature flag).
+
+FILE: lib/assistant/openai.ts
+Current role:
+- Model resolution and fallback candidate list.
+Future role:
+- Stable model routing policy per query class/tier.
+What moves:
+- Stronger route-tier policy (fast/default/heavy) and auditable selection.
+What stays:
+- Fallback candidate list and settings source metadata.
+Risk:
+- Wrong model tier assignment (cost/speed issues).
+Rollback:
+- Force default model globally (gpt-5.4-mini).
+
+FILE: lib/assistant/knowledge/semantic-memory.ts
+Current role:
+- KB snippet retrieval and alias expansion for prompt context.
+Future role:
+- Planner augmentation layer (targeted context injection only).
+What moves:
+- Decision-tree hints for ambiguous intents (field/warehouse/crop/material split).
+What stays:
+- Retrieval/scoring primitives.
+Risk:
+- Prompt bloat and latency increase.
+Rollback:
+- Top-k clipping and empty-context fallback.
+
+FILE: lib/assistant/prompts/travkin-core-prompt.ts
+Current role:
+- Centralized core prompt source/version.
+Future role:
+- Stable planner contract prompt with strict grounded instructions.
+What moves:
+- Additional planner-specific constraints and answer discipline.
+What stays:
+- Source/version metadata (code_default/db_override/env_override).
+Risk:
+- Prompt regression.
+Rollback:
+- Prompt version pin to previous known-good version.
+
+FILE: lib/assistant/engine/types.ts
+Current role:
+- Engine contracts for intent/tools/result/debug.
+Future role:
+- Single source of truth for hybrid/model-first contracts.
+What moves:
+- Additional non-breaking fields for decision/answer source and policy outcomes.
+What stays:
+- Existing contracts for backward compatibility.
+Risk:
+- Front/back type mismatch.
+Rollback:
+- Additive-only changes, no breaking renames.
+
+FILE: lib/assistant/route-registry.ts
+Current role:
+- Route/action registry and entity open strategy.
+Future role:
+- Navigation source-of-truth for planner actions.
+What moves:
+- Entity open strategy alignment from ad-hoc branches into registry-driven execution.
+What stays:
+- Existing route keys, filters, open strategy metadata.
+Risk:
+- Route mismatch causing false "route not found".
+Rollback:
+- Keep legacy route aliases and open_page_with_filter fallback.
+
+FILE: components/assistant/assistant-debug-monitor.tsx
+Current role:
+- Debug UI for model/runtime/engine/perf.
+Future role:
+- Primary migration observability panel.
+What moves:
+- New trace dimensions (planner-vs-fast-path, policy_block, latency split reliability marker).
+What stays:
+- Existing debug sections and optional rendering behavior.
+Risk:
+- UI breaks if server omits new fields.
+Rollback:
+- Render optional fields defensively.
+
+FILE: scripts/trace-copilot-decision-flow.ts
+Current role:
+- Request trace script.
+Future role:
+- Migration oracle (old vs hybrid diff).
+What moves:
+- Explicit assertions: who chose intent/tool, which model answered, whether tool output returned to model.
+What stays:
+- Existing report flow.
+Risk:
+- Misread conclusions from partial telemetry.
+Rollback:
+- Keep legacy report format and add v2 alongside.
+
+FILE: scripts/qa-assistant-intent-router-2026.ts
+Current role:
+- 20-prompt matrix regression for intent/tools.
+Future role:
+- Regression gate for hybrid rollout.
+What moves:
+- Expected decisionSource per prompt class (fast_path/model/fallback).
+What stays:
+- Existing matrix prompts and pass/fail checks.
+Risk:
+- Outdated expectations after migration.
+Rollback:
+- Version the matrix (router-baseline and hybrid-baseline).
+
+========================================================================
+2) STAGE 1.1 EXECUTION ORDER (UPDATED, NO CODE)
+========================================================================
+
+Step 1: Freeze contracts and telemetry
+- Files: route.ts, types.ts, debug monitor, trace script.
+- Goal: trace always includes model, decisionSource, answerSource, latency parts.
+
+Step 2: Context Collector + Memory Layer
+- Files: runtime.ts, session-state.ts, context route, query.ts (integration points only).
+- Goal: follow-up stability:
+  - "Что на поле 28?" -> "А материалы?" -> "А операции?" -> "А урожай?" -> same field context retained.
+  - "А по складу?" -> "А последние движения?" -> same warehouse context retained.
+
+Step 3: Shift reasoning priority
+- Files: query.ts, model-orchestrator.ts, router.ts.
+- Goal: semantic queries go planner-first; router becomes pre-classifier/fallback.
+
+Step 4: Expand planner tool coverage
+- Files: tool-schema.ts (+ mapping), tools.ts unchanged in signature.
+- Goal: planner can choose correct tools for rotation/materials/driver cases.
+
+Step 5: Enforce trust/safety gates
+- Files: navigation-policy.ts, response-validator.ts.
+- Goal: no fake navigation, no ungrounded ERP numbers.
+
+Step 6: Controlled rollout and verification
+- Files: trace/qa scripts.
+- Goal: compare old vs hybrid, domain by domain.
+
+========================================================================
+3) ROLE-BASED SCENARIO MATRIX (PRE-CODING GATE)
+========================================================================
+
+Legend:
+- Current = expected handling in current Copilot architecture.
+- Hybrid target = expected handling after Stage 1.1 migration.
+- Memory: none / entity / thread_context.
+- Nav: no / explicit_only.
+- Risk: low / medium / high.
+
+-----------------------------------------------------------------------
+ROLE: Director / Руководитель (10)
+-----------------------------------------------------------------------
+Q01 "Сколько посевных площадей?"
+Current: router->crop_structure_area; Hybrid target: planner->crop summary first.
+Tools: get_crop_structure_summary; SoT: crop_structure(plan); Memory: none; Nav: no; Risk: medium.
+
+Q02 "Сколько складов?"
+Current: router->warehouse_count (sometimes drift risk); Hybrid target: planner->warehouse_count strict.
+Tools: get_warehouse_count; SoT: warehouses(active); Memory: none; Nav: no; Risk: high.
+
+Q03 "Сколько картофеля на складах?"
+Current: inventory_balance mostly correct; Hybrid target: planner->inventory balance all warehouses.
+Tools: get_warehouse_stock; SoT: v_stock_balance_identity; Memory: entity; Nav: no; Risk: medium.
+
+Q04 "Что по зерновым?"
+Current: router crop_group mapping; Hybrid target: planner group->summary with concise answer.
+Tools: search_crops_by_group + get_crop_structure_summary; SoT: crop_structure(plan); Memory: none; Nav: no; Risk: medium.
+
+Q05 "Где риски по урожайности?"
+Current: often generic; Hybrid target: planner mixed mode (ERP + risk explanation).
+Tools: get_operations / tickets / harvest signals; SoT: operations+weighbridge(fact); Memory: thread_context; Nav: no; Risk: high.
+
+Q06 "Почему в полях 0 га, а в структуре тысячи?"
+Current: inconsistent replies possible; Hybrid target: planner contradiction-aware explanation.
+Tools: get_fields + get_crop_structure_summary; SoT: fields vs crop_structure; Memory: thread_context; Nav: no; Risk: high.
+
+Q07 "Сколько активных операций?"
+Current: operations_recent path; Hybrid target: planner active status strict.
+Tools: get_active_operations; SoT: operations(fact); Memory: none; Nav: no; Risk: medium.
+
+Q08 "Что не выполнено по операциям?"
+Current: broad search_operations; Hybrid target: planner status reasoning (pending/overdue).
+Tools: search_operations + get_operations; SoT: operations(fact); Memory: thread_context; Nav: no; Risk: medium.
+
+Q09 "Открой аналитику картофеля."
+Current: navigation possible; Hybrid target: explicit navigation with policy allow.
+Tools: navigate_to_page (+ optional filter); SoT: route_registry; Memory: none; Nav: explicit_only; Risk: low.
+
+Q10 "Что изменилось за неделю?"
+Current: weak cross-domain answer; Hybrid target: planner multi-tool weekly delta summary.
+Tools: warehouse_movements + operations + tickets; SoT: movements/operations/tickets; Memory: thread_context; Nav: no; Risk: high.
+
+-----------------------------------------------------------------------
+ROLE: Agronomist / Агроном (10)
+-----------------------------------------------------------------------
+Q01 "Что на поле 28?"
+Current: get_field_card but mismatch risk; Hybrid target: planner field card with strict season scope.
+Tools: get_field_card; SoT: fields + crop_structure(plan) + operations/materials(fact); Memory: entity; Nav: no; Risk: high.
+
+Q02 "А материалы?"
+Current: may lose field context; Hybrid target: use last_field from memory.
+Tools: get_field_materials; SoT: field_material_consumptions(fact); Memory: thread_context; Nav: no; Risk: high.
+
+Q03 "А операции?"
+Current: may switch domain incorrectly; Hybrid target: field-bound operations follow-up.
+Tools: get_field_operations / search_operations; SoT: operations(fact); Memory: thread_context; Nav: no; Risk: high.
+
+Q04 "А урожай?"
+Current: may mix non-harvest tickets; Hybrid target: harvest KPI semantics only.
+Tools: weighbridge tools filtered for harvest_incoming finalized non-voided; SoT: weighbridge(fact); Memory: thread_context; Nav: no; Risk: high.
+
+Q05 "Сколько моркови по плану 2026?"
+Current: usually crop_structure; Hybrid target: planner plan-only explicit.
+Tools: get_crop_structure_summary; SoT: crop_structure(plan); Memory: none; Nav: no; Risk: medium.
+
+Q06 "Сколько посажено моркови?"
+Current: can answer by plan only without warning; Hybrid target: fact-first then plan fallback with note.
+Tools: operations + crop_structure_summary fallback; SoT: operations(fact) then crop_structure(plan); Memory: none; Nav: no; Risk: high.
+
+Q07 "Где Гала?"
+Current: alias handling partial; Hybrid target: planner resolves variety alias and returns fields/stock context-aware.
+Tools: get_crop_structure_summary + get_warehouse_stock; SoT: crop_structure + inventory; Memory: entity; Nav: no; Risk: medium.
+
+Q08 "Что по репродукции элита?"
+Current: weak reproduction analytics; Hybrid target: planner query by reproduction in structure/materials.
+Tools: crop_structure_summary + field_materials; SoT: crop_structure(plan) + materials(fact); Memory: none; Nav: no; Risk: high.
+
+Q09 "Покажи севооборот поля 10."
+Current: may miss timeline in planner path; Hybrid target: explicit rotation history tool.
+Tools: get_field_timeline; SoT: field history / crop history; Memory: entity; Nav: optional explicit_only; Risk: high.
+
+Q10 "Что по фитофторе и рискам?"
+Current: general answer, weak grounding; Hybrid target: mixed mode (agro knowledge + ERP signals).
+Tools: agro knowledge + operations/materials/tickets; SoT: knowledge + ERP fact; Memory: thread_context; Nav: no; Risk: medium.
+
+-----------------------------------------------------------------------
+ROLE: Warehouse Operator / Складовщик (10)
+-----------------------------------------------------------------------
+Q01 "Сколько активных складов?"
+Current: warehouse_count mostly; Hybrid target: strict active-only count.
+Tools: get_warehouse_count; SoT: warehouses(active); Memory: none; Nav: no; Risk: medium.
+
+Q02 "Назови склады."
+Current: sometimes balance drift; Hybrid target: planner list_warehouses path.
+Tools: get_warehouse_count(list mode) / search_warehouses; SoT: warehouses; Memory: none; Nav: no; Risk: high.
+
+Q03 "Остатки картофеля."
+Current: inventory balance; Hybrid target: planner balance all warehouses default.
+Tools: get_warehouse_stock; SoT: v_stock_balance_identity; Memory: entity; Nav: no; Risk: medium.
+
+Q04 "Остатки по овощному складу."
+Current: alias sometimes not resolved; Hybrid target: resolve warehouse alias then scoped stock.
+Tools: resolve_warehouse_by_name + get_warehouse_stock; SoT: inventory by warehouse; Memory: entity; Nav: no; Risk: high.
+
+Q05 "Последние движения."
+Current: sometimes summary instead of movements; Hybrid target: planner movement intent strict.
+Tools: get_warehouse_movements; SoT: ledger/warehouse transactions; Memory: entity; Nav: no; Risk: high.
+
+Q06 "Что пришло сегодня?"
+Current: partial direction handling; Hybrid target: inbound filter.
+Tools: get_warehouse_movements(direction=in); SoT: warehouse movements; Memory: entity; Nav: no; Risk: medium.
+
+Q07 "Что ушло сегодня?"
+Current: partial direction handling; Hybrid target: outbound filter.
+Tools: get_warehouse_movements(direction=out); SoT: warehouse movements; Memory: entity; Nav: no; Risk: medium.
+
+Q08 "Есть отрицательные остатки?"
+Current: may need stronger anomaly framing; Hybrid target: anomaly-first answer with warning.
+Tools: get_warehouse_balances(negative); SoT: v_stock_balance_identity; Memory: none; Nav: no; Risk: medium.
+
+Q09 "Открой склад семян."
+Current: action can fail silently; Hybrid target: explicit nav with confirm execution only.
+Tools: resolve_warehouse_by_name + open_entity; SoT: route_registry + resolver; Memory: entity; Nav: explicit_only; Risk: high.
+
+Q10 "Почему остаток не сходится?"
+Current: weak diagnostic chain; Hybrid target: planner explains using movements + balance context.
+Tools: get_warehouse_stock + get_warehouse_movements; SoT: balance + movements; Memory: thread_context; Nav: no; Risk: high.
+
+-----------------------------------------------------------------------
+ROLE: Weighbridge Operator / Весовщик (10)
+-----------------------------------------------------------------------
+Q01 "Активные талоны."
+Current: fast-path deterministic; Hybrid target: keep fast-path.
+Tools: get_active_tickets; SoT: weighbridge tickets; Memory: none; Nav: no; Risk: low.
+
+Q02 "Последний талон."
+Current: planner path, occasional domain confusion risk; Hybrid target: planner strict weighbridge path.
+Tools: get_latest_ticket or get_recent_tickets(limit=1); SoT: weighbridge tickets; Memory: none; Nav: no; Risk: medium.
+
+Q03 "Последние 3 талона."
+Current: planner may over-clarify sometimes; Hybrid target: planner direct limit=3.
+Tools: get_recent_tickets(limit=3); SoT: weighbridge tickets; Memory: none; Nav: no; Risk: medium.
+
+Q04 "Сколько талонов сегодня?"
+Current: status/date filtering mixed; Hybrid target: planner date filter and concise count.
+Tools: get_recent_tickets + date filter; SoT: weighbridge tickets; Memory: none; Nav: no; Risk: medium.
+
+Q05 "Какие машины не закрыты?"
+Current: active/open mapping exists; Hybrid target: planner open tickets grouped by vehicle.
+Tools: get_active_tickets; SoT: weighbridge tickets; Memory: none; Nav: no; Risk: medium.
+
+Q06 "Сколько тонн сегодня?"
+Current: may show rows without aggregate; Hybrid target: planner aggregate net first.
+Tools: get_recent_tickets / loads tool; SoT: net from finalized tickets; Memory: none; Nav: no; Risk: high.
+
+Q07 "Талоны по полю 28."
+Current: field filter may be weak; Hybrid target: planner field-resolved filter.
+Tools: get_weighbridge_tickets + resolve_field_by_number; SoT: tickets by field; Memory: entity; Nav: no; Risk: high.
+
+Q08 "Что делал водитель Кайрат?"
+Current: often general_question drift; Hybrid target: planner driver-centric ticket/trip query.
+Tools: get_recent_tickets + driver filter; SoT: weighbridge/fleet facts; Memory: entity; Nav: no; Risk: high.
+
+Q09 "Открой весовую."
+Current: deterministic navigation works; Hybrid target: explicit navigation with policy allow.
+Tools: navigate_to_page; SoT: route_registry; Memory: none; Nav: explicit_only; Risk: low.
+
+Q10 "Почему талон не закрыт?"
+Current: shallow response possible; Hybrid target: planner detail lookup and cause explanation.
+Tools: get_ticket_details; SoT: ticket lifecycle fields; Memory: entity; Nav: no; Risk: medium.
+
+-----------------------------------------------------------------------
+ROLE: Brigadier / Бригадир (10)
+-----------------------------------------------------------------------
+Q01 "Какие активные операции по моим полям?"
+Current: operations list generic; Hybrid target: planner role-scoped operations summary.
+Tools: get_active_operations + optional field filters; SoT: operations; Memory: thread_context; Nav: no; Risk: medium.
+
+Q02 "Что ждет материалы?"
+Current: operations_recent path; Hybrid target: planner status=waiting_materials strict.
+Tools: search_operations(status waiting_materials); SoT: operations/material workflow; Memory: none; Nav: no; Risk: medium.
+
+Q03 "Что по полю 28?"
+Current: field card mostly; Hybrid target: planner field snapshot with plan/fact split.
+Tools: get_field_card; SoT: field + crop_structure + operations/materials; Memory: entity; Nav: no; Risk: high.
+
+Q04 "А по складу?"
+Current: follow-up may lose entity; Hybrid target: memory carries last relevant warehouse context.
+Tools: get_warehouse_summary or get_warehouse_stock; SoT: inventory; Memory: thread_context; Nav: no; Risk: high.
+
+Q05 "А последние движения?"
+Current: can remain in wrong domain; Hybrid target: memory + intent override to movements.
+Tools: get_warehouse_movements; SoT: warehouse movements; Memory: thread_context; Nav: no; Risk: high.
+
+Q06 "Сколько семян ушло на это поле?"
+Current: broad operations answer; Hybrid target: planner field+material constrained usage.
+Tools: get_field_materials + operations; SoT: material consumptions fact; Memory: entity; Nav: no; Risk: high.
+
+Q07 "Есть ли перерасход?"
+Current: weak plan/fact comparison; Hybrid target: planner compares plan vs fact with warning.
+Tools: crop_structure(plan) + operations/materials(fact); SoT: plan+fact dual; Memory: thread_context; Nav: no; Risk: high.
+
+Q08 "Покажи поле 28."
+Current: navigation may fail execution; Hybrid target: explicit open_field + confirm execution.
+Tools: resolve_field_by_number + open_entity; SoT: route_registry + resolver; Memory: entity; Nav: explicit_only; Risk: high.
+
+Q09 "Что не закрыто сегодня?"
+Current: generic list risk; Hybrid target: planner status/date filtered concise output.
+Tools: search_operations + active tickets if weighbridge context; SoT: operations/tickets; Memory: none; Nav: no; Risk: medium.
+
+Q10 "Что делать дальше по полю 28?"
+Current: often generic advice; Hybrid target: mixed response grounded in latest field facts.
+Tools: get_field_card + get_field_operations + knowledge context; SoT: field facts + agro guidance; Memory: thread_context; Nav: no; Risk: medium.
+
+========================================================================
+4) PRE-CODING GATE CHECKLIST FOR ROLE MATRIX
+========================================================================
+
+Before coding starts, matrix must be validated by product/ops owner:
+1) Each role has 10 realistic questions accepted.
+2) Each question has explicit source-of-truth.
+3) Memory requirement is marked (none/entity/thread_context).
+4) Navigation policy marked (no/explicit_only).
+5) High-risk questions are tagged for early regression tests.
+
+========================================================================
+5) ENV FLAGS FOR SAFE ROLLOUT/ROLLBACK
+========================================================================
+
+Primary mode switch:
+- ASSISTANT_ENGINE_MODE=tool_first | hybrid | model_first
+
+Domain rollout:
+- ASSISTANT_HYBRID_DOMAINS=all or scoped list
+
+Navigation guard:
+- ASSISTANT_NAV_POLICY_STRICT=1 (recommended)
+
+Fast rollback path:
+1) Set ASSISTANT_ENGINE_MODE=tool_first
+2) Keep API/debug contract unchanged
+3) Re-run trace + QA matrix
+
