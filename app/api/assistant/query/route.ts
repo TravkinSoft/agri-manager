@@ -265,7 +265,8 @@ function buildDebugMetadata(params: {
   const lastToolError = result.toolCalls.find((tool) => !tool.ok && tool.error)?.error || null;
   const warnings: string[] = [];
 
-  if (looksLikeErpDataQuestion(requestMessage) && result.answerSource === "llm_fallback") {
+  const isKnowledgeAnswer = result.mode === "agro_knowledge" || result.intent.name === "general_question";
+  if (!isKnowledgeAnswer && looksLikeErpDataQuestion(requestMessage) && result.answerSource === "llm_fallback") {
     warnings.push("Ответ по ERP-данным был без tool grounding.");
   }
   if (threadPersistenceError) {
@@ -276,7 +277,7 @@ function buildDebugMetadata(params: {
     generatedAt: new Date().toISOString(),
     model: {
       provider: asString(settings.provider),
-      configuredModel: asString(settings.model),
+      configuredModel: asString(result.model.configuredModel || settings.model),
       actualModel: asString(result.model.actualModel),
       settingsSource: result.model.settingsSource as AssistantDebugSettingsSource,
       promptVersion: asString(result.model.promptVersion),
