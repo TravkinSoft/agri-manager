@@ -10,6 +10,7 @@ import {
 } from "@/lib/assistant/threads-store";
 import type { AssistantDebugMetadata, AssistantDebugSettingsSource } from "@/lib/assistant/debug-types";
 import type { AssistantEngineResult, AssistantNavigationAction } from "@/lib/assistant/engine/types";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   SessionAuthError,
   ensureAssistantRole,
@@ -23,6 +24,33 @@ const DEFAULT_ASSISTANT_SEASON = "2026";
 function asString(value: unknown): string | null {
   const text = String(value || "").trim();
   return text.length ? text : null;
+}
+
+function filterProductionChatHistory(history: unknown): Array<{ role?: string; content?: string }> {
+  if (!Array.isArray(history)) return [];
+  return history
+    .filter((message) => {
+      if (!message || typeof message !== "object") return false;
+      const content = asString((message as Record<string, unknown>).content);
+      return !!content && !hasQaDataMarker(content);
+    })
+    .map((message) => ({
+      role: asString((message as Record<string, unknown>).role) || "user",
+      content: asString((message as Record<string, unknown>).content) || "",
+    }));
+}
+
+function sanitizeAssistantAnswer(content: string): string {
+  if (!hasQaDataMarker(content)) return content;
+  return "Ответ скрыт: в истории или источнике обнаружены тестовые QA-данные. Повторите запрос, и я проверю только производственные данные.";
+}
+
+function filterProductionActions(actions: AssistantActionButton[]): AssistantActionButton[] {
+  return actions.filter((action) => !hasQaDataMarker(JSON.stringify(action)));
+}
+
+function filterProductionToolActivity(activity: string[]): string[] {
+  return activity.filter((line) => !hasQaDataMarker(line));
 }
 
 function isUuidLike(value: string | null): value is string {
@@ -429,6 +457,8 @@ export async function POST(request: NextRequest) {
       companyName,
     });
 
+    const productionChatHistory = filterProductionChatHistory(payload?.chatHistory);
+
     const result = await runAssistantEngine({
       supabase,
       actor,
@@ -438,11 +468,19 @@ export async function POST(request: NextRequest) {
         message: requestMessage,
         locale: payload?.locale || "ru",
         chatId: threadId,
-        chatHistory: Array.isArray(payload?.chatHistory) ? payload.chatHistory : [],
+        chatHistory: productionChatHistory,
         runtimeContext: runtimeContextPayload,
         sessionState: payload?.sessionState || null,
       },
     });
+    const safeAnswer = sanitizeAssistantAnswer(result.answer);
+    const responseActions = filterProductionActions(
+      buildActionButtons({
+        intentName: result.intent?.name || null,
+        requestMessage: requestMessage || "",
+        navigationActions: result.navigationActions || [],
+      })
+    );
 
     if (threadId) {
       try {
@@ -473,18 +511,14 @@ export async function POST(request: NextRequest) {
             userId: actor.id,
             threadId,
             role: "assistant",
-            content: result.answer,
+            content: safeAnswer,
             metadata: {
               intent: result.intent?.name || null,
               mode: result.mode || null,
               output_type: result.outputType || null,
               source_hints: result.sourceHints || [],
-              tool_activity: result.toolActivity || [],
-              actions: buildActionButtons({
-                intentName: result.intent?.name || null,
-                requestMessage: requestMessage || "",
-                navigationActions: result.navigationActions || [],
-              }),
+              tool_activity: filterProductionToolActivity(result.toolActivity || []),
+              actions: responseActions,
               tool_calls: result.toolCalls || [],
               navigation_actions: result.navigationActions || [],
               answer_source: result.answerSource,
@@ -513,7 +547,7 @@ export async function POST(request: NextRequest) {
     }
 
     const debugAllowed = isDebugAllowed(actor.role);
-    const visibleToolActivity = debugAllowed ? result.toolActivity || [] : [];
+    const visibleToolActivity = debugAllowed ? filterProductionToolActivity(result.toolActivity || []) : [];
     const debug = debugAllowed
       ? buildDebugMetadata({
           role: actor.role,
@@ -556,21 +590,17 @@ export async function POST(request: NextRequest) {
           _server: runtimeContextPayload,
         },
         request_excerpt: requestMessage,
-        response_excerpt: result.answer,
+        response_excerpt: safeAnswer,
         error_text: threadPersistenceError,
       });
     }
 
     return NextResponse.json({
-      response: result.answer,
+      response: safeAnswer,
       sessionState: result.sessionState,
       threadId,
       navigationActions: result.navigationActions || [],
-      actions: buildActionButtons({
-        intentName: result.intent?.name || null,
-        requestMessage: requestMessage || "",
-        navigationActions: result.navigationActions || [],
-      }),
+      actions: responseActions,
       toolActivity: visibleToolActivity,
       meta: {
         intent: result.intent,

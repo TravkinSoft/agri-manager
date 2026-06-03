@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 export type AssistantThreadRecord = {
   id: string;
@@ -238,17 +239,19 @@ export async function listAssistantThreadMessages(params: {
     .limit(limit);
   if (res.error) throw new Error(res.error.message);
 
-  return (res.data || []).map((row: any) => {
-    const messageRow = row as Record<string, unknown>;
-    return {
-      id: String(row.id),
-      thread_id: String(row.chat_id),
-      role: readRoleFromMessageRow(messageRow),
-      content: String(row.content || ""),
-      metadata: (row.metadata as Record<string, unknown> | null) || null,
-      created_at: String(row.created_at || new Date().toISOString()),
-    };
-  });
+  return (res.data || [])
+    .map((row: any) => {
+      const messageRow = row as Record<string, unknown>;
+      return {
+        id: String(row.id),
+        thread_id: String(row.chat_id),
+        role: readRoleFromMessageRow(messageRow),
+        content: String(row.content || ""),
+        metadata: (row.metadata as Record<string, unknown> | null) || null,
+        created_at: String(row.created_at || new Date().toISOString()),
+      };
+    })
+    .filter((message) => !hasQaDataMarker(`${message.content} ${JSON.stringify(message.metadata || {})}`));
 }
 
 export async function appendAssistantThreadMessage(params: {

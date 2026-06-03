@@ -28,6 +28,7 @@ import { useAssistantShell } from "@/components/assistant/assistant-shell-provid
 import type { AssistantDebugMetadata } from "@/lib/assistant/debug-types";
 import { resolveRouteEntryByPath } from "@/lib/assistant/route-registry";
 import { buildAssistantChatExport } from "@/lib/assistant/export/chat-export";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 type AssistantChatMessage = {
   id: string;
@@ -331,6 +332,15 @@ function rolePermissionsLabel(role: string | null): string {
   return "Read-only operational scope";
 }
 
+function isProductionAssistantMessage(message: Pick<AssistantChatMessage, "content" | "actions" | "meta">): boolean {
+  return !hasQaDataMarker(`${message.content || ""} ${JSON.stringify(message.actions || [])} ${JSON.stringify(message.meta || {})}`);
+}
+
+function sanitizeAssistantAnswer(content: string): string {
+  if (!hasQaDataMarker(content)) return content;
+  return "Ответ скрыт: в истории или источнике обнаружены тестовые QA-данные. Повторите запрос, и я проверю только производственные данные.";
+}
+
 export function AssistantChatPane({
   runtimeContext,
   sessionId,
@@ -621,7 +631,7 @@ export function AssistantChatPane({
             intent: typeof metadata.intent === "string" ? metadata.intent : undefined,
           },
         } as AssistantChatMessage;
-      });
+      }).filter(isProductionAssistantMessage);
       setMessages(nextMessages);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Не удалось загрузить сообщения.");
@@ -720,6 +730,7 @@ export function AssistantChatPane({
       if (!threadId) throw new Error("Не удалось создать чат.");
 
       const historyForRequest = [...messages, optimisticMessage]
+        .filter(isProductionAssistantMessage)
         .slice(-20)
         .map((message) => ({ role: message.role, content: message.content }));
 
@@ -840,12 +851,13 @@ export function AssistantChatPane({
         navigationExecuted === true && intentName === "navigation_help"
           ? firstActionToSuccessText(navigationActions[0] || null)
           : null;
-      const finalAnswer =
+      const rawFinalAnswer =
         navigationExecuted === false
           ? `${answer}\n\nНе смог открыть: ${navigationError || "route не найден"}.`
           : successTail
             ? `${answer}\n\n${successTail}`
             : answer;
+      const finalAnswer = sanitizeAssistantAnswer(rawFinalAnswer);
       const assistantMessage: AssistantChatMessage = {
         id: uid(),
         role: "assistant",
@@ -932,7 +944,7 @@ export function AssistantChatPane({
 
   const canSend = !loading && !disabledReason && !!input.trim();
   const canExportChat = useMemo(
-    () => messages.some((message) => message.role === "user" || message.role === "assistant"),
+    () => messages.filter(isProductionAssistantMessage).some((message) => message.role === "user" || message.role === "assistant"),
     [messages]
   );
 
@@ -946,7 +958,7 @@ export function AssistantChatPane({
           season: runtimeContext.season || runtimeContext.defaultSeason || "2026",
           userName: profile?.full_name || profile?.email || profile?.id || null,
         },
-        messages: messages.map((message) => ({
+        messages: messages.filter(isProductionAssistantMessage).map((message) => ({
           role: message.role,
           content: message.content,
           createdAt: message.createdAt,
@@ -1011,7 +1023,7 @@ export function AssistantChatPane({
                 Загружаю сообщения...
               </div>
             ) : messages.length === 0 ? null : (
-              messages.map((message) => (
+              messages.filter(isProductionAssistantMessage).map((message) => (
                 <div
                   key={message.id}
                   className={`flex gap-1.5 ${message.role === "user" ? "justify-end" : "justify-start"}`}
