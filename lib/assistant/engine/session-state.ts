@@ -95,6 +95,10 @@ export function updateSessionStateFromToolOutput(params: {
   const nextFieldLabel = findValue(rows, ["field_name", "field_label"]);
   const nextWarehouseId = findValue(rows, ["warehouse_id", "warehouse_from_id", "warehouse_to_id", "warehouseId"]);
   const nextWarehouseLabel = findValue(rows, ["warehouse_name", "warehouse_from_name", "warehouse_to_name", "warehouse_label"]);
+  const requestedWarehouse =
+    cleanString(intent.parameters.warehouse_alias) ||
+    cleanString(intent.parameters.warehouse) ||
+    cleanString(intent.parameters.entityQuery);
   const resolvedAnswerType = cleanString(intent.parameters.output_type);
 
   return {
@@ -104,9 +108,12 @@ export function updateSessionStateFromToolOutput(params: {
     lastCrop: findValue(rows, ["crop_name", "product_name"]) || previous.lastCrop,
     lastVariety: findValue(rows, ["variety_name"]) || previous.lastVariety,
     lastBatchClass: findValue(rows, ["batch_class"]) || previous.lastBatchClass,
-    lastWarehouse: findValue(rows, ["warehouse_name", "warehouse_from_name", "warehouse_to_name"]) || previous.lastWarehouse,
+    lastWarehouse:
+      findValue(rows, ["warehouse_name", "warehouse_from_name", "warehouse_to_name"]) ||
+      requestedWarehouse ||
+      previous.lastWarehouse,
     lastWarehouseId: nextWarehouseId || previous.lastWarehouseId,
-    lastWarehouseLabel: nextWarehouseLabel || previous.lastWarehouseLabel,
+    lastWarehouseLabel: nextWarehouseLabel || requestedWarehouse || previous.lastWarehouseLabel,
     lastField: findValue(rows, ["field_name"]) || previous.lastField,
     lastFieldId: nextFieldId || previous.lastFieldId,
     lastFieldLabel: nextFieldLabel || previous.lastFieldLabel,

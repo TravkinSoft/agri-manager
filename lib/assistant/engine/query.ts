@@ -490,6 +490,40 @@ function looksLikeErpDataQuestion(message: string): boolean {
   );
 }
 
+function isKnowledgeStyleQuestion(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  return (
+    isAgroKnowledgeQuestion(text) ||
+    /(что такое|как работает|объясни|объясните|процесс|как организовать|как правильно|что значит|зачем|почему|how does|explain|what is)/i.test(
+      text
+    )
+  );
+}
+
+function buildPlannerSeedIntent(message: string): AssistantIntent {
+  return {
+    name: "general_question",
+    confidence: 1,
+    needsData: false,
+    parameters: {
+      query: cleanString(message) || "",
+      output_type: "filtered_summary",
+    },
+  };
+}
+
+function resolvePlannerMode(params: {
+  intent: AssistantIntent;
+  usedTools: boolean;
+  message: string;
+  fallbackMode: AssistantEngineResult["mode"];
+}): AssistantEngineResult["mode"] {
+  if (params.intent.name === "navigation_help") return "navigation";
+  if (params.usedTools) return "erp_data";
+  if (isKnowledgeStyleQuestion(params.message)) return "agro_knowledge";
+  return params.fallbackMode;
+}
+
 function isCapabilitiesQuestion(message: string): boolean {
   const text = String(message || "").toLowerCase();
   return /(что ты умеешь|твои возможности|чем поможешь|help|what can you do)/.test(text);
@@ -2007,6 +2041,147 @@ export async function runAssistantEngine(params: {
     };
   }
 
+  const plannerFirstEnabled = String(process.env.ASSISTANT_PLANNER_FIRST ?? "1") !== "0";
+  if (plannerFirstEnabled) {
+    plannerAttempted = true;
+    decisionSource = "model";
+    routerMs = 0;
+    const plannerSeedIntent = buildPlannerSeedIntent(memoryRouting.routingMessage);
+    const locale = runtimeContext.locale || "ru";
+    let llmPromptBundle = promptBundle;
+    let llmPromptMeta = promptMeta;
+    try {
+      const semanticMemory = await buildSemanticMemoryContext({
+        message,
+        mode: assistantMode,
+        intentName: plannerSeedIntent.name,
+        runtimeContext,
+      });
+      llmPromptBundle = resolveTravkinCorePrompt({
+        settings,
+        runtimeContext,
+        actorRole: actor.role,
+        locale,
+        semanticMemoryContext: semanticMemory.contextText,
+      });
+      llmPromptMeta = {
+        promptVersion: llmPromptBundle.version || TRAVKIN_CORE_PROMPT_VERSION,
+        promptSource: llmPromptBundle.source,
+        promptUpdatedAt: llmPromptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
+      };
+    } catch {
+      llmPromptBundle = promptBundle;
+      llmPromptMeta = promptMeta;
+    }
+
+    const modelStartedAt = Date.now();
+    const planner = await runModelOrchestrator({
+      message: memoryRouting.routingMessage,
+      locale,
+      settings,
+      runtimeContext,
+      sessionState: initialSessionState,
+      intent: plannerSeedIntent,
+      systemPrompt: llmPromptBundle.text,
+      promptMeta: llmPromptMeta,
+      supabase,
+      actor,
+      companyId,
+      forceHeavyModel: true,
+    });
+    modelMs = Date.now() - modelStartedAt;
+
+    if (planner.ok) {
+      plannerSucceeded = true;
+      const plannerIntent = planner.intent || plannerSeedIntent;
+      const plannerUsedTools = planner.toolCalls.length > 0;
+      const plannerOnlyNavigation = plannerIntent.name === "navigation_help" || planner.navigationActions.length > 0;
+      const plannerResolvedMode = resolvePlannerMode({
+        intent: plannerIntent,
+        usedTools: plannerUsedTools,
+        message: messageForRouting,
+        fallbackMode: assistantMode,
+      });
+      const plannerResolvedOutputType = resolveOutputType(plannerIntent);
+      const plannerExpectedAnswerType = getExpectedAnswerType(plannerIntent.name);
+      const plannerSelectedSource = getSelectedSource(plannerIntent.name);
+      const plannerEffectiveSelectedSource = memoryRouting.used ? "session_memory" : plannerSelectedSource;
+      const plannerPreviousRelatedMemory = summarizeMemoryForIntent(initialSessionState, plannerIntent.name);
+      const navigationResult = applyNavigationPolicy({
+        message: messageForRouting,
+        actions: planner.navigationActions,
+        strict: strictNavigationPolicy,
+      });
+      explicitNavigationRequested = navigationResult.explicitNavigationRequested;
+      navigationPolicy = navigationResult.policy;
+
+      const validation = validateGroundedAnswer({
+        answer: planner.answer,
+        outputs: planner.outputs,
+        groundedRequired: plannerUsedTools,
+      });
+      const shouldForceNoData =
+        plannerUsedTools &&
+        !plannerOnlyNavigation &&
+        planner.outputs.length === 0 &&
+        looksLikeErpDataQuestion(messageForRouting);
+      let answer = shouldForceNoData ? noDataGroundedMessage() : validation.normalizedAnswer;
+      if (!answer) {
+        answer = "Не смог сформировать ответ. Попробуйте уточнить запрос.";
+      }
+      if (
+        navigationResult.policy === "blocked" &&
+        /(открыл|открываю|перехожу|показываю страницу|i opened|opening)/i.test(String(answer).toLowerCase())
+      ) {
+        answer = "Данные показал. Если нужно, открою страницу по явной команде.";
+      }
+
+      return {
+        answer,
+        sessionState: { ...planner.sessionState, lastIntent: plannerIntent.name },
+        intent: plannerIntent,
+        outputType: plannerResolvedOutputType,
+        mode: plannerResolvedMode,
+        toolCalls: planner.toolCalls,
+        toolActivity: planner.toolActivity,
+        navigationActions: navigationResult.actions,
+        sourceHints: uniqueStrings(planner.sourceHints),
+        answerSource: plannerUsedTools ? "model_grounded" : "llm_fallback",
+        grounded: plannerUsedTools ? validation.pass && !shouldForceNoData : false,
+        decisionSource,
+        explicitNavigationRequested,
+        navigationPolicy,
+        model: {
+          configuredModel: planner.configuredModel,
+          actualModel: planner.actualModel,
+          settingsSource: planner.settingsSource,
+          promptVersion: llmPromptMeta.promptVersion,
+          promptSource: llmPromptMeta.promptSource,
+          promptUpdatedAt: llmPromptMeta.promptUpdatedAt,
+          requestMode: engineMode,
+          llm: planner.llm,
+        },
+        diagnostics: buildDiagnostics({
+          expectedAnswerType: plannerExpectedAnswerType,
+          selectedSource: plannerEffectiveSelectedSource,
+          selectedTool: planner.toolCalls[0]?.tool || null,
+          previousRelatedMemory: plannerPreviousRelatedMemory,
+          consistencyCheck: plannerUsedTools ? (validation.pass ? "pass" : "fail") : "skipped",
+          contradictionDetected: false,
+          correctionApplied: plannerUsedTools ? !validation.pass : false,
+        }),
+        performance: buildPerformance({
+          promptTokens: planner.usage.promptTokens,
+          completionTokens: planner.usage.completionTokens,
+          totalTokens: planner.usage.totalTokens,
+          modelMs,
+        }),
+      };
+    }
+
+    legacyFallbackUsed = true;
+  }
+
   const routerStartedAt = Date.now();
   const intent = await classifyAssistantIntent({
     message: memoryRouting.routingMessage,
@@ -2038,6 +2213,7 @@ export async function runAssistantEngine(params: {
   if (forceDeterministicNavigation) decisionSource = "fast_path";
 
   const shouldUsePlanner =
+    !plannerAttempted &&
     !forceDeterministicNavigation &&
     (engineMode === "model_first" || (engineMode === "hybrid" && hybridDomainEnabled && !fastPathEnabled));
 
@@ -2097,13 +2273,18 @@ export async function runAssistantEngine(params: {
       explicitNavigationRequested = navigationResult.explicitNavigationRequested;
       navigationPolicy = navigationResult.policy;
 
+      const plannerUsedTools = planner.toolCalls.length > 0;
+      const plannerOnlyNavigation = intent.name === "navigation_help" || planner.navigationActions.length > 0;
       const validation = validateGroundedAnswer({
         answer: planner.answer,
         outputs: planner.outputs,
-        groundedRequired: looksLikeErpDataQuestion(messageForRouting),
+        groundedRequired: plannerUsedTools,
       });
       let answer =
-        planner.outputs.length === 0 && looksLikeErpDataQuestion(messageForRouting)
+        plannerUsedTools &&
+        !plannerOnlyNavigation &&
+        planner.outputs.length === 0 &&
+        looksLikeErpDataQuestion(messageForRouting)
           ? noDataGroundedMessage()
           : validation.normalizedAnswer;
       if (
@@ -2123,15 +2304,15 @@ export async function runAssistantEngine(params: {
         toolActivity: planner.toolActivity,
         navigationActions: navigationResult.actions,
         sourceHints: uniqueStrings(planner.sourceHints),
-        answerSource: "model_grounded",
-        grounded: validation.pass,
+        answerSource: plannerUsedTools ? "model_grounded" : "llm_fallback",
+        grounded: plannerUsedTools ? validation.pass : false,
         decisionSource,
         explicitNavigationRequested,
         navigationPolicy,
         model: {
-          configuredModel: modelConfig.configuredModel,
+          configuredModel: planner.configuredModel,
           actualModel: planner.actualModel,
-          settingsSource: modelConfig.settingsSource,
+          settingsSource: planner.settingsSource,
           promptVersion: llmPromptMeta.promptVersion,
           promptSource: llmPromptMeta.promptSource,
           promptUpdatedAt: llmPromptMeta.promptUpdatedAt,

@@ -41,12 +41,14 @@ function uniqueNonEmpty(values: Array<string | null | undefined>): string[] {
 function shouldUseHeavyModel(params: {
   intentName?: AssistantIntentName | null;
   message?: string | null;
+  forceHeavyModel?: boolean;
 }): boolean {
+  if (params.forceHeavyModel) return true;
   const intentName = params.intentName || null;
   const text = String(params.message || "").toLowerCase();
   if (isAgroKnowledgeQuestion(text)) return true;
   if (
-    /(болез|disease|архитект|architecture|анализ|analytics|diagnos|рекоменд|оптимиз|strategy|стратег|риски|risk|прогноз|yield|урожайн|фитофтор)/.test(
+    /(болез|disease|архитект|architecture|анализ|analytics|diagnos|рекоменд|оптимиз|strategy|стратег|риски|risk|прогноз|yield|урожайн|фитофтор|как работает|объясни|процесс|что такое|термос|весов|склад|репродукц)/.test(
       text
     )
   ) {
@@ -60,7 +62,7 @@ function shouldUseHeavyModel(params: {
 
 export function resolveAssistantModelConfig(
   settings: AssistantPlatformSettings,
-  options?: { intentName?: AssistantIntentName | null; message?: string | null }
+  options?: { intentName?: AssistantIntentName | null; message?: string | null; forceHeavyModel?: boolean }
 ): AssistantResolvedModelConfig {
   const envDefaultModel = asText(process.env.OPENAI_ASSISTANT_MODEL);
   const defaultModel = envDefaultModel || ASSISTANT_DEFAULT_MODEL;
@@ -69,11 +71,20 @@ export function resolveAssistantModelConfig(
   const useHeavy = shouldUseHeavyModel({
     intentName: options?.intentName || null,
     message: options?.message || null,
+    forceHeavyModel: Boolean(options?.forceHeavyModel),
   });
 
   const routedModel = useHeavy ? heavyModel : defaultModel;
-  const actualModel = dbModel || routedModel;
-  const settingsSource: AssistantSettingsSource = dbModel ? "db" : envDefaultModel ? "env" : "default";
+  const actualModel = options?.forceHeavyModel ? heavyModel : dbModel || routedModel;
+  const settingsSource: AssistantSettingsSource = options?.forceHeavyModel
+    ? asText(process.env.OPENAI_ASSISTANT_HEAVY_MODEL)
+      ? "env"
+      : "default"
+    : dbModel
+      ? "db"
+      : envDefaultModel
+        ? "env"
+        : "default";
 
   const reasoningEffort: "low" | "medium" | "high" =
     settings.reasoningEffort === "low" || settings.reasoningEffort === "high" ? settings.reasoningEffort : "medium";
@@ -83,7 +94,7 @@ export function resolveAssistantModelConfig(
 
   return {
     provider: "openai",
-    configuredModel: dbModel || routedModel,
+    configuredModel: options?.forceHeavyModel ? heavyModel : dbModel || routedModel,
     actualModel,
     settingsSource,
     temperature: asTemperature(settings.temperature, 0.2),

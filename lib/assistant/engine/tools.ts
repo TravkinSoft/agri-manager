@@ -3196,7 +3196,8 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
       cleanString(context.intent.parameters.entityQuery) ||
       cleanString(context.intent.parameters.warehouse) ||
       cleanString(context.intent.parameters.warehouse_alias) ||
-      cleanString(context.runtimeContext.filters.warehouse);
+      cleanString(context.runtimeContext.filters.warehouse) ||
+      resolveWarehouseAliasQuery(searchQuery);
     const warehouseQuery = resolveWarehouseAliasQuery(warehouseQueryRaw);
     const explicitProductQuery =
       cleanString(context.intent.parameters.product) ||

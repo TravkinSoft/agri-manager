@@ -44,12 +44,15 @@ type PromptMeta = {
 export type ModelOrchestratorResult = {
   ok: boolean;
   answer: string;
+  intent: AssistantIntent;
   toolCalls: AssistantToolCallLog[];
   outputs: AssistantToolOutput[];
   sourceHints: string[];
   toolActivity: string[];
   sessionState: AssistantSessionState;
+  configuredModel: string;
   actualModel: string | null;
+  settingsSource: "db" | "env" | "default";
   usage: UsageStats;
   llm: LlmDiagnostics;
   navigationActions: AssistantNavigationAction[];
@@ -199,26 +202,32 @@ export async function runModelOrchestrator(params: {
   supabase: SupabaseClient;
   actor: ServerActorContext;
   companyId: string;
+  forceHeavyModel?: boolean;
 }): Promise<ModelOrchestratorResult> {
   const modelConfig = resolveAssistantModelConfig(params.settings, {
     intentName: params.intent.name,
     message: params.message,
+    forceHeavyModel: Boolean(params.forceHeavyModel),
   });
   const toolCalls: AssistantToolCallLog[] = [];
   const outputs: AssistantToolOutput[] = [];
   const sourceHints: string[] = [];
   let nextSessionState = params.sessionState;
+  let plannerIntentForResult = params.intent;
 
   if (!process.env.OPENAI_API_KEY) {
     return {
       ok: false,
       answer: "AI Assistant временно недоступен. Попробуйте позже.",
+      intent: plannerIntentForResult,
       toolCalls,
       outputs,
       sourceHints,
       toolActivity: [],
       sessionState: nextSessionState,
+      configuredModel: modelConfig.configuredModel,
       actualModel: null,
+      settingsSource: modelConfig.settingsSource,
       usage: { promptTokens: null, completionTokens: null, totalTokens: null },
       llm: llmMissingKey(),
       navigationActions: [],
@@ -250,14 +259,22 @@ export async function runModelOrchestrator(params: {
         role: "system",
         content: [
           "Вы — planner Travkin Copilot.",
-          "Сначала поймите намерение пользователя, затем выберите tools при необходимости.",
+          "Вы первый уровень принятия решений: сначала определите тип запроса, затем решите, нужны ли tools.",
+          "TYPE 1 Knowledge: определения, процессы, консультации и вопросы 'как работает/объясни/что такое'. Tools не вызывайте, отвечайте сами.",
+          "TYPE 2 Data Retrieval: фактические данные компании, поля, склада, талонов, операций. Выберите нужные tools.",
+          "TYPE 3 Analysis: получите ERP-данные через tools, затем дайте анализ и риски.",
+          "TYPE 4 Navigation: вызывайте навигационные tools только по явной команде открыть/перейти/показать страницу.",
+          "Примеры Knowledge без tools: 'Что такое фитофтора?', 'Как работает весовая?', 'Объясни процесс на весовой', 'Как организовать выдачу термосов?'.",
+          "Примеры Data Retrieval с tools: 'Что на поле 28?', 'А материалы?', 'А операции?', 'А урожай?', 'Остатки по овощному складу', 'А последние движения?'.",
+          "Для 'Остатки по овощному/семенному/зерновому складу' передайте склад в аргумент warehouse.",
+          "Follow-up 'А последние движения?' после складов/остатков означает складской ledger, используйте get_warehouse_movements, а не операции.",
           "ERP-данные и цифры берите только из tools.",
           "Если tool вернул пусто — честно скажите, что данных не найдено.",
           "Отвечайте коротко, по делу, на русском.",
           "Не добавляйте навигационные действия без явной команды пользователя.",
         ].join("\n"),
       },
-      { role: "system", content: `Intent context:\n${toIntentContext(params.intent)}` },
+      { role: "system", content: `Router fallback hint only. Ignore it if the user asks a knowledge/process question:\n${toIntentContext(params.intent)}` },
       { role: "system", content: `Runtime context:\n${toRuntimeContext(params.runtimeContext)}` },
       { role: "system", content: `Session summary:\n${toSessionSummary(params.sessionState)}` },
       { role: "user", content: params.message },
@@ -387,6 +404,7 @@ export async function runModelOrchestrator(params: {
           message: params.message,
           runtimeContext: params.runtimeContext,
         });
+        plannerIntentForResult = plannerIntent;
 
         try {
           const output = await tool.run({
@@ -443,12 +461,15 @@ export async function runModelOrchestrator(params: {
       return {
         ok: true,
         answer: finalAnswer || "Не смог сформировать ответ по данным инструментов.",
+        intent: plannerIntentForResult,
         toolCalls,
         outputs,
         sourceHints,
         toolActivity: buildToolActivity(toolCalls),
         sessionState: nextSessionState,
+        configuredModel: modelConfig.configuredModel,
         actualModel: usedModel,
+        settingsSource: modelConfig.settingsSource,
         usage: totalUsage,
         llm,
         navigationActions: normalizeNavigationActions(navigationActions),
@@ -459,12 +480,15 @@ export async function runModelOrchestrator(params: {
   return {
     ok: false,
     answer: "Не смог получить ответ от planner-модели. Переключаюсь на резервный путь.",
+    intent: plannerIntentForResult,
     toolCalls,
     outputs,
     sourceHints,
     toolActivity: buildToolActivity(toolCalls),
     sessionState: nextSessionState,
+    configuredModel: modelConfig.configuredModel,
     actualModel: usedModel,
+    settingsSource: modelConfig.settingsSource,
     usage: totalUsage,
     llm,
     navigationActions: [],

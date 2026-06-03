@@ -71,6 +71,17 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
       output_type: "balance",
     }),
   },
+  get_warehouse_movements: {
+    assistantTool: "get_warehouse_movements",
+    intentName: "warehouse_movements",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      product: text(args.product),
+      warehouse_alias: text(args.warehouse),
+      limit: int(args.limit, 10),
+      output_type: "movements",
+    }),
+  },
   get_warehouse_balance_summary: {
     assistantTool: "get_warehouse_summary",
     intentName: "inventory_balance",
@@ -279,13 +290,32 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       type: "function",
       function: {
         name: "get_warehouse_stock",
-        description: "Возвращает остатки по продукту (по всем складам по умолчанию).",
+        description:
+          "Возвращает остатки по продукту/складу. Если пользователь указал овощной, семенной, зерновой, удобрения или СЗР склад, обязательно передайте это в warehouse.",
         parameters: {
           type: "object",
           properties: {
             query: { type: "string" },
             product: { type: "string" },
             warehouse: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_warehouse_movements",
+        description:
+          "Возвращает последние складские движения/ledger. Используйте для follow-up 'последние движения' после вопроса про остатки или склад.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            product: { type: "string" },
+            warehouse: { type: "string" },
+            limit: { type: "integer", minimum: 1, maximum: 30 },
           },
           additionalProperties: false,
         },
