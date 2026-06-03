@@ -83,6 +83,13 @@ function inferUnitByMaterialType(materialType: string): "kg" | "l" | "pcs" {
   return "kg";
 }
 
+function allowsDefaultOperationLine(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
+  const category = String(categorySlug || "").trim().toLowerCase();
+  if (category === "seeding_planting" || category === "harvesting") return true;
+  const merged = `${category} ${String(typeSlug || "").toLowerCase()} ${operationType.toLowerCase()}`;
+  return ["seed", "sow", "plant", "harvest", "\u043f\u043e\u0441\u0435\u0432", "\u043f\u043e\u0441\u0430\u0434", "\u0443\u0431\u043e\u0440\u043a"].some((token) => merged.includes(token));
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json().catch(() => ({}))) as CreateOperationBody;
@@ -118,11 +125,12 @@ export async function POST(request: NextRequest) {
     let resolvedCropId = toNullableUuid(body.crop_id);
     let resolvedVarietyId: string | null = null;
     let resolvedReproductionId: string | null = null;
+    let resolvedStructureArea: number | null = null;
 
     if (cropStructureId) {
       const { data: structureRow, error: structureError } = await supabase
         .from("crop_structure")
-        .select("crop_id,variety_id,reproduction_id")
+        .select("crop_id,variety_id,reproduction_id,area")
         .eq("id", cropStructureId)
         .eq("company_id", companyId)
         .maybeSingle();
@@ -133,15 +141,26 @@ export async function POST(request: NextRequest) {
         resolvedCropId = resolvedCropId || toNullableUuid((structureRow as any).crop_id);
         resolvedVarietyId = toNullableUuid((structureRow as any).variety_id);
         resolvedReproductionId = toNullableUuid((structureRow as any).reproduction_id);
+        const structureArea = Number((structureRow as any).area || 0);
+        resolvedStructureArea = Number.isFinite(structureArea) && structureArea > 0 ? structureArea : null;
       }
     }
+
+    const operationCategorySlug = toNullableText(body.operation_category_slug);
+    const operationTypeSlug = toNullableText(body.operation_type_slug);
+    const operationConfig = {
+      planned_area_ha: plannedArea,
+      crop_id: resolvedCropId,
+      variety_id: resolvedVarietyId,
+      reproduction_id: resolvedReproductionId,
+    };
 
     const operationPayload = {
       company_id: companyId,
       field_id: fieldId,
       crop_structure_id: cropStructureId,
-      operation_category_slug: toNullableText(body.operation_category_slug),
-      operation_type_slug: toNullableText(body.operation_type_slug),
+      operation_category_slug: operationCategorySlug,
+      operation_type_slug: operationTypeSlug,
       operation_type: operationType,
       machine_id: toNullableUuid(body.machine_id),
       equipment_id: toNullableUuid(body.equipment_id),
@@ -149,7 +168,7 @@ export async function POST(request: NextRequest) {
       operation_target: toNullableText(body.operation_target),
       rate_per_ha: toNullableNumber(body.rate_per_ha),
       spray_volume_per_ha: toNullableNumber(body.spray_volume_per_ha),
-      operation_config: {},
+      operation_config: operationConfig,
       date: operationDate,
       responsible_user_id: responsibleUserId,
       notes: toNullableText(body.notes),
@@ -203,22 +222,77 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const materialRequestResult = await ensureMaterialRequestForOperation({
-      supabase,
-      companyId,
-      operationId: String(operationRow.id),
-      fieldId,
-      operationDate,
-      notes: toNullableText(body.notes),
-      responsibleUserId,
-      plannedAreaHa: plannedArea,
-      cropId: resolvedCropId,
-      varietyId: resolvedVarietyId,
-      reproductionId: resolvedReproductionId,
-    });
+    let defaultOperationLine: Record<string, unknown> | null = null;
+    let operationLineWarning: string | null = null;
+    if (allowsDefaultOperationLine(operationCategorySlug, operationTypeSlug, operationType)) {
+      let effectiveArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
+      if (!effectiveArea) {
+        const { data: fieldRow } = await supabase
+          .from("fields")
+          .select("area")
+          .eq("id", fieldId)
+          .eq("company_id", companyId)
+          .maybeSingle();
+        const fieldArea = Number((fieldRow as any)?.area || 0);
+        effectiveArea = Number.isFinite(fieldArea) && fieldArea > 0 ? fieldArea : 0;
+      }
+
+      const { data: lineRow, error: lineError } = await supabase
+        .from("operation_lines")
+        .insert({
+          company_id: companyId,
+          operation_id: String(operationRow.id),
+          field_id: fieldId,
+          crop_id: resolvedCropId,
+          variety_id: resolvedVarietyId,
+          reproduction_id: resolvedReproductionId,
+          planned_area_ha: effectiveArea,
+          actual_area_ha: null,
+          notes: cropStructureId ? "Auto-created from operation crop structure" : "Auto-created from operation",
+          created_by_user_id: actor.authUserId,
+          updated_by_user_id: actor.authUserId,
+        })
+        .select("*")
+        .single();
+
+      if (lineError || !lineRow?.id) {
+        operationLineWarning = lineError?.message || "Failed to create default operation line";
+      } else {
+        defaultOperationLine = lineRow as Record<string, unknown>;
+      }
+    }
+
+    let materialRequestResult: Record<string, unknown> = { created: false, skipped_reason: "not_attempted" };
+    try {
+      materialRequestResult = await ensureMaterialRequestForOperation({
+        supabase,
+        companyId,
+        operationId: String(operationRow.id),
+        fieldId,
+        operationDate,
+        notes: toNullableText(body.notes),
+        responsibleUserId,
+        plannedAreaHa: plannedArea,
+        cropId: resolvedCropId,
+        varietyId: resolvedVarietyId,
+        reproductionId: resolvedReproductionId,
+      });
+    } catch (requestError) {
+      materialRequestResult = {
+        created: false,
+        skipped_reason: "request_exception",
+        error: requestError instanceof Error ? requestError.message : "Failed to create material request",
+      };
+    }
 
     return NextResponse.json({
-      operation: operationRow,
+      operation: {
+        ...operationRow,
+        planned_area_ha: defaultOperationLine?.planned_area_ha ?? plannedArea,
+        crop_id: resolvedCropId,
+      },
+      operation_line: defaultOperationLine,
+      operation_line_warning: operationLineWarning,
       material_request: materialRequestResult,
     });
   } catch (error) {

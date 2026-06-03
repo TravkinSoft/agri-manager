@@ -3,7 +3,7 @@ import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSessi
 
 export async function GET(request: NextRequest) {
   try {
-    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
 
@@ -12,7 +12,6 @@ export async function GET(request: NextRequest) {
         .from("weighbridge_shifts")
         .select("*")
         .eq("company_id", companyId)
-        .eq("operator_id", actor.id)
         .eq("status", "open")
         .order("opened_at", { ascending: false })
         .limit(1)

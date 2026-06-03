@@ -41,6 +41,70 @@ function normalizeOperationMaterials(rows: any[] | null | undefined): OperationM
   })) as OperationMaterial[];
 }
 
+function relationOne<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return (value[0] ?? null) as T | null;
+  return (value ?? null) as T | null;
+}
+
+function normalizeOperationLines(rows: any[] | null | undefined): OperationLine[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => {
+    const field = relationOne(row?.fields);
+    const crop = relationOne(row?.crops);
+    const variety = relationOne(row?.varieties);
+    const reproduction = relationOne(row?.reproductions);
+    return {
+      ...row,
+      field_name: (field as any)?.name || null,
+      crop_name: (crop as any)?.name || null,
+      variety_name: (variety as any)?.name || null,
+      reproduction_name: (reproduction as any)?.name || null,
+    };
+  }) as OperationLine[];
+}
+
+function normalizeOperationRow(op: any): OperationWithDetails {
+  const operationLines = normalizeOperationLines(op.operation_lines);
+  const config =
+    op?.operation_config && typeof op.operation_config === "object" && !Array.isArray(op.operation_config)
+      ? op.operation_config
+      : {};
+  const plannedAreaFromLines = operationLines.reduce((sum, line) => sum + Number(line.planned_area_ha || 0), 0);
+  const actualAreaValues = operationLines
+    .map((line) => line.actual_area_ha)
+    .filter((value): value is number => value !== null && value !== undefined);
+  const actualAreaFromLines =
+    actualAreaValues.length > 0
+      ? actualAreaValues.reduce((sum, value) => sum + Number(value || 0), 0)
+      : null;
+  const plannedAreaFromConfig = Number((config as any).planned_area_ha || 0);
+  const primaryLine =
+    operationLines.find((line) => line.crop_id || line.crop_name || line.variety_id || line.reproduction_id) ||
+    operationLines[0] ||
+    null;
+
+  return {
+    ...op,
+    operation_lines: operationLines,
+    operation_line_count: operationLines.length,
+    planned_area_ha:
+      plannedAreaFromLines > 0
+        ? plannedAreaFromLines
+        : Number.isFinite(plannedAreaFromConfig) && plannedAreaFromConfig > 0
+          ? plannedAreaFromConfig
+          : null,
+    actual_area_ha: actualAreaFromLines,
+    crop_id: primaryLine?.crop_id || (config as any).crop_id || null,
+    work_status: op.work_status || (op.status === "completed" ? "completed" : op.status === "in_progress" ? "in_progress" : "active"),
+    field_name: op.fields?.name || primaryLine?.field_name || "-",
+    crop_name: primaryLine?.crop_name || op.crop_structure?.crops?.name || "-",
+    variety_name: primaryLine?.variety_name || op.crop_structure?.varieties?.name || "-",
+    reproduction_name: primaryLine?.reproduction_name || "-",
+    materials: normalizeOperationMaterials(op.operation_materials),
+    ...parseOperationDraftDetails(op.notes),
+  } as OperationWithDetails;
+}
+
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
   const { data, error } = await supabase.auth.getSession();
   if (error || !data.session?.access_token) {
@@ -79,6 +143,31 @@ export async function getOperations(
       operation_materials:operation_materials (
         *,
         products:product_id (name,trade_name)
+      ),
+      operation_lines:operation_lines (
+        id,
+        company_id,
+        operation_id,
+        field_id,
+        crop_id,
+        variety_id,
+        reproduction_id,
+        planned_area_ha,
+        actual_area_ha,
+        row_count,
+        row_spacing_m,
+        seed_spacing_cm,
+        calculated_plants_per_ha,
+        calculated_total_plants,
+        completed_by,
+        completed_at,
+        notes,
+        created_at,
+        updated_at,
+        fields:field_id (name),
+        crops:crop_id (name),
+        varieties:variety_id (name),
+        reproductions:reproduction_id (name)
       )
     `)
     .eq("company_id", companyId)
@@ -94,15 +183,7 @@ export async function getOperations(
     throw new Error(error.message);
   }
 
-  return (data || []).map((op: any) => ({
-    ...op,
-    work_status: op.work_status || (op.status === "completed" ? "completed" : op.status === "in_progress" ? "in_progress" : "active"),
-    field_name: op.fields?.name || "-",
-    crop_name: op.crop_structure?.crops?.name || "-",
-    variety_name: op.crop_structure?.varieties?.name || "-",
-    materials: normalizeOperationMaterials(op.operation_materials),
-    ...parseOperationDraftDetails(op.notes),
-  })) as OperationWithDetails[];
+  return (data || []).map((op: any) => normalizeOperationRow(op));
 }
 
 export async function getSpecialistOperations(
@@ -121,6 +202,31 @@ export async function getSpecialistOperations(
       operation_materials:operation_materials (
         *,
         products:product_id (name,trade_name)
+      ),
+      operation_lines:operation_lines (
+        id,
+        company_id,
+        operation_id,
+        field_id,
+        crop_id,
+        variety_id,
+        reproduction_id,
+        planned_area_ha,
+        actual_area_ha,
+        row_count,
+        row_spacing_m,
+        seed_spacing_cm,
+        calculated_plants_per_ha,
+        calculated_total_plants,
+        completed_by,
+        completed_at,
+        notes,
+        created_at,
+        updated_at,
+        fields:field_id (name),
+        crops:crop_id (name),
+        varieties:variety_id (name),
+        reproductions:reproduction_id (name)
       )
     `)
     .eq("company_id", companyId)
@@ -132,21 +238,7 @@ export async function getSpecialistOperations(
     throw new Error(error.message);
   }
 
-  return (data || []).map((op: any) => ({
-    ...op,
-    work_status:
-      op.work_status ||
-      (op.status === "completed"
-        ? "completed"
-        : op.status === "in_progress"
-          ? "in_progress"
-          : "active"),
-    field_name: op.fields?.name || "-",
-    crop_name: op.crop_structure?.crops?.name || "-",
-    variety_name: op.crop_structure?.varieties?.name || "-",
-    materials: normalizeOperationMaterials(op.operation_materials),
-    ...parseOperationDraftDetails(op.notes),
-  })) as OperationWithDetails[];
+  return (data || []).map((op: any) => normalizeOperationRow(op));
 }
 
 export async function getOperation(operationId: string): Promise<Operation | null> {

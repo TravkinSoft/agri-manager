@@ -30,14 +30,12 @@ async function resolveActiveSeasonId(
 
 async function resolveActiveShiftId(
   supabase: ReturnType<typeof getServiceClient>,
-  companyId: string,
-  operatorId: string
+  companyId: string
 ): Promise<string | null> {
   const { data, error } = await supabase
     .from("weighbridge_shifts")
     .select("id,status")
     .eq("company_id", companyId)
-    .eq("operator_id", operatorId)
     .eq("status", "open")
     .order("opened_at", { ascending: false })
     .limit(1)
@@ -521,7 +519,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const activeShiftId = await resolveActiveShiftId(supabase, ticket.company_id, ticket.created_by);
+    const activeShiftId = await resolveActiveShiftId(supabase, ticket.company_id);
     if (!activeShiftId) {
       return NextResponse.json(
         { error: "Open weighbridge shift is required before ticket creation" },

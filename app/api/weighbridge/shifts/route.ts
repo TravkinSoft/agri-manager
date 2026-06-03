@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
-async function getActiveShift(supabase: ReturnType<typeof getServiceClient>, companyId: string, operatorId: string) {
+async function getActiveShift(supabase: ReturnType<typeof getServiceClient>, companyId: string) {
   const { data, error } = await supabase
     .from("weighbridge_shifts")
     .select("*")
     .eq("company_id", companyId)
-    .eq("operator_id", operatorId)
     .eq("status", "open")
     .order("opened_at", { ascending: false })
     .limit(1)
@@ -22,7 +21,7 @@ export async function GET(request: NextRequest) {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
     });
 
-    const shift = await getActiveShift(supabase, companyId, actor.id);
+    const shift = await getActiveShift(supabase, companyId);
     return NextResponse.json({ shift });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
@@ -45,7 +44,7 @@ export async function POST(request: NextRequest) {
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
 
-    const current = await getActiveShift(supabase, companyId, actor.id);
+    const current = await getActiveShift(supabase, companyId);
     if (current?.id) return NextResponse.json({ shift: current });
 
     const { data, error } = await supabase
@@ -84,7 +83,7 @@ export async function PATCH(request: NextRequest) {
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
 
-    const shift = await getActiveShift(supabase, companyId, actor.id);
+    const shift = await getActiveShift(supabase, companyId);
     if (!shift?.id) {
       return NextResponse.json({ error: "No active shift found" }, { status: 400 });
     }
