@@ -2,6 +2,15 @@ import { supabase } from "@/lib/supabase/client";
 import { Field, FieldFormData } from "@/lib/types/field";
 import { getFieldDisplayName, getFieldTechnicalKey } from "@/lib/fields/display";
 
+function normalizeFieldPayload(fieldData: FieldFormData) {
+  return {
+    name: fieldData.name.trim(),
+    area: Number(fieldData.area),
+    soil_type: fieldData.soil_type?.trim() || null,
+    notes: fieldData.notes?.trim() || null,
+  };
+}
+
 export async function getFields(companyId: string, includeArchived = false) {
   let query = supabase
     .from("fields")
@@ -30,12 +39,19 @@ export async function createField(
   companyId: string,
   fieldData: FieldFormData
 ): Promise<Field> {
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  const userId = userData?.user?.id;
+  if (userError || !userId) {
+    throw new Error(userError?.message || "Current user is required to create a field");
+  }
+
   const { data, error } = await supabase
     .from("fields")
     .insert([
       {
-        ...fieldData,
+        ...normalizeFieldPayload(fieldData),
         company_id: companyId,
+        user_id: userId,
       },
     ])
     .select()
@@ -55,7 +71,7 @@ export async function updateField(
 ): Promise<Field> {
   const { data, error } = await supabase
     .from("fields")
-    .update(fieldData)
+    .update(normalizeFieldPayload(fieldData))
     .eq("id", fieldId)
     .select()
     .single();
