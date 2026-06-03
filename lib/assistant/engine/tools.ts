@@ -78,6 +78,20 @@ function isDebugOrTestDataAllowed(context: AssistantToolContext): boolean {
   );
 }
 
+function rowHasQaMarker(row: Record<string, unknown>, keys?: string[]): boolean {
+  const values = keys?.length ? keys.map((key) => row[key]) : Object.values(row);
+  return values.some(isQaMarkerText);
+}
+
+function filterQaRows(
+  context: AssistantToolContext,
+  rows: Array<Record<string, unknown>>,
+  keys?: string[]
+): Array<Record<string, unknown>> {
+  if (isDebugOrTestDataAllowed(context)) return rows;
+  return rows.filter((row) => !rowHasQaMarker(row, keys));
+}
+
 type AssistantSeasonScope = {
   seasonYear: string | null;
   seasonId: string | null;
@@ -1903,6 +1917,7 @@ const getWeighbridgeTicketsTool: AssistantToolDefinition = {
   description: "Последние талоны весовой",
   domains: ["weighbridge", "tickets"],
   run: async (context) => {
+    const limit = parseLimit(context.intent.parameters.limit, 10, 1, 80);
     const status = cleanString(context.intent.parameters.status);
     const normalizedStatuses = normalizeTicketStatuses(status);
     let query = context.supabase
@@ -1934,7 +1949,16 @@ const getWeighbridgeTicketsTool: AssistantToolDefinition = {
       vehicle_id: cleanString(row.vehicle_id),
       field_id: cleanString(row.field_id),
     }));
-    const rows = await enrichTickets(context, mappedRows);
+    const rows = filterQaRows(context, await enrichTickets(context, mappedRows), [
+      "ticket_no",
+      "status",
+      "operation",
+      "driver_name",
+      "vehicle_label",
+      "field_name",
+      "product_name",
+      "variety_name",
+    ]).slice(0, limit);
 
     return {
       title: "Талоны весовой",
@@ -2748,6 +2772,7 @@ const getWarehouseCountToolAlias: AssistantToolDefinition = {
   domains: ["warehouses"],
   run: async (context) => {
     const includeArchived = includeArchivedByRequest(context);
+    const allowTestData = isDebugOrTestDataAllowed(context);
     const query = resolveWarehouseAliasQuery(
       cleanString(context.intent.parameters.entityQuery) ||
         cleanString(context.intent.parameters.warehouse) ||
@@ -2788,9 +2813,12 @@ const getWarehouseCountToolAlias: AssistantToolDefinition = {
         archived: Boolean(row.archived || row.is_archived),
         is_archived: Boolean(row.is_archived || row.archived),
       }));
-      const activeScoped = includeArchived
+      const visibleRows = allowTestData
         ? baseRows
-        : baseRows.filter((row: { archived: boolean; is_archived: boolean }) => !(row.archived || row.is_archived));
+        : baseRows.filter((row: Record<string, unknown>) => !rowHasQaMarker(row, ["warehouse_name", "warehouse_type"]));
+      const activeScoped = includeArchived
+        ? visibleRows
+        : visibleRows.filter((row: { archived: boolean; is_archived: boolean }) => !(row.archived || row.is_archived));
       const rows = terms.length
         ? activeScoped.filter((row: any) => matchesAnyTerm(`${row.warehouse_name} ${row.warehouse_type}`, terms))
         : activeScoped;
@@ -2800,6 +2828,7 @@ const getWarehouseCountToolAlias: AssistantToolDefinition = {
         resolved_season: cleanString(context.runtimeContext.season),
         query_used: queryUsed,
         rows_count: rows.length,
+        qa_filtered_rows: allowTestData ? 0 : baseRows.length - visibleRows.length,
         rls_acl_result: inferAclResult(context),
       });
 
@@ -3015,7 +3044,17 @@ const getActiveTicketsToolAlias: AssistantToolDefinition = {
       vehicle_id: cleanString(row.vehicle_id),
       field_id: cleanString(row.field_id),
     }));
-    const rows = await enrichTickets(context, mappedRows);
+    const rows = filterQaRows(context, await enrichTickets(context, mappedRows), [
+      "ticket_no",
+      "status",
+      "type",
+      "operation",
+      "driver_name",
+      "vehicle_label",
+      "field_name",
+      "product_name",
+      "variety_name",
+    ]);
     return {
       title: "Активные талоны",
       rows,
@@ -3069,7 +3108,17 @@ const getTicketDetailsToolAlias: AssistantToolDefinition = {
       vehicle_id: cleanString(row.vehicle_id),
       field_id: cleanString(row.field_id),
     }));
-    const rows = await enrichTickets(context, mappedRows);
+    const rows = filterQaRows(context, await enrichTickets(context, mappedRows), [
+      "ticket_no",
+      "type",
+      "operation",
+      "status",
+      "driver_name",
+      "vehicle_label",
+      "field_name",
+      "product_name",
+      "variety_name",
+    ]);
     return {
       title: "Детали талона",
       rows,
