@@ -95,6 +95,17 @@ export interface InventoryTransactionWithDetails extends InventoryTransaction {
   product_type?: ProductCategory | string;
   product_unit?: string;
   created_by_email?: string;
+  source_system?: "inventory_transactions" | "stock_ledger_entries" | string;
+  source_id?: string | null;
+  ledger_entry_id?: string | null;
+  quantity_delta?: number;
+  movement_source?: string | null;
+  reason_type?: string | null;
+  reason_ref_id?: string | null;
+  ticket_id?: string | null;
+  processing_id?: string | null;
+  document_ref?: string | null;
+  is_storno?: boolean;
 }
 
 export interface InventoryBalance {

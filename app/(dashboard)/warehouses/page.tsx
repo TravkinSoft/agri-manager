@@ -250,6 +250,10 @@ export default function WarehousesPage() {
         if (Number.isNaN(dt.getTime()) || dt.getTime() < startMs) return sum;
         if (String(row.status || "confirmed") !== "confirmed") return sum;
 
+        if (typeof row.quantity_delta === "number" && row.warehouse_id === warehouse.id) {
+          return sum + row.quantity_delta;
+        }
+
         const qty = Number(row.quantity || 0);
         const movementType = String(row.movement_type || "");
         if (movementType === "transfer") {
@@ -753,15 +757,20 @@ export default function WarehousesPage() {
 
                           <div className="mt-1 text-sm text-slate-700">{movement.product_name || "-"}</div>
                           <div className="mt-1 text-sm font-semibold text-slate-900">
+                            {typeof movement.quantity_delta === "number" && movement.quantity_delta < 0 ? "-" : ""}
                             {formatStorageAmount(Number(movement.quantity || 0), movement.product_unit || "kg", language as Lang)}
                           </div>
                           <div className="mt-1 text-xs text-slate-500">
                             {formatDateTime(movement.operation_datetime || movement.date, language as Lang)} •{" "}
                             {(movement.source_warehouse_name || "-") + " → " + (movement.destination_warehouse_name || "-")}
                           </div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {movement.movement_source || movement.source_system || "-"}
+                            {movement.document_ref ? ` • ${movement.document_ref}` : ""}
+                          </div>
                           {movement.notes ? <div className="mt-1 text-xs text-slate-500">{movement.notes}</div> : null}
 
-                          {canManageMovements && movementStatus !== "cancelled" ? (
+                          {canManageMovements && movementStatus !== "cancelled" && movement.source_system === "inventory_transactions" ? (
                             <div className="mt-2">
                               <Button variant="outline" size="sm" onClick={() => void handleCancelMovement(movement.id)}>
                                 {t("Отменить", "Болдырмау", "Cancel")}

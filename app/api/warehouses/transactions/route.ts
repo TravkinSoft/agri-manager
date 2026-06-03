@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { postInventoryTransactionToLedger } from "./_ledger";
 
 type MovementType = "receipt" | "issue" | "transfer" | "writeoff" | "adjustment";
 type TransactionDirection = "in" | "out";
@@ -49,6 +50,16 @@ function normalizeMovementType(movementType: unknown, direction: unknown): Movem
   ) {
     return movementType;
   }
+  return direction === "in" ? "receipt" : "issue";
+}
+
+function normalizeLedgerMovementType(reasonType: unknown, direction: unknown): MovementType {
+  const reason = String(reasonType || "").trim().toLowerCase();
+  if (reason.includes("adjust")) return "adjustment";
+  if (reason.includes("writeoff") || reason.includes("disposal") || reason.includes("waste")) return "writeoff";
+  if (reason.includes("transfer")) return direction === "in" ? "receipt" : "issue";
+  if (reason.includes("receipt") || reason.includes("incoming") || reason.includes("harvest")) return "receipt";
+  if (reason.includes("issue") || reason.includes("outbound") || reason.includes("shipment")) return "issue";
   return direction === "in" ? "receipt" : "issue";
 }
 
@@ -236,15 +247,71 @@ export async function GET(request: NextRequest) {
     });
 
     const { data, error } = await supabase
-      .from("inventory_transactions")
-      .select("*")
+      .from("stock_ledger_entries")
+      .select(`
+        *,
+        warehouses:warehouse_id (name, name_ru, name_kz, name_en),
+        products:product_id (name, name_ru, name_kz, name_en, type, product_type, unit, base_uom),
+        profiles:created_by (email),
+        tickets:ticket_id (ticket_no)
+      `)
       .eq("company_id", companyId)
-      .order("operation_datetime", { ascending: false, nullsFirst: false })
-      .order("date", { ascending: false })
+      .order("occurred_at", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false })
       .limit(limit);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-    return NextResponse.json({ transactions: data || [] });
+    const transactions = (data || []).map((row: any) => {
+      const direction = row.direction === "in" ? "in" : "out";
+      const quantityDelta = Number.isFinite(Number(row.delta_qty_signed))
+        ? Number(row.delta_qty_signed)
+        : direction === "in"
+          ? Math.abs(toNumberSafe(row.quantity))
+          : -Math.abs(toNumberSafe(row.quantity));
+      const occurredAt = row.occurred_at || row.created_at || null;
+      const warehouseName = row.warehouses?.name || "N/A";
+      return {
+        id: String(row.id),
+        warehouse_id: String(row.warehouse_id || ""),
+        source_warehouse_id: direction === "out" ? String(row.warehouse_id || "") : null,
+        destination_warehouse_id: direction === "in" ? String(row.warehouse_id || "") : null,
+        product_id: String(row.product_id || ""),
+        quantity: Math.abs(toNumberSafe(row.quantity || quantityDelta)),
+        quantity_delta: quantityDelta,
+        transaction_type: direction,
+        movement_type: normalizeLedgerMovementType(row.reason_type, direction),
+        status: "confirmed",
+        operation_datetime: occurredAt,
+        date: occurredAt ? String(occurredAt).slice(0, 10) : null,
+        notes: row.notes || row.reason_type || null,
+        responsible_user_id: row.created_by || null,
+        confirmed_at: occurredAt,
+        cancelled_at: null,
+        created_at: row.created_at || occurredAt,
+        updated_at: row.created_at || occurredAt,
+        user_id: row.created_by || "",
+        company_id: row.company_id || companyId,
+        source_warehouse_name: direction === "out" ? warehouseName : "-",
+        destination_warehouse_name: direction === "in" ? warehouseName : "-",
+        warehouse_name: warehouseName,
+        product_name: row.products?.name || "N/A",
+        product_type: row.products?.product_type || row.products?.type || "N/A",
+        product_unit: row.uom || row.products?.base_uom || row.products?.unit || "kg",
+        created_by_email: row.profiles?.email || "N/A",
+        source_system: "stock_ledger_entries",
+        source_id: row.id || null,
+        ledger_entry_id: row.id || null,
+        movement_source: row.reason_type || null,
+        reason_type: row.reason_type || null,
+        reason_ref_id: row.reason_ref_id || null,
+        ticket_id: row.ticket_id || null,
+        processing_id: row.processing_id || null,
+        document_ref: row.tickets?.ticket_no || row.reason_ref_id || row.ticket_id || row.processing_id || null,
+        is_storno: row.is_storno === true,
+      };
+    });
+
+    return NextResponse.json({ transactions });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -292,6 +359,8 @@ export async function POST(request: NextRequest) {
     if (error || !data) {
       return NextResponse.json({ error: error?.message || "Failed to create movement" }, { status: 400 });
     }
+
+    await postInventoryTransactionToLedger(supabase, data);
 
     return NextResponse.json({ transaction: data });
   } catch (error) {

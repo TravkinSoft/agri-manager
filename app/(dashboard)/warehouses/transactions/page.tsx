@@ -85,7 +85,7 @@ export default function InventoryTransactionsPage() {
 
   const filteredMovements = useMemo(() => {
     return movements.filter((row) => {
-      const text = `${row.product_name} ${row.source_warehouse_name} ${row.destination_warehouse_name} ${row.notes || ""}`.toLowerCase();
+      const text = `${row.product_name} ${row.source_warehouse_name} ${row.destination_warehouse_name} ${row.movement_source || ""} ${row.document_ref || ""} ${row.notes || ""}`.toLowerCase();
       const matchSearch = !search || text.includes(search.toLowerCase());
       const matchWarehouse =
         warehouseFilter === "all" ||
@@ -175,6 +175,8 @@ export default function InventoryTransactionsPage() {
                 <TableHead className="text-right">{t("Кол-во", "Саны", "Qty")}</TableHead>
                 <TableHead>{t("Откуда", "Қайдан", "From")}</TableHead>
                 <TableHead>{t("Куда", "Қайда", "To")}</TableHead>
+                <TableHead>{t("Источник", "Көз", "Source")}</TableHead>
+                <TableHead>{t("Основание", "Негіз", "Basis")}</TableHead>
                 <TableHead>{t("Создал", "Құрған", "Created by")}</TableHead>
                 <TableHead>{t("Статус", "Күй", "Status")}</TableHead>
               </TableRow>
@@ -182,11 +184,11 @@ export default function InventoryTransactionsPage() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8}>{t("Загрузка...", "Жүктелуде...", "Loading...")}</TableCell>
+                  <TableCell colSpan={10}>{t("Загрузка...", "Жүктелуде...", "Loading...")}</TableCell>
                 </TableRow>
               ) : filteredMovements.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center text-slate-500">
+                  <TableCell colSpan={10} className="text-center text-slate-500">
                     {t("Записи движений не найдены.", "Қозғалыс жазбалары табылмады.", "No movement rows found.")}
                   </TableCell>
                 </TableRow>
@@ -214,9 +216,14 @@ export default function InventoryTransactionsPage() {
                         : prettyMovementType(row.movement_type || "issue")}
                     </TableCell>
                     <TableCell className="font-medium">{row.product_name}</TableCell>
-                    <TableCell className="text-right">{Number(row.quantity || 0).toFixed(2)} {localizeUnit(row.product_unit || "", language)}</TableCell>
+                    <TableCell className="text-right">
+                      {typeof row.quantity_delta === "number" && row.quantity_delta < 0 ? "-" : ""}
+                      {Number(row.quantity || 0).toFixed(2)} {localizeUnit(row.product_unit || "", language)}
+                    </TableCell>
                     <TableCell>{row.source_warehouse_name || "-"}</TableCell>
                     <TableCell>{row.destination_warehouse_name || "-"}</TableCell>
+                    <TableCell>{row.movement_source || row.source_system || "-"}</TableCell>
+                    <TableCell>{row.document_ref || row.reason_ref_id || "-"}</TableCell>
                     <TableCell>{row.created_by_email || "-"}</TableCell>
                     <TableCell>
                       <Badge className={statusBadgeClass(row.status || "confirmed")}>

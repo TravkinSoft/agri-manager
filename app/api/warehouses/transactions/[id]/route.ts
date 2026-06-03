@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { postInventoryTransactionToLedger } from "../_ledger";
 
 type MovementType = "receipt" | "issue" | "transfer" | "writeoff" | "adjustment";
 type TransactionDirection = "in" | "out";
@@ -334,6 +335,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       .select("*")
       .single();
     if (error || !data) return NextResponse.json({ error: error?.message || "Failed to update movement" }, { status: 400 });
+
+    await postInventoryTransactionToLedger(supabase, data);
 
     return NextResponse.json({ transaction: data });
   } catch (error) {
