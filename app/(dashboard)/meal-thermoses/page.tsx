@@ -99,6 +99,18 @@ function personStatusLabel(status: MealOrderPerson["issue_status"]) {
   return "Потерян";
 }
 
+function thermosEventLabel(eventType: string) {
+  if (eventType === "created") return "РЎРѕР·РґР°РЅ";
+  if (eventType === "assigned") return "РќР°Р·РЅР°С‡РµРЅ";
+  if (eventType === "issued") return "Р’С‹РґР°РЅ";
+  if (eventType === "returned") return "Р’РѕР·РІСЂР°С‰С‘РЅ";
+  if (eventType === "damaged") return "РџРѕРІСЂРµР¶РґС‘РЅ";
+  if (eventType === "lost") return "РџРѕС‚РµСЂСЏРЅ";
+  if (eventType === "cleaned") return "РћС‡РёС‰РµРЅ";
+  if (eventType === "deactivated") return "Р”РµР°РєС‚РёРІРёСЂРѕРІР°РЅ";
+  return eventType || "вЂ”";
+}
+
 function isKitchenRole(role: string | null | undefined) {
   return role === "global_admin" || role === "company_admin" || role === "warehouse" || role === "warehouse_operator";
 }
@@ -789,6 +801,22 @@ export default function MealThermosesPage() {
                   Возврат: {formatDateTime(thermos.last_returned_at)} · Объём: {thermos.volume_l ?? "—"} л
                 </div>
 
+                {thermos.recent_events?.length ? (
+                  <div className="mt-2 rounded-md border border-[#2B3448] bg-[#0C121D] p-2 text-xs text-slate-300">
+                    <div className="mb-1 font-medium text-slate-200">История</div>
+                    <div className="space-y-1">
+                      {thermos.recent_events.map((event) => (
+                        <div key={event.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="font-medium">{thermosEventLabel(event.event_type)}</span>
+                          <span className="text-slate-500">{formatDateTime(event.created_at)}</span>
+                          {event.holder_name ? <span>· {event.holder_name}</span> : null}
+                          {event.comment ? <span className="text-slate-400">· {event.comment}</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
                 {canKitchenManage ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Select
@@ -829,4 +857,3 @@ export default function MealThermosesPage() {
     </div>
   );
 }
-

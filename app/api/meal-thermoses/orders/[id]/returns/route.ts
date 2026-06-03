@@ -135,6 +135,7 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
                 status: "lost",
                 current_holder_name: null,
                 current_meal_order_id: null,
+                last_returned_at: nowIso,
                 updated_at: nowIso,
               };
 
@@ -226,4 +227,3 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     );
   }
 }
-

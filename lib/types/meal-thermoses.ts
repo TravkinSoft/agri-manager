@@ -24,6 +24,16 @@ export type ThermosStatus =
 
 export type ThermosReturnAction = "returned" | "damaged" | "lost";
 
+export type ThermosEventType =
+  | "created"
+  | "assigned"
+  | "issued"
+  | "returned"
+  | "damaged"
+  | "lost"
+  | "cleaned"
+  | "deactivated";
+
 export interface MealOrderPerson {
   id: string;
   company_id: string;
@@ -78,6 +88,20 @@ export interface Thermos {
   last_returned_at: string | null;
   created_at: string;
   updated_at: string;
+  recent_events?: ThermosEvent[];
+}
+
+export interface ThermosEvent {
+  id: string;
+  company_id: string;
+  thermos_id: string;
+  meal_order_id: string | null;
+  meal_order_person_id: string | null;
+  event_type: ThermosEventType;
+  actor_user_id: string | null;
+  holder_name: string | null;
+  comment: string | null;
+  created_at: string;
 }
 
 export interface MealAwaitingReturn {
@@ -108,6 +132,7 @@ export interface MealThermosSummary {
 export interface MealThermosBootstrapPayload {
   orders: MealOrder[];
   thermoses: Thermos[];
+  thermos_events: ThermosEvent[];
   fields: Array<{ id: string; name: string; area: number | null }>;
   awaiting_returns: MealAwaitingReturn[];
   summary: MealThermosSummary;
@@ -130,4 +155,3 @@ export interface CreateThermosInput {
   volume_l?: number | null;
   status?: ThermosStatus;
 }
-

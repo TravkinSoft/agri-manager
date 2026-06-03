@@ -65,8 +65,12 @@ export async function GET(request: NextRequest) {
       ordersQuery = ordersQuery.eq("status", status);
     }
 
-    const [{ data: orders, error: ordersError }, { data: thermoses, error: thermosesError }, { data: fields, error: fieldsError }] =
-      await Promise.all([
+    const [
+      { data: orders, error: ordersError },
+      { data: thermoses, error: thermosesError },
+      { data: fields, error: fieldsError },
+      { data: thermosEvents, error: thermosEventsError },
+    ] = await Promise.all([
         ordersQuery,
         supabase
           .from("thermoses")
@@ -93,6 +97,12 @@ export async function GET(request: NextRequest) {
           .select("id,name,area")
           .eq("company_id", companyId)
           .order("name", { ascending: true }),
+        supabase
+          .from("thermos_events")
+          .select("id,company_id,thermos_id,meal_order_id,meal_order_person_id,event_type,actor_user_id,holder_name,comment,created_at")
+          .eq("company_id", companyId)
+          .order("created_at", { ascending: false })
+          .limit(300),
       ]);
 
     if (ordersError) {
@@ -104,9 +114,23 @@ export async function GET(request: NextRequest) {
     if (fieldsError) {
       return NextResponse.json({ error: fieldsError.message }, { status: 400 });
     }
+    if (thermosEventsError) {
+      return NextResponse.json({ error: thermosEventsError.message }, { status: 400 });
+    }
 
     const orderRows = Array.isArray(orders) ? orders : [];
-    const thermosRows = Array.isArray(thermoses) ? thermoses : [];
+    const eventRows = Array.isArray(thermosEvents) ? thermosEvents : [];
+    const eventsByThermosId = new Map<string, any[]>();
+    eventRows.forEach((event: any) => {
+      const key = String(event.thermos_id || "");
+      if (!key) return;
+      if (!eventsByThermosId.has(key)) eventsByThermosId.set(key, []);
+      eventsByThermosId.get(key)?.push(event);
+    });
+    const thermosRows = (Array.isArray(thermoses) ? thermoses : []).map((thermos: any) => ({
+      ...thermos,
+      recent_events: (eventsByThermosId.get(String(thermos.id)) || []).slice(0, 5),
+    }));
     const fieldRows = Array.isArray(fields) ? fields : [];
     const today = new Date().toISOString().slice(0, 10);
 
@@ -145,6 +169,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       orders: orderRows,
       thermoses: thermosRows,
+      thermos_events: eventRows,
       fields: fieldRows,
       awaiting_returns: awaitingReturns,
       summary,
@@ -160,4 +185,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
