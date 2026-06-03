@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { supabase } from "@/lib/supabase/client";
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 
 interface ProfileRow {
   id: string;
@@ -86,15 +87,16 @@ export default function UsersPage() {
 
   const isAdmin = profile?.role === "company_admin" || profile?.role === "global_admin";
   const isGlobalAdmin = profile?.role === "global_admin";
+  const activeCompanyId = profile?.context_company_id || profile?.company_id || null;
 
   const loadProfiles = async () => {
-    if (!profile?.company_id) return;
+    if (!activeCompanyId) return;
     setLoading(true);
     try {
       const { data, error } = await supabase
         .from("profiles")
         .select("id,full_name,email,role,status,created_at")
-        .eq("company_id", profile.company_id)
+        .eq("company_id", activeCompanyId)
         .order("created_at", { ascending: false });
       if (error) throw error;
       setProfiles((data || []) as ProfileRow[]);
@@ -108,21 +110,22 @@ export default function UsersPage() {
 
   useEffect(() => {
     void loadProfiles();
-  }, [profile?.company_id]);
+  }, [activeCompanyId]);
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim() || !inviteFullName.trim() || !profile?.company_id) return;
+    if (!inviteEmail.trim() || !inviteFullName.trim() || !activeCompanyId || !profile?.id) return;
     setInviting(true);
     try {
+      const headers = await buildClientAuthHeaders("json");
       const response = await fetch("/api/invite-user", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           actor_user_id: profile.id,
           full_name: inviteFullName.trim(),
           email: inviteEmail.trim(),
           role: inviteRole,
-          company_id: profile.company_id,
+          company_id: activeCompanyId,
         }),
       });
       const payload = await response.json().catch(() => ({}));
