@@ -3,6 +3,7 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { WAREHOUSE_READ_ROLES, WAREHOUSE_WRITE_ROLES, normalizeWarehouseRow, toNullableText } from "@/app/api/warehouses/_helpers";
+import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
 
 export async function GET(request: NextRequest) {
   try {
@@ -33,7 +34,9 @@ export async function GET(request: NextRequest) {
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     return NextResponse.json({
-      warehouses: (data || []).map(normalizeWarehouseRow),
+      warehouses: (data || [])
+        .map(normalizeWarehouseRow)
+        .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"])),
     });
   } catch (error) {
     if (error instanceof SessionAuthError) {
@@ -120,4 +123,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

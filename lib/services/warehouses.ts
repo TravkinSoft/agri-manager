@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Language } from "@/lib/i18n/translations";
 import { localizedName } from "@/lib/i18n/helpers";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   Warehouse,
   Product,
@@ -210,7 +211,7 @@ export async function getWarehouses(
   return ((payload?.warehouses || []) as Warehouse[]).map((row: any) => ({
     ...row,
     name: localizedName(row, language) || row.name,
-  }));
+  })).filter((row) => !hasQaDataMarker(`${row.name} ${row.warehouse_type || ""} ${row.description || ""}`));
 }
 
 export async function createWarehouse(
@@ -335,7 +336,7 @@ export async function getProducts(
   return ((payload?.products || []) as Product[]).map((row: any) => ({
     ...row,
     name: localizedName(row, language) || row.name,
-  }));
+  })).filter((row) => !hasQaDataMarker(`${row.name} ${row.product_type || ""} ${row.type || ""} ${row.description || ""}`));
 }
 
 export async function createProduct(
@@ -439,7 +440,7 @@ export async function getInventoryTransactions(
 
   if (error) throw new Error(error.message);
 
-  return (data || []).map((row: any) => {
+  return ((data || []).map((row: any) => {
     const direction = row.direction === "in" ? "in" : "out";
     const quantityDelta = Number.isFinite(Number(row.delta_qty_signed))
       ? Number(row.delta_qty_signed)
@@ -490,7 +491,12 @@ export async function getInventoryTransactions(
       document_ref: row.tickets?.ticket_no || row.reason_ref_id || row.ticket_id || row.processing_id || null,
       is_storno: row.is_storno === true,
     };
-  }) as InventoryTransactionWithDetails[];
+  }) as InventoryTransactionWithDetails[]).filter(
+    (row) =>
+      !hasQaDataMarker(
+        `${row.warehouse_name} ${row.source_warehouse_name} ${row.destination_warehouse_name} ${row.product_name} ${row.product_type} ${row.notes || ""} ${row.document_ref || ""}`
+      )
+  );
 }
 
 export async function createInventoryTransaction(
@@ -646,6 +652,7 @@ export async function getInventoryBalances(companyId: string, language: Language
         };
       })
       .filter((row) => Math.abs(row.quantity) > 0.000001)
+      .filter((row) => !hasQaDataMarker(`${row.warehouse_name} ${row.product_name} ${row.identity_name} ${row.product_type}`))
       .sort(
         (a, b) =>
           a.warehouse_name.localeCompare(b.warehouse_name) ||
@@ -764,6 +771,7 @@ export async function getInventoryBalances(companyId: string, language: Language
       };
     })
     .filter((row) => Math.abs(row.quantity) > 0.000001)
+    .filter((row) => !hasQaDataMarker(`${row.warehouse_name} ${row.product_name} ${row.variety_name} ${row.reproduction_name} ${row.identity_name} ${row.product_type}`))
     .sort(
       (a, b) =>
         a.warehouse_name.localeCompare(b.warehouse_name) ||

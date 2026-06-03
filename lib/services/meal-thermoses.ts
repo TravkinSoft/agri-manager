@@ -10,6 +10,7 @@ import type {
   ThermosReturnAction,
   ThermosStatus,
 } from "@/lib/types/meal-thermoses";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
   const { data, error } = await supabase.auth.getSession();
@@ -78,7 +79,7 @@ export async function getMealOrders(
     cache: "no-store",
   });
   const payload = (await parseJsonOrThrow(response)) as { orders: MealOrder[] };
-  return payload.orders || [];
+  return (payload.orders || []).filter((order) => !hasQaDataMarker(JSON.stringify(order)));
 }
 
 export async function createMealOrder(companyId: string, input: CreateMealOrderInput) {
@@ -177,7 +178,7 @@ export async function getThermoses(
     cache: "no-store",
   });
   const payload = (await parseJsonOrThrow(response)) as { thermoses: Thermos[] };
-  return payload.thermoses || [];
+  return (payload.thermoses || []).filter((thermos) => !hasQaDataMarker(JSON.stringify(thermos)));
 }
 
 export async function createThermos(companyId: string, input: CreateThermosInput) {
@@ -213,4 +214,3 @@ export async function updateThermos(
 }
 
 export type { MealThermosBootstrapPayload, MealAwaitingReturn };
-

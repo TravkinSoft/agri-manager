@@ -1,5 +1,6 @@
 import type { TicketInput, TicketLineInput, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 async function parseJsonOrThrow(response: Response) {
   const payload = await response.json().catch(() => ({}));
@@ -20,7 +21,7 @@ export async function listTickets(companyId?: string, _userId?: string): Promise
     headers,
   });
   const payload = await parseJsonOrThrow(response);
-  return payload.tickets || [];
+  return ((payload.tickets || []) as WeighbridgeTicket[]).filter((ticket) => !hasQaDataMarker(JSON.stringify(ticket)));
 }
 
 export async function getWeighbridgeBootstrap(companyId?: string, _userId?: string) {

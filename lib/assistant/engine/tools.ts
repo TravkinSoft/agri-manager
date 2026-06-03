@@ -67,7 +67,7 @@ function parseBoolish(value: unknown): boolean {
 function isQaMarkerText(value: unknown): boolean {
   const text = normalizeSearchText(value);
   if (!text) return false;
-  return /qa[_\s-]*test(?:[_\s-]*\d{4})?/i.test(text) || text.includes("qa_test");
+  return /qa[_\s-]*test(?:[_\s-]*\d{4})?/i.test(text) || text.includes("qa_test") || text.includes("qacodex");
 }
 
 function isDebugOrTestDataAllowed(context: AssistantToolContext): boolean {

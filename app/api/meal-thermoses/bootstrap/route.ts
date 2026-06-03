@@ -5,6 +5,7 @@ import {
   cleanString,
   resolveMealThermosSession,
 } from "@/app/api/meal-thermoses/_helpers";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 export async function GET(request: NextRequest) {
   try {
@@ -118,8 +119,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: thermosEventsError.message }, { status: 400 });
     }
 
-    const orderRows = Array.isArray(orders) ? orders : [];
-    const eventRows = Array.isArray(thermosEvents) ? thermosEvents : [];
+    const orderRows = (Array.isArray(orders) ? orders : [])
+      .map((order: any) => ({
+        ...order,
+        people: (Array.isArray(order.people) ? order.people : []).filter(
+          (person: any) =>
+            !hasQaDataMarker(
+              `${person.person_name || ""} ${person.employee_id || ""} ${person.comment || ""} ${person.thermos_number || ""}`
+            )
+        ),
+      }))
+      .filter(
+        (order: any) =>
+          !hasQaDataMarker(
+            `${order.brigadier_name || ""} ${order.delivery_location_text || ""} ${order.comment || ""} ${order.status || ""}`
+          )
+      );
+    const eventRows = (Array.isArray(thermosEvents) ? thermosEvents : []).filter(
+      (event: any) => !hasQaDataMarker(`${event.holder_name || ""} ${event.comment || ""}`)
+    );
     const eventsByThermosId = new Map<string, any[]>();
     eventRows.forEach((event: any) => {
       const key = String(event.thermos_id || "");
@@ -127,10 +145,17 @@ export async function GET(request: NextRequest) {
       if (!eventsByThermosId.has(key)) eventsByThermosId.set(key, []);
       eventsByThermosId.get(key)?.push(event);
     });
-    const thermosRows = (Array.isArray(thermoses) ? thermoses : []).map((thermos: any) => ({
-      ...thermos,
-      recent_events: (eventsByThermosId.get(String(thermos.id)) || []).slice(0, 5),
-    }));
+    const thermosRows = (Array.isArray(thermoses) ? thermoses : [])
+      .filter(
+        (thermos: any) =>
+          !hasQaDataMarker(
+            `${thermos.number || ""} ${thermos.label || ""} ${thermos.current_holder_name || ""}`
+          )
+      )
+      .map((thermos: any) => ({
+        ...thermos,
+        recent_events: (eventsByThermosId.get(String(thermos.id)) || []).slice(0, 5),
+      }));
     const fieldRows = Array.isArray(fields) ? fields : [];
     const today = new Date().toISOString().slice(0, 10);
 

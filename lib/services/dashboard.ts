@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import { localizedName } from "@/lib/i18n/helpers";
 import type { Language } from "@/lib/i18n/translations";
+import { hasQaDataMarker, rowHasQaDataMarker } from "@/lib/utils/qa-data";
 
 export interface DashboardMetrics {
   totalFields: number;
@@ -43,20 +44,20 @@ export async function getDashboardMetrics(companyId: string): Promise<DashboardM
 
   const { data: crops } = await supabase
     .from("crop_structure")
-    .select("id")
+    .select("id,notes")
     .eq("company_id", companyId)
     .eq("archived", false)
     .neq("status", "harvested");
 
-  const activeCrops = crops?.length || 0;
+  const activeCrops = (crops || []).filter((row: any) => !hasQaDataMarker(row.notes)).length;
 
   const { data: warehouses } = await supabase
     .from("warehouses")
-    .select("id")
+    .select("id,name,description")
     .eq("company_id", companyId)
     .eq("archived", false);
 
-  const totalWarehouses = warehouses?.length || 0;
+  const totalWarehouses = (warehouses || []).filter((row: any) => !rowHasQaDataMarker(row, ["name", "description"])).length;
 
   return {
     totalFields,
@@ -76,14 +77,12 @@ export async function getCropDistribution(
     .select(`
       area,
       field_id,
+      notes,
+      seasons:season_id(year),
       crops!inner(name, name_ru, name_kz, name_en)
     `)
     .eq("company_id", companyId)
     .eq("archived", false);
-
-  if (season) {
-    query = query.eq("seasons.year", season);
-  }
 
   const { data, error } = await query;
 
@@ -92,8 +91,15 @@ export async function getCropDistribution(
     return [];
   }
 
-  const distribution = data?.reduce((acc, item: any) => {
+  const scopedRows = (data || []).filter((item: any) => {
+    if (!season) return true;
+    const seasonRow = Array.isArray(item.seasons) ? item.seasons[0] : item.seasons;
+    return Number(seasonRow?.year || 0) === season;
+  });
+
+  const distribution = scopedRows.reduce((acc, item: any) => {
     const cropName = localizedName(item.crops, language) || "Unknown";
+    if (hasQaDataMarker(`${cropName} ${item.notes || ""}`)) return acc;
     const existing = acc.find((d) => d.crop === cropName);
     if (existing) {
       existing.totalArea += Number(item.area);
@@ -106,7 +112,7 @@ export async function getCropDistribution(
       });
     }
     return acc;
-  }, [] as CropDistribution[]) || [];
+  }, [] as CropDistribution[]);
 
   return distribution
     .map((d) => ({
@@ -138,21 +144,25 @@ export async function getRecentOperations(
     .eq("company_id", companyId)
     .eq("archived", false)
     .order("date", { ascending: false })
-    .limit(limit);
+    .limit(Math.max(limit * 4, limit));
 
   if (error) {
     console.error("Error fetching recent operations:", error);
     return [];
   }
 
-  return data?.map((op: any) => ({
-    id: op.id,
-    date: op.date,
-    fieldName: op.fields?.name || "Unknown",
-    cropName: localizedName(op.crop_structure?.crops, language) || null,
-    operationType: op.operation_type,
-    notes: op.notes,
-  })) || [];
+  return (
+    data?.map((op: any) => ({
+      id: op.id,
+      date: op.date,
+      fieldName: op.fields?.name || "Unknown",
+      cropName: localizedName(op.crop_structure?.crops, language) || null,
+      operationType: op.operation_type,
+      notes: op.notes,
+    })) || []
+  )
+    .filter((op) => !hasQaDataMarker(`${op.fieldName} ${op.cropName || ""} ${op.operationType} ${op.notes || ""}`))
+    .slice(0, limit);
 }
 
 export async function getInventorySnapshot(
@@ -193,6 +203,7 @@ export async function getInventorySnapshot(
       quantity: Number(row.quantity || 0),
       warehouseName: localizedName(warehouseById.get(String(row.warehouse_id)), language) || "Unknown",
     }))
+    .filter((item) => !hasQaDataMarker(`${item.productName} ${item.productType} ${item.warehouseName}`))
     .filter((item) => Number.isFinite(item.quantity) && item.quantity > 0)
     .sort((a, b) => a.productName.localeCompare(b.productName));
 }

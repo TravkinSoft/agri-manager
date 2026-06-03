@@ -9,6 +9,7 @@ import {
   OperationWithDetails,
   SpecialistAssignee,
 } from "@/lib/types/operation";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 function extractDraftValueFromNotes(notes: string | null | undefined, label: string): string | undefined {
   if (!notes) return undefined;
@@ -105,6 +106,29 @@ function normalizeOperationRow(op: any): OperationWithDetails {
   } as OperationWithDetails;
 }
 
+function isProductionOperation(row: OperationWithDetails): boolean {
+  const materials = (row.materials || [])
+    .map((item) => `${item.product_name || ""} ${item.notes || ""} ${item.material_type || ""}`)
+    .join(" ");
+  const lines = (((row as any).operation_lines || []) as OperationLine[])
+    .map((line: OperationLine) => `${line.field_name || ""} ${line.crop_name || ""} ${line.variety_name || ""} ${line.reproduction_name || ""} ${line.notes || ""}`)
+    .join(" ");
+  return !hasQaDataMarker(
+    [
+      row.operation_type,
+      row.operation_type_slug,
+      row.operation_category_slug,
+      row.notes,
+      row.field_name,
+      row.crop_name,
+      row.variety_name,
+      row.reproduction_name,
+      materials,
+      lines,
+    ].join(" ")
+  );
+}
+
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
   const { data, error } = await supabase.auth.getSession();
   if (error || !data.session?.access_token) {
@@ -183,7 +207,7 @@ export async function getOperations(
     throw new Error(error.message);
   }
 
-  return (data || []).map((op: any) => normalizeOperationRow(op));
+  return (data || []).map((op: any) => normalizeOperationRow(op)).filter(isProductionOperation);
 }
 
 export async function getSpecialistOperations(
@@ -238,7 +262,7 @@ export async function getSpecialistOperations(
     throw new Error(error.message);
   }
 
-  return (data || []).map((op: any) => normalizeOperationRow(op));
+  return (data || []).map((op: any) => normalizeOperationRow(op)).filter(isProductionOperation);
 }
 
 export async function getOperation(operationId: string): Promise<Operation | null> {
@@ -494,7 +518,7 @@ export async function getPotatoMaterialConsumptionReport(
     }
   );
   const payload = await parseApiResponse(response);
-  return (payload.rows || []) as PotatoMaterialConsumptionRow[];
+  return ((payload.rows || []) as PotatoMaterialConsumptionRow[]).filter((row) => !hasQaDataMarker(JSON.stringify(row)));
 }
 
 export async function ensureOperationMaterialRequest(

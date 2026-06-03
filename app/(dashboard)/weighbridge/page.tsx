@@ -20,6 +20,7 @@ import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getWeighbridgeBootstrap, listTickets, openShift, patchTicket, voidTicket } from "@/lib/services/weighbridge";
 import type { TicketDirection, TicketInput, TicketLineInput, WeighbridgeTicket } from "@/lib/types/weighbridge";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "drying";
@@ -663,6 +664,8 @@ export default function WeighbridgeOperationsPage() {
       setWarehouses((warehousesRes.data || []).map((r: any) => ({ id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Склад") })));
       setSuppliers(supplierRows);
       setBuyers(buyerRows);
+      setFields((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
+      setWarehouses((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
       setVehicles((vehiclesRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.custom_name || r.name || "Машина"), plate: String(r.plate_number || ""), primaryPersonnelId: r.primary_responsible_personnel_id ? String(r.primary_responsible_personnel_id) : null })));
       setProcessingPoints((processingRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Точка") })));
       const dedupeByName = (rows: any[]) => {
@@ -678,10 +681,20 @@ export default function WeighbridgeOperationsPage() {
         return Array.from(map.values());
       };
 
-      const productRows = dedupeByName(productsRes.data || []);
-      const cropRows = dedupeByName(identityRefs.crops || []);
-      const varietyRowsRaw = (identityRefs.varieties || []) as any[];
-      const reproductionRowsRaw = (identityRefs.reproductions || []) as any[];
+      const productRows = dedupeByName(
+        (productsRes.data || []).filter((row: any) =>
+          !hasQaDataMarker(`${localizedName(row, lang, ["name"]) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
+        )
+      );
+      const cropRows = dedupeByName(
+        (identityRefs.crops || []).filter((row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || ""))
+      );
+      const varietyRowsRaw = ((identityRefs.varieties || []) as any[]).filter(
+        (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
+      );
+      const reproductionRowsRaw = ((identityRefs.reproductions || []) as any[]).filter(
+        (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
+      );
       const varietyRows = dedupeByName(varietyRowsRaw);
       const reproductionRows = dedupeByName(reproductionRowsRaw);
       const cropNameById = new Map<string, string>(
@@ -731,6 +744,7 @@ export default function WeighbridgeOperationsPage() {
           };
         })
       );
+      setLinkedOperations((prev) => prev.filter((row) => !hasQaDataMarker(row.label)));
       setLinkedOperationLines([]);
       try {
         const bootstrap = await getWeighbridgeBootstrap(profile.company_id, profile.id);
