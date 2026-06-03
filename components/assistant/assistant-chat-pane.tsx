@@ -4,13 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  AudioLines,
   Bot,
   Clock3,
   Loader2,
   MessageSquare,
+  Mic,
   RefreshCw,
   Send,
   Settings2,
+  Square,
   TerminalSquare,
   Trash2,
   User,
@@ -68,8 +71,15 @@ type AssistantSessionStatePayload = {
   lastVariety: string | null;
   lastBatchClass: string | null;
   lastWarehouse: string | null;
+  lastWarehouseId: string | null;
+  lastWarehouseLabel: string | null;
   lastField: string | null;
+  lastFieldId: string | null;
+  lastFieldLabel: string | null;
   lastSeason: string | null;
+  lastModule: string | null;
+  lastToolSource: string | null;
+  lastAnswerType: string | null;
   lastIntent: string | null;
   lastResultContext: string | null;
   lastWarehouseCount: number | null;
@@ -138,8 +148,15 @@ const EMPTY_STATE: AssistantSessionStatePayload = {
   lastVariety: null,
   lastBatchClass: null,
   lastWarehouse: null,
+  lastWarehouseId: null,
+  lastWarehouseLabel: null,
   lastField: null,
+  lastFieldId: null,
+  lastFieldLabel: null,
   lastSeason: null,
+  lastModule: null,
+  lastToolSource: null,
+  lastAnswerType: null,
   lastIntent: null,
   lastResultContext: null,
   lastWarehouseCount: null,
@@ -308,15 +325,6 @@ function formatThreadDate(value: string): string {
   return dt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
-function quickActionsByPage(page: string): string[] {
-  const key = String(page || "").toLowerCase();
-  if (key === "crop-structure") return ["Покажи картофель", "Покажи зерновые", "Открой поля"];
-  if (key === "warehouses") return ["Покажи остатки", "Покажи движения", "Покажи отрицательные остатки"];
-  if (key === "weighbridge") return ["Покажи активные талоны", "Покажи последние талоны", "Открой терминал"];
-  if (key === "operations") return ["Покажи активные операции", "Покажи операции картофеля", "Открой поле 28"];
-  return ["Открой страницу", "Найди данные", "Объясни процесс"];
-}
-
 function rolePermissionsLabel(role: string | null): string {
   const value = String(role || "").toLowerCase();
   if (value === "global_admin" || value === "company_admin") return "Расширенный read-only + debug";
@@ -351,12 +359,17 @@ export function AssistantChatPane({
   const [activeTab, setActiveTab] = useState<"chat" | "history" | "settings">("chat");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<AssistantSessionStatePayload>(EMPTY_STATE);
   const [lastMode, setLastMode] = useState<string>("erp_data");
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
   const focusInput = useCallback(() => {
     window.requestAnimationFrame(() => {
       inputRef.current?.focus();
@@ -364,12 +377,109 @@ export function AssistantChatPane({
   }, []);
 
   const disabledReason = useMemo(() => resolveDisabledReason(access), [access]);
-  const quickActions = useMemo(() => quickActionsByPage(runtimeContext.currentPage), [runtimeContext.currentPage]);
   const resolvedCompanyId = useMemo(
     () => runtimeContext.companyId || profile?.context_company_id || profile?.company_id || null,
     [runtimeContext.companyId, profile?.context_company_id, profile?.company_id]
   );
   const loadingText = TOOL_LOADING_STEPS[loadingStepIndex % TOOL_LOADING_STEPS.length];
+
+  const stopVoiceStream = useCallback(() => {
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+    mediaRecorderRef.current = null;
+  }, []);
+
+  const transcribeVoiceBlob = useCallback(
+    async (blob: Blob) => {
+      if (!blob.size) {
+        setVoiceState("idle");
+        return;
+      }
+      setVoiceState("transcribing");
+      setVoiceError(null);
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error || !data?.session?.access_token) throw new Error("SESSION_EXPIRED");
+
+        const formData = new FormData();
+        formData.append("audio", blob, "voice.webm");
+        formData.append("language", runtimeContext.locale || "ru");
+
+        const response = await fetch("/api/assistant/transcribe", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${data.session.access_token}`,
+          },
+          body: formData,
+        });
+        const payload = (await response.json().catch(() => ({}))) as { text?: string; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Не удалось распознать голос.");
+        const text = String(payload.text || "").trim();
+        if (text) {
+          setInput((current) => (current.trim() ? `${current.trim()} ${text}` : text));
+          focusInput();
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message === "SESSION_EXPIRED"
+            ? "Сессия истекла. Обновите страницу и войдите снова."
+            : error instanceof Error
+              ? error.message
+              : "Не удалось распознать голос.";
+        setVoiceError(message);
+      } finally {
+        setVoiceState("idle");
+      }
+    },
+    [focusInput, runtimeContext.locale]
+  );
+
+  const startVoiceRecording = useCallback(async () => {
+    if (voiceState !== "idle" || loading || disabledReason) return;
+    setVoiceError(null);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Браузер не поддерживает запись с микрофона.");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType =
+        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm";
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+
+      recorder.ondataavailable = (event) => {
+        if (event.data?.size) audioChunksRef.current.push(event.data);
+      };
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        audioChunksRef.current = [];
+        stopVoiceStream();
+        void transcribeVoiceBlob(blob);
+      };
+      recorder.onerror = () => {
+        stopVoiceStream();
+        setVoiceState("idle");
+        setVoiceError("Запись с микрофона прервалась.");
+      };
+      recorder.start();
+      setVoiceState("recording");
+    } catch (error) {
+      stopVoiceStream();
+      setVoiceState("idle");
+      setVoiceError(error instanceof Error ? error.message : "Не удалось включить микрофон.");
+    }
+  }, [disabledReason, loading, stopVoiceStream, transcribeVoiceBlob, voiceState]);
+
+  const stopVoiceRecording = useCallback(() => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state !== "recording") return;
+    setVoiceState("transcribing");
+    recorder.stop();
+  }, []);
 
   const storageKey = useMemo(() => {
     if (!profile?.id || !sessionId) return null;
@@ -409,6 +519,10 @@ export function AssistantChatPane({
       })
     );
   }, [storageKey, activeThreadId, activeTab, sessionState]);
+
+  useEffect(() => {
+    return () => stopVoiceStream();
+  }, [stopVoiceStream]);
 
   useEffect(() => {
     if (!loading) return;
@@ -553,8 +667,10 @@ export function AssistantChatPane({
 
   useEffect(() => {
     if (access.status !== "ready" || !resolvedCompanyId) return;
+    if (!isOpen && threads.length === 0) return;
+    if (threads.length > 0) return;
     void loadThreads();
-  }, [access.status, resolvedCompanyId, profile?.id]);
+  }, [access.status, resolvedCompanyId, profile?.id, isOpen, threads.length]);
 
   useEffect(() => {
     if (!activeThreadId) {
@@ -894,11 +1010,7 @@ export function AssistantChatPane({
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Загружаю сообщения...
               </div>
-            ) : messages.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-[#334058] px-3 py-4 text-xs text-[#94A3B8]">
-                Спросите: «Открой весовую», «Покажи остатки» или «Что по полю 28?».
-              </div>
-            ) : (
+            ) : messages.length === 0 ? null : (
               messages.map((message) => (
                 <div
                   key={message.id}
@@ -974,19 +1086,26 @@ export function AssistantChatPane({
           </div>
 
           <div className="border-t border-[#262D3D] bg-[#111827] px-3 py-3">
-            <div className="mb-2 flex flex-wrap gap-1.5">
-              {quickActions.map((prompt) => (
-                <button
-                  key={prompt}
-                  type="button"
-                  onClick={() => setInput(prompt)}
-                  disabled={loading || !!disabledReason}
-                  className="rounded-full border border-[#334058] bg-[#151C28] px-2.5 py-1 text-[11px] text-[#CBD5E1] hover:bg-[#202738] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {prompt}
-                </button>
-              ))}
-            </div>
+            {voiceState === "recording" ? (
+              <div className="mb-2 flex items-center gap-2 rounded-md border border-[#3B465C] bg-[#151C28] px-2.5 py-1.5 text-xs text-[#E5E7EB]">
+                <AudioLines className="h-4 w-4 text-[#E0B100]" />
+                <div className="flex h-5 items-end gap-0.5">
+                  {Array.from({ length: 14 }).map((_, index) => (
+                    <span
+                      key={index}
+                      className="w-1 animate-pulse rounded-full bg-[#E0B100]"
+                      style={{
+                        height: `${6 + ((index * 7) % 16)}px`,
+                        animationDelay: `${index * 55}ms`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <span className="text-[#CBD5E1]">Запись идет</span>
+              </div>
+            ) : null}
+
+            {voiceError ? <div className="mb-2 text-xs text-red-200">{voiceError}</div> : null}
 
             <form
               className="flex items-end gap-2"
@@ -1012,6 +1131,29 @@ export function AssistantChatPane({
                   }
                 }}
               />
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                disabled={loading || !!disabledReason || voiceState === "transcribing"}
+                className="border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738]"
+                onClick={() => {
+                  if (voiceState === "recording") {
+                    stopVoiceRecording();
+                    return;
+                  }
+                  void startVoiceRecording();
+                }}
+                title={voiceState === "recording" ? "Остановить запись" : "Голосовой ввод"}
+              >
+                {voiceState === "transcribing" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : voiceState === "recording" ? (
+                  <Square className="h-4 w-4 fill-current" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
+              </Button>
               <Button type="submit" size="icon" disabled={!canSend} className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>

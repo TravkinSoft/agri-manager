@@ -67,7 +67,7 @@ function parseBoolish(value: unknown): boolean {
 function isQaMarkerText(value: unknown): boolean {
   const text = normalizeSearchText(value);
   if (!text) return false;
-  return /qa[_\s-]*test[_\s-]*2026/i.test(text) || text.includes("qa_test_2026");
+  return /qa[_\s-]*test(?:[_\s-]*\d{4})?/i.test(text) || text.includes("qa_test");
 }
 
 function isDebugOrTestDataAllowed(context: AssistantToolContext): boolean {
@@ -1187,6 +1187,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
   run: async (context) => {
     const searchQuery = parseSearchQuery(context);
     const includeArchived = includeArchivedByRequest(context);
+    const allowTestData = isDebugOrTestDataAllowed(context);
     const explicitProduct =
       cleanString(context.intent.parameters.product) ||
       cleanString(context.intent.parameters.crop) ||
@@ -1316,7 +1317,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
           viewName = "stock_ledger_entries (aggregated fallback)";
           const ledgerRes = await context.supabase
             .from("stock_ledger_entries")
-            .select("warehouse_id,product_id,variety_id,reproduction_id,batch_class,direction,qty_abs,delta_qty_signed,quantity")
+            .select("warehouse_id,product_id,variety_id,reproduction_id,batch_id_text,batch_class,direction,qty_abs,delta_qty_signed,quantity,reason_type,notes")
             .eq("company_id", context.companyId)
             .limit(4000);
           if (ledgerRes.error) {
@@ -1333,7 +1334,17 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
           };
 
           const buckets = new Map<string, LedgerBucket>();
-          (ledgerRes.data || []).forEach((row: any) => {
+          (ledgerRes.data || [])
+            .filter((row: any) => {
+              if (allowTestData) return true;
+              return ![
+                row.notes,
+                row.reason_type,
+                row.batch_id_text,
+                row.batch_class,
+              ].some(isQaMarkerText);
+            })
+            .forEach((row: any) => {
             const warehouseId = String(row.warehouse_id || "");
             const productId = String(row.product_id || "");
             if (!warehouseId || !productId) return;
@@ -1393,6 +1404,16 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
 
       const filtered = rows
         .filter((row) => {
+          if (!allowTestData && [
+            row.warehouse_name,
+            row.product_name,
+            row.variety_name,
+            row.reproduction_name,
+            row.batch_id,
+            row.batch_class,
+          ].some(isQaMarkerText)) {
+            return false;
+          }
           if (activeWarehouseScope) {
             const id = cleanString((row as any).warehouse_id);
             const name = normalizeSearchText((row as any).warehouse_name);
@@ -1456,24 +1477,40 @@ const getWarehouseMovementsTool: AssistantToolDefinition = {
   domains: ["ledger", "warehouses", "inventory"],
   run: async (context) => {
     const limit = parseLimit(context.intent.parameters.limit, 30, 1, 120);
+    const allowTestData = isDebugOrTestDataAllowed(context);
     const directionFilter = normalizeSearchText(context.intent.parameters.direction);
+    const movementQuery = parseSearchQuery(context);
+    const queryProductAlias = movementQuery
+      ? resolveKnownCropAlias(movementQuery) || findCropAliasesInText(movementQuery)[0] || null
+      : null;
     const productQuery =
       cleanString(context.intent.parameters.product) ||
       cleanString(context.intent.parameters.crop) ||
       cleanString(context.intent.parameters.crop_alias) ||
-      parseSearchQuery(context);
+      queryProductAlias;
     const productTerms = buildSearchTerms(productQuery);
-    const warehouseQuery =
+    const queryWarehouseHint = resolveWarehouseAliasQuery(movementQuery);
+    const explicitWarehouseInput =
       cleanString(context.intent.parameters.warehouse) ||
       cleanString(context.intent.parameters.warehouse_alias) ||
       cleanString(context.runtimeContext.filters.warehouse);
+    const warehouseQuery =
+      explicitWarehouseInput ||
+      queryWarehouseHint ||
+      cleanString(context.sessionState.lastWarehouseLabel) ||
+      cleanString(context.sessionState.lastWarehouse) ||
+      cleanString(context.sessionState.lastWarehouseId);
+    const warehouseIdFilter =
+      cleanString(context.intent.parameters.warehouse_id) ||
+      (!explicitWarehouseInput && !queryWarehouseHint ? cleanString(context.sessionState.lastWarehouseId) : null);
     const warehouseTerms = buildSearchTerms(resolveWarehouseAliasQuery(warehouseQuery));
+    const fetchLimit = warehouseTerms.length || warehouseIdFilter || productTerms.length ? Math.max(limit * 6, 240) : limit;
     const res = await context.supabase
       .from("stock_ledger_entries")
       .select("*")
       .eq("company_id", context.companyId)
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .limit(fetchLimit);
 
     if (res.error) throw new Error(res.error.message);
     const raw = res.data || [];
@@ -1497,35 +1534,54 @@ const getWarehouseMovementsTool: AssistantToolDefinition = {
         date: String(row.created_at || row.occurred_at || ""),
         direction: String(row.direction || "-"),
         quantity: Number.isFinite(qtyAbs) ? qtyAbs : 0,
+        warehouse_id: warehouseId,
+        product_id: productId,
         warehouse_name: lookup.byWarehouse.get(warehouseId) || warehouseId,
         product_name: lookup.byProduct.get(productId) || productId,
         variety_name: varietyId ? lookup.byVariety.get(varietyId) || "-" : "-",
         reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || "-" : "-",
           batch_class: cleanString(row.batch_class) || "commodity",
+          batch_id: cleanString(row.batch_id_text || row.batch_id),
           reason: cleanString(row.reason_type || row.reason) || "-",
+          document_ref: cleanString(row.reason_ref_id || row.ticket_id || row.processing_id),
           ticket_id: cleanString(row.ticket_id),
+          source_system: "stock_ledger_entries",
         };
       })
       .filter((row) => {
+        if (!allowTestData && [
+          row.warehouse_name,
+          row.product_name,
+          row.variety_name,
+          row.reproduction_name,
+          row.batch_id,
+          row.batch_class,
+          row.reason,
+          row.document_ref,
+        ].some(isQaMarkerText)) {
+          return false;
+        }
         if (directionFilter) {
           const dir = normalizeSearchText(row.direction);
           if (directionFilter === "in" && !(dir === "in" || dir === "incoming")) return false;
           if (directionFilter === "out" && !(dir === "out" || dir === "outgoing")) return false;
         }
+        if (warehouseIdFilter && row.warehouse_id !== warehouseIdFilter) return false;
         if (warehouseTerms.length && !matchesAnyTerm(row.warehouse_name, warehouseTerms)) return false;
         if (productTerms.length) {
           const productBlob = [row.product_name, row.variety_name, row.reproduction_name, row.batch_class].join(" ");
           return matchesAnyTerm(productBlob, productTerms);
         }
         return true;
-      });
+      })
+      .slice(0, limit);
 
     return {
       title: "Последние движения склада",
       rows,
       source: {
         module: "ledger",
-        tableOrView: "field_material_consumptions",
+        tableOrView: "stock_ledger_entries",
         season: context.runtimeContext.season,
         fetchedAt: nowIso(),
       },

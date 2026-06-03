@@ -8,41 +8,12 @@ import { AssistantConversationHost } from "@/components/assistant/assistant-conv
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 import { defaultAssistantPanelEngine } from "@/lib/assistant/panel-engine";
 
-function pageLabel(page: string): string {
-  const key = String(page || "").toLowerCase();
-  switch (key) {
-    case "dashboard":
-      return "Панель";
-    case "warehouses":
-      return "Склады";
-    case "weighbridge":
-      return "Весовая";
-    case "fields":
-      return "Поля";
-    case "crop-structure":
-      return "Структура посевов";
-    case "fuel":
-      return "АЗС / ГСМ";
-    case "operations":
-      return "Операции";
-    case "land-legal":
-      return "Кадастр и право";
-    case "users":
-      return "Пользователи";
-    case "analytics":
-      return "Отчеты";
-    default:
-      return page || "—";
-  }
-}
-
 export function AssistantPanel() {
   const {
     enabled,
     isOpen,
     close,
     open,
-    runtimeContext,
     debugMonitorEnabled,
     debugMonitorOpen,
     toggleDebugMonitor,
@@ -70,10 +41,6 @@ export function AssistantPanel() {
 
   if (!enabled) return null;
 
-  const company = runtimeContext.companyName || "Компания не выбрана";
-  const page = pageLabel(runtimeContext.currentPage);
-  const season = runtimeContext.season || "сезон не указан";
-
   const onExportChat = () => {
     window.dispatchEvent(new CustomEvent("travkin:assistant-export-trigger"));
   };
@@ -81,8 +48,10 @@ export function AssistantPanel() {
   return (
     <Sheet modal={false} open={isOpen} onOpenChange={(next) => (next ? open() : close())}>
       <SheetContent
+        forceMount
         side={isMobileView ? "bottom" : "right"}
         showOverlay={false}
+        onPointerDownOutside={() => close()}
         className={
           isMobileView
             ? "travkin-scrollbar h-[82vh] w-full max-w-none rounded-t-2xl border-[#262D3D] bg-[#11151E] p-0"
@@ -94,9 +63,6 @@ export function AssistantPanel() {
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <SheetTitle className="truncate text-lg font-semibold text-[#F3F4F6]">Travkin Copilot</SheetTitle>
-                <div className="mt-1 truncate text-xs text-[#9CA3AF]">
-                  {company} • {page} • {season}
-                </div>
               </div>
 
               <div className="flex items-center gap-2">

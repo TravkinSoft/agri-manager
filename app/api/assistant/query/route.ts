@@ -158,7 +158,7 @@ function buildActionButtons(params: {
   requestMessage: string;
   navigationActions: AssistantNavigationAction[];
 }): AssistantActionButton[] {
-  const { intentName, requestMessage, navigationActions } = params;
+  const { navigationActions } = params;
   const actions: AssistantActionButton[] = [];
   const add = (action: AssistantActionButton) => {
     if (!actions.some((item) => item.id === action.id)) actions.push(action);
@@ -183,31 +183,6 @@ function buildActionButtons(params: {
         filters: first.filters || {},
       });
     }
-  }
-
-  const lower = String(requestMessage || "").toLowerCase();
-  if (intentName === "fields_overview" || lower.includes("пол")) {
-    add({ id: "goto_fields", label: "Открыть поле", kind: "navigate", route: "/fields" });
-    add({ id: "prompt_field_timeline", label: "История поля", kind: "prompt", prompt: "Покажи timeline поля" });
-    add({ id: "prompt_field_materials", label: "Материалы поля", kind: "prompt", prompt: "Покажи материалы по полю" });
-  } else if (intentName === "inventory_balance" || lower.includes("склад")) {
-    add({ id: "goto_warehouses", label: "Открыть склады", kind: "navigate", route: "/warehouses" });
-    add({ id: "prompt_negative_stock", label: "Отрицательные остатки", kind: "prompt", prompt: "Покажи отрицательные остатки" });
-    add({ id: "prompt_warehouse_moves", label: "Последние движения", kind: "prompt", prompt: "Покажи последние движения склада" });
-  } else if (intentName === "operations_recent" || lower.includes("операц")) {
-    add({ id: "goto_operations", label: "Открыть операции", kind: "navigate", route: "/operations" });
-    add({ id: "prompt_active_ops", label: "Активные операции", kind: "prompt", prompt: "Покажи активные операции" });
-  } else if (intentName === "weighbridge_tickets" || lower.includes("весов")) {
-    add({ id: "goto_weighbridge", label: "Открыть весовую", kind: "navigate", route: "/weighbridge" });
-    add({ id: "prompt_active_tickets", label: "Активные талоны", kind: "prompt", prompt: "Покажи активные талоны" });
-  } else if (lower.includes("картоф")) {
-    add({
-      id: "goto_potato_report",
-      label: "Отчёт по картофелю",
-      kind: "navigate",
-      route: "/analytics",
-      filters: { report: "potato-material-consumption" },
-    });
   }
 
   return actions.slice(0, 3);
