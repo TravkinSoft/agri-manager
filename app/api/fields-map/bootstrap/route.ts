@@ -163,6 +163,7 @@ export async function GET(request: NextRequest) {
     const { companyId, supabase } = context;
     const seasonIdParam = request.nextUrl.searchParams.get("seasonId");
     const { selectedSeasonId, seasons } = await resolveSeasonId({ seasonIdParam, companyId, supabase });
+    const selectedSeason = seasons.find((item) => item.id === selectedSeasonId) || null;
 
     const companyRes = await supabase.from("companies").select("id,name").eq("id", companyId).maybeSingle();
     if (companyRes.error || !companyRes.data?.id) {
@@ -187,7 +188,7 @@ export async function GET(request: NextRequest) {
       .eq("is_active", true);
 
     if (geometryRes.error) {
-      return NextResponse.json({ error: geometryRes.error.message }, { status: 400 });
+      throw new Error(geometryRes.error.message);
     }
 
     let cropRows: CropRow[] = [];
@@ -204,16 +205,23 @@ export async function GET(request: NextRequest) {
     }
 
     let operationRows: any[] = [];
-    if (selectedSeasonId) {
+    if (selectedSeason?.year) {
+      const year = Number(selectedSeason.year);
       const operationsRes = await supabase
         .from("operations")
-        .select("id,field_id,operation_type,operation_date,status,created_at")
+        .select("id,field_id,operation_type,date,status,work_status,created_at")
         .eq("company_id", companyId)
-        .eq("season_id", selectedSeasonId)
-        .order("operation_date", { ascending: false })
+        .eq("archived", false)
+        .gte("date", `${year}-01-01`)
+        .lte("date", `${year}-12-31`)
+        .order("date", { ascending: false })
         .limit(300);
       if (!operationsRes.error) {
-        operationRows = operationsRes.data || [];
+        operationRows = (operationsRes.data || []).map((row: any) => ({
+          ...row,
+          operation_date: row.date,
+          status: row.work_status || row.status,
+        }));
       }
     }
 

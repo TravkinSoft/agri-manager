@@ -243,7 +243,11 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertRes.error || !insertRes.data?.id) {
-      return previewError(400, insertRes.error?.message || "Не удалось создать draft импорта");
+      const message = insertRes.error?.message || "Failed to create field map import draft";
+      if (/field_map_imports|schema cache|could not find the table/i.test(message)) {
+        throw new Error(message);
+      }
+      return previewError(400, message);
     }
 
     return NextResponse.json({

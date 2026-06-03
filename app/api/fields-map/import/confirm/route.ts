@@ -87,8 +87,11 @@ export async function POST(request: NextRequest) {
       .eq("company_id", companyId)
       .maybeSingle();
 
-    if (importRes.error || !importRes.data?.id) {
-      return NextResponse.json({ error: importRes.error?.message || "Импорт не найден" }, { status: 404 });
+    if (importRes.error) {
+      throw new Error(importRes.error.message);
+    }
+    if (!importRes.data?.id) {
+      return NextResponse.json({ error: "Импорт не найден" }, { status: 404 });
     }
 
     const previewRows = getPreviewRows(importRes.data.preview_payload);
@@ -137,6 +140,9 @@ export async function POST(request: NextRequest) {
         .eq("is_active", true);
 
       if (deactivateRes.error) {
+        if (/field_geometries|schema cache|could not find the table/i.test(deactivateRes.error.message)) {
+          throw new Error(deactivateRes.error.message);
+        }
         skipped += 1;
         unresolved.push(row.polygon_name);
         finalizedRows.push({
@@ -161,6 +167,9 @@ export async function POST(request: NextRequest) {
       });
 
       if (insertRes.error) {
+        if (/field_geometries|schema cache|could not find the table/i.test(insertRes.error.message)) {
+          throw new Error(insertRes.error.message);
+        }
         skipped += 1;
         unresolved.push(row.polygon_name);
         finalizedRows.push({

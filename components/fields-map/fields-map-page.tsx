@@ -1805,23 +1805,23 @@ export function FieldsMapPage() {
             </Select>
           </div>
 
-          <div className="ml-auto flex items-end gap-2">
-            <Button variant="outline" className="md:hidden" onClick={() => setShowFieldListMobile((prev) => !prev)}>
+          <div className="flex w-full flex-wrap items-end gap-2 md:ml-auto md:w-auto">
+            <Button variant="outline" className="min-w-[132px] flex-1 md:hidden" onClick={() => setShowFieldListMobile((prev) => !prev)}>
               {showFieldListMobile ? "Скрыть поля" : `Поля (${filteredFields.length})`}
             </Button>
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+            <Button variant="outline" className="min-w-[144px] flex-1 md:flex-none" onClick={() => fileInputRef.current?.click()}>
               <FileUp className="mr-2 h-4 w-4" />
               Загрузить KML
             </Button>
-            <Button variant="outline" disabled={!uploadState || busy} onClick={() => void runPreview()}>
+            <Button variant="outline" className="min-w-[188px] flex-1 md:flex-none" disabled={!uploadState || busy} onClick={() => void runPreview()}>
               <Eye className="mr-2 h-4 w-4" />
               Проверить совпадения
             </Button>
-            <Button disabled={!previewState || busy} onClick={() => void confirmImport()}>
+            <Button className="min-w-[172px] flex-1 md:flex-none" disabled={!previewState || busy} onClick={() => void confirmImport()}>
               <Save className="mr-2 h-4 w-4" />
               Подтвердить импорт
             </Button>
-            <Button variant="ghost" disabled={!uploadState || busy} onClick={cancelImport}>
+            <Button variant="ghost" className="min-w-[156px] flex-1 md:flex-none" disabled={!uploadState || busy} onClick={cancelImport}>
               <RotateCcw className="mr-2 h-4 w-4" />
               Отменить импорт
             </Button>
@@ -1942,15 +1942,15 @@ export function FieldsMapPage() {
               >
                 Статус работ
               </Button>
-              <div className="ml-auto flex flex-wrap items-center gap-2">
-                <Button size="sm" variant="outline" onClick={handleLocateMe}>
+              <div className="flex w-full flex-wrap items-center gap-2 xl:ml-auto xl:w-auto">
+                <Button size="sm" variant="outline" className="min-w-[164px] flex-1 xl:flex-none" onClick={handleLocateMe}>
                   <LocateFixed className="mr-2 h-4 w-4" />
                   Моё местоположение
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleShowAllFields}>
+                <Button size="sm" variant="outline" className="min-w-[156px] flex-1 xl:flex-none" onClick={handleShowAllFields}>
                   Показать все поля
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleResetMapView}>
+                <Button size="sm" variant="outline" className="min-w-[126px] flex-1 xl:flex-none" onClick={handleResetMapView}>
                   Сбросить вид
                 </Button>
               </div>
@@ -1968,10 +1968,11 @@ export function FieldsMapPage() {
               >
                 Статус работ
               </Button>
-              <div className="ml-auto flex flex-wrap items-center gap-2">
+              <div className="flex w-full flex-wrap items-center gap-2 xl:ml-auto xl:w-auto">
                 <Button
                   size="sm"
                   variant={measurementMode === "distance" ? "default" : "outline"}
+                  className="min-w-[184px] flex-1 xl:flex-none"
                   onClick={() => handleMeasurementMode("distance")}
                 >
                   <Route className="mr-2 h-4 w-4" />
@@ -1980,20 +1981,21 @@ export function FieldsMapPage() {
                 <Button
                   size="sm"
                   variant={measurementMode === "area" ? "default" : "outline"}
+                  className="min-w-[168px] flex-1 xl:flex-none"
                   onClick={() => handleMeasurementMode("area")}
                 >
                   <Ruler className="mr-2 h-4 w-4" />
                   Измерить площадь
                 </Button>
-                <Button size="sm" variant={followMeasureActive ? "default" : "outline"} onClick={handleToggleFollowMeasure}>
+                <Button size="sm" variant={followMeasureActive ? "default" : "outline"} className="min-w-[132px] flex-1 xl:flex-none" onClick={handleToggleFollowMeasure}>
                   <Crosshair className="mr-2 h-4 w-4" />
                   {followMeasureActive ? "Стоп follow" : "Старт follow"}
                 </Button>
-                <Button size="sm" variant="outline" onClick={handleSaveMeasurementDraft}>
+                <Button size="sm" variant="outline" className="min-w-[176px] flex-1 xl:flex-none" onClick={handleSaveMeasurementDraft}>
                   <Save className="mr-2 h-4 w-4" />
                   Сохранить черновик
                 </Button>
-                <Button size="sm" variant="outline" onClick={clearMeasurement}>
+                <Button size="sm" variant="outline" className="min-w-[156px] flex-1 xl:flex-none" onClick={clearMeasurement}>
                   <Trash2 className="mr-2 h-4 w-4" />
                   Очистить замер
                 </Button>
@@ -2018,7 +2020,9 @@ export function FieldsMapPage() {
               </div>
             ) : null}
 
-            <div className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3 text-xs text-slate-300">
+            <details className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3 text-xs text-slate-300">
+              <summary className="cursor-pointer font-medium text-slate-200">Debug</summary>
+              <div className="mt-2 space-y-0.5">
               <div>maplibre package loaded: {mapDebug.packageLoaded ? "yes" : "no"}</div>
               <div>container ready: {mapDebug.containerReady ? "yes" : "no"}</div>
               <div>map instance created: {mapDebug.mapInstanceCreated ? "yes" : "no"}</div>
@@ -2041,7 +2045,8 @@ export function FieldsMapPage() {
                 map center/zoom: {mapDebug.mapCenter[0].toFixed(5)}, {mapDebug.mapCenter[1].toFixed(5)} / {mapDebug.mapZoom}
               </div>
               <div>error message: {mapDebug.errorMessage || "—"}</div>
-            </div>
+              </div>
+            </details>
 
             <div className="flex flex-wrap gap-2">
               {(colorMode === "crop" ? CROP_COLOR_LEGEND : WORK_STATUS_COLOR_LEGEND).map((item) => (

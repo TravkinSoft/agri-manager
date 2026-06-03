@@ -40,11 +40,13 @@ export async function resolveFieldsMapContext(
 
 function isMissingRelationError(message: string): boolean {
   const normalized = String(message || "").toLowerCase();
-  return (
-    normalized.includes("relation") &&
-    normalized.includes("does not exist") &&
-    (normalized.includes("field_geometries") || normalized.includes("field_map_imports"))
-  );
+  const referencesFieldMapTables =
+    normalized.includes("field_geometries") || normalized.includes("field_map_imports");
+  const isMissingTable =
+    (normalized.includes("relation") && normalized.includes("does not exist")) ||
+    normalized.includes("could not find the table") ||
+    normalized.includes("schema cache");
+  return referencesFieldMapTables && isMissingTable;
 }
 
 function isMissingColumnError(message: string): boolean {
