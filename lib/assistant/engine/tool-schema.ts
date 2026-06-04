@@ -85,9 +85,27 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
   get_warehouse_balance_summary: {
     assistantTool: "get_warehouse_summary",
     intentName: "inventory_balance",
+    buildParams: (args, message) => {
+      const query = text(args.query) || message;
+      const warehouse = text(args.warehouse);
+      return {
+        query,
+        product: text(args.product),
+        warehouse_alias: warehouse,
+        warehouse,
+        allWarehouses: warehouse ? false : true,
+        negative_only: /(\u043e\u0442\u0440\u0438\u0446\u0430\u0442|\u043c\u0438\u043d\u0443\u0441|negative|below\s+zero)/i.test(query),
+        output_type: "balance",
+      };
+    },
+  },
+  get_field_land_bank_summary: {
+    assistantTool: "get_field_land_bank_summary",
+    intentName: "field_total_area",
     buildParams: (args, message) => ({
       query: text(args.query) || message,
-      output_type: "balance",
+      output_type: "summary_total",
+      source_of_truth: "fields",
     }),
   },
   get_field_card: {
@@ -326,6 +344,15 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       function: {
         name: "get_warehouse_balance_summary",
         description: "Возвращает сводку остатков по складам.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_field_land_bank_summary",
+        description:
+          "Source of Truth for company land bank totals: total fields and total hectares. Use only this tool for total fields, total hectares, overall farm area, land bank, and company field area. Do not use list_fields/search_fields for totals.",
         parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
       },
     },

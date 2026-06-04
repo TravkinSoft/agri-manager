@@ -67,7 +67,9 @@ function parseBoolish(value: unknown): boolean {
 function isQaMarkerText(value: unknown): boolean {
   const text = normalizeSearchText(value);
   if (!text) return false;
-  return /qa[_\s-]*test(?:[_\s-]*\d{4})?/i.test(text) || text.includes("qa_test") || text.includes("qacodex");
+  const compact = text.replace(/[\s_-]+/g, "");
+  if (compact.includes("qatest") || compact.includes("qacodex")) return true;
+  return /(^|[\s_-])(test|temp|demo|archived|inactive)([\s_-]|$)/i.test(text);
 }
 
 function isDebugOrTestDataAllowed(context: AssistantToolContext): boolean {
@@ -1603,6 +1605,77 @@ const getWarehouseMovementsTool: AssistantToolDefinition = {
   },
 };
 
+const getFieldLandBankSummaryTool: AssistantToolDefinition = {
+  name: "get_field_land_bank_summary",
+  description: "Aggregate field land bank summary",
+  domains: ["fields", "reports"],
+  run: async (context) => {
+    const queryUsed = "fields.select(id,area).eq(company_id).eq(archived,false)";
+    logToolEvent(context, "get_field_land_bank_summary", "start", {
+      input_args: context.intent.parameters,
+      query_used: queryUsed,
+      source_of_truth: "fields",
+      scope: "company_id + archived=false",
+      rls_acl_result: inferAclResult(context),
+    });
+
+    try {
+      const res = await context.supabase
+        .from("fields")
+        .select("id,area")
+        .eq("company_id", context.companyId)
+        .eq("archived", false)
+        .limit(5000);
+
+      if (res.error) throw new Error(res.error.message);
+
+      const rows = res.data || [];
+      const totalFields = rows.length;
+      const totalAreaHa = Number(rows.reduce((sum, row: any) => sum + Number(row.area || 0), 0).toFixed(3));
+
+      logToolEvent(context, "get_field_land_bank_summary", "success", {
+        input_args: context.intent.parameters,
+        query_used: queryUsed,
+        rows_count: 1,
+        total_fields: totalFields,
+        total_area_ha: totalAreaHa,
+        source_of_truth: "fields",
+        scope: "company_id + archived=false",
+        rls_acl_result: inferAclResult(context),
+      });
+
+      return {
+        title: "Field land bank summary",
+        rows: [
+          {
+            metric: "field_land_bank",
+            total_fields: totalFields,
+            total_area_ha: totalAreaHa,
+            source: "fields",
+            scope: "company_id + archived=false",
+          },
+        ],
+        source: {
+          module: "fields",
+          tableOrView: "fields (land_bank_summary)",
+          season: null,
+          fetchedAt: nowIso(),
+        },
+        summary: `Field land bank: ${totalFields} fields, ${totalAreaHa} ha. Source of truth: fields where archived=false.`,
+      };
+    } catch (error) {
+      logToolEvent(context, "get_field_land_bank_summary", "error", {
+        input_args: context.intent.parameters,
+        query_used: queryUsed,
+        rows_count: 0,
+        error_message: error instanceof Error ? error.message : "unknown error",
+        rls_acl_result: inferAclResult(context),
+      });
+      throw error;
+    }
+  },
+};
+
 const getFieldsTool: AssistantToolDefinition = {
   name: "get_fields",
   description: "Список полей",
@@ -1621,14 +1694,18 @@ const getFieldsTool: AssistantToolDefinition = {
 
     if (res.error) throw new Error(res.error.message);
 
-    const rows = applyTextFilter(
+    const fieldRowsWithNotes = applyTextFilter(
       (res.data || []).map((row: any) => ({
         field_id: String(row.id),
         field_name: getFieldDisplayName(row) || String(row.id),
         area_ha: Number(row.area || 0),
+        field_notes: cleanString(row.notes),
       })),
       shouldApplySearchFilter ? searchQuery : null
-    ).slice(0, 120);
+    );
+    const rows = filterQaRows(context, fieldRowsWithNotes, ["field_name", "field_notes"])
+      .map(({ field_notes: _fieldNotes, ...row }) => row)
+      .slice(0, 120);
 
     return {
       title: "Поля компании",
@@ -1674,7 +1751,7 @@ const getCropStructureTool: AssistantToolDefinition = {
       reproductions: Array.from(new Set(raw.map((x: any) => String(x.reproduction_id || "")).filter(Boolean))),
     });
 
-    const rows = raw.map((row: any) => {
+    const mappedRows = raw.map((row: any) => {
       const fieldId = String(row.field_id || "");
       const cropId = String(row.crop_id || "");
       const varietyId = cleanString(row.variety_id);
@@ -1689,6 +1766,12 @@ const getCropStructureTool: AssistantToolDefinition = {
         area_ha: Number(row.area || 0),
       };
     });
+    const rows = filterQaRows(context, mappedRows, [
+      "field_name",
+      "crop_name",
+      "variety_name",
+      "reproduction_name",
+    ]);
 
     return {
       title: "Структура посевов",
@@ -1729,57 +1812,62 @@ const getCropStructureToolV2: AssistantToolDefinition = {
       }> = [
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)).eq(company_id).eq(season_id)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)).eq(company_id).eq(archived,false).eq(season_id)",
           run: async () => {
             if (!seasonCtx.seasonId) return { data: [], error: new Error("season_id_unavailable") };
             return context.supabase
               .from("crop_structure")
               .select("id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)")
               .eq("company_id", context.companyId)
+              .eq("archived", false)
               .eq("season_id", seasonCtx.seasonId)
               .limit(1000);
           },
         },
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_year,area).eq(company_id).eq(season_year)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_year,area).eq(company_id).eq(archived,false).eq(season_year)",
           run: async () =>
             context.supabase
               .from("crop_structure")
               .select("id,field_id,crop_id,variety_id,reproduction_id,season_year,area")
               .eq("company_id", context.companyId)
+              .eq("archived", false)
               .eq("season_year", forcedSeasonYear)
               .limit(1000),
         },
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season,area).eq(company_id).eq(season)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season,area).eq(company_id).eq(archived,false).eq(season)",
           run: async () =>
             context.supabase
               .from("crop_structure")
               .select("id,field_id,crop_id,variety_id,reproduction_id,season,area")
               .eq("company_id", context.companyId)
+              .eq("archived", false)
               .eq("season", Number(forcedSeasonYear))
               .limit(1000),
         },
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)).eq(company_id)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)).eq(company_id).eq(archived,false)",
           run: async () =>
             context.supabase
               .from("crop_structure")
               .select("id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)")
               .eq("company_id", context.companyId)
+              .eq("archived", false)
               .limit(1000),
         },
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_year,area).eq(company_id)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_year,area).eq(company_id).eq(archived,false)",
           run: async () =>
             context.supabase
               .from("crop_structure")
               .select("id,field_id,crop_id,variety_id,reproduction_id,season_year,area")
               .eq("company_id", context.companyId)
+              .eq("archived", false)
               .limit(1000),
         },
       ];
@@ -1861,7 +1949,7 @@ const getCropStructureToolV2: AssistantToolDefinition = {
       const cropTerms = buildSearchTerms(cropAliasTerm).concat(groupTerms).filter(Boolean);
       const varietyTerms = buildSearchTerms(varietyFilter);
 
-      const rows = mappedRows.filter((row) => {
+      const filteredRows = mappedRows.filter((row) => {
         if (seasonFilter && cleanString(row.season_year) && cleanString(row.season_year) !== seasonFilter) {
           return false;
         }
@@ -1877,6 +1965,12 @@ const getCropStructureToolV2: AssistantToolDefinition = {
 
         return true;
       });
+      const rows = filterQaRows(context, filteredRows, [
+        "field_name",
+        "crop_name",
+        "variety_name",
+        "reproduction_name",
+      ]);
 
       logToolEvent(context, "get_crop_structure", "success", {
         input_args: context.intent.parameters,
@@ -1994,7 +2088,7 @@ const getOperationsTool: AssistantToolDefinition = {
     });
     const terms = buildSearchTerms(queryText);
 
-    const rows = raw
+    const filteredRows = raw
       .map((row: any) => {
         const fieldId = String(row.field_id || "");
         return {
@@ -2016,8 +2110,13 @@ const getOperationsTool: AssistantToolDefinition = {
         if (!terms.length) return true;
         const blob = [row.operation_type, row.field_name, row.notes, row.status].join(" ");
         return matchesAnyTerm(blob, terms);
-      })
-      .slice(0, 120);
+      });
+    const rows = filterQaRows(context, filteredRows, [
+      "operation_type",
+      "field_name",
+      "notes",
+      "status",
+    ]).slice(0, 120);
 
     return {
       title: "Операции",
@@ -2911,7 +3010,7 @@ const getActiveOperationsToolAlias: AssistantToolDefinition = {
       fields: Array.from(new Set(rowsRaw.map((row: any) => String(row.field_id || "")).filter(Boolean))),
     });
 
-    const rows = rowsRaw
+    const activeRows = rowsRaw
       .filter((row: any) => {
         const status = cleanString(row.status)?.toLowerCase() || "";
         return status !== "completed" && status !== "cancelled" && status !== "verified";
@@ -2923,6 +3022,7 @@ const getActiveOperationsToolAlias: AssistantToolDefinition = {
         status: cleanString(row.status),
         field_name: fieldsLookup.byField.get(String(row.field_id || "")) || String(row.field_id || ""),
       }));
+    const rows = filterQaRows(context, activeRows, ["operation_type", "status", "field_name"]);
 
     return {
       title: "Активные операции",
@@ -3144,7 +3244,23 @@ const getWarehouseSummaryToolAlias: AssistantToolDefinition = {
       rls_acl_result: inferAclResult(context),
     });
     try {
-      const output = await getWarehouseBalancesTool.run(context);
+      const queryText = `${cleanString(context.intent.parameters.query) || ""} ${parseSearchQuery(context) || ""}`;
+      const negativeRequested =
+        parseBoolish(context.intent.parameters.negative_only) ||
+        /(\u043e\u0442\u0440\u0438\u0446\u0430\u0442|\u043c\u0438\u043d\u0443\u0441|negative|below\s+zero)/i.test(queryText);
+      const balanceContext = negativeRequested
+        ? {
+            ...context,
+            intent: {
+              ...context.intent,
+              parameters: {
+                ...context.intent.parameters,
+                negative_only: true,
+              },
+            },
+          }
+        : context;
+      const output = await getWarehouseBalancesTool.run(balanceContext);
       const grouped = new Map<string, number>();
       (output.rows || []).forEach((row) => {
         const warehouse = cleanString(row.warehouse_name) || "—";
@@ -4209,6 +4325,7 @@ const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
   get_routes: getRoutesToolAlias,
   get_company_context: getCompanyContextTool,
   get_current_season: getCurrentSeasonTool,
+  get_field_land_bank_summary: getFieldLandBankSummaryTool,
   search_fields: searchFieldsToolAlias,
   get_field_card: getFieldCardToolAlias,
   get_field_timeline: getFieldTimelineToolAlias,

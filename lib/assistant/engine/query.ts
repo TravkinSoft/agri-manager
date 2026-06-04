@@ -26,7 +26,12 @@ import type {
 import { buildAssistantModelCandidateList, resolveAssistantModelConfig } from "@/lib/assistant/openai";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import type { ServerActorContext } from "@/lib/auth/server-session";
-import { isAgroKnowledgeQuestion, resolveAssistantMode } from "@/lib/assistant/agro-taxonomy";
+import {
+  findCropAliasesInText,
+  isAgroKnowledgeQuestion,
+  resolveAssistantMode,
+  resolveKnownCropAlias,
+} from "@/lib/assistant/agro-taxonomy";
 import {
   resolveTravkinCorePrompt,
   TRAVKIN_CORE_PROMPT_UPDATED_AT,
@@ -371,6 +376,10 @@ function collectMetricsFromOutputs(outputs: AssistantToolOutput[]): {
     }
 
     const areaSum = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
+    if (table.includes("land_bank_summary")) {
+      fieldsAreaHa = Number(asNumber(rows[0]?.total_area_ha).toFixed(3));
+      return;
+    }
     if (table.includes("crop_structure")) {
       cropAreaHa = Number(areaSum.toFixed(3));
     }
@@ -380,6 +389,101 @@ function collectMetricsFromOutputs(outputs: AssistantToolOutput[]): {
   });
 
   return { warehouseCount, inventoryTotalKg, cropAreaHa, fieldsAreaHa, primaryTool };
+}
+
+type SourceOfTruthRule = {
+  label: string;
+  markers: string[];
+  planFact: "PLAN" | "FACT" | "MIXED" | null;
+};
+
+function normalizeSourceText(output: AssistantToolOutput): string {
+  return `${output.source.module || ""} ${output.source.tableOrView || ""}`.toLowerCase();
+}
+
+function getSourceOfTruthRule(intent: AssistantIntent): SourceOfTruthRule | null {
+  const queryText = `${cleanString(intent.parameters.query) || ""} ${cleanString(intent.parameters.entityQuery) || ""}`.toLowerCase();
+  const mentionsMaterials =
+    /(\u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b|\u0443\u0434\u043e\u0431\u0440|\u0441\u0437\u0440|\u0441\u0435\u043c\u0435\u043d|material|fertiliz|seed|pestic)/i.test(
+      queryText
+    );
+  const mentionsTimeline =
+    /(\u043e\u043f\u0435\u0440\u0430\u0446|\u0443\u0440\u043e\u0436|\u0443\u0431\u043e\u0440\u043a|\u0438\u0441\u0442\u043e\u0440|operation|harvest|timeline)/i.test(
+      queryText
+    );
+
+  switch (intent.name) {
+    case "field_total_area":
+      return { label: "fields land bank", markers: ["land_bank_summary"], planFact: null };
+    case "crop_structure_area":
+    case "crop_structure_overview":
+      return { label: "crop_structure PLAN", markers: ["crop_structure"], planFact: "PLAN" };
+    case "inventory_balance":
+      return {
+        label: "warehouse ledger/stock balance FACT",
+        markers: ["v_stock_balance", "stock_ledger_entries", "warehouse_stock", "warehouse_balances"],
+        planFact: "FACT",
+      };
+    case "warehouse_movements":
+      return { label: "warehouse ledger FACT", markers: ["stock_ledger_entries", "ledger", "warehouse_movements"], planFact: "FACT" };
+    case "weighbridge_tickets":
+      return { label: "finalized/open tickets FACT", markers: ["tickets"], planFact: "FACT" };
+    case "operations_recent":
+      return {
+        label: "operations/materials FACT",
+        markers: ["operations", "field_timeline", "field_material_consumptions", "tickets", "potato_material", "v_potato_material_consumption"],
+        planFact: "FACT",
+      };
+    case "fields_overview":
+      if (mentionsMaterials) {
+        return { label: "field materials FACT", markers: ["field_materials", "field_material_consumptions"], planFact: "FACT" };
+      }
+      if (mentionsTimeline) {
+        return {
+          label: "field timeline FACT",
+          markers: ["field_timeline", "operations", "field_material_consumptions", "tickets"],
+          planFact: "FACT",
+        };
+      }
+      return { label: "fields/card land bank", markers: ["field_card", "fields"], planFact: null };
+    default:
+      return null;
+  }
+}
+
+function validateSourceOfTruth(params: {
+  intent: AssistantIntent;
+  outputs: AssistantToolOutput[];
+}): { pass: boolean; message: string | null; rule: SourceOfTruthRule | null } {
+  const { intent, outputs } = params;
+  const rule = getSourceOfTruthRule(intent);
+  if (!rule || outputs.length === 0) return { pass: true, message: null, rule };
+  const sources = outputs.map(normalizeSourceText);
+  const matched = sources.some((source) => rule.markers.some((marker) => source.includes(marker.toLowerCase())));
+  if (matched) return { pass: true, message: null, rule };
+
+  const actual = outputs
+    .map((output) => `${output.source.module || "-"}:${output.source.tableOrView || "-"}`)
+    .join(", ");
+  return {
+    pass: false,
+    rule,
+    message:
+      `Source of Truth mismatch: expected ${rule.label}, got ${actual || "unknown"}. ` +
+      "Do not choose one conflicting figure silently; verify the correct source.",
+  };
+}
+
+function buildPlanFactAdvisory(outputs: AssistantToolOutput[]): string | null {
+  const sources = outputs.map(normalizeSourceText);
+  const hasPlan = sources.some((source) => source.includes("crop_structure") || source.includes("plan"));
+  const hasFact = sources.some((source) =>
+    ["operations", "field_material_consumptions", "tickets", "stock_ledger_entries", "v_stock_balance", "fact"].some((marker) =>
+      source.includes(marker)
+    )
+  );
+  if (!hasPlan || !hasFact) return null;
+  return "PLAN/FACT control: crop_structure is PLAN; operations, materials, harvest, warehouse and tickets are FACT. Do not merge them without labels.";
 }
 
 function validateAnswerDataByIntent(params: {
@@ -392,14 +496,20 @@ function validateAnswerDataByIntent(params: {
   correctionApplied: boolean;
   correctionText: string | null;
   inconsistencyText: string | null;
+  advisoryText: string | null;
 } {
   const { intent, outputs, nextState } = params;
   const metrics = collectMetricsFromOutputs(outputs);
+  const sourceValidation = validateSourceOfTruth({ intent, outputs });
+  const advisoryText = buildPlanFactAdvisory(outputs);
   let contradictionDetected = false;
   let correctionApplied = false;
   let correctionText: string | null = null;
-  let inconsistencyText: string | null = null;
-  let pass = true;
+  let inconsistencyText: string | null = sourceValidation.message;
+  let pass = sourceValidation.pass;
+  if (!sourceValidation.pass) {
+    contradictionDetected = true;
+  }
 
   if (intent.name === "warehouse_count") {
     const count = metrics.warehouseCount ?? 0;
@@ -428,12 +538,33 @@ function validateAnswerDataByIntent(params: {
   if (intent.name === "field_total_area") {
     const fieldArea = metrics.fieldsAreaHa ?? 0;
     const cropArea = metrics.cropAreaHa ?? 0;
+    const hasLandBankOutput = outputs.some((output) =>
+      String(output.source.tableOrView || "").toLowerCase().includes("land_bank_summary")
+    );
+    if (!hasLandBankOutput) {
+      pass = false;
+      contradictionDetected = true;
+      inconsistencyText =
+        "РС‚РѕРі РїРѕ Р·РµРјРµР»СЊРЅРѕРјСѓ Р±Р°РЅРєСѓ РґРѕР»Р¶РµРЅ СЃС‡РёС‚Р°С‚СЊСЃСЏ С‚РѕР»СЊРєРѕ РёР· fields (land_bank_summary), Р° РЅРµ РёР· search/list output.";
+    }
     if (fieldArea <= 0 && cropArea > 0) {
       pass = false;
       contradictionDetected = true;
       inconsistencyText =
         `Вижу расхождение: модуль полей вернул ${formatNumber(fieldArea, 2)} га, ` +
         `а структура посевов показывает ${formatNumber(cropArea, 2)} га. Для посевных площадей использую структуру посевов.`;
+    }
+  }
+
+  if (intent.name === "field_total_area") {
+    const fieldArea = metrics.fieldsAreaHa ?? 0;
+    const cropArea = metrics.cropAreaHa ?? 0;
+    if (fieldArea > 0 && cropArea > 0 && Math.abs(fieldArea - cropArea) > 1) {
+      pass = false;
+      contradictionDetected = true;
+      inconsistencyText =
+        `Detected area mismatch. Land bank fields: ${formatNumber(fieldArea, 2)} ha. ` +
+        `Crop structure PLAN: ${formatNumber(cropArea, 2)} ha. These are different Source of Truth scopes and must be labeled separately.`;
     }
   }
 
@@ -455,6 +586,7 @@ function validateAnswerDataByIntent(params: {
     correctionApplied,
     correctionText,
     inconsistencyText,
+    advisoryText,
   };
 }
 
@@ -475,7 +607,7 @@ function validateExpectedAnswerType(params: {
     case "crop_structure_area":
       return metrics.cropAreaHa !== null;
     case "field_total_area":
-      return metrics.fieldsAreaHa !== null;
+      return outputs.some((output) => String(output.source.tableOrView || "").toLowerCase().includes("land_bank_summary"));
     case "rotation_history":
       return outputs.some((output) => (output.rows || []).length > 0) || outputs.length > 0;
     default:
@@ -531,10 +663,16 @@ function isCapabilitiesQuestion(message: string): boolean {
 
 function isContradictionQuestion(message: string): boolean {
   const text = String(message || "").toLowerCase();
-  return /(почему|как так|противореч|ошиб|сказал|говорил).*(склад|остат|нет данных|нет склад)/.test(text);
+  return (
+    /(почему|как так|противореч|ошиб|сказал|говорил).*(склад|остат|нет данных|нет склад)/.test(text) ||
+    /(\u043f\u043e\u0447\u0435\u043c\u0443|\u043a\u0430\u043a\s+\u0442\u0430\u043a|\u0440\u0430\u0441\u0445\u043e\u0436\u0434|\u043f\u0440\u043e\u0442\u0438\u0432\u043e\u0440\u0435\u0447|\u043e\u0448\u0438\u0431|\u043d\u0435\s+\u043c\u043e\u0433\u0443\s+\u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434|\u0434\u0430\u043d\u043d\u044b\u0445\s+\u043d\u0435\u0434\u043e\u0441\u0442\u0430\u0442\u043e\u0447\u043d\u043e|source)/i.test(text)
+  );
 }
 
 function buildContradictionExplanation(state: AssistantSessionState): string | null {
+  if (state.lastDetectedInconsistency) {
+    return `Да, вижу расхождение. ${state.lastDetectedInconsistency} Данных недостаточно, чтобы молча выбрать одну цифру без проверки Source of Truth.`;
+  }
   const hasInventory = Number(state.lastInventoryTotalKg || 0) > 0;
   const hasWarehouses = Number(state.lastWarehouseCount || 0) > 0;
   if (!hasInventory && !hasWarehouses) return null;
@@ -681,6 +819,40 @@ function normalizeRoutingText(value: string): string {
     .trim();
 }
 
+function hasExplicitFieldInTextV2(text: string): boolean {
+  return (
+    /(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)\s*\d{1,3}(?:-\d{1,3}){0,2}/i.test(text) ||
+    /\d{1,3}(?:-\d{1,3}){0,2}\s*(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)/i.test(text) ||
+    hasExplicitFieldInText(text)
+  );
+}
+
+function hasExplicitWarehouseInTextV2(text: string): boolean {
+  if (/(?:\u0441\u043a\u043b\u0430\u0434|warehouse)/i.test(text)) {
+    return /(\u043e\u0432\u043e\u0449\u043d|\u0441\u0435\u043c\u0435\u043d\u043d|\u0437\u0435\u0440\u043d\u043e\u0432|\u0443\u0434\u043e\u0431\u0440|\u0441\u0437\u0440|seed|grain|fertiliz|chemical|\u0445\u0440\u0430\u043d\u0438\u043b\u0438\u0449)/i.test(text);
+  }
+  return hasExplicitWarehouseInText(text);
+}
+
+function hasExplicitCropInText(text: string): boolean {
+  if (resolveKnownCropAlias(text) || findCropAliasesInText(text).length > 0) return true;
+  return /(\u043a\u0430\u0440\u0442\u043e\u0444|\u043f\u0448\u0435\u043d|\u044f\u0447\u043c\u0435\u043d|\u043a\u0443\u043a\u0443\u0440\u0443\u0437|\u0440\u0430\u043f\u0441|\u0441\u043e\u044f|\u043e\u0432\u0435\u0441|\u043b\u0435\u043d|\u043b\u0451\u043d|\u043c\u043e\u0440\u043a\u043e\u0432|\u043b\u0443\u043a|gala|soraya|baltic|azilit|colombo|impala|potato|wheat|barley|corn)/i.test(
+    text
+  );
+}
+
+function appendMemoryContext(raw: string, suffix: string): string {
+  const base = String(raw || "").trim();
+  const extra = String(suffix || "").trim();
+  if (!base || !extra) return base || extra;
+  if (base.toLowerCase().includes(extra.toLowerCase())) return base;
+  return `${base} ${extra}`.trim();
+}
+
+function hasAnyRoutingPattern(text: string, patterns: RegExp[]): boolean {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
 function hasExplicitFieldInText(text: string): boolean {
   if (/(?:поле|field)\s*\d{1,3}(?:-\d{1,3}){0,2}/i.test(text)) return true;
   if (/\d{1,3}(?:-\d{1,3}){0,2}\s*(?:поле|field)/i.test(text)) return true;
@@ -708,8 +880,9 @@ function resolveRoutingMessageWithMemory(params: {
     };
   }
 
-  const hasExplicitField = hasExplicitFieldInText(normalized);
-  const hasExplicitWarehouse = hasExplicitWarehouseInText(normalized);
+  const hasExplicitField = hasExplicitFieldInTextV2(normalized);
+  const hasExplicitWarehouse = hasExplicitWarehouseInTextV2(normalized);
+  const hasExplicitCrop = hasExplicitCropInText(normalized);
   if (hasExplicitField || hasExplicitWarehouse) {
     return {
       routingMessage: raw,
@@ -731,6 +904,10 @@ function resolveRoutingMessageWithMemory(params: {
     cleanString(params.state.lastWarehouseId) ||
     cleanString(params.runtimeContext.selectedWarehouseLabel) ||
     cleanString(params.runtimeContext.selectedWarehouseId);
+  const cropRef =
+    cleanString(params.state.lastVariety) ||
+    cleanString(params.state.lastCrop) ||
+    cleanString(params.runtimeContext.selectedCrop);
 
   const mentionsMaterials = /(материал|удобр|сзр|семен|внесл|расход|выдали|списан)/i.test(normalized);
   const mentionsOperations = /(операц|работ|делал|выполн|в работе)/i.test(normalized);
@@ -738,7 +915,66 @@ function resolveRoutingMessageWithMemory(params: {
   const mentionsWarehouseMoves = /(движ|журнал|приход|ушл|расход|movement|ledger)/i.test(normalized);
   const mentionsWarehouseFollowup = /(по складу|по нему|по этому складу|а по складу)/i.test(normalized);
 
-  if ((mentionsMaterials || mentionsOperations || mentionsHarvest) && fieldRef) {
+  const mentionsMaterialsV2 =
+    mentionsMaterials ||
+    hasAnyRoutingPattern(normalized, [
+      /(\u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b|\u0443\u0434\u043e\u0431\u0440|\u0441\u0437\u0440|\u0441\u0435\u043c\u0435\u043d|\u0432\u043d\u0435\u0441|\u0440\u0430\u0441\u0445\u043e\u0434|\u0432\u044b\u0434\u0430\u043b|\u0441\u043f\u0438\u0441\u0430\u043d|material|fertiliz|seed|issued)/i,
+    ]);
+  const mentionsOperationsV2 =
+    mentionsOperations ||
+    hasAnyRoutingPattern(normalized, [
+      /(\u043e\u043f\u0435\u0440\u0430\u0446|\u0440\u0430\u0431\u043e\u0442|\u0434\u0435\u043b\u0430\u043b|\u0432\u044b\u043f\u043e\u043b\u043d|\u0432\s+\u0440\u0430\u0431\u043e\u0442\u0435|operation|task)/i,
+    ]);
+  const mentionsHarvestV2 =
+    mentionsHarvest ||
+    hasAnyRoutingPattern(normalized, [
+      /(\u0443\u0440\u043e\u0436|\u0443\u0431\u043e\u0440\u043a|\u0441\u043e\u0431\u0440\u0430\u043b|yield|harvest)/i,
+    ]);
+  const mentionsWarehouseMovesV2 =
+    mentionsWarehouseMoves ||
+    hasAnyRoutingPattern(normalized, [
+      /(\u0434\u0432\u0438\u0436|\u0436\u0443\u0440\u043d\u0430\u043b|\u043f\u0440\u0438\u0445\u043e\u0434|\u0443\u0448\u043b|\u0440\u0430\u0441\u0445\u043e\u0434|movement|ledger)/i,
+    ]);
+  const mentionsInventoryBalance = hasAnyRoutingPattern(normalized, [
+    /(\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u0441\u043a\u043e\u043b\u044c\u043a\u043e|stock|balance|inventory)/i,
+    /(РѕСЃС‚Р°С‚|РЅР°Р»РёС‡|СЃРєРѕР»СЊРєРѕ|stock|balance|inventory)/i,
+  ]);
+  const mentionsNegativeStock = hasAnyRoutingPattern(normalized, [
+    /(\u043e\u0442\u0440\u0438\u0446\u0430\u0442|\u043c\u0438\u043d\u0443\u0441|negative)/i,
+    /(РѕС‚СЂРёС†Р°С‚|РјРёРЅСѓСЃ|negative)/i,
+  ]);
+  const mentionsWarehouseFollowupV2 =
+    mentionsWarehouseFollowup ||
+    hasAnyRoutingPattern(normalized, [
+      /(\u043f\u043e\s+\u0441\u043a\u043b\u0430\u0434\u0443|\u043f\u043e\s+\u043d\u0435\u043c\u0443|\u043f\u043e\s+\u044d\u0442\u043e\u043c\u0443\s+\u0441\u043a\u043b\u0430\u0434\u0443|\u0430\s+\u043f\u043e\s+\u0441\u043a\u043b\u0430\u0434\u0443)/i,
+    ]);
+
+  if ((mentionsMaterialsV2 || mentionsOperationsV2 || mentionsHarvestV2) && fieldRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `field ${fieldRef}`),
+      used: true,
+      keysUsed: ["lastFieldLabel", "lastField", "lastFieldId"],
+      resolvedEntitySource: cleanString(params.state.lastFieldLabel) || cleanString(params.state.lastField) || cleanString(params.state.lastFieldId)
+        ? "session_memory"
+        : "page_context",
+    };
+  }
+
+  if ((mentionsWarehouseMovesV2 || mentionsWarehouseFollowupV2 || mentionsInventoryBalance || mentionsNegativeStock || hasExplicitCrop) && warehouseRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `warehouse ${warehouseRef}`),
+      used: true,
+      keysUsed: ["lastWarehouseLabel", "lastWarehouse", "lastWarehouseId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastWarehouseLabel) ||
+        cleanString(params.state.lastWarehouse) ||
+        cleanString(params.state.lastWarehouseId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  if ((mentionsMaterialsV2 || mentionsOperationsV2 || mentionsHarvestV2) && fieldRef) {
     const suffix = `по полю ${fieldRef}`;
     return {
       routingMessage: `${raw} ${suffix}`.trim(),
@@ -762,6 +998,17 @@ function resolveRoutingMessageWithMemory(params: {
         cleanString(params.state.lastWarehouseId)
           ? "session_memory"
           : "page_context",
+    };
+  }
+
+  if (!hasExplicitCrop && cropRef && (mentionsMaterialsV2 || mentionsOperationsV2 || mentionsHarvestV2 || mentionsInventoryBalance)) {
+    return {
+      routingMessage: appendMemoryContext(raw, `crop ${cropRef}`),
+      used: true,
+      keysUsed: ["lastCrop", "lastVariety"],
+      resolvedEntitySource: cleanString(params.state.lastCrop) || cleanString(params.state.lastVariety)
+        ? "session_memory"
+        : "page_context",
     };
   }
 
@@ -1123,6 +1370,18 @@ function formatFieldsSummaryRowsV2(rows: Array<Record<string, unknown>>): string
   ].join("\n");
 }
 
+function formatFieldLandBankSummaryRows(rows: Array<Record<string, unknown>>): string {
+  const row = rows[0] || {};
+  const totalFields = asNumber(row.total_fields);
+  const totalArea = asNumber(row.total_area_ha);
+  if (!totalFields && !totalArea) return "Р—РµРјРµР»СЊРЅС‹Р№ Р±Р°РЅРє РїРѕ РїРѕР»СЏРј РЅРµ РЅР°Р№РґРµРЅ.";
+  return [
+    `Р’СЃРµРіРѕ РїРѕР»РµР№: ${formatNumber(totalFields, 0)}.`,
+    `РћР±С‰Р°СЏ РїР»РѕС‰Р°РґСЊ С…РѕР·СЏР№СЃС‚РІР°: ${formatNumber(totalArea, 2)} РіР°.`,
+    "РСЃС‚РѕС‡РЅРёРє: fields, С„РёР»СЊС‚СЂ company_id + archived=false.",
+  ].join("\n");
+}
+
 function formatFieldTimelineRowsV2(rows: Array<Record<string, unknown>>): string {
   if (!rows.length) return "История поля не найдена.";
   const labelByType: Record<string, string> = {
@@ -1226,6 +1485,23 @@ function formatGroundedToolOutput(params: {
   if (intentName === "warehouse_movements" || toolName === "get_warehouse_movements") {
     return formatWarehouseMovementsRowsV2(rows);
   }
+  if (toolName === "get_field_land_bank_summary") {
+    return formatFieldLandBankSummaryRows(rows);
+  }
+  if (toolName === "get_crop_structure_summary") {
+    if (!rows.length) {
+      const queryText = cleanString(intentParams.query)?.toLowerCase() || "";
+      const cropText = `${cleanString(intentParams.crop) || ""} ${cleanString(intentParams.crop_alias) || ""}`.toLowerCase();
+      const potatoRequested = /картоф|potato|гала|gala|сорая|soraya|балтик|baltic|азилит|azilit/.test(
+        `${cropText} ${queryText}`
+      );
+      if (potatoRequested) {
+        return `В структуре ${sourceSeason || "2026"} картофель не найден.`;
+      }
+      return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
+    }
+    return formatCropStructureSummaryRowsV2(rows, outputType, sourceSeason || "2026", intentParams);
+  }
   if (intentName === "field_total_area") {
     return formatFieldsSummaryRowsV2(rows);
   }
@@ -1243,20 +1519,6 @@ function formatGroundedToolOutput(params: {
   }
   if (toolName === "get_field_card") {
     return formatFieldCardRowsV2(rows);
-  }
-  if (toolName === "get_crop_structure_summary") {
-    if (!rows.length) {
-      const queryText = cleanString(intentParams.query)?.toLowerCase() || "";
-      const cropText = `${cleanString(intentParams.crop) || ""} ${cleanString(intentParams.crop_alias) || ""}`.toLowerCase();
-      const potatoRequested = /картоф|potato|гала|gala|сорая|soraya|балтик|baltic|азилит|azilit/.test(
-        `${cropText} ${queryText}`
-      );
-      if (potatoRequested) {
-        return `В структуре ${sourceSeason || "2026"} картофель не найден.`;
-      }
-      return `По сезону ${sourceSeason || "2026"} данных не найдено.`;
-    }
-    return formatCropStructureSummaryRowsV2(rows, outputType, sourceSeason || "2026", intentParams);
   }
   if (intentName === "crop_structure_area") {
     if (toolName !== "get_crop_structure" && toolName !== "search_crops_by_group") {
@@ -1352,6 +1614,7 @@ function mapToolNamespace(tool: AssistantToolName): string {
     get_routes: "navigation.getRoutes",
     get_company_context: "context.getCompanyContext",
     get_current_season: "context.getCurrentSeason",
+    get_field_land_bank_summary: "field.landBankSummary",
     find_field: "field.search",
     search_fields: "field.search",
     get_field_card: "field.summary",
@@ -1391,7 +1654,7 @@ function buildToolActivityLogs(toolCalls: AssistantToolCallLog[]): string[] {
     const name = mapToolNamespace(toolCall.tool);
     if (toolCall.ok) {
       const rows = Number.isFinite(Number(toolCall.rows)) ? Number(toolCall.rows) : 0;
-      return `${name}: ${rows} rows`;
+      return `${name}: ${rows} rows${typeof toolCall.durationMs === "number" ? ` in ${toolCall.durationMs}ms` : ""}`;
     }
     return `${name}: error (${toolCall.error || "unknown error"})`;
   });
@@ -1419,7 +1682,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     warehouse_movements: ["get_warehouse_movements"],
     weighbridge_tickets: ["get_weighbridge_tickets"],
     crop_structure_area: ["get_crop_structure_summary"],
-    field_total_area: ["get_fields", "get_crop_structure_summary"],
+    field_total_area: ["get_field_land_bank_summary"],
     rotation_history: ["get_field_timeline"],
     fields_overview: ["get_field_card", "search_fields", "get_fields"],
     crop_structure_overview: ["get_crop_structure_summary"],
@@ -1443,6 +1706,18 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   const intentGroup = cleanString(intent.parameters.intent_group)?.toLowerCase() || "";
   const resolvedType = resolveOutputType(intent);
   const tools = [...(byIntent[intent.name] || [])];
+  const mentionsFieldRef =
+    /(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)\s*\d{1,3}(?:-\d{1,3}){0,2}|\d{1,3}(?:-\d{1,3}){0,2}\s*(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)/i.test(
+      queryText
+    );
+  const mentionsFieldMaterials =
+    /(\u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b|\u0443\u0434\u043e\u0431\u0440|\u0441\u0437\u0440|\u0441\u0435\u043c\u0435\u043d|material|fertiliz|seed|pestic)/i.test(
+      queryText
+    );
+  const mentionsFieldTimeline =
+    /(\u043e\u043f\u0435\u0440\u0430\u0446|\u0443\u0440\u043e\u0436|\u0443\u0431\u043e\u0440\u043a|\u0438\u0441\u0442\u043e\u0440|operation|harvest|timeline)/i.test(
+      queryText
+    );
 
   if (intent.name === "navigation_help" && action === "open_entity") {
     if (entityType === "warehouse") tools.unshift("resolve_warehouse_by_name");
@@ -1474,7 +1749,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
       (/(какие|список|все|сколько|count|list|all)/i.test(queryText) ||
         /(поля|поле|fields?|field)/i.test(queryText));
     if (resolvedType === "summary_total") {
-      tools.splice(0, tools.length, "get_fields");
+      tools.splice(0, tools.length, "get_field_land_bank_summary");
     } else if (genericFieldListRequested) {
       tools.splice(0, tools.length, "get_fields", "search_fields");
     } else if (queryText) {
@@ -1483,6 +1758,12 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
         tools.push("get_field_materials");
       }
       if (/(истори|севооборот|прошл|timeline)/i.test(queryText)) {
+        tools.push("get_field_timeline");
+      }
+      if (mentionsFieldMaterials) {
+        tools.push("get_field_materials");
+      }
+      if (mentionsFieldTimeline) {
         tools.push("get_field_timeline");
       }
     }
@@ -1520,6 +1801,9 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     tools.unshift("search_operations");
     if (/(\bop[-_\s]?\d+\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.test(queryText)) {
       tools.unshift("get_operation_details");
+    }
+    if (mentionsFieldRef) {
+      tools.unshift(mentionsFieldMaterials ? "get_field_materials" : "get_field_timeline");
     }
   }
 
@@ -1575,6 +1859,15 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   if (intent.name === "crop_structure_area") {
     requiredTools.push("get_crop_structure_summary");
   }
+  if (intent.name === "field_total_area") {
+    requiredTools.push("get_field_land_bank_summary");
+    if (
+      cropAlias ||
+      /(\u043a\u0430\u0440\u0442\u043e\u0444|\u043f\u0448\u0435\u043d|\u044f\u0447\u043c\u0435\u043d|\u043a\u0443\u043a\u0443\u0440\u0443\u0437|\u0440\u0430\u043f\u0441|\u0441\u043e\u044f|\u043e\u0432\u0435\u0441|\u043b\u0435\u043d|\u043b\u0451\u043d|\u043c\u043e\u0440\u043a\u043e\u0432|\u043b\u0443\u043a|potato|wheat|barley|corn|rapeseed|soy|oats|carrot|onion)/i.test(queryText)
+    ) {
+      requiredTools.push("get_crop_structure_summary");
+    }
+  }
   if (intent.name === "warehouse_count") {
     requiredTools.push("get_warehouse_count");
   }
@@ -1594,7 +1887,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   if (intent.name === "fields_overview") {
     const fieldQuery = cleanString(intent.parameters.field) || cleanString(intent.parameters.entityQuery);
     if (resolvedType === "summary_total" || !fieldQuery) {
-      requiredTools.push("get_fields");
+      requiredTools.push("get_field_land_bank_summary");
     } else {
       requiredTools.push("get_field_card");
     }
@@ -1614,7 +1907,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     warehouse_movements: ["get_warehouse_movements"],
     weighbridge_tickets: ["get_active_tickets", "get_recent_tickets", "get_weighbridge_tickets"],
     crop_structure_area: ["get_crop_structure_summary", "search_crops_by_group"],
-    field_total_area: ["get_fields", "get_crop_structure_summary"],
+    field_total_area: ["get_field_land_bank_summary"],
     rotation_history: ["get_field_timeline", "search_fields"],
     fields_overview: ["get_field_card", "search_fields", "get_fields"],
     crop_structure_overview: ["get_crop_structure_summary", "search_crops_by_group"],
@@ -2120,6 +2413,11 @@ export async function runAssistantEngine(params: {
         outputs: planner.outputs,
         groundedRequired: plannerUsedTools,
       });
+      const consistency = validateAnswerDataByIntent({
+        intent: plannerIntent,
+        outputs: planner.outputs,
+        nextState: planner.sessionState,
+      });
       const shouldForceNoData =
         plannerUsedTools &&
         !plannerOnlyNavigation &&
@@ -2129,16 +2427,37 @@ export async function runAssistantEngine(params: {
       if (!answer) {
         answer = "Не смог сформировать ответ. Попробуйте уточнить запрос.";
       }
+      if (plannerUsedTools && consistency.correctionText) {
+        answer = `${consistency.correctionText}\n\n${answer}`.trim();
+      }
+      if (plannerUsedTools && consistency.inconsistencyText) {
+        answer = `${answer}\n\n${consistency.inconsistencyText}`.trim();
+      }
+      if (plannerUsedTools && consistency.advisoryText) {
+        answer = `${answer}\n\n${consistency.advisoryText}`.trim();
+      }
       if (
         navigationResult.policy === "blocked" &&
         /(открыл|открываю|перехожу|показываю страницу|i opened|opening)/i.test(String(answer).toLowerCase())
       ) {
         answer = "Данные показал. Если нужно, открою страницу по явной команде.";
       }
+      const plannerUpdatedState: AssistantSessionState = {
+        ...planner.sessionState,
+        lastIntent: plannerIntent.name,
+        lastDetectedInconsistency:
+          consistency.inconsistencyText ||
+          (consistency.contradictionDetected ? consistency.correctionText : null) ||
+          planner.sessionState.lastDetectedInconsistency,
+        lastInconsistencyAt:
+          (consistency.inconsistencyText || consistency.contradictionDetected)
+            ? new Date().toISOString()
+            : planner.sessionState.lastInconsistencyAt,
+      };
 
       return {
         answer,
-        sessionState: { ...planner.sessionState, lastIntent: plannerIntent.name },
+        sessionState: plannerUpdatedState,
         intent: plannerIntent,
         outputType: plannerResolvedOutputType,
         mode: plannerResolvedMode,
@@ -2147,7 +2466,7 @@ export async function runAssistantEngine(params: {
         navigationActions: navigationResult.actions,
         sourceHints: uniqueStrings(planner.sourceHints),
         answerSource: plannerUsedTools ? "model_grounded" : "llm_fallback",
-        grounded: plannerUsedTools ? validation.pass && !shouldForceNoData : false,
+        grounded: plannerUsedTools ? validation.pass && consistency.pass && !shouldForceNoData : false,
         decisionSource,
         explicitNavigationRequested,
         navigationPolicy,
@@ -2166,9 +2485,9 @@ export async function runAssistantEngine(params: {
           selectedSource: plannerEffectiveSelectedSource,
           selectedTool: planner.toolCalls[0]?.tool || null,
           previousRelatedMemory: plannerPreviousRelatedMemory,
-          consistencyCheck: plannerUsedTools ? (validation.pass ? "pass" : "fail") : "skipped",
-          contradictionDetected: false,
-          correctionApplied: plannerUsedTools ? !validation.pass : false,
+          consistencyCheck: plannerUsedTools ? (validation.pass && consistency.pass ? "pass" : "fail") : "skipped",
+          contradictionDetected: plannerUsedTools ? consistency.contradictionDetected : false,
+          correctionApplied: plannerUsedTools ? consistency.correctionApplied || !validation.pass : false,
         }),
         performance: buildPerformance({
           promptTokens: planner.usage.promptTokens,
@@ -2280,6 +2599,11 @@ export async function runAssistantEngine(params: {
         outputs: planner.outputs,
         groundedRequired: plannerUsedTools,
       });
+      const consistency = validateAnswerDataByIntent({
+        intent,
+        outputs: planner.outputs,
+        nextState: planner.sessionState,
+      });
       let answer =
         plannerUsedTools &&
         !plannerOnlyNavigation &&
@@ -2287,16 +2611,37 @@ export async function runAssistantEngine(params: {
         looksLikeErpDataQuestion(messageForRouting)
           ? noDataGroundedMessage()
           : validation.normalizedAnswer;
+      if (plannerUsedTools && consistency.correctionText) {
+        answer = `${consistency.correctionText}\n\n${answer}`.trim();
+      }
+      if (plannerUsedTools && consistency.inconsistencyText) {
+        answer = `${answer}\n\n${consistency.inconsistencyText}`.trim();
+      }
+      if (plannerUsedTools && consistency.advisoryText) {
+        answer = `${answer}\n\n${consistency.advisoryText}`.trim();
+      }
       if (
         navigationResult.policy === "blocked" &&
         /(открыл|открываю|перехожу|показываю страницу|i opened|opening)/i.test(String(answer).toLowerCase())
       ) {
         answer = "Данные показал. Если нужно, открою страницу по явной команде.";
       }
+      const plannerUpdatedState: AssistantSessionState = {
+        ...planner.sessionState,
+        lastIntent: intent.name,
+        lastDetectedInconsistency:
+          consistency.inconsistencyText ||
+          (consistency.contradictionDetected ? consistency.correctionText : null) ||
+          planner.sessionState.lastDetectedInconsistency,
+        lastInconsistencyAt:
+          (consistency.inconsistencyText || consistency.contradictionDetected)
+            ? new Date().toISOString()
+            : planner.sessionState.lastInconsistencyAt,
+      };
 
       return {
         answer,
-        sessionState: { ...planner.sessionState, lastIntent: intent.name },
+        sessionState: plannerUpdatedState,
         intent,
         outputType: resolvedOutputType,
         mode: resolvedMode,
@@ -2305,7 +2650,7 @@ export async function runAssistantEngine(params: {
         navigationActions: navigationResult.actions,
         sourceHints: uniqueStrings(planner.sourceHints),
         answerSource: plannerUsedTools ? "model_grounded" : "llm_fallback",
-        grounded: plannerUsedTools ? validation.pass : false,
+        grounded: plannerUsedTools ? validation.pass && consistency.pass : false,
         decisionSource,
         explicitNavigationRequested,
         navigationPolicy,
@@ -2324,9 +2669,9 @@ export async function runAssistantEngine(params: {
           selectedSource: effectiveSelectedSource,
           selectedTool: planner.toolCalls[0]?.tool || null,
           previousRelatedMemory,
-          consistencyCheck: validation.pass ? "pass" : "fail",
-          contradictionDetected: false,
-          correctionApplied: !validation.pass,
+          consistencyCheck: validation.pass && consistency.pass ? "pass" : "fail",
+          contradictionDetected: consistency.contradictionDetected,
+          correctionApplied: consistency.correctionApplied || !validation.pass,
         }),
         performance: buildPerformance({
           promptTokens: planner.usage.promptTokens,
@@ -2478,6 +2823,7 @@ export async function runAssistantEngine(params: {
       }
 
       try {
+        const toolStartedAt = Date.now();
         const output = await tool.run({
           supabase,
           actor,
@@ -2513,6 +2859,7 @@ export async function runAssistantEngine(params: {
           params: intent.parameters || {},
           ok: true,
           rows: output.rows.length,
+          durationMs: Date.now() - toolStartedAt,
         });
       } catch (error) {
         toolCalls.push({
@@ -2562,6 +2909,9 @@ export async function runAssistantEngine(params: {
     }
     if (consistency.inconsistencyText) {
       answerParts.push(consistency.inconsistencyText);
+    }
+    if (consistency.advisoryText) {
+      answerParts.push(consistency.advisoryText);
     }
 
     const updatedState: AssistantSessionState = {

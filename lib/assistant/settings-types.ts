@@ -107,6 +107,7 @@ export const DEFAULT_ASSISTANT_PLATFORM_SETTINGS: AssistantPlatformSettings = {
     "get_routes",
     "get_company_context",
     "get_current_season",
+    "get_field_land_bank_summary",
     "search_fields",
     "get_field_card",
     "get_field_timeline",

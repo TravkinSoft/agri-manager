@@ -122,6 +122,12 @@ function isFarmAreaQuestion(text: string): boolean {
   );
 }
 
+function isLandBankSummaryQuestion(text: string): boolean {
+  return /(\u0437\u0435\u043c\u0435\u043b\u044c\u043d\w*\s+\u0431\u0430\u043d\u043a|\u043f\u043b\u043e\u0449\u0430\u0434\w*\s+\u0445\u043e\u0437\u044f\u0439\u0441\u0442\u0432|\u043e\u0431\u0449\u0430\w*\s+\u043f\u043b\u043e\u0449\u0430\u0434|\u0432\u0441\u0435\u0433\u043e\s+\u0433\u0435\u043a\u0442|\u0432\u0441\u0435\u0433\u043e\s+\u0433\u0430\b|\u0432\u0441\u0435\u0433\u043e\s+\u043f\u043e\u043b\u0435\u0439|\u0441\u043a\u043e\u043b\u044c\u043a\u043e\s+\u0432\u0441\u0435\u0433\u043e\s+\u0433\u0435\u043a\u0442|\u0441\u043a\u043e\u043b\u044c\u043a\u043e\s+\u0432\u0441\u0435\u0433\u043e\s+\u043f\u043e\u043b\u0435\u0439|total\s+hectares|total\s+fields|land\s+bank|farm\s+area|company\s+field\s+area)/i.test(
+    text
+  );
+}
+
 function isWarehouseCountQuestion(text: string): boolean {
   return hasRegex(
     text,
@@ -529,6 +535,26 @@ function fallbackIntent(
     );
   }
 
+  if (isFarmAreaQuestion(text) || isFieldCountQuestion(text) || isLandBankSummaryQuestion(text)) {
+    return withCommonDefaults(
+      {
+        name: "field_total_area",
+        confidence: 0.99,
+        needsData: true,
+        parameters: {
+          query: cleanString(raw),
+          crop_group: cropGroups[0] || null,
+          crop_alias: inferredCropAlias,
+          intent_group: "fields",
+          output_type: "summary_total",
+          source_of_truth: "fields",
+        },
+      },
+      text,
+      runtimeContext
+    );
+  }
+
   if (isCropAreaQuestion(text) || isGeneralHectaresQuestion(text)) {
     return withCommonDefaults(
       {
@@ -540,23 +566,6 @@ function fallbackIntent(
           crop_group: cropGroups[0] || null,
           crop_alias: inferredCropAlias,
           intent_group: "crop_structure",
-          output_type: listRequested ? "list" : "summary_total",
-        },
-      },
-      text,
-      runtimeContext
-    );
-  }
-
-  if (isFarmAreaQuestion(text)) {
-    return withCommonDefaults(
-      {
-        name: "field_total_area",
-        confidence: 0.97,
-        needsData: true,
-        parameters: {
-          query: cleanString(raw),
-          intent_group: "fields",
           output_type: listRequested ? "list" : "summary_total",
         },
       },

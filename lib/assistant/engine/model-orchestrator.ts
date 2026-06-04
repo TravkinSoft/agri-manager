@@ -4,6 +4,7 @@ import type {
   AssistantNavigationAction,
   AssistantSessionState,
   AssistantToolCallLog,
+  AssistantToolName,
   AssistantToolOutput,
   AssistantUiContext,
 } from "@/lib/assistant/engine/types";
@@ -63,6 +64,42 @@ function clean(value: unknown): string | null {
   return text.length ? text : null;
 }
 
+function isFieldLandBankAggregateQuery(value: unknown): boolean {
+  const text = String(value || "").toLowerCase();
+  const landBankTerms =
+    /(\u0437\u0435\u043c\u0435\u043b\u044c\u043d\w*\s+\u0431\u0430\u043d\u043a|\u043f\u043b\u043e\u0449\u0430\u0434\w*\s+\u0445\u043e\u0437\u044f\u0439\u0441\u0442\u0432|\u043e\u0431\u0449\u0430\w*\s+\u043f\u043b\u043e\u0449\u0430\u0434|\u0432\u0441\u0435\u0433\u043e\s+\u0433\u0435\u043a\u0442|\u0432\u0441\u0435\u0433\u043e\s+\u0433\u0430\b|\u0432\u0441\u0435\u0433\u043e\s+\u043f\u043e\u043b\u0435\u0439|\u0441\u043a\u043e\u043b\u044c\u043a\u043e\s+\u0432\u0441\u0435\u0433\u043e\s+\u0433\u0435\u043a\u0442|\u0441\u043a\u043e\u043b\u044c\u043a\u043e\s+\u0432\u0441\u0435\u0433\u043e\s+\u043f\u043e\u043b\u0435\u0439|total\s+hectares|total\s+fields|land\s+bank|farm\s+area|company\s+field\s+area)/i;
+  return landBankTerms.test(text);
+}
+
+function isCropStructureAggregateQuery(value: unknown): boolean {
+  const text = String(value || "").toLowerCase();
+  const cropTerms =
+    /(\u043a\u0430\u0440\u0442\u043e\u0444|\u043f\u0448\u0435\u043d|\u044f\u0447\u043c\u0435\u043d|\u043a\u0443\u043a\u0443\u0440\u0443\u0437|\u0440\u0430\u043f\u0441|\u0441\u043e\u044f|\u043e\u0432\u0435\u0441|\u043b\u0435\u043d|\u043b\u0451\u043d|\u043c\u043e\u0440\u043a\u043e\u0432|\u043b\u0443\u043a|potato|wheat|barley|corn|rapeseed|soy|oats|carrot|onion)/i;
+  const aggregateTerms =
+    /(\u0441\u043a\u043e\u043b\u044c\u043a\u043e|\u043f\u043b\u043e\u0449\u0430\u0434|\u0433\u0435\u043a\u0442|\u0433\u0430\b|\u043f\u043e\u0441\u0435\u044f|\u043f\u043e\u0441\u0430\u0436|how\s+much|area|hectares)/i;
+  return cropTerms.test(text) && aggregateTerms.test(text);
+}
+
+function hasOutputSource(outputs: AssistantToolOutput[], marker: string): boolean {
+  const needle = marker.toLowerCase();
+  return outputs.some((output) => String(output.source.tableOrView || "").toLowerCase().includes(needle));
+}
+
+function coerceToolForSourceOfTruth(params: {
+  requestedTool: AssistantToolName;
+  args: Record<string, unknown>;
+  message: string;
+}): AssistantToolName {
+  const query = clean(params.args.query) || params.message;
+  if (
+    (params.requestedTool === "search_fields" || params.requestedTool === "get_fields") &&
+    isFieldLandBankAggregateQuery(query)
+  ) {
+    return "get_field_land_bank_summary";
+  }
+  return params.requestedTool;
+}
+
 function usageFrom(data: any): UsageStats {
   return {
     promptTokens: Number.isFinite(Number(data?.usage?.prompt_tokens)) ? Number(data.usage.prompt_tokens) : null,
@@ -99,7 +136,9 @@ function safeJsonParse(value: unknown): Record<string, unknown> {
 
 function buildToolActivity(toolCalls: AssistantToolCallLog[]): string[] {
   return toolCalls.map((item) =>
-    item.ok ? `${item.tool}: ${item.rows || 0} rows` : `${item.tool}: error (${item.error || "unknown"})`
+    item.ok
+      ? `${item.tool}: ${item.rows || 0} rows${typeof item.durationMs === "number" ? ` in ${item.durationMs}ms` : ""}`
+      : `${item.tool}: error (${item.error || "unknown"})`
   );
 }
 
@@ -274,6 +313,11 @@ export async function runModelOrchestrator(params: {
           "Не добавляйте навигационные действия без явной команды пользователя.",
         ].join("\n"),
       },
+      {
+        role: "system",
+        content:
+          "Source of Truth contract: total fields, total hectares, land bank, and overall farm area MUST use get_field_land_bank_summary. Never derive totals from list_fields/search_fields. Crop/sown area MUST use get_crop_structure_summary. Mixed questions must call both relevant aggregate tools.",
+      },
       { role: "system", content: `Router fallback hint only. Ignore it if the user asks a knowledge/process question:\n${toIntentContext(params.intent)}` },
       { role: "system", content: `Runtime context:\n${toRuntimeContext(params.runtimeContext)}` },
       { role: "system", content: `Session summary:\n${toSessionSummary(params.sessionState)}` },
@@ -346,6 +390,26 @@ export async function runModelOrchestrator(params: {
       const answerChunk = clean(choice?.content);
 
       if (!toolCallsRaw.length) {
+        const requiresLandBankSummary = isFieldLandBankAggregateQuery(params.message);
+        const requiresCropSummary = requiresLandBankSummary && isCropStructureAggregateQuery(params.message);
+        const hasLandBankSummary = hasOutputSource(outputs, "land_bank_summary");
+        const hasCropSummary = hasOutputSource(outputs, "crop_structure");
+        if (
+          (requiresLandBankSummary && !hasLandBankSummary) ||
+          (requiresCropSummary && !hasCropSummary)
+        ) {
+          llm = {
+            status: "invalid_response",
+            httpStatus: completionRes.status,
+            errorCode: "SOURCE_OF_TRUTH_TOOL_REQUIRED",
+            errorMessage: requiresCropSummary
+              ? "Mixed land bank and crop aggregate requires get_field_land_bank_summary and get_crop_structure_summary."
+              : "Field land bank aggregate requires get_field_land_bank_summary.",
+            missingEnv: [],
+          };
+          hardFailure = true;
+          break;
+        }
         finalAnswer = answerChunk || "";
         llm = {
           status: "ok",
@@ -382,10 +446,16 @@ export async function runModelOrchestrator(params: {
           continue;
         }
 
-        const tool = getAssistantTool(mapping.assistantTool);
+        const requestedTool = mapping.assistantTool;
+        const executionToolName = coerceToolForSourceOfTruth({
+          requestedTool,
+          args,
+          message: params.message,
+        });
+        const tool = getAssistantTool(executionToolName);
         if (!tool) {
           toolCalls.push({
-            tool: mapping.assistantTool,
+            tool: executionToolName,
             params: args,
             ok: false,
             error: "Tool definition missing",
@@ -398,15 +468,31 @@ export async function runModelOrchestrator(params: {
           continue;
         }
 
-        const plannerIntent = buildPlannerIntent({
+        const plannerIntentRaw = buildPlannerIntent({
           mapping,
           args,
           message: params.message,
           runtimeContext: params.runtimeContext,
         });
+        const plannerIntent =
+          executionToolName === "get_field_land_bank_summary"
+            ? {
+                ...plannerIntentRaw,
+                name: "field_total_area" as const,
+                confidence: Math.max(plannerIntentRaw.confidence, 0.99),
+                needsData: true,
+                parameters: {
+                  ...plannerIntentRaw.parameters,
+                  query: clean(args.query) || params.message,
+                  output_type: "summary_total",
+                  source_of_truth: "fields",
+                },
+              }
+            : plannerIntentRaw;
         plannerIntentForResult = plannerIntent;
 
         try {
+          const toolStartedAt = Date.now();
           const output = await tool.run({
             supabase: params.supabase,
             actor: params.actor,
@@ -427,12 +513,13 @@ export async function runModelOrchestrator(params: {
             seasonFromContext: params.runtimeContext.season,
           });
           toolCalls.push({
-            tool: mapping.assistantTool,
+            tool: executionToolName,
             params: args,
             ok: true,
             rows: output.rows.length,
+            durationMs: Date.now() - toolStartedAt,
           });
-          if (mapping.buildNavigation) {
+          if (executionToolName === requestedTool && mapping.buildNavigation) {
             const actions = mapping.buildNavigation(args, output.rows);
             navigationActions.push(...actions);
           }
@@ -443,7 +530,7 @@ export async function runModelOrchestrator(params: {
           });
         } catch (error) {
           toolCalls.push({
-            tool: mapping.assistantTool,
+            tool: executionToolName,
             params: args,
             ok: false,
             error: error instanceof Error ? error.message : "Tool execution failed",

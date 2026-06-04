@@ -70,7 +70,7 @@ function findValue(rows: Array<Record<string, unknown>>, keys: string[]): string
   for (const row of rows) {
     for (const key of keys) {
       const value = cleanString(row[key]);
-      if (value) return value;
+      if (value && value !== "-" && value !== "—") return value;
     }
   }
   return null;
@@ -84,9 +84,12 @@ export function updateSessionStateFromToolOutput(params: {
 }): AssistantSessionState {
   const { previous, intent, output, seasonFromContext } = params;
   const rows = output?.rows || [];
+  const outputTable = String(output?.source.tableOrView || "").toLowerCase();
   const inventoryTotalKg = rows.reduce((acc, row) => acc + asNumber(row.quantity), 0);
   const cropAreaHa = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
-  const fieldsAreaHa = rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
+  const fieldsAreaHa = outputTable.includes("land_bank_summary")
+    ? asNumber(rows[0]?.total_area_ha)
+    : rows.reduce((acc, row) => acc + asNumber(row.area_ha), 0);
   const warehouseCount =
     rows.length && Number.isFinite(Number(rows[0]?.warehouses_total))
       ? Number(rows[0]?.warehouses_total)
@@ -99,14 +102,24 @@ export function updateSessionStateFromToolOutput(params: {
     cleanString(intent.parameters.warehouse_alias) ||
     cleanString(intent.parameters.warehouse) ||
     cleanString(intent.parameters.entityQuery);
+  const varietyAliases = new Set(["gala", "soraya", "baltic rose", "azilit", "colombo", "impala"]);
+  const requestedCropRaw =
+    cleanString(intent.parameters.crop_alias) ||
+    cleanString(intent.parameters.crop) ||
+    cleanString(intent.parameters.product);
+  const requestedVariety =
+    cleanString(intent.parameters.variety) ||
+    (requestedCropRaw && varietyAliases.has(requestedCropRaw.toLowerCase()) ? requestedCropRaw : null);
+  const requestedCrop =
+    requestedCropRaw && !varietyAliases.has(requestedCropRaw.toLowerCase()) ? requestedCropRaw : null;
   const resolvedAnswerType = cleanString(intent.parameters.output_type);
 
   return {
     ...previous,
     lastIntent: intent.name,
     lastEntity: findValue(rows, ["id", "ticket_id", "field_id", "warehouse_id", "batch_id"]) || previous.lastEntity,
-    lastCrop: findValue(rows, ["crop_name", "product_name"]) || previous.lastCrop,
-    lastVariety: findValue(rows, ["variety_name"]) || previous.lastVariety,
+    lastCrop: findValue(rows, ["crop_name", "product_name"]) || requestedCrop || previous.lastCrop,
+    lastVariety: findValue(rows, ["variety_name"]) || requestedVariety || previous.lastVariety,
     lastBatchClass: findValue(rows, ["batch_class"]) || previous.lastBatchClass,
     lastWarehouse:
       findValue(rows, ["warehouse_name", "warehouse_from_name", "warehouse_to_name"]) ||
@@ -127,11 +140,17 @@ export function updateSessionStateFromToolOutput(params: {
     lastInventoryTotalKg:
       intent.name === "inventory_balance" ? Number(inventoryTotalKg.toFixed(3)) : previous.lastInventoryTotalKg,
     lastCropStructureAreaHa:
-      intent.name === "crop_structure_area" || intent.name === "crop_structure_overview"
+      intent.name === "crop_structure_area" ||
+      intent.name === "crop_structure_overview" ||
+      outputTable.includes("crop_structure")
         ? Number(cropAreaHa.toFixed(3))
         : previous.lastCropStructureAreaHa,
     lastFieldsAreaHa:
-      intent.name === "field_total_area" || intent.name === "fields_overview"
+      intent.name === "field_total_area"
+        ? outputTable.includes("land_bank_summary")
+          ? Number(fieldsAreaHa.toFixed(3))
+          : previous.lastFieldsAreaHa
+        : intent.name === "fields_overview"
         ? Number(fieldsAreaHa.toFixed(3))
         : previous.lastFieldsAreaHa,
   };

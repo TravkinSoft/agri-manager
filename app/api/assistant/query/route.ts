@@ -140,6 +140,7 @@ function mapToolNamespace(tool: string): string {
     get_routes: "navigation.getRoutes",
     get_company_context: "context.getCompanyContext",
     get_current_season: "context.getCurrentSeason",
+    get_field_land_bank_summary: "field.landBankSummary",
     find_field: "field.search",
     search_fields: "field.search",
     get_field_card: "field.summary",
