@@ -183,6 +183,15 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
     hasAny(text, ["open", "go to", "navigate"]);
   if (!looksLikeNavigation) return null;
 
+  if (hasRegex(text, /(карт[ау]?\s+пол|fields?-?map|field\s+map)/)) {
+    return { page: "fields-map", route: "/fields-map", action: "open_page" };
+  }
+  if (hasRegex(text, /(питан|термос|meal|thermos)/)) {
+    return { page: "meal-thermoses", route: "/meal-thermoses", action: "open_page" };
+  }
+  if (hasRegex(text, /(последн|истори|recent|latest|history)/) && hasRegex(text, /(талон|весов|ticket|weighbridge)/)) {
+    return { page: "weighbridge-history", route: "/weighbridge/history", action: "open_page" };
+  }
   if (hasRegex(text, /(весов|талон|weighbridge|ticket)/)) {
     return { page: "weighbridge", route: "/weighbridge", action: "open_page" };
   }

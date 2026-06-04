@@ -1248,20 +1248,45 @@ function formatOperationsRows(
   intentParams?: AssistantIntent["parameters"]
 ): string {
   const status = cleanString(intentParams?.status)?.toLowerCase();
+  const activeOnly =
+    status === "active" ||
+    (rows.length > 0 && rows.every((row) => String((row as any).work_status || "").toLowerCase() === "active"));
   const title =
-    status === "active"
+    activeOnly
       ? "Активные операции"
       : status === "waiting_materials"
         ? "Операции в ожидании материалов"
-        : "Последние операции";
+        : "Операции";
 
   if (!rows.length) return `${title} не найдены.`;
-  const lines = rows
-    .slice(0, 10)
-    .map((row) => `• ${formatDateTime(row.date)} · ${safeText(row.operation_type)} · поле ${safeText(row.field_name)}`);
-  return `${title}:\n\n${lines.join("\n")}`;
+  const shown = rows.slice(0, 12);
+  const lines = shown.map((row) => {
+    const area = asNumber((row as any).area_ha);
+    const executor = cleanString((row as any).executor);
+    const materials = Array.isArray((row as any).materials) ? ((row as any).materials as Array<Record<string, unknown>>) : [];
+    const materialText = materials.length
+      ? materials
+          .slice(0, 3)
+          .map((item) => {
+            const qty = asNumber((item as any).quantity);
+            const unit = safeText((item as any).unit, "");
+            return `${safeText((item as any).product_name)}${qty > 0 ? ` ${formatNumber(qty, 3)} ${unit}` : ""}`.trim();
+          })
+          .join(", ")
+      : cleanString((row as any).materials_text) || "материалы не указаны";
+    return [
+      `- ${formatShortDate((row as any).date)}: ${safeText((row as any).operation_type)} на поле ${safeText((row as any).field_name)}`,
+      `статус ${safeText((row as any).work_status || (row as any).status)}`,
+      area > 0 ? `${formatNumber(area, 2)} га` : null,
+      executor ? `исполнитель ${executor}` : null,
+      `материалы: ${materialText}`,
+    ]
+      .filter(Boolean)
+      .join(", ");
+  });
+  const tail = rows.length > shown.length ? `Показываю ${shown.length} из ${rows.length}.` : "";
+  return [`${title}: ${rows.length}.`, ...lines, tail].filter(Boolean).join("\n");
 }
-
 function formatFuelRows(rows: Array<Record<string, unknown>>): string {
   if (!rows.length) return "Движения ГСМ не найдены.";
   const lines = rows.slice(0, 14).map((row) => {
@@ -1407,16 +1432,30 @@ function formatFieldTimelineRowsV2(rows: Array<Record<string, unknown>>): string
 }
 
 function formatFieldMaterialsRowsV2(rows: Array<Record<string, unknown>>): string {
-  if (!rows.length) return "Фактические материалы по полю не найдены.";
-  const total = rows.reduce((acc, row) => acc + asNumber((row as any).qty_kg), 0);
-  const shown = rows.slice(0, 3);
-  const lines = shown.map(
-    (row) => `• ${safeText((row as any).product_name)} — ${formatNumber(asNumber((row as any).qty_kg), 3)} кг`
-  );
-  const tail = rows.length > shown.length ? `Показываю топ ${shown.length} из ${rows.length}.` : "";
-  return [`Материалы по полю: ${formatNumber(total, 3)} кг.`, ...lines, tail].filter(Boolean).join("\n");
+  if (!rows.length) return "Материалы по полю не найдены.";
+  const shown = rows.slice(0, 12);
+  const lines = shown.map((row) => {
+    const quantity = asNumber((row as any).quantity ?? (row as any).qty_kg);
+    const unit = safeText((row as any).unit, "кг");
+    const date = formatShortDate((row as any).date);
+    const operation = safeText((row as any).operation, "операция не указана");
+    const field = cleanString((row as any).field_name);
+    const source = cleanString((row as any).quantity_source);
+    const ticketNo = cleanString((row as any).ticket_no);
+    return [
+      `- ${safeText((row as any).product_name)}: ${formatNumber(quantity, 3)} ${unit}`,
+      date !== "-" ? `дата ${date}` : null,
+      `операция: ${operation}`,
+      ticketNo ? `талон ${ticketNo}` : null,
+      field ? `поле ${field}` : null,
+      source ? `источник ${source}` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+  });
+  const tail = rows.length > shown.length ? `Показываю ${shown.length} из ${rows.length}.` : "";
+  return [`Материалы по полю: ${rows.length} строк.`, ...lines, tail].filter(Boolean).join("\n");
 }
-
 function formatTicketsRowsV2(
   rows: Array<Record<string, unknown>>,
   intentParams?: AssistantIntent["parameters"]
@@ -1562,7 +1601,7 @@ function formatGroundedToolOutput(params: {
     return formatCompanyContextRows(rows);
   }
   if (toolName.startsWith("create_")) {
-    const message = cleanString(rows[0]?.message);
+    const message = cleanString(rows[0]?.draft_preview) || cleanString(rows[0]?.message);
     return (
       message ||
       "Черновик подготовлен. Проверьте обязательные поля и подтвердите выполнение вручную."
@@ -1570,6 +1609,45 @@ function formatGroundedToolOutput(params: {
   }
 
   return null;
+}
+
+function buildMandatoryToolDataAnswer(params: {
+  intent: AssistantIntent;
+  outputType: AssistantOutputType;
+  outputs: AssistantToolOutput[];
+  toolCalls: AssistantToolCallLog[];
+}): string | null {
+  const mandatoryTools = new Set<AssistantToolName>([
+    "get_active_operations",
+    "get_active_operations_summary",
+    "get_operations",
+    "search_operations",
+    "get_field_materials",
+  ]);
+  const blocks: string[] = [];
+
+  params.outputs.forEach((output, index) => {
+    if (!output.rows.length) return;
+    const loggedTool = params.toolCalls[index]?.tool;
+    const toolName =
+      loggedTool ||
+      (String(output.source.tableOrView || "").includes("operation_materials")
+        ? "get_field_materials"
+        : String(output.source.tableOrView || "").includes("operations")
+          ? "get_operations"
+          : null);
+    if (!toolName || !mandatoryTools.has(toolName as AssistantToolName)) return;
+    const formatted = formatGroundedToolOutput({
+      toolName: toolName as AssistantToolName,
+      intentName: params.intent.name,
+      outputType: params.outputType,
+      intentParams: params.intent.parameters,
+      output,
+    });
+    if (formatted) blocks.push(formatted);
+  });
+
+  return blocks.length ? blocks.join("\n\n") : null;
 }
 
 function buildCapabilitiesAnswer(locale: "ru" | "en" | "kz"): string {
@@ -1631,6 +1709,7 @@ function mapToolNamespace(tool: AssistantToolName): string {
     search_operations: "operation.search",
     get_operation_details: "operation.details",
     get_active_operations: "operation.active",
+    get_active_operations_summary: "operation.activeSummary",
     get_operations: "operation.search",
     get_weighbridge_tickets: "weighbridge.tickets",
     get_active_tickets: "weighbridge.tickets",
@@ -1642,6 +1721,15 @@ function mapToolNamespace(tool: AssistantToolName): string {
     search_crops_by_group: "crop.group",
     get_fuel_balances: "fuel.balance",
     get_fuel_movements: "fuel.movements",
+    create_operation_draft: "draft.operation",
+    create_field_draft: "draft.field",
+    create_meal_order_draft: "draft.mealOrder",
+    create_warehouse_draft: "draft.warehouse",
+    create_weighbridge_ticket_draft: "draft.weighbridgeTicket",
+    create_transfer_draft: "draft.transfer",
+    create_fuel_issue_draft: "draft.fuelIssue",
+    create_field_task_draft: "draft.fieldTask",
+    create_material_issue_draft: "draft.materialIssue",
     navigate_to_page: "navigation.navigateToRoute",
     open_entity: "navigation.openEntity",
     apply_filter: "navigation.applyFilter",
@@ -1686,7 +1774,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     rotation_history: ["get_field_timeline"],
     fields_overview: ["get_field_card", "search_fields", "get_fields"],
     crop_structure_overview: ["get_crop_structure_summary"],
-    operations_recent: ["get_active_operations", "search_operations"],
+    operations_recent: ["get_operations", "search_operations"],
     fuel_balance: ["get_fuel_balances"],
     fuel_movements: ["get_fuel_movements"],
     entity_resolution: [],
@@ -1702,7 +1790,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   const queryText = cleanString(intent.parameters.query)?.toLowerCase() || "";
   const cropGroup = cleanString(intent.parameters.crop_group);
   const cropAlias = cleanString(intent.parameters.crop_alias) || cleanString(intent.parameters.crop);
-  const status = cleanString(intent.parameters.status);
+  const status = cleanString(intent.parameters.status)?.toLowerCase() || "";
   const intentGroup = cleanString(intent.parameters.intent_group)?.toLowerCase() || "";
   const resolvedType = resolveOutputType(intent);
   const tools = [...(byIntent[intent.name] || [])];
@@ -1718,6 +1806,12 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     /(\u043e\u043f\u0435\u0440\u0430\u0446|\u0443\u0440\u043e\u0436|\u0443\u0431\u043e\u0440\u043a|\u0438\u0441\u0442\u043e\u0440|operation|harvest|timeline)/i.test(
       queryText
     );
+  const wantsActiveOperations =
+    intent.name === "operations_recent" &&
+    (status === "active" ||
+      /(active|current|in\s+work|\u0441\u0435\u0439\u0447\u0430\u0441|\u0430\u043a\u0442\u0438\u0432|\u0432\s+\u0440\u0430\u0431\u043e\u0442\u0435|\u0442\u0435\u043a\u0443\u0449)/i.test(
+        queryText
+      ));
 
   if (intent.name === "navigation_help" && action === "open_entity") {
     if (entityType === "warehouse") tools.unshift("resolve_warehouse_by_name");
@@ -1731,12 +1825,18 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
 
   if (intent.name === "create_draft") {
-    if (/(гсм|топлив|дизел|бензин|азс|fuel)/.test(queryText)) {
+    if (/(питан|термос|обед|ужин|завтрак|meal|thermos|lunch|dinner|breakfast)/.test(queryText)) {
+      tools[0] = "create_meal_order_draft";
+    } else if (/(талон|весов|ticket|weighbridge)/.test(queryText)) {
+      tools[0] = "create_weighbridge_ticket_draft";
+    } else if (/(создай|создать|нов(ый|ое)|create|new).*(склад|warehouse)|^(склад|warehouse)/.test(queryText)) {
+      tools[0] = "create_warehouse_draft";
+    } else if (/(создай|создать|нов(ый|ое)|create|new).*(поле|field)/.test(queryText)) {
+      tools[0] = "create_field_draft";
+    } else if (/(гсм|топлив|дизел|бензин|азс|fuel)/.test(queryText)) {
       tools[0] = "create_fuel_issue_draft";
     } else if (/(перемещ|transfer)/.test(queryText)) {
       tools[0] = "create_transfer_draft";
-    } else if (/(талон|весов|ticket|weighbridge)/.test(queryText)) {
-      tools[0] = "create_weighbridge_ticket_draft";
     } else if (/(поле|задач|task)/.test(queryText)) {
       tools[0] = "create_field_task_draft";
     }
@@ -1807,8 +1907,8 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     }
   }
 
-  if (intent.name === "operations_recent" && status === "active") {
-    tools.unshift("get_active_operations");
+  if (wantsActiveOperations) {
+    tools.unshift("get_active_operations_summary", "get_active_operations");
   }
 
   if (intent.name === "operations_recent" && (intentGroup === "materials" || intentGroup === "potato" || /картоф|гала|сорая|диамм|удобр|сзр|семян/.test(queryText))) {
@@ -1892,8 +1992,19 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
       requiredTools.push("get_field_card");
     }
   }
-  if (intent.name === "operations_recent" && status === "active") {
-    requiredTools.push("get_active_operations");
+  if (wantsActiveOperations) {
+    requiredTools.push("get_active_operations_summary");
+  }
+
+  if (intent.name === "create_draft") {
+    const selectedDraftTool = tools[0];
+    if (
+      selectedDraftTool &&
+      getAssistantTool(selectedDraftTool) &&
+      (allowByNamespaceFallback(selectedDraftTool) || allowedTools.has("create_operation_draft"))
+    ) {
+      return [selectedDraftTool];
+    }
   }
 
   const filtered = Array.from(new Set(tools)).filter((toolName) => allowByNamespaceFallback(toolName));
@@ -1911,13 +2022,13 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     rotation_history: ["get_field_timeline", "search_fields"],
     fields_overview: ["get_field_card", "search_fields", "get_fields"],
     crop_structure_overview: ["get_crop_structure_summary", "search_crops_by_group"],
-    operations_recent: ["get_active_operations", "search_operations", "get_operations"],
+    operations_recent: ["get_active_operations_summary", "get_active_operations", "get_operations", "search_operations"],
     fuel_balance: ["get_fuel_balances"],
     fuel_movements: ["get_fuel_movements"],
     entity_resolution: [],
     company_context: ["get_company_context"],
     navigation_help: ["navigate_to_page"],
-    create_draft: ["create_operation_draft"],
+    create_draft: ["create_operation_draft", "create_weighbridge_ticket_draft", "create_field_draft", "create_meal_order_draft", "create_warehouse_draft"],
     clarification_required: [],
     general_question: [],
   };
@@ -1991,27 +2102,7 @@ function getNavigationActions(params: {
 }
 
 function buildNavigationAnswer(actions: AssistantNavigationAction[]): string {
-  if (!actions.length) {
-    return "Не удалось определить страницу для перехода. Уточните команду.";
-  }
-
-  const first = actions[0];
-  if (first.type === "open_entity") {
-    const noun =
-      first.entityType === "warehouse"
-        ? "склад"
-        : first.entityType === "field"
-          ? "поле"
-          : "источник ГСМ";
-    const label = first.entityQuery || first.entityId || noun;
-    return `Открываю ${label}.`;
-  }
-
-  if (first.type === "open_page_with_filter" || first.type === "apply_filter") {
-    return `Открываю страницу ${first.page} и применяю фильтр.`;
-  }
-
-  return `Открываю страницу ${first.page}.`;
+  return buildNavigationAnswerV2(actions);
 }
 
 function buildNavigationAnswerV2(actions: AssistantNavigationAction[], intent?: AssistantIntent): string {
@@ -2021,7 +2112,7 @@ function buildNavigationAnswerV2(actions: AssistantNavigationAction[], intent?: 
     if (action === "open_entity" && entityType === "warehouse") return "Склад не найден.";
     if (action === "open_entity" && entityType === "field") return "Поле не найдено.";
     if (action === "open_entity" && entityType === "fuel") return "Источник ГСМ не найден.";
-    return "Не смог открыть: route не найден.";
+    return "Не удалось выполнить переход: route не найден.";
   }
   const first = actions[0];
   if (first.type === "open_entity") {
@@ -2334,7 +2425,8 @@ export async function runAssistantEngine(params: {
     };
   }
 
-  const plannerFirstEnabled = String(process.env.ASSISTANT_PLANNER_FIRST ?? "1") !== "0";
+  const explicitNavigationCommand = hasExplicitNavigationRequest(messageForRouting);
+  const plannerFirstEnabled = String(process.env.ASSISTANT_PLANNER_FIRST ?? "1") !== "0" && !explicitNavigationCommand;
   if (plannerFirstEnabled) {
     plannerAttempted = true;
     decisionSource = "model";
@@ -2426,6 +2518,20 @@ export async function runAssistantEngine(params: {
       let answer = shouldForceNoData ? noDataGroundedMessage() : validation.normalizedAnswer;
       if (!answer) {
         answer = "Не смог сформировать ответ. Попробуйте уточнить запрос.";
+      }
+      if (plannerIntent.name === "navigation_help" || navigationResult.actions.length > 0) {
+        answer = buildNavigationAnswerV2(navigationResult.actions, plannerIntent);
+      }
+      const mandatoryToolDataAnswer = plannerUsedTools
+        ? buildMandatoryToolDataAnswer({
+            intent: plannerIntent,
+            outputType: plannerResolvedOutputType,
+            outputs: planner.outputs,
+            toolCalls: planner.toolCalls,
+          })
+        : null;
+      if (mandatoryToolDataAnswer) {
+        answer = mandatoryToolDataAnswer;
       }
       if (plannerUsedTools && consistency.correctionText) {
         answer = `${consistency.correctionText}\n\n${answer}`.trim();
@@ -2611,6 +2717,23 @@ export async function runAssistantEngine(params: {
         looksLikeErpDataQuestion(messageForRouting)
           ? noDataGroundedMessage()
           : validation.normalizedAnswer;
+      if (!answer) {
+        answer = "Не смог сформировать ответ. Попробуйте уточнить запрос.";
+      }
+      if (intent.name === "navigation_help" || navigationResult.actions.length > 0) {
+        answer = buildNavigationAnswerV2(navigationResult.actions, intent);
+      }
+      const mandatoryToolDataAnswer = plannerUsedTools
+        ? buildMandatoryToolDataAnswer({
+            intent,
+            outputType: resolvedOutputType,
+            outputs: planner.outputs,
+            toolCalls: planner.toolCalls,
+          })
+        : null;
+      if (mandatoryToolDataAnswer) {
+        answer = mandatoryToolDataAnswer;
+      }
       if (plannerUsedTools && consistency.correctionText) {
         answer = `${consistency.correctionText}\n\n${answer}`.trim();
       }

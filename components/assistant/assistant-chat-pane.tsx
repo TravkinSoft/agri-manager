@@ -251,9 +251,10 @@ function matchRoutePath(actualPath: string, expectedPath: string): boolean {
 async function confirmExecution(params: {
   action: AssistantNavigationActionPayload;
   targetRoute: string | null;
+  initialHref?: string | null;
   timeoutMs?: number;
 }): Promise<{ executed: boolean; error: string | null }> {
-  const { action, targetRoute, timeoutMs = 1200 } = params;
+  const { action, targetRoute, initialHref, timeoutMs = 8000 } = params;
   if (!targetRoute) {
     return { executed: false, error: "route не задан" };
   }
@@ -294,6 +295,11 @@ async function confirmExecution(params: {
         await new Promise((resolve) => window.setTimeout(resolve, 80));
         continue;
       }
+    }
+
+    if (initialHref && current.href === initialHref) {
+      await new Promise((resolve) => window.setTimeout(resolve, 80));
+      continue;
     }
 
     if (resolveRouteEntryByPath(current.pathname)) {
@@ -773,6 +779,7 @@ export function AssistantChatPane({
 
       if (navigationActions.length > 0) {
         const firstAction = navigationActions[0];
+        const initialHref = window.location.href;
         navigationActionType = firstAction.type;
         let actionFiltersForDebug: Record<string, string> | null = null;
         if (firstAction.type === "open_entity") {
@@ -816,6 +823,7 @@ export function AssistantChatPane({
           const confirmed = await confirmExecution({
             action: firstAction,
             targetRoute: navigationRoute,
+            initialHref,
           });
           navigationExecuted = confirmed.executed;
           navigationError = confirmed.error;
@@ -846,14 +854,14 @@ export function AssistantChatPane({
         }
       }
 
-      const answer = String(payload.response || "").trim() || "Я не вижу этих данных в системе.";
+      const answer = String(payload.response || "").trim() || "По системе сейчас данных по этому запросу не найдено.";
       const successTail =
         navigationExecuted === true && intentName === "navigation_help"
           ? firstActionToSuccessText(navigationActions[0] || null)
           : null;
       const rawFinalAnswer =
         navigationExecuted === false
-          ? `${answer}\n\nНе смог открыть: ${navigationError || "route не найден"}.`
+          ? `${answer}\n\nНе удалось выполнить переход: ${navigationError || "route не найден"}.`
           : successTail
             ? `${answer}\n\n${successTail}`
             : answer;

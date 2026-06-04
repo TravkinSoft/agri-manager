@@ -35,7 +35,7 @@ export function validateGroundedAnswer(params: {
   if (!params.outputs.length && looksLikeNumericAnswer(answer)) {
     return {
       pass: false,
-      normalizedAnswer: "Не вижу подтверждённых данных в инструментах для этого запроса.",
+      normalizedAnswer: "По доступным инструментам подтверждённых данных для этого запроса нет.",
       reason: "numeric_without_tool_output",
     };
   }
@@ -44,6 +44,5 @@ export function validateGroundedAnswer(params: {
 }
 
 export function noDataGroundedMessage(): string {
-  return "По этому запросу в текущих данных ничего не найдено.";
+  return "По системе сейчас данных по этому запросу не найдено.";
 }
-

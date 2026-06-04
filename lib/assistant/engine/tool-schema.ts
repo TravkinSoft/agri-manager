@@ -43,6 +43,31 @@ function toFiltersObject(value: unknown): Record<string, string> {
   return out;
 }
 
+function normalizeNavigationTarget(args: Record<string, unknown>, message?: string): {
+  page: string;
+  route: string;
+  filters: Record<string, string>;
+} {
+  const filters = toFiltersObject(args.filters);
+  const rawPage = text(args.page) || "dashboard";
+  const rawRoute = text(args.route) || "/dashboard";
+  const haystack = `${rawPage} ${rawRoute} ${message || ""}`.toLowerCase();
+
+  if (/(fields?-?map|field\s+map|карта\s+пол|карту\s+пол|карте\s+пол)/i.test(haystack)) {
+    return { page: "fields-map", route: "/fields-map", filters };
+  }
+  if (/(meal-?orders?|meal-?thermoses|thermos|термос|питан|обед|ужин|завтрак)/i.test(haystack)) {
+    return { page: "meal-thermoses", route: "/meal-thermoses", filters };
+  }
+  if (/(recent|latest|history|последн|истори)/i.test(haystack) && /(ticket|weighbridge|талон|весов)/i.test(haystack)) {
+    return { page: "weighbridge-history", route: "/weighbridge/history", filters };
+  }
+  if (rawRoute === "/meal-orders") {
+    return { page: "meal-thermoses", route: "/meal-thermoses", filters };
+  }
+  return { page: rawPage, route: rawRoute, filters };
+}
+
 const TOOL_MAP: Record<string, PlannerToolMapping> = {
   get_warehouse_count: {
     assistantTool: "get_warehouse_count",
@@ -140,6 +165,16 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
       output_type: "list",
     }),
   },
+  get_active_operations_summary: {
+    assistantTool: "get_active_operations_summary",
+    intentName: "operations_recent",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      status: "active",
+      limit: int(args.limit, 30),
+      output_type: "summary_total",
+    }),
+  },
   get_crop_structure_summary: {
     assistantTool: "get_crop_structure_summary",
     intentName: "crop_structure_area",
@@ -209,21 +244,30 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
   navigate_to_page: {
     assistantTool: "navigate_to_page",
     intentName: "navigation_help",
-    buildParams: (args) => ({
-      action: "open_page",
-      page: text(args.page) || "dashboard",
-      route: text(args.route) || "/dashboard",
-      filters: JSON.stringify(toFiltersObject(args.filters)),
-      output_type: "action_navigation",
-    }),
-    buildNavigation: (args) => [
-      {
-        type: "open_page_with_filter",
-        page: text(args.page) || "dashboard",
-        route: text(args.route) || "/dashboard",
-        filters: toFiltersObject(args.filters),
-      },
-    ],
+    buildParams: (args, message) => {
+      const target = normalizeNavigationTarget(args, message);
+      return {
+        action: "open_page",
+        page: target.page,
+        route: target.route,
+        filters: JSON.stringify(target.filters),
+        output_type: "action_navigation",
+      };
+    },
+    buildNavigation: (args, rows) => {
+      const row = rows[0] || {};
+      const target = normalizeNavigationTarget(
+        {
+          page: text((row as any).page) || args.page,
+          route: text((row as any).route) || args.route,
+          filters: (row as any).filters || args.filters,
+        },
+        ""
+      );
+      const { page, route, filters } = target;
+      if (!Object.keys(filters).length) return [{ type: "open_page", page, route }];
+      return [{ type: "open_page_with_filter", page, route, filters }];
+    },
   },
   open_field: {
     assistantTool: "resolve_field_by_number",
@@ -240,12 +284,13 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
       return [
         {
           type: "open_entity",
-          page: "fields",
-          route: "/fields",
+          page: "field-card",
+          route: `/fields/${entityId}`,
           entityType: "field",
           entityId,
           entityQuery: entityName,
           filters: {
+            tab: "summary",
             search: entityName || entityId,
             entityId,
             entityType: "field",
@@ -283,6 +328,46 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
         },
       ];
     },
+  },
+  create_weighbridge_ticket_draft: {
+    assistantTool: "create_weighbridge_ticket_draft",
+    intentName: "create_draft",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      output_type: "filtered_summary",
+    }),
+  },
+  create_operation_draft: {
+    assistantTool: "create_operation_draft",
+    intentName: "create_draft",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      output_type: "filtered_summary",
+    }),
+  },
+  create_field_draft: {
+    assistantTool: "create_field_draft",
+    intentName: "create_draft",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      output_type: "filtered_summary",
+    }),
+  },
+  create_meal_order_draft: {
+    assistantTool: "create_meal_order_draft",
+    intentName: "create_draft",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      output_type: "filtered_summary",
+    }),
+  },
+  create_warehouse_draft: {
+    assistantTool: "create_warehouse_draft",
+    intentName: "create_draft",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      output_type: "filtered_summary",
+    }),
   },
 };
 
@@ -456,6 +541,21 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
     {
       type: "function",
       function: {
+        name: "get_active_operations_summary",
+        description: "Canonical Source of Truth for active/current operations. Use for questions like: how many active operations, show active operations, operations in work.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            limit: { type: "integer", minimum: 1, maximum: 50 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
         name: "get_recent_operations",
         description: "Возвращает последние операции.",
         parameters: {
@@ -521,6 +621,46 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
           },
           additionalProperties: false,
         },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_weighbridge_ticket_draft",
+        description: "Готовит безопасный черновик талона весовой. Если данных не хватает, возвращает список недостающих полей.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_operation_draft",
+        description: "Готовит безопасный черновик операции. Если данных не хватает, возвращает список недостающих полей.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_field_draft",
+        description: "Готовит безопасный черновик поля. Если данных не хватает, возвращает список недостающих полей.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_meal_order_draft",
+        description: "Готовит безопасный черновик заявки питания/термосов. Если данных не хватает, возвращает список недостающих полей.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_warehouse_draft",
+        description: "Готовит безопасный черновик склада. Если данных не хватает, возвращает список недостающих полей.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
       },
     },
   ];

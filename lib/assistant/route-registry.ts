@@ -2,12 +2,15 @@ export type AssistantRouteKey =
   | "dashboard"
   | "fields"
   | "field-card"
+  | "fields-map"
   | "crop-structure"
   | "field-history"
   | "operations"
   | "warehouses"
   | "warehouse-card"
   | "weighbridge"
+  | "weighbridge-history"
+  | "meal-thermoses"
   | "reports"
   | "cadastre";
 
@@ -44,6 +47,14 @@ const ROUTE_REGISTRY: AssistantRouteEntry[] = [
     entityTypes: ["field"],
     openStrategy: "entity-route",
     requiredPermission: "fields.read",
+  },
+  {
+    routeKey: "fields-map",
+    path: "/fields-map",
+    supportedFilters: ["season", "crop", "field", "importId"],
+    entityTypes: ["field", "none"],
+    openStrategy: "query-filter",
+    requiredPermission: "fields.map.read",
   },
   {
     routeKey: "crop-structure",
@@ -94,6 +105,22 @@ const ROUTE_REGISTRY: AssistantRouteEntry[] = [
     requiredPermission: "weighbridge.read",
   },
   {
+    routeKey: "weighbridge-history",
+    path: "/weighbridge/history",
+    supportedFilters: ["status", "type", "field", "warehouse", "season"],
+    entityTypes: ["none", "field", "warehouse"],
+    openStrategy: "query-filter",
+    requiredPermission: "weighbridge.read",
+  },
+  {
+    routeKey: "meal-thermoses",
+    path: "/meal-thermoses",
+    supportedFilters: ["date", "status", "field", "thermosId"],
+    entityTypes: ["field", "none"],
+    openStrategy: "query-filter",
+    requiredPermission: "meal_thermoses.read",
+  },
+  {
     routeKey: "reports",
     path: "/analytics",
     supportedFilters: ["report", "season", "crop", "field", "warehouse"],
@@ -129,4 +156,3 @@ export function normalizeRouteKeyFromPath(path: string): AssistantRouteKey {
   const entry = resolveRouteEntryByPath(path);
   return entry?.routeKey || "dashboard";
 }
-

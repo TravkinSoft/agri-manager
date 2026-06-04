@@ -80,6 +80,14 @@ function isCropStructureAggregateQuery(value: unknown): boolean {
   return cropTerms.test(text) && aggregateTerms.test(text);
 }
 
+function isActiveOperationsQuery(value: unknown): boolean {
+  const text = String(value || "").toLowerCase();
+  return (
+    /(active|current|in\s+work|operations?\s+in\s+work)/i.test(text) ||
+    /(\u0430\u043a\u0442\u0438\u0432|\u0441\u0435\u0439\u0447\u0430\u0441|\u0442\u0435\u043a\u0443\u0449|\u0432\s+\u0440\u0430\u0431\u043e\u0442\u0435)/i.test(text)
+  ) && /(operation|\u043e\u043f\u0435\u0440\u0430\u0446|\u0440\u0430\u0431\u043e\u0442)/i.test(text);
+}
+
 function hasOutputSource(outputs: AssistantToolOutput[], marker: string): boolean {
   const needle = marker.toLowerCase();
   return outputs.some((output) => String(output.source.tableOrView || "").toLowerCase().includes(needle));
@@ -96,6 +104,12 @@ function coerceToolForSourceOfTruth(params: {
     isFieldLandBankAggregateQuery(query)
   ) {
     return "get_field_land_bank_summary";
+  }
+  if (
+    (params.requestedTool === "get_operations" || params.requestedTool === "search_operations") &&
+    isActiveOperationsQuery(query)
+  ) {
+    return "get_active_operations_summary";
   }
   return params.requestedTool;
 }
@@ -308,9 +322,12 @@ export async function runModelOrchestrator(params: {
           "Для 'Остатки по овощному/семенному/зерновому складу' передайте склад в аргумент warehouse.",
           "Follow-up 'А последние движения?' после складов/остатков означает складской ledger, используйте get_warehouse_movements, а не операции.",
           "ERP-данные и цифры берите только из tools.",
-          "Если tool вернул пусто — честно скажите, что данных не найдено.",
-          "Отвечайте коротко, по делу, на русском.",
+          "Если tool вернул пусто — скажите: 'По системе сейчас данных по этому запросу не найдено' и предложите следующий проверочный шаг.",
+          "Отвечайте коротко: короткий вывод, 2-5 фактов, следующий шаг.",
           "Не добавляйте навигационные действия без явной команды пользователя.",
+          "Не пишите 'открыто/создано/выполнено/удалено/сохранено', пока действие не подтверждено интерфейсом. Для навигационного tool пишите только 'Подготовил переход'.",
+          "Для команд создания используйте draft tools. Если данных не хватает, спросите недостающие поля вместо создания.",
+          "Если пользователь указывает на ошибку или источники расходятся, используйте прямую самокоррекцию: 'Да, ошибся.', 'Вижу расхождение.', 'Источник противоречит другому источнику.', 'Данных недостаточно.', 'Не могу подтвердить.'.",
         ].join("\n"),
       },
       {

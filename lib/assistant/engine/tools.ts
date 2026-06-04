@@ -2591,21 +2591,77 @@ const resolveOperationTypeTool: AssistantToolDefinition = {
   }),
 };
 
+type DraftRequiredField = {
+  label: string;
+  signals: RegExp[];
+};
+
+function getDraftRequiredFields(kind: string): DraftRequiredField[] {
+  switch (kind) {
+    case "create_weighbridge_ticket_draft":
+      return [
+        { label: "водитель", signals: [/водител|driver/i] },
+        { label: "машина", signals: [/машин|vehicle|truck|номер/i] },
+        { label: "поле", signals: [/поле|field/i] },
+        { label: "операция", signals: [/операц|operation|уборк|приход|вывоз/i] },
+      ];
+    case "create_operation_draft":
+      return [
+        { label: "поле", signals: [/поле|field/i] },
+        { label: "тип операции", signals: [/посадк|уборк|удобрен|сзр|обработ|operation|fertiliz|spray|harvest/i] },
+        { label: "дата или срок", signals: [/\b\d{1,2}[./-]\d{1,2}/i, /сегодня|завтра|дата|date|today|tomorrow/i] },
+      ];
+    case "create_field_draft":
+      return [
+        { label: "название или номер поля", signals: [/поле\s+\S+|field\s+\S+|номер|назван/i] },
+        { label: "площадь", signals: [/(\d+[,.]?\d*)\s*(га|ha)|площад/i] },
+        { label: "сезон или культура", signals: [/сезон|культур|crop|season|картоф|пшен|ячмен|лук|морков/i] },
+      ];
+    case "create_meal_order_draft":
+      return [
+        { label: "дата питания", signals: [/\b\d{1,2}[./-]\d{1,2}/i, /сегодня|завтра|дата|date|today|tomorrow/i] },
+        { label: "тип питания", signals: [/обед|ужин|завтрак|meal|lunch|dinner|breakfast/i] },
+        { label: "список людей", signals: [/люд|человек|бригада|people|person|список/i] },
+        { label: "место доставки", signals: [/достав|место|поле|адрес|delivery|location/i] },
+      ];
+    case "create_warehouse_draft":
+      return [
+        { label: "название склада", signals: [/назван|склад\s+\S+|warehouse\s+\S+/i] },
+        { label: "тип склада", signals: [/тип|овощ|семен|удобр|сзр|гсм|type|fuel|seed/i] },
+        { label: "ответственный", signals: [/ответствен|кладовщик|manager|owner/i] },
+      ];
+    default:
+      return [];
+  }
+}
+
 function createDraftRows(kind: string, context: AssistantToolContext): Array<Record<string, unknown>> {
+  const requestText = cleanString(context.intent.parameters.query) || cleanString(context.intent.parameters.entityQuery) || "";
+  const missingFields = getDraftRequiredFields(kind)
+    .filter((field) => !field.signals.some((signal) => signal.test(requestText)))
+    .map((field) => field.label);
+  const draftStatus = missingFields.length ? "needs_clarification" : "draft_ready";
+  const draftPreview = missingFields.length
+    ? `Подготовил сценарий действия, но данных недостаточно. Чтобы продолжить, уточните: ${missingFields.join(", ")}.`
+    : "Черновик подготовлен. Проверьте обязательные поля и подтвердите выполнение вручную.";
   const basePayload = {
     kind,
     company_id: context.companyId,
     requested_by_profile_id: context.actor.id,
-    message: cleanString(context.intent.parameters.query) || cleanString(context.intent.parameters.entityQuery) || null,
+    message: requestText || null,
     requires_confirmation: true,
     status: "draft",
+    draft_status: draftStatus,
+    missing_fields: missingFields,
   };
 
   return [
     {
       ...basePayload,
-      draft_preview:
-        "Черновик подготовлен. Проверьте обязательные поля и подтвердите выполнение вручную.",
+      draft_preview: draftPreview,
+      next_step: missingFields.length
+        ? `Уточните: ${missingFields.join(", ")}.`
+        : "Откройте соответствующий модуль и подтвердите черновик вручную.",
     },
   ];
 }
@@ -2642,7 +2698,7 @@ const navigateToPageTool: AssistantToolDefinition = {
           page,
           route,
           filters: filters ? JSON.parse(filters) : {},
-          hint: filters ? `Открываю страницу ${page} и применяю фильтр.` : `Открываю страницу ${page}.`,
+          hint: filters ? `Подготовил переход на страницу ${page} с фильтром.` : `Подготовил переход на страницу ${page}.`,
         },
       ],
       source: {
@@ -2765,12 +2821,15 @@ const getRoutesToolAlias: AssistantToolDefinition = {
       dashboard: "Панель",
       fields: "Поля",
       "field-card": "Карточка поля",
+      "fields-map": "Карта полей",
       "crop-structure": "Структура посевов",
       "field-history": "История полей",
       operations: "Операции",
       warehouses: "Склады",
       "warehouse-card": "Карточка склада",
       weighbridge: "Весовая",
+      "weighbridge-history": "История талонов",
+      "meal-thermoses": "Питание / Термосы",
       reports: "Отчеты",
       cadastre: "Кадастр и право",
     };
@@ -2955,16 +3014,258 @@ const getWarehouseCountToolAlias: AssistantToolDefinition = {
   },
 };
 
+type OperationRowsOptions = {
+  activeOnly?: boolean;
+};
+
+function relationOneValue<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return (value[0] ?? null) as T | null;
+  return (value ?? null) as T | null;
+}
+
+function normalizeOperationWorkStatus(row: Record<string, unknown>): string {
+  const workStatus = normalizeSearchText((row as any).work_status);
+  if (workStatus) return workStatus;
+  const status = normalizeSearchText((row as any).status);
+  if (status === "completed" || status === "verified") return "completed";
+  if (status === "in_progress") return "in_progress";
+  return "active";
+}
+
+function isActiveOperationRow(row: Record<string, unknown>): boolean {
+  const workStatus = normalizeOperationWorkStatus(row);
+  const status = normalizeSearchText((row as any).status);
+  return workStatus === "active" && status !== "cancelled" && status !== "archived";
+}
+
+function calculateOperationAreaHa(row: Record<string, unknown>): number {
+  const lines = Array.isArray((row as any).operation_lines) ? ((row as any).operation_lines as any[]) : [];
+  const lineArea = lines.reduce((sum, line) => sum + Number(line?.planned_area_ha || 0), 0);
+  if (lineArea > 0) return Number(lineArea.toFixed(3));
+
+  const config = (row as any).operation_config && typeof (row as any).operation_config === "object"
+    ? ((row as any).operation_config as Record<string, unknown>)
+    : {};
+  const configArea = Number(config.planned_area_ha || 0);
+  return Number((Number.isFinite(configArea) ? configArea : 0).toFixed(3));
+}
+
+function operationFieldLabel(row: Record<string, unknown>): string {
+  const primaryField = relationOneValue((row as any).fields);
+  const fromOperation = cleanString((primaryField as any)?.name) || cleanString((row as any).field_id);
+  const lines = Array.isArray((row as any).operation_lines) ? ((row as any).operation_lines as any[]) : [];
+  const lineFields = uniqueStrings(
+    lines.map((line) => {
+      const field = relationOneValue(line?.fields);
+      return cleanString((field as any)?.name) || cleanString(line?.field_id);
+    })
+  );
+  if (lineFields.length > 0) return lineFields.slice(0, 3).join(", ");
+  return fromOperation || "-";
+}
+
+function operationExecutorLabel(row: Record<string, unknown>): string | null {
+  const responsible = relationOneValue((row as any).responsible);
+  return (
+    cleanString((responsible as any)?.full_name) ||
+    cleanString((responsible as any)?.email) ||
+    cleanString((row as any).responsible_user_id)
+  );
+}
+
+function normalizeOperationMaterials(row: Record<string, unknown>): Array<Record<string, unknown>> {
+  const operationMaterials = Array.isArray((row as any).operation_materials)
+    ? ((row as any).operation_materials as any[])
+    : [];
+  return operationMaterials.map((item) => {
+    const product = relationOneValue(item?.products);
+    const productName =
+      cleanString((product as any)?.trade_name) ||
+      cleanString((product as any)?.name) ||
+      cleanString(item?.product_id) ||
+      "material";
+    const issued = Number(item?.issued_quantity || 0);
+    const consumed = Number(item?.consumed_quantity || 0);
+    const planned = Number(item?.planned_quantity || 0);
+    const actualRate = Number(item?.actual_rate || 0);
+    const plannedRate = Number(item?.planned_rate || 0);
+    const quantity = [issued, consumed, planned, actualRate, plannedRate].find((value) => Number.isFinite(value) && value > 0) || 0;
+    const quantitySource =
+      issued > 0
+        ? "issued_quantity"
+        : consumed > 0
+          ? "consumed_quantity"
+          : planned > 0
+            ? "planned_quantity"
+            : actualRate > 0
+              ? "actual_rate"
+              : plannedRate > 0
+                ? "planned_rate"
+                : "not_set";
+    return {
+      product_name: productName,
+      material_type: cleanString(item?.material_type),
+      quantity: Number(quantity.toFixed(3)),
+      quantity_source: quantitySource,
+      unit: cleanString(item?.unit) || "unit",
+      planned_rate: Number.isFinite(plannedRate) ? plannedRate : null,
+      actual_rate: Number.isFinite(actualRate) ? actualRate : null,
+      issued_quantity: Number.isFinite(issued) ? issued : null,
+      notes: cleanString(item?.notes),
+    };
+  });
+}
+
+function shouldTreatOperationQueryAsStatusOnly(query: string | null, statusFilter: string | null): boolean {
+  const text = normalizeSearchText(query);
+  if (!text) return false;
+  if (statusFilter) return true;
+  const statusWords = /(active|in progress|waiting materials|current|сейчас|актив|работе|ожидан)/i;
+  const operationWords = /(operation|операц)/i;
+  const hasSpecificField = /\b\d{1,3}(?:-\d{1,3}){0,2}\b/.test(text);
+  return statusWords.test(text) && operationWords.test(text) && !hasSpecificField;
+}
+
+async function buildOperationRows(
+  context: AssistantToolContext,
+  options: OperationRowsOptions
+): Promise<Array<Record<string, unknown>>> {
+  const rawStatus = cleanString(context.intent.parameters.status)?.toLowerCase() || null;
+  const queryText = parseSearchQuery(context);
+  const inferredActive =
+    options.activeOnly ||
+    rawStatus === "active" ||
+    /(active|current|сейчас|актив)/i.test(normalizeSearchText(queryText));
+  const statusFilter = inferredActive ? "active" : rawStatus;
+  const ignoreSearchTerms = shouldTreatOperationQueryAsStatusOnly(queryText, statusFilter);
+  const terms = ignoreSearchTerms ? [] : buildSearchTerms(queryText);
+
+  const res = await context.supabase
+    .from("operations")
+    .select(
+      "id,date,operation_type,operation_type_slug,operation_category_slug,status,work_status,field_id,responsible_user_id,notes,operation_config," +
+        "fields:field_id(name)," +
+        "responsible:responsible_user_id(full_name,email,role)," +
+        "operation_materials:operation_materials(id,product_id,unit,planned_rate,actual_rate,planned_quantity,issued_quantity,consumed_quantity,returned_quantity,material_type,notes,products:product_id(name,trade_name))," +
+        "operation_lines:operation_lines(id,field_id,planned_area_ha,actual_area_ha,fields:field_id(name))"
+    )
+    .eq("company_id", context.companyId)
+    .eq("archived", false)
+    .order("date", { ascending: false })
+    .limit(260);
+  if (res.error) throw new Error(res.error.message);
+
+  const rows = (res.data || [])
+    .filter((row: any) => {
+      const workStatus = normalizeOperationWorkStatus(row);
+      if (statusFilter === "active" && !isActiveOperationRow(row)) return false;
+      if (statusFilter === "in_progress" && workStatus !== "in_progress") return false;
+      if (statusFilter === "completed" && workStatus !== "completed") return false;
+      if (statusFilter === "waiting_materials") {
+        const status = normalizeSearchText(row.status);
+        if (status !== "waiting_materials") return false;
+      }
+      if (!terms.length) return true;
+      const materials = normalizeOperationMaterials(row).map((item) => item.product_name).join(" ");
+      const blob = [
+        row.operation_type,
+        row.operation_type_slug,
+        row.operation_category_slug,
+        operationFieldLabel(row),
+        workStatus,
+        row.status,
+        row.notes,
+        materials,
+      ].join(" ");
+      return matchesAnyTerm(blob, terms);
+    })
+    .map((row: any) => {
+      const materials = normalizeOperationMaterials(row);
+      return {
+        operation_id: String(row.id || ""),
+        date: cleanString(row.date),
+        operation_type: cleanString(row.operation_type) || "-",
+        operation_type_slug: cleanString(row.operation_type_slug),
+        operation_category_slug: cleanString(row.operation_category_slug),
+        field_name: operationFieldLabel(row),
+        status: cleanString(row.status) || "-",
+        work_status: normalizeOperationWorkStatus(row),
+        area_ha: calculateOperationAreaHa(row),
+        executor: operationExecutorLabel(row),
+        materials_count: materials.length,
+        materials,
+        materials_text: materials
+          .map((item) => `${cleanString(item.product_name)} ${cleanString(item.quantity)} ${cleanString(item.unit)}`.trim())
+          .join("; "),
+        notes: cleanString(row.notes),
+      };
+    });
+
+  return filterQaRows(context, rows, [
+    "operation_type",
+    "operation_type_slug",
+    "operation_category_slug",
+    "field_name",
+    "status",
+    "work_status",
+    "materials_text",
+    "notes",
+  ]);
+}
+
+const getOperationsToolV2: AssistantToolDefinition = {
+  name: "get_operations",
+  description: "Operations from canonical UI source",
+  domains: ["operations", "fields"],
+  run: async (context) => {
+    const rows = await buildOperationRows(context, { activeOnly: false });
+    return {
+      title: "Operations",
+      rows: rows.slice(0, 120),
+      source: {
+        module: "operations",
+        tableOrView: "operations + operation_lines + operation_materials",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const getActiveOperationsSummaryToolAlias: AssistantToolDefinition = {
+  name: "get_active_operations_summary",
+  description: "Active operations summary from canonical UI source",
+  domains: ["operations"],
+  run: async (context) => {
+    const rows = await buildOperationRows(context, { activeOnly: true });
+    return {
+      title: "Active operations summary",
+      rows: rows.slice(0, 120),
+      summary: `count=${rows.length}`,
+      source: {
+        module: "operations",
+        tableOrView: "operations + operation_lines + operation_materials (active summary)",
+        season: context.runtimeContext.season,
+        fetchedAt: nowIso(),
+      },
+    };
+  },
+};
+
+const getActiveOperationsToolV2: AssistantToolDefinition = {
+  ...getActiveOperationsSummaryToolAlias,
+  name: "get_active_operations",
+};
+
 const searchOperationsToolAlias: AssistantToolDefinition = {
   name: "search_operations",
   description: "Search operations",
   domains: ["operations"],
   run: async (context) => {
-    const output = await getOperationsTool.run(context);
-    const query = parseSearchQuery(context);
+    const output = await getOperationsToolV2.run(context);
     return {
       ...output,
-      rows: applyTextFilter(output.rows || [], query).slice(0, 100),
+      rows: (output.rows || []).slice(0, 100),
       source: {
         ...output.source,
         tableOrView: "operations (search_operations)",
@@ -2978,7 +3279,7 @@ const findOperationToolAlias: AssistantToolDefinition = {
   description: "Найти операции по фильтру",
   domains: ["operations"],
   run: async (context) => {
-    const output = await getOperationsTool.run(context);
+    const output = await getOperationsToolV2.run(context);
     const query = parseSearchQuery(context);
     return {
       ...output,
@@ -4197,33 +4498,248 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
   },
 };
 
+type FieldMaterialScope = {
+  id: string;
+  name: string;
+  displayName?: string | null;
+};
+
+function chooseMaterialQuantity(item: Record<string, unknown>): { quantity: number; source: string } {
+  const issued = Number((item as any).issued_quantity || 0);
+  const consumed = Number((item as any).consumed_quantity || 0);
+  const planned = Number((item as any).planned_quantity || 0);
+  const actualRate = Number((item as any).actual_rate || 0);
+  const plannedRate = Number((item as any).planned_rate || 0);
+  if (Number.isFinite(issued) && issued > 0) return { quantity: issued, source: "issued_quantity" };
+  if (Number.isFinite(consumed) && consumed > 0) return { quantity: consumed, source: "consumed_quantity" };
+  if (Number.isFinite(planned) && planned > 0) return { quantity: planned, source: "planned_quantity" };
+  if (Number.isFinite(actualRate) && actualRate > 0) return { quantity: actualRate, source: "actual_rate" };
+  if (Number.isFinite(plannedRate) && plannedRate > 0) return { quantity: plannedRate, source: "planned_rate" };
+  return { quantity: 0, source: "not_set" };
+}
+
+function getOperationLineFieldIds(row: Record<string, unknown>): string[] {
+  const lines = Array.isArray((row as any).operation_lines) ? ((row as any).operation_lines as any[]) : [];
+  return uniqueStrings(lines.map((line) => cleanString(line?.field_id)));
+}
+
+function getOperationFieldNamesForScope(row: Record<string, unknown>, fieldRefsById: Map<string, FieldMaterialScope>): string {
+  const names: string[] = [];
+  const directFieldId = cleanString((row as any).field_id);
+  if (directFieldId && fieldRefsById.has(directFieldId)) {
+    names.push(fieldRefsById.get(directFieldId)?.displayName || fieldRefsById.get(directFieldId)?.name || directFieldId);
+  }
+  const lines = Array.isArray((row as any).operation_lines) ? ((row as any).operation_lines as any[]) : [];
+  for (const line of lines) {
+    const lineFieldId = cleanString(line?.field_id);
+    if (!lineFieldId || !fieldRefsById.has(lineFieldId)) continue;
+    const lineField = relationOneValue(line?.fields);
+    names.push(
+      cleanString((lineField as any)?.name) ||
+        fieldRefsById.get(lineFieldId)?.displayName ||
+        fieldRefsById.get(lineFieldId)?.name ||
+        lineFieldId
+    );
+  }
+  return uniqueStrings(names).slice(0, 4).join(", ") || "-";
+}
+
+async function buildFieldMaterialRows(
+  context: AssistantToolContext,
+  fieldRefs: FieldMaterialScope[],
+  seasonScope: AssistantSeasonScope,
+  allowTestData: boolean
+): Promise<Array<Record<string, unknown>>> {
+  const fieldIds = uniqueStrings(fieldRefs.map((field) => field.id));
+  if (!fieldIds.length) return [];
+  const fieldRefsById = new Map(fieldRefs.map((field) => [field.id, field]));
+  const rows: Array<Record<string, unknown>> = [];
+
+  const operationsRes = await context.supabase
+    .from("operations")
+    .select(
+      "id,date,operation_type,status,work_status,field_id,notes,archived," +
+        "fields:field_id(name)," +
+        "operation_materials:operation_materials(id,product_id,unit,planned_rate,actual_rate,planned_quantity,issued_quantity,consumed_quantity,returned_quantity,material_type,notes,products:product_id(name,trade_name))," +
+        "operation_lines:operation_lines(id,field_id,planned_area_ha,actual_area_ha,fields:field_id(name))"
+    )
+    .eq("company_id", context.companyId)
+    .eq("archived", false)
+    .order("date", { ascending: false })
+    .limit(600);
+  if (operationsRes.error) throw new Error(operationsRes.error.message);
+
+  for (const operation of operationsRes.data || []) {
+    const operationRow = operation as unknown as Record<string, unknown>;
+    const directFieldId = cleanString((operation as any).field_id);
+    const lineFieldIds = getOperationLineFieldIds(operationRow);
+    const operationFieldIds = uniqueStrings([directFieldId, ...lineFieldIds]);
+    const matchesScope = operationFieldIds.some((fieldId) => fieldIds.includes(fieldId));
+    if (!matchesScope) continue;
+
+    const materials = Array.isArray((operation as any).operation_materials)
+      ? (((operation as any).operation_materials || []) as any[])
+      : [];
+    const fieldName = getOperationFieldNamesForScope(operationRow, fieldRefsById);
+    for (const material of materials) {
+      const product = relationOneValue(material?.products);
+      const productName =
+        cleanString((product as any)?.trade_name) ||
+        cleanString((product as any)?.name) ||
+        cleanString(material?.product_id) ||
+        "material";
+      if (!allowTestData && (isQaMarkerText(productName) || isQaMarkerText(material?.notes) || isQaMarkerText((operation as any).notes))) {
+        continue;
+      }
+      const { quantity, source } = chooseMaterialQuantity(material as Record<string, unknown>);
+      rows.push({
+        field_id: operationFieldIds.filter((fieldId) => fieldIds.includes(fieldId)).join(","),
+        field_name: fieldName,
+        product_name: productName,
+        quantity: Number(quantity.toFixed(3)),
+        qty_kg: Number(quantity.toFixed(3)),
+        unit: cleanString(material?.unit) || "unit",
+        date: cleanString((operation as any).date),
+        operation: cleanString((operation as any).operation_type) || "-",
+        operation_id: cleanString((operation as any).id),
+        status: cleanString((operation as any).status),
+        work_status: normalizeOperationWorkStatus(operationRow),
+        material_type: cleanString(material?.material_type),
+        quantity_source: source,
+        source_type: "operation_materials",
+      });
+    }
+  }
+
+  const consumptionsRes = await context.supabase
+    .from("field_material_consumptions")
+    .select("field_id,product_id,quantity_kg,season_id,consumed_at,created_at,notes")
+    .eq("company_id", context.companyId)
+    .in("field_id", fieldIds)
+    .limit(2000);
+  if (consumptionsRes.error && !isMissingRelationError(consumptionsRes.error.message)) {
+    throw new Error(consumptionsRes.error.message);
+  }
+
+  const rawConsumptions = (consumptionsRes.data || []).filter((row: any) =>
+    matchesSeasonIdentity(seasonScope, row as Record<string, unknown>, {
+      allowDateFallback: true,
+      dateKeys: ["consumed_at", "created_at"],
+    })
+  );
+  const lookup = await buildLookupMaps(
+    context,
+    {
+      products: Array.from(new Set(rawConsumptions.map((x: any) => String(x.product_id || "")).filter(Boolean))),
+    },
+    { strictActive: true }
+  );
+
+  for (const row of rawConsumptions) {
+    const productId = cleanString((row as any).product_id);
+    const productName = productId ? lookup.byProduct.get(productId) : null;
+    if (productId && !productName) continue;
+    if (!allowTestData && (isQaMarkerText(productName) || isQaMarkerText((row as any).notes))) continue;
+    const fieldId = cleanString((row as any).field_id);
+    const quantity = Math.abs(Number((row as any).quantity_kg || 0));
+    rows.push({
+      field_id: fieldId,
+      field_name: fieldId ? fieldRefsById.get(fieldId)?.displayName || fieldRefsById.get(fieldId)?.name || fieldId : "-",
+      product_name: productName || "material",
+      quantity: Number((Number.isFinite(quantity) ? quantity : 0).toFixed(3)),
+      qty_kg: Number((Number.isFinite(quantity) ? quantity : 0).toFixed(3)),
+      unit: "kg",
+      date: cleanString((row as any).consumed_at) || cleanString((row as any).created_at),
+      operation: cleanString((row as any).notes) || "field material fact",
+      operation_id: null,
+      status: "fact",
+      work_status: "fact",
+      material_type: "fact_consumption",
+      quantity_source: "quantity_kg",
+      source_type: "field_material_consumptions",
+    });
+  }
+
+  const ticketsRes = await context.supabase
+    .from("tickets")
+    .select("id,ticket_no,status,op_type,created_at,net_weight_kg,driver_id,vehicle_id,field_id,is_voided")
+    .eq("company_id", context.companyId)
+    .in("field_id", fieldIds)
+    .eq("is_voided", false)
+    .limit(1000);
+  if (ticketsRes.error && !isMissingRelationError(ticketsRes.error.message)) {
+    throw new Error(ticketsRes.error.message);
+  }
+
+  const materialTickets = (ticketsRes.data || []).filter((ticket: any) => {
+    const opType = normalizeSearchText(ticket.op_type);
+    if (!/(issue_to_field|material_issue|field_issue|выдач|списан|внес)/i.test(opType)) return false;
+    return matchesSeasonIdentity(seasonScope, ticket as Record<string, unknown>, {
+      allowDateFallback: true,
+      dateKeys: ["created_at"],
+    });
+  });
+  const enrichedTickets = await enrichTickets(
+    context,
+    materialTickets.map((ticket: any) => ({
+      id: cleanString(ticket.id),
+      ticket_no: cleanString(ticket.ticket_no),
+      status: cleanString(ticket.status),
+      operation: cleanString(ticket.op_type),
+      op_type: cleanString(ticket.op_type),
+      net_kg: Number(ticket.net_weight_kg || 0),
+      date: cleanString(ticket.created_at),
+      created_at: cleanString(ticket.created_at),
+      driver_id: cleanString(ticket.driver_id),
+      vehicle_id: cleanString(ticket.vehicle_id),
+      field_id: cleanString(ticket.field_id),
+    }))
+  );
+  for (const ticket of enrichedTickets) {
+    const fieldId = cleanString((ticket as any).field_id);
+    const productName = cleanString((ticket as any).product_name) || cleanString((ticket as any).variety_name) || "material";
+    if (!allowTestData && (isQaMarkerText(productName) || isQaMarkerText((ticket as any).ticket_no))) continue;
+    const quantity = Math.abs(Number((ticket as any).net_kg || 0));
+    rows.push({
+      field_id: fieldId,
+      field_name: fieldId ? fieldRefsById.get(fieldId)?.displayName || fieldRefsById.get(fieldId)?.name || fieldId : "-",
+      product_name: productName,
+      quantity: Number((Number.isFinite(quantity) ? quantity : 0).toFixed(3)),
+      qty_kg: Number((Number.isFinite(quantity) ? quantity : 0).toFixed(3)),
+      unit: "kg",
+      date: cleanString((ticket as any).created_at) || cleanString((ticket as any).date),
+      operation: cleanString((ticket as any).op_type) || cleanString((ticket as any).operation) || "ticket issue",
+      operation_id: cleanString((ticket as any).id),
+      status: cleanString((ticket as any).status),
+      work_status: "fact",
+      material_type: "ticket_issue",
+      quantity_source: "ticket_net_weight_kg",
+      ticket_no: cleanString((ticket as any).ticket_no),
+      source_type: "tickets",
+    });
+  }
+
+  return rows
+    .filter((row) => allowTestData || !rowHasQaMarker(row, ["field_name", "product_name", "operation", "status"]))
+    .sort((a, b) => String((b as any).date || "").localeCompare(String((a as any).date || "")))
+    .slice(0, 300);
+}
+
 const getFieldMaterialsToolAlias: AssistantToolDefinition = {
   name: "get_field_materials",
-  description: "Field materials fact",
-  domains: ["fields", "inventory", "ledger"],
+  description: "Field materials from operation_materials and field_material_consumptions",
+  domains: ["fields", "inventory", "ledger", "operations"],
   run: async (context) => {
     const query = parseFieldQueryFromContextV2(context);
     const seasonScope = await resolveSeasonScope(context.companyId, context);
     const seasonLabel = seasonScope.seasonYear || DEFAULT_SEASON_YEAR;
     if (!query) {
       return {
-        title: "Материалы поля",
+        title: "Field materials",
         rows: [],
         source: {
           module: "fields",
-          tableOrView: "field_materials",
-          season: seasonLabel,
-          fetchedAt: nowIso(),
-        },
-      };
-    }
-    if (false) {
-      return {
-        title: "Материалы поля",
-        rows: [],
-        source: {
-          module: "fields",
-          tableOrView: "field_materials",
+          tableOrView: "operation_materials + field_material_consumptions + tickets",
           season: seasonLabel,
           fetchedAt: nowIso(),
         },
@@ -4231,95 +4747,49 @@ const getFieldMaterialsToolAlias: AssistantToolDefinition = {
     }
 
     const allowTestData = isDebugOrTestDataAllowed(context);
-    const selection = await resolveFieldSelection(context, query, 10);
-    if (!selection.selected && selection.ambiguityReason && selection.candidates.length > 1) {
+    const selection = await resolveFieldSelection(context, query, 12);
+    const fieldRefs: FieldMaterialScope[] = selection.selected
+      ? [
+          {
+            id: selection.selected.id,
+            name: selection.selected.name,
+            displayName: selection.selected.displayName,
+          },
+        ]
+      : selection.ambiguityReason && selection.candidates.length > 1
+        ? selection.candidates.slice(0, 12).map((item) => ({
+            id: item.id,
+            name: item.name,
+            displayName: item.displayName,
+          }))
+        : [];
+
+    if (!fieldRefs.length) {
       return {
-        title: "РњР°С‚РµСЂРёР°Р»С‹ РїРѕР»СЏ",
-        rows: selection.candidates.slice(0, 8).map((item) => ({
-          field_id: item.id,
-          field_name: item.displayName,
-          field_segment: item.name,
-          area_ha: Number(item.area || 0),
-          selection_reason: "ambiguous_segments",
-        })),
-        source: {
-          module: "fields",
-          tableOrView: "field_materials resolver",
-          season: seasonLabel,
-          fetchedAt: nowIso(),
-        },
-      };
-    }
-    const matchedField = selection.selected
-      ? {
-          id: selection.selected.id,
-          name: selection.selected.name,
-          area: selection.selected.area,
-          notes: selection.selected.notes,
-        }
-      : null;
-    if (!matchedField) {
-      return {
-        title: "РњР°С‚РµСЂРёР°Р»С‹ РїРѕР»СЏ",
+        title: "Field materials",
         rows: [],
         source: {
           module: "fields",
-          tableOrView: "field_materials",
+          tableOrView: "operation_materials + field_material_consumptions + tickets",
           season: seasonLabel,
           fetchedAt: nowIso(),
         },
       };
     }
 
-    const fieldId = String(matchedField.id);
-    const consumptionsRes = await context.supabase
-      .from("field_material_consumptions")
-      .select("product_id,quantity_kg,season_id,consumed_at,notes")
-      .eq("company_id", context.companyId)
-      .eq("field_id", fieldId)
-      .limit(2000);
-    if (consumptionsRes.error) throw new Error(consumptionsRes.error.message);
-    const raw = (consumptionsRes.data || []).filter((row: any) =>
-      matchesSeasonIdentity(seasonScope, row as Record<string, unknown>, {
-        allowDateFallback: true,
-        dateKeys: ["consumed_at", "created_at"],
-      })
-    );
-    const lookup = await buildLookupMaps(
-      context,
-      {
-        products: Array.from(new Set(raw.map((x: any) => String(x.product_id || "")).filter(Boolean))),
-      },
-      { strictActive: true }
-    );
-
-    const grouped = new Map<string, number>();
-    raw.forEach((row: any) => {
-      // field_material_consumptions already stores factual issued quantities for a field.
-      const productId = cleanString(row.product_id);
-      const product = productId ? lookup.byProduct.get(productId) : null;
-      if (productId && !product) return;
-      if (!allowTestData && (isQaMarkerText(product) || isQaMarkerText(row.notes))) return;
-      const qtyAbs = Number(row.quantity_kg || 0);
-      grouped.set(product || "Материал", (grouped.get(product || "Материал") || 0) + Math.abs(Number.isFinite(qtyAbs) ? qtyAbs : 0));
-    });
-
+    const rows = await buildFieldMaterialRows(context, fieldRefs, seasonScope, allowTestData);
     return {
-      title: "Материалы поля",
-      rows: Array.from(grouped.entries())
-        .map(([product_name, qty_kg]) => ({ product_name, qty_kg: Number(qty_kg.toFixed(3)) }))
-        .sort((a, b) => b.qty_kg - a.qty_kg)
-        .slice(0, 200),
+      title: "Field materials",
+      rows,
       source: {
         module: "fields",
-        tableOrView: "field_material_consumptions",
+        tableOrView: "operation_materials + field_material_consumptions + tickets",
         season: seasonLabel,
         fetchedAt: nowIso(),
       },
     };
   },
 };
-
 const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
   get_current_context: getCurrentContextToolAlias,
   get_routes: getRoutesToolAlias,
@@ -4338,7 +4808,8 @@ const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
   search_operations: searchOperationsToolAlias,
   get_operation_details: getOperationDetailsToolAlias,
   find_operation: findOperationToolAlias,
-  get_active_operations: getActiveOperationsToolAlias,
+  get_active_operations: getActiveOperationsToolV2,
+  get_active_operations_summary: getActiveOperationsSummaryToolAlias,
   get_active_tickets: getActiveTicketsToolAlias,
   get_recent_tickets: getRecentTicketsToolAlias,
   get_ticket_details: getTicketDetailsToolAlias,
@@ -4353,7 +4824,7 @@ const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
   get_warehouse_balances: getWarehouseBalancesTool,
   get_warehouse_movements: getWarehouseMovementsTool,
   get_weighbridge_tickets: getWeighbridgeTicketsTool,
-  get_operations: getOperationsTool,
+  get_operations: getOperationsToolV2,
   get_fuel_sources: getFuelSourcesTool,
   get_fuel_balances: getFuelBalancesTool,
   get_fuel_movements: getFuelMovementsTool,
@@ -4365,6 +4836,9 @@ const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
   resolve_vehicle_or_equipment: resolveVehicleOrEquipmentTool,
   resolve_operation_type: resolveOperationTypeTool,
   create_operation_draft: makeDraftTool("create_operation_draft", "Создать черновик операции"),
+  create_field_draft: makeDraftTool("create_field_draft", "Создать черновик поля"),
+  create_meal_order_draft: makeDraftTool("create_meal_order_draft", "Создать черновик заявки питания"),
+  create_warehouse_draft: makeDraftTool("create_warehouse_draft", "Создать черновик склада"),
   create_transfer_draft: makeDraftTool("create_transfer_draft", "Создать черновик перемещения"),
   create_fuel_issue_draft: makeDraftTool("create_fuel_issue_draft", "Создать черновик выдачи ГСМ"),
   create_field_task_draft: makeDraftTool("create_field_task_draft", "Создать черновик полевого задания"),
