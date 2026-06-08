@@ -30,7 +30,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -57,6 +56,7 @@ import { getFieldDisplayName } from "@/lib/fields/display";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   FERTILIZER_APPLICATION_METHODS,
+  OPERATION_SUBTYPE_DEFINITIONS,
   OPERATION_TYPE_DEFINITIONS,
   TANK_MIX_COMPONENT_DEFINITIONS,
   getDefaultUnitForComponent,
@@ -119,24 +119,47 @@ const FALLBACK_CATEGORIES: OperationCategory[] = OPERATION_TYPE_DEFINITIONS.map(
   is_active: true,
 }));
 
-const FALLBACK_TYPES: OperationTypeMaster[] = OPERATION_TYPE_DEFINITIONS.map((definition) => ({
-  id: definition.slug,
-  slug: definition.slug,
-  name_ru: definition.label,
-  category_slug: definition.categorySlug,
-  requires_machine: definition.requiresMachine,
-  requires_product: definition.supportsMaterials,
-  requires_field: definition.requiresCropStructure,
-  affects_inventory: definition.affectsWarehouse,
-  affects_field_history: definition.affectsFieldHistory,
-  is_active: true,
-}));
+const FALLBACK_TYPES: OperationTypeMaster[] = [
+  ...OPERATION_TYPE_DEFINITIONS.map((definition) => ({
+    id: definition.slug,
+    slug: definition.slug,
+    name_ru: definition.label,
+    category_slug: definition.categorySlug,
+    requires_machine: definition.requiresMachine,
+    requires_product: definition.supportsMaterials,
+    requires_field: definition.requiresCropStructure,
+    affects_inventory: definition.affectsWarehouse,
+    affects_field_history: definition.affectsFieldHistory,
+    is_active: true,
+  })),
+  ...OPERATION_SUBTYPE_DEFINITIONS.map((definition) => {
+    const parent = OPERATION_TYPE_DEFINITIONS.find((item) => item.slug === definition.categorySlug);
+    return {
+      id: definition.slug,
+      slug: definition.slug,
+      name_ru: definition.label,
+      category_slug: definition.categorySlug,
+      requires_machine: parent?.requiresMachine ?? true,
+      requires_product: parent?.supportsMaterials ?? false,
+      requires_field: parent?.requiresCropStructure ?? true,
+      affects_inventory: parent?.affectsWarehouse ?? false,
+      affects_field_history: parent?.affectsFieldHistory ?? true,
+      is_active: true,
+    } satisfies OperationTypeMaster;
+  }),
+];
 
 function normalizeNumber(value: string): number | null {
   const raw = String(value || "").trim().replace(",", ".");
   if (!raw) return null;
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+function clampArea(value: number | null, maxArea: number | null): number | null {
+  if (value == null) return null;
+  if (maxArea != null && maxArea > 0) return Math.min(value, maxArea);
+  return value;
 }
 
 function inferMaterialTypeByProductType(productType: string | null | undefined): OperationMaterialType {
@@ -179,7 +202,8 @@ function mergeCanonicalTypes(rows: OperationTypeMaster[]): OperationTypeMaster[]
       typeSlug: item.slug,
       operationType: item.name_ru,
     });
-    if (canonical) return;
+    if (canonical && item.category_slug !== canonical.categorySlug) return;
+    if (canonical && item.slug === canonical.slug) return;
     bySlug.set(item.slug, item);
   });
   return Array.from(bySlug.values());
@@ -308,18 +332,30 @@ export function OperationFormDialog({
     () => cropStructures.find((item) => item.id === selectedCropStructureId) || null,
     [cropStructures, selectedCropStructureId]
   );
-  const typeOptions = useMemo(
-    () => types.filter((item) => !categorySlug || item.category_slug === categorySlug),
-    [types, categorySlug]
+  const selectedFieldCropStructures = useMemo(
+    () =>
+      cropStructures.filter(
+        (item) => !item.archived && selectedFieldId && item.field_id === selectedFieldId
+      ),
+    [cropStructures, selectedFieldId]
   );
+  const selectedCropStructureArea = selectedCropStructure ? Number(selectedCropStructure.area || 0) : null;
+  const typeOptions = useMemo(() => {
+    const rows = types.filter((item) => !categorySlug || item.category_slug === categorySlug);
+    const expectedSubtypeSlugs = new Set(
+      OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === categorySlug).map((item) => item.slug)
+    );
+    return expectedSubtypeSlugs.size > 0 ? rows.filter((item) => expectedSubtypeSlugs.has(item.slug)) : rows;
+  }, [types, categorySlug]);
   const cropStructureOptions = useMemo(
     () =>
       cropStructures
         .filter((item) => !item.archived && (!selectedFieldId || item.field_id === selectedFieldId))
         .map((item) => ({
           id: item.id,
-          label: `${item.crop_name} • ${item.variety_name || "без сорта"} • ${item.reproduction_name || "без репр."}`,
-          hint: `${item.area.toFixed(2)} га`,
+          label: `${item.crop_name || "без культуры"} • ${item.variety_name || "без сорта"} • ${
+            item.reproduction_name || "без репр."
+          } • ${Number(item.area || 0).toFixed(2)} га`,
         })),
     [cropStructures, selectedFieldId]
   );
@@ -480,7 +516,7 @@ export function OperationFormDialog({
       operationType: initial.operation_type,
     });
     const initialCategory = initialCanonical?.categorySlug || String(initial.operation_category_slug || "").trim();
-    const initialType = initialCanonical?.slug || String(initial.operation_type_slug || "").trim();
+    const initialType = String(initial.operation_type_slug || initialCanonical?.slug || "").trim();
     const initialMaterials = Array.isArray(initial.materials)
       ? (initial.materials as OperationMaterialFormData[]).map((item) => {
           const component = getTankMixComponentDefinition(item.component_type || item.material_type);
@@ -499,7 +535,7 @@ export function OperationFormDialog({
       crop_structure_id: initial.crop_structure_id || null,
       operation_category_slug: initialCategory,
       operation_type_slug: initialType,
-      operation_type: String(initialCanonical?.label || initial.operation_type || ""),
+      operation_type: String(initial.operation_type || initialCanonical?.label || ""),
       planned_area_ha: initial.planned_area_ha ?? null,
       crop_id: initial.crop_id || null,
       machine_id: initial.machine_id || null,
@@ -532,6 +568,30 @@ export function OperationFormDialog({
   }, [form, open, selectedCropStructure]);
 
   useEffect(() => {
+    if (!open || !selectedFieldId) return;
+    if (selectedCropStructure && selectedCropStructure.field_id === selectedFieldId) return;
+    if (selectedFieldCropStructures.length === 1) {
+      const onlyStructure = selectedFieldCropStructures[0];
+      form.setValue("crop_structure_id", onlyStructure.id);
+      form.setValue("crop_id", onlyStructure.crop_id);
+      form.setValue("planned_area_ha", Number(onlyStructure.area || 0));
+      return;
+    }
+    if (selectedCropStructureId && selectedCropStructure?.field_id !== selectedFieldId) {
+      form.setValue("crop_structure_id", null);
+      form.setValue("crop_id", null);
+      form.setValue("planned_area_ha", null);
+    }
+  }, [
+    form,
+    open,
+    selectedCropStructure,
+    selectedCropStructureId,
+    selectedFieldCropStructures,
+    selectedFieldId,
+  ]);
+
+  useEffect(() => {
     if (!open) return;
     if (typeSlug) return;
     const operationTypeName = String(form.getValues("operation_type") || "").trim().toLowerCase();
@@ -555,10 +615,10 @@ export function OperationFormDialog({
       operationType: singleType.name_ru,
     });
     setCategorySlug(canonical?.categorySlug || singleType.category_slug);
-    setTypeSlug(canonical?.slug || singleType.slug);
+    setTypeSlug(singleType.slug);
     form.setValue("operation_category_slug", canonical?.categorySlug || singleType.category_slug);
-    form.setValue("operation_type_slug", canonical?.slug || singleType.slug);
-    form.setValue("operation_type", canonical?.label || singleType.name_ru);
+    form.setValue("operation_type_slug", singleType.slug);
+    form.setValue("operation_type", singleType.name_ru);
   }, [categorySlug, form, open, typeOptions, typeSlug]);
 
   useEffect(() => {
@@ -587,7 +647,8 @@ export function OperationFormDialog({
   const showTankMix = !!canonicalType?.supportsTankMix;
   const showMaterials = !!canonicalType?.supportsMaterials && !isHarvest;
   const showMachine = canonicalType ? canonicalType.requiresMachine : !!selectedType?.requires_machine;
-  const showField = canonicalType ? canonicalType.requiresCropStructure : selectedType?.requires_field !== false;
+  const showTransport = showMachine && canonicalType?.slug !== "soil_operation";
+  const showField = canonicalType ? canonicalType.requiresCropStructure : true;
   const cropStructureRequired = canonicalType ? canonicalType.requiresCropStructure : requiresCropStructureForType(selectedType);
   const componentOptions = useMemo(() => {
     const allowed = isSeeding
@@ -646,13 +707,12 @@ export function OperationFormDialog({
   const handleCategoryChange = (slug: string) => {
     const canonical = resolveCanonicalOperationType({ categorySlug: slug });
     const nextCategory = canonical?.categorySlug || slug;
-    const nextType = canonical?.slug || "";
     setCategorySlug(nextCategory);
     form.setValue("operation_category_slug", nextCategory);
     setTypeSlug("");
-    form.setValue("operation_type_slug", nextType);
-    form.setValue("operation_type", canonical?.label || "");
-    if (nextType) setTypeSlug(nextType);
+    form.setValue("operation_type_slug", "");
+    form.setValue("operation_type", "");
+    form.setValue("transport_id", null);
   };
 
   const handleTypeChange = (slug: string) => {
@@ -663,12 +723,12 @@ export function OperationFormDialog({
       operationType: type?.name_ru || "",
     });
     const nextCategory = canonical?.categorySlug || type?.category_slug || categorySlug;
-    const nextType = canonical?.slug || slug;
+    const nextType = type?.slug || slug;
     setCategorySlug(nextCategory);
     setTypeSlug(nextType);
     form.setValue("operation_category_slug", nextCategory);
     form.setValue("operation_type_slug", nextType);
-    form.setValue("operation_type", canonical?.label || type?.name_ru || "");
+    form.setValue("operation_type", type?.name_ru || canonical?.label || "");
   };
 
   const submit = async (data: OperationFormData) => {
@@ -676,8 +736,12 @@ export function OperationFormDialog({
       form.setError("operation_type", { message: "Выберите тип операции" });
       return;
     }
+    if (selectedCropStructureArea != null && selectedCropStructureArea > 0 && Number(data.planned_area_ha || 0) > selectedCropStructureArea) {
+      form.setError("planned_area_ha", { message: `Площадь не должна превышать ${selectedCropStructureArea.toFixed(2)} га` });
+      return;
+    }
     if (cropStructureRequired && !data.crop_structure_id) {
-      form.setError("crop_structure_id", { message: "Для производственной операции нужна строка структуры посевов" });
+      form.setError("crop_structure_id", { message: "Выберите культуру на поле" });
       return;
     }
     const normalizedMaterials = materials.map((item) => {
@@ -700,8 +764,8 @@ export function OperationFormDialog({
     await onSubmit({
       ...data,
       operation_category_slug: canonicalType?.categorySlug || categorySlug,
-      operation_type_slug: canonicalType?.slug || typeSlug,
-      operation_type: canonicalType?.label || selectedType.name_ru,
+      operation_type_slug: typeSlug,
+      operation_type: selectedType.name_ru,
       purposes,
       tank_mix: showTankMix
         ? {
@@ -729,6 +793,58 @@ export function OperationFormDialog({
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(submit)} className="space-y-4">
+            {showField ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="field_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Поле *</FormLabel>
+                      <FormControl>
+                        <SearchableSelect
+                          value={field.value || ""}
+                          onChange={(value) => {
+                            field.onChange(value);
+                            form.setValue("crop_structure_id", null);
+                            form.setValue("crop_id", null);
+                            form.setValue("planned_area_ha", null);
+                          }}
+                          options={fieldOptions}
+                          placeholder="Выберите поле"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="crop_structure_id"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{cropStructureRequired ? "Культура на поле *" : "Культура на поле"}</FormLabel>
+                      <FormControl>
+                        <SearchableSelect
+                          value={field.value || ""}
+                          onChange={(value) => field.onChange(value || null)}
+                          options={cropStructureOptions}
+                          placeholder={
+                            selectedFieldCropStructures.length === 1
+                              ? "Выбрано автоматически"
+                              : "Выберите культуру на поле"
+                          }
+                          emptyLabel="Для поля нет культуры сезона"
+                          disabled={selectedFieldCropStructures.length === 1 && !!field.value}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <FormItem>
                 <FormLabel>Производственный блок *</FormLabel>
@@ -753,16 +869,16 @@ export function OperationFormDialog({
                 <Select
                   value={typeSlug}
                   onValueChange={handleTypeChange}
-                  disabled={!categorySlug || typeOptions.length === 1}
+                  disabled={!categorySlug}
                 >
                   <FormControl>
                     <SelectTrigger>
                       <SelectValue
                         placeholder={
                           !categorySlug
-                            ? "Сначала выберите категорию"
-                            : typeOptions.length === 1
-                              ? typeOptions[0].name_ru
+                            ? "Сначала выберите блок"
+                            : typeOptions.length === 0
+                              ? "Типы не найдены"
                               : "Выберите тип"
                         }
                       />
@@ -780,22 +896,10 @@ export function OperationFormDialog({
             </div>
 
             {selectedType ? (
-              <div className="rounded-lg border bg-slate-50 p-3">
-                <div className="mb-2 text-sm font-semibold">{canonicalType?.label || selectedType.name_ru}</div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">
-                    {showMaterials ? "Материалы проходят через склад" : "Без складской заявки"}
-                  </Badge>
-                  <Badge variant="outline">
-                    {(canonicalType?.affectsFieldHistory ?? selectedType.affects_field_history) ? "Попадает в историю поля" : "Не меняет историю поля"}
-                  </Badge>
-                  <Badge variant="outline">
-                    {cropStructureRequired ? "Привязка к структуре посевов" : "Без привязки к посеву"}
-                  </Badge>
-                  {showTankMix ? <Badge className="bg-emerald-100 text-emerald-900">Баковая смесь</Badge> : null}
-                </div>
+              <div className="rounded-md border bg-muted/30 p-3 text-sm">
+                <div className="font-semibold">{selectedType.name_ru}</div>
                 {canonicalType?.description ? (
-                  <div className="mt-2 text-xs text-slate-600">{canonicalType.description}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">{canonicalType.description}</div>
                 ) : null}
               </div>
             ) : null}
@@ -857,115 +961,43 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <FormField
-                control={form.control}
-                name="date"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Дата *</FormLabel>
-                    <FormControl>
-                      <Input type="date" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <FormField
                 control={form.control}
                 name="planned_area_ha"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>План, га</FormLabel>
+                    <FormLabel>Площадь, га</FormLabel>
                     <FormControl>
                       <Input
                         type="number"
                         step="0.01"
-                        readOnly={!!selectedCropStructure}
+                        max={selectedCropStructureArea ?? undefined}
                         value={field.value ?? ""}
-                        onChange={(event) => field.onChange(normalizeNumber(event.target.value))}
+                        onChange={(event) =>
+                          field.onChange(clampArea(normalizeNumber(event.target.value), selectedCropStructureArea))
+                        }
                       />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="responsible_user_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Ответственный специалист</FormLabel>
-                    <FormControl>
-                      <SearchableSelect
-                        value={field.value || ""}
-                        onChange={(value) => field.onChange(value)}
-                        options={specialistOptions}
-                        placeholder="Выберите специалиста"
-                        emptyLabel="Специалисты не найдены"
-                      />
-                    </FormControl>
+                    {selectedCropStructureArea != null && selectedCropStructureArea > 0 ? (
+                      <div className="text-xs text-muted-foreground">
+                        Максимум по выбранной культуре: {selectedCropStructureArea.toFixed(2)} га
+                      </div>
+                    ) : null}
                     <FormMessage />
                   </FormItem>
                 )}
               />
             </div>
 
-            {showField ? (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="field_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Поле *</FormLabel>
-                      <FormControl>
-                        <SearchableSelect
-                          value={field.value || ""}
-                          onChange={(value) => {
-                            field.onChange(value);
-                            form.setValue("crop_structure_id", null);
-                            form.setValue("crop_id", null);
-                            form.setValue("planned_area_ha", null);
-                          }}
-                          options={fieldOptions}
-                          placeholder="Выберите поле"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="crop_structure_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{cropStructureRequired ? "Строка структуры *" : "Строка структуры"}</FormLabel>
-                      <FormControl>
-                        <SearchableSelect
-                          value={field.value || ""}
-                          onChange={(value) => field.onChange(value || null)}
-                          options={cropStructureOptions}
-                          placeholder="Выберите строку структуры"
-                          emptyLabel="Строки структуры не найдены"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-            ) : null}
-
             {showMachine ? (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className={cn("grid grid-cols-1 gap-4", showTransport ? "md:grid-cols-3" : "md:grid-cols-2")}>
                 <FormField
                   control={form.control}
                   name="machine_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Машина</FormLabel>
+                      <FormLabel>{canonicalType?.slug === "soil_operation" ? "Трактор / машина" : "Машина"}</FormLabel>
                       <FormControl>
                         <SearchableSelect
                           value={field.value || ""}
@@ -984,7 +1016,7 @@ export function OperationFormDialog({
                   name="equipment_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Оборудование (опционально)</FormLabel>
+                      <FormLabel>{canonicalType?.slug === "soil_operation" ? "Орудие / агрегат" : "Оборудование"}</FormLabel>
                       <FormControl>
                         <SearchableSelect
                           value={field.value || ""}
@@ -998,25 +1030,27 @@ export function OperationFormDialog({
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="transport_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Транспорт</FormLabel>
-                      <FormControl>
-                        <SearchableSelect
-                          value={field.value || ""}
-                          onChange={(value) => field.onChange(value || null)}
-                          options={transportOptions}
-                          placeholder="Выберите транспорт"
-                          emptyLabel="Транспорт не найден"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {showTransport ? (
+                  <FormField
+                    control={form.control}
+                    name="transport_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Транспорт</FormLabel>
+                        <FormControl>
+                          <SearchableSelect
+                            value={field.value || ""}
+                            onChange={(value) => field.onChange(value || null)}
+                            options={transportOptions}
+                            placeholder="Выберите транспорт"
+                            emptyLabel="Транспорт не найден"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
               </div>
             ) : null}
 
@@ -1144,7 +1178,7 @@ export function OperationFormDialog({
                                 emptyLabel="Нет остатка на складе"
                               />
                             ) : (
-                              <div className="flex h-8 items-center rounded-md border bg-slate-50 px-3 text-xs text-slate-500">
+                              <div className="flex h-8 items-center rounded-md border bg-muted/40 px-3 text-xs text-muted-foreground">
                                 Без складского продукта
                               </div>
                             )}
@@ -1249,13 +1283,40 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
-            {cropStructureRequired ? (
-              <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                {showMaterials
-                  ? "После создания план работ будет привязан к выбранной строке структуры посевов. Факт площади и материалов закрывается отдельно."
-                  : "После создания план работ будет привязан к выбранной строке структуры посевов. Факт площади закрывается отдельно."}
-              </div>
-            ) : null}
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="date"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Дата *</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="responsible_user_id"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Ответственный</FormLabel>
+                    <FormControl>
+                      <SearchableSelect
+                        value={field.value || ""}
+                        onChange={(value) => field.onChange(value)}
+                        options={specialistOptions}
+                        placeholder="Выберите ответственного"
+                        emptyLabel="Специалисты не найдены"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             <FormField
               control={form.control}

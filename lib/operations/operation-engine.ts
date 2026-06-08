@@ -55,6 +55,12 @@ export type OperationTypeDefinition = {
   keywords: string[];
 };
 
+export type OperationSubtypeDefinition = {
+  slug: string;
+  categorySlug: CanonicalOperationTypeSlug;
+  label: string;
+};
+
 export type OperationPurposeDefinition = {
   slug: OperationPurposeSlug;
   label: string;
@@ -223,6 +229,59 @@ export const OPERATION_TYPE_DEFINITIONS: OperationTypeDefinition[] = [
     legacyTypeSlugs: ["post_harvest_processing"],
     keywords: ["post_harvest", "processing", "сушка", "очист", "доработ"],
   },
+];
+
+export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
+  { categorySlug: "soil_operation", slug: "stubble_peeling", label: "Лущение стерни" },
+  { categorySlug: "soil_operation", slug: "disking", label: "Дисковка" },
+  { categorySlug: "soil_operation", slug: "heavy_disking", label: "Тяжелая дисковка" },
+  { categorySlug: "soil_operation", slug: "cultivation", label: "Культивация" },
+  { categorySlug: "soil_operation", slug: "deep_ripping", label: "Глубокорыхление" },
+  { categorySlug: "soil_operation", slug: "chiseling", label: "Чизелевание" },
+  { categorySlug: "soil_operation", slug: "plowing", label: "Вспашка" },
+  { categorySlug: "soil_operation", slug: "harrowing", label: "Боронование" },
+  { categorySlug: "soil_operation", slug: "leveling", label: "Выравнивание" },
+  { categorySlug: "soil_operation", slug: "rolling", label: "Прикатывание" },
+  { categorySlug: "soil_operation", slug: "ridge_forming", label: "Формирование гребней" },
+  { categorySlug: "soil_operation", slug: "furrow_cutting", label: "Нарезка борозд" },
+
+  { categorySlug: "planting", slug: "grain_seeding", label: "Посев зерновых" },
+  { categorySlug: "planting", slug: "oilseed_seeding", label: "Посев масличных" },
+  { categorySlug: "planting", slug: "legume_seeding", label: "Посев бобовых" },
+  { categorySlug: "planting", slug: "potato_planting", label: "Посадка картофеля" },
+  { categorySlug: "planting", slug: "seeding_with_fertilizer", label: "Посев с внесением удобрений" },
+  { categorySlug: "planting", slug: "seeding_with_microgranules", label: "Посев с микрогранулятом" },
+
+  { categorySlug: "spraying", slug: "herbicide_treatment", label: "Гербицидная обработка" },
+  { categorySlug: "spraying", slug: "fungicide_treatment", label: "Фунгицидная обработка" },
+  { categorySlug: "spraying", slug: "insecticide_treatment", label: "Инсектицидная обработка" },
+  { categorySlug: "spraying", slug: "complex_tank_mix_treatment", label: "Комплексная баковая обработка" },
+  { categorySlug: "spraying", slug: "desiccation_treatment", label: "Десикация" },
+  { categorySlug: "spraying", slug: "defoliation", label: "Дефолиация" },
+  { categorySlug: "spraying", slug: "drone_treatment", label: "Дрон-обработка" },
+  { categorySlug: "spraying", slug: "aerial_treatment", label: "Авиаобработка" },
+
+  { categorySlug: "fertilizer_application", slug: "mineral_fertilizer_broadcast", label: "Разбрасывание минеральных удобрений" },
+  { categorySlug: "fertilizer_application", slug: "organic_application", label: "Внесение органики" },
+  { categorySlug: "fertilizer_application", slug: "localized_application", label: "Локальное внесение" },
+  { categorySlug: "fertilizer_application", slug: "starter_fertilizer_application", label: "Припосевное внесение" },
+  { categorySlug: "fertilizer_application", slug: "uas_application", label: "Внесение КАС" },
+  { categorySlug: "fertilizer_application", slug: "liquid_fertilizer_application", label: "Внесение ЖКУ" },
+  { categorySlug: "fertilizer_application", slug: "foliar_fertilization", label: "Листовая подкормка" },
+
+  { categorySlug: "fertigation", slug: "fertigation", label: "Фертигация" },
+  { categorySlug: "fertigation", slug: "chemigation", label: "Химизация через полив" },
+
+  { categorySlug: "harvesting", slug: "direct_combining", label: "Прямое комбайнирование" },
+  { categorySlug: "harvesting", slug: "separate_harvesting", label: "Раздельная уборка" },
+  { categorySlug: "harvesting", slug: "potato_harvesting", label: "Уборка картофеля" },
+  { categorySlug: "harvesting", slug: "vegetable_harvesting", label: "Уборка овощей" },
+  { categorySlug: "harvesting", slug: "grain_harvesting", label: "Уборка зерновых" },
+  { categorySlug: "harvesting", slug: "windrow_pickup", label: "Подбор валков" },
+
+  { categorySlug: "service_operation", slug: "service_task", label: "Сервисная задача" },
+  { categorySlug: "logistics_operation", slug: "transport_task", label: "Перевозка" },
+  { categorySlug: "post_harvest_operation", slug: "post_harvest_processing", label: "Послеуборочная доработка" },
 ];
 
 export const OPERATION_PURPOSE_DEFINITIONS: OperationPurposeDefinition[] = [

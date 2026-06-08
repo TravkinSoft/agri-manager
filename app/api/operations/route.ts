@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
       typeSlug: requestedTypeSlug,
       operationType,
     });
-    const operationTypeSlug = canonicalType?.slug || requestedTypeSlug;
+    const operationTypeSlug = requestedTypeSlug || canonicalType?.slug || null;
     const canonicalCategorySlug = canonicalType?.categorySlug || operationCategorySlug;
     const purposes = normalizePurposeList(body.purposes);
     const cropStructureRequired = requiresCropStructure(canonicalCategorySlug, operationTypeSlug, operationType);
