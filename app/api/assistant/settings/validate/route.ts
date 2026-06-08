@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { getAssistantPlatformSettings } from "@/lib/assistant/settings-store";
-import { buildAssistantModelCandidateList, resolveAssistantModelConfig } from "@/lib/assistant/openai";
+import {
+  assistantModelSupportsCustomTemperature,
+  buildAssistantModelCandidateList,
+  buildOpenAiChatCompletionBody,
+  resolveAssistantModelConfig,
+} from "@/lib/assistant/openai";
 import { resolveTravkinCorePrompt } from "@/lib/assistant/prompts/travkin-core-prompt";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 
@@ -21,16 +26,15 @@ function extractOpenAiError(payload: any, status: number | null): string {
 
 function isModelUnavailableError(payload: any): boolean {
   const errorCode = String(payload?.error?.code || "").trim().toLowerCase();
-  const errorType = String(payload?.error?.type || "").trim().toLowerCase();
   const errorMessage = String(payload?.error?.message || "").trim().toLowerCase();
   return (
     errorCode === "model_not_found" ||
-    errorType === "invalid_request_error" ||
     errorMessage.includes("does not exist") ||
     errorMessage.includes("not found") ||
     errorMessage.includes("not available") ||
     errorMessage.includes("do not have access") ||
-    errorMessage.includes("model")
+    errorMessage.includes("not have access") ||
+    errorMessage.includes("model not found")
   );
 }
 
@@ -130,15 +134,17 @@ async function runModelPing(params: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
         },
-        body: JSON.stringify({
-          model: candidateModel,
-          temperature,
-          max_tokens: 8,
-          messages: [
-            { role: "system", content: "You are a health-check assistant." },
-            { role: "user", content: "ping" },
-          ],
-        }),
+        body: JSON.stringify(
+          buildOpenAiChatCompletionBody({
+            model: candidateModel,
+            temperature,
+            maxCompletionTokens: 8,
+            messages: [
+              { role: "system", content: "You are a health-check assistant." },
+              { role: "user", content: "ping" },
+            ],
+          })
+        ),
       });
 
       const payload = await response.json().catch(() => ({}));
@@ -254,6 +260,7 @@ export async function GET(request: NextRequest) {
         fallbackModel: ping.fallbackModel,
         fallbackReason: ping.fallbackReason,
         temperature: modelConfig.temperature,
+        temperatureApplied: assistantModelSupportsCustomTemperature(actualModelUsed || modelConfig.actualModel),
         reasoningEffort: modelConfig.reasoningEffort,
         enabledTools: settings.allowedTools || [],
       },
@@ -268,6 +275,7 @@ export async function GET(request: NextRequest) {
         prompt_source: promptBundle.source,
         prompt_updated_at: promptBundle.updatedAt,
         temperature_used: modelConfig.temperature,
+        temperature_applied: assistantModelSupportsCustomTemperature(actualModelUsed || modelConfig.actualModel),
         reasoning_effort: modelConfig.reasoningEffort,
         route_tier: modelConfig.routeTier,
       },
@@ -286,7 +294,7 @@ export async function GET(request: NextRequest) {
       binding: {
         provider: "used",
         model: "used",
-        temperature: "used",
+        temperature: assistantModelSupportsCustomTemperature(actualModelUsed || modelConfig.actualModel) ? "used" : "omitted_default_only",
         reasoningEffort: modelConfig.reasoningApplied ? "used" : "reserved",
         allowedRoles: "used",
         allowedTools: "used",

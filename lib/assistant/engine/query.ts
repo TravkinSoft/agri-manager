@@ -23,7 +23,11 @@ import type {
   AssistantToolName,
   AssistantToolOutput,
 } from "@/lib/assistant/engine/types";
-import { buildAssistantModelCandidateList, resolveAssistantModelConfig } from "@/lib/assistant/openai";
+import {
+  buildAssistantModelCandidateList,
+  buildOpenAiChatCompletionBody,
+  resolveAssistantModelConfig,
+} from "@/lib/assistant/openai";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import type { ServerActorContext } from "@/lib/auth/server-session";
 import {
@@ -629,6 +633,15 @@ function isKnowledgeStyleQuestion(message: string): boolean {
     /(что такое|как работает|объясни|объясните|процесс|как организовать|как правильно|что значит|зачем|почему|how does|explain|what is)/i.test(
       text
     )
+  );
+}
+
+function isPureKnowledgeQuestion(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  if (!text || !isKnowledgeStyleQuestion(text)) return false;
+  if (hasExplicitNavigationRequest(text)) return false;
+  return !/(\u0441\u043a\u043e\u043b\u044c\u043a\u043e|how\s+many|\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u0434\u0432\u0438\u0436\u0435\u043d|\u043f\u043e\u0441\u043b\u0435\u0434\u043d|\u0430\u043a\u0442\u0438\u0432|\u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b|\u043e\u043f\u0435\u0440\u0430\u0446|\u0443\u0440\u043e\u0436|\u0442\u0430\u043b\u043e\u043d\s*\d|ticket\s*\d|\u0447\u0442\u043e\s+\u043d\u0430\s+\u043f\u043e\u043b\u0435|\bfield\s+\d|\u043f\u043e\u043b\u0435\s+\d|stock|balance|ledger|recent|last|active)/i.test(
+    text
   );
 }
 
@@ -2130,9 +2143,14 @@ async function generateGeneralAnswer(params: {
   intentName: AssistantIntentName;
   systemPrompt: string;
   promptMeta: PromptMeta;
+  forceHeavyModel?: boolean;
 }): Promise<{ answer: string; actualModel: string | null; usage: UsageStats; llm: LlmDiagnostics; promptMeta: PromptMeta }> {
   const { message, locale, settings, intentName, systemPrompt, promptMeta } = params;
-  const modelConfig = resolveAssistantModelConfig(settings, { intentName, message });
+  const modelConfig = resolveAssistantModelConfig(settings, {
+    intentName,
+    message,
+    forceHeavyModel: Boolean(params.forceHeavyModel),
+  });
   const emptyUsage: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
 
   if (!process.env.OPENAI_API_KEY) {
@@ -2164,14 +2182,16 @@ async function generateGeneralAnswer(params: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
-      body: JSON.stringify({
-        model: candidateModel,
-        temperature: modelConfig.temperature,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: message },
-        ],
-      }),
+      body: JSON.stringify(
+        buildOpenAiChatCompletionBody({
+          model: candidateModel,
+          temperature: modelConfig.temperature,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: message },
+          ],
+        })
+      ),
     }).catch(() => null);
 
     if (!candidateResponse) continue;
@@ -2184,16 +2204,15 @@ async function generateGeneralAnswer(params: {
     if (candidateResponse.ok) break;
 
     const errCode = cleanString(candidateData?.error?.code);
-    const errType = cleanString(candidateData?.error?.type);
     const errMessage = cleanString(candidateData?.error?.message)?.toLowerCase() || "";
     const modelUnavailable =
       errCode === "model_not_found" ||
-      errType === "invalid_request_error" ||
       errMessage.includes("does not exist") ||
       errMessage.includes("not found") ||
       errMessage.includes("not available") ||
-      errMessage.includes("access") ||
-      errMessage.includes("model");
+      errMessage.includes("do not have access") ||
+      errMessage.includes("not have access") ||
+      errMessage.includes("model not found");
 
     if (!modelUnavailable) break;
   }
@@ -2423,6 +2442,86 @@ export async function runAssistantEngine(params: {
       },
       diagnostics: buildDiagnostics(),
       performance: buildPerformance(),
+    };
+  }
+
+  if (isPureKnowledgeQuestion(messageForRouting)) {
+    decisionSource = "model";
+    routerMs = 0;
+    plannerMs = 0;
+    toolMs = 0;
+    const locale = runtimeContext.locale || "ru";
+    const knowledgeIntent: AssistantIntent = {
+      name: "general_question",
+      confidence: 1,
+      needsData: false,
+      parameters: {
+        query: messageForRouting,
+        output_type: "filtered_summary",
+        request_type: "knowledge",
+      },
+    };
+    const knowledgeModelConfig = resolveAssistantModelConfig(settings, {
+      intentName: knowledgeIntent.name,
+      message: messageForRouting,
+      forceHeavyModel: true,
+    });
+    const modelStartedAt = Date.now();
+    const fallback = await generateGeneralAnswer({
+      message: messageForRouting,
+      locale,
+      settings,
+      intentName: knowledgeIntent.name,
+      systemPrompt: promptBundle.text,
+      promptMeta,
+      forceHeavyModel: true,
+    });
+    modelMs = Date.now() - modelStartedAt;
+    validatorMs = 0;
+    return {
+      answer: fallback.answer,
+      sessionState: {
+        ...initialSessionState,
+        lastIntent: knowledgeIntent.name,
+        lastAnswerType: "knowledge",
+      },
+      intent: knowledgeIntent,
+      outputType: "filtered_summary",
+      mode: "agro_knowledge",
+      toolCalls: [],
+      toolActivity: [],
+      navigationActions: [],
+      sourceHints: [],
+      answerSource: "llm_fallback",
+      grounded: false,
+      decisionSource,
+      explicitNavigationRequested,
+      navigationPolicy,
+      model: {
+        configuredModel: knowledgeModelConfig.configuredModel,
+        actualModel: fallback.actualModel,
+        settingsSource: knowledgeModelConfig.settingsSource,
+        promptVersion: fallback.promptMeta.promptVersion,
+        promptSource: fallback.promptMeta.promptSource,
+        promptUpdatedAt: fallback.promptMeta.promptUpdatedAt,
+        requestMode: engineMode,
+        llm: fallback.llm,
+      },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType: "filtered_summary",
+        selectedSource: "model_knowledge",
+        selectedTool: null,
+        consistencyCheck: "skipped",
+      }),
+      performance: buildPerformance({
+        promptTokens: fallback.usage.promptTokens,
+        completionTokens: fallback.usage.completionTokens,
+        totalTokens: fallback.usage.totalTokens,
+        plannerMs,
+        toolMs,
+        validatorMs,
+        modelMs,
+      }),
     };
   }
 

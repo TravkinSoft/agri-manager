@@ -9,6 +9,7 @@ import type {
   AssistantUiContext,
 } from "@/lib/assistant/engine/types";
 import {
+  buildOpenAiChatCompletionBody,
   buildAssistantModelCandidateList,
   resolveAssistantModelConfig,
 } from "@/lib/assistant/openai";
@@ -381,13 +382,15 @@ export async function runModelOrchestrator(params: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
         },
-        body: JSON.stringify({
-          model: candidateModel,
-          temperature: modelConfig.temperature,
-          messages,
-          tools: plannerTools,
-          tool_choice: "auto",
-        }),
+        body: JSON.stringify(
+          buildOpenAiChatCompletionBody({
+            model: candidateModel,
+            temperature: modelConfig.temperature,
+            messages,
+            tools: plannerTools,
+            toolChoice: "auto",
+          })
+        ),
       }).catch(() => null);
       modelMs += Date.now() - completionStartedAt;
 
@@ -408,15 +411,15 @@ export async function runModelOrchestrator(params: {
 
       if (!completionRes.ok) {
         const errCode = clean(completionData?.error?.code);
-        const errType = clean(completionData?.error?.type);
         const errMessage = clean(completionData?.error?.message) || clean(completionData?.error?.type) || "";
         const lower = errMessage.toLowerCase();
         const modelUnavailable =
           errCode === "model_not_found" ||
-          errType === "invalid_request_error" ||
           lower.includes("does not exist") ||
           lower.includes("not available") ||
-          lower.includes("access");
+          lower.includes("do not have access") ||
+          lower.includes("not have access") ||
+          lower.includes("model not found");
         llm = {
           status: "http_error",
           httpStatus: completionRes.status,
