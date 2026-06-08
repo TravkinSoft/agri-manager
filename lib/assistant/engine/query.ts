@@ -969,6 +969,23 @@ function resolveRoutingMessageWithMemory(params: {
     hasAnyRoutingPattern(normalized, [
       /(\u043f\u043e\s+\u0441\u043a\u043b\u0430\u0434\u0443|\u043f\u043e\s+\u043d\u0435\u043c\u0443|\u043f\u043e\s+\u044d\u0442\u043e\u043c\u0443\s+\u0441\u043a\u043b\u0430\u0434\u0443|\u0430\s+\u043f\u043e\s+\u0441\u043a\u043b\u0430\u0434\u0443)/i,
     ]);
+  const cropAreaAggregateWithoutInventory =
+    hasExplicitCrop &&
+    hasAnyRoutingPattern(normalized, [
+      /(\u0441\u043a\u043e\u043b\u044c\u043a\u043e|\u043f\u043b\u043e\u0449\u0430\u0434|\u0433\u0435\u043a\u0442|\u0433\u0430\b|\u043f\u043e\u0441\u0435\u044f|\u043f\u043e\u0441\u0430\u0436|how\s+much|area|hectares)/i,
+    ]) &&
+    !hasAnyRoutingPattern(normalized, [
+      /(\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u0441\u043a\u043b\u0430\u0434|\u043f\u0430\u0440\u0442|\u0434\u0432\u0438\u0436|stock|balance|inventory|warehouse|batch|ledger)/i,
+    ]);
+
+  if (cropAreaAggregateWithoutInventory) {
+    return {
+      routingMessage: raw,
+      used: false,
+      keysUsed: [],
+      resolvedEntitySource: "explicit_user_text",
+    };
+  }
 
   if ((mentionsMaterialsV2 || mentionsOperationsV2 || mentionsHarvestV2) && fieldRef) {
     return {
@@ -2455,7 +2472,7 @@ export async function runAssistantEngine(params: {
     };
   }
 
-  if (isPureKnowledgeQuestion(messageForRouting)) {
+  if (isPureKnowledgeQuestion(message)) {
     decisionSource = "model";
     routerMs = 0;
     plannerMs = 0;
@@ -2466,25 +2483,25 @@ export async function runAssistantEngine(params: {
       confidence: 1,
       needsData: false,
       parameters: {
-        query: messageForRouting,
+        query: message,
         output_type: "filtered_summary",
         request_type: "knowledge",
       },
     };
     const knowledgeModelConfig = resolveAssistantModelConfig(settings, {
       intentName: knowledgeIntent.name,
-      message: messageForRouting,
+      message,
       forceFastModel: true,
     });
     const modelStartedAt = Date.now();
     const fallback = await generateGeneralAnswer({
-      message: messageForRouting,
+      message,
       locale,
       settings,
       intentName: knowledgeIntent.name,
       systemPrompt: promptBundle.text,
       promptMeta,
-      forceHeavyModel: true,
+      forceFastModel: true,
     });
     modelMs = Date.now() - modelStartedAt;
     validatorMs = 0;

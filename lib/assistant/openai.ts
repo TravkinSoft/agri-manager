@@ -107,10 +107,7 @@ export function resolveAssistantModelConfig(
 ): AssistantResolvedModelConfig {
   const envDefaultModel = asText(process.env.OPENAI_ASSISTANT_MODEL);
   const defaultModel = envDefaultModel || ASSISTANT_DEFAULT_MODEL;
-  const fastModel =
-    asText(process.env.OPENAI_ASSISTANT_FAST_MODEL) ||
-    asText(process.env.OPENAI_ASSISTANT_FALLBACK_MODEL) ||
-    ASSISTANT_DEFAULT_MODEL;
+  const fastModel = asText(process.env.OPENAI_ASSISTANT_FAST_MODEL) || ASSISTANT_DEFAULT_MODEL;
   const heavyModel = asText(process.env.OPENAI_ASSISTANT_HEAVY_MODEL) || ASSISTANT_HEAVY_MODEL;
   const dbModel = asText(settings.model);
   const useHeavy = shouldUseHeavyModel({
