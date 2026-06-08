@@ -24,6 +24,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
 import {
   archiveOperation,
@@ -34,7 +50,6 @@ import {
   getAssignableSpecialists,
   getOperationLines,
   getOperations,
-  getPotatoMaterialConsumptionReport,
   updateOperation,
   updateOperationLine,
 } from "@/lib/services/operations";
@@ -48,7 +63,6 @@ import {
   OperationLine,
   OperationLineFormData,
   OperationWithDetails,
-  PotatoMaterialConsumptionRow,
   SpecialistAssignee,
 } from "@/lib/types/operation";
 import { Field } from "@/lib/types/field";
@@ -89,7 +103,7 @@ function statusBadge(status: string | null | undefined) {
 }
 
 export default function OperationsPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const { language } = useLanguage();
   const [operations, setOperations] = useState<OperationWithDetails[]>([]);
@@ -107,33 +121,33 @@ export default function OperationsPage() {
   const [linesLoadingByOperationId, setLinesLoadingByOperationId] = useState<Record<string, boolean>>({});
   const [lineDraftByOperationId, setLineDraftByOperationId] = useState<Record<string, OperationLineFormData>>({});
   const [lineMutationBusyByOperationId, setLineMutationBusyByOperationId] = useState<Record<string, boolean>>({});
-  const [potatoConsumptionRows, setPotatoConsumptionRows] = useState<PotatoMaterialConsumptionRow[]>([]);
-  const [potatoConsumptionLoading, setPotatoConsumptionLoading] = useState(false);
+  const [selectedOperation, setSelectedOperation] = useState<OperationWithDetails | null>(null);
 
   const [explorerField, setExplorerField] = useState<string>("all");
   const [explorerOperationType, setExplorerOperationType] = useState<string>("all");
   const [explorerMaterialSearch, setExplorerMaterialSearch] = useState<string>("");
   const [mobileLaneFilter, setMobileLaneFilter] = useState<"active" | "in_progress" | "completed" | "all">("active");
+  const [cropFilter, setCropFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [responsibleFilter, setResponsibleFilter] = useState<string>("all");
+  const [periodFrom, setPeriodFrom] = useState("");
+  const [periodTo, setPeriodTo] = useState("");
 
   const canManageOperationLines =
     profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "agronomist";
   const canUpdateOperationFacts = canManageOperationLines || profile?.role === "brigadier";
 
   const loadData = async () => {
-    if (!profile?.company_id) return;
+    if (authLoading || !profile?.company_id) return;
+    const companyId = profile.company_id;
     setLoading(true);
-    setPotatoConsumptionLoading(true);
     try {
-      const [opsRes, fieldsRes, cropRes, specialistRes, requestsRes, potatoRes] = await Promise.allSettled([
-        getOperations(profile.company_id),
-        getFields(profile.company_id),
-        getCropStructures(profile.company_id),
-        getAssignableSpecialists(profile.company_id),
-        getWarehouseIssueRequests(profile.company_id),
-        getPotatoMaterialConsumptionReport(profile.company_id, {
-          seasonYear: new Date().getFullYear(),
-          limit: 2000,
-        }),
+      const [opsRes, fieldsRes, cropRes, specialistRes, requestsRes] = await Promise.allSettled([
+        getOperations(companyId),
+        getFields(companyId),
+        getCropStructures(companyId),
+        getAssignableSpecialists(companyId),
+        getWarehouseIssueRequests(companyId),
       ]);
 
       if (opsRes.status === "fulfilled") setOperations(opsRes.value);
@@ -152,19 +166,18 @@ export default function OperationsPage() {
         setRequestStatusByOperationId({});
       }
 
-      setPotatoConsumptionRows(potatoRes.status === "fulfilled" ? potatoRes.value : []);
     } catch (error) {
       console.error(error);
       toast({ title: "Ошибка", description: "Не удалось загрузить операции", variant: "destructive" });
     } finally {
       setLoading(false);
-      setPotatoConsumptionLoading(false);
     }
   };
 
   useEffect(() => {
+    if (authLoading) return;
     if (profile?.company_id) void loadData();
-  }, [profile?.company_id, language]);
+  }, [authLoading, profile?.company_id, language]);
 
   const makeDefaultLineDraft = (operation: OperationWithDetails): OperationLineFormData => ({
     field_id: operation.field_id || null,
@@ -353,11 +366,15 @@ export default function OperationsPage() {
           ? completedOperations
           : operations;
 
-  const specialistLabelById = specialists.reduce<Record<string, string>>((acc, row) => {
-    const baseName = String(row.full_name || "").trim() || row.email;
-    acc[row.id] = `${baseName} (${row.role})`;
-    return acc;
-  }, {});
+  const specialistLabelById = useMemo(
+    () =>
+      specialists.reduce<Record<string, string>>((acc, row) => {
+        const baseName = String(row.full_name || "").trim() || row.email;
+        acc[row.id] = `${baseName} (${row.role})`;
+        return acc;
+      }, {}),
+    [specialists]
+  );
 
   const explorerRows = useMemo(() => {
     return operations
@@ -381,6 +398,120 @@ export default function OperationsPage() {
     );
     return keys.sort((a, b) => a.localeCompare(b, "ru"));
   }, [operations]);
+  const countLabel = (value: number) => (loading || authLoading ? "..." : String(value));
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const waitingMaterialsCount = operations.filter((operation) => {
+    const requestStatus = String(requestStatusByOperationId[operation.id] || "").toLowerCase();
+    return requestStatus && !["issued", "received", "completed", "closed", "cancelled"].includes(requestStatus);
+  }).length;
+  const overdueCount = operations.filter((operation) => {
+    const status = String(operation.work_status || "active").toLowerCase();
+    return status !== "completed" && String(operation.date || "").slice(0, 10) < todayIso;
+  }).length;
+  const cropOptions = useMemo(() => {
+    const values = Array.from(new Set(operations.map((operation) => String(operation.crop_name || "").trim()).filter(Boolean)));
+    return values.sort((a, b) => a.localeCompare(b, "ru"));
+  }, [operations]);
+  const responsibleOptions = useMemo(() => {
+    const values = Array.from(
+      new Set(operations.map((operation) => String(operation.responsible_user_id || "").trim()).filter(Boolean))
+    );
+    return values.sort((a, b) => (specialistLabelById[a] || a).localeCompare(specialistLabelById[b] || b, "ru"));
+  }, [operations, specialistLabelById]);
+  const filteredOperations = useMemo(() => {
+    return operations
+      .filter((operation) => (explorerField === "all" ? true : operation.field_id === explorerField))
+      .filter((operation) =>
+        cropFilter === "all" ? true : String(operation.crop_name || "").trim() === cropFilter
+      )
+      .filter((operation) =>
+        explorerOperationType === "all"
+          ? true
+          : String(operation.operation_type_slug || operation.operation_type || "") === explorerOperationType
+      )
+      .filter((operation) =>
+        statusFilter === "all" ? true : String(operation.work_status || "active") === statusFilter
+      )
+      .filter((operation) =>
+        responsibleFilter === "all" ? true : String(operation.responsible_user_id || "") === responsibleFilter
+      )
+      .filter((operation) => {
+        const date = String(operation.date || "").slice(0, 10);
+        if (periodFrom && date < periodFrom) return false;
+        if (periodTo && date > periodTo) return false;
+        return true;
+      })
+      .filter((operation) => {
+        const token = explorerMaterialSearch.trim().toLowerCase();
+        if (!token) return true;
+        const haystack = [
+          operation.operation_type,
+          operation.field_name,
+          operation.crop_name,
+          operation.variety_name,
+          ...(operation.materials || []).map((item) => `${item.product_name || ""} ${item.material_type || ""}`),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(token);
+      });
+  }, [
+    cropFilter,
+    explorerField,
+    explorerMaterialSearch,
+    explorerOperationType,
+    operations,
+    periodFrom,
+    periodTo,
+    responsibleFilter,
+    statusFilter,
+  ]);
+  const materialAnalyticsRows = useMemo(() => {
+    const grouped = new Map<
+      string,
+      {
+        material: string;
+        materialType: string;
+        unit: string;
+        planned: number;
+        issued: number;
+        consumed: number;
+        returned: number;
+        operations: number;
+      }
+    >();
+    filteredOperations.forEach((operation) => {
+      (operation.materials || []).forEach((material) => {
+        const key = `${material.product_id}|${material.material_type}|${material.unit}`;
+        const current =
+          grouped.get(key) ||
+          {
+            material: String(material.product_name || material.product_id || "-"),
+            materialType: String(material.material_type || "-"),
+            unit: String(material.unit || ""),
+            planned: 0,
+            issued: 0,
+            consumed: 0,
+            returned: 0,
+            operations: 0,
+          };
+        current.planned += Number(material.planned_quantity || 0);
+        current.issued += Number(material.issued_quantity || 0);
+        current.consumed += Number(material.consumed_quantity || 0);
+        current.returned += Number(material.returned_quantity || 0);
+        current.operations += 1;
+        grouped.set(key, current);
+      });
+    });
+    return Array.from(grouped.values()).sort((a, b) => b.issued - a.issued || a.material.localeCompare(b.material, "ru"));
+  }, [filteredOperations]);
+  const formatQuantity = (value: number, unit: string) => `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${unit}`;
+  const renderMaterialsText = (operation: OperationWithDetails) =>
+    (operation.materials || []).length > 0
+      ? (operation.materials || [])
+          .map((item) => `${item.product_name || item.product_id} (${item.material_type}, ${item.unit})`)
+          .join("; ")
+      : "—";
 
   const renderOperationCards = (ops: OperationWithDetails[], emptyLabel: string) => {
     if (loading) return <div className="p-6 text-center text-slate-500">Загрузка...</div>;
@@ -757,10 +888,364 @@ export default function OperationsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Operations"
-        description="Production-safe workflow: Operation → Material Request → Issue → Fact"
-        action={{ label: "Add Operation", icon: Plus, onClick: () => setIsFormOpen(true) }}
+        title="Операции"
+        description="Поле → структура посевов → операция → материалы → склад → факт"
+        action={{ label: "Новая операция", icon: Plus, onClick: () => setIsFormOpen(true) }}
       />
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="rounded-md border bg-card p-3">
+          <div className="text-xs text-muted-foreground">Всего</div>
+          <div className="mt-1 text-2xl font-semibold">{countLabel(operations.length)}</div>
+        </div>
+        <div className="rounded-md border bg-card p-3">
+          <div className="text-xs text-muted-foreground">Активные</div>
+          <div className="mt-1 text-2xl font-semibold">{countLabel(activeOperations.length)}</div>
+        </div>
+        <div className="rounded-md border bg-card p-3">
+          <div className="text-xs text-muted-foreground">В работе</div>
+          <div className="mt-1 text-2xl font-semibold">{countLabel(inProgressOperations.length)}</div>
+        </div>
+        <div className="rounded-md border bg-card p-3">
+          <div className="text-xs text-muted-foreground">Ожидают склад</div>
+          <div className="mt-1 text-2xl font-semibold">{countLabel(waitingMaterialsCount)}</div>
+        </div>
+        <div className="rounded-md border bg-card p-3">
+          <div className="text-xs text-muted-foreground">Просрочены</div>
+          <div className="mt-1 text-2xl font-semibold">{countLabel(overdueCount)}</div>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Фильтры</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3 xl:grid-cols-6">
+            <Select value={explorerField} onValueChange={setExplorerField}>
+              <SelectTrigger><SelectValue placeholder="Поле" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все поля</SelectItem>
+                {fields.map((field) => (
+                  <SelectItem key={field.id} value={field.id}>{field.display_name || field.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={cropFilter} onValueChange={setCropFilter}>
+              <SelectTrigger><SelectValue placeholder="Культура" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все культуры</SelectItem>
+                {cropOptions.map((crop) => (
+                  <SelectItem key={crop} value={crop}>{crop}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={explorerOperationType} onValueChange={setExplorerOperationType}>
+              <SelectTrigger><SelectValue placeholder="Операция" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все операции</SelectItem>
+                {operationTypeOptions.map((value) => (
+                  <SelectItem key={value} value={value}>{value}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger><SelectValue placeholder="Статус" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все статусы</SelectItem>
+                <SelectItem value="active">Активные</SelectItem>
+                <SelectItem value="in_progress">В работе</SelectItem>
+                <SelectItem value="completed">Завершенные</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={responsibleFilter} onValueChange={setResponsibleFilter}>
+              <SelectTrigger><SelectValue placeholder="Ответственный" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Все ответственные</SelectItem>
+                {responsibleOptions.map((id) => (
+                  <SelectItem key={id} value={id}>{specialistLabelById[id] || id}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              placeholder="Материал / поле / сорт"
+              value={explorerMaterialSearch}
+              onChange={(event) => setExplorerMaterialSearch(event.target.value)}
+            />
+          </div>
+          <details className="rounded-md border px-3 py-2">
+            <summary className="cursor-pointer text-sm font-medium">Дополнительные фильтры</summary>
+            <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-3">
+              <Input type="date" value={periodFrom} onChange={(event) => setPeriodFrom(event.target.value)} />
+              <Input type="date" value={periodTo} onChange={(event) => setPeriodTo(event.target.value)} />
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setExplorerField("all");
+                  setCropFilter("all");
+                  setExplorerOperationType("all");
+                  setStatusFilter("all");
+                  setResponsibleFilter("all");
+                  setExplorerMaterialSearch("");
+                  setPeriodFrom("");
+                  setPeriodTo("");
+                }}
+              >
+                Сбросить
+              </Button>
+            </div>
+          </details>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Журнал операций ({countLabel(filteredOperations.length)})</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-6 text-sm text-muted-foreground">Загрузка операций...</div>
+          ) : filteredOperations.length === 0 ? (
+            <div className="p-6 text-sm text-muted-foreground">Операции не найдены.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Дата</TableHead>
+                  <TableHead>Поле</TableHead>
+                  <TableHead>Культура</TableHead>
+                  <TableHead>Сорт</TableHead>
+                  <TableHead>Операция</TableHead>
+                  <TableHead>Площадь</TableHead>
+                  <TableHead>Ответственный</TableHead>
+                  <TableHead>Материалы</TableHead>
+                  <TableHead>Статус</TableHead>
+                  <TableHead className="w-[96px]"> </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredOperations.map((operation) => (
+                  <TableRow
+                    key={operation.id}
+                    className="cursor-pointer"
+                    onClick={() => {
+                      setSelectedOperation(operation);
+                      void ensureLinesLoaded(operation);
+                    }}
+                  >
+                    <TableCell>{formatDate(operation.date)}</TableCell>
+                    <TableCell className="font-medium">{operation.field_name}</TableCell>
+                    <TableCell>{operation.crop_name || "—"}</TableCell>
+                    <TableCell>{operation.variety_name || "—"}</TableCell>
+                    <TableCell>{operation.operation_type}</TableCell>
+                    <TableCell>{Number(operation.planned_area_ha || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</TableCell>
+                    <TableCell>
+                      {operation.responsible_user_id
+                        ? specialistLabelById[operation.responsible_user_id] || operation.responsible_user_id
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="max-w-[320px] truncate">{renderMaterialsText(operation)}</TableCell>
+                    <TableCell>{statusBadge(operation.work_status)}</TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setEditingOperation(operation);
+                            setIsFormOpen(true);
+                          }}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setOperationToArchive(operation);
+                            setArchiveDialogOpen(true);
+                          }}
+                        >
+                          <Archive className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Материалы по операциям</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          {materialAnalyticsRows.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">Материалы по выбранному фильтру не найдены.</div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Материал</TableHead>
+                  <TableHead>Тип</TableHead>
+                  <TableHead>План</TableHead>
+                  <TableHead>Выдано</TableHead>
+                  <TableHead>Факт</TableHead>
+                  <TableHead>Возврат</TableHead>
+                  <TableHead>Операций</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {materialAnalyticsRows.slice(0, 30).map((row) => (
+                  <TableRow key={`${row.material}-${row.materialType}-${row.unit}`}>
+                    <TableCell className="font-medium">{row.material}</TableCell>
+                    <TableCell>{row.materialType}</TableCell>
+                    <TableCell>{formatQuantity(row.planned, row.unit)}</TableCell>
+                    <TableCell>{formatQuantity(row.issued, row.unit)}</TableCell>
+                    <TableCell>{formatQuantity(row.consumed, row.unit)}</TableCell>
+                    <TableCell>{formatQuantity(row.returned, row.unit)}</TableCell>
+                    <TableCell>{row.operations}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Sheet open={!!selectedOperation} onOpenChange={(open) => !open && setSelectedOperation(null)}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
+          {selectedOperation ? (
+            <>
+              <SheetHeader>
+                <SheetTitle>{selectedOperation.operation_type}</SheetTitle>
+                <SheetDescription>
+                  {selectedOperation.field_name} • {selectedOperation.crop_name || "без культуры"} • {formatDate(selectedOperation.date)}
+                </SheetDescription>
+              </SheetHeader>
+              <Tabs defaultValue="general" className="mt-5">
+                <TabsList className="grid h-auto w-full grid-cols-5">
+                  <TabsTrigger value="general">Общее</TabsTrigger>
+                  <TabsTrigger value="materials">Материалы</TabsTrigger>
+                  <TabsTrigger value="warehouse">Склад</TabsTrigger>
+                  <TabsTrigger value="fact">Факт</TabsTrigger>
+                  <TabsTrigger value="history">История</TabsTrigger>
+                </TabsList>
+                <TabsContent value="general" className="space-y-3 text-sm">
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div><span className="text-muted-foreground">Поле:</span> {selectedOperation.field_name}</div>
+                    <div><span className="text-muted-foreground">Строка структуры:</span> {selectedOperation.crop_structure_id || "—"}</div>
+                    <div><span className="text-muted-foreground">Культура:</span> {selectedOperation.crop_name || "—"}</div>
+                    <div><span className="text-muted-foreground">Сорт:</span> {selectedOperation.variety_name || "—"}</div>
+                    <div><span className="text-muted-foreground">Репродукция:</span> {selectedOperation.reproduction_name || "—"}</div>
+                    <div><span className="text-muted-foreground">Площадь:</span> {Number(selectedOperation.planned_area_ha || 0).toFixed(2)} га</div>
+                    <div><span className="text-muted-foreground">Категория:</span> {selectedOperation.operation_category_slug || "—"}</div>
+                    <div><span className="text-muted-foreground">Статус:</span> {statusBadge(selectedOperation.work_status)}</div>
+                    <div className="md:col-span-2"><span className="text-muted-foreground">Комментарий:</span> {selectedOperation.notes || "—"}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" variant="outline" onClick={() => { setEditingOperation(selectedOperation); setIsFormOpen(true); }}>
+                      Редактировать
+                    </Button>
+                    {canManageOperationLines && !requestStatusByOperationId[selectedOperation.id] ? (
+                      <Button type="button" variant="outline" onClick={() => void handleEnsureMaterialRequest(selectedOperation)}>
+                        Создать заявку склада
+                      </Button>
+                    ) : null}
+                  </div>
+                </TabsContent>
+                <TabsContent value="materials">
+                  {(selectedOperation.materials || []).length === 0 ? (
+                    <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">Материалы не указаны.</div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Материал</TableHead>
+                          <TableHead>Тип</TableHead>
+                          <TableHead>План норма</TableHead>
+                          <TableHead>Факт норма</TableHead>
+                          <TableHead>Выдано</TableHead>
+                          <TableHead>Факт</TableHead>
+                          <TableHead>Возврат</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(selectedOperation.materials || []).map((material) => (
+                          <TableRow key={material.id}>
+                            <TableCell className="font-medium">{material.product_name || material.product_id}</TableCell>
+                            <TableCell>{material.material_type}</TableCell>
+                            <TableCell>{material.planned_rate ?? "—"} {material.unit}/га</TableCell>
+                            <TableCell>{material.actual_rate ?? "—"} {material.unit}/га</TableCell>
+                            <TableCell>{formatQuantity(Number(material.issued_quantity || 0), material.unit)}</TableCell>
+                            <TableCell>{formatQuantity(Number(material.consumed_quantity || 0), material.unit)}</TableCell>
+                            <TableCell>{formatQuantity(Number(material.returned_quantity || 0), material.unit)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </TabsContent>
+                <TabsContent value="warehouse" className="space-y-3 text-sm">
+                  <div><span className="text-muted-foreground">Статус заявки:</span> {requestStatusByOperationId[selectedOperation.id] || "заявка не создана"}</div>
+                  <div className="rounded-md border border-dashed p-4 text-muted-foreground">
+                    Цепочка V2: Material Plan → Material Request → Warehouse Issue → Return/Consumption → Fact.
+                  </div>
+                </TabsContent>
+                <TabsContent value="fact" className="space-y-3">
+                  {linesLoadingByOperationId[selectedOperation.id] ? (
+                    <div className="text-sm text-muted-foreground">Загрузка факта...</div>
+                  ) : (operationLinesByOperationId[selectedOperation.id] || []).length === 0 ? (
+                    <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">Строк факта пока нет.</div>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Поле</TableHead>
+                          <TableHead>План, га</TableHead>
+                          <TableHead>Факт, га</TableHead>
+                          <TableHead>Сорт</TableHead>
+                          <TableHead>Репродукция</TableHead>
+                          <TableHead>Завершено</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(operationLinesByOperationId[selectedOperation.id] || []).map((line) => (
+                          <TableRow key={line.id}>
+                            <TableCell>{line.field_name || selectedOperation.field_name}</TableCell>
+                            <TableCell>{Number(line.planned_area_ha || 0).toFixed(2)}</TableCell>
+                            <TableCell>{line.actual_area_ha == null ? "—" : Number(line.actual_area_ha).toFixed(2)}</TableCell>
+                            <TableCell>{line.variety_name || "—"}</TableCell>
+                            <TableCell>{line.reproduction_name || "—"}</TableCell>
+                            <TableCell>{line.completed_at ? formatDate(line.completed_at) : "—"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </TabsContent>
+                <TabsContent value="history" className="space-y-2 text-sm">
+                  <div><span className="text-muted-foreground">Создана:</span> {formatDate(selectedOperation.created_at)}</div>
+                  <div><span className="text-muted-foreground">Обновлена:</span> {formatDate(selectedOperation.updated_at)}</div>
+                  <div><span className="text-muted-foreground">Принята:</span> {selectedOperation.accepted_at ? formatDate(selectedOperation.accepted_at) : "—"}</div>
+                  <div><span className="text-muted-foreground">Завершена:</span> {selectedOperation.completed_at ? formatDate(selectedOperation.completed_at) : "—"}</div>
+                  <div><span className="text-muted-foreground">Комментарий специалиста:</span> {selectedOperation.specialist_comment || "—"}</div>
+                </TabsContent>
+              </Tabs>
+            </>
+          ) : null}
+        </SheetContent>
+      </Sheet>
+
+      <div className="hidden" aria-hidden="true">
 
       <div className="flex flex-wrap gap-2 md:hidden">
         <Button
@@ -769,7 +1254,7 @@ export default function OperationsPage() {
           onClick={() => setMobileLaneFilter("active")}
           className="h-11"
         >
-          Активные ({activeOperations.length})
+          Активные ({countLabel(activeOperations.length)})
         </Button>
         <Button
           type="button"
@@ -777,7 +1262,7 @@ export default function OperationsPage() {
           onClick={() => setMobileLaneFilter("in_progress")}
           className="h-11"
         >
-          В работе ({inProgressOperations.length})
+          В работе ({countLabel(inProgressOperations.length)})
         </Button>
         <Button
           type="button"
@@ -785,7 +1270,7 @@ export default function OperationsPage() {
           onClick={() => setMobileLaneFilter("completed")}
           className="h-11"
         >
-          Завершенные ({completedOperations.length})
+          Завершенные ({countLabel(completedOperations.length)})
         </Button>
         <Button
           type="button"
@@ -793,7 +1278,7 @@ export default function OperationsPage() {
           onClick={() => setMobileLaneFilter("all")}
           className="h-11"
         >
-          Все ({operations.length})
+          Все ({countLabel(operations.length)})
         </Button>
       </div>
 
@@ -806,15 +1291,15 @@ export default function OperationsPage() {
 
       <div className="hidden grid-cols-1 gap-4 md:grid xl:grid-cols-3">
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Активные ({activeOperations.length})</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Активные ({countLabel(activeOperations.length)})</CardTitle></CardHeader>
           <CardContent className="p-0">{renderOperationCards(activeOperations, "Нет активных операций")}</CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">В работе ({inProgressOperations.length})</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base">В работе ({countLabel(inProgressOperations.length)})</CardTitle></CardHeader>
           <CardContent className="p-0">{renderOperationCards(inProgressOperations, "Нет операций в работе")}</CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Завершенные ({completedOperations.length})</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Завершенные ({countLabel(completedOperations.length)})</CardTitle></CardHeader>
           <CardContent className="p-0">{renderOperationCards(completedOperations, "Нет завершенных операций")}</CardContent>
         </Card>
       </div>
@@ -826,7 +1311,7 @@ export default function OperationsPage() {
         <CardContent className="space-y-2 text-sm">
           <div className="rounded-lg border border-slate-200 p-3">
             <div className="text-slate-500">Найдено операций по фильтру</div>
-            <div className="mt-1 text-xl font-semibold">{explorerRows.length}</div>
+            <div className="mt-1 text-xl font-semibold">{countLabel(explorerRows.length)}</div>
           </div>
           <div className="space-y-2">
             {explorerRows.slice(0, 3).map((row) => (
@@ -871,7 +1356,7 @@ export default function OperationsPage() {
               value={explorerMaterialSearch}
               onChange={(event) => setExplorerMaterialSearch(event.target.value)}
             />
-            <div className="rounded border px-3 py-2 text-sm text-slate-600">Найдено: {explorerRows.length}</div>
+            <div className="rounded border px-3 py-2 text-sm text-slate-600">Найдено: {countLabel(explorerRows.length)}</div>
           </div>
 
           <div className="max-h-[320px] overflow-auto rounded border">
@@ -907,82 +1392,7 @@ export default function OperationsPage() {
         </CardContent>
       </Card>
 
-      <Card className="md:hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Картофель: материалы</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {potatoConsumptionLoading ? (
-            <div className="text-sm text-slate-500">Загрузка отчета...</div>
-          ) : potatoConsumptionRows.length === 0 ? (
-            <div className="text-sm text-slate-500">Данных по картофелю пока нет.</div>
-          ) : (
-            <>
-              <div className="rounded-lg border border-slate-200 p-3 text-sm">
-                Записей: <span className="font-semibold">{potatoConsumptionRows.length}</span>
-              </div>
-              {potatoConsumptionRows.slice(0, 3).map((row, index) => (
-                <div key={`mobile-potato-${index}`} className="rounded-lg border border-slate-200 p-3 text-sm">
-                  <div className="font-semibold">{row.field_name}</div>
-                  <div className="text-xs text-slate-500">
-                    {row.material_name} • выдано {Number(row.issued_qty_kg || 0).toFixed(2)} кг
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card className="hidden md:block">
-        <CardHeader className="pb-2"><CardTitle className="text-base">Картофель: расход материалов</CardTitle></CardHeader>
-        <CardContent className="p-0">
-          {potatoConsumptionLoading ? (
-            <div className="p-4 text-sm text-slate-500">Загрузка отчета...</div>
-          ) : potatoConsumptionRows.length === 0 ? (
-            <div className="p-4 text-sm text-slate-500">Пока нет данных по картофелю.</div>
-          ) : (
-            <div className="max-h-[420px] overflow-auto">
-              <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-slate-100 text-left text-slate-600">
-                  <tr>
-                    <th className="px-3 py-2">Поле</th>
-                    <th className="px-3 py-2">Сорт / репр.</th>
-                    <th className="px-3 py-2">План га</th>
-                    <th className="px-3 py-2">Факт га</th>
-                    <th className="px-3 py-2">% выполнения</th>
-                    <th className="px-3 py-2">Материал</th>
-                    <th className="px-3 py-2">Выдано</th>
-                    <th className="px-3 py-2">Факт/га</th>
-                    <th className="px-3 py-2">Норма/га</th>
-                    <th className="px-3 py-2">Отклонение</th>
-                    <th className="px-3 py-2">Потребность</th>
-                    <th className="px-3 py-2">Остаток</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {potatoConsumptionRows.map((row, index) => (
-                    <tr key={`${row.operation_line_id}-${row.material_name}-${row.linkage_scope}-${index}`} className="border-t">
-                      <td className="px-3 py-2">{row.field_name}</td>
-                      <td className="px-3 py-2">{row.variety_name || "—"} / {row.reproduction_name || "—"}</td>
-                      <td className="px-3 py-2">{Number(row.planned_area_ha || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2">{row.actual_area_ha == null ? "—" : Number(row.actual_area_ha).toFixed(2)}</td>
-                      <td className="px-3 py-2">{row.completion_pct == null ? "—" : `${row.completion_pct.toFixed(1)}%`}</td>
-                      <td className="px-3 py-2">{row.material_name}</td>
-                      <td className="px-3 py-2">{Number(row.issued_qty_kg || 0).toFixed(2)}</td>
-                      <td className="px-3 py-2">{row.fact_qty_per_ha == null ? "—" : row.fact_qty_per_ha.toFixed(3)}</td>
-                      <td className="px-3 py-2">{row.planned_norm_per_ha == null ? "—" : row.planned_norm_per_ha.toFixed(3)}</td>
-                      <td className="px-3 py-2">{row.deviation_per_ha == null ? "—" : row.deviation_per_ha.toFixed(3)}</td>
-                      <td className="px-3 py-2">{row.planned_need_kg == null ? "—" : row.planned_need_kg.toFixed(2)}</td>
-                      <td className="px-3 py-2">{row.remaining_need_kg == null ? "—" : row.remaining_need_kg.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      </div>
 
       <OperationFormDialog
         open={isFormOpen}

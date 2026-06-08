@@ -3,6 +3,7 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { ensureMaterialRequestForOperation } from "@/app/api/operations/_material-request-helper";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 const CREATE_ALLOWED_ROLES = ["global_admin", "company_admin", "agronomist"] as const;
 
@@ -69,12 +70,20 @@ const MATERIAL_TYPES = new Set([
   "biological",
   "fuel",
   "organic",
+  "water",
+  "other",
 ]);
 
 const MATERIAL_UNITS = new Set(["kg", "l", "pcs"]);
 
 function inferUnitByMaterialType(materialType: string): "kg" | "l" | "pcs" {
-  if (materialType === "pesticide" || materialType === "adjuvant" || materialType === "ph_corrector" || materialType === "defoamer") {
+  if (
+    materialType === "pesticide" ||
+    materialType === "adjuvant" ||
+    materialType === "ph_corrector" ||
+    materialType === "defoamer" ||
+    materialType === "water"
+  ) {
     return "l";
   }
   if (materialType === "seed" || materialType === "fertilizer" || materialType === "organic" || materialType === "biological") {
@@ -88,6 +97,40 @@ function allowsDefaultOperationLine(categorySlug: string | null, typeSlug: strin
   if (category === "seeding_planting" || category === "harvesting") return true;
   const merged = `${category} ${String(typeSlug || "").toLowerCase()} ${operationType.toLowerCase()}`;
   return ["seed", "sow", "plant", "harvest", "\u043f\u043e\u0441\u0435\u0432", "\u043f\u043e\u0441\u0430\u0434", "\u0443\u0431\u043e\u0440\u043a"].some((token) => merged.includes(token));
+}
+
+function requiresCropStructure(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
+  const category = String(categorySlug || "").trim().toLowerCase();
+  const type = String(typeSlug || "").trim().toLowerCase();
+  const label = operationType.trim().toLowerCase();
+  const merged = `${category} ${type} ${label}`;
+
+  if (["logistics", "service", "service_operations", "post_harvest", "processing"].includes(category)) {
+    return false;
+  }
+
+  return [
+    "soil_preparation",
+    "seeding_planting",
+    "fertilization",
+    "plant_protection",
+    "crop_care",
+    "irrigation",
+    "harvesting",
+    "spray",
+    "seed",
+    "sow",
+    "plant",
+    "fertiliz",
+    "harvest",
+    "полив",
+    "посев",
+    "посад",
+    "удобрен",
+    "опрыск",
+    "уборк",
+    "уход",
+  ].some((token) => merged.includes(token));
 }
 
 export async function POST(request: NextRequest) {
@@ -122,37 +165,105 @@ export async function POST(request: NextRequest) {
     const cropStructureId = toNullableUuid(body.crop_structure_id);
     const responsibleUserId = toNullableUuid(body.responsible_user_id);
 
+    const operationCategorySlug = toNullableText(body.operation_category_slug);
+    const operationTypeSlug = toNullableText(body.operation_type_slug);
+    if (requiresCropStructure(operationCategorySlug, operationTypeSlug, operationType) && !cropStructureId) {
+      return NextResponse.json(
+        { error: "crop_structure_id is required for production operations" },
+        { status: 400 }
+      );
+    }
+
     let resolvedCropId = toNullableUuid(body.crop_id);
     let resolvedVarietyId: string | null = null;
     let resolvedReproductionId: string | null = null;
     let resolvedStructureArea: number | null = null;
+    let resolvedSeasonId: string | null = null;
+    let resolvedSeasonYear: number | null = null;
 
     if (cropStructureId) {
       const { data: structureRow, error: structureError } = await supabase
         .from("crop_structure")
-        .select("crop_id,variety_id,reproduction_id,area")
+        .select("id,field_id,crop_id,variety_id,reproduction_id,area,season_id,seasons:season_id(year)")
         .eq("id", cropStructureId)
         .eq("company_id", companyId)
         .maybeSingle();
       if (structureError) {
         return NextResponse.json({ error: structureError.message }, { status: 400 });
       }
+      if (!structureRow?.id) {
+        return NextResponse.json({ error: "crop_structure_id does not belong to this company" }, { status: 400 });
+      }
+      if (String((structureRow as any).field_id || "") !== fieldId) {
+        return NextResponse.json({ error: "crop_structure_id must belong to selected field" }, { status: 400 });
+      }
       if (structureRow) {
-        resolvedCropId = resolvedCropId || toNullableUuid((structureRow as any).crop_id);
+        resolvedCropId = toNullableUuid((structureRow as any).crop_id);
         resolvedVarietyId = toNullableUuid((structureRow as any).variety_id);
         resolvedReproductionId = toNullableUuid((structureRow as any).reproduction_id);
+        resolvedSeasonId = toNullableUuid((structureRow as any).season_id);
+        const seasonPayload = Array.isArray((structureRow as any).seasons)
+          ? (structureRow as any).seasons[0]
+          : (structureRow as any).seasons;
+        const seasonYear = Number(seasonPayload?.year || 0);
+        resolvedSeasonYear = Number.isFinite(seasonYear) && seasonYear > 0 ? seasonYear : null;
         const structureArea = Number((structureRow as any).area || 0);
         resolvedStructureArea = Number.isFinite(structureArea) && structureArea > 0 ? structureArea : null;
       }
     }
 
-    const operationCategorySlug = toNullableText(body.operation_category_slug);
-    const operationTypeSlug = toNullableText(body.operation_type_slug);
+    const effectivePlannedArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
+    const rawMaterials = Array.isArray(body.materials) ? body.materials : [];
+    const productIds = Array.from(
+      new Set(rawMaterials.map((item) => toNullableUuid(item?.product_id)).filter(Boolean) as string[])
+    );
+    if (productIds.length > 0) {
+      const { data: warehouseRows, error: warehouseError } = await supabase
+        .from("warehouses")
+        .select("id,name,warehouse_type,description,archived,is_archived")
+        .eq("company_id", companyId)
+        .eq("archived", false)
+        .eq("is_archived", false);
+      if (warehouseError) {
+        return NextResponse.json({ error: warehouseError.message }, { status: 400 });
+      }
+      const productionWarehouseIds = (warehouseRows || [])
+        .filter((row: any) => !hasQaDataMarker(`${row.name || ""} ${row.warehouse_type || ""} ${row.description || ""}`))
+        .map((row: any) => String(row.id || ""))
+        .filter(Boolean);
+      if (productionWarehouseIds.length === 0) {
+        return NextResponse.json(
+          { error: "Нет остатка на складе для выбранного материала" },
+          { status: 400 }
+        );
+      }
+      const { data: stockRows, error: stockError } = await supabase
+        .from("v_stock_balance_identity")
+        .select("warehouse_id,product_id,quantity")
+        .eq("company_id", companyId)
+        .in("warehouse_id", productionWarehouseIds)
+        .in("product_id", productIds)
+        .gt("quantity", 0);
+      if (stockError) {
+        return NextResponse.json({ error: stockError.message }, { status: 400 });
+      }
+      const availableProducts = new Set((stockRows || []).map((row: any) => String(row.product_id || "")));
+      const missingProductId = productIds.find((productId) => !availableProducts.has(productId));
+      if (missingProductId) {
+        return NextResponse.json(
+          { error: "Нет остатка на складе для выбранного материала", product_id: missingProductId },
+          { status: 400 }
+        );
+      }
+    }
+
     const operationConfig = {
-      planned_area_ha: plannedArea,
+      planned_area_ha: effectivePlannedArea,
       crop_id: resolvedCropId,
       variety_id: resolvedVarietyId,
       reproduction_id: resolvedReproductionId,
+      season_id: resolvedSeasonId,
+      season_year: resolvedSeasonYear,
     };
 
     const operationPayload = {
@@ -187,7 +298,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: operationError?.message || "Failed to create operation" }, { status: 400 });
     }
 
-    const rawMaterials = Array.isArray(body.materials) ? body.materials : [];
     const materialRows = rawMaterials
       .map((item) => {
         const materialType = String(item?.material_type || "").trim().toLowerCase();
@@ -272,7 +382,7 @@ export async function POST(request: NextRequest) {
         operationDate,
         notes: toNullableText(body.notes),
         responsibleUserId,
-        plannedAreaHa: plannedArea,
+        plannedAreaHa: effectivePlannedArea ?? plannedArea,
         cropId: resolvedCropId,
         varietyId: resolvedVarietyId,
         reproductionId: resolvedReproductionId,
@@ -288,7 +398,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       operation: {
         ...operationRow,
-        planned_area_ha: defaultOperationLine?.planned_area_ha ?? plannedArea,
+        planned_area_ha: defaultOperationLine?.planned_area_ha ?? effectivePlannedArea ?? plannedArea,
         crop_id: resolvedCropId,
       },
       operation_line: defaultOperationLine,

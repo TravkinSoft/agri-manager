@@ -59,7 +59,9 @@ export type OperationMaterialType =
   | "defoamer"
   | "biological"
   | "fuel"
-  | "organic";
+  | "organic"
+  | "water"
+  | "other";
 
 export type OperationMaterialUnit = "kg" | "l" | "pcs";
 
@@ -161,6 +163,8 @@ export const operationSchema = z.object({
           "biological",
           "fuel",
           "organic",
+          "water",
+          "other",
         ]),
         product_id: z.string().uuid("Product is required"),
         batch_id: z.string().uuid().nullable().optional(),

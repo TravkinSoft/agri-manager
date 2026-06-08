@@ -53,6 +53,7 @@ import { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { supabase } from "@/lib/supabase/client";
 import { getFieldDisplayName } from "@/lib/fields/display";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 interface OperationFormDialogProps {
   open: boolean;
@@ -86,7 +87,14 @@ type OperationTypeMaster = {
 };
 
 type RefOption = { id: string; name: string };
-type ProductOption = { id: string; name: string; type: string | null; unit: string | null };
+type ProductOption = {
+  id: string;
+  name: string;
+  type: string | null;
+  unit: string | null;
+  availableQty: number;
+  warehouseNames: string[];
+};
 
 type SearchOption = { id: string; label: string; hint?: string };
 
@@ -100,6 +108,8 @@ const MATERIAL_TYPE_LABEL: Record<OperationMaterialType, string> = {
   biological: "Биология",
   fuel: "ГСМ",
   organic: "Органика",
+  water: "Вода",
+  other: "Другое",
 };
 
 const FALLBACK_CATEGORIES: OperationCategory[] = [
@@ -107,8 +117,12 @@ const FALLBACK_CATEGORIES: OperationCategory[] = [
   { id: "seeding_planting", slug: "seeding_planting", name_ru: "Посев / посадка", is_active: true },
   { id: "fertilization", slug: "fertilization", name_ru: "Внесение удобрений", is_active: true },
   { id: "plant_protection", slug: "plant_protection", name_ru: "СЗР", is_active: true },
+  { id: "crop_care", slug: "crop_care", name_ru: "Уход за посевами", is_active: true },
+  { id: "irrigation", slug: "irrigation", name_ru: "Полив", is_active: true },
   { id: "harvesting", slug: "harvesting", name_ru: "Уборка", is_active: true },
   { id: "logistics", slug: "logistics", name_ru: "Логистика", is_active: true },
+  { id: "post_harvest", slug: "post_harvest", name_ru: "Послеуборочная доработка", is_active: true },
+  { id: "service_operations", slug: "service_operations", name_ru: "Сервисные операции", is_active: true },
 ];
 
 const FALLBACK_TYPES: OperationTypeMaster[] = [
@@ -167,6 +181,61 @@ const FALLBACK_TYPES: OperationTypeMaster[] = [
     affects_inventory: true,
     affects_field_history: true,
   },
+  {
+    id: "irrigation",
+    slug: "irrigation",
+    name_ru: "Полив",
+    category_slug: "irrigation",
+    requires_machine: true,
+    requires_product: false,
+    requires_field: true,
+    affects_inventory: false,
+    affects_field_history: true,
+  },
+  {
+    id: "crop_care",
+    slug: "crop_care",
+    name_ru: "Уход за посевами",
+    category_slug: "crop_care",
+    requires_machine: true,
+    requires_product: false,
+    requires_field: true,
+    affects_inventory: false,
+    affects_field_history: true,
+  },
+  {
+    id: "transport",
+    slug: "transport",
+    name_ru: "Перевозка",
+    category_slug: "logistics",
+    requires_machine: false,
+    requires_product: false,
+    requires_field: false,
+    affects_inventory: false,
+    affects_field_history: false,
+  },
+  {
+    id: "post_harvest_processing",
+    slug: "post_harvest_processing",
+    name_ru: "Послеуборочная доработка",
+    category_slug: "post_harvest",
+    requires_machine: false,
+    requires_product: false,
+    requires_field: false,
+    affects_inventory: true,
+    affects_field_history: false,
+  },
+  {
+    id: "service",
+    slug: "service",
+    name_ru: "Сервисная операция",
+    category_slug: "service_operations",
+    requires_machine: false,
+    requires_product: false,
+    requires_field: false,
+    affects_inventory: false,
+    affects_field_history: false,
+  },
 ];
 
 function normalizeNumber(value: string): number | null {
@@ -177,7 +246,7 @@ function normalizeNumber(value: string): number | null {
 }
 
 function defaultUnitByMaterialType(type: OperationMaterialType): "kg" | "l" | "pcs" {
-  if (type === "pesticide" || type === "adjuvant" || type === "ph_corrector" || type === "defoamer") return "l";
+  if (type === "pesticide" || type === "adjuvant" || type === "ph_corrector" || type === "defoamer" || type === "water") return "l";
   if (type === "fuel") return "l";
   return "kg";
 }
@@ -194,6 +263,14 @@ function inferMaterialTypeByProductType(productType: string | null | undefined):
 
 function isRowCropByCategory(categorySlug: string): boolean {
   return categorySlug === "seeding_planting" || categorySlug === "harvesting";
+}
+
+function requiresCropStructureForType(type: OperationTypeMaster | null): boolean {
+  if (!type) return false;
+  if (["logistics", "service", "service_operations", "post_harvest", "processing"].includes(type.category_slug)) {
+    return false;
+  }
+  return type.requires_field !== false && type.affects_field_history !== false;
 }
 
 function SearchableSelect(props: {
@@ -298,7 +375,12 @@ export function OperationFormDialog({
   });
 
   const selectedFieldId = form.watch("field_id");
+  const selectedCropStructureId = form.watch("crop_structure_id");
   const selectedType = useMemo(() => types.find((item) => item.slug === typeSlug) || null, [types, typeSlug]);
+  const selectedCropStructure = useMemo(
+    () => cropStructures.find((item) => item.id === selectedCropStructureId) || null,
+    [cropStructures, selectedCropStructureId]
+  );
   const typeOptions = useMemo(
     () => types.filter((item) => !categorySlug || item.category_slug === categorySlug),
     [types, categorySlug]
@@ -350,7 +432,9 @@ export function OperationFormDialog({
       products.map((item) => ({
         id: item.id,
         label: item.name,
-        hint: item.type || "",
+        hint: `${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${item.unit || ""}${
+          item.warehouseNames.length > 0 ? ` • ${item.warehouseNames.slice(0, 2).join(", ")}` : ""
+        }`,
       })),
     [products]
   );
@@ -362,7 +446,7 @@ export function OperationFormDialog({
   useEffect(() => {
     if (!open || !profile?.company_id) return;
     (async () => {
-      const [catRes, typeRes, machinesRes, equipmentRes, transportRes, productRes] = await Promise.all([
+      const [catRes, typeRes, machinesRes, equipmentRes, transportRes, stockRes] = await Promise.all([
         supabase.from("operation_categories").select("id,slug,name_ru,is_active").eq("is_active", true).order("name_ru"),
         supabase
           .from("operation_types")
@@ -373,12 +457,10 @@ export function OperationFormDialog({
         supabase.from("reference_equipment").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase.from("reference_vehicles").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase
-          .from("products")
-          .select("id,name,trade_name,type,unit")
-          .or(`company_id.eq.${profile.company_id},company_id.is.null`)
-          .eq("archived", false)
-          .eq("is_active", true)
-          .order("name"),
+          .from("v_stock_balance_identity")
+          .select("product_id,warehouse_id,quantity")
+          .eq("company_id", profile.company_id)
+          .gt("quantity", 0),
       ]);
 
       if (!catRes.error && (catRes.data || []).length > 0) setCategories(catRes.data as OperationCategory[]);
@@ -386,15 +468,78 @@ export function OperationFormDialog({
       if (!machinesRes.error) setMachines((machinesRes.data || []).map((row: any) => ({ id: String(row.id), name: String(row.name || "-") })));
       if (!equipmentRes.error) setEquipment((equipmentRes.data || []).map((row: any) => ({ id: String(row.id), name: String(row.name || "-") })));
       if (!transportRes.error) setTransports((transportRes.data || []).map((row: any) => ({ id: String(row.id), name: String(row.name || "-") })));
-      if (!productRes.error) {
-        setProducts(
-          (productRes.data || []).map((row: any) => ({
-            id: String(row.id),
-            name: String(row.trade_name || row.name || "-"),
-            type: row.type ? String(row.type) : null,
-            unit: row.unit ? String(row.unit) : null,
-          }))
-        );
+      if (!stockRes.error) {
+        const stockRows = (stockRes.data || []).filter((row: any) => row.product_id);
+        const productIds = Array.from(new Set(stockRows.map((row: any) => String(row.product_id))));
+        const warehouseIds = Array.from(new Set(stockRows.map((row: any) => String(row.warehouse_id || "")).filter(Boolean)));
+
+        if (productIds.length === 0) {
+          setProducts([]);
+        } else {
+          const [productMetaRes, warehouseMetaRes] = await Promise.all([
+            supabase
+              .from("products")
+              .select("id,name,trade_name,type,unit")
+              .or(`company_id.eq.${profile.company_id},company_id.is.null`)
+              .eq("archived", false)
+              .eq("is_active", true)
+              .in("id", productIds)
+              .order("name"),
+            warehouseIds.length > 0
+              ? supabase
+                  .from("warehouses")
+                  .select("id,name,warehouse_type,description,archived,is_archived")
+                  .eq("company_id", profile.company_id)
+                  .in("id", warehouseIds)
+              : Promise.resolve({ data: [], error: null } as any),
+          ]);
+
+          const productMetaById = new Map<string, { name: string; type: string | null; unit: string | null }>(
+            (productMetaRes.data || []).map((row: any) => [
+              String(row.id),
+              {
+                name: String(row.trade_name || row.name || "-"),
+                type: row.type ? String(row.type) : null,
+                unit: row.unit ? String(row.unit) : null,
+              },
+            ])
+          );
+          const warehouseNameById = new Map<string, string>(
+            (warehouseMetaRes.data || []).map((row: any) => [String(row.id), String(row.name || "-")])
+          );
+          const productionWarehouseIds = new Set(
+            (warehouseMetaRes.data || [])
+              .filter((row: any) => !row.archived && !row.is_archived)
+              .filter((row: any) => !hasQaDataMarker(`${row.name || ""} ${row.warehouse_type || ""} ${row.description || ""}`))
+              .map((row: any) => String(row.id))
+          );
+          const grouped = new Map<string, ProductOption>();
+
+          stockRows.forEach((row: any) => {
+            if (!productionWarehouseIds.has(String(row.warehouse_id || ""))) return;
+            const productId = String(row.product_id);
+            const meta = productMetaById.get(productId);
+            if (!meta) return;
+            const current =
+              grouped.get(productId) ||
+              ({
+                id: productId,
+                name: meta.name,
+                type: meta.type,
+                unit: meta.unit,
+                availableQty: 0,
+                warehouseNames: [],
+              } satisfies ProductOption);
+            current.availableQty += Number(row.quantity || 0);
+            const warehouseName = warehouseNameById.get(String(row.warehouse_id || ""));
+            if (warehouseName && !current.warehouseNames.includes(warehouseName)) {
+              current.warehouseNames.push(warehouseName);
+            }
+            grouped.set(productId, current);
+          });
+
+          setProducts(Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, "ru")));
+        }
       }
     })();
   }, [open, profile?.company_id]);
@@ -430,6 +575,13 @@ export function OperationFormDialog({
   }, [defaultValues, form, open]);
 
   useEffect(() => {
+    if (!open || !selectedCropStructure) return;
+    form.setValue("field_id", selectedCropStructure.field_id);
+    form.setValue("crop_id", selectedCropStructure.crop_id);
+    form.setValue("planned_area_ha", Number(selectedCropStructure.area || 0));
+  }, [form, open, selectedCropStructure]);
+
+  useEffect(() => {
     if (!open) return;
     if (typeSlug) return;
     const operationTypeName = String(form.getValues("operation_type") || "").trim().toLowerCase();
@@ -456,20 +608,31 @@ export function OperationFormDialog({
   const isPlantProtection = selectedType?.category_slug === "plant_protection";
   const isFertilizing = selectedType?.category_slug === "fertilization";
   const isHarvest = selectedType?.category_slug === "harvesting";
+  const isIrrigation = selectedType?.category_slug === "irrigation";
+  const isCropCare = selectedType?.category_slug === "crop_care";
   const showOperationLinesHint = isRowCropByCategory(selectedType?.category_slug || "");
   const showMachine = !!selectedType?.requires_machine;
   const showField = selectedType?.requires_field !== false;
+  const cropStructureRequired = requiresCropStructureForType(selectedType);
 
   const addMaterial = () => {
     setMaterials((prev) => [
       ...prev,
       {
-        material_type: isSeeding ? "seed" : isPlantProtection ? "pesticide" : isFertilizing ? "fertilizer" : "fertilizer",
+        material_type: isSeeding
+          ? "seed"
+          : isPlantProtection
+            ? "pesticide"
+            : isFertilizing
+              ? "fertilizer"
+              : isIrrigation
+                ? "water"
+                : "fertilizer",
         product_id: "",
         batch_id: null,
         planned_rate: null,
         actual_rate: null,
-        unit: isPlantProtection ? "l" : "kg",
+        unit: isPlantProtection || isIrrigation ? "l" : "kg",
         notes: null,
       },
     ]);
@@ -499,7 +662,14 @@ export function OperationFormDialog({
   };
 
   const submit = async (data: OperationFormData) => {
-    if (!selectedType) return;
+    if (!selectedType) {
+      form.setError("operation_type", { message: "Выберите тип операции" });
+      return;
+    }
+    if (cropStructureRequired && !data.crop_structure_id) {
+      form.setError("crop_structure_id", { message: "Для производственной операции нужна строка структуры посевов" });
+      return;
+    }
     await onSubmit({
       ...data,
       operation_category_slug: categorySlug,
@@ -616,6 +786,7 @@ export function OperationFormDialog({
                       <Input
                         type="number"
                         step="0.01"
+                        readOnly={!!selectedCropStructure}
                         value={field.value ?? ""}
                         onChange={(event) => field.onChange(normalizeNumber(event.target.value))}
                       />
@@ -659,6 +830,8 @@ export function OperationFormDialog({
                           onChange={(value) => {
                             field.onChange(value);
                             form.setValue("crop_structure_id", null);
+                            form.setValue("crop_id", null);
+                            form.setValue("planned_area_ha", null);
                           }}
                           options={fieldOptions}
                           placeholder="Выберите поле"
@@ -673,7 +846,7 @@ export function OperationFormDialog({
                   name="crop_structure_id"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Строка структуры (опционально)</FormLabel>
+                      <FormLabel>{cropStructureRequired ? "Строка структуры *" : "Строка структуры"}</FormLabel>
                       <FormControl>
                         <SearchableSelect
                           value={field.value || ""}
@@ -752,20 +925,24 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
-            {(isPlantProtection || isFertilizing || isSeeding || isHarvest) ? (
+            {(isPlantProtection || isFertilizing || isSeeding || isHarvest || isIrrigation || isCropCare) ? (
               <div className="rounded-lg border p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <div>
                     <div className="text-sm font-semibold">Материалы операции</div>
                     <div className="text-xs text-slate-500">Один основной и дополнительные материалы. Без text-blob в комментариях.</div>
                   </div>
-                  <Button type="button" size="sm" variant="outline" onClick={addMaterial}>
+                  <Button type="button" size="sm" variant="outline" onClick={addMaterial} disabled={productOptions.length === 0}>
                     <Plus className="mr-1 h-4 w-4" />
                     Добавить материал
                   </Button>
                 </div>
 
-                {materials.length === 0 ? (
+                {productOptions.length === 0 ? (
+                  <div className="rounded border border-dashed p-3 text-xs text-slate-500">
+                    Нет остатка на складе.
+                  </div>
+                ) : materials.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">
                     Материалы не добавлены.
                   </div>
@@ -815,7 +992,7 @@ export function OperationFormDialog({
                               }}
                               options={productOptions}
                               placeholder="Выберите продукт"
-                              emptyLabel="Продукты не найдены"
+                              emptyLabel="Нет остатка на складе"
                             />
                           </div>
                           <div>

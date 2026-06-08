@@ -11,6 +11,45 @@ const COMPLETE_ALLOWED_ROLES = [
   "brigadier",
 ] as const;
 
+function requiresCropStructure(categorySlug: string | null, typeSlug: string | null, operationType: string | null): boolean {
+  const category = String(categorySlug || "").trim().toLowerCase();
+  const type = String(typeSlug || "").trim().toLowerCase();
+  const label = String(operationType || "").trim().toLowerCase();
+  const merged = `${category} ${type} ${label}`;
+
+  if (["logistics", "service", "service_operations", "post_harvest", "processing"].includes(category)) {
+    return false;
+  }
+
+  return [
+    "soil_preparation",
+    "seeding_planting",
+    "fertilization",
+    "plant_protection",
+    "crop_care",
+    "irrigation",
+    "harvesting",
+    "spray",
+    "seed",
+    "sow",
+    "plant",
+    "fertiliz",
+    "harvest",
+    "полив",
+    "посев",
+    "посад",
+    "удобрен",
+    "опрыск",
+    "уборк",
+    "уход",
+  ].some((token) => merged.includes(token));
+}
+
+function hasPositiveNumber(value: unknown): boolean {
+  const n = Number(value || 0);
+  return Number.isFinite(n) && n > 0;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -38,7 +77,7 @@ export async function POST(
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("id,company_id,responsible_user_id,work_status,status")
+      .select("id,company_id,responsible_user_id,work_status,status,crop_structure_id,operation_category_slug,operation_type_slug,operation_type")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -55,6 +94,63 @@ export async function POST(
     const responsibleId = String(operation.responsible_user_id || "").trim();
     if (!isAdmin && responsibleId && responsibleId !== actor.id) {
       return NextResponse.json({ error: "Operation is assigned to another specialist" }, { status: 403 });
+    }
+
+    const isProductionOperation = requiresCropStructure(
+      String(operation.operation_category_slug || ""),
+      String(operation.operation_type_slug || ""),
+      String(operation.operation_type || "")
+    );
+
+    if (isProductionOperation && !operation.crop_structure_id) {
+      return NextResponse.json(
+        { error: "Production operation cannot be completed without crop_structure_id" },
+        { status: 400 }
+      );
+    }
+
+    if (isProductionOperation && !comment) {
+      return NextResponse.json({ error: "Completion comment is required" }, { status: 400 });
+    }
+
+    if (isProductionOperation) {
+      const { data: lines, error: linesError } = await supabase
+        .from("operation_lines")
+        .select("id,actual_area_ha")
+        .eq("operation_id", operationId)
+        .eq("company_id", companyId);
+      if (linesError) {
+        return NextResponse.json({ error: linesError.message }, { status: 400 });
+      }
+      const hasActualArea = (lines || []).some((line: any) => hasPositiveNumber(line.actual_area_ha));
+      if (!hasActualArea) {
+        return NextResponse.json({ error: "Actual area is required before completion" }, { status: 400 });
+      }
+
+      const { data: materials, error: materialsError } = await supabase
+        .from("operation_materials")
+        .select("id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
+        .eq("operation_id", operationId)
+        .eq("company_id", companyId);
+      if (materialsError) {
+        return NextResponse.json({ error: materialsError.message }, { status: 400 });
+      }
+
+      const incompleteMaterial = (materials || []).find((material: any) => {
+        const actualRateSet = material.actual_rate !== null && material.actual_rate !== undefined;
+        const consumedSet = material.consumed_quantity !== null && material.consumed_quantity !== undefined;
+        const returnedSet = material.returned_quantity !== null && material.returned_quantity !== undefined;
+        const issued = Number(material.issued_quantity || 0);
+        if (issued > 0) return !consumedSet || !returnedSet;
+        return !actualRateSet && !consumedSet;
+      });
+
+      if (incompleteMaterial) {
+        return NextResponse.json(
+          { error: "Actual material usage and returns are required before completion", material_id: incompleteMaterial.id },
+          { status: 400 }
+        );
+      }
     }
 
     const nowIso = new Date().toISOString();
@@ -90,4 +186,3 @@ export async function POST(
     );
   }
 }
-
