@@ -85,6 +85,11 @@ function isCropStructureAggregateQuery(value: unknown): boolean {
   return cropTerms.test(text) && aggregateTerms.test(text);
 }
 
+function isInventorySpecificQuery(value: unknown): boolean {
+  const text = String(value || "").toLowerCase();
+  return /(\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u0441\u043a\u043b\u0430\u0434|\u043f\u0430\u0440\u0442|\u0434\u0432\u0438\u0436\u0435\u043d|\u0436\u0443\u0440\u043d\u0430\u043b|ledger|inventory|warehouse|stock|balance|batch)/i.test(text);
+}
+
 function isActiveOperationsQuery(value: unknown): boolean {
   const text = String(value || "").toLowerCase();
   return (
@@ -115,6 +120,15 @@ function coerceToolForSourceOfTruth(params: {
     isActiveOperationsQuery(query)
   ) {
     return "get_active_operations_summary";
+  }
+  if (
+    (params.requestedTool === "get_warehouse_stock" ||
+      params.requestedTool === "get_warehouse_balances" ||
+      params.requestedTool === "get_inventory") &&
+    isCropStructureAggregateQuery(query) &&
+    !isInventorySpecificQuery(query)
+  ) {
+    return "get_crop_structure_summary";
   }
   return params.requestedTool;
 }
@@ -347,7 +361,7 @@ export async function runModelOrchestrator(params: {
       {
         role: "system",
         content:
-          "Source of Truth contract: total fields, total hectares, land bank, and overall farm area MUST use get_field_land_bank_summary. Never derive totals from list_fields/search_fields. Crop/sown area MUST use get_crop_structure_summary. Mixed questions must call both relevant aggregate tools.",
+          "Source of Truth contract: total fields, total hectares, land bank, and overall farm area MUST use get_field_land_bank_summary. Never derive totals from list_fields/search_fields. Crop/sown area MUST use get_crop_structure_summary. Simple crop aggregate questions like 'Сколько картофеля?', 'Сколько моркови?', 'площадь картофеля', or crop hectares MUST use get_crop_structure_summary unless the user explicitly says остатки/склад/наличие/stock/warehouse/inventory. Mixed questions must call both relevant aggregate tools.",
       },
       { role: "system", content: `Router fallback hint only. Ignore it if the user asks a knowledge/process question:\n${toIntentContext(params.intent)}` },
       { role: "system", content: `Runtime context:\n${toRuntimeContext(params.runtimeContext)}` },
@@ -424,7 +438,7 @@ export async function runModelOrchestrator(params: {
 
       if (!toolCallsRaw.length) {
         const requiresLandBankSummary = isFieldLandBankAggregateQuery(params.message);
-        const requiresCropSummary = requiresLandBankSummary && isCropStructureAggregateQuery(params.message);
+        const requiresCropSummary = isCropStructureAggregateQuery(params.message) && !isInventorySpecificQuery(params.message);
         const hasLandBankSummary = hasOutputSource(outputs, "land_bank_summary");
         const hasCropSummary = hasOutputSource(outputs, "crop_structure");
         if (
@@ -435,9 +449,12 @@ export async function runModelOrchestrator(params: {
             status: "invalid_response",
             httpStatus: completionRes.status,
             errorCode: "SOURCE_OF_TRUTH_TOOL_REQUIRED",
-            errorMessage: requiresCropSummary
-              ? "Mixed land bank and crop aggregate requires get_field_land_bank_summary and get_crop_structure_summary."
-              : "Field land bank aggregate requires get_field_land_bank_summary.",
+            errorMessage:
+              requiresLandBankSummary && requiresCropSummary
+                ? "Mixed land bank and crop aggregate requires get_field_land_bank_summary and get_crop_structure_summary."
+                : requiresCropSummary
+                  ? "Crop aggregate requires get_crop_structure_summary."
+                  : "Field land bank aggregate requires get_field_land_bank_summary.",
             missingEnv: [],
           };
           hardFailure = true;
@@ -521,6 +538,29 @@ export async function runModelOrchestrator(params: {
                   source_of_truth: "fields",
                 },
               }
+            : executionToolName === "get_crop_structure_summary"
+              ? {
+                  ...plannerIntentRaw,
+                  name: "crop_structure_area" as const,
+                  confidence: Math.max(plannerIntentRaw.confidence, 0.99),
+                  needsData: true,
+                  parameters: {
+                    ...plannerIntentRaw.parameters,
+                    query: clean(args.query) || params.message,
+                    crop_alias: clean(args.crop) || clean(args.product) || clean(plannerIntentRaw.parameters.crop_alias),
+                    crop_group: clean(args.crop_group) || clean(plannerIntentRaw.parameters.crop_group),
+                    season:
+                      clean(args.season) ||
+                      clean(plannerIntentRaw.parameters.season) ||
+                      params.runtimeContext.season ||
+                      params.runtimeContext.defaultSeason ||
+                      "2026",
+                    output_type: clean(args.crop) || clean(args.product) || clean(plannerIntentRaw.parameters.crop_alias)
+                      ? "filtered_summary"
+                      : "summary_total",
+                    source_of_truth: "crop_structure",
+                  },
+                }
             : plannerIntentRaw;
         plannerIntentForResult = plannerIntent;
 
