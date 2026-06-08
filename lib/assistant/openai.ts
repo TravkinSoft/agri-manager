@@ -15,7 +15,7 @@ export type AssistantResolvedModelConfig = {
   temperature: number;
   reasoningEffort: "low" | "medium" | "high";
   reasoningApplied: boolean;
-  routeTier: "default" | "heavy";
+  routeTier: "default" | "fast" | "heavy";
 };
 
 function asText(value: unknown): string {
@@ -98,10 +98,19 @@ function shouldUseHeavyModel(params: {
 
 export function resolveAssistantModelConfig(
   settings: AssistantPlatformSettings,
-  options?: { intentName?: AssistantIntentName | null; message?: string | null; forceHeavyModel?: boolean }
+  options?: {
+    intentName?: AssistantIntentName | null;
+    message?: string | null;
+    forceFastModel?: boolean;
+    forceHeavyModel?: boolean;
+  }
 ): AssistantResolvedModelConfig {
   const envDefaultModel = asText(process.env.OPENAI_ASSISTANT_MODEL);
   const defaultModel = envDefaultModel || ASSISTANT_DEFAULT_MODEL;
+  const fastModel =
+    asText(process.env.OPENAI_ASSISTANT_FAST_MODEL) ||
+    asText(process.env.OPENAI_ASSISTANT_FALLBACK_MODEL) ||
+    ASSISTANT_DEFAULT_MODEL;
   const heavyModel = asText(process.env.OPENAI_ASSISTANT_HEAVY_MODEL) || ASSISTANT_HEAVY_MODEL;
   const dbModel = asText(settings.model);
   const useHeavy = shouldUseHeavyModel({
@@ -111,11 +120,19 @@ export function resolveAssistantModelConfig(
   });
 
   const routedModel = useHeavy ? heavyModel : defaultModel;
-  const actualModel = options?.forceHeavyModel ? heavyModel : dbModel || routedModel;
+  const actualModel = options?.forceHeavyModel
+    ? heavyModel
+    : options?.forceFastModel
+      ? fastModel
+      : dbModel || routedModel;
   const settingsSource: AssistantSettingsSource = options?.forceHeavyModel
     ? asText(process.env.OPENAI_ASSISTANT_HEAVY_MODEL)
       ? "env"
       : "default"
+    : options?.forceFastModel
+      ? asText(process.env.OPENAI_ASSISTANT_FAST_MODEL) || asText(process.env.OPENAI_ASSISTANT_FALLBACK_MODEL)
+        ? "env"
+        : "default"
     : dbModel
       ? "db"
       : envDefaultModel
@@ -130,13 +147,17 @@ export function resolveAssistantModelConfig(
 
   return {
     provider: "openai",
-    configuredModel: options?.forceHeavyModel ? heavyModel : dbModel || routedModel,
+    configuredModel: options?.forceHeavyModel
+      ? heavyModel
+      : options?.forceFastModel
+        ? fastModel
+        : dbModel || routedModel,
     actualModel,
     settingsSource,
     temperature: asTemperature(settings.temperature, 0.2),
     reasoningEffort,
     reasoningApplied,
-    routeTier: useHeavy ? "heavy" : "default",
+    routeTier: options?.forceFastModel ? "fast" : useHeavy ? "heavy" : "default",
   };
 }
 

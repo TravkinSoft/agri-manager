@@ -628,7 +628,10 @@ function looksLikeErpDataQuestion(message: string): boolean {
 
 function isKnowledgeStyleQuestion(message: string): boolean {
   const text = String(message || "").toLowerCase();
+  const unicodeKnowledge =
+    /(\u0447\u0442\u043e\s+\u0442\u0430\u043a\u043e\u0435|\u043a\u0430\u043a\s+\u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442|\u043e\u0431\u044a\u044f\u0441\u043d|\u043f\u0440\u043e\u0446\u0435\u0441\u0441|\u043a\u0430\u043a\s+\u043e\u0440\u0433\u0430\u043d|\u043a\u0430\u043a\s+\u043f\u0440\u0430\u0432\u0438\u043b|\u0447\u0442\u043e\s+\u0437\u043d\u0430\u0447|\u0437\u0430\u0447\u0435\u043c|\u043f\u043e\u0447\u0435\u043c\u0443|how does|explain|what is)/i.test(text);
   return (
+    unicodeKnowledge ||
     isAgroKnowledgeQuestion(text) ||
     /(что такое|как работает|объясни|объясните|процесс|как организовать|как правильно|что значит|зачем|почему|how does|explain|what is)/i.test(
       text
@@ -640,6 +643,11 @@ function isPureKnowledgeQuestion(message: string): boolean {
   const text = String(message || "").toLowerCase();
   if (!text || !isKnowledgeStyleQuestion(text)) return false;
   if (hasExplicitNavigationRequest(text)) return false;
+  const explicitKnowledgePrompt =
+    /(\u0447\u0442\u043e\s+\u0442\u0430\u043a\u043e\u0435|\u043a\u0430\u043a\s+\u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0442|\u043e\u0431\u044a\u044f\u0441\u043d|\u043f\u0440\u043e\u0446\u0435\u0441\u0441|\u043a\u0430\u043a\s+\u043e\u0440\u0433\u0430\u043d|\u0447\u0442\u043e\s+\u0437\u043d\u0430\u0447|what\s+is|how\s+does|explain|process)/i.test(
+      text
+    );
+  if (!explicitKnowledgePrompt) return false;
   return !/(\u0441\u043a\u043e\u043b\u044c\u043a\u043e|how\s+many|\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u0434\u0432\u0438\u0436\u0435\u043d|\u043f\u043e\u0441\u043b\u0435\u0434\u043d|\u0430\u043a\u0442\u0438\u0432|\u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b|\u043e\u043f\u0435\u0440\u0430\u0446|\u0443\u0440\u043e\u0436|\u0442\u0430\u043b\u043e\u043d\s*\d|ticket\s*\d|\u0447\u0442\u043e\s+\u043d\u0430\s+\u043f\u043e\u043b\u0435|\bfield\s+\d|\u043f\u043e\u043b\u0435\s+\d|stock|balance|ledger|recent|last|active)/i.test(
     text
   );
@@ -2143,12 +2151,14 @@ async function generateGeneralAnswer(params: {
   intentName: AssistantIntentName;
   systemPrompt: string;
   promptMeta: PromptMeta;
+  forceFastModel?: boolean;
   forceHeavyModel?: boolean;
 }): Promise<{ answer: string; actualModel: string | null; usage: UsageStats; llm: LlmDiagnostics; promptMeta: PromptMeta }> {
   const { message, locale, settings, intentName, systemPrompt, promptMeta } = params;
   const modelConfig = resolveAssistantModelConfig(settings, {
     intentName,
     message,
+    forceFastModel: Boolean(params.forceFastModel),
     forceHeavyModel: Boolean(params.forceHeavyModel),
   });
   const emptyUsage: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
@@ -2464,7 +2474,7 @@ export async function runAssistantEngine(params: {
     const knowledgeModelConfig = resolveAssistantModelConfig(settings, {
       intentName: knowledgeIntent.name,
       message: messageForRouting,
-      forceHeavyModel: true,
+      forceFastModel: true,
     });
     const modelStartedAt = Date.now();
     const fallback = await generateGeneralAnswer({
