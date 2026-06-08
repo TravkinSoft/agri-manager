@@ -4,6 +4,14 @@ import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { ensureMaterialRequestForOperation } from "@/app/api/operations/_material-request-helper";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import {
+  buildExecutionFactModelMetadata,
+  buildWarehouseWorkflowMetadata,
+  getTankMixComponentDefinition,
+  normalizePurposeList,
+  resolveCanonicalOperationType,
+  toStorageMaterialType,
+} from "@/lib/operations/operation-engine";
 
 const CREATE_ALLOWED_ROLES = ["global_admin", "company_admin", "agronomist"] as const;
 
@@ -22,7 +30,24 @@ type CreateOperationBody = {
   operation_target?: string | null;
   rate_per_ha?: number | null;
   spray_volume_per_ha?: number | null;
+  purposes?: unknown;
+  tank_mix?: {
+    enabled?: boolean | null;
+    water_rate_l_ha?: number | null;
+    total_solution_l_ha?: number | null;
+    components?: Array<{
+      component_type?: string | null;
+      material_type?: string | null;
+      product_id?: string | null;
+      batch_id?: string | null;
+      planned_rate?: number | null;
+      actual_rate?: number | null;
+      unit?: string | null;
+      notes?: string | null;
+    }>;
+  } | null;
   materials?: Array<{
+    component_type?: string | null;
     material_type?: string | null;
     product_id?: string | null;
     batch_id?: string | null;
@@ -93,13 +118,17 @@ function inferUnitByMaterialType(materialType: string): "kg" | "l" | "pcs" {
 }
 
 function allowsDefaultOperationLine(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
+  const canonical = resolveCanonicalOperationType({ categorySlug, typeSlug, operationType });
+  if (canonical?.requiresCropStructure) return true;
   const category = String(categorySlug || "").trim().toLowerCase();
-  if (category === "seeding_planting" || category === "harvesting") return true;
   const merged = `${category} ${String(typeSlug || "").toLowerCase()} ${operationType.toLowerCase()}`;
   return ["seed", "sow", "plant", "harvest", "\u043f\u043e\u0441\u0435\u0432", "\u043f\u043e\u0441\u0430\u0434", "\u0443\u0431\u043e\u0440\u043a"].some((token) => merged.includes(token));
 }
 
 function requiresCropStructure(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
+  const canonical = resolveCanonicalOperationType({ categorySlug, typeSlug, operationType });
+  if (canonical) return canonical.requiresCropStructure;
+
   const category = String(categorySlug || "").trim().toLowerCase();
   const type = String(typeSlug || "").trim().toLowerCase();
   const label = operationType.trim().toLowerCase();
@@ -147,8 +176,7 @@ export async function POST(request: NextRequest) {
       allowedRoles: [...CREATE_ALLOWED_ROLES],
     });
 
-    const fieldId = String(body.field_id || "").trim();
-    if (!fieldId) return NextResponse.json({ error: "field_id is required" }, { status: 400 });
+    const fieldId = toNullableUuid(body.field_id);
 
     const operationType = String(body.operation_type || "").trim();
     if (!operationType) return NextResponse.json({ error: "operation_type is required" }, { status: 400 });
@@ -166,8 +194,20 @@ export async function POST(request: NextRequest) {
     const responsibleUserId = toNullableUuid(body.responsible_user_id);
 
     const operationCategorySlug = toNullableText(body.operation_category_slug);
-    const operationTypeSlug = toNullableText(body.operation_type_slug);
-    if (requiresCropStructure(operationCategorySlug, operationTypeSlug, operationType) && !cropStructureId) {
+    const requestedTypeSlug = toNullableText(body.operation_type_slug);
+    const canonicalType = resolveCanonicalOperationType({
+      categorySlug: operationCategorySlug,
+      typeSlug: requestedTypeSlug,
+      operationType,
+    });
+    const operationTypeSlug = canonicalType?.slug || requestedTypeSlug;
+    const canonicalCategorySlug = canonicalType?.categorySlug || operationCategorySlug;
+    const purposes = normalizePurposeList(body.purposes);
+    const cropStructureRequired = requiresCropStructure(canonicalCategorySlug, operationTypeSlug, operationType);
+    if (cropStructureRequired && !fieldId) {
+      return NextResponse.json({ error: "field_id is required for production operations" }, { status: 400 });
+    }
+    if (cropStructureRequired && !cropStructureId) {
       return NextResponse.json(
         { error: "crop_structure_id is required for production operations" },
         { status: 400 }
@@ -194,7 +234,7 @@ export async function POST(request: NextRequest) {
       if (!structureRow?.id) {
         return NextResponse.json({ error: "crop_structure_id does not belong to this company" }, { status: 400 });
       }
-      if (String((structureRow as any).field_id || "") !== fieldId) {
+      if (fieldId && String((structureRow as any).field_id || "") !== fieldId) {
         return NextResponse.json({ error: "crop_structure_id must belong to selected field" }, { status: 400 });
       }
       if (structureRow) {
@@ -214,8 +254,19 @@ export async function POST(request: NextRequest) {
 
     const effectivePlannedArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
     const rawMaterials = Array.isArray(body.materials) ? body.materials : [];
+    const rawTankComponents = Array.isArray(body.tank_mix?.components) ? body.tank_mix?.components || [] : [];
+    const operationComponents = [...rawMaterials, ...rawTankComponents].filter(
+      (item, index, source) =>
+        index ===
+        source.findIndex(
+          (candidate) =>
+            String(candidate?.product_id || "") === String(item?.product_id || "") &&
+            String(candidate?.component_type || candidate?.material_type || "") === String(item?.component_type || item?.material_type || "") &&
+            String(candidate?.planned_rate ?? "") === String(item?.planned_rate ?? "")
+        )
+    );
     const productIds = Array.from(
-      new Set(rawMaterials.map((item) => toNullableUuid(item?.product_id)).filter(Boolean) as string[])
+      new Set(operationComponents.map((item) => toNullableUuid(item?.product_id)).filter(Boolean) as string[])
     );
     if (productIds.length > 0) {
       const { data: warehouseRows, error: warehouseError } = await supabase
@@ -257,7 +308,36 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const tankMixComponents = operationComponents.map((item) => {
+      const componentType = String(item?.component_type || item?.material_type || "other").trim().toLowerCase();
+      const definition = getTankMixComponentDefinition(componentType);
+      const requestedUnit = String(item?.unit || "").trim().toLowerCase();
+      const unit = (MATERIAL_UNITS.has(requestedUnit) ? requestedUnit : definition.defaultUnit) as "kg" | "l" | "pcs";
+      return {
+        component_type: definition.slug,
+        storage_material_type: definition.storageMaterialType,
+        product_id: toNullableUuid(item?.product_id),
+        batch_id: toNullableUuid(item?.batch_id),
+        planned_rate: toNullableNumber(item?.planned_rate),
+        actual_rate: toNullableNumber(item?.actual_rate),
+        unit,
+        notes: toNullableText(item?.notes),
+        product_required: definition.productRequired,
+      };
+    });
+
     const operationConfig = {
+      operation_engine_type: canonicalType?.slug || operationTypeSlug || null,
+      operation_engine_label: canonicalType?.label || operationType,
+      purposes,
+      tank_mix: {
+        enabled: Boolean(body.tank_mix?.enabled || canonicalType?.supportsTankMix),
+        water_rate_l_ha: toNullableNumber(body.tank_mix?.water_rate_l_ha),
+        total_solution_l_ha: toNullableNumber(body.tank_mix?.total_solution_l_ha ?? body.spray_volume_per_ha),
+        components: tankMixComponents,
+      },
+      warehouse_workflow: buildWarehouseWorkflowMetadata(),
+      execution_fact_model: buildExecutionFactModelMetadata(),
       planned_area_ha: effectivePlannedArea,
       crop_id: resolvedCropId,
       variety_id: resolvedVarietyId,
@@ -270,7 +350,7 @@ export async function POST(request: NextRequest) {
       company_id: companyId,
       field_id: fieldId,
       crop_structure_id: cropStructureId,
-      operation_category_slug: operationCategorySlug,
+      operation_category_slug: canonicalCategorySlug,
       operation_type_slug: operationTypeSlug,
       operation_type: operationType,
       machine_id: toNullableUuid(body.machine_id),
@@ -298,9 +378,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: operationError?.message || "Failed to create operation" }, { status: 400 });
     }
 
-    const materialRows = rawMaterials
+    const materialRows = operationComponents
       .map((item) => {
-        const materialType = String(item?.material_type || "").trim().toLowerCase();
+        const componentType = String(item?.component_type || item?.material_type || "other").trim().toLowerCase();
+        const materialType = toStorageMaterialType(componentType);
         const productId = toNullableUuid(item?.product_id);
         if (!MATERIAL_TYPES.has(materialType) || !productId) return null;
         const requestedUnit = String(item?.unit || "").trim().toLowerCase();
@@ -317,7 +398,7 @@ export async function POST(request: NextRequest) {
           unit,
           planned_rate: plannedRate,
           actual_rate: actualRate,
-          notes: toNullableText(item?.notes),
+          notes: toNullableText(item?.notes) || `component:${componentType}`,
           created_by_user_id: actor.authUserId,
           updated_by_user_id: actor.authUserId,
         };
@@ -334,7 +415,7 @@ export async function POST(request: NextRequest) {
 
     let defaultOperationLine: Record<string, unknown> | null = null;
     let operationLineWarning: string | null = null;
-    if (allowsDefaultOperationLine(operationCategorySlug, operationTypeSlug, operationType)) {
+    if (allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType)) {
       let effectiveArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
       if (!effectiveArea) {
         const { data: fieldRow } = await supabase
@@ -373,26 +454,30 @@ export async function POST(request: NextRequest) {
     }
 
     let materialRequestResult: Record<string, unknown> = { created: false, skipped_reason: "not_attempted" };
-    try {
-      materialRequestResult = await ensureMaterialRequestForOperation({
-        supabase,
-        companyId,
-        operationId: String(operationRow.id),
-        fieldId,
-        operationDate,
-        notes: toNullableText(body.notes),
-        responsibleUserId,
-        plannedAreaHa: effectivePlannedArea ?? plannedArea,
-        cropId: resolvedCropId,
-        varietyId: resolvedVarietyId,
-        reproductionId: resolvedReproductionId,
-      });
-    } catch (requestError) {
-      materialRequestResult = {
-        created: false,
-        skipped_reason: "request_exception",
-        error: requestError instanceof Error ? requestError.message : "Failed to create material request",
-      };
+    if (fieldId) {
+      try {
+        materialRequestResult = await ensureMaterialRequestForOperation({
+          supabase,
+          companyId,
+          operationId: String(operationRow.id),
+          fieldId,
+          operationDate,
+          notes: toNullableText(body.notes),
+          responsibleUserId,
+          plannedAreaHa: effectivePlannedArea ?? plannedArea,
+          cropId: resolvedCropId,
+          varietyId: resolvedVarietyId,
+          reproductionId: resolvedReproductionId,
+        });
+      } catch (requestError) {
+        materialRequestResult = {
+          created: false,
+          skipped_reason: "request_exception",
+          error: requestError instanceof Error ? requestError.message : "Failed to create material request",
+        };
+      }
+    } else {
+      materialRequestResult = { created: false, skipped_reason: "no_field_context" };
     }
 
     return NextResponse.json({

@@ -68,6 +68,11 @@ import {
 import { Field } from "@/lib/types/field";
 import { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import { useLanguage } from "@/lib/contexts/language-context";
+import {
+  getPurposeDefinitionsForOperation,
+  getTankMixComponentDefinition,
+  resolveCanonicalOperationType,
+} from "@/lib/operations/operation-engine";
 
 function isRowCrop(cropName: string | null | undefined): boolean {
   const normalized = String(cropName || "").trim().toLowerCase();
@@ -78,6 +83,8 @@ function isRowCrop(cropName: string | null | undefined): boolean {
 }
 
 function shouldShowOperationLines(operation: OperationWithDetails): boolean {
+  const engine = getOperationEngine(operation);
+  if (engine?.requiresCropStructure) return true;
   const categorySlug = String(operation.operation_category_slug || "").trim().toLowerCase();
   if (categorySlug === "seeding_planting" || categorySlug === "harvesting") return true;
 
@@ -100,6 +107,33 @@ function statusBadge(status: string | null | undefined) {
   if (normalized === "in_progress") return <Badge className="bg-blue-100 text-blue-800">in progress</Badge>;
   if (normalized === "ready_to_start") return <Badge className="bg-amber-100 text-amber-800">ready</Badge>;
   return <Badge className="bg-slate-100 text-slate-800">{normalized}</Badge>;
+}
+
+function getOperationEngine(operation: OperationWithDetails) {
+  return resolveCanonicalOperationType({
+    categorySlug: operation.operation_category_slug || operation.operation_engine_type,
+    typeSlug: operation.operation_type_slug || operation.operation_engine_type,
+    operationType: operation.operation_type,
+  });
+}
+
+function getOperationPurposeLabels(operation: OperationWithDetails): string[] {
+  const engine = getOperationEngine(operation);
+  const labels = new Map<string, string>(
+    getPurposeDefinitionsForOperation(engine?.slug || operation.operation_engine_type).map((item) => [item.slug, item.label])
+  );
+  return (operation.operation_purposes || []).map((slug) => labels.get(String(slug)) || String(slug));
+}
+
+function getTankMixComponents(operation: OperationWithDetails): Array<Record<string, any>> {
+  const tankMix = operation.tank_mix;
+  if (!tankMix || typeof tankMix !== "object" || !Array.isArray(tankMix.components)) return [];
+  return tankMix.components as Array<Record<string, any>>;
+}
+
+function getMaterialComponentLabel(material: { material_type?: string | null; notes?: string | null }) {
+  const noteComponent = String(material.notes || "").match(/component:([a-z_]+)/i)?.[1] || null;
+  return getTankMixComponentDefinition(noteComponent || material.material_type).label;
 }
 
 export default function OperationsPage() {
@@ -521,6 +555,8 @@ export default function OperationsPage() {
       <div className="space-y-3 p-4">
         {ops.map((operation) => {
           const isExpanded = !!expanded[operation.id];
+          const engine = getOperationEngine(operation);
+          const purposeLabels = getOperationPurposeLabels(operation);
           const lines = operationLinesByOperationId[operation.id] || [];
           const linesAllowed = shouldShowOperationLines(operation);
           const rowCropContext = isRowCrop(operation.crop_name);
@@ -535,7 +571,7 @@ export default function OperationsPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <CardTitle className="text-base">
-                      {operation.operation_type} • {operation.field_name}
+                      {operation.operation_engine_label || engine?.label || operation.operation_type} • {operation.field_name}
                     </CardTitle>
                     <div className="text-sm text-slate-500">
                       {formatDate(operation.date)} • {operation.crop_name || "без культуры"} • {operation.planned_area_ha || 0} га
@@ -567,8 +603,8 @@ export default function OperationsPage() {
               {isExpanded ? (
                 <CardContent className="pt-0 space-y-3">
                   <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
-                    <div><span className="text-slate-500">Категория:</span> {operation.operation_category_slug || "-"}</div>
-                    <div><span className="text-slate-500">Код типа:</span> {operation.operation_type_slug || "-"}</div>
+                    <div><span className="text-slate-500">Тип работ:</span> {operation.operation_engine_label || engine?.label || operation.operation_type || "-"}</div>
+                    <div><span className="text-slate-500">Цели:</span> {purposeLabels.length > 0 ? purposeLabels.join(", ") : "-"}</div>
                     <div>
                       <span className="text-slate-500">Ответственный:</span>{" "}
                       {operation.responsible_user_id
@@ -576,7 +612,7 @@ export default function OperationsPage() {
                         : "-"}
                     </div>
                     <div><span className="text-slate-500">Статус заявки:</span> {requestStatusByOperationId[operation.id] || "-"}</div>
-                    <div><span className="text-slate-500">Target:</span> {operation.operation_target || "-"}</div>
+                    <div><span className="text-slate-500">Способ/назначение:</span> {operation.operation_target || "-"}</div>
                     <div>
                       <span className="text-slate-500">Нормы:</span>{" "}
                       {operation.rate_per_ha != null ? `${operation.rate_per_ha}/га` : "-"}{" "}
@@ -594,7 +630,7 @@ export default function OperationsPage() {
                   {canManageOperationLines && !requestStatusByOperationId[operation.id] ? (
                     <div>
                       <Button type="button" size="sm" variant="outline" onClick={() => void handleEnsureMaterialRequest(operation)}>
-                        Создать Material Request
+                        Создать заявку склада
                       </Button>
                     </div>
                   ) : null}
@@ -602,7 +638,7 @@ export default function OperationsPage() {
                   {linesAllowed ? (
                     <div className="rounded-md border p-3">
                       <div className="mb-2 flex items-center justify-between">
-                        <div className="text-sm font-semibold">Operation lines</div>
+                        <div className="text-sm font-semibold">План и факт по строкам посевов</div>
                         <Badge variant="outline">{lines.length}</Badge>
                       </div>
 
@@ -737,7 +773,7 @@ export default function OperationsPage() {
 
                       {canManageOperationLines ? (
                         <div className="mt-3 rounded-md border border-dashed p-2">
-                          <div className="mb-2 text-xs font-medium text-slate-700">Добавить line</div>
+                          <div className="mb-2 text-xs font-medium text-slate-700">Добавить строку факта</div>
                           <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
                             <div>
                               <div className="mb-1 text-[11px] text-slate-500">Сорт</div>
@@ -865,7 +901,7 @@ export default function OperationsPage() {
                               onClick={() => void handleAddOperationLine(operation)}
                               disabled={lineMutationBusyByOperationId[operation.id] === true}
                             >
-                              Добавить line
+                              Добавить строку факта
                             </Button>
                           </div>
                         </div>
@@ -884,6 +920,10 @@ export default function OperationsPage() {
       </div>
     );
   };
+
+  const selectedOperationEngine = selectedOperation ? getOperationEngine(selectedOperation) : null;
+  const selectedOperationPurposes = selectedOperation ? getOperationPurposeLabels(selectedOperation) : [];
+  const selectedTankMixComponents = selectedOperation ? getTankMixComponents(selectedOperation) : [];
 
   return (
     <div className="space-y-4">
@@ -1141,13 +1181,15 @@ export default function OperationsPage() {
                 </TabsList>
                 <TabsContent value="general" className="space-y-3 text-sm">
                   <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div><span className="text-muted-foreground">Тип работ:</span> {selectedOperation.operation_engine_label || selectedOperationEngine?.label || selectedOperation.operation_type}</div>
+                    <div><span className="text-muted-foreground">Цели:</span> {selectedOperationPurposes.length > 0 ? selectedOperationPurposes.join(", ") : "—"}</div>
                     <div><span className="text-muted-foreground">Поле:</span> {selectedOperation.field_name}</div>
                     <div><span className="text-muted-foreground">Строка структуры:</span> {selectedOperation.crop_structure_id || "—"}</div>
                     <div><span className="text-muted-foreground">Культура:</span> {selectedOperation.crop_name || "—"}</div>
                     <div><span className="text-muted-foreground">Сорт:</span> {selectedOperation.variety_name || "—"}</div>
                     <div><span className="text-muted-foreground">Репродукция:</span> {selectedOperation.reproduction_name || "—"}</div>
                     <div><span className="text-muted-foreground">Площадь:</span> {Number(selectedOperation.planned_area_ha || 0).toFixed(2)} га</div>
-                    <div><span className="text-muted-foreground">Категория:</span> {selectedOperation.operation_category_slug || "—"}</div>
+                    <div><span className="text-muted-foreground">Способ/назначение:</span> {selectedOperation.operation_target || "—"}</div>
                     <div><span className="text-muted-foreground">Статус:</span> {statusBadge(selectedOperation.work_status)}</div>
                     <div className="md:col-span-2"><span className="text-muted-foreground">Комментарий:</span> {selectedOperation.notes || "—"}</div>
                   </div>
@@ -1163,6 +1205,14 @@ export default function OperationsPage() {
                   </div>
                 </TabsContent>
                 <TabsContent value="materials">
+                  {selectedOperation.tank_mix?.enabled || selectedTankMixComponents.length > 0 ? (
+                    <div className="mb-3 rounded-md border bg-slate-50 p-3 text-sm">
+                      <div className="font-semibold">Баковая смесь</div>
+                      <div className="mt-1 text-muted-foreground">
+                        Вода: {selectedOperation.tank_mix?.water_rate_l_ha ?? "—"} л/га • Рабочий раствор: {selectedOperation.tank_mix?.total_solution_l_ha ?? "—"} л/га • Компонентов: {selectedTankMixComponents.length}
+                      </div>
+                    </div>
+                  ) : null}
                   {(selectedOperation.materials || []).length === 0 ? (
                     <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">Материалы не указаны.</div>
                   ) : (
@@ -1170,34 +1220,82 @@ export default function OperationsPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Материал</TableHead>
-                          <TableHead>Тип</TableHead>
+                          <TableHead>Компонент</TableHead>
                           <TableHead>План норма</TableHead>
                           <TableHead>Факт норма</TableHead>
                           <TableHead>Выдано</TableHead>
                           <TableHead>Факт</TableHead>
                           <TableHead>Возврат</TableHead>
+                          <TableHead>Потери</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {(selectedOperation.materials || []).map((material) => (
-                          <TableRow key={material.id}>
-                            <TableCell className="font-medium">{material.product_name || material.product_id}</TableCell>
-                            <TableCell>{material.material_type}</TableCell>
-                            <TableCell>{material.planned_rate ?? "—"} {material.unit}/га</TableCell>
-                            <TableCell>{material.actual_rate ?? "—"} {material.unit}/га</TableCell>
-                            <TableCell>{formatQuantity(Number(material.issued_quantity || 0), material.unit)}</TableCell>
-                            <TableCell>{formatQuantity(Number(material.consumed_quantity || 0), material.unit)}</TableCell>
-                            <TableCell>{formatQuantity(Number(material.returned_quantity || 0), material.unit)}</TableCell>
-                          </TableRow>
-                        ))}
+                        {(selectedOperation.materials || []).map((material) => {
+                          const issued = Number(material.issued_quantity || 0);
+                          const consumed = Number(material.consumed_quantity || 0);
+                          const returned = Number(material.returned_quantity || 0);
+                          const loss = Math.max(issued - consumed - returned, 0);
+                          return (
+                            <TableRow key={material.id}>
+                              <TableCell className="font-medium">{material.product_name || material.product_id}</TableCell>
+                              <TableCell>{getMaterialComponentLabel(material)}</TableCell>
+                              <TableCell>{material.planned_rate ?? "—"} {material.unit}/га</TableCell>
+                              <TableCell>{material.actual_rate ?? "—"} {material.unit}/га</TableCell>
+                              <TableCell>{formatQuantity(issued, material.unit)}</TableCell>
+                              <TableCell>{formatQuantity(consumed, material.unit)}</TableCell>
+                              <TableCell>{formatQuantity(returned, material.unit)}</TableCell>
+                              <TableCell>{formatQuantity(loss, material.unit)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   )}
+                  <div className="rounded-md border p-3">
+                    <div className="mb-2 text-sm font-semibold">Факт материалов</div>
+                    <div className="mb-3 text-xs text-muted-foreground">
+                      Выдача не считается расходом. Закрытие операции требует фактический расход, возврат и комментарий.
+                    </div>
+                    {(selectedOperation.materials || []).length === 0 ? (
+                      <div className="text-sm text-muted-foreground">Материалы для факта не указаны.</div>
+                    ) : (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Материал</TableHead>
+                            <TableHead>Выдано</TableHead>
+                            <TableHead>Факт расхода</TableHead>
+                            <TableHead>Возврат</TableHead>
+                            <TableHead>Потери</TableHead>
+                            <TableHead>Комментарий</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(selectedOperation.materials || []).map((material) => {
+                            const issued = Number(material.issued_quantity || 0);
+                            const consumed = Number(material.consumed_quantity || 0);
+                            const returned = Number(material.returned_quantity || 0);
+                            const loss = Math.max(issued - consumed - returned, 0);
+                            return (
+                              <TableRow key={`fact-${material.id}`}>
+                                <TableCell>{material.product_name || material.product_id}</TableCell>
+                                <TableCell>{formatQuantity(issued, material.unit)}</TableCell>
+                                <TableCell>{material.consumed_quantity == null ? "—" : formatQuantity(consumed, material.unit)}</TableCell>
+                                <TableCell>{material.returned_quantity == null ? "—" : formatQuantity(returned, material.unit)}</TableCell>
+                                <TableCell>{formatQuantity(loss, material.unit)}</TableCell>
+                                <TableCell>{material.notes || "—"}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </div>
                 </TabsContent>
                 <TabsContent value="warehouse" className="space-y-3 text-sm">
                   <div><span className="text-muted-foreground">Статус заявки:</span> {requestStatusByOperationId[selectedOperation.id] || "заявка не создана"}</div>
                   <div className="rounded-md border border-dashed p-4 text-muted-foreground">
-                    Цепочка V2: Material Plan → Material Request → Warehouse Issue → Return/Consumption → Fact.
+                    Цепочка V2: План операции → Потребность → Выдача склада → Выполнение → Факт расхода → Возврат → История поля.
                   </div>
                 </TabsContent>
                 <TabsContent value="fact" className="space-y-3">
@@ -1404,7 +1502,7 @@ export default function OperationsPage() {
         defaultValues={
           editingOperation
             ? {
-                field_id: editingOperation.field_id,
+                field_id: editingOperation.field_id || "",
                 crop_structure_id: editingOperation.crop_structure_id,
                 operation_category_slug: editingOperation.operation_category_slug || "",
                 operation_type_slug: editingOperation.operation_type_slug || "",
@@ -1420,7 +1518,10 @@ export default function OperationsPage() {
                 date: editingOperation.date,
                 responsible_user_id: editingOperation.responsible_user_id,
                 notes: editingOperation.notes || "",
+                purposes: editingOperation.operation_purposes || [],
+                tank_mix: editingOperation.tank_mix || undefined,
                 materials: (editingOperation.materials || []).map((item) => ({
+                  component_type: String(item.notes || "").match(/component:([a-z_]+)/i)?.[1] as any,
                   material_type: item.material_type,
                   product_id: item.product_id,
                   batch_id: item.batch_id,

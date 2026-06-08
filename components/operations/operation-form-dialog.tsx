@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -54,6 +55,19 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { supabase } from "@/lib/supabase/client";
 import { getFieldDisplayName } from "@/lib/fields/display";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import {
+  FERTILIZER_APPLICATION_METHODS,
+  OPERATION_TYPE_DEFINITIONS,
+  TANK_MIX_COMPONENT_DEFINITIONS,
+  getDefaultUnitForComponent,
+  getPurposeDefinitionsForOperation,
+  getTankMixComponentDefinition,
+  resolveCanonicalOperationType,
+  toStorageMaterialType,
+  type CanonicalOperationTypeSlug,
+  type OperationPurposeSlug,
+  type TankMixComponentType,
+} from "@/lib/operations/operation-engine";
 
 interface OperationFormDialogProps {
   open: boolean;
@@ -98,157 +112,31 @@ type ProductOption = {
 
 type SearchOption = { id: string; label: string; hint?: string };
 
-const MATERIAL_TYPE_LABEL: Record<OperationMaterialType, string> = {
-  seed: "Семена",
-  fertilizer: "Удобрение",
-  pesticide: "СЗР",
-  adjuvant: "Прилипатель",
-  ph_corrector: "pH-корректор",
-  defoamer: "Пеногаситель",
-  biological: "Биология",
-  fuel: "ГСМ",
-  organic: "Органика",
-  water: "Вода",
-  other: "Другое",
-};
+const FALLBACK_CATEGORIES: OperationCategory[] = OPERATION_TYPE_DEFINITIONS.map((definition) => ({
+  id: definition.categorySlug,
+  slug: definition.categorySlug,
+  name_ru: definition.label,
+  is_active: true,
+}));
 
-const FALLBACK_CATEGORIES: OperationCategory[] = [
-  { id: "soil_preparation", slug: "soil_preparation", name_ru: "Подготовка почвы", is_active: true },
-  { id: "seeding_planting", slug: "seeding_planting", name_ru: "Посев / посадка", is_active: true },
-  { id: "fertilization", slug: "fertilization", name_ru: "Внесение удобрений", is_active: true },
-  { id: "plant_protection", slug: "plant_protection", name_ru: "СЗР", is_active: true },
-  { id: "crop_care", slug: "crop_care", name_ru: "Уход за посевами", is_active: true },
-  { id: "irrigation", slug: "irrigation", name_ru: "Полив", is_active: true },
-  { id: "harvesting", slug: "harvesting", name_ru: "Уборка", is_active: true },
-  { id: "logistics", slug: "logistics", name_ru: "Логистика", is_active: true },
-  { id: "post_harvest", slug: "post_harvest", name_ru: "Послеуборочная доработка", is_active: true },
-  { id: "service_operations", slug: "service_operations", name_ru: "Сервисные операции", is_active: true },
-];
-
-const FALLBACK_TYPES: OperationTypeMaster[] = [
-  {
-    id: "seeding",
-    slug: "seeding",
-    name_ru: "Посев",
-    category_slug: "seeding_planting",
-    requires_machine: true,
-    requires_product: true,
-    requires_field: true,
-    affects_inventory: true,
-    affects_field_history: true,
-  },
-  {
-    id: "planting",
-    slug: "planting",
-    name_ru: "Посадка",
-    category_slug: "seeding_planting",
-    requires_machine: true,
-    requires_product: true,
-    requires_field: true,
-    affects_inventory: true,
-    affects_field_history: true,
-  },
-  {
-    id: "spraying",
-    slug: "spraying",
-    name_ru: "Опрыскивание",
-    category_slug: "plant_protection",
-    requires_machine: true,
-    requires_product: true,
-    requires_field: true,
-    affects_inventory: true,
-    affects_field_history: true,
-  },
-  {
-    id: "fertilizing",
-    slug: "fertilizing",
-    name_ru: "Внесение удобрений",
-    category_slug: "fertilization",
-    requires_machine: true,
-    requires_product: true,
-    requires_field: true,
-    affects_inventory: true,
-    affects_field_history: true,
-  },
-  {
-    id: "harvesting",
-    slug: "harvesting",
-    name_ru: "Уборка",
-    category_slug: "harvesting",
-    requires_machine: true,
-    requires_product: false,
-    requires_field: true,
-    affects_inventory: true,
-    affects_field_history: true,
-  },
-  {
-    id: "irrigation",
-    slug: "irrigation",
-    name_ru: "Полив",
-    category_slug: "irrigation",
-    requires_machine: true,
-    requires_product: false,
-    requires_field: true,
-    affects_inventory: false,
-    affects_field_history: true,
-  },
-  {
-    id: "crop_care",
-    slug: "crop_care",
-    name_ru: "Уход за посевами",
-    category_slug: "crop_care",
-    requires_machine: true,
-    requires_product: false,
-    requires_field: true,
-    affects_inventory: false,
-    affects_field_history: true,
-  },
-  {
-    id: "transport",
-    slug: "transport",
-    name_ru: "Перевозка",
-    category_slug: "logistics",
-    requires_machine: false,
-    requires_product: false,
-    requires_field: false,
-    affects_inventory: false,
-    affects_field_history: false,
-  },
-  {
-    id: "post_harvest_processing",
-    slug: "post_harvest_processing",
-    name_ru: "Послеуборочная доработка",
-    category_slug: "post_harvest",
-    requires_machine: false,
-    requires_product: false,
-    requires_field: false,
-    affects_inventory: true,
-    affects_field_history: false,
-  },
-  {
-    id: "service",
-    slug: "service",
-    name_ru: "Сервисная операция",
-    category_slug: "service_operations",
-    requires_machine: false,
-    requires_product: false,
-    requires_field: false,
-    affects_inventory: false,
-    affects_field_history: false,
-  },
-];
+const FALLBACK_TYPES: OperationTypeMaster[] = OPERATION_TYPE_DEFINITIONS.map((definition) => ({
+  id: definition.slug,
+  slug: definition.slug,
+  name_ru: definition.label,
+  category_slug: definition.categorySlug,
+  requires_machine: definition.requiresMachine,
+  requires_product: definition.supportsMaterials,
+  requires_field: definition.requiresCropStructure,
+  affects_inventory: definition.affectsWarehouse,
+  affects_field_history: definition.affectsFieldHistory,
+  is_active: true,
+}));
 
 function normalizeNumber(value: string): number | null {
   const raw = String(value || "").trim().replace(",", ".");
   if (!raw) return null;
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
-}
-
-function defaultUnitByMaterialType(type: OperationMaterialType): "kg" | "l" | "pcs" {
-  if (type === "pesticide" || type === "adjuvant" || type === "ph_corrector" || type === "defoamer" || type === "water") return "l";
-  if (type === "fuel") return "l";
-  return "kg";
 }
 
 function inferMaterialTypeByProductType(productType: string | null | undefined): OperationMaterialType {
@@ -261,16 +149,40 @@ function inferMaterialTypeByProductType(productType: string | null | undefined):
   return "fertilizer";
 }
 
-function isRowCropByCategory(categorySlug: string): boolean {
-  return categorySlug === "seeding_planting" || categorySlug === "harvesting";
-}
-
 function requiresCropStructureForType(type: OperationTypeMaster | null): boolean {
   if (!type) return false;
-  if (["logistics", "service", "service_operations", "post_harvest", "processing"].includes(type.category_slug)) {
-    return false;
-  }
-  return type.requires_field !== false && type.affects_field_history !== false;
+  const canonical = resolveCanonicalOperationType({
+    categorySlug: type.category_slug,
+    typeSlug: type.slug,
+    operationType: type.name_ru,
+  });
+  return canonical ? canonical.requiresCropStructure : type.requires_field !== false && type.affects_field_history !== false;
+}
+
+function mergeCanonicalCategories(rows: OperationCategory[]): OperationCategory[] {
+  const bySlug = new Map<string, OperationCategory>();
+  FALLBACK_CATEGORIES.forEach((item) => bySlug.set(item.slug, item));
+  rows.forEach((item) => {
+    const canonical = resolveCanonicalOperationType({ categorySlug: item.slug });
+    if (canonical) return;
+    bySlug.set(item.slug, item);
+  });
+  return Array.from(bySlug.values());
+}
+
+function mergeCanonicalTypes(rows: OperationTypeMaster[]): OperationTypeMaster[] {
+  const bySlug = new Map<string, OperationTypeMaster>();
+  FALLBACK_TYPES.forEach((item) => bySlug.set(item.slug, item));
+  rows.forEach((item) => {
+    const canonical = resolveCanonicalOperationType({
+      categorySlug: item.category_slug,
+      typeSlug: item.slug,
+      operationType: item.name_ru,
+    });
+    if (canonical) return;
+    bySlug.set(item.slug, item);
+  });
+  return Array.from(bySlug.values());
 }
 
 function SearchableSelect(props: {
@@ -350,6 +262,9 @@ export function OperationFormDialog({
   const [transports, setTransports] = useState<RefOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [materials, setMaterials] = useState<OperationMaterialFormData[]>([]);
+  const [purposes, setPurposes] = useState<OperationPurposeSlug[]>([]);
+  const [tankMixEnabled, setTankMixEnabled] = useState(false);
+  const [tankMixWaterRate, setTankMixWaterRate] = useState<number | null>(null);
 
   const form = useForm<OperationFormData>({
     resolver: zodResolver(operationSchema),
@@ -376,7 +291,19 @@ export function OperationFormDialog({
 
   const selectedFieldId = form.watch("field_id");
   const selectedCropStructureId = form.watch("crop_structure_id");
+  const selectedApplicationMethod = form.watch("operation_target");
   const selectedType = useMemo(() => types.find((item) => item.slug === typeSlug) || null, [types, typeSlug]);
+  const canonicalType = useMemo(
+    () =>
+      resolveCanonicalOperationType({
+        categorySlug: selectedType?.category_slug || categorySlug,
+        typeSlug,
+        operationType: selectedType?.name_ru || form.getValues("operation_type"),
+      }),
+    [categorySlug, form, selectedType, typeSlug]
+  );
+  const canonicalSlug = canonicalType?.slug as CanonicalOperationTypeSlug | undefined;
+  const purposeOptions = useMemo(() => getPurposeDefinitionsForOperation(canonicalSlug), [canonicalSlug]);
   const selectedCropStructure = useMemo(
     () => cropStructures.find((item) => item.id === selectedCropStructureId) || null,
     [cropStructures, selectedCropStructureId]
@@ -463,8 +390,8 @@ export function OperationFormDialog({
           .gt("quantity", 0),
       ]);
 
-      if (!catRes.error && (catRes.data || []).length > 0) setCategories(catRes.data as OperationCategory[]);
-      if (!typeRes.error && (typeRes.data || []).length > 0) setTypes(typeRes.data as OperationTypeMaster[]);
+      if (!catRes.error) setCategories(mergeCanonicalCategories((catRes.data || []) as OperationCategory[]));
+      if (!typeRes.error) setTypes(mergeCanonicalTypes((typeRes.data || []) as OperationTypeMaster[]));
       if (!machinesRes.error) setMachines((machinesRes.data || []).map((row: any) => ({ id: String(row.id), name: String(row.name || "-") })));
       if (!equipmentRes.error) setEquipment((equipmentRes.data || []).map((row: any) => ({ id: String(row.id), name: String(row.name || "-") })));
       if (!transportRes.error) setTransports((transportRes.data || []).map((row: any) => ({ id: String(row.id), name: String(row.name || "-") })));
@@ -547,12 +474,32 @@ export function OperationFormDialog({
   useEffect(() => {
     if (!open) return;
     const initial = defaultValues || {};
+    const initialCanonical = resolveCanonicalOperationType({
+      categorySlug: initial.operation_category_slug,
+      typeSlug: initial.operation_type_slug,
+      operationType: initial.operation_type,
+    });
+    const initialCategory = initialCanonical?.categorySlug || String(initial.operation_category_slug || "").trim();
+    const initialType = initialCanonical?.slug || String(initial.operation_type_slug || "").trim();
+    const initialMaterials = Array.isArray(initial.materials)
+      ? (initial.materials as OperationMaterialFormData[]).map((item) => {
+          const component = getTankMixComponentDefinition(item.component_type || item.material_type);
+          return {
+            ...item,
+            component_type: component.slug,
+            material_type: toStorageMaterialType(component.slug),
+            product_id: item.product_id || "",
+            unit: item.unit || getDefaultUnitForComponent(component.slug),
+          };
+        })
+      : [];
+    const initialTankMix = initial.tank_mix || null;
     form.reset({
       field_id: String(initial.field_id || ""),
       crop_structure_id: initial.crop_structure_id || null,
-      operation_category_slug: String(initial.operation_category_slug || ""),
-      operation_type_slug: String(initial.operation_type_slug || ""),
-      operation_type: String(initial.operation_type || ""),
+      operation_category_slug: initialCategory,
+      operation_type_slug: initialType,
+      operation_type: String(initialCanonical?.label || initial.operation_type || ""),
       planned_area_ha: initial.planned_area_ha ?? null,
       crop_id: initial.crop_id || null,
       machine_id: initial.machine_id || null,
@@ -564,14 +511,17 @@ export function OperationFormDialog({
       date: String(initial.date || new Date().toISOString().slice(0, 10)),
       responsible_user_id: initial.responsible_user_id || null,
       notes: String(initial.notes || ""),
-      materials: Array.isArray(initial.materials) ? initial.materials : [],
+      purposes: Array.isArray(initial.purposes) ? initial.purposes : [],
+      tank_mix: initialTankMix || undefined,
+      materials: initialMaterials,
     });
 
-    const initialCategory = String(initial.operation_category_slug || "").trim();
-    const initialType = String(initial.operation_type_slug || "").trim();
     setCategorySlug(initialCategory);
     setTypeSlug(initialType);
-    setMaterials(Array.isArray(initial.materials) ? (initial.materials as OperationMaterialFormData[]) : []);
+    setPurposes((Array.isArray(initial.purposes) ? initial.purposes : []) as OperationPurposeSlug[]);
+    setTankMixEnabled(Boolean(initialTankMix?.enabled));
+    setTankMixWaterRate(initialTankMix?.water_rate_l_ha ?? null);
+    setMaterials(initialMaterials);
   }, [defaultValues, form, open]);
 
   useEffect(() => {
@@ -599,40 +549,80 @@ export function OperationFormDialog({
     if (!categorySlug || typeSlug) return;
     if (typeOptions.length !== 1) return;
     const singleType = typeOptions[0];
-    setTypeSlug(singleType.slug);
-    form.setValue("operation_type_slug", singleType.slug);
-    form.setValue("operation_type", singleType.name_ru);
+    const canonical = resolveCanonicalOperationType({
+      categorySlug: singleType.category_slug,
+      typeSlug: singleType.slug,
+      operationType: singleType.name_ru,
+    });
+    setCategorySlug(canonical?.categorySlug || singleType.category_slug);
+    setTypeSlug(canonical?.slug || singleType.slug);
+    form.setValue("operation_category_slug", canonical?.categorySlug || singleType.category_slug);
+    form.setValue("operation_type_slug", canonical?.slug || singleType.slug);
+    form.setValue("operation_type", canonical?.label || singleType.name_ru);
   }, [categorySlug, form, open, typeOptions, typeSlug]);
 
-  const isSeeding = selectedType?.category_slug === "seeding_planting";
-  const isPlantProtection = selectedType?.category_slug === "plant_protection";
-  const isFertilizing = selectedType?.category_slug === "fertilization";
-  const isHarvest = selectedType?.category_slug === "harvesting";
-  const isIrrigation = selectedType?.category_slug === "irrigation";
-  const isCropCare = selectedType?.category_slug === "crop_care";
-  const showOperationLinesHint = isRowCropByCategory(selectedType?.category_slug || "");
-  const showMachine = !!selectedType?.requires_machine;
-  const showField = selectedType?.requires_field !== false;
-  const cropStructureRequired = requiresCropStructureForType(selectedType);
+  useEffect(() => {
+    if (!open) return;
+    if (!canonicalType) {
+      setPurposes([]);
+      setTankMixEnabled(false);
+      setTankMixWaterRate(null);
+      return;
+    }
+    if (!canonicalType.supportsTankMix) {
+      setTankMixEnabled(false);
+      setTankMixWaterRate(null);
+    } else if (typeSlug && materials.length === 0) {
+      setTankMixEnabled(true);
+    }
+    setPurposes((prev) =>
+      prev.filter((purpose) => purposeOptions.some((definition) => definition.slug === purpose))
+    );
+  }, [canonicalType, materials.length, open, purposeOptions, typeSlug]);
+
+  const isSeeding = canonicalType?.slug === "planting";
+  const isFertilizing = canonicalType?.slug === "fertilizer_application";
+  const isHarvest = canonicalType?.slug === "harvesting";
+  const showPurposeEngine = !!canonicalType?.supportsPurposes && purposeOptions.length > 0;
+  const showTankMix = !!canonicalType?.supportsTankMix;
+  const showMaterials = !!canonicalType?.supportsMaterials && !isHarvest;
+  const showMachine = canonicalType ? canonicalType.requiresMachine : !!selectedType?.requires_machine;
+  const showField = canonicalType ? canonicalType.requiresCropStructure : selectedType?.requires_field !== false;
+  const cropStructureRequired = canonicalType ? canonicalType.requiresCropStructure : requiresCropStructureForType(selectedType);
+  const componentOptions = useMemo(() => {
+    const allowed = isSeeding
+      ? new Set<TankMixComponentType>(["seed", "fertilizer", "micro_fertilizer", "crop_protection", "biological", "biostimulant", "other"])
+      : showTankMix
+        ? new Set<TankMixComponentType>([
+            "crop_protection",
+            "fertilizer",
+            "micro_fertilizer",
+            "biological",
+            "biostimulant",
+            "adjuvant",
+            "ph_corrector",
+            "antifoam",
+            "water",
+            "other",
+          ])
+        : isFertilizing
+          ? new Set<TankMixComponentType>(["fertilizer", "micro_fertilizer", "biological", "biostimulant", "other"])
+          : new Set<TankMixComponentType>(TANK_MIX_COMPONENT_DEFINITIONS.map((item) => item.slug));
+    return TANK_MIX_COMPONENT_DEFINITIONS.filter((item) => allowed.has(item.slug));
+  }, [isFertilizing, isSeeding, showTankMix]);
 
   const addMaterial = () => {
+    const componentType = canonicalType?.defaultComponentType || (isSeeding ? "other" : "fertilizer");
     setMaterials((prev) => [
       ...prev,
       {
-        material_type: isSeeding
-          ? "seed"
-          : isPlantProtection
-            ? "pesticide"
-            : isFertilizing
-              ? "fertilizer"
-              : isIrrigation
-                ? "water"
-                : "fertilizer",
+        component_type: componentType,
+        material_type: toStorageMaterialType(componentType),
         product_id: "",
         batch_id: null,
         planned_rate: null,
         actual_rate: null,
-        unit: isPlantProtection || isIrrigation ? "l" : "kg",
+        unit: getDefaultUnitForComponent(componentType),
         notes: null,
       },
     ]);
@@ -646,19 +636,39 @@ export function OperationFormDialog({
     setMaterials((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
   };
 
+  const togglePurpose = (slug: OperationPurposeSlug, checked: boolean) => {
+    setPurposes((prev) => {
+      if (checked) return Array.from(new Set([...prev, slug]));
+      return prev.filter((item) => item !== slug);
+    });
+  };
+
   const handleCategoryChange = (slug: string) => {
-    setCategorySlug(slug);
-    form.setValue("operation_category_slug", slug);
+    const canonical = resolveCanonicalOperationType({ categorySlug: slug });
+    const nextCategory = canonical?.categorySlug || slug;
+    const nextType = canonical?.slug || "";
+    setCategorySlug(nextCategory);
+    form.setValue("operation_category_slug", nextCategory);
     setTypeSlug("");
-    form.setValue("operation_type_slug", "");
-    form.setValue("operation_type", "");
+    form.setValue("operation_type_slug", nextType);
+    form.setValue("operation_type", canonical?.label || "");
+    if (nextType) setTypeSlug(nextType);
   };
 
   const handleTypeChange = (slug: string) => {
-    setTypeSlug(slug);
-    form.setValue("operation_type_slug", slug);
     const type = types.find((item) => item.slug === slug);
-    form.setValue("operation_type", type?.name_ru || "");
+    const canonical = resolveCanonicalOperationType({
+      categorySlug: type?.category_slug || categorySlug,
+      typeSlug: slug,
+      operationType: type?.name_ru || "",
+    });
+    const nextCategory = canonical?.categorySlug || type?.category_slug || categorySlug;
+    const nextType = canonical?.slug || slug;
+    setCategorySlug(nextCategory);
+    setTypeSlug(nextType);
+    form.setValue("operation_category_slug", nextCategory);
+    form.setValue("operation_type_slug", nextType);
+    form.setValue("operation_type", canonical?.label || type?.name_ru || "");
   };
 
   const submit = async (data: OperationFormData) => {
@@ -670,22 +680,38 @@ export function OperationFormDialog({
       form.setError("crop_structure_id", { message: "Для производственной операции нужна строка структуры посевов" });
       return;
     }
+    const normalizedMaterials = materials.map((item) => {
+      const component = getTankMixComponentDefinition(item.component_type || item.material_type);
+      return {
+        component_type: component.slug,
+        material_type: toStorageMaterialType(component.slug),
+        product_id: item.product_id || null,
+        batch_id: item.batch_id || null,
+        planned_rate: item.planned_rate ?? null,
+        actual_rate: item.actual_rate ?? null,
+        unit: item.unit || getDefaultUnitForComponent(component.slug),
+        notes: item.notes || null,
+      };
+    });
+    const materialsForSubmit = normalizedMaterials.filter((item) => {
+      const component = getTankMixComponentDefinition(item.component_type);
+      return component.productRequired ? String(item.product_id || "").trim().length > 0 : true;
+    });
     await onSubmit({
       ...data,
-      operation_category_slug: categorySlug,
-      operation_type_slug: typeSlug,
-      operation_type: selectedType.name_ru,
-      materials: materials
-        .filter((item) => String(item.product_id || "").trim().length > 0)
-        .map((item) => ({
-          material_type: item.material_type,
-          product_id: item.product_id,
-          batch_id: item.batch_id || null,
-          planned_rate: item.planned_rate ?? null,
-          actual_rate: item.actual_rate ?? null,
-          unit: item.unit,
-          notes: item.notes || null,
-        })),
+      operation_category_slug: canonicalType?.categorySlug || categorySlug,
+      operation_type_slug: canonicalType?.slug || typeSlug,
+      operation_type: canonicalType?.label || selectedType.name_ru,
+      purposes,
+      tank_mix: showTankMix
+        ? {
+            enabled: tankMixEnabled,
+            water_rate_l_ha: tankMixWaterRate,
+            total_solution_l_ha: data.spray_volume_per_ha ?? tankMixWaterRate,
+            components: materialsForSubmit,
+          }
+        : undefined,
+      materials: materialsForSubmit,
       notes: String(data.notes || "").trim(),
     });
     onOpenChange(false);
@@ -697,7 +723,7 @@ export function OperationFormDialog({
         <DialogHeader>
           <DialogTitle>{isEdit ? "Редактировать операцию" : "Создать операцию"}</DialogTitle>
           <DialogDescription>
-            Форма управляется типом операции: посев/посадка, СЗР, удобрения, уборка.
+            Выберите тип работ: форма покажет цели, смесь, материалы и факт под эту операцию.
           </DialogDescription>
         </DialogHeader>
 
@@ -705,11 +731,11 @@ export function OperationFormDialog({
           <form onSubmit={form.handleSubmit(submit)} className="space-y-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <FormItem>
-                <FormLabel>Категория *</FormLabel>
+                <FormLabel>Производственный блок *</FormLabel>
                 <Select value={categorySlug} onValueChange={handleCategoryChange}>
                   <FormControl>
                     <SelectTrigger>
-                      <SelectValue placeholder="Выберите категорию" />
+                      <SelectValue placeholder="Выберите блок работ" />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
@@ -754,11 +780,80 @@ export function OperationFormDialog({
             </div>
 
             {selectedType ? (
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline">{selectedType.affects_inventory ? "Влияет на склад" : "Без складского движения"}</Badge>
-                <Badge variant="outline">{selectedType.affects_field_history ? "Идет в историю поля" : "Не влияет на историю поля"}</Badge>
-                {showOperationLinesHint ? <Badge className="bg-amber-100 text-amber-900">Operation lines включены</Badge> : null}
-                {!showOperationLinesHint ? <Badge variant="outline">Без operation lines</Badge> : null}
+              <div className="rounded-lg border bg-slate-50 p-3">
+                <div className="mb-2 text-sm font-semibold">{canonicalType?.label || selectedType.name_ru}</div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">
+                    {showMaterials ? "Материалы проходят через склад" : "Без складской заявки"}
+                  </Badge>
+                  <Badge variant="outline">
+                    {(canonicalType?.affectsFieldHistory ?? selectedType.affects_field_history) ? "Попадает в историю поля" : "Не меняет историю поля"}
+                  </Badge>
+                  <Badge variant="outline">
+                    {cropStructureRequired ? "Привязка к структуре посевов" : "Без привязки к посеву"}
+                  </Badge>
+                  {showTankMix ? <Badge className="bg-emerald-100 text-emerald-900">Баковая смесь</Badge> : null}
+                </div>
+                {canonicalType?.description ? (
+                  <div className="mt-2 text-xs text-slate-600">{canonicalType.description}</div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {showPurposeEngine ? (
+              <div className="rounded-lg border p-3">
+                <div className="mb-2">
+                  <div className="text-sm font-semibold">Цели операции</div>
+                  <div className="text-xs text-slate-500">Для одного прохода можно выбрать несколько целей.</div>
+                </div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {purposeOptions.map((purpose) => (
+                    <label key={purpose.slug} className="flex items-center gap-2 rounded border px-3 py-2 text-sm">
+                      <Checkbox
+                        checked={purposes.includes(purpose.slug)}
+                        onCheckedChange={(checked) => togglePurpose(purpose.slug, checked === true)}
+                      />
+                      <span>{purpose.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {isFertilizing ? (
+              <FormField
+                control={form.control}
+                name="operation_target"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Способ внесения удобрений</FormLabel>
+                    <Select value={field.value || ""} onValueChange={(value) => field.onChange(value || null)}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Выберите способ внесения" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {FERTILIZER_APPLICATION_METHODS.map((method) => (
+                          <SelectItem key={method.slug} value={method.slug}>
+                            {method.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="text-xs text-slate-500">
+                      {FERTILIZER_APPLICATION_METHODS.find((method) => method.slug === selectedApplicationMethod)?.hint ||
+                        "Если проход идет через опрыскиватель, выберите тип Опрыскивание."}
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
+
+            {isHarvest ? (
+              <div className="rounded-lg border border-dashed p-3 text-sm text-slate-600">
+                Уборка по умолчанию создается без материалов. Масса урожая закрывается через весовую и партии, когда будет выбран талон.
               </div>
             ) : null}
 
@@ -826,7 +921,7 @@ export function OperationFormDialog({
                       <FormLabel>Поле *</FormLabel>
                       <FormControl>
                         <SearchableSelect
-                          value={field.value}
+                          value={field.value || ""}
                           onChange={(value) => {
                             field.onChange(value);
                             form.setValue("crop_structure_id", null);
@@ -925,20 +1020,69 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
-            {(isPlantProtection || isFertilizing || isSeeding || isHarvest || isIrrigation || isCropCare) ? (
+            {showTankMix ? (
+              <div className="rounded-lg border p-3">
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold">Баковая смесь</div>
+                    <div className="text-xs text-slate-500">Один проход = одна операция. Внутри можно вести несколько целей и компонентов.</div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox checked={tankMixEnabled} onCheckedChange={(checked) => setTankMixEnabled(checked === true)} />
+                    <span>Смесь применяется</span>
+                  </label>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Вода, л/га</div>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={tankMixWaterRate ?? ""}
+                      onChange={(event) => setTankMixWaterRate(normalizeNumber(event.target.value))}
+                      disabled={!tankMixEnabled}
+                    />
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name="spray_volume_per_ha"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Рабочий раствор, л/га</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={field.value ?? ""}
+                            onChange={(event) => field.onChange(normalizeNumber(event.target.value))}
+                            disabled={!tankMixEnabled}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </div>
+            ) : null}
+
+            {showMaterials ? (
               <div className="rounded-lg border p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-semibold">Материалы операции</div>
-                    <div className="text-xs text-slate-500">Один основной и дополнительные материалы. Без text-blob в комментариях.</div>
+                    <div className="text-sm font-semibold">
+                      {showTankMix ? "Компоненты баковой смеси" : isSeeding ? "Семена и материалы посадки" : "Материалы к выдаче"}
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      Выдача со склада фиксирует доступность материала. Фактический расход и возврат закрываются отдельно.
+                    </div>
                   </div>
-                  <Button type="button" size="sm" variant="outline" onClick={addMaterial} disabled={productOptions.length === 0}>
+                  <Button type="button" size="sm" variant="outline" onClick={addMaterial}>
                     <Plus className="mr-1 h-4 w-4" />
-                    Добавить материал
+                    {showTankMix ? "Добавить компонент" : "Добавить материал"}
                   </Button>
                 </div>
 
-                {productOptions.length === 0 ? (
+                {productOptions.length === 0 && materials.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">
                     Нет остатка на складе.
                   </div>
@@ -952,14 +1096,16 @@ export function OperationFormDialog({
                       <div key={`material-${index}`} className="rounded border p-2">
                         <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
                           <div>
-                            <div className="mb-1 text-xs text-slate-500">Тип</div>
+                            <div className="mb-1 text-xs text-slate-500">{showTankMix ? "Компонент" : "Тип"}</div>
                             <Select
-                              value={material.material_type}
+                              value={material.component_type || getTankMixComponentDefinition(material.material_type).slug}
                               onValueChange={(value) => {
-                                const nextType = value as OperationMaterialType;
+                                const component = getTankMixComponentDefinition(value);
                                 updateMaterial(index, {
-                                  material_type: nextType,
-                                  unit: defaultUnitByMaterialType(nextType),
+                                  component_type: component.slug,
+                                  material_type: toStorageMaterialType(component.slug),
+                                  unit: getDefaultUnitForComponent(component.slug),
+                                  product_id: component.productRequired ? material.product_id || "" : null,
                                 });
                               }}
                             >
@@ -967,9 +1113,9 @@ export function OperationFormDialog({
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {Object.entries(MATERIAL_TYPE_LABEL).map(([value, label]) => (
-                                  <SelectItem key={value} value={value}>
-                                    {label}
+                                {componentOptions.map((component) => (
+                                  <SelectItem key={component.slug} value={component.slug}>
+                                    {component.label}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -977,23 +1123,31 @@ export function OperationFormDialog({
                           </div>
                           <div className="md:col-span-2">
                             <div className="mb-1 text-xs text-slate-500">Продукт</div>
-                            <SearchableSelect
-                              value={material.product_id}
-                              onChange={(productId) => {
-                                const product = products.find((item) => item.id === productId);
-                                const inferredType = inferMaterialTypeByProductType(product?.type);
-                                updateMaterial(index, {
-                                  product_id: productId,
-                                  material_type: material.material_type || inferredType,
-                                  unit: (product?.unit === "kg" || product?.unit === "l" || product?.unit === "pcs")
-                                    ? (product.unit as "kg" | "l" | "pcs")
-                                    : defaultUnitByMaterialType(material.material_type || inferredType),
-                                });
-                              }}
-                              options={productOptions}
-                              placeholder="Выберите продукт"
-                              emptyLabel="Нет остатка на складе"
-                            />
+                            {getTankMixComponentDefinition(material.component_type || material.material_type).productRequired ? (
+                              <SearchableSelect
+                                value={material.product_id || ""}
+                                onChange={(productId) => {
+                                  const product = products.find((item) => item.id === productId);
+                                  const inferredType = inferMaterialTypeByProductType(product?.type);
+                                  const inferredComponent = getTankMixComponentDefinition(material.component_type || inferredType);
+                                  updateMaterial(index, {
+                                    product_id: productId,
+                                    component_type: inferredComponent.slug,
+                                    material_type: toStorageMaterialType(inferredComponent.slug),
+                                    unit: (product?.unit === "kg" || product?.unit === "l" || product?.unit === "pcs")
+                                      ? (product.unit as "kg" | "l" | "pcs")
+                                      : getDefaultUnitForComponent(inferredComponent.slug),
+                                  });
+                                }}
+                                options={productOptions}
+                                placeholder="Выберите продукт"
+                                emptyLabel="Нет остатка на складе"
+                              />
+                            ) : (
+                              <div className="flex h-8 items-center rounded-md border bg-slate-50 px-3 text-xs text-slate-500">
+                                Без складского продукта
+                              </div>
+                            )}
                           </div>
                           <div>
                             <div className="mb-1 text-xs text-slate-500">План норма</div>
@@ -1056,7 +1210,7 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
-            {(isPlantProtection || isFertilizing) ? (
+            {(!showTankMix && isFertilizing) ? (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <FormField
                   control={form.control}
@@ -1095,9 +1249,11 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
-            {showOperationLinesHint ? (
+            {cropStructureRequired ? (
               <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Для этого типа операции используйте Operation lines (сорта, репродукции, рядки, междурядье, межсеменное расстояние) после создания операции.
+                {showMaterials
+                  ? "После создания план работ будет привязан к выбранной строке структуры посевов. Факт площади и материалов закрывается отдельно."
+                  : "После создания план работ будет привязан к выбранной строке структуры посевов. Факт площади закрывается отдельно."}
               </div>
             ) : null}
 

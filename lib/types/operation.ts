@@ -1,9 +1,10 @@
 import { z } from "zod";
+import type { TankMixComponentType } from "@/lib/operations/operation-engine";
 
 export interface Operation {
   id: string;
   company_id?: string;
-  field_id: string;
+  field_id: string | null;
   crop_structure_id: string | null;
   operation_type: string;
   operation_category_slug?: string | null;
@@ -37,6 +38,10 @@ export interface OperationWithDetails extends Operation {
   crop_name?: string;
   variety_name?: string;
   reproduction_name?: string;
+  operation_engine_type?: string | null;
+  operation_engine_label?: string | null;
+  operation_purposes?: string[];
+  tank_mix?: OperationTankMixFormData | null;
   responsible_email?: string;
   responsible_role?: string;
   draft_target?: string;
@@ -112,13 +117,21 @@ export interface OperationLine {
 
 export interface OperationMaterialFormData {
   id?: string;
+  component_type?: TankMixComponentType;
   material_type: OperationMaterialType;
-  product_id: string;
+  product_id?: string | null;
   batch_id?: string | null;
   planned_rate?: number | null;
   actual_rate?: number | null;
   unit: OperationMaterialUnit;
   notes?: string | null;
+}
+
+export interface OperationTankMixFormData {
+  enabled?: boolean;
+  water_rate_l_ha?: number | null;
+  total_solution_l_ha?: number | null;
+  components?: OperationMaterialFormData[];
 }
 
 export const operationLineSchema = z.object({
@@ -137,7 +150,7 @@ export const operationLineSchema = z.object({
 export type OperationLineFormData = z.infer<typeof operationLineSchema>;
 
 export const operationSchema = z.object({
-  field_id: z.string().uuid("Please select a field"),
+  field_id: z.string().optional(),
   crop_structure_id: z.string().uuid("Please select a crop structure").nullable().optional(),
   operation_category_slug: z.string().optional(),
   operation_type_slug: z.string().optional(),
@@ -150,9 +163,19 @@ export const operationSchema = z.object({
   operation_target: z.string().nullable().optional(),
   rate_per_ha: z.number().min(0).nullable().optional(),
   spray_volume_per_ha: z.number().min(0).nullable().optional(),
+  purposes: z.array(z.string()).optional(),
+  tank_mix: z
+    .object({
+      enabled: z.boolean().optional(),
+      water_rate_l_ha: z.number().min(0).nullable().optional(),
+      total_solution_l_ha: z.number().min(0).nullable().optional(),
+      components: z.array(z.any()).optional(),
+    })
+    .optional(),
   materials: z
     .array(
       z.object({
+        component_type: z.string().nullable().optional(),
         material_type: z.enum([
           "seed",
           "fertilizer",
@@ -166,7 +189,7 @@ export const operationSchema = z.object({
           "water",
           "other",
         ]),
-        product_id: z.string().uuid("Product is required"),
+        product_id: z.string().uuid("Product is required").nullable().optional(),
         batch_id: z.string().uuid().nullable().optional(),
         planned_rate: z.number().min(0).nullable().optional(),
         actual_rate: z.number().min(0).nullable().optional(),

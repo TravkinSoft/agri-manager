@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { resolveCanonicalOperationType } from "@/lib/operations/operation-engine";
 
 const READ_ROLES = [
   "global_admin",
@@ -30,6 +31,13 @@ function nullableNumber(value: unknown): number | null {
 }
 
 function allowsOperationLines(operation: { operation_category_slug?: string | null; operation_type_slug?: string | null; operation_type?: string | null }): boolean {
+  const canonical = resolveCanonicalOperationType({
+    categorySlug: operation.operation_category_slug,
+    typeSlug: operation.operation_type_slug,
+    operationType: operation.operation_type,
+  });
+  if (canonical) return canonical.requiresCropStructure;
+
   const categorySlug = String(operation.operation_category_slug || "").trim().toLowerCase();
   if (categorySlug === "seeding_planting" || categorySlug === "harvesting") return true;
   const merged = `${String(operation.operation_type_slug || "").toLowerCase()} ${String(operation.operation_type || "").toLowerCase()}`;

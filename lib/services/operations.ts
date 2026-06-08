@@ -10,6 +10,26 @@ import {
   SpecialistAssignee,
 } from "@/lib/types/operation";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import {
+  buildExecutionFactModelMetadata,
+  buildWarehouseWorkflowMetadata,
+  resolveCanonicalOperationType,
+  toStorageMaterialType,
+} from "@/lib/operations/operation-engine";
+
+const DB_OPERATION_MATERIAL_TYPES = new Set([
+  "seed",
+  "fertilizer",
+  "pesticide",
+  "adjuvant",
+  "ph_corrector",
+  "defoamer",
+  "biological",
+  "fuel",
+  "organic",
+  "water",
+  "other",
+]);
 
 function extractDraftValueFromNotes(notes: string | null | undefined, label: string): string | undefined {
   if (!notes) return undefined;
@@ -70,6 +90,11 @@ function normalizeOperationRow(op: any): OperationWithDetails {
     op?.operation_config && typeof op.operation_config === "object" && !Array.isArray(op.operation_config)
       ? op.operation_config
       : {};
+  const canonicalType = resolveCanonicalOperationType({
+    categorySlug: op.operation_category_slug || (config as any).operation_engine_type,
+    typeSlug: op.operation_type_slug || (config as any).operation_engine_type,
+    operationType: op.operation_type,
+  });
   const plannedAreaFromLines = operationLines.reduce((sum, line) => sum + Number(line.planned_area_ha || 0), 0);
   const actualAreaValues = operationLines
     .map((line) => line.actual_area_ha)
@@ -96,6 +121,10 @@ function normalizeOperationRow(op: any): OperationWithDetails {
           : null,
     actual_area_ha: actualAreaFromLines,
     crop_id: primaryLine?.crop_id || (config as any).crop_id || null,
+    operation_engine_type: String((config as any).operation_engine_type || canonicalType?.slug || op.operation_type_slug || ""),
+    operation_engine_label: String((config as any).operation_engine_label || canonicalType?.label || op.operation_type || ""),
+    operation_purposes: Array.isArray((config as any).purposes) ? (config as any).purposes.map(String) : [],
+    tank_mix: (config as any).tank_mix && typeof (config as any).tank_mix === "object" ? (config as any).tank_mix : null,
     work_status: op.work_status || (op.status === "completed" ? "completed" : op.status === "in_progress" ? "in_progress" : "active"),
     field_name: op.fields?.name || primaryLine?.field_name || "-",
     crop_name: primaryLine?.crop_name || op.crop_structure?.crops?.name || "-",
@@ -309,10 +338,43 @@ export async function updateOperation(
 ): Promise<Operation> {
   const payload = { ...operationData } as Partial<OperationFormData>;
   const materials = Array.isArray((payload as any).materials) ? ([...(payload as any).materials] as any[]) : null;
+  const purposes = Array.isArray((payload as any).purposes) ? [...((payload as any).purposes as string[])] : [];
+  const tankMix = (payload as any).tank_mix && typeof (payload as any).tank_mix === "object" ? (payload as any).tank_mix : null;
+  const canonicalType = resolveCanonicalOperationType({
+    categorySlug: payload.operation_category_slug,
+    typeSlug: payload.operation_type_slug,
+    operationType: payload.operation_type,
+  });
   delete (payload as any).materials;
+  delete (payload as any).purposes;
+  delete (payload as any).tank_mix;
   if (payload.responsible_user_id === "none") {
     payload.responsible_user_id = null;
   }
+
+  const { data: currentOperation, error: currentError } = await supabase
+    .from("operations")
+    .select("operation_config")
+    .eq("id", operationId)
+    .maybeSingle();
+  if (currentError) {
+    throw new Error(currentError.message);
+  }
+  const currentConfig =
+    (currentOperation as any)?.operation_config &&
+    typeof (currentOperation as any).operation_config === "object" &&
+    !Array.isArray((currentOperation as any).operation_config)
+      ? ((currentOperation as any).operation_config as Record<string, unknown>)
+      : {};
+  (payload as any).operation_config = {
+    ...currentConfig,
+    operation_engine_type: canonicalType?.slug || payload.operation_type_slug || currentConfig.operation_engine_type || null,
+    operation_engine_label: canonicalType?.label || payload.operation_type || currentConfig.operation_engine_label || null,
+    purposes,
+    tank_mix: tankMix || currentConfig.tank_mix || null,
+    warehouse_workflow: buildWarehouseWorkflowMetadata(),
+    execution_fact_model: buildExecutionFactModelMetadata(),
+  };
 
   const { data, error } = await supabase
     .from("operations")
@@ -343,17 +405,19 @@ export async function updateOperation(
         const materialType = String(item?.material_type || "").trim();
         const unit = String(item?.unit || "").trim();
         if (!productId || !materialType || !unit) return null;
+        const storageMaterialType = toStorageMaterialType(item?.component_type || materialType);
+        if (!DB_OPERATION_MATERIAL_TYPES.has(storageMaterialType)) return null;
         return {
           company_id: companyId,
           operation_id: operationId,
           operation_line_id: null,
           product_id: productId,
           batch_id: item?.batch_id || null,
-          material_type: materialType,
+          material_type: storageMaterialType,
           unit,
           planned_rate: item?.planned_rate ?? null,
           actual_rate: item?.actual_rate ?? null,
-          notes: item?.notes || null,
+          notes: item?.notes || (item?.component_type ? `component:${item.component_type}` : null),
         };
       })
       .filter(Boolean);

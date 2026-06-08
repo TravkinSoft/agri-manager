@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { resolveCanonicalOperationType } from "@/lib/operations/operation-engine";
 
 const COMPLETE_ALLOWED_ROLES = [
   "global_admin",
@@ -12,6 +13,9 @@ const COMPLETE_ALLOWED_ROLES = [
 ] as const;
 
 function requiresCropStructure(categorySlug: string | null, typeSlug: string | null, operationType: string | null): boolean {
+  const canonical = resolveCanonicalOperationType({ categorySlug, typeSlug, operationType });
+  if (canonical) return canonical.requiresCropStructure;
+
   const category = String(categorySlug || "").trim().toLowerCase();
   const type = String(typeSlug || "").trim().toLowerCase();
   const label = String(operationType || "").trim().toLowerCase();
@@ -148,6 +152,23 @@ export async function POST(
       if (incompleteMaterial) {
         return NextResponse.json(
           { error: "Actual material usage and returns are required before completion", material_id: incompleteMaterial.id },
+          { status: 400 }
+        );
+      }
+
+      const impossibleMaterialFact = (materials || []).find((material: any) => {
+        const issued = Number(material.issued_quantity || 0);
+        const consumed = Number(material.consumed_quantity || 0);
+        const returned = Number(material.returned_quantity || 0);
+        return issued > 0 && consumed + returned > issued;
+      });
+
+      if (impossibleMaterialFact) {
+        return NextResponse.json(
+          {
+            error: "Material fact cannot exceed issued quantity",
+            material_id: impossibleMaterialFact.id,
+          },
           { status: 400 }
         );
       }
