@@ -98,6 +98,97 @@ function resolveCompanyContextSource(role: string, actor: { contextCompanyId: st
   return "unknown";
 }
 
+function clampScore(value: number): number {
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function buildDebugTrustScore(params: {
+  requestMessage: string;
+  result: AssistantEngineResult;
+  navigationActions: AssistantNavigationAction[];
+}): AssistantDebugMetadata["trust"] {
+  const { requestMessage, result, navigationActions } = params;
+  const notes: string[] = [];
+  const toolCount = result.toolCalls.length;
+  const hasToolError = result.toolCalls.some((tool) => !tool.ok);
+  const isKnowledge = result.mode === "agro_knowledge" || result.intent.name === "general_question";
+  const isErpQuestion = looksLikeErpDataQuestion(requestMessage);
+  const isFollowUp =
+    requestMessage.trim().split(/\s+/).filter(Boolean).length <= 4 &&
+    Boolean(result.sessionState.lastIntent || result.sessionState.lastField || result.sessionState.lastWarehouse);
+  const isAnalytics = /(risk|risks|analysis|analytics|analyze|concern|problem|подозр|риск|анализ|опасен|вопрос)/i.test(
+    requestMessage
+  );
+
+  let sourceOfTruth = 90;
+  if (result.diagnostics.consistencyCheck === "fail" || result.diagnostics.contradictionDetected) {
+    sourceOfTruth = 55;
+    notes.push("source_of_truth_check_failed");
+  } else if (isErpQuestion && toolCount === 0) {
+    sourceOfTruth = 45;
+    notes.push("erp_question_without_tools");
+  } else if (toolCount > 0 && result.grounded) {
+    sourceOfTruth = 100;
+  } else if (isKnowledge && toolCount === 0) {
+    sourceOfTruth = 100;
+  }
+  if (hasToolError) {
+    sourceOfTruth -= 20;
+    notes.push("tool_error_present");
+  }
+
+  const contextMemory = result.sessionState.lastIntent || result.sessionState.lastEntity ? 95 : 80;
+  const followUp = isFollowUp ? (result.sessionState.lastIntent ? 100 : 60) : 90;
+
+  let navigation = 100;
+  if (result.explicitNavigationRequested || navigationActions.length > 0 || result.intent.name === "navigation_help") {
+    if (result.navigationPolicy === "blocked") {
+      navigation = 70;
+      notes.push("navigation_blocked_or_unconfirmed");
+    } else if (navigationActions.length > 0) {
+      navigation = 90;
+      notes.push("navigation_prepared_client_must_confirm");
+    } else {
+      navigation = 75;
+      notes.push("navigation_requested_without_action");
+    }
+  }
+
+  const knowledge = isKnowledge ? (toolCount === 0 ? 100 : 70) : 90;
+  const analytics = isAnalytics ? (toolCount > 0 ? 85 : 60) : 90;
+  if (isAnalytics && toolCount === 0) notes.push("analytics_without_erp_tools");
+
+  const parts = [
+    clampScore(sourceOfTruth),
+    clampScore(contextMemory),
+    clampScore(followUp),
+    clampScore(navigation),
+    clampScore(knowledge),
+    clampScore(analytics),
+  ];
+  const score = clampScore(parts.reduce((sum, value) => sum + value, 0) / parts.length);
+
+  return {
+    score,
+    sourceOfTruth: parts[0],
+    contextMemory: parts[1],
+    followUp: parts[2],
+    navigation: parts[3],
+    knowledge: parts[4],
+    analytics: parts[5],
+    notes,
+  };
+}
+
+function buildDebugPerformanceScore(result: AssistantEngineResult, latencyMs: number): number {
+  const totalMs = Math.max(0, Number(result.performance.totalMs ?? latencyMs ?? 0));
+  const isKnowledge = result.mode === "agro_knowledge" || result.intent.name === "general_question";
+  const targetMs = isKnowledge ? 3000 : 5000;
+  if (totalMs <= targetMs) return 100;
+  if (totalMs >= targetMs * 3) return 40;
+  return clampScore(100 - ((totalMs - targetMs) / (targetMs * 2)) * 60);
+}
+
 function buildRuntimeContextPayload(params: {
   payload: any;
   actor: { id: string; role: string };
@@ -381,15 +472,20 @@ function buildDebugMetadata(params: {
       followUpActive: Boolean(result.sessionState.lastResultContext || result.sessionState.lastEntity),
     },
     performance: {
+      score: buildDebugPerformanceScore(result, latencyMs),
       latencyMs: Math.max(0, Math.round(latencyMs)),
       routerMs: result.performance.routerMs,
+      plannerMs: result.performance.plannerMs,
       toolMs: result.performance.toolMs,
+      validatorMs: result.performance.validatorMs,
       modelMs: result.performance.modelMs,
+      responseRenderMs: result.performance.responseRenderMs,
       totalMs: result.performance.totalMs ?? Math.max(0, Math.round(latencyMs)),
       promptTokens: result.performance.promptTokens,
       completionTokens: result.performance.completionTokens,
       totalTokens: result.performance.totalTokens,
     },
+    trust: buildDebugTrustScore({ requestMessage, result, navigationActions }),
     warnings,
   };
 }

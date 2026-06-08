@@ -1794,7 +1794,7 @@ const getCropStructureToolV2: AssistantToolDefinition = {
     const seasonCtx = await resolveSeasonContext(context.companyId, context);
     const forcedSeasonYear = seasonCtx.seasonYear || DEFAULT_SEASON_YEAR;
     const queryModern =
-      "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)).eq(company_id)";
+      "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,notes,seasons:season_id(year)).eq(company_id)";
 
     logToolEvent(context, "get_crop_structure", "start", {
       input_args: context.intent.parameters,
@@ -1812,12 +1812,12 @@ const getCropStructureToolV2: AssistantToolDefinition = {
       }> = [
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)).eq(company_id).eq(archived,false).eq(season_id)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,notes,seasons:season_id(year)).eq(company_id).eq(archived,false).eq(season_id)",
           run: async () => {
             if (!seasonCtx.seasonId) return { data: [], error: new Error("season_id_unavailable") };
             return context.supabase
               .from("crop_structure")
-              .select("id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)")
+              .select("id,field_id,crop_id,variety_id,reproduction_id,season_id,area,notes,seasons:season_id(year)")
               .eq("company_id", context.companyId)
               .eq("archived", false)
               .eq("season_id", seasonCtx.seasonId)
@@ -1826,11 +1826,11 @@ const getCropStructureToolV2: AssistantToolDefinition = {
         },
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_year,area).eq(company_id).eq(archived,false).eq(season_year)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_year,area,notes).eq(company_id).eq(archived,false).eq(season_year)",
           run: async () =>
             context.supabase
               .from("crop_structure")
-              .select("id,field_id,crop_id,variety_id,reproduction_id,season_year,area")
+              .select("id,field_id,crop_id,variety_id,reproduction_id,season_year,area,notes")
               .eq("company_id", context.companyId)
               .eq("archived", false)
               .eq("season_year", forcedSeasonYear)
@@ -1838,11 +1838,11 @@ const getCropStructureToolV2: AssistantToolDefinition = {
         },
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season,area).eq(company_id).eq(archived,false).eq(season)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season,area,notes).eq(company_id).eq(archived,false).eq(season)",
           run: async () =>
             context.supabase
               .from("crop_structure")
-              .select("id,field_id,crop_id,variety_id,reproduction_id,season,area")
+              .select("id,field_id,crop_id,variety_id,reproduction_id,season,area,notes")
               .eq("company_id", context.companyId)
               .eq("archived", false)
               .eq("season", Number(forcedSeasonYear))
@@ -1850,22 +1850,22 @@ const getCropStructureToolV2: AssistantToolDefinition = {
         },
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)).eq(company_id).eq(archived,false)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_id,area,notes,seasons:season_id(year)).eq(company_id).eq(archived,false)",
           run: async () =>
             context.supabase
               .from("crop_structure")
-              .select("id,field_id,crop_id,variety_id,reproduction_id,season_id,area,seasons:season_id(year)")
+              .select("id,field_id,crop_id,variety_id,reproduction_id,season_id,area,notes,seasons:season_id(year)")
               .eq("company_id", context.companyId)
               .eq("archived", false)
               .limit(1000),
         },
         {
           queryUsed:
-            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_year,area).eq(company_id).eq(archived,false)",
+            "crop_structure.select(id,field_id,crop_id,variety_id,reproduction_id,season_year,area,notes).eq(company_id).eq(archived,false)",
           run: async () =>
             context.supabase
               .from("crop_structure")
-              .select("id,field_id,crop_id,variety_id,reproduction_id,season_year,area")
+              .select("id,field_id,crop_id,variety_id,reproduction_id,season_year,area,notes")
               .eq("company_id", context.companyId)
               .eq("archived", false)
               .limit(1000),
@@ -1913,6 +1913,7 @@ const getCropStructureToolV2: AssistantToolDefinition = {
         const cropId = String(row.crop_id || "");
         const varietyId = cleanString(row.variety_id);
         const reproductionId = cleanString(row.reproduction_id);
+        const cropName = lookup.byCrop.get(cropId) || "";
         const seasonYear =
           cleanString(row?.seasons?.year) ||
           cleanString(row.season_year) ||
@@ -1923,10 +1924,12 @@ const getCropStructureToolV2: AssistantToolDefinition = {
           allocation_id: String(row.id),
           season_year: seasonYear,
           field_name: lookup.byField.get(fieldId) || fieldId,
-          crop_name: lookup.byCrop.get(cropId) || lookup.byProduct.get(cropId) || cropId,
+          crop_catalog_match: Boolean(cropName),
+          crop_name: cropName || cropId,
           variety_name: varietyId ? lookup.byVariety.get(varietyId) || "-" : "-",
           reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || "-" : "-",
           area_ha: Number(row.area ?? row.area_ha ?? 0),
+          notes: cleanString(row.notes),
         };
       });
 
@@ -1948,15 +1951,24 @@ const getCropStructureToolV2: AssistantToolDefinition = {
       const groupTerms = cropGroup ? listCropsByGroup(cropGroup).map((item) => normalizeSearchText(item)) : [];
       const cropTerms = buildSearchTerms(cropAliasTerm).concat(groupTerms).filter(Boolean);
       const varietyTerms = buildSearchTerms(varietyFilter);
+      const varietyAliases = new Set(["gala", "soraya", "baltic rose", "azilit", "colombo", "impala"]);
+      const allowAliasMatchOnVariety = cropAliasTerm
+        ? varietyAliases.has(normalizeSearchText(cropAliasTerm))
+        : false;
 
-      const filteredRows = mappedRows.filter((row) => {
+      const canonicalRows = mappedRows.filter((row) => row.crop_catalog_match);
+
+      const filteredRows = canonicalRows.filter((row) => {
         if (seasonFilter && cleanString(row.season_year) && cleanString(row.season_year) !== seasonFilter) {
           return false;
         }
 
         if (cropTerms.length) {
-          const cropBlob = [row.crop_name, row.variety_name, row.reproduction_name].join(" ");
-          if (!matchesAnyTerm(cropBlob, cropTerms)) return false;
+          const cropBlob = [row.crop_name].join(" ");
+          const varietyBlob = [row.variety_name, row.reproduction_name].join(" ");
+          if (!matchesAnyTerm(cropBlob, cropTerms) && !(allowAliasMatchOnVariety && matchesAnyTerm(varietyBlob, cropTerms))) {
+            return false;
+          }
         }
 
         if (varietyTerms.length && !matchesAnyTerm(row.variety_name, varietyTerms)) {
@@ -1970,6 +1982,7 @@ const getCropStructureToolV2: AssistantToolDefinition = {
         "crop_name",
         "variety_name",
         "reproduction_name",
+        "notes",
       ]);
 
       logToolEvent(context, "get_crop_structure", "success", {
@@ -3767,11 +3780,16 @@ const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
         .flatMap((alias) => buildSearchTerms(alias))
         .concat(groupCrops)
         .filter(Boolean);
+      const varietyAliases = new Set(["gala", "soraya", "baltic rose", "azilit", "colombo", "impala"]);
+      const allowAliasMatchOnVariety = cropAliasTerms.some((alias) =>
+        varietyAliases.has(normalizeSearchText(alias || ""))
+      );
 
       const filtered = (output.rows || []).filter((row) => {
         if (!aliasTerms.length) return true;
-        const searchBlob = [row.crop_name, row.variety_name, row.reproduction_name].join(" ");
-        return matchesAnyTerm(searchBlob, aliasTerms);
+        const cropBlob = [row.crop_name].join(" ");
+        const varietyBlob = [row.variety_name, row.reproduction_name].join(" ");
+        return matchesAnyTerm(cropBlob, aliasTerms) || (allowAliasMatchOnVariety && matchesAnyTerm(varietyBlob, aliasTerms));
       });
 
       const queryTerms = buildSearchTerms(query);
@@ -3790,8 +3808,7 @@ const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
             return matchesAnyTerm(searchBlob, queryTerms);
           })
         : filtered;
-      const grouped = new Map<string, { crop_name: string; area_ha: number; fields: Set<string> }>();
-      const varietyAliases = new Set(["gala", "soraya", "baltic rose", "azilit", "colombo", "impala"]);
+      const grouped = new Map<string, { crop_name: string; area_ha: number; row_count: number; fields: Set<string> }>();
       const groupByVariety = cropAliasTerms.some((alias) => varietyAliases.has(normalizeSearchText(alias || "")));
 
       rows.forEach((row) => {
@@ -3800,8 +3817,9 @@ const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
         const cropKey = groupByVariety && variety ? `${crop} / ${variety}` : crop;
         const area = Number(row.area_ha || 0);
         const field = cleanString(row.field_name) || "—";
-        const current = grouped.get(cropKey) || { crop_name: cropKey, area_ha: 0, fields: new Set<string>() };
+        const current = grouped.get(cropKey) || { crop_name: cropKey, area_ha: 0, row_count: 0, fields: new Set<string>() };
         current.area_ha += Number.isFinite(area) ? area : 0;
+        current.row_count += 1;
         current.fields.add(field);
         grouped.set(cropKey, current);
       });
@@ -3810,7 +3828,7 @@ const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
         .map((item) => ({
           crop_name: item.crop_name,
           area_ha: Number(item.area_ha.toFixed(3)),
-          fields_count: item.fields.size,
+          fields_count: item.row_count,
         }))
         .sort((a, b) => b.area_ha - a.area_ha)
         .slice(0, 120);

@@ -57,6 +57,11 @@ export type ModelOrchestratorResult = {
   usage: UsageStats;
   llm: LlmDiagnostics;
   navigationActions: AssistantNavigationAction[];
+  performance: {
+    plannerMs: number | null;
+    modelMs: number | null;
+    toolMs: number | null;
+  };
 };
 
 function clean(value: unknown): string | null {
@@ -257,6 +262,14 @@ export async function runModelOrchestrator(params: {
   companyId: string;
   forceHeavyModel?: boolean;
 }): Promise<ModelOrchestratorResult> {
+  const orchestratorStartedAt = Date.now();
+  let modelMs = 0;
+  let toolMs = 0;
+  const buildPerformance = () => ({
+    plannerMs: Date.now() - orchestratorStartedAt,
+    modelMs,
+    toolMs,
+  });
   const modelConfig = resolveAssistantModelConfig(params.settings, {
     intentName: params.intent.name,
     message: params.message,
@@ -284,6 +297,7 @@ export async function runModelOrchestrator(params: {
       usage: { promptTokens: null, completionTokens: null, totalTokens: null },
       llm: llmMissingKey(),
       navigationActions: [],
+      performance: buildPerformance(),
     };
   }
 
@@ -346,6 +360,7 @@ export async function runModelOrchestrator(params: {
     let hardFailure = false;
 
     for (let turn = 0; turn < 3; turn += 1) {
+      const completionStartedAt = Date.now();
       const completionRes = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -360,6 +375,7 @@ export async function runModelOrchestrator(params: {
           tool_choice: "auto",
         }),
       }).catch(() => null);
+      modelMs += Date.now() - completionStartedAt;
 
       if (!completionRes) {
         llm = {
@@ -508,8 +524,8 @@ export async function runModelOrchestrator(params: {
             : plannerIntentRaw;
         plannerIntentForResult = plannerIntent;
 
+        const toolStartedAt = Date.now();
         try {
-          const toolStartedAt = Date.now();
           const output = await tool.run({
             supabase: params.supabase,
             actor: params.actor,
@@ -519,6 +535,8 @@ export async function runModelOrchestrator(params: {
             sessionState: nextSessionState,
             intent: plannerIntent,
           });
+          const toolDuration = Date.now() - toolStartedAt;
+          toolMs += toolDuration;
           outputs.push(output);
           sourceHints.push(
             `${output.source.module} • ${output.source.tableOrView} • ${output.source.season || "-"} • ${output.source.fetchedAt}`
@@ -534,7 +552,7 @@ export async function runModelOrchestrator(params: {
             params: args,
             ok: true,
             rows: output.rows.length,
-            durationMs: Date.now() - toolStartedAt,
+            durationMs: toolDuration,
           });
           if (executionToolName === requestedTool && mapping.buildNavigation) {
             const actions = mapping.buildNavigation(args, output.rows);
@@ -546,11 +564,14 @@ export async function runModelOrchestrator(params: {
             content: toToolContent(output),
           });
         } catch (error) {
+          const toolDuration = Date.now() - toolStartedAt;
+          toolMs += toolDuration;
           toolCalls.push({
             tool: executionToolName,
             params: args,
             ok: false,
             error: error instanceof Error ? error.message : "Tool execution failed",
+            durationMs: toolDuration,
           });
           messages.push({
             role: "tool",
@@ -577,6 +598,7 @@ export async function runModelOrchestrator(params: {
         usage: totalUsage,
         llm,
         navigationActions: normalizeNavigationActions(navigationActions),
+        performance: buildPerformance(),
       };
     }
   }
@@ -596,5 +618,6 @@ export async function runModelOrchestrator(params: {
     usage: totalUsage,
     llm,
     navigationActions: [],
+    performance: buildPerformance(),
   };
 }

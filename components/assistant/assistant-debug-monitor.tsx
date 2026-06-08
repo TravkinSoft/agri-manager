@@ -186,15 +186,33 @@ export function AssistantDebugMonitor() {
 
                 <section className="space-y-1 rounded-md border p-2">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Performance</div>
+                  <Row label="Score (%)" value={debugSnapshot.performance.score} />
                   <Row label="Latency (ms)" value={debugSnapshot.performance.latencyMs} />
                   <Row label="Router (ms)" value={debugSnapshot.performance.routerMs} />
+                  <Row label="Planner (ms)" value={debugSnapshot.performance.plannerMs} />
                   <Row label="Tools (ms)" value={debugSnapshot.performance.toolMs} />
+                  <Row label="Validator (ms)" value={debugSnapshot.performance.validatorMs} />
                   <Row label="Model (ms)" value={debugSnapshot.performance.modelMs} />
+                  <Row label="Render (ms)" value={debugSnapshot.performance.responseRenderMs} />
                   <Row label="Total (ms)" value={debugSnapshot.performance.totalMs} />
                   <Row label="Prompt tokens" value={debugSnapshot.performance.promptTokens} />
                   <Row label="Completion tokens" value={debugSnapshot.performance.completionTokens} />
                   <Row label="Total tokens" value={debugSnapshot.performance.totalTokens} />
                 </section>
+
+                {debugSnapshot.trust ? (
+                  <section className="space-y-1 rounded-md border p-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Trust</div>
+                    <Row label="Score (%)" value={debugSnapshot.trust.score} />
+                    <Row label="Source of truth" value={debugSnapshot.trust.sourceOfTruth} />
+                    <Row label="Context memory" value={debugSnapshot.trust.contextMemory} />
+                    <Row label="Follow-up" value={debugSnapshot.trust.followUp} />
+                    <Row label="Navigation" value={debugSnapshot.trust.navigation} />
+                    <Row label="Knowledge" value={debugSnapshot.trust.knowledge} />
+                    <Row label="Analytics" value={debugSnapshot.trust.analytics} />
+                    <Row label="Notes" value={debugSnapshot.trust.notes.join(", ") || null} />
+                  </section>
+                ) : null}
 
                 <section className="space-y-1 rounded-md border p-2">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Warnings</div>

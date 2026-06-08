@@ -107,14 +107,28 @@ export type AssistantDebugMetadata = {
     followUpActive: boolean;
   };
   performance: {
+    score: number | null;
     latencyMs: number | null;
     routerMs: number | null;
+    plannerMs: number | null;
     toolMs: number | null;
+    validatorMs: number | null;
     modelMs: number | null;
+    responseRenderMs: number | null;
     totalMs: number | null;
     promptTokens: number | null;
     completionTokens: number | null;
     totalTokens: number | null;
+  };
+  trust?: {
+    score: number;
+    sourceOfTruth: number;
+    contextMemory: number;
+    followUp: number;
+    navigation: number;
+    knowledge: number;
+    analytics: number;
+    notes: string[];
   };
   warnings: string[];
 };

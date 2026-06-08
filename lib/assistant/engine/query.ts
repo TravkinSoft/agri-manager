@@ -1919,14 +1919,6 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     tools.unshift("search_crops_by_group");
   }
 
-  if (intent.name === "crop_structure_area" && /картоф|гала|сорая|балтик|азилит|коломбо|импала|potato|gala|soraya|baltic rose/.test(queryText)) {
-    tools.unshift("get_potato_material_report");
-  }
-
-  if (intent.name === "crop_structure_overview" && /картоф|гала|сорая|балтик|азилит|коломбо|импала/.test(queryText)) {
-    tools.unshift("get_potato_material_report");
-  }
-
   if (intent.name === "inventory_balance" && /отрицатель|negative/.test(queryText)) {
     tools.unshift("get_warehouse_balances");
   }
@@ -2290,8 +2282,11 @@ export async function runAssistantEngine(params: {
   const { supabase, actor, companyId, settings, input } = params;
   const engineStartedAt = Date.now();
   let routerMs: number | null = null;
+  let plannerMs: number | null = null;
   let toolMs: number | null = null;
+  let validatorMs: number | null = null;
   let modelMs: number | null = null;
+  let responseRenderMs: number | null = null;
   const message = String(input.message || "").trim();
   const runtimeContext = normalizeAssistantUiContext(input.runtimeContext);
   const normalizedState = normalizeSessionState(input.sessionState);
@@ -2334,8 +2329,11 @@ export async function runAssistantEngine(params: {
     completionTokens: null,
     totalTokens: null,
     routerMs: null,
+    plannerMs: null,
     toolMs: null,
+    validatorMs: null,
     modelMs: null,
+    responseRenderMs: null,
     totalMs: null,
   };
   const buildPerformance = (
@@ -2343,8 +2341,11 @@ export async function runAssistantEngine(params: {
   ): AssistantEngineResult["performance"] => ({
     ...emptyPerformance,
     routerMs,
+    plannerMs,
     toolMs,
+    validatorMs,
     modelMs,
+    responseRenderMs,
     totalMs: Date.now() - engineStartedAt,
     ...(overrides || {}),
   });
@@ -2475,6 +2476,9 @@ export async function runAssistantEngine(params: {
       forceHeavyModel: true,
     });
     modelMs = Date.now() - modelStartedAt;
+    plannerMs = planner.performance.plannerMs ?? modelMs;
+    toolMs = planner.performance.toolMs ?? toolMs;
+    modelMs = planner.performance.modelMs ?? modelMs;
 
     if (planner.ok) {
       plannerSucceeded = true;
@@ -2500,6 +2504,7 @@ export async function runAssistantEngine(params: {
       explicitNavigationRequested = navigationResult.explicitNavigationRequested;
       navigationPolicy = navigationResult.policy;
 
+      const validatorStartedAt = Date.now();
       const validation = validateGroundedAnswer({
         answer: planner.answer,
         outputs: planner.outputs,
@@ -2510,6 +2515,7 @@ export async function runAssistantEngine(params: {
         outputs: planner.outputs,
         nextState: planner.sessionState,
       });
+      validatorMs = Date.now() - validatorStartedAt;
       const shouldForceNoData =
         plannerUsedTools &&
         !plannerOnlyNavigation &&
@@ -2599,6 +2605,9 @@ export async function runAssistantEngine(params: {
           promptTokens: planner.usage.promptTokens,
           completionTokens: planner.usage.completionTokens,
           totalTokens: planner.usage.totalTokens,
+          plannerMs,
+          toolMs,
+          validatorMs,
           modelMs,
         }),
       };
@@ -2687,6 +2696,9 @@ export async function runAssistantEngine(params: {
       companyId,
     });
     modelMs = Date.now() - modelStartedAt;
+    plannerMs = planner.performance.plannerMs ?? modelMs;
+    toolMs = planner.performance.toolMs ?? toolMs;
+    modelMs = planner.performance.modelMs ?? modelMs;
 
     if (planner.ok) {
       plannerSucceeded = true;
@@ -2700,6 +2712,7 @@ export async function runAssistantEngine(params: {
 
       const plannerUsedTools = planner.toolCalls.length > 0;
       const plannerOnlyNavigation = intent.name === "navigation_help" || planner.navigationActions.length > 0;
+      const validatorStartedAt = Date.now();
       const validation = validateGroundedAnswer({
         answer: planner.answer,
         outputs: planner.outputs,
@@ -2710,6 +2723,7 @@ export async function runAssistantEngine(params: {
         outputs: planner.outputs,
         nextState: planner.sessionState,
       });
+      validatorMs = Date.now() - validatorStartedAt;
       let answer =
         plannerUsedTools &&
         !plannerOnlyNavigation &&
@@ -2800,6 +2814,9 @@ export async function runAssistantEngine(params: {
           promptTokens: planner.usage.promptTokens,
           completionTokens: planner.usage.completionTokens,
           totalTokens: planner.usage.totalTokens,
+          plannerMs,
+          toolMs,
+          validatorMs,
           modelMs,
         }),
       };
@@ -3012,6 +3029,7 @@ export async function runAssistantEngine(params: {
   const toolActivity = buildToolActivityLogs(toolCalls);
   const hasToolsAnswer = answerBlocks.length > 0;
   if (hasToolsAnswer) {
+    const validatorStartedAt = Date.now();
     const answerTypeValid = validateExpectedAnswerType({
       intent,
       expected: expectedAnswerType,
@@ -3022,6 +3040,7 @@ export async function runAssistantEngine(params: {
       outputs,
       nextState: nextSessionState,
     });
+    validatorMs = Date.now() - validatorStartedAt;
 
     const answerParts = dedupeAnswerBlocks([...answerBlocks]);
     if (!answerTypeValid) {

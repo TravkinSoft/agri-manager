@@ -175,6 +175,22 @@ function uid() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function formatVoiceDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.trunc(seconds));
+  const minutes = Math.floor(safeSeconds / 60);
+  const rest = safeSeconds % 60;
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+function getSupportedVoiceMimeType(): string {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") return "";
+  return (
+    ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/mpeg"].find((type) =>
+      MediaRecorder.isTypeSupported(type)
+    ) || ""
+  );
+}
+
 async function getAuthHeaders() {
   const { data, error } = await supabase.auth.getSession();
   if (error || !data?.session?.access_token) {
@@ -376,6 +392,7 @@ export function AssistantChatPane({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [voiceSeconds, setVoiceSeconds] = useState(0);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [requestError, setRequestError] = useState<string | null>(null);
@@ -405,10 +422,25 @@ export function AssistantChatPane({
     mediaRecorderRef.current = null;
   }, []);
 
+  useEffect(() => {
+    if (voiceState !== "recording") return;
+    setVoiceSeconds(0);
+    const startedAt = Date.now();
+    const timerId = window.setInterval(() => {
+      setVoiceSeconds(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    }, 250);
+    return () => window.clearInterval(timerId);
+  }, [voiceState]);
+
+  useEffect(() => {
+    return () => stopVoiceStream();
+  }, [stopVoiceStream]);
+
   const transcribeVoiceBlob = useCallback(
     async (blob: Blob) => {
       if (!blob.size) {
         setVoiceState("idle");
+        setVoiceSeconds(0);
         return;
       }
       setVoiceState("transcribing");
@@ -445,6 +477,7 @@ export function AssistantChatPane({
         setVoiceError(message);
       } finally {
         setVoiceState("idle");
+        setVoiceSeconds(0);
       }
     },
     [focusInput, runtimeContext.locale]
@@ -453,16 +486,18 @@ export function AssistantChatPane({
   const startVoiceRecording = useCallback(async () => {
     if (voiceState !== "idle" || loading || disabledReason) return;
     setVoiceError(null);
+    setVoiceSeconds(0);
+    setVoiceState("recording");
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Браузер не поддерживает запись с микрофона.");
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType =
-        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : "audio/webm";
-      const recorder = new MediaRecorder(stream, { mimeType });
+      if (typeof MediaRecorder === "undefined") {
+        throw new Error("MediaRecorder is not supported in this browser.");
+      }
+      const mimeType = getSupportedVoiceMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       audioChunksRef.current = [];
       mediaStreamRef.current = stream;
       mediaRecorderRef.current = recorder;
@@ -471,7 +506,7 @@ export function AssistantChatPane({
         if (event.data?.size) audioChunksRef.current.push(event.data);
       };
       recorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || mimeType || "audio/webm" });
         audioChunksRef.current = [];
         stopVoiceStream();
         void transcribeVoiceBlob(blob);
@@ -479,13 +514,14 @@ export function AssistantChatPane({
       recorder.onerror = () => {
         stopVoiceStream();
         setVoiceState("idle");
+        setVoiceSeconds(0);
         setVoiceError("Запись с микрофона прервалась.");
       };
       recorder.start();
-      setVoiceState("recording");
     } catch (error) {
       stopVoiceStream();
       setVoiceState("idle");
+      setVoiceSeconds(0);
       setVoiceError(error instanceof Error ? error.message : "Не удалось включить микрофон.");
     }
   }, [disabledReason, loading, stopVoiceStream, transcribeVoiceBlob, voiceState]);
@@ -854,6 +890,7 @@ export function AssistantChatPane({
         }
       }
 
+      const responseRenderStartedAt = typeof window !== "undefined" && window.performance ? window.performance.now() : Date.now();
       const answer = String(payload.response || "").trim() || "По системе сейчас данных по этому запросу не найдено.";
       const successTail =
         navigationExecuted === true && intentName === "navigation_help"
@@ -881,9 +918,17 @@ export function AssistantChatPane({
       };
       setMessages((prev) => [...prev, assistantMessage]);
       focusInput();
+      const responseRenderMs = Math.max(
+        0,
+        Math.round((typeof window !== "undefined" && window.performance ? window.performance.now() : Date.now()) - responseRenderStartedAt)
+      );
       if (payload.debug) {
         setDebugSnapshot({
           ...payload.debug,
+          performance: {
+            ...payload.debug.performance,
+            responseRenderMs,
+          },
           engine: {
             ...payload.debug.engine,
             navigationIntentDetected:
@@ -1107,7 +1152,10 @@ export function AssistantChatPane({
 
           <div className="border-t border-[#262D3D] bg-[#111827] px-3 py-3">
             {voiceState === "recording" ? (
-              <div className="mb-2 flex items-center gap-2 rounded-md border border-[#3B465C] bg-[#151C28] px-2.5 py-1.5 text-xs text-[#E5E7EB]">
+              <div
+                data-testid="assistant-voice-status"
+                className="mb-2 flex items-center gap-2 rounded-md border border-[#3B465C] bg-[#151C28] px-2.5 py-1.5 text-xs text-[#E5E7EB]"
+              >
                 <AudioLines className="h-4 w-4 text-[#E0B100]" />
                 <div className="flex h-5 items-end gap-0.5">
                   {Array.from({ length: 14 }).map((_, index) => (
@@ -1122,6 +1170,7 @@ export function AssistantChatPane({
                   ))}
                 </div>
                 <span className="text-[#CBD5E1]">Запись идет</span>
+                <span className="ml-auto font-mono text-[11px] text-[#E0B100]">{formatVoiceDuration(voiceSeconds)}</span>
               </div>
             ) : null}
 
@@ -1157,6 +1206,9 @@ export function AssistantChatPane({
                 variant="outline"
                 disabled={loading || !!disabledReason || voiceState === "transcribing"}
                 className="border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738]"
+                data-testid="assistant-voice-button"
+                aria-label={voiceState === "recording" ? "Остановить запись" : "Голосовой ввод"}
+                aria-pressed={voiceState === "recording"}
                 onClick={() => {
                   if (voiceState === "recording") {
                     stopVoiceRecording();
