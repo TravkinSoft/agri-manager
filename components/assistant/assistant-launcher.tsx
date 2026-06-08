@@ -9,6 +9,7 @@ export function AssistantLauncher() {
   const { enabled, isOpen, toggle, debugMonitorEnabled, debugMonitorOpen, toggleDebugMonitor } = useAssistantShell();
 
   if (!enabled) return null;
+  if (isOpen) return null;
 
   return (
     <div className="pointer-events-none fixed bottom-6 right-6 z-40 hidden flex-col items-end gap-2 md:flex">
