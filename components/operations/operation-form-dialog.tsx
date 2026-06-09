@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { FieldErrors, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
 import {
@@ -313,6 +313,7 @@ export function OperationFormDialog({
   const [structureChangeVarietyId, setStructureChangeVarietyId] = useState("none");
   const [structureChangeReproductionId, setStructureChangeReproductionId] = useState("none");
   const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const submitInFlightRef = useRef(false);
   const submitIdempotencyKeyRef = useRef(createOperationIdempotencyKey());
 
@@ -453,6 +454,8 @@ export function OperationFormDialog({
     submitInFlightRef.current = false;
     submitIdempotencyKeyRef.current = createOperationIdempotencyKey();
     setSubmitting(false);
+    setSubmitError(null);
+    form.clearErrors();
   }, [open]);
 
   useEffect(() => {
@@ -808,12 +811,14 @@ export function OperationFormDialog({
   const handleCategoryChange = (slug: string) => {
     const canonical = resolveCanonicalOperationType({ categorySlug: slug });
     const nextCategory = canonical?.categorySlug || slug;
+    setSubmitError(null);
     setCategorySlug(nextCategory);
     form.setValue("operation_category_slug", nextCategory);
     setTypeSlug("");
     form.setValue("operation_type_slug", "");
     form.setValue("operation_type", "");
     form.setValue("transport_id", null);
+    form.clearErrors(["operation_type", "operation_type_slug"]);
   };
 
   const handleTypeChange = (slug: string) => {
@@ -825,25 +830,48 @@ export function OperationFormDialog({
     });
     const nextCategory = canonical?.categorySlug || type?.category_slug || categorySlug;
     const nextType = type?.slug || slug;
+    setSubmitError(null);
     setCategorySlug(nextCategory);
     setTypeSlug(nextType);
     form.setValue("operation_category_slug", nextCategory);
     form.setValue("operation_type_slug", nextType);
     form.setValue("operation_type", type?.name_ru || canonical?.label || "");
+    form.clearErrors(["operation_type", "operation_type_slug"]);
+  };
+
+  const handleInvalidSubmit = (errors: FieldErrors<OperationFormData>) => {
+    submitInFlightRef.current = false;
+    setSubmitting(false);
+    const hasOperationTypeError = Boolean(errors.operation_type || errors.operation_type_slug);
+    if (hasOperationTypeError) {
+      const message = "Выберите производственный блок и работу.";
+      form.setError("operation_type", { message });
+      setSubmitError(message);
+      return;
+    }
+    const firstError = Object.values(errors)[0] as { message?: string } | undefined;
+    setSubmitError(firstError?.message || "Проверьте обязательные поля формы.");
   };
 
   const submit = async (data: OperationFormData) => {
     if (submitInFlightRef.current) return;
+    setSubmitError(null);
     if (!selectedType) {
-      form.setError("operation_type", { message: "Выберите тип операции" });
+      const message = "Выберите производственный блок и работу.";
+      form.setError("operation_type", { message });
+      setSubmitError(message);
       return;
     }
     if (selectedCropStructureArea != null && selectedCropStructureArea > 0 && Number(data.planned_area_ha || 0) > selectedCropStructureArea) {
-      form.setError("planned_area_ha", { message: `Площадь не должна превышать ${selectedCropStructureArea.toFixed(2)} га` });
+      const message = `Площадь не должна превышать ${selectedCropStructureArea.toFixed(2)} га`;
+      form.setError("planned_area_ha", { message });
+      setSubmitError(message);
       return;
     }
     if (cropStructureRequired && !data.crop_structure_id) {
-      form.setError("crop_structure_id", { message: "Выберите культуру на поле" });
+      const message = "Выберите культуру на поле.";
+      form.setError("crop_structure_id", { message });
+      setSubmitError(message);
       return;
     }
     const normalizedMaterials = materials.map((item) => {
@@ -872,9 +900,11 @@ export function OperationFormDialog({
       const requestedArea = Number(data.planned_area_ha || 0);
       const sourceArea = Number(selectedCropStructureArea || 0);
       if (structureChangeMode === "area_split" && (requestedArea <= 0 || requestedArea >= sourceArea)) {
+        const message = `Для разделения укажите площадь больше 0 и меньше ${sourceArea.toFixed(2)} га`;
         form.setError("planned_area_ha", {
-          message: `Для разделения укажите площадь больше 0 и меньше ${sourceArea.toFixed(2)} га`,
+          message,
         });
+        setSubmitError(message);
         return;
       }
       const sourceCrop = selectedCropStructure?.crop_name || "текущей культурой";
@@ -927,7 +957,7 @@ export function OperationFormDialog({
     } catch (error) {
       submitInFlightRef.current = false;
       setSubmitting(false);
-      throw error;
+      setSubmitError(error instanceof Error ? error.message : "Не удалось создать план работы.");
     }
   };
 
@@ -942,7 +972,7 @@ export function OperationFormDialog({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(submit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(submit, handleInvalidSubmit)} className="space-y-4">
             {showField ? (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <FormField
@@ -1043,6 +1073,11 @@ export function OperationFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {form.formState.errors.operation_type?.message ? (
+                  <div className="mt-1 text-sm font-medium text-destructive">
+                    {form.formState.errors.operation_type.message}
+                  </div>
+                ) : null}
               </FormItem>
             </div>
 
@@ -1566,10 +1601,15 @@ export function OperationFormDialog({
             />
 
             <DialogFooter>
+              {submitError ? (
+                <div className="mr-auto rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-left text-sm text-destructive">
+                  {submitError}
+                </div>
+              ) : null}
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Отмена
               </Button>
-              <Button type="submit" disabled={!selectedType || submitting || form.formState.isSubmitting}>
+              <Button type="submit" disabled={submitting || form.formState.isSubmitting}>
                 {submitting || form.formState.isSubmitting
                   ? isEdit
                     ? "Сохраняю..."

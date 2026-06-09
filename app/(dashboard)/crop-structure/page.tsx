@@ -739,7 +739,11 @@ export default function CropStructurePage() {
   };
 
   const handleCreateOperationPlan = async (data: OperationFormData, options?: { idempotencyKey?: string }) => {
-    if (!profile?.company_id) return;
+    if (!profile?.company_id) {
+      const message = "Не выбран контекст компании.";
+      toast({ title: "Ошибка", description: message, variant: "destructive" });
+      throw new Error(message);
+    }
     try {
       await createOperation(profile.company_id, data, options);
       setOperationDialogOpen(false);
