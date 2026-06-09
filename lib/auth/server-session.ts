@@ -65,6 +65,40 @@ type ImpersonationContextRow = {
   impersonated_company_id: string | null;
 };
 
+type FastActorContextRow = {
+  auth_user_id?: string | null;
+  profile_id?: string | null;
+  profile_user_id?: string | null;
+  role?: string | null;
+  status?: string | null;
+  company_id?: string | null;
+  email?: string | null;
+  context_company_id?: string | null;
+  impersonated_profile_id?: string | null;
+  impersonated_company_id?: string | null;
+  impersonated_role?: string | null;
+  impersonated_status?: string | null;
+  impersonated_email?: string | null;
+};
+
+export type ServerActorTiming = {
+  cache_hit?: boolean;
+  session_ms?: number;
+  profile_lookup_ms?: number;
+  company_resolution_ms?: number;
+  global_context_ms?: number;
+  impersonation_ms?: number;
+  total_ms?: number;
+};
+
+type ServerActorOptions = {
+  ignoreImpersonation?: boolean;
+  timing?: ServerActorTiming;
+};
+
+const ACTOR_CONTEXT_CACHE_TTL_MS = 30_000;
+const actorContextCache = new Map<string, { actor: ServerActorContext; expiresAt: number }>();
+
 function isUuidLike(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
@@ -181,42 +215,54 @@ async function findProfileByIdOrEmail(params: {
 }): Promise<{ selected: ProfileRow; candidates: ProfileRow[] }> {
   const { userId, userEmail, token } = params;
   const supabase = getServiceClient();
-  const sessionClient = await createSessionScopedClient(token);
   const normalizedUserEmail = normalizeEmail(userEmail);
 
   const profileCandidates = new Map<string, ProfileRow>();
-  const supportsUserIdByColumnProbe = await (async () => {
-    const probe = await supabase.from("profiles").select("user_id").limit(1);
-    return !probe.error;
-  })();
 
-  // Keep lookup resilient to schema drift between environments.
-  // Explicit column lists can fail when an old DB is missing one column.
   const serviceById = await supabase.from("profiles").select("*").eq("id", userId).limit(1);
   if (!serviceById.error) addCandidates(profileCandidates, normalizeProfileRows(serviceById.data));
 
-  if (supportsUserIdByColumnProbe) {
-    const serviceByUserId = await supabase.from("profiles").select("*").eq("user_id", userId).limit(10);
-    if (!serviceByUserId.error) addCandidates(profileCandidates, normalizeProfileRows(serviceByUserId.data));
+  let allCandidates = Array.from(profileCandidates.values());
+  let selected = pickBestProfile(allCandidates, userId);
+  if (selected) {
+    return {
+      selected,
+      candidates: allCandidates,
+    };
   }
 
-  if (normalizedUserEmail) {
-    const serviceByEmail = await supabase.from("profiles").select("*").ilike("email", normalizedUserEmail).limit(50);
-    if (!serviceByEmail.error) addCandidates(profileCandidates, normalizeProfileRows(serviceByEmail.data));
+  const serviceResults = await Promise.all([
+    supabase.from("profiles").select("*").eq("user_id", userId).limit(10),
+    normalizedUserEmail
+      ? supabase.from("profiles").select("*").ilike("email", normalizedUserEmail).limit(50)
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  serviceResults.forEach((result) => {
+    if (!result.error) addCandidates(profileCandidates, normalizeProfileRows(result.data));
+  });
+
+  allCandidates = Array.from(profileCandidates.values());
+  selected = pickBestProfile(allCandidates, userId);
+  if (selected) {
+    return {
+      selected,
+      candidates: allCandidates,
+    };
   }
 
-  const rlsById = await sessionClient.from("profiles").select("*").eq("id", userId).limit(1);
-  if (!rlsById.error) addCandidates(profileCandidates, normalizeProfileRows(rlsById.data));
+  const sessionClient = await createSessionScopedClient(token);
+  const rlsResults = await Promise.all([
+    sessionClient.from("profiles").select("*").eq("id", userId).limit(1),
+    sessionClient.from("profiles").select("*").eq("user_id", userId).limit(10),
+    normalizedUserEmail
+      ? sessionClient.from("profiles").select("*").ilike("email", normalizedUserEmail).limit(50)
+      : Promise.resolve({ data: null, error: null }),
+  ]);
 
-  if (supportsUserIdByColumnProbe) {
-    const rlsByUserId = await sessionClient.from("profiles").select("*").eq("user_id", userId).limit(10);
-    if (!rlsByUserId.error) addCandidates(profileCandidates, normalizeProfileRows(rlsByUserId.data));
-  }
-
-  if (normalizedUserEmail) {
-    const rlsByEmail = await sessionClient.from("profiles").select("*").ilike("email", normalizedUserEmail).limit(50);
-    if (!rlsByEmail.error) addCandidates(profileCandidates, normalizeProfileRows(rlsByEmail.data));
-  }
+  rlsResults.forEach((result) => {
+    if (!result.error) addCandidates(profileCandidates, normalizeProfileRows(result.data));
+  });
 
   // Last-resort scan for older environments where filters/aliases are inconsistent.
   if (!profileCandidates.size && normalizedUserEmail) {
@@ -229,8 +275,8 @@ async function findProfileByIdOrEmail(params: {
     }
   }
 
-  const allCandidates = Array.from(profileCandidates.values());
-  const selected = pickBestProfile(allCandidates, userId);
+  allCandidates = Array.from(profileCandidates.values());
+  selected = pickBestProfile(allCandidates, userId);
   if (!selected) {
     throw new SessionAuthError("Profile not found for authenticated user", 403);
   }
@@ -374,18 +420,18 @@ async function resolveCompanyIdFromServiceProfiles(params: {
 async function resolveGlobalAdminContextCompanyId(profileId: string, authUserId: string): Promise<string | null> {
   const supabase = getServiceClient();
   const candidateUserIds = Array.from(new Set([profileId, authUserId].filter((value) => isUuidLike(value))));
+  if (!candidateUserIds.length) return null;
+
+  const { data, error } = await supabase
+    .from("global_admin_company_contexts")
+    .select("user_id, company_id")
+    .in("user_id", candidateUserIds);
+  if (error || !Array.isArray(data)) return null;
 
   for (const userId of candidateUserIds) {
-    const { data: contextRow, error: contextError } = await supabase
-      .from("global_admin_company_contexts")
-      .select("company_id")
-      .eq("user_id", userId)
-      .maybeSingle();
-
-    if (!contextError && contextRow?.company_id) {
-      const companyId = String(contextRow.company_id || "").trim();
-      if (isUuidLike(companyId)) return companyId;
-    }
+    const contextRow = data.find((row: any) => String(row?.user_id || "") === userId);
+    const companyId = String((contextRow as any)?.company_id || "").trim();
+    if (isUuidLike(companyId)) return companyId;
   }
 
   return null;
@@ -429,12 +475,194 @@ async function resolveProfileById(profileId: string): Promise<ProfileRow | null>
   return rows[0] || null;
 }
 
+function buildActorContextFromFastRow(params: {
+  row: FastActorContextRow;
+  authUserId: string;
+  ignoreImpersonation?: boolean;
+}): ServerActorContext | null {
+  const { row, authUserId, ignoreImpersonation } = params;
+  const profileId = String(row.profile_id || "").trim();
+  if (!isUuidLike(profileId) || !isUuidLike(authUserId)) return null;
+
+  const normalizedRole = normalizeRole(row.role);
+  if (!normalizedRole) return null;
+  const status = normalizeStatus(row.status);
+  if (status !== "active") {
+    throw new SessionAuthError("Inactive user profile", 403);
+  }
+
+  const roleRawKey = normalizeRoleKey(row.role);
+  const roleIsLegacyAlias = isLegacyRoleAlias(row.role) || roleRawKey !== normalizedRole;
+  const companyId = String(row.company_id || "").trim();
+  const homeCompanyId = isUuidLike(companyId) ? companyId : null;
+  const contextCompanyId = String(row.context_company_id || "").trim();
+
+  if (normalizedRole === "global_admin" && ignoreImpersonation !== true) {
+    const impersonatedProfileId = String(row.impersonated_profile_id || "").trim();
+    if (isUuidLike(impersonatedProfileId)) {
+      const impersonatedRole = normalizeRole(row.impersonated_role);
+      const impersonatedStatus = normalizeStatus(row.impersonated_status);
+      const impersonatedCompanyId = String(row.impersonated_company_id || "").trim();
+      if (!impersonatedRole || impersonatedStatus !== "active" || !isUuidLike(impersonatedCompanyId)) {
+        throw new SessionAuthError("Impersonation context is invalid", 403);
+      }
+
+      return {
+        id: impersonatedProfileId,
+        authUserId,
+        role: impersonatedRole,
+        roleRawKey: normalizeRoleKey(row.impersonated_role),
+        roleIsLegacyAlias: isLegacyRoleAlias(row.impersonated_role),
+        companyId: impersonatedCompanyId,
+        homeCompanyId: impersonatedCompanyId,
+        contextCompanyId: null,
+        status: impersonatedStatus,
+        email: normalizeEmail(row.impersonated_email),
+        isImpersonating: true,
+        impersonatedProfileId,
+        impersonatedCompanyId,
+        impersonatedByProfileId: profileId,
+        impersonatedByAuthUserId: authUserId,
+      };
+    }
+  }
+
+  return {
+    id: profileId,
+    authUserId,
+    role: normalizedRole,
+    roleRawKey,
+    roleIsLegacyAlias,
+    status,
+    companyId: homeCompanyId,
+    homeCompanyId,
+    contextCompanyId: isUuidLike(contextCompanyId) ? contextCompanyId : null,
+    email: normalizeEmail(row.email),
+    isImpersonating: false,
+    impersonatedProfileId: null,
+    impersonatedCompanyId: null,
+    impersonatedByProfileId: null,
+    impersonatedByAuthUserId: null,
+  };
+}
+
+async function resolveActorContextFromSessionFastPath(params: {
+  token: string;
+  ignoreImpersonation?: boolean;
+}): Promise<ServerActorContext | null> {
+  try {
+    const sessionClient = await createSessionScopedClient(params.token);
+    const { data, error } = await sessionClient.rpc("resolve_actor_context_from_session_v1");
+    if (error || !Array.isArray(data) || data.length === 0) return null;
+
+    const row = data[0] as FastActorContextRow;
+    const authUserId = String(row.auth_user_id || "").trim();
+    return buildActorContextFromFastRow({
+      row,
+      authUserId,
+      ignoreImpersonation: params.ignoreImpersonation,
+    });
+  } catch (error) {
+    if (error instanceof SessionAuthError) throw error;
+    return null;
+  }
+}
+
+async function resolveActorContextFastPath(params: {
+  userId: string;
+  email: string | null;
+  ignoreImpersonation?: boolean;
+}): Promise<ServerActorContext | null> {
+  try {
+    const { userId, email, ignoreImpersonation } = params;
+    const supabase = getServiceClient();
+    const { data, error } = await supabase.rpc("resolve_actor_context_v1", {
+      p_auth_user_id: userId,
+      p_email: email,
+    });
+    if (error || !Array.isArray(data) || data.length === 0) return null;
+
+    const row = data[0] as FastActorContextRow;
+    return buildActorContextFromFastRow({ row, authUserId: userId, ignoreImpersonation });
+  } catch (error) {
+    if (error instanceof SessionAuthError) throw error;
+    return null;
+  }
+}
+
 export async function getServerActorFromSession(
   request: NextRequest,
-  options?: { ignoreImpersonation?: boolean }
+  options?: ServerActorOptions
 ): Promise<ServerActorContext> {
+  const totalStarted = Date.now();
+  const cacheToken = parseBearerToken(request);
+  const cacheKey = cacheToken ? `${options?.ignoreImpersonation === true ? "admin" : "actor"}:${cacheToken}` : null;
+  if (cacheKey) {
+    const cached = actorContextCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      if (options?.timing) {
+        options.timing.cache_hit = true;
+        options.timing.session_ms = 0;
+        options.timing.profile_lookup_ms = 0;
+        options.timing.company_resolution_ms = 0;
+        options.timing.global_context_ms = 0;
+        options.timing.impersonation_ms = 0;
+        options.timing.total_ms = Date.now() - totalStarted;
+      }
+      return cached.actor;
+    }
+    actorContextCache.delete(cacheKey);
+  }
+
+  if (cacheToken) {
+    const sessionFastPathStarted = Date.now();
+    const sessionFastActor = await resolveActorContextFromSessionFastPath({
+      token: cacheToken,
+      ignoreImpersonation: options?.ignoreImpersonation,
+    });
+    if (sessionFastActor) {
+      if (options?.timing) {
+        options.timing.session_ms = 0;
+        options.timing.profile_lookup_ms = Date.now() - sessionFastPathStarted;
+        options.timing.company_resolution_ms = 0;
+        options.timing.global_context_ms = 0;
+        options.timing.impersonation_ms = 0;
+        options.timing.total_ms = Date.now() - totalStarted;
+      }
+      if (cacheKey) {
+        actorContextCache.set(cacheKey, { actor: sessionFastActor, expiresAt: Date.now() + ACTOR_CONTEXT_CACHE_TTL_MS });
+      }
+      return sessionFastActor;
+    }
+  }
+
+  const sessionStarted = Date.now();
   const { userId, token, email } = await getSessionIdentity(request);
+  if (options?.timing) options.timing.session_ms = Date.now() - sessionStarted;
+
+  const fastPathStarted = Date.now();
+  const fastActor = await resolveActorContextFastPath({
+    userId,
+    email,
+    ignoreImpersonation: options?.ignoreImpersonation,
+  });
+  if (fastActor) {
+    if (options?.timing) {
+      options.timing.profile_lookup_ms = Date.now() - fastPathStarted;
+      options.timing.company_resolution_ms = 0;
+      options.timing.global_context_ms = 0;
+      options.timing.impersonation_ms = 0;
+      options.timing.total_ms = Date.now() - totalStarted;
+    }
+    if (cacheKey) {
+      actorContextCache.set(cacheKey, { actor: fastActor, expiresAt: Date.now() + ACTOR_CONTEXT_CACHE_TTL_MS });
+    }
+    return fastActor;
+  }
+
+  const profileStarted = Date.now();
   const profileLookup = await findProfileByIdOrEmail({ userId, userEmail: email, token });
+  if (options?.timing) options.timing.profile_lookup_ms = Date.now() - profileStarted;
   const profile = profileLookup.selected;
 
   const roleRawKey = normalizeRoleKey(profile.role);
@@ -450,6 +678,7 @@ export async function getServerActorFromSession(
     throw new SessionAuthError("Inactive user profile", 403);
   }
 
+  const companyStarted = Date.now();
   let homeCompanyId = profile.company_id ? String(profile.company_id).trim() : null;
   if (!homeCompanyId || !isUuidLike(homeCompanyId)) {
     homeCompanyId = pickCompanyFromProfileCandidates(profileLookup.candidates);
@@ -464,12 +693,29 @@ export async function getServerActorFromSession(
       userEmail: email,
     });
   }
+  if (options?.timing) options.timing.company_resolution_ms = Date.now() - companyStarted;
 
-  const contextCompanyId =
-    normalizedRole === "global_admin" ? await resolveGlobalAdminContextCompanyId(profile.id, userId) : null;
+  const globalContextStarted = Date.now();
+  const contextPromise =
+    normalizedRole === "global_admin"
+      ? resolveGlobalAdminContextCompanyId(profile.id, userId).finally(() => {
+          if (options?.timing) options.timing.global_context_ms = Date.now() - globalContextStarted;
+        })
+      : Promise.resolve(null);
+  const impersonationStarted = Date.now();
+  const impersonationPromise =
+    normalizedRole === "global_admin" && options?.ignoreImpersonation !== true
+      ? resolveGlobalAdminImpersonationContext(profile.id, userId).finally(() => {
+          if (options?.timing) options.timing.impersonation_ms = Date.now() - impersonationStarted;
+        })
+      : Promise.resolve(null);
+  const [contextCompanyId, impersonationContext] = await Promise.all([contextPromise, impersonationPromise]);
+  if (options?.timing && normalizedRole !== "global_admin") options.timing.global_context_ms = 0;
+  if (options?.timing && (normalizedRole !== "global_admin" || options?.ignoreImpersonation === true)) {
+    options.timing.impersonation_ms = 0;
+  }
 
   if (normalizedRole === "global_admin" && options?.ignoreImpersonation !== true) {
-    const impersonationContext = await resolveGlobalAdminImpersonationContext(profile.id, userId);
     const impersonatedProfileId = String(impersonationContext?.impersonated_profile_id || "").trim();
     if (isUuidLike(impersonatedProfileId)) {
       const impersonatedProfile = await resolveProfileById(impersonatedProfileId);
@@ -480,7 +726,8 @@ export async function getServerActorFromSession(
         throw new SessionAuthError("Impersonation context is invalid", 403);
       }
 
-      return {
+      if (options?.timing) options.timing.total_ms = Date.now() - totalStarted;
+      const actor = {
         id: impersonatedProfileId,
         authUserId: userId,
         role: impersonatedRole,
@@ -497,10 +744,15 @@ export async function getServerActorFromSession(
         impersonatedByProfileId: String(profile.id),
         impersonatedByAuthUserId: userId,
       };
+      if (cacheKey) {
+        actorContextCache.set(cacheKey, { actor, expiresAt: Date.now() + ACTOR_CONTEXT_CACHE_TTL_MS });
+      }
+      return actor;
     }
   }
 
-  return {
+  if (options?.timing) options.timing.total_ms = Date.now() - totalStarted;
+  const actor = {
     id: String(profile.id),
     authUserId: userId,
     role: normalizedRole,
@@ -517,6 +769,10 @@ export async function getServerActorFromSession(
     impersonatedByProfileId: null,
     impersonatedByAuthUserId: null,
   };
+  if (cacheKey) {
+    actorContextCache.set(cacheKey, { actor, expiresAt: Date.now() + ACTOR_CONTEXT_CACHE_TTL_MS });
+  }
+  return actor;
 }
 
 export function ensureAssistantRole(actor: ServerActorContext): void {

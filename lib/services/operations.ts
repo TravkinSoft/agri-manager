@@ -310,15 +310,20 @@ export async function getOperation(operationId: string): Promise<Operation | nul
 
 export async function createOperation(
   companyId: string,
-  operationData: OperationFormData
+  operationData: OperationFormData,
+  options?: { idempotencyKey?: string }
 ): Promise<Operation & { material_request?: Record<string, unknown> }> {
   const headers = await buildAuthHeaders("json");
+  if (options?.idempotencyKey) {
+    headers["Idempotency-Key"] = options.idempotencyKey;
+  }
   const response = await fetch("/api/operations", {
     method: "POST",
     headers,
     body: JSON.stringify({
       companyId,
       ...operationData,
+      idempotency_key: options?.idempotencyKey,
       responsible_user_id:
         operationData.responsible_user_id && operationData.responsible_user_id !== "none"
           ? operationData.responsible_user_id

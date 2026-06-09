@@ -276,10 +276,10 @@ export default function OperationsPage() {
     });
   };
 
-  const handleCreate = async (data: OperationFormData) => {
+  const handleCreate = async (data: OperationFormData, options?: { idempotencyKey?: string }) => {
     if (!profile?.company_id) return;
     try {
-      const created = await createOperation(profile.company_id, data);
+      const created = await createOperation(profile.company_id, data, options);
       await loadData();
       setIsFormOpen(false);
       const requestMeta = (created as any)?.material_request as { created?: boolean; request_number?: string } | undefined;
@@ -291,6 +291,7 @@ export default function OperationsPage() {
       });
     } catch (error: any) {
       toast({ title: "Ошибка", description: error?.message || "Не удалось создать операцию", variant: "destructive" });
+      throw error;
     }
   };
 
@@ -304,6 +305,7 @@ export default function OperationsPage() {
       toast({ title: "Успешно", description: "Операция обновлена" });
     } catch (error: any) {
       toast({ title: "Ошибка", description: error?.message || "Не удалось обновить операцию", variant: "destructive" });
+      throw error;
     }
   };
 
@@ -1184,7 +1186,12 @@ export default function OperationsPage() {
                     <div><span className="text-muted-foreground">Тип работ:</span> {selectedOperation.operation_engine_label || selectedOperationEngine?.label || selectedOperation.operation_type}</div>
                     <div><span className="text-muted-foreground">Цели:</span> {selectedOperationPurposes.length > 0 ? selectedOperationPurposes.join(", ") : "—"}</div>
                     <div><span className="text-muted-foreground">Поле:</span> {selectedOperation.field_name}</div>
-                    <div><span className="text-muted-foreground">Строка структуры:</span> {selectedOperation.crop_structure_id || "—"}</div>
+                    <div>
+                      <span className="text-muted-foreground">План поля:</span>{" "}
+                      {selectedOperation.crop_name || "—"}
+                      {selectedOperation.variety_name ? ` • ${selectedOperation.variety_name}` : ""}
+                      {selectedOperation.reproduction_name ? ` • ${selectedOperation.reproduction_name}` : ""}
+                    </div>
                     <div><span className="text-muted-foreground">Культура:</span> {selectedOperation.crop_name || "—"}</div>
                     <div><span className="text-muted-foreground">Сорт:</span> {selectedOperation.variety_name || "—"}</div>
                     <div><span className="text-muted-foreground">Репродукция:</span> {selectedOperation.reproduction_name || "—"}</div>

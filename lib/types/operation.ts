@@ -198,6 +198,16 @@ export const operationSchema = z.object({
       })
     )
     .optional(),
+  structure_change: z
+    .object({
+      mode: z.enum(["area_split", "crop_replace"]),
+      confirmed: z.boolean().optional(),
+      new_crop_id: z.string().uuid().nullable().optional(),
+      new_variety_id: z.string().uuid().nullable().optional(),
+      new_reproduction_id: z.string().uuid().nullable().optional(),
+      area_ha: z.number().min(0).nullable().optional(),
+    })
+    .optional(),
   date: z.string().min(1, "Date is required"),
   responsible_user_id: z.string().uuid("Please select specialist").nullable().optional(),
   notes: z.string().optional(),

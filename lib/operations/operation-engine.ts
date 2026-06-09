@@ -6,20 +6,34 @@ export type CanonicalOperationTypeSlug =
   | "fertilizer_application"
   | "spraying"
   | "fertigation"
+  | "irrigation"
+  | "scouting"
+  | "sampling"
   | "harvesting"
+  | "transport"
+  | "post_harvest"
   | "service_operation"
   | "logistics_operation"
   | "post_harvest_operation";
 
 export type OperationPurposeSlug =
-  | "fungicide_protection"
+  | "weed_control"
+  | "disease_control"
   | "insect_control"
-  | "herbicide_control"
+  | "desiccation"
+  | "defoliation"
+  | "growth_regulation"
   | "foliar_feeding"
   | "anti_stress"
-  | "desiccation"
-  | "growth_regulation"
+  | "base_fertilization"
+  | "starter_fertilization"
+  | "top_dressing"
+  | "fertigation"
   | "seed_treatment"
+  | "irrigation"
+  | "harvest"
+  | "transport"
+  | "monitoring"
   | "other";
 
 export type TankMixComponentType =
@@ -36,6 +50,22 @@ export type TankMixComponentType =
   | "other";
 
 export type FertilizerApplicationMethod = "broadcast" | "banded" | "liquid" | "foliar";
+
+export type OperationTechniqueSlug =
+  | "tractor_implement"
+  | "ground_boom_sprayer"
+  | "self_propelled_sprayer"
+  | "uav"
+  | "aircraft"
+  | "spreader"
+  | "applicator"
+  | "seed_drill"
+  | "precision_planter"
+  | "potato_planter"
+  | "combine"
+  | "potato_harvester"
+  | "truck"
+  | "irrigation_system";
 
 export type OperationTypeDefinition = {
   slug: CanonicalOperationTypeSlug;
@@ -63,6 +93,12 @@ export type OperationSubtypeDefinition = {
 
 export type OperationPurposeDefinition = {
   slug: OperationPurposeSlug;
+  label: string;
+  operationTypes: CanonicalOperationTypeSlug[];
+};
+
+export type OperationTechniqueDefinition = {
+  slug: OperationTechniqueSlug;
   label: string;
   operationTypes: CanonicalOperationTypeSlug[];
 };
@@ -119,7 +155,7 @@ export const OPERATION_TYPE_DEFINITIONS: OperationTypeDefinition[] = [
     requiresMachine: true,
     affectsWarehouse: true,
     affectsFieldHistory: true,
-    supportsPurposes: true,
+    supportsPurposes: false,
     supportsTankMix: false,
     supportsMaterials: true,
     defaultComponentType: "fertilizer",
@@ -162,6 +198,57 @@ export const OPERATION_TYPE_DEFINITIONS: OperationTypeDefinition[] = [
     keywords: ["fertigation", "фертигац"],
   },
   {
+    slug: "irrigation",
+    categorySlug: "irrigation",
+    label: "Полив",
+    description: "Подача воды через систему орошения без питания или химизации.",
+    requiresCropStructure: true,
+    requiresMachine: true,
+    affectsWarehouse: false,
+    affectsFieldHistory: true,
+    supportsPurposes: false,
+    supportsTankMix: false,
+    supportsMaterials: false,
+    defaultComponentType: "water",
+    legacyCategorySlugs: ["irrigation"],
+    legacyTypeSlugs: ["irrigation"],
+    keywords: ["irrigation", "полив", "орош"],
+  },
+  {
+    slug: "scouting",
+    categorySlug: "scouting",
+    label: "Осмотр поля",
+    description: "Мониторинг состояния поля, вредителей, болезней и развития культуры.",
+    requiresCropStructure: true,
+    requiresMachine: false,
+    affectsWarehouse: false,
+    affectsFieldHistory: true,
+    supportsPurposes: true,
+    supportsTankMix: false,
+    supportsMaterials: false,
+    defaultComponentType: "other",
+    legacyCategorySlugs: ["monitoring", "crop_scouting"],
+    legacyTypeSlugs: ["scouting", "monitoring"],
+    keywords: ["scouting", "monitoring", "осмотр", "монитор"],
+  },
+  {
+    slug: "sampling",
+    categorySlug: "sampling",
+    label: "Отбор проб",
+    description: "Отбор почвенных, растительных или товарных проб.",
+    requiresCropStructure: true,
+    requiresMachine: false,
+    affectsWarehouse: false,
+    affectsFieldHistory: true,
+    supportsPurposes: false,
+    supportsTankMix: false,
+    supportsMaterials: false,
+    defaultComponentType: "other",
+    legacyCategorySlugs: ["sampling"],
+    legacyTypeSlugs: ["sampling"],
+    keywords: ["sampling", "sample", "проб"],
+  },
+  {
     slug: "harvesting",
     categorySlug: "harvesting",
     label: "Уборка",
@@ -196,8 +283,8 @@ export const OPERATION_TYPE_DEFINITIONS: OperationTypeDefinition[] = [
     keywords: ["service", "repair", "сервис", "ремонт"],
   },
   {
-    slug: "logistics_operation",
-    categorySlug: "logistics_operation",
+    slug: "transport",
+    categorySlug: "transport",
     label: "Логистика",
     description: "Перевозка, перемещение или доставка без агрономического факта поля.",
     requiresCropStructure: false,
@@ -208,13 +295,13 @@ export const OPERATION_TYPE_DEFINITIONS: OperationTypeDefinition[] = [
     supportsTankMix: false,
     supportsMaterials: false,
     defaultComponentType: "other",
-    legacyCategorySlugs: ["logistics"],
-    legacyTypeSlugs: ["transport"],
+    legacyCategorySlugs: ["logistics", "logistics_operation"],
+    legacyTypeSlugs: ["transport", "transport_task"],
     keywords: ["transport", "logistics", "перевоз", "логист"],
   },
   {
-    slug: "post_harvest_operation",
-    categorySlug: "post_harvest_operation",
+    slug: "post_harvest",
+    categorySlug: "post_harvest",
     label: "Послеуборочная доработка",
     description: "Очистка, сушка, сортировка или обработка урожая после уборки.",
     requiresCropStructure: false,
@@ -225,7 +312,7 @@ export const OPERATION_TYPE_DEFINITIONS: OperationTypeDefinition[] = [
     supportsTankMix: false,
     supportsMaterials: false,
     defaultComponentType: "other",
-    legacyCategorySlugs: ["post_harvest", "processing"],
+    legacyCategorySlugs: ["post_harvest", "post_harvest_operation", "processing"],
     legacyTypeSlugs: ["post_harvest_processing"],
     keywords: ["post_harvest", "processing", "сушка", "очист", "доработ"],
   },
@@ -245,12 +332,12 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "soil_operation", slug: "ridge_forming", label: "Формирование гребней" },
   { categorySlug: "soil_operation", slug: "furrow_cutting", label: "Нарезка борозд" },
 
-  { categorySlug: "planting", slug: "grain_seeding", label: "Посев зерновых" },
-  { categorySlug: "planting", slug: "oilseed_seeding", label: "Посев масличных" },
-  { categorySlug: "planting", slug: "legume_seeding", label: "Посев бобовых" },
+  { categorySlug: "planting", slug: "seeding", label: "Посев" },
   { categorySlug: "planting", slug: "potato_planting", label: "Посадка картофеля" },
-  { categorySlug: "planting", slug: "seeding_with_fertilizer", label: "Посев с внесением удобрений" },
+  { categorySlug: "planting", slug: "seeding_with_fertilizer", label: "Посев с удобрением" },
   { categorySlug: "planting", slug: "seeding_with_microgranules", label: "Посев с микрогранулятом" },
+  { categorySlug: "planting", slug: "reseeding", label: "Пересев" },
+  { categorySlug: "planting", slug: "overseeding", label: "Подсев" },
 
   { categorySlug: "spraying", slug: "herbicide_treatment", label: "Гербицидная обработка" },
   { categorySlug: "spraying", slug: "fungicide_treatment", label: "Фунгицидная обработка" },
@@ -258,8 +345,7 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "spraying", slug: "complex_tank_mix_treatment", label: "Комплексная баковая обработка" },
   { categorySlug: "spraying", slug: "desiccation_treatment", label: "Десикация" },
   { categorySlug: "spraying", slug: "defoliation", label: "Дефолиация" },
-  { categorySlug: "spraying", slug: "drone_treatment", label: "Дрон-обработка" },
-  { categorySlug: "spraying", slug: "aerial_treatment", label: "Авиаобработка" },
+  { categorySlug: "spraying", slug: "growth_regulator_treatment", label: "Регулятор роста" },
 
   { categorySlug: "fertilizer_application", slug: "mineral_fertilizer_broadcast", label: "Разбрасывание минеральных удобрений" },
   { categorySlug: "fertilizer_application", slug: "organic_application", label: "Внесение органики" },
@@ -269,8 +355,13 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "fertilizer_application", slug: "liquid_fertilizer_application", label: "Внесение ЖКУ" },
   { categorySlug: "fertilizer_application", slug: "foliar_fertilization", label: "Листовая подкормка" },
 
-  { categorySlug: "fertigation", slug: "fertigation", label: "Фертигация" },
+  { categorySlug: "fertigation", slug: "fertigation_application", label: "Фертигация" },
   { categorySlug: "fertigation", slug: "chemigation", label: "Химизация через полив" },
+
+  { categorySlug: "irrigation", slug: "irrigation_cycle", label: "Полив" },
+  { categorySlug: "scouting", slug: "field_scouting", label: "Осмотр поля" },
+  { categorySlug: "sampling", slug: "soil_sampling", label: "Отбор проб почвы" },
+  { categorySlug: "sampling", slug: "plant_sampling", label: "Отбор проб растений" },
 
   { categorySlug: "harvesting", slug: "direct_combining", label: "Прямое комбайнирование" },
   { categorySlug: "harvesting", slug: "separate_harvesting", label: "Раздельная уборка" },
@@ -280,24 +371,46 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "harvesting", slug: "windrow_pickup", label: "Подбор валков" },
 
   { categorySlug: "service_operation", slug: "service_task", label: "Сервисная задача" },
-  { categorySlug: "logistics_operation", slug: "transport_task", label: "Перевозка" },
-  { categorySlug: "post_harvest_operation", slug: "post_harvest_processing", label: "Послеуборочная доработка" },
+  { categorySlug: "transport", slug: "transport_task", label: "Перевозка" },
+  { categorySlug: "post_harvest", slug: "post_harvest_processing", label: "Послеуборочная доработка" },
 ];
 
 export const OPERATION_PURPOSE_DEFINITIONS: OperationPurposeDefinition[] = [
-  { slug: "fungicide_protection", label: "Защита от болезней", operationTypes: ["spraying", "fertigation"] },
-  { slug: "insect_control", label: "Контроль вредителей", operationTypes: ["spraying"] },
-  { slug: "herbicide_control", label: "Контроль сорняков", operationTypes: ["spraying"] },
-  { slug: "foliar_feeding", label: "Листовое питание", operationTypes: ["spraying", "fertigation", "fertilizer_application"] },
-  { slug: "anti_stress", label: "Антистресс", operationTypes: ["spraying", "fertigation"] },
-  { slug: "desiccation", label: "Десикация", operationTypes: ["spraying", "harvesting"] },
+  { slug: "weed_control", label: "Контроль сорняков", operationTypes: ["spraying"] },
+  { slug: "disease_control", label: "Защита от болезней", operationTypes: ["spraying", "fertigation"] },
+  { slug: "insect_control", label: "Защита от вредителей", operationTypes: ["spraying"] },
+  { slug: "desiccation", label: "Десикация", operationTypes: ["spraying"] },
+  { slug: "defoliation", label: "Дефолиация", operationTypes: ["spraying"] },
   { slug: "growth_regulation", label: "Регуляция роста", operationTypes: ["spraying"] },
-  { slug: "seed_treatment", label: "Протравливание семян", operationTypes: ["planting", "spraying"] },
-  {
-    slug: "other",
-    label: "Другая цель",
-    operationTypes: ["planting", "fertilizer_application", "spraying", "fertigation", "harvesting"],
-  },
+  { slug: "foliar_feeding", label: "Листовая подкормка", operationTypes: ["spraying", "fertigation", "fertilizer_application"] },
+  { slug: "anti_stress", label: "Антистресс", operationTypes: ["spraying", "fertigation"] },
+  { slug: "base_fertilization", label: "Основное питание", operationTypes: ["fertilizer_application", "fertigation"] },
+  { slug: "starter_fertilization", label: "Стартовое питание", operationTypes: ["fertilizer_application"] },
+  { slug: "top_dressing", label: "Подкормка", operationTypes: ["fertilizer_application", "fertigation"] },
+  { slug: "fertigation", label: "Фертигация", operationTypes: ["fertigation"] },
+  { slug: "seed_treatment", label: "Протравливание семян", operationTypes: ["planting"] },
+  { slug: "irrigation", label: "Полив", operationTypes: ["irrigation"] },
+  { slug: "harvest", label: "Уборка", operationTypes: ["harvesting"] },
+  { slug: "transport", label: "Перевозка", operationTypes: ["transport"] },
+  { slug: "monitoring", label: "Мониторинг", operationTypes: ["scouting"] },
+  { slug: "other", label: "Другая задача", operationTypes: ["fertilizer_application", "spraying", "fertigation", "scouting"] },
+];
+
+export const OPERATION_TECHNIQUE_DEFINITIONS: OperationTechniqueDefinition[] = [
+  { slug: "tractor_implement", label: "Трактор + агрегат", operationTypes: ["soil_operation"] },
+  { slug: "seed_drill", label: "Сеялка", operationTypes: ["planting"] },
+  { slug: "precision_planter", label: "Точная сеялка", operationTypes: ["planting"] },
+  { slug: "potato_planter", label: "Картофелесажалка", operationTypes: ["planting"] },
+  { slug: "ground_boom_sprayer", label: "Штанговый опрыскиватель", operationTypes: ["spraying"] },
+  { slug: "self_propelled_sprayer", label: "Самоходный опрыскиватель", operationTypes: ["spraying"] },
+  { slug: "uav", label: "Дрон", operationTypes: ["spraying", "scouting"] },
+  { slug: "aircraft", label: "Авиация", operationTypes: ["spraying"] },
+  { slug: "spreader", label: "Разбрасыватель", operationTypes: ["fertilizer_application"] },
+  { slug: "applicator", label: "Аппликатор", operationTypes: ["fertilizer_application"] },
+  { slug: "irrigation_system", label: "Система полива", operationTypes: ["fertigation", "irrigation"] },
+  { slug: "combine", label: "Комбайн", operationTypes: ["harvesting"] },
+  { slug: "potato_harvester", label: "Картофелеуборочный комбайн", operationTypes: ["harvesting"] },
+  { slug: "truck", label: "Грузовой транспорт", operationTypes: ["transport", "harvesting"] },
 ];
 
 export const TANK_MIX_COMPONENT_DEFINITIONS: TankMixComponentDefinition[] = [
@@ -360,6 +473,14 @@ export function getPurposeDefinitionsForOperation(
   return OPERATION_PURPOSE_DEFINITIONS.filter((item) => item.operationTypes.includes(canonical));
 }
 
+export function getTechniqueDefinitionsForOperation(
+  slug: CanonicalOperationTypeSlug | string | null | undefined
+): OperationTechniqueDefinition[] {
+  const canonical = getOperationTypeDefinition(slug)?.slug;
+  if (!canonical) return [];
+  return OPERATION_TECHNIQUE_DEFINITIONS.filter((item) => item.operationTypes.includes(canonical));
+}
+
 export function getTankMixComponentDefinition(
   slug: TankMixComponentType | string | null | undefined
 ): TankMixComponentDefinition {
@@ -389,8 +510,23 @@ export function getDefaultUnitForComponent(componentType: string | null | undefi
 export function normalizePurposeList(values: unknown): OperationPurposeSlug[] {
   const source = Array.isArray(values) ? values : [];
   const allowed = new Set(OPERATION_PURPOSE_DEFINITIONS.map((item) => item.slug));
+  const aliases: Record<string, OperationPurposeSlug> = {
+    herbicide_control: "weed_control",
+    fungicide_protection: "disease_control",
+    insect_control: "insect_control",
+    foliar_feeding: "foliar_feeding",
+    anti_stress: "anti_stress",
+    desiccation: "desiccation",
+    growth_regulation: "growth_regulation",
+    seed_treatment: "seed_treatment",
+  };
   return Array.from(
-    new Set(source.map((value) => String(value || "").trim()).filter((value): value is OperationPurposeSlug => allowed.has(value as OperationPurposeSlug)))
+    new Set(
+      source
+        .map((value) => String(value || "").trim())
+        .map((value) => aliases[value] || value)
+        .filter((value): value is OperationPurposeSlug => allowed.has(value as OperationPurposeSlug))
+    )
   );
 }
 

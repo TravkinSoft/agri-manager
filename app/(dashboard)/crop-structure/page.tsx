@@ -10,12 +10,16 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { getFieldDisplayName } from "@/lib/fields/display";
+import { createOperation, getAssignableSpecialists } from "@/lib/services/operations";
+import type { OperationFormData, SpecialistAssignee } from "@/lib/types/operation";
+import type { CropStructureWithDetails } from "@/lib/types/crop-structure";
 
 type Field = { id: string; name: string; area: number; notes?: string | null };
 type Season = { id: string; year: number };
@@ -82,6 +86,9 @@ type StageKey = "prep" | "seeding" | "care" | "harvest";
 type MaterialCategory = "seed" | "fertilizer" | "chemical" | "organic" | "fuel" | "irrigation" | "other";
 
 const EPS = 0.0001;
+const FIELD_FIRST_CREATE_ENABLED =
+  process.env.NEXT_PUBLIC_OPERATIONS_FIELD_FIRST_CREATE !== "0" &&
+  process.env.OPERATIONS_FIELD_FIRST_CREATE !== "0";
 
 const stageDefs: Array<{ key: StageKey; label: string; operations: string[] }> = [
   { key: "prep", label: "Подготовка", operations: ["preparation", "tillage", "cultivation", "plowing", "other"] },
@@ -159,6 +166,10 @@ export default function CropStructurePage() {
   const [draftRows, setDraftRows] = useState<Allocation[]>([]);
   const [fieldDialogTab, setFieldDialogTab] = useState<"dossier" | "editor" | "legal">("dossier");
   const [legalLinksByField, setLegalLinksByField] = useState<Map<string, FieldLegalLink[]>>(new Map());
+  const [operationDialogOpen, setOperationDialogOpen] = useState(false);
+  const [operationDefaults, setOperationDefaults] = useState<Partial<OperationFormData> | undefined>();
+  const [operationSourceLabel, setOperationSourceLabel] = useState("");
+  const [specialists, setSpecialists] = useState<SpecialistAssignee[]>([]);
 
   const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
@@ -281,12 +292,13 @@ export default function CropStructurePage() {
       if (!profile?.company_id) return;
       try {
         setLoading(true);
-        const [fieldsRes, seasonsRes, cropsRes, varietiesRes, reproductionsRes] = await Promise.all([
+        const [fieldsRes, seasonsRes, cropsRes, varietiesRes, reproductionsRes, specialistsRes] = await Promise.all([
           supabase.from("fields").select("id,name,notes,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
           supabase.from("seasons").select("id,year").eq("company_id", profile.company_id).eq("archived", false).order("year", { ascending: false }),
           supabase.from("crops").select("id,name,name_ru,name_en,company_id,archived,is_active"),
           supabase.from("varieties").select("id,name,crop_id,company_id,archived,is_active"),
           supabase.from("seed_reproductions").select("id,name,company_id,archived,is_active").order("level_order"),
+          getAssignableSpecialists(profile.company_id).catch(() => [] as SpecialistAssignee[]),
         ]);
         if (fieldsRes.error || seasonsRes.error || cropsRes.error || varietiesRes.error || reproductionsRes.error) {
           throw fieldsRes.error || seasonsRes.error || cropsRes.error || varietiesRes.error || reproductionsRes.error;
@@ -302,6 +314,7 @@ export default function CropStructurePage() {
         setAllCrops((cropsRes.data || []) as Crop[]);
         setAllVarieties((varietiesRes.data || []) as Variety[]);
         setAllReproductions((reproductionsRes.data || []) as Reproduction[]);
+        setSpecialists(specialistsRes as SpecialistAssignee[]);
         if (seasonRows.length) setSeasonId((prev) => prev || seasonRows[0].id);
       } catch (error) {
         toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить структуру посевов", variant: "destructive" });
@@ -651,6 +664,93 @@ export default function CropStructurePage() {
     }
   };
 
+  const operationDialogFields = useMemo(
+    () =>
+      fields.map((field) => ({
+        ...field,
+        display_name: field.name,
+        soil_type: null,
+        archived: false,
+        created_at: "",
+        updated_at: "",
+        user_id: "",
+        company_id: profile?.company_id || null,
+      })),
+    [fields, profile?.company_id]
+  );
+
+  const operationDialogCropStructures = useMemo<CropStructureWithDetails[]>(() => {
+    const rows: CropStructureWithDetails[] = [];
+    allocByField.forEach((allocations, fieldId) => {
+      const field = fieldMap.get(fieldId);
+      allocations.forEach((allocation) => {
+        if (!allocation.id || !allocation.crop_id) return;
+        rows.push({
+          id: allocation.id,
+          field_id: fieldId,
+          season_id: seasonId,
+          crop_id: allocation.crop_id,
+          variety_id: allocation.variety_id,
+          reproduction_id: allocation.reproduction_id,
+          area: Number(allocation.area || 0),
+          seeding_rate: allocation.seeding_rate ?? null,
+          expected_yield: allocation.expected_yield ?? null,
+          status: "planned",
+          notes: allocation.notes || null,
+          archived: false,
+          created_at: "",
+          updated_at: "",
+          user_id: "",
+          field_name: field?.name || "-",
+          season_year: season?.year || 0,
+          crop_name: cropName(allocation.crop_id),
+          variety_name: varietyName(allocation.variety_id),
+          reproduction_name: reproductionName(allocation.reproduction_id),
+        });
+      });
+    });
+    return rows;
+  }, [allocByField, fieldMap, season?.year, seasonId]);
+
+  const openOperationPlan = (field: Field, allocation: Allocation, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    if (!FIELD_FIRST_CREATE_ENABLED) return;
+    if (!allocation.id || !allocation.crop_id) {
+      toast({
+        title: "Нужен план по культуре",
+        description: "Сначала сохраните культуру и площадь по полю.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setOperationDefaults({
+      field_id: field.id,
+      crop_structure_id: allocation.id,
+      crop_id: allocation.crop_id,
+      planned_area_ha: Number(allocation.area || 0),
+      date: new Date().toISOString().slice(0, 10),
+      notes: "",
+    });
+    setOperationSourceLabel(
+      `План по полю: ${field.name} • ${cropName(allocation.crop_id)} • ${varietyName(allocation.variety_id)} • ${reproductionName(allocation.reproduction_id)} • ${fmtHa(Number(allocation.area || 0))}`
+    );
+    setSelectedFieldId(null);
+    setOperationDialogOpen(true);
+  };
+
+  const handleCreateOperationPlan = async (data: OperationFormData, options?: { idempotencyKey?: string }) => {
+    if (!profile?.company_id) return;
+    try {
+      await createOperation(profile.company_id, data, options);
+      setOperationDialogOpen(false);
+      setOperationDefaults(undefined);
+      toast({ title: "План создан", description: "Работа добавлена в журнал операций." });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось создать план работы", variant: "destructive" });
+      throw error;
+    }
+  };
+
   const renderStageStrip = (rows: Allocation[], compact = false) => {
     const plannedArea = Math.max(sumArea(rows), 0);
     return (
@@ -706,10 +806,25 @@ export default function CropStructurePage() {
           <div className="mt-2 space-y-1">
             {rows.length ? rows.slice(0, 3).map((row) => (
               <div key={row.id || `${field.id}-${row.crop_id}`} className="rounded-md bg-slate-50 px-2 py-1.5">
-                <div className="truncate text-xs font-semibold text-slate-800">
-                  {cropName(row.crop_id)} / {varietyName(row.variety_id)} / {reproductionName(row.reproduction_id)}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-semibold text-slate-800">
+                      {cropName(row.crop_id)} / {varietyName(row.variety_id)} / {reproductionName(row.reproduction_id)}
+                    </div>
+                    <div className="text-[11px] text-slate-500">{fmtHa(Number(row.area || 0))}</div>
+                  </div>
+                  {FIELD_FIRST_CREATE_ENABLED ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 shrink-0 px-2 text-[11px]"
+                      onClick={(event) => openOperationPlan(field, row, event)}
+                    >
+                      Запланировать
+                    </Button>
+                  ) : null}
                 </div>
-                <div className="text-[11px] text-slate-500">{fmtHa(Number(row.area || 0))}</div>
               </div>
             )) : (
               <div className="rounded-md border border-dashed bg-slate-50 px-2 py-3 text-center text-xs text-slate-500">Нет посевных строк</div>
@@ -857,6 +972,7 @@ export default function CropStructurePage() {
         {rows.length ? rows.map((allocation) => {
           const facts = allocationFacts(allocation);
           const plannedArea = Number(allocation.area || 0);
+          const field = fieldMap.get(allocation.field_id);
           const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
           const rateArea = actualCompletedArea || plannedArea;
           const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади посевной строки";
@@ -872,7 +988,18 @@ export default function CropStructurePage() {
                     {fmtHa(plannedArea)} · фактических выдач {facts.rows.length}
                   </div>
                 </div>
-                <Badge className="bg-slate-900 text-white hover:bg-slate-900">Материалы сезона</Badge>
+                <div className="flex flex-wrap items-center gap-2">
+                  {FIELD_FIRST_CREATE_ENABLED && field ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={(event) => openOperationPlan(field, allocation, event)}
+                    >
+                      Запланировать работу
+                    </Button>
+                  ) : null}
+                  <Badge className="bg-slate-900 text-white hover:bg-slate-900">Материалы сезона</Badge>
+                </div>
               </div>
 
               {hasMaterials ? (
@@ -1148,6 +1275,24 @@ export default function CropStructurePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <OperationFormDialog
+        open={operationDialogOpen}
+        onOpenChange={(open) => {
+          setOperationDialogOpen(open);
+          if (!open) {
+            setOperationDefaults(undefined);
+            setOperationSourceLabel("");
+          }
+        }}
+        onSubmit={handleCreateOperationPlan}
+        defaultValues={operationDefaults}
+        lockedContext={Boolean(operationDefaults?.crop_structure_id)}
+        sourceLabel={operationSourceLabel}
+        fields={operationDialogFields as any}
+        cropStructures={operationDialogCropStructures}
+        specialists={specialists}
+      />
     </div>
   );
 }
