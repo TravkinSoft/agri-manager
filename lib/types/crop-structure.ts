@@ -9,6 +9,9 @@ export const cropStructureSchema = z.object({
   area: z.number().positive("Area must be greater than 0"),
   seeding_rate: z.number().positive("Seeding rate must be greater than 0").optional().or(z.literal(0)),
   expected_yield: z.number().positive("Expected yield must be greater than 0").optional().or(z.literal(0)),
+  irrigation_type: z.enum(["drip", "sprinkler", "dryland", "unknown"]).default("unknown"),
+  row_spacing_m: z.number().positive("Row spacing must be greater than 0").nullable().optional(),
+  seed_spacing_cm: z.number().positive("In-row spacing must be greater than 0").nullable().optional(),
   status: z.enum(["planned", "planted", "growing", "harvested"]).default("planned"),
   notes: z.string().optional(),
 });
@@ -25,6 +28,9 @@ export interface CropStructure {
   area: number;
   seeding_rate: number | null;
   expected_yield: number | null;
+  irrigation_type?: "drip" | "sprinkler" | "dryland" | "unknown" | null;
+  row_spacing_m?: number | null;
+  seed_spacing_cm?: number | null;
   status: "planned" | "planted" | "growing" | "harvested";
   notes: string | null;
   archived: boolean;

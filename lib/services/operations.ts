@@ -345,6 +345,12 @@ export async function updateOperation(
   const materials = Array.isArray((payload as any).materials) ? ([...(payload as any).materials] as any[]) : null;
   const purposes = Array.isArray((payload as any).purposes) ? [...((payload as any).purposes as string[])] : [];
   const tankMix = (payload as any).tank_mix && typeof (payload as any).tank_mix === "object" ? (payload as any).tank_mix : null;
+  const operationParams =
+    (payload as any).operation_params && typeof (payload as any).operation_params === "object" && !Array.isArray((payload as any).operation_params)
+      ? ({ ...(payload as any).operation_params } as Record<string, unknown>)
+      : {};
+  const rowSpacingM = (payload as any).row_spacing_m ?? null;
+  const seedSpacingCm = (payload as any).seed_spacing_cm ?? null;
   const canonicalType = resolveCanonicalOperationType({
     categorySlug: payload.operation_category_slug,
     typeSlug: payload.operation_type_slug,
@@ -353,6 +359,9 @@ export async function updateOperation(
   delete (payload as any).materials;
   delete (payload as any).purposes;
   delete (payload as any).tank_mix;
+  delete (payload as any).operation_params;
+  delete (payload as any).row_spacing_m;
+  delete (payload as any).seed_spacing_cm;
   if (payload.responsible_user_id === "none") {
     payload.responsible_user_id = null;
   }
@@ -375,6 +384,15 @@ export async function updateOperation(
     ...currentConfig,
     operation_engine_type: canonicalType?.slug || payload.operation_type_slug || currentConfig.operation_engine_type || null,
     operation_engine_label: canonicalType?.label || payload.operation_type || currentConfig.operation_engine_label || null,
+    operation_template: payload.operation_type_slug || currentConfig.operation_template || null,
+    operation_params: {
+      ...(((currentConfig as any).operation_params && typeof (currentConfig as any).operation_params === "object")
+        ? ((currentConfig as any).operation_params as Record<string, unknown>)
+        : {}),
+      ...operationParams,
+      row_spacing_m: rowSpacingM,
+      seed_spacing_cm: seedSpacingCm,
+    },
     purposes,
     tank_mix: tankMix || currentConfig.tank_mix || null,
     warehouse_workflow: buildWarehouseWorkflowMetadata(),

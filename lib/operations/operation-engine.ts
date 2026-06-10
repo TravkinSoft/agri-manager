@@ -51,6 +51,8 @@ export type TankMixComponentType =
 
 export type FertilizerApplicationMethod = "broadcast" | "banded" | "liquid" | "foliar";
 
+export type IrrigationType = "drip" | "sprinkler" | "dryland" | "unknown";
+
 export type OperationTechniqueSlug =
   | "tractor_implement"
   | "ground_boom_sprayer"
@@ -89,6 +91,19 @@ export type OperationSubtypeDefinition = {
   slug: string;
   categorySlug: CanonicalOperationTypeSlug;
   label: string;
+};
+
+export type OperationAvailabilityInput = {
+  cropName?: string | null;
+  varietyName?: string | null;
+  cropGroup?: string | null;
+  irrigationType?: IrrigationType | string | null;
+  hasCropStructure?: boolean;
+};
+
+export type OperationAvailabilityResult = {
+  allowed: boolean;
+  reason: string | null;
 };
 
 export type OperationPurposeDefinition = {
@@ -300,8 +315,8 @@ export const OPERATION_TYPE_DEFINITIONS: OperationTypeDefinition[] = [
     keywords: ["transport", "logistics", "перевоз", "логист"],
   },
   {
-    slug: "post_harvest",
-    categorySlug: "post_harvest",
+    slug: "post_harvest_operation",
+    categorySlug: "post_harvest_operation",
     label: "Послеуборочная доработка",
     description: "Очистка, сушка, сортировка или обработка урожая после уборки.",
     requiresCropStructure: false,
@@ -330,6 +345,7 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "soil_operation", slug: "leveling", label: "Выравнивание" },
   { categorySlug: "soil_operation", slug: "rolling", label: "Прикатывание" },
   { categorySlug: "soil_operation", slug: "ridge_forming", label: "Формирование гребней" },
+  { categorySlug: "soil_operation", slug: "ridge_forming_with_drip_tape", label: "Гребнеобразование + укладка ленты" },
   { categorySlug: "soil_operation", slug: "furrow_cutting", label: "Нарезка борозд" },
 
   { categorySlug: "planting", slug: "seeding", label: "Посев" },
@@ -356,23 +372,31 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "fertilizer_application", slug: "foliar_fertilization", label: "Листовая подкормка" },
 
   { categorySlug: "fertigation", slug: "fertigation_application", label: "Фертигация" },
+  { categorySlug: "fertigation", slug: "drip_fertigation", label: "Фертигация через каплю" },
   { categorySlug: "fertigation", slug: "chemigation", label: "Химизация через полив" },
 
   { categorySlug: "irrigation", slug: "irrigation_cycle", label: "Полив" },
+  { categorySlug: "irrigation", slug: "drip_irrigation", label: "Капельный полив" },
+  { categorySlug: "irrigation", slug: "sprinkler_irrigation", label: "Дождевальный полив" },
   { categorySlug: "scouting", slug: "field_scouting", label: "Осмотр поля" },
   { categorySlug: "sampling", slug: "soil_sampling", label: "Отбор проб почвы" },
   { categorySlug: "sampling", slug: "plant_sampling", label: "Отбор проб растений" },
 
   { categorySlug: "harvesting", slug: "direct_combining", label: "Прямое комбайнирование" },
   { categorySlug: "harvesting", slug: "separate_harvesting", label: "Раздельная уборка" },
+  { categorySlug: "harvesting", slug: "potato_lifting", label: "Подкоп картофеля" },
   { categorySlug: "harvesting", slug: "potato_harvesting", label: "Уборка картофеля" },
   { categorySlug: "harvesting", slug: "vegetable_harvesting", label: "Уборка овощей" },
   { categorySlug: "harvesting", slug: "grain_harvesting", label: "Уборка зерновых" },
   { categorySlug: "harvesting", slug: "windrow_pickup", label: "Подбор валков" },
 
+  { categorySlug: "service_operation", slug: "haulm_topping", label: "Ботвоудаление" },
+  { categorySlug: "service_operation", slug: "drip_tape_collection", label: "Сбор капельной ленты" },
   { categorySlug: "service_operation", slug: "service_task", label: "Сервисная задача" },
   { categorySlug: "transport", slug: "transport_task", label: "Перевозка" },
-  { categorySlug: "post_harvest", slug: "post_harvest_processing", label: "Послеуборочная доработка" },
+  { categorySlug: "post_harvest_operation", slug: "post_harvest_tillage", label: "Послеуборочная обработка поля" },
+  { categorySlug: "post_harvest_operation", slug: "tape_residue_collection", label: "Сбор остатков ленты" },
+  { categorySlug: "post_harvest_operation", slug: "post_harvest_processing", label: "Послеуборочная доработка" },
 ];
 
 export const OPERATION_PURPOSE_DEFINITIONS: OperationPurposeDefinition[] = [
@@ -528,6 +552,185 @@ export function normalizePurposeList(values: unknown): OperationPurposeSlug[] {
         .filter((value): value is OperationPurposeSlug => allowed.has(value as OperationPurposeSlug))
     )
   );
+}
+
+const POTATO_TEMPLATES = new Set([
+  "potato_planting",
+  "ridge_forming_with_drip_tape",
+  "drip_irrigation",
+  "sprinkler_irrigation",
+  "drip_fertigation",
+  "drip_tape_collection",
+  "tape_residue_collection",
+  "potato_lifting",
+  "potato_harvesting",
+  "haulm_topping",
+]);
+
+const DRIP_ONLY_TEMPLATES = new Set([
+  "ridge_forming_with_drip_tape",
+  "drip_irrigation",
+  "drip_fertigation",
+  "drip_tape_collection",
+  "tape_residue_collection",
+]);
+
+const SPRINKLER_ONLY_TEMPLATES = new Set(["sprinkler_irrigation"]);
+
+const IRRIGATION_TEMPLATES = new Set(["irrigation_cycle", "drip_irrigation", "sprinkler_irrigation"]);
+
+export function normalizeIrrigationType(value: IrrigationType | string | null | undefined): IrrigationType {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "drip") return "drip";
+  if (normalized === "sprinkler") return "sprinkler";
+  if (normalized === "dryland") return "dryland";
+  return "unknown";
+}
+
+export function getIrrigationTypeLabel(value: IrrigationType | string | null | undefined): string {
+  const normalized = normalizeIrrigationType(value);
+  if (normalized === "drip") return "Капельное";
+  if (normalized === "sprinkler") return "Дождевание";
+  if (normalized === "dryland") return "Богара";
+  return "Не указано";
+}
+
+const POTATO_CONTEXT_KEYWORDS = [
+  "\u043a\u0430\u0440\u0442\u043e\u0444",
+  "potato",
+  "\u0433\u0430\u043b\u0430",
+  "gala",
+  "\u0440\u0435\u0434 \u0441\u043a\u0430\u0440\u043b\u0435\u0442",
+  "red scarlet",
+  "red scarlett",
+  "\u0441\u0430\u043d\u0442\u044d",
+  "sante",
+  "\u0441\u0430\u043d\u0442\u0435",
+  "\u0440\u0438\u0432\u044c\u0435\u0440\u0430",
+  "riviera",
+  "\u0430\u0434\u0440\u0435\u0442\u0442\u0430",
+  "adretta",
+  "\u043a\u043e\u043b\u043e\u043c\u0431\u043e",
+  "colombo",
+  "\u043d\u0435\u0432\u0441\u043a\u0438\u0439",
+  "nevsky",
+  "\u0430\u0440\u0438\u0437\u043e\u043d\u0430",
+  "arizona",
+];
+
+export function isPotatoCropContext(
+  cropName: string | null | undefined,
+  varietyName?: string | null | undefined
+): boolean {
+  const normalized = `${cropName || ""} ${varietyName || ""}`.trim().toLowerCase();
+  return POTATO_CONTEXT_KEYWORDS.some((keyword) => normalized.includes(keyword));
+}
+
+export function isPotatoCropName(value: string | null | undefined): boolean {
+  return isPotatoCropContext(value);
+}
+
+export function isPotatoTemplate(slug: string | null | undefined): boolean {
+  return POTATO_TEMPLATES.has(String(slug || "").trim().toLowerCase());
+}
+
+export function isDripTapeTemplate(slug: string | null | undefined): boolean {
+  return DRIP_ONLY_TEMPLATES.has(String(slug || "").trim().toLowerCase());
+}
+
+export function getOperationTemplateAvailability(
+  input: OperationAvailabilityInput & {
+    categorySlug?: string | null;
+    typeSlug?: string | null;
+    operationType?: string | null;
+  }
+): OperationAvailabilityResult {
+  if (!input.hasCropStructure) return { allowed: true, reason: null };
+
+  const category = String(input.categorySlug || "").trim().toLowerCase();
+  const template = String(input.typeSlug || "").trim().toLowerCase();
+  const canonical = resolveCanonicalOperationType({
+    categorySlug: input.categorySlug,
+    typeSlug: input.typeSlug,
+    operationType: input.operationType,
+  });
+  const irrigationType = normalizeIrrigationType(input.irrigationType);
+  const isPotato = isPotatoCropContext(input.cropName, input.varietyName);
+
+  if (POTATO_TEMPLATES.has(template) && !isPotato) {
+    return { allowed: false, reason: "Работа относится к картофельной технологии." };
+  }
+
+  if (canonical?.slug === "fertigation" && irrigationType !== "drip") {
+    return { allowed: false, reason: "Фертигация доступна только для капельного орошения." };
+  }
+
+  if (canonical?.slug === "irrigation" && irrigationType === "dryland") {
+    return { allowed: false, reason: "Для богарного поля поливные операции недоступны." };
+  }
+
+  if (irrigationType === "dryland" && DRIP_ONLY_TEMPLATES.has(template)) {
+    return { allowed: false, reason: "Для богарного поля капельная лента и фертигация недоступны." };
+  }
+
+  if (irrigationType === "sprinkler" && DRIP_ONLY_TEMPLATES.has(template)) {
+    return { allowed: false, reason: "Для дождевания капельная лента и фертигация через каплю недоступны." };
+  }
+
+  if (irrigationType === "drip" && SPRINKLER_ONLY_TEMPLATES.has(template)) {
+    return { allowed: false, reason: "Для капельного орошения дождевальный полив недоступен." };
+  }
+
+  if (irrigationType === "unknown") {
+    if (DRIP_ONLY_TEMPLATES.has(template)) {
+      return { allowed: false, reason: "Тип орошения не указан, поэтому капельные операции скрыты." };
+    }
+    if (SPRINKLER_ONLY_TEMPLATES.has(template)) {
+      return { allowed: false, reason: "Тип орошения не указан, поэтому дождевальный полив скрыт." };
+    }
+  }
+
+  if (irrigationType === "drip" && template === "ridge_forming") {
+    return { allowed: true, reason: null };
+  }
+
+  if (irrigationType === "drip" && template === "irrigation_cycle") {
+    return { allowed: false, reason: "Для капельного орошения используйте капельный полив." };
+  }
+
+  if (irrigationType === "sprinkler" && template === "irrigation_cycle") {
+    return { allowed: false, reason: "Для дождевания используйте дождевальный полив." };
+  }
+
+  if ((category === "post_harvest" || category === "post_harvest_operation") && template === "post_harvest_processing") {
+    return { allowed: true, reason: null };
+  }
+
+  return { allowed: true, reason: null };
+}
+
+export function getHiddenOperationTemplates(
+  input: OperationAvailabilityInput
+): Array<{ slug: string; label: string; reason: string }> {
+  return OPERATION_SUBTYPE_DEFINITIONS
+    .map((definition) => {
+      const result = getOperationTemplateAvailability({
+        ...input,
+        categorySlug: definition.categorySlug,
+        typeSlug: definition.slug,
+        operationType: definition.label,
+      });
+      return result.allowed ? null : { slug: definition.slug, label: definition.label, reason: result.reason || "" };
+    })
+    .filter(Boolean) as Array<{ slug: string; label: string; reason: string }>;
+}
+
+export function shouldWarnUnknownIrrigation(input: OperationAvailabilityInput): boolean {
+  return Boolean(input.hasCropStructure && normalizeIrrigationType(input.irrigationType) === "unknown");
+}
+
+export function isIrrigationTemplate(slug: string | null | undefined): boolean {
+  return IRRIGATION_TEMPLATES.has(String(slug || "").trim().toLowerCase());
 }
 
 export function buildWarehouseWorkflowMetadata() {

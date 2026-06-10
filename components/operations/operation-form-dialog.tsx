@@ -60,9 +60,15 @@ import {
   OPERATION_TYPE_DEFINITIONS,
   TANK_MIX_COMPONENT_DEFINITIONS,
   getDefaultUnitForComponent,
+  getHiddenOperationTemplates,
+  getIrrigationTypeLabel,
+  getOperationTemplateAvailability,
   getPurposeDefinitionsForOperation,
   getTechniqueDefinitionsForOperation,
   getTankMixComponentDefinition,
+  isPotatoCropContext,
+  normalizeIrrigationType,
+  shouldWarnUnknownIrrigation,
   resolveCanonicalOperationType,
   toStorageMaterialType,
   type CanonicalOperationTypeSlug,
@@ -308,6 +314,7 @@ export function OperationFormDialog({
   const [purposes, setPurposes] = useState<OperationPurposeSlug[]>([]);
   const [tankMixEnabled, setTankMixEnabled] = useState(false);
   const [tankMixWaterRate, setTankMixWaterRate] = useState<number | null>(null);
+  const [operationParams, setOperationParams] = useState<Record<string, unknown>>({});
   const [structureChangeMode, setStructureChangeMode] = useState<"none" | "area_split" | "crop_replace">("none");
   const [structureChangeCropId, setStructureChangeCropId] = useState("");
   const [structureChangeVarietyId, setStructureChangeVarietyId] = useState("none");
@@ -333,6 +340,9 @@ export function OperationFormDialog({
       operation_target: null,
       rate_per_ha: null,
       spray_volume_per_ha: null,
+      row_spacing_m: null,
+      seed_spacing_cm: null,
+      operation_params: null,
       date: new Date().toISOString().slice(0, 10),
       responsible_user_id: null,
       notes: "",
@@ -360,6 +370,20 @@ export function OperationFormDialog({
     () => cropStructures.find((item) => item.id === selectedCropStructureId) || null,
     [cropStructures, selectedCropStructureId]
   );
+  const selectedIrrigationType = normalizeIrrigationType((selectedCropStructure as any)?.irrigation_type);
+  const selectedIsPotato = isPotatoCropContext(
+    selectedCropStructure?.crop_name,
+    selectedCropStructure?.variety_name
+  );
+  const availabilityContext = useMemo(
+    () => ({
+      cropName: selectedCropStructure?.crop_name || null,
+      varietyName: selectedCropStructure?.variety_name || null,
+      irrigationType: selectedIrrigationType,
+      hasCropStructure: Boolean(selectedCropStructure),
+    }),
+    [selectedCropStructure, selectedIrrigationType]
+  );
   const selectedFieldCropStructures = useMemo(
     () =>
       cropStructures.filter(
@@ -368,13 +392,41 @@ export function OperationFormDialog({
     [cropStructures, selectedFieldId]
   );
   const selectedCropStructureArea = selectedCropStructure ? Number(selectedCropStructure.area || 0) : null;
+  const availableCategories = useMemo(() => {
+    return categories.filter((category) => {
+      const expectedSubtypeSlugs = new Set(
+        OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === category.slug).map((item) => item.slug)
+      );
+      const rows = types.filter((item) => {
+        if (item.category_slug !== category.slug) return false;
+        if (expectedSubtypeSlugs.size > 0 && !expectedSubtypeSlugs.has(item.slug)) return false;
+        return getOperationTemplateAvailability({
+          ...availabilityContext,
+          categorySlug: item.category_slug,
+          typeSlug: item.slug,
+          operationType: item.name_ru,
+        }).allowed;
+      });
+      return rows.length > 0;
+    });
+  }, [availabilityContext, categories, types]);
   const typeOptions = useMemo(() => {
     const rows = types.filter((item) => !categorySlug || item.category_slug === categorySlug);
     const expectedSubtypeSlugs = new Set(
       OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === categorySlug).map((item) => item.slug)
     );
-    return expectedSubtypeSlugs.size > 0 ? rows.filter((item) => expectedSubtypeSlugs.has(item.slug)) : rows;
-  }, [types, categorySlug]);
+    const subtypeRows = expectedSubtypeSlugs.size > 0 ? rows.filter((item) => expectedSubtypeSlugs.has(item.slug)) : rows;
+    return subtypeRows.filter(
+      (item) =>
+        getOperationTemplateAvailability({
+          ...availabilityContext,
+          categorySlug: item.category_slug,
+          typeSlug: item.slug,
+          operationType: item.name_ru,
+        }).allowed
+    );
+  }, [availabilityContext, types, categorySlug]);
+  const hiddenTemplates = useMemo(() => getHiddenOperationTemplates(availabilityContext), [availabilityContext]);
   const cropStructureOptions = useMemo(
     () =>
       cropStructures
@@ -620,6 +672,9 @@ export function OperationFormDialog({
       operation_target: initial.operation_target || null,
       rate_per_ha: initial.rate_per_ha ?? null,
       spray_volume_per_ha: initial.spray_volume_per_ha ?? null,
+      row_spacing_m: initial.row_spacing_m ?? null,
+      seed_spacing_cm: initial.seed_spacing_cm ?? null,
+      operation_params: initial.operation_params || null,
       date: String(initial.date || new Date().toISOString().slice(0, 10)),
       responsible_user_id: initial.responsible_user_id || null,
       notes: String(initial.notes || ""),
@@ -633,6 +688,11 @@ export function OperationFormDialog({
     setPurposes((Array.isArray(initial.purposes) ? initial.purposes : []) as OperationPurposeSlug[]);
     setTankMixEnabled(Boolean(initialTankMix?.enabled));
     setTankMixWaterRate(initialTankMix?.water_rate_l_ha ?? null);
+    setOperationParams(
+      initial.operation_params && typeof initial.operation_params === "object" && !Array.isArray(initial.operation_params)
+        ? initial.operation_params
+        : {}
+    );
     setMaterials(initialMaterials);
     setStructureChangeMode("none");
     setStructureChangeCropId("");
@@ -645,7 +705,27 @@ export function OperationFormDialog({
     form.setValue("field_id", selectedCropStructure.field_id);
     form.setValue("crop_id", selectedCropStructure.crop_id);
     form.setValue("planned_area_ha", Number(selectedCropStructure.area || 0));
-  }, [form, open, selectedCropStructure]);
+    const structureRowSpacing = Number((selectedCropStructure as any).row_spacing_m || 0);
+    const structureSeedSpacing = Number((selectedCropStructure as any).seed_spacing_cm || 0);
+    const nextRowSpacing = structureRowSpacing > 0 ? structureRowSpacing : selectedIsPotato ? 0.75 : null;
+    const nextSeedSpacing = structureSeedSpacing > 0 ? structureSeedSpacing : selectedIsPotato ? 32 : null;
+    if (!form.getValues("row_spacing_m") && nextRowSpacing) {
+      form.setValue("row_spacing_m", nextRowSpacing);
+    }
+    if (!form.getValues("seed_spacing_cm") && nextSeedSpacing) {
+      form.setValue("seed_spacing_cm", nextSeedSpacing);
+    }
+    setOperationParams((prev) => ({
+      ...prev,
+      irrigation_type: selectedIrrigationType,
+      crop_context: {
+        crop: selectedCropStructure.crop_name || null,
+        variety: selectedCropStructure.variety_name || null,
+        reproduction: selectedCropStructure.reproduction_name || null,
+        area_ha: Number(selectedCropStructure.area || 0),
+      },
+    }));
+  }, [form, open, selectedCropStructure, selectedIrrigationType, selectedIsPotato]);
 
   useEffect(() => {
     if (!open || !selectedFieldId) return;
@@ -670,6 +750,23 @@ export function OperationFormDialog({
     selectedFieldCropStructures,
     selectedFieldId,
   ]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (categorySlug && !availableCategories.some((category) => category.slug === categorySlug)) {
+      setCategorySlug("");
+      setTypeSlug("");
+      form.setValue("operation_category_slug", "");
+      form.setValue("operation_type_slug", "");
+      form.setValue("operation_type", "");
+      return;
+    }
+    if (typeSlug && !typeOptions.some((item) => item.slug === typeSlug)) {
+      setTypeSlug("");
+      form.setValue("operation_type_slug", "");
+      form.setValue("operation_type", "");
+    }
+  }, [availableCategories, categorySlug, form, open, typeOptions, typeSlug]);
 
   useEffect(() => {
     if (!open) return;
@@ -732,10 +829,16 @@ export function OperationFormDialog({
   const isSeeding = canonicalType?.slug === "planting";
   const isFertilizing = canonicalType?.slug === "fertilizer_application";
   const isHarvest = canonicalType?.slug === "harvesting";
+  const isFertigation = canonicalType?.slug === "fertigation";
+  const isIrrigation = canonicalType?.slug === "irrigation";
+  const isPotatoPlanting = selectedIsPotato && typeSlug === "potato_planting";
+  const isDripTapeRidge = typeSlug === "ridge_forming_with_drip_tape";
+  const isDripTapeCollection = typeSlug === "drip_tape_collection" || typeSlug === "tape_residue_collection";
+  const isPotatoHarvestContext = typeSlug === "potato_lifting" || typeSlug === "potato_harvesting";
   const showPurposeEngine = !!canonicalType?.supportsPurposes && purposeOptions.length > 0;
   const showTankMix = !!canonicalType?.supportsTankMix;
-  const showMaterials = !!canonicalType?.supportsMaterials && !isHarvest;
-  const showMachine = canonicalType ? canonicalType.requiresMachine : !!selectedType?.requires_machine;
+  const showMaterials = (!!canonicalType?.supportsMaterials || isDripTapeRidge) && !isHarvest;
+  const showMachine = canonicalType ? canonicalType.requiresMachine || isDripTapeCollection || typeSlug === "haulm_topping" : !!selectedType?.requires_machine;
   const showTransport = canonicalType?.slug === "harvesting" || canonicalType?.slug === "transport";
   const showTechnique = techniqueOptions.length > 0 && !isFertilizing;
   const showField = canonicalType ? canonicalType.requiresCropStructure : true;
@@ -755,7 +858,9 @@ export function OperationFormDialog({
           ? "Шаблон уборки *"
           : "Работа *";
   const componentOptions = useMemo(() => {
-    const allowed = isSeeding
+    const allowed = isDripTapeRidge
+      ? new Set<TankMixComponentType>(["other"])
+      : isSeeding
       ? new Set<TankMixComponentType>(["seed", "fertilizer", "micro_fertilizer", "crop_protection", "biological", "biostimulant", "other"])
       : showTankMix
         ? new Set<TankMixComponentType>([
@@ -774,10 +879,35 @@ export function OperationFormDialog({
           ? new Set<TankMixComponentType>(["fertilizer", "micro_fertilizer", "biological", "biostimulant", "other"])
           : new Set<TankMixComponentType>(TANK_MIX_COMPONENT_DEFINITIONS.map((item) => item.slug));
     return TANK_MIX_COMPONENT_DEFINITIONS.filter((item) => allowed.has(item.slug));
-  }, [isFertilizing, isSeeding, showTankMix]);
+  }, [isDripTapeRidge, isFertilizing, isSeeding, showTankMix]);
+  const rowSpacingM = form.watch("row_spacing_m");
+  const seedSpacingCm = form.watch("seed_spacing_cm");
+  const plannedAreaHa = form.watch("planned_area_ha");
+  const plantsPerHa =
+    rowSpacingM && seedSpacingCm && rowSpacingM > 0 && seedSpacingCm > 0
+      ? Math.round(10000 / (rowSpacingM * (seedSpacingCm / 100)))
+      : null;
+  const totalPlants =
+    plantsPerHa && plannedAreaHa && plannedAreaHa > 0
+      ? Math.round(plantsPerHa * plannedAreaHa)
+      : null;
+
+  const updateOperationParam = (key: string, value: unknown) => {
+    setOperationParams((prev) => ({
+      ...prev,
+      [key]: value === "" ? null : value,
+    }));
+  };
+
+  const getOperationParam = (key: string): string | number | readonly string[] | undefined => {
+    const value = operationParams[key];
+    if (value == null) return "";
+    if (typeof value === "string" || typeof value === "number") return value;
+    return String(value);
+  };
 
   const addMaterial = () => {
-    const componentType = canonicalType?.defaultComponentType || (isSeeding ? "other" : "fertilizer");
+    const componentType = isDripTapeRidge ? "other" : canonicalType?.defaultComponentType || (isSeeding ? "other" : "fertilizer");
     setMaterials((prev) => [
       ...prev,
       {
@@ -874,6 +1004,17 @@ export function OperationFormDialog({
       setSubmitError(message);
       return;
     }
+    if (isPotatoPlanting && (!data.seed_spacing_cm || data.seed_spacing_cm <= 0)) {
+      const message = "Укажите межклубневое расстояние для посадки картофеля.";
+      form.setError("seed_spacing_cm", { message });
+      setSubmitError(message);
+      return;
+    }
+    if ((isIrrigation || isFertigation) && !operationParams.water_norm_mm && !operationParams.water_volume_m3) {
+      const message = "Укажите норму воды или общий объём воды.";
+      setSubmitError(message);
+      return;
+    }
     const normalizedMaterials = materials.map((item) => {
       const component = getTankMixComponentDefinition(item.component_type || item.material_type);
       return {
@@ -891,6 +1032,21 @@ export function OperationFormDialog({
       const component = getTankMixComponentDefinition(item.component_type);
       return component.productRequired ? String(item.product_id || "").trim().length > 0 : true;
     });
+    if (isDripTapeRidge && materialsForSubmit.length === 0 && !operationParams.drip_tape_rolls && !operationParams.drip_tape_roll_length_m) {
+      const message = "Для укладки ленты добавьте материал или укажите бухты/длину ленты.";
+      setSubmitError(message);
+      return;
+    }
+    const operationParamsForSubmit: Record<string, unknown> = {
+      ...operationParams,
+      irrigation_type: selectedIrrigationType,
+      operation_template: typeSlug || null,
+      row_spacing_m: data.row_spacing_m ?? null,
+      seed_spacing_cm: data.seed_spacing_cm ?? null,
+      calculated_plants_per_ha: plantsPerHa,
+      calculated_total_plants: totalPlants,
+      tape_is_consumable_material: isDripTapeRidge || isDripTapeCollection ? true : undefined,
+    };
     let structureChangePayload: OperationFormData["structure_change"] | undefined;
     if (isSeeding && structureChangeMode !== "none") {
       if (!structureChangeCropId) {
@@ -938,6 +1094,7 @@ export function OperationFormDialog({
           operation_category_slug: canonicalType?.categorySlug || categorySlug,
           operation_type_slug: typeSlug,
           operation_type: selectedType.name_ru,
+          operation_params: operationParamsForSubmit,
           purposes,
           tank_mix: showTankMix
             ? {
@@ -1026,6 +1183,39 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
+            {selectedCropStructure ? (
+              <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Поле</div>
+                    <div className="font-semibold">{getFieldDisplayName(fields.find((field) => field.id === selectedCropStructure.field_id) || ({ name: selectedCropStructure.field_name } as Field))}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Культура</div>
+                    <div className="font-semibold">
+                      {selectedCropStructure.crop_name || "-"} / {selectedCropStructure.variety_name || "-"} / {selectedCropStructure.reproduction_name || "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">Площадь и орошение</div>
+                    <div className="font-semibold">
+                      {Number(selectedCropStructure.area || 0).toFixed(2)} га · {getIrrigationTypeLabel(selectedIrrigationType)}
+                    </div>
+                  </div>
+                </div>
+                {shouldWarnUnknownIrrigation(availabilityContext) ? (
+                  <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+                    Тип орошения не указан. Некоторые операции могут быть скрыты или недоступны.
+                  </div>
+                ) : null}
+                {hiddenTemplates.length > 0 ? (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    Скрыто недоступных работ: {hiddenTemplates.length}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <FormItem>
                 <FormLabel>Производственный блок *</FormLabel>
@@ -1036,7 +1226,7 @@ export function OperationFormDialog({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {categories.map((category) => (
+                    {availableCategories.map((category) => (
                       <SelectItem key={category.id} value={category.slug}>
                         {category.name_ru}
                       </SelectItem>
@@ -1087,6 +1277,214 @@ export function OperationFormDialog({
                 {canonicalType?.description ? (
                   <div className="mt-1 text-xs text-muted-foreground">{canonicalType.description}</div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {isPotatoPlanting ? (
+              <div className="rounded-lg border p-3">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold">Параметры посадки картофеля</div>
+                  <div className="text-xs text-slate-500">
+                    Межклубневое расстояние обязательно. Плановая густота считается автоматически.
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <FormField
+                    control={form.control}
+                    name="row_spacing_m"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Междурядье, м</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={field.value ?? ""}
+                            onChange={(event) => field.onChange(normalizeNumber(event.target.value))}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="seed_spacing_cm"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Межклубневое, см *</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.1"
+                            value={field.value ?? ""}
+                            onChange={(event) => field.onChange(normalizeNumber(event.target.value))}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="rate_per_ha"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Факт посадки, кг/га</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={field.value ?? ""}
+                            onChange={(event) => field.onChange(normalizeNumber(event.target.value))}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Глубина посадки, см</div>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={getOperationParam("planting_depth_cm")}
+                      onChange={(event) => updateOperationParam("planting_depth_cm", normalizeNumber(event.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Фракция семян</div>
+                    <Input
+                      value={getOperationParam("seed_fraction")}
+                      onChange={(event) => updateOperationParam("seed_fraction", event.target.value)}
+                      placeholder="например 35-55 мм"
+                    />
+                  </div>
+                  <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs">
+                    <div>Клубней/га: <b>{plantsPerHa ? plantsPerHa.toLocaleString("ru-RU") : "-"}</b></div>
+                    <div>Всего клубней: <b>{totalPlants ? totalPlants.toLocaleString("ru-RU") : "-"}</b></div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {isDripTapeRidge ? (
+              <div className="rounded-lg border p-3">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold">Гребнеобразование + укладка ленты</div>
+                  <div className="text-xs text-slate-500">
+                    Один проход техники: гребни и лента создаются одной операцией.
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <FormField
+                    control={form.control}
+                    name="row_spacing_m"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Междурядье, м</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            value={field.value ?? ""}
+                            onChange={(event) => field.onChange(normalizeNumber(event.target.value))}
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Количество рядов</div>
+                    <Input
+                      type="number"
+                      step="1"
+                      value={getOperationParam("row_count")}
+                      onChange={(event) => updateOperationParam("row_count", normalizeNumber(event.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Тип капельной ленты</div>
+                    <Input
+                      value={getOperationParam("drip_tape_type")}
+                      onChange={(event) => updateOperationParam("drip_tape_type", event.target.value)}
+                      placeholder="марка / диаметр / стенка"
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Длина бухты, м</div>
+                    <Input
+                      type="number"
+                      step="1"
+                      value={getOperationParam("drip_tape_roll_length_m")}
+                      onChange={(event) => updateOperationParam("drip_tape_roll_length_m", normalizeNumber(event.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Количество бухт</div>
+                    <Input
+                      type="number"
+                      step="1"
+                      value={getOperationParam("drip_tape_rolls")}
+                      onChange={(event) => updateOperationParam("drip_tape_rolls", normalizeNumber(event.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Шаг эмиттера, см</div>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={getOperationParam("emitter_spacing_cm")}
+                      onChange={(event) => updateOperationParam("emitter_spacing_cm", normalizeNumber(event.target.value))}
+                    />
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {isIrrigation || isFertigation ? (
+              <div className="rounded-lg border p-3">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold">{isFertigation ? "Фертигация" : "Полив"}</div>
+                  <div className="text-xs text-slate-500">
+                    Операция фиксирует конкретный полив/внесение, а не сезонную программу.
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Норма воды, мм</div>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={getOperationParam("water_norm_mm")}
+                      onChange={(event) => updateOperationParam("water_norm_mm", normalizeNumber(event.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Объём воды, м³</div>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={getOperationParam("water_volume_m3")}
+                      onChange={(event) => updateOperationParam("water_volume_m3", normalizeNumber(event.target.value))}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Зона полива</div>
+                    <Input
+                      value={getOperationParam("irrigation_zone")}
+                      onChange={(event) => updateOperationParam("irrigation_zone", event.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Длительность, ч</div>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      value={getOperationParam("duration_hours")}
+                      onChange={(event) => updateOperationParam("duration_hours", normalizeNumber(event.target.value))}
+                    />
+                  </div>
+                </div>
               </div>
             ) : null}
 
@@ -1233,7 +1631,9 @@ export function OperationFormDialog({
 
             {isHarvest ? (
               <div className="rounded-lg border border-dashed p-3 text-sm text-slate-600">
-                Уборка по умолчанию создается без материалов. Масса урожая закрывается через весовую и партии, когда будет выбран талон.
+                {isPotatoHarvestContext
+                  ? "Картофельная уборка создается без материалов. Урожай, нетто, партия и склад должны закрываться через весовую."
+                  : "Уборка по умолчанию создается без материалов. Масса урожая закрывается через весовую и партии, когда будет выбран талон."}
               </div>
             ) : null}
 

@@ -20,6 +20,9 @@ export interface Operation {
   operation_target?: string | null;
   rate_per_ha?: number | null;
   spray_volume_per_ha?: number | null;
+  row_spacing_m?: number | null;
+  seed_spacing_cm?: number | null;
+  operation_params?: Record<string, unknown> | null;
   operation_config?: Record<string, unknown> | null;
   notes: string | null;
   responsible_user_id: string | null;
@@ -163,6 +166,9 @@ export const operationSchema = z.object({
   operation_target: z.string().nullable().optional(),
   rate_per_ha: z.number().min(0).nullable().optional(),
   spray_volume_per_ha: z.number().min(0).nullable().optional(),
+  row_spacing_m: z.number().positive("row_spacing_m must be > 0").nullable().optional(),
+  seed_spacing_cm: z.number().positive("seed_spacing_cm must be > 0").nullable().optional(),
+  operation_params: z.record(z.unknown()).nullable().optional(),
   purposes: z.array(z.string()).optional(),
   tank_mix: z
     .object({

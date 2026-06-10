@@ -20,6 +20,12 @@ import { getFieldDisplayName } from "@/lib/fields/display";
 import { createOperation, getAssignableSpecialists } from "@/lib/services/operations";
 import type { OperationFormData, SpecialistAssignee } from "@/lib/types/operation";
 import type { CropStructureWithDetails } from "@/lib/types/crop-structure";
+import {
+  getIrrigationTypeLabel,
+  isPotatoCropContext,
+  normalizeIrrigationType,
+  type IrrigationType,
+} from "@/lib/operations/operation-engine";
 
 type Field = { id: string; name: string; area: number; notes?: string | null };
 type Season = { id: string; year: number };
@@ -45,6 +51,9 @@ type Allocation = {
   area: number | null;
   seeding_rate?: number | null;
   expected_yield?: number | null;
+  irrigation_type?: IrrigationType | null;
+  row_spacing_m?: number | null;
+  seed_spacing_cm?: number | null;
 };
 type Consumption = {
   id: string;
@@ -107,6 +116,31 @@ const parseNum = (value: string): number | null => {
   const num = Number(raw);
   return Number.isFinite(num) ? num : null;
 };
+const CROP_STRUCTURE_BASE_SELECT = "id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
+const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
+const isMissingCropStructureV4Column = (error: unknown) => {
+  const message = String((error as any)?.message || error || "").toLowerCase();
+  return (
+    message.includes("irrigation_type") ||
+    message.includes("row_spacing_m") ||
+    message.includes("seed_spacing_cm") ||
+    message.includes("schema cache")
+  );
+};
+const allocationFromRow = (row: any): Allocation => ({
+  id: row.id,
+  field_id: row.field_id,
+  crop_id: row.crop_id,
+  variety_id: row.variety_id,
+  reproduction_id: row.reproduction_id,
+  notes: row.notes || "",
+  area: Number(row.area || 0),
+  seeding_rate: row.seeding_rate == null ? null : Number(row.seeding_rate || 0),
+  expected_yield: row.expected_yield == null ? null : Number(row.expected_yield || 0),
+  irrigation_type: normalizeIrrigationType(row.irrigation_type),
+  row_spacing_m: row.row_spacing_m == null ? null : Number(row.row_spacing_m || 0),
+  seed_spacing_cm: row.seed_spacing_cm == null ? null : Number(row.seed_spacing_cm || 0),
+});
 const fmtDate = (value?: string | null) => {
   if (!value) return "-";
   const d = new Date(value);
@@ -194,6 +228,8 @@ export default function CropStructurePage() {
   const cropName = (id?: string | null) => (id && cropMap.get(id) ? cropLabel(cropMap.get(id) as Crop) : "-");
   const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "-" : "-");
   const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? reproductionMap.get(id)?.name || "-" : "-");
+  const isPotatoAllocation = (row: Pick<Allocation, "crop_id" | "variety_id">) =>
+    isPotatoCropContext(cropName(row.crop_id), varietyName(row.variety_id));
   const sumArea = (rows: Allocation[]) => rows.reduce((sum, row) => sum + Number(row.area || 0), 0);
 
   const consumptionsByAllocation = useMemo(() => {
@@ -331,26 +367,24 @@ export default function CropStructurePage() {
     if (!profile?.company_id || !seasonId) return;
     (async () => {
       try {
-        const res = await supabase
+        let res: any = await supabase
           .from("crop_structure")
-          .select("id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield")
+          .select(CROP_STRUCTURE_V4_SELECT)
           .eq("company_id", profile.company_id)
           .eq("season_id", seasonId)
           .eq("archived", false);
+        if (res.error && isMissingCropStructureV4Column(res.error)) {
+          res = await supabase
+            .from("crop_structure")
+            .select(CROP_STRUCTURE_BASE_SELECT)
+            .eq("company_id", profile.company_id)
+            .eq("season_id", seasonId)
+            .eq("archived", false);
+        }
         if (res.error) throw res.error;
         const map = new Map<string, Allocation[]>();
         for (const row of (res.data || []) as any[]) {
-          const allocation: Allocation = {
-            id: row.id,
-            field_id: row.field_id,
-            crop_id: row.crop_id,
-            variety_id: row.variety_id,
-            reproduction_id: row.reproduction_id,
-            notes: row.notes || "",
-            area: Number(row.area || 0),
-            seeding_rate: row.seeding_rate == null ? null : Number(row.seeding_rate || 0),
-            expected_yield: row.expected_yield == null ? null : Number(row.expected_yield || 0),
-          };
+          const allocation = allocationFromRow(row);
           map.set(row.field_id, [...(map.get(row.field_id) || []), allocation]);
         }
         setAllocByField(map);
@@ -512,15 +546,35 @@ export default function CropStructurePage() {
     setDraftRows((prev) => {
       const next = [...prev];
       const old = next[index];
-      next[index] = { ...old, ...patch };
-      if (patch.crop_id && patch.crop_id !== old.crop_id) next[index].variety_id = null;
+      const merged = { ...old, ...patch };
+      if (patch.crop_id && patch.crop_id !== old.crop_id) {
+        merged.variety_id = null;
+      }
+      if (isPotatoAllocation(merged)) {
+        merged.row_spacing_m = merged.row_spacing_m || 0.75;
+        merged.irrigation_type = normalizeIrrigationType(merged.irrigation_type);
+      }
+      next[index] = merged;
       return next;
     });
   };
 
   const addRow = () => {
     if (!selectedFieldId) return;
-    setDraftRows((prev) => [...prev, { field_id: selectedFieldId, crop_id: null, variety_id: null, reproduction_id: null, notes: "", area: null }]);
+    setDraftRows((prev) => [
+      ...prev,
+      {
+        field_id: selectedFieldId,
+        crop_id: null,
+        variety_id: null,
+        reproduction_id: null,
+        notes: "",
+        area: null,
+        irrigation_type: "unknown",
+        row_spacing_m: null,
+        seed_spacing_cm: null,
+      },
+    ]);
   };
 
   const removeRow = (index: number) => {
@@ -530,7 +584,21 @@ export default function CropStructurePage() {
   const fillFullArea = () => {
     if (!selectedField) return;
     setDraftRows((prev) => {
-      if (!prev.length) return [{ field_id: selectedField.id, crop_id: null, variety_id: null, reproduction_id: null, notes: "", area: selectedField.area }];
+      if (!prev.length) {
+        return [
+          {
+            field_id: selectedField.id,
+            crop_id: null,
+            variety_id: null,
+            reproduction_id: null,
+            notes: "",
+            area: selectedField.area,
+            irrigation_type: "unknown",
+            row_spacing_m: null,
+            seed_spacing_cm: null,
+          },
+        ];
+      }
       const otherArea = prev.slice(1).reduce((sum, row) => sum + Number(row.area || 0), 0);
       return [{ ...prev[0], area: Math.max(0, selectedField.area - otherArea) }, ...prev.slice(1)];
     });
@@ -543,6 +611,10 @@ export default function CropStructurePage() {
         toast({ title: "Ошибка", description: "Заполните культуру, сорт, репродукцию и площадь.", variant: "destructive" });
         return;
       }
+      if (isPotatoAllocation(row) && (!row.seed_spacing_cm || row.seed_spacing_cm <= 0)) {
+        toast({ title: "Ошибка", description: "Для картофеля укажите межклубневое расстояние в структуре.", variant: "destructive" });
+        return;
+      }
     }
     if (sumArea(draftRows) > selectedField.area + EPS) {
       toast({ title: "Ошибка", description: "Площадь посевных строк превышает площадь поля.", variant: "destructive" });
@@ -550,6 +622,25 @@ export default function CropStructurePage() {
     }
     try {
       setSaving(true);
+      const toStructurePayload = (row: Allocation, includeTechnology: boolean) => ({
+        company_id: profile.company_id,
+        user_id: profile.id,
+        field_id: selectedFieldId,
+        season_id: seasonId,
+        crop_id: row.crop_id,
+        variety_id: row.variety_id,
+        reproduction_id: row.reproduction_id,
+        notes: row.notes || null,
+        area: Number(row.area || 0),
+        status: "planned",
+        ...(includeTechnology
+          ? {
+              irrigation_type: normalizeIrrigationType(row.irrigation_type),
+              row_spacing_m: row.row_spacing_m ?? (isPotatoAllocation(row) ? 0.75 : null),
+              seed_spacing_cm: row.seed_spacing_cm ?? null,
+            }
+          : {}),
+      });
       const prev = initialByField.get(selectedFieldId) || [];
       const prevIds = new Set(prev.map((row) => row.id).filter(Boolean) as string[]);
       const curIds = new Set(draftRows.map((row) => row.id).filter(Boolean) as string[]);
@@ -560,57 +651,34 @@ export default function CropStructurePage() {
       }
       const updates = draftRows.filter((row) => row.id);
       if (updates.length) {
-        const up = await supabase.from("crop_structure").upsert(
-          updates.map((row) => ({
-            id: row.id,
-            company_id: profile.company_id,
-            user_id: profile.id,
-            field_id: selectedFieldId,
-            season_id: seasonId,
-            crop_id: row.crop_id,
-            variety_id: row.variety_id,
-            reproduction_id: row.reproduction_id,
-            notes: row.notes || null,
-            area: Number(row.area || 0),
-            status: "planned",
-          })),
+        let up = await supabase.from("crop_structure").upsert(
+          updates.map((row) => ({ id: row.id, ...toStructurePayload(row, true) })),
           { onConflict: "id" },
         );
+        if (up.error && isMissingCropStructureV4Column(up.error)) {
+          up = await supabase.from("crop_structure").upsert(
+            updates.map((row) => ({ id: row.id, ...toStructurePayload(row, false) })),
+            { onConflict: "id" },
+          );
+        }
         if (up.error) throw up.error;
       }
       const inserts = draftRows.filter((row) => !row.id);
       if (inserts.length) {
-        const ins = await supabase.from("crop_structure").insert(
-          inserts.map((row) => ({
-            company_id: profile.company_id,
-            user_id: profile.id,
-            field_id: selectedFieldId,
-            season_id: seasonId,
-            crop_id: row.crop_id,
-            variety_id: row.variety_id,
-            reproduction_id: row.reproduction_id,
-            notes: row.notes || null,
-            area: Number(row.area || 0),
-            status: "planned",
-          })),
-        );
+        let ins = await supabase.from("crop_structure").insert(inserts.map((row) => toStructurePayload(row, true)));
+        if (ins.error && isMissingCropStructureV4Column(ins.error)) {
+          ins = await supabase.from("crop_structure").insert(inserts.map((row) => toStructurePayload(row, false)));
+        }
         if (ins.error) throw ins.error;
       }
-      const res = await supabase.from("crop_structure").select("id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield").eq("company_id", profile.company_id).eq("season_id", seasonId).eq("archived", false);
+      let res: any = await supabase.from("crop_structure").select(CROP_STRUCTURE_V4_SELECT).eq("company_id", profile.company_id).eq("season_id", seasonId).eq("archived", false);
+      if (res.error && isMissingCropStructureV4Column(res.error)) {
+        res = await supabase.from("crop_structure").select(CROP_STRUCTURE_BASE_SELECT).eq("company_id", profile.company_id).eq("season_id", seasonId).eq("archived", false);
+      }
       if (res.error) throw res.error;
       const map = new Map<string, Allocation[]>();
       for (const row of (res.data || []) as any[]) {
-        const item: Allocation = {
-          id: row.id,
-          field_id: row.field_id,
-          crop_id: row.crop_id,
-          variety_id: row.variety_id,
-          reproduction_id: row.reproduction_id,
-          notes: row.notes || "",
-          area: Number(row.area || 0),
-          seeding_rate: row.seeding_rate == null ? null : Number(row.seeding_rate || 0),
-          expected_yield: row.expected_yield == null ? null : Number(row.expected_yield || 0),
-        };
+        const item = allocationFromRow(row);
         map.set(row.field_id, [...(map.get(row.field_id) || []), item]);
       }
       setAllocByField(map);
@@ -695,6 +763,9 @@ export default function CropStructurePage() {
           area: Number(allocation.area || 0),
           seeding_rate: allocation.seeding_rate ?? null,
           expected_yield: allocation.expected_yield ?? null,
+          irrigation_type: normalizeIrrigationType(allocation.irrigation_type),
+          row_spacing_m: allocation.row_spacing_m ?? null,
+          seed_spacing_cm: allocation.seed_spacing_cm ?? null,
           status: "planned",
           notes: allocation.notes || null,
           archived: false,
@@ -723,11 +794,17 @@ export default function CropStructurePage() {
       });
       return;
     }
+    const allocationIsPotato = isPotatoAllocation(allocation);
     setOperationDefaults({
       field_id: field.id,
       crop_structure_id: allocation.id,
       crop_id: allocation.crop_id,
       planned_area_ha: Number(allocation.area || 0),
+      row_spacing_m: allocation.row_spacing_m ?? (allocationIsPotato ? 0.75 : null),
+      seed_spacing_cm: allocation.seed_spacing_cm ?? (allocationIsPotato ? 32 : null),
+      operation_params: {
+        irrigation_type: normalizeIrrigationType(allocation.irrigation_type),
+      },
       date: new Date().toISOString().slice(0, 10),
       notes: "",
     });
@@ -1103,6 +1180,50 @@ export default function CropStructurePage() {
                 <div className="col-span-3 md:col-span-1">
                   <Label>Удалить</Label>
                   <Button className="w-full" variant="ghost" size="icon" onClick={() => removeRow(index)}><X className="h-4 w-4" /></Button>
+                </div>
+                <div className="col-span-12 grid grid-cols-1 gap-2 border-t border-slate-200 pt-2 md:grid-cols-4">
+                  <div>
+                    <Label>Орошение</Label>
+                    <Select
+                      value={normalizeIrrigationType(row.irrigation_type)}
+                      onValueChange={(value) => patchDraft(index, { irrigation_type: normalizeIrrigationType(value) })}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="unknown">Не указано</SelectItem>
+                        <SelectItem value="drip">Капельное</SelectItem>
+                        <SelectItem value="sprinkler">Дождевание</SelectItem>
+                        <SelectItem value="dryland">Богара</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Междурядье, м</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={row.row_spacing_m == null ? "" : String(row.row_spacing_m)}
+                      onChange={(event) => patchDraft(index, { row_spacing_m: parseNum(event.target.value) })}
+                      placeholder={isPotatoAllocation(row) ? "0.75" : "м"}
+                    />
+                  </div>
+                  <div>
+                    <Label>{isPotatoAllocation(row) ? "Межклубневое, см" : "Расстояние в ряду, см"}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.1"
+                      value={row.seed_spacing_cm == null ? "" : String(row.seed_spacing_cm)}
+                      onChange={(event) => patchDraft(index, { seed_spacing_cm: parseNum(event.target.value) })}
+                      placeholder={isPotatoAllocation(row) ? "32" : "см"}
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <div className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200">
+                      {getIrrigationTypeLabel(row.irrigation_type)}
+                    </div>
+                  </div>
                 </div>
               </div>
             );

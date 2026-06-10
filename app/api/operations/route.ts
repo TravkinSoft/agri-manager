@@ -14,6 +14,7 @@ import {
   buildExecutionFactModelMetadata,
   buildWarehouseWorkflowMetadata,
   getTankMixComponentDefinition,
+  normalizeIrrigationType,
   normalizePurposeList,
   resolveCanonicalOperationType,
   toStorageMaterialType,
@@ -51,6 +52,9 @@ type CreateOperationBody = {
   operation_target?: string | null;
   rate_per_ha?: number | null;
   spray_volume_per_ha?: number | null;
+  row_spacing_m?: number | null;
+  seed_spacing_cm?: number | null;
+  operation_params?: Record<string, unknown> | null;
   purposes?: unknown;
   tank_mix?: {
     enabled?: boolean | null;
@@ -265,6 +269,11 @@ function toNullableNumber(value: unknown): number | null {
   return n;
 }
 
+function toPlainRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
 function normalizeDate(value: string): string {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const parsed = new Date(value);
@@ -416,6 +425,15 @@ export async function POST(request: NextRequest) {
     if (plannedArea != null && plannedArea < 0) {
       return NextResponse.json({ error: "planned_area_ha must be >= 0" }, { status: 400 });
     }
+    const rowSpacingM = toNullableNumber(body.row_spacing_m);
+    if (rowSpacingM != null && rowSpacingM <= 0) {
+      return NextResponse.json({ error: "row_spacing_m must be > 0" }, { status: 400 });
+    }
+    const seedSpacingCm = toNullableNumber(body.seed_spacing_cm);
+    if (seedSpacingCm != null && seedSpacingCm <= 0) {
+      return NextResponse.json({ error: "seed_spacing_cm must be > 0" }, { status: 400 });
+    }
+    const requestedOperationParams = toPlainRecord(body.operation_params);
 
     let cropStructureId = toNullableUuid(body.crop_structure_id);
     const responsibleUserId = toNullableUuid(body.responsible_user_id);
@@ -430,7 +448,8 @@ export async function POST(request: NextRequest) {
     const operationTypeSlug = requestedTypeSlug || canonicalType?.slug || null;
     const canonicalCategorySlug = canonicalType?.categorySlug || operationCategorySlug;
     let purposes = normalizePurposeList(body.purposes);
-    let operationTemplate: string | null = null;
+    let operationTemplate: string | null =
+      requestedTypeSlug && requestedTypeSlug !== canonicalType?.slug ? requestedTypeSlug : null;
     let storageOperationType = operationType;
     let storageOperationTypeSlug = operationTypeSlug;
     if (canonicalCategorySlug === "spraying" && operationTypeSlug === "desiccation_treatment") {
@@ -456,6 +475,9 @@ export async function POST(request: NextRequest) {
     let resolvedStructureArea: number | null = null;
     let resolvedSeasonId: string | null = null;
     let resolvedSeasonYear: number | null = null;
+    let resolvedIrrigationType = normalizeIrrigationType(requestedOperationParams.irrigation_type as string | null | undefined);
+    let resolvedRowSpacingM = rowSpacingM;
+    let resolvedSeedSpacingCm = seedSpacingCm;
     let pendingStructureChangeEvent: Record<string, unknown> | null = null;
     timing.validation_ms += Date.now() - validationStarted;
 
@@ -475,13 +497,16 @@ export async function POST(request: NextRequest) {
       Boolean(cropStructureId && fieldId) &&
       !body.structure_change?.mode &&
       operationComponents.length === 0 &&
+      !rowSpacingM &&
+      !seedSpacingCm &&
+      operationTemplate !== "potato_planting" &&
       allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType);
 
     if (cropStructureId && !deferCropStructureReadForFastPath) {
       const cropStructureStarted = Date.now();
       let { data: structureRow, error: structureError } = await supabase
         .from("crop_structure")
-        .select("id,field_id,crop_id,variety_id,reproduction_id,area,season_id,seasons:season_id(year)")
+        .select("*,seasons:season_id(year)")
         .eq("id", cropStructureId)
         .eq("company_id", companyId)
         .maybeSingle();
@@ -615,10 +640,16 @@ export async function POST(request: NextRequest) {
         resolvedSeasonYear = Number.isFinite(seasonYear) && seasonYear > 0 ? seasonYear : null;
         const structureArea = Number((structureRow as any).area || 0);
         resolvedStructureArea = Number.isFinite(structureArea) && structureArea > 0 ? structureArea : null;
+        resolvedIrrigationType = normalizeIrrigationType((structureRow as any).irrigation_type || resolvedIrrigationType);
+        resolvedRowSpacingM = resolvedRowSpacingM ?? toNullableNumber((structureRow as any).row_spacing_m);
+        resolvedSeedSpacingCm = resolvedSeedSpacingCm ?? toNullableNumber((structureRow as any).seed_spacing_cm);
       }
     }
 
     const effectivePlannedArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
+    if (operationTemplate === "potato_planting" && (!resolvedSeedSpacingCm || resolvedSeedSpacingCm <= 0)) {
+      return NextResponse.json({ error: "seed_spacing_cm is required for potato planting" }, { status: 400 });
+    }
     const productIds = Array.from(
       new Set(operationComponents.map((item) => toNullableUuid(item?.product_id)).filter(Boolean) as string[])
     );
@@ -679,11 +710,27 @@ export async function POST(request: NextRequest) {
         product_required: definition.productRequired,
       };
     });
+    const calculatedPlantsPerHa =
+      resolvedRowSpacingM && resolvedSeedSpacingCm && resolvedRowSpacingM > 0 && resolvedSeedSpacingCm > 0
+        ? Math.round(10000 / (resolvedRowSpacingM * (resolvedSeedSpacingCm / 100)))
+        : null;
+    const calculatedTotalPlants =
+      calculatedPlantsPerHa && effectivePlannedArea && effectivePlannedArea > 0
+        ? Math.round(calculatedPlantsPerHa * effectivePlannedArea)
+        : null;
 
     const operationConfig = {
       operation_engine_type: canonicalType?.slug || operationTypeSlug || null,
       operation_engine_label: canonicalType?.label || operationType,
       operation_template: operationTemplate,
+      operation_params: {
+        ...requestedOperationParams,
+        irrigation_type: resolvedIrrigationType,
+        row_spacing_m: resolvedRowSpacingM,
+        seed_spacing_cm: resolvedSeedSpacingCm,
+        calculated_plants_per_ha: calculatedPlantsPerHa,
+        calculated_total_plants: calculatedTotalPlants,
+      },
       idempotency_key: idempotencyKey,
       request_fingerprint: requestFingerprint,
       purposes,
@@ -731,6 +778,9 @@ export async function POST(request: NextRequest) {
       Boolean(cropStructureId && fieldId) &&
       !pendingStructureChangeEvent &&
       operationComponents.length === 0 &&
+      !resolvedRowSpacingM &&
+      !resolvedSeedSpacingCm &&
+      operationTemplate !== "potato_planting" &&
       allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType);
 
     if (canUseFastPlanCreate) {
@@ -932,6 +982,10 @@ export async function POST(request: NextRequest) {
           reproduction_id: resolvedReproductionId,
           planned_area_ha: effectiveArea,
           actual_area_ha: null,
+          row_spacing_m: resolvedRowSpacingM,
+          seed_spacing_cm: resolvedSeedSpacingCm,
+          calculated_plants_per_ha: calculatedPlantsPerHa,
+          calculated_total_plants: calculatedTotalPlants,
           notes: cropStructureId ? "Auto-created from operation crop structure" : "Auto-created from operation",
           created_by_user_id: actor.authUserId,
           updated_by_user_id: actor.authUserId,
