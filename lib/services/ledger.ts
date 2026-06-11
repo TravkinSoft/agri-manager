@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { brandName } from "@/lib/i18n/helpers";
 
 export interface LedgerRow {
   id: string;
@@ -24,7 +25,7 @@ export async function getLedgerEntries(companyId: string): Promise<LedgerRow[]> 
     .from("stock_ledger_entries")
     .select(`
       *,
-      products:product_id(name),
+      products:product_id(name,trade_name,normalized_name),
       warehouses:warehouse_id(name)
     `)
     .eq("company_id", companyId)
@@ -37,8 +38,7 @@ export async function getLedgerEntries(companyId: string): Promise<LedgerRow[]> 
     ...row,
     quantity: Number(row.quantity || 0),
     delta_qty_signed: Number(row.delta_qty_signed || 0),
-    product_name: row.products?.name || "-",
+    product_name: brandName(row.products) || "-",
     warehouse_name: row.warehouses?.name || "-",
   }));
 }
-

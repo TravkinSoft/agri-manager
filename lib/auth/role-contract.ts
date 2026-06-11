@@ -38,6 +38,8 @@ const LEGACY_ROLE_ALIASES: Record<string, CanonicalRole> = {
   legal_accountant: "legal_operator",
   warehousemanager: "warehouse_operator",
   warehouse_manager: "warehouse_operator",
+  weighbridge_operator: "weighman",
+  scale_operator: "weighman",
   foreman: "brigadier",
 };
 

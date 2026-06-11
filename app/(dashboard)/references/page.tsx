@@ -10,11 +10,14 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
 import {
   addGlobalAgrochemicalToCompany,
+  archiveCompanyPerson,
   createCrop,
+  createCompanyPerson,
   createMachineReference,
   createSeedReproduction,
   createSpecialistReference,
@@ -22,6 +25,7 @@ import {
   createVehicleReference,
   getGlobalVehicleBrands,
   getGlobalVehicleModels,
+  getCompanyPeople,
   getCrops,
   getEquipmentReferences,
   getFertilizers,
@@ -31,6 +35,7 @@ import {
   getSpecialistReferences,
   getVarieties,
   getVehicleReferences,
+  updateCompanyPerson,
   updateSpecialistReference,
   searchAgrochemicalMaster,
 } from "@/lib/services/references";
@@ -40,8 +45,8 @@ type AgronomyTab = "crops" | "varieties" | "reproductions";
 type AgrochemTab = "master" | "company";
 type MachineYardTab = "machines" | "equipment";
 type FleetTab = "vehicles";
-type PersonnelTab = "specialists";
-type ModalType = "crop" | "variety" | "reproduction" | "machine" | "vehicle" | "specialist";
+type PersonnelTab = "workers" | "specialists";
+type ModalType = "crop" | "variety" | "reproduction" | "machine" | "vehicle" | "specialist" | "worker";
 
 const pesticideCategoryLabels: Record<string, string> = {
   herbicide: "Гербицид",
@@ -81,6 +86,31 @@ const personnelTypeLabels: Record<string, string> = {
   machine_operator: "Механизатор",
 };
 
+const workerRoleLabels: Record<string, string> = {
+  driver: "Водитель",
+  machine_operator: "Механизатор",
+  worker: "Рабочий",
+  cook: "Повар",
+  office: "Офис",
+  guard: "Охрана",
+  manager: "Руководитель",
+  other: "Другое",
+};
+
+const employmentTypeLabels: Record<string, string> = {
+  permanent: "Постоянный",
+  temporary: "Временный",
+  seasonal: "Сезонный",
+  contractor: "Подрядчик",
+  unknown: "Не указано",
+};
+
+const workerStatusLabels: Record<string, string> = {
+  active: "Активен",
+  inactive: "Неактивен",
+  archived: "Архив",
+};
+
 function DataTable(props: { headers: string[]; rows: string[][]; loading: boolean; empty: string }) {
   return (
     <Table>
@@ -117,10 +147,14 @@ export default function ReferencesPage() {
   const [agrochemTab, setAgrochemTab] = useState<AgrochemTab>("master");
   const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("machines");
   const [fleetTab, setFleetTab] = useState<FleetTab>("vehicles");
-  const [personnelTab, setPersonnelTab] = useState<PersonnelTab>("specialists");
+  const [personnelTab, setPersonnelTab] = useState<PersonnelTab>("workers");
   const [modalType, setModalType] = useState<ModalType | null>(null);
+  const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
 
   const [searchMaster, setSearchMaster] = useState("");
+  const [workerSearch, setWorkerSearch] = useState("");
+  const [workerRoleFilter, setWorkerRoleFilter] = useState("all");
+  const [workerStatusFilter, setWorkerStatusFilter] = useState("active");
 
   const [crops, setCrops] = useState<any[]>([]);
   const [varieties, setVarieties] = useState<any[]>([]);
@@ -131,6 +165,7 @@ export default function ReferencesPage() {
   const [machines, setMachines] = useState<any[]>([]);
   const [equipment, setEquipment] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
+  const [workers, setWorkers] = useState<any[]>([]);
   const [specialists, setSpecialists] = useState<any[]>([]);
   const [globalBrands, setGlobalBrands] = useState<any[]>([]);
   const [globalModels, setGlobalModels] = useState<any[]>([]);
@@ -148,15 +183,19 @@ export default function ReferencesPage() {
       return null;
     }
     if (domainTab === "fleet" && fleetTab === "vehicles") return { label: "Добавить машину", modal: "vehicle" as const };
-    if (domainTab === "personnel" && personnelTab === "specialists") return { label: "Добавить специалиста", modal: "specialist" as const };
+    if (domainTab === "personnel" && personnelTab === "workers") return { label: "Добавить работника", modal: "worker" as const };
+    if (domainTab === "personnel" && personnelTab === "specialists") return { label: "Добавить водителя/механизатора", modal: "specialist" as const };
     return null;
   }, [domainTab, agronomyTab, machineYardTab, fleetTab, personnelTab]);
 
   const loadAll = async () => {
-    if (!profile?.company_id) return;
+    if (!profile?.company_id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
-      const [cropRows, varietyRows, reprRows, pesticideRows, fertilizerRows, machineRows, equipmentRows, vehicleRows, specialistRows, brandRows, modelRows] = await Promise.all([
+      const [cropRows, varietyRows, reprRows, pesticideRows, fertilizerRows, machineRows, equipmentRows, vehicleRows, workerRows, specialistRows, brandRows, modelRows] = await Promise.all([
         getCrops(profile.company_id, false, "ru"),
         getVarieties(profile.company_id, false, "ru"),
         getSeedReproductions(profile.company_id, false, "ru"),
@@ -165,6 +204,7 @@ export default function ReferencesPage() {
         getMachineReferences(profile.company_id, false, "ru"),
         getEquipmentReferences(profile.company_id, false, "ru"),
         getVehicleReferences(profile.company_id, false),
+        getCompanyPeople(profile.company_id, true),
         getSpecialistReferences(profile.company_id, false),
         getGlobalVehicleBrands(),
         getGlobalVehicleModels(),
@@ -177,6 +217,7 @@ export default function ReferencesPage() {
       setMachines(machineRows);
       setEquipment(equipmentRows);
       setVehicles(vehicleRows);
+      setWorkers(workerRows);
       setSpecialists(specialistRows);
       setGlobalBrands(brandRows);
       setGlobalModels(modelRows);
@@ -202,8 +243,30 @@ export default function ReferencesPage() {
     void loadMasterCatalog();
   }, [profile?.company_id, searchMaster]);
 
-  const openModal = (type: ModalType) => {
+  const filteredWorkers = useMemo(() => {
+    const query = workerSearch.trim().toLowerCase();
+    return workers.filter((worker) => {
+      const matchesSearch = !query || [
+        worker.full_name,
+        worker.short_name,
+        worker.phone,
+        worker.notes,
+      ].some((value) => String(value || "").toLowerCase().includes(query));
+      const matchesRole = workerRoleFilter === "all" || worker.role_type === workerRoleFilter;
+      const matchesStatus = workerStatusFilter === "all" || worker.status === workerStatusFilter;
+      return matchesSearch && matchesRole && matchesStatus;
+    });
+  }, [workers, workerSearch, workerRoleFilter, workerStatusFilter]);
+
+  const openModal = (type: ModalType, initialForm: Record<string, string> = {}) => {
     setModalType(type);
+    setEditingWorkerId(type === "worker" && initialForm.id ? initialForm.id : null);
+    setForm(initialForm);
+  };
+
+  const closeModal = () => {
+    setModalType(null);
+    setEditingWorkerId(null);
     setForm({});
   };
 
@@ -283,16 +346,62 @@ export default function ReferencesPage() {
           });
         }
       }
-      setModalType(null);
-      setForm({});
+      if (modalType === "worker") {
+        if (!form.full_name?.trim()) throw new Error("Укажите ФИО");
+        const payload = {
+          full_name: form.full_name.trim(),
+          short_name: form.short_name || "",
+          role_type: (form.role_type || "worker") as any,
+          employment_type: (form.employment_type || "unknown") as any,
+          phone: form.phone || "",
+          iin: form.iin || "",
+          status: (form.status || "active") as any,
+          notes: form.notes || "",
+          user_id: null,
+        };
+        if (editingWorkerId) {
+          await updateCompanyPerson(profile.company_id, editingWorkerId, profile.id, payload);
+        } else {
+          await createCompanyPerson(profile.company_id, profile.id, payload);
+        }
+      }
+      closeModal();
       await loadAll();
-      toast({ title: "Готово", description: "Запись успешно создана" });
+      toast({ title: "Готово", description: editingWorkerId ? "Запись обновлена" : "Запись успешно создана" });
     } catch (error) {
       toast({
         title: "Ошибка",
         description: error instanceof Error ? error.message : "Не удалось создать запись",
         variant: "destructive",
       });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const editWorker = (worker: any) => {
+    openModal("worker", {
+      id: worker.id,
+      full_name: worker.full_name || "",
+      short_name: worker.short_name || "",
+      role_type: worker.role_type || "worker",
+      employment_type: worker.employment_type || "unknown",
+      phone: worker.phone || "",
+      iin: worker.iin || "",
+      status: worker.status || "active",
+      notes: worker.notes || "",
+    });
+  };
+
+  const archiveWorker = async (worker: any) => {
+    if (!profile?.company_id || !profile?.id || saving) return;
+    setSaving(true);
+    try {
+      await archiveCompanyPerson(profile.company_id, worker.id, profile.id);
+      await loadAll();
+      toast({ title: "Готово", description: "Работник перенесён в архив" });
+    } catch (error) {
+      toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось архивировать работника", variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -461,18 +570,114 @@ export default function ReferencesPage() {
 
         <TabsContent value="personnel">
           <Tabs value={personnelTab} onValueChange={(value) => setPersonnelTab(value as PersonnelTab)}>
-            <TabsList><TabsTrigger value="specialists">Специалисты</TabsTrigger></TabsList>
+            <TabsList>
+              <TabsTrigger value="workers">Работники</TabsTrigger>
+              <TabsTrigger value="specialists">Водители и механизаторы</TabsTrigger>
+            </TabsList>
+            <TabsContent value="workers">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Работники компании</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_160px]">
+                    <Input
+                      placeholder="Поиск по ФИО, телефону или заметке..."
+                      value={workerSearch}
+                      onChange={(e) => setWorkerSearch(e.target.value)}
+                    />
+                    <Select value={workerRoleFilter} onValueChange={setWorkerRoleFilter}>
+                      <SelectTrigger><SelectValue placeholder="Роль" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Все роли</SelectItem>
+                        {Object.entries(workerRoleLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={workerStatusFilter} onValueChange={setWorkerStatusFilter}>
+                      <SelectTrigger><SelectValue placeholder="Статус" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Все статусы</SelectItem>
+                        {Object.entries(workerStatusLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>ФИО</TableHead>
+                        <TableHead>Роль</TableHead>
+                        <TableHead>Занятость</TableHead>
+                        <TableHead>Телефон</TableHead>
+                        <TableHead>Статус</TableHead>
+                        <TableHead>Заметка</TableHead>
+                        <TableHead className="text-right">Действия</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {loading ? (
+                        <TableRow><TableCell colSpan={7} className="text-center text-slate-500">Загрузка...</TableCell></TableRow>
+                      ) : filteredWorkers.length === 0 ? (
+                        <TableRow><TableCell colSpan={7} className="text-center text-slate-500">Работники не найдены</TableCell></TableRow>
+                      ) : (
+                        filteredWorkers.map((worker) => (
+                          <TableRow key={worker.id}>
+                            <TableCell className="font-medium">
+                              <div>{worker.full_name}</div>
+                              {worker.short_name ? <div className="text-xs text-slate-500">{worker.short_name}</div> : null}
+                            </TableCell>
+                            <TableCell>{workerRoleLabels[worker.role_type] || worker.role_type}</TableCell>
+                            <TableCell>{employmentTypeLabels[worker.employment_type] || worker.employment_type}</TableCell>
+                            <TableCell>{worker.phone || "-"}</TableCell>
+                            <TableCell>{workerStatusLabels[worker.status] || worker.status}</TableCell>
+                            <TableCell className="max-w-[260px] truncate">{worker.notes || "-"}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button variant="outline" size="sm" onClick={() => editWorker(worker)} disabled={saving}>
+                                  Изменить
+                                </Button>
+                                {worker.status !== "archived" ? (
+                                  <Button variant="outline" size="sm" onClick={() => archiveWorker(worker)} disabled={saving}>
+                                    Архив
+                                  </Button>
+                                ) : null}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      )}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </TabsContent>
             <TabsContent value="specialists">
               <Card>
-                <CardHeader><CardTitle>Персонал</CardTitle></CardHeader>
-                <CardContent><DataTable headers={["ФИО", "Роль"]} rows={specialists.map((x) => [x.full_name, x.role || "-"])} loading={loading} empty="Специалисты не добавлены" /></CardContent>
+                <CardHeader><CardTitle>Совместимость: водители и механизаторы</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={["ФИО", "Тип", "Телефон", "Статус"]}
+                    rows={specialists.map((x) => [
+                      x.full_name,
+                      personnelTypeLabels[x.personnel_type || ""] || x.role || "-",
+                      x.phone || "-",
+                      x.status === "inactive" ? "Неактивен" : "Активен",
+                    ])}
+                    loading={loading}
+                    empty="Водители и механизаторы не добавлены"
+                  />
+                </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
         </TabsContent>
       </Tabs>
 
-      <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && setModalType(null)}>
+      <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && closeModal()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
@@ -482,6 +687,7 @@ export default function ReferencesPage() {
               {modalType === "machine" ? "Добавить технику" : null}
               {modalType === "vehicle" ? "Добавить машину" : null}
               {modalType === "specialist" ? "Добавить специалиста" : null}
+              {modalType === "worker" ? (editingWorkerId ? "Изменить работника" : "Добавить работника") : null}
             </DialogTitle>
           </DialogHeader>
 
@@ -498,6 +704,64 @@ export default function ReferencesPage() {
                 <Label>ФИО</Label>
                 <Input value={form.full_name || ""} onChange={(e) => setForm((prev) => ({ ...prev, full_name: e.target.value }))} />
               </div>
+            ) : null}
+
+            {modalType === "worker" ? (
+              <>
+                <div>
+                  <Label>ФИО</Label>
+                  <Input value={form.full_name || ""} onChange={(e) => setForm((prev) => ({ ...prev, full_name: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Короткое имя</Label>
+                  <Input value={form.short_name || ""} onChange={(e) => setForm((prev) => ({ ...prev, short_name: e.target.value }))} />
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label>Роль</Label>
+                    <Select value={form.role_type || "worker"} onValueChange={(value) => setForm((prev) => ({ ...prev, role_type: value }))}>
+                      <SelectTrigger><SelectValue placeholder="Выберите роль" /></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(workerRoleLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Тип занятости</Label>
+                    <Select value={form.employment_type || "unknown"} onValueChange={(value) => setForm((prev) => ({ ...prev, employment_type: value }))}>
+                      <SelectTrigger><SelectValue placeholder="Выберите тип" /></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(employmentTypeLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label>Телефон</Label>
+                    <Input value={form.phone || ""} onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Статус</Label>
+                    <Select value={form.status || "active"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
+                      <SelectTrigger><SelectValue placeholder="Выберите статус" /></SelectTrigger>
+                      <SelectContent>
+                        {Object.entries(workerStatusLabels).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div>
+                  <Label>Заметка</Label>
+                  <Textarea value={form.notes || ""} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
+                </div>
+              </>
             ) : null}
 
             {modalType === "variety" ? (
@@ -531,11 +795,11 @@ export default function ReferencesPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => !saving && setModalType(null)} disabled={saving}>
+            <Button variant="outline" onClick={() => !saving && closeModal()} disabled={saving}>
               Отмена
             </Button>
             <Button onClick={submitCreate} disabled={saving}>
-              {saving ? "Сохранение..." : "Создать"}
+              {saving ? "Сохранение..." : editingWorkerId ? "Сохранить" : "Создать"}
             </Button>
           </DialogFooter>
         </DialogContent>

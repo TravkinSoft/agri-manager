@@ -54,6 +54,13 @@ function hasPositiveNumber(value: unknown): boolean {
   return Number.isFinite(n) && n > 0;
 }
 
+function nullablePositiveNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -70,6 +77,9 @@ export async function POST(
     const requestedCompanyId = String(body.companyId || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
     const comment = String(body.comment || "").trim();
+    const lineFacts = Array.isArray(body.lineFacts) ? body.lineFacts : [];
+    const materialFacts = Array.isArray(body.materialFacts) ? body.materialFacts : [];
+    const fallbackActualArea = nullablePositiveNumber(body.actualAreaHa);
     const supabase = getServiceClient();
 
     await assertActorAccess({
@@ -120,13 +130,60 @@ export async function POST(
     if (isProductionOperation) {
       const { data: lines, error: linesError } = await supabase
         .from("operation_lines")
-        .select("id,actual_area_ha")
+        .select("id,planned_area_ha,actual_area_ha")
         .eq("operation_id", operationId)
         .eq("company_id", companyId);
       if (linesError) {
         return NextResponse.json({ error: linesError.message }, { status: 400 });
       }
-      const hasActualArea = (lines || []).some((line: any) => hasPositiveNumber(line.actual_area_ha));
+
+      let normalizedLines = lines || [];
+      const lineFactsById = new Map<string, number | null>();
+      for (const rawFact of lineFacts) {
+        const lineId = String(rawFact?.lineId || rawFact?.id || "").trim();
+        if (!lineId) continue;
+        const actualArea = nullablePositiveNumber(rawFact?.actualAreaHa ?? rawFact?.actual_area_ha);
+        if (actualArea == null || actualArea <= 0) {
+          return NextResponse.json({ error: "Actual area must be greater than zero" }, { status: 400 });
+        }
+        lineFactsById.set(lineId, actualArea);
+      }
+
+      if (lineFactsById.size > 0 || (fallbackActualArea != null && normalizedLines.length === 1)) {
+        const updatedLines: any[] = [];
+        for (const line of normalizedLines as any[]) {
+          const actualArea = lineFactsById.get(String(line.id)) ?? (normalizedLines.length === 1 ? fallbackActualArea : null);
+          if (actualArea == null) {
+            updatedLines.push(line);
+            continue;
+          }
+          const plannedArea = Number(line.planned_area_ha || 0);
+          if (plannedArea > 0 && actualArea > plannedArea + 0.000001) {
+            return NextResponse.json(
+              { error: "Actual area cannot exceed planned area", line_id: line.id },
+              { status: 400 }
+            );
+          }
+          const { data: updatedLine, error: lineUpdateError } = await supabase
+            .from("operation_lines")
+            .update({ actual_area_ha: Number(actualArea.toFixed(3)) })
+            .eq("id", line.id)
+            .eq("operation_id", operationId)
+            .eq("company_id", companyId)
+            .select("id,planned_area_ha,actual_area_ha")
+            .single();
+          if (lineUpdateError || !updatedLine?.id) {
+            return NextResponse.json(
+              { error: lineUpdateError?.message || "Failed to update actual area" },
+              { status: 400 }
+            );
+          }
+          updatedLines.push(updatedLine);
+        }
+        normalizedLines = updatedLines;
+      }
+
+      const hasActualArea = (normalizedLines || []).some((line: any) => hasPositiveNumber(line.actual_area_ha));
       if (!hasActualArea) {
         return NextResponse.json({ error: "Actual area is required before completion" }, { status: 400 });
       }
@@ -140,7 +197,71 @@ export async function POST(
         return NextResponse.json({ error: materialsError.message }, { status: 400 });
       }
 
-      const incompleteMaterial = (materials || []).find((material: any) => {
+      let normalizedMaterials = materials || [];
+      if (materialFacts.length > 0 && normalizedMaterials.length > 0) {
+        const materialFactsById = new Map<string, any>();
+        for (const rawFact of materialFacts) {
+          const materialId = String(rawFact?.materialId || rawFact?.id || "").trim();
+          if (!materialId) continue;
+          const actualRate = rawFact?.actualRate === null || rawFact?.actualRate === undefined || rawFact?.actualRate === ""
+            ? null
+            : nullablePositiveNumber(rawFact.actualRate);
+          const consumedQuantity = rawFact?.consumedQuantity === null || rawFact?.consumedQuantity === undefined || rawFact?.consumedQuantity === ""
+            ? null
+            : nullablePositiveNumber(rawFact.consumedQuantity);
+          const returnedQuantity = rawFact?.returnedQuantity === null || rawFact?.returnedQuantity === undefined || rawFact?.returnedQuantity === ""
+            ? null
+            : nullablePositiveNumber(rawFact.returnedQuantity);
+          if (
+            (rawFact?.actualRate !== null && rawFact?.actualRate !== undefined && rawFact?.actualRate !== "" && actualRate == null) ||
+            (rawFact?.consumedQuantity !== null && rawFact?.consumedQuantity !== undefined && rawFact?.consumedQuantity !== "" && consumedQuantity == null) ||
+            (rawFact?.returnedQuantity !== null && rawFact?.returnedQuantity !== undefined && rawFact?.returnedQuantity !== "" && returnedQuantity == null)
+          ) {
+            return NextResponse.json({ error: "Material fact values must be zero or positive" }, { status: 400 });
+          }
+          materialFactsById.set(materialId, { actualRate, consumedQuantity, returnedQuantity });
+        }
+
+        const updatedMaterials: any[] = [];
+        for (const material of normalizedMaterials as any[]) {
+          const fact = materialFactsById.get(String(material.id));
+          if (!fact) {
+            updatedMaterials.push(material);
+            continue;
+          }
+          const issued = Number(material.issued_quantity || 0);
+          const consumed = fact.consumedQuantity ?? material.consumed_quantity ?? null;
+          const returned = fact.returnedQuantity ?? material.returned_quantity ?? 0;
+          if (issued > 0 && Number(consumed || 0) + Number(returned || 0) > issued + 0.000001) {
+            return NextResponse.json(
+              { error: "Material fact cannot exceed issued quantity", material_id: material.id },
+              { status: 400 }
+            );
+          }
+          const { data: updatedMaterial, error: materialUpdateError } = await supabase
+            .from("operation_materials")
+            .update({
+              actual_rate: fact.actualRate,
+              consumed_quantity: consumed,
+              returned_quantity: returned,
+            })
+            .eq("id", material.id)
+            .eq("operation_id", operationId)
+            .eq("company_id", companyId)
+            .select("id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
+            .single();
+          if (materialUpdateError || !updatedMaterial?.id) {
+            return NextResponse.json(
+              { error: materialUpdateError?.message || "Failed to update material facts" },
+              { status: 400 }
+            );
+          }
+          updatedMaterials.push(updatedMaterial);
+        }
+        normalizedMaterials = updatedMaterials;
+      }
+
+      const incompleteMaterial = (normalizedMaterials || []).find((material: any) => {
         const actualRateSet = material.actual_rate !== null && material.actual_rate !== undefined;
         const consumedSet = material.consumed_quantity !== null && material.consumed_quantity !== undefined;
         const returnedSet = material.returned_quantity !== null && material.returned_quantity !== undefined;
@@ -156,7 +277,7 @@ export async function POST(
         );
       }
 
-      const impossibleMaterialFact = (materials || []).find((material: any) => {
+      const impossibleMaterialFact = (normalizedMaterials || []).find((material: any) => {
         const issued = Number(material.issued_quantity || 0);
         const consumed = Number(material.consumed_quantity || 0);
         const returned = Number(material.returned_quantity || 0);

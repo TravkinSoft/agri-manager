@@ -6,6 +6,8 @@ import {
   resolveMaterialRequestSession,
   toWorkflowStatus,
 } from "@/app/api/material-requests/_helpers";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 function toNumber(value: unknown): number {
   const n = Number(value);
@@ -45,13 +47,13 @@ export async function GET(request: NextRequest) {
       .select(`
         *,
         fields:field_id(name),
-        operations:operation_id(operation_type, date, work_status, status),
+        operations:operation_id(operation_type, date, work_status, status, notes),
         source_warehouse:source_warehouse_id(name, name_ru, name_kz, name_en),
         assigned_specialist:assigned_specialist_id(id, full_name, email),
         recipient:recipient_user_id(id, full_name, email),
-        crops:crop_id(name),
+        crops:crop_id(name,name_ru,name_kz,name_en,slug),
         varieties:variety_id(name),
-        reproductions:reproduction_id(name),
+        reproductions:reproduction_id(name,name_ru,name_kz,name_en,code),
         items:warehouse_issue_request_items(
           id,
           request_id,
@@ -68,7 +70,7 @@ export async function GET(request: NextRequest) {
           actual_rate_per_ha,
           batch_id,
           created_at,
-          products:product_id(name, type, unit)
+          products:product_id(name, trade_name, normalized_name, type, unit)
         )
       `)
       .eq("company_id", companyId)
@@ -90,7 +92,19 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    const rows = (data || []).map((row: any) => {
+    const rows = (data || []).filter((row: any) => {
+      const operation = row.operations || {};
+      const qaText = [
+        row.request_number,
+        row.comment,
+        operation.operation_type,
+        operation.notes,
+        row.fields?.name,
+        row.source_warehouse?.name,
+        row.source_warehouse?.name_ru,
+      ].join(" ");
+      return !hasQaDataMarker(qaText);
+    }).map((row: any) => {
       const items = (row.items || []).map((item: any) => {
         const plannedQty = toNumber(item.planned_quantity ?? item.required_quantity);
         const issuedQty = toNumber(item.issued_quantity);
@@ -102,7 +116,7 @@ export async function GET(request: NextRequest) {
           issued_quantity: issuedQty,
           consumed_quantity: consumedQty,
           returned_quantity: returnedQty,
-          product_name: item.products?.name || "-",
+          product_name: brandName(item.products) || "-",
           product_type: item.products?.type || item.product_category || "-",
           product_unit: item.products?.unit || item.unit || "kg",
         };
@@ -118,9 +132,9 @@ export async function GET(request: NextRequest) {
         operation_type: row.operations?.operation_type || "-",
         operation_date: row.operations?.date || null,
         operation_work_status: row.operations?.work_status || row.operations?.status || null,
-        crop_name: row.crops?.name || null,
-        variety_name: row.varieties?.name || null,
-        reproduction_name: row.reproductions?.name || null,
+        crop_name: localizedName(row.crops, "ru") || null,
+        variety_name: brandName(row.varieties) || null,
+        reproduction_name: localizedName(row.reproductions, "ru", ["name", "code"]) || null,
         assigned_specialist_name: row.assigned_specialist?.full_name || row.assigned_specialist?.email || null,
         recipient_name: row.recipient?.full_name || row.recipient?.email || null,
         source_warehouse_name:
@@ -232,4 +246,3 @@ export async function PATCH(request: NextRequest) {
     );
   }
 }
-

@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { localizedName } from "@/lib/i18n/helpers";
 import {
   addTreatmentProgramStep,
   createOperationFromTreatmentStep,
@@ -292,7 +293,7 @@ export default function CareSystemsPage() {
                 <SelectContent>
                   <SelectItem value="all">Все культуры</SelectItem>
                   {(ctx?.crops || []).map((c) => (
-                    <SelectItem key={c.id} value={c.id}>{c.name_ru || c.name || c.name_en || "-"}</SelectItem>
+                    <SelectItem key={c.id} value={c.id}>{localizedName(c as any, "ru") || "-"}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -331,7 +332,7 @@ export default function CareSystemsPage() {
                     <SelectTrigger><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
                     <SelectContent>
                       {(ctx?.crops || []).map((c) => (
-                        <SelectItem key={c.id} value={c.id}>{c.name_ru || c.name || c.name_en || "-"}</SelectItem>
+                        <SelectItem key={c.id} value={c.id}>{localizedName(c as any, "ru") || "-"}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

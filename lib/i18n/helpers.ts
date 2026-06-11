@@ -49,19 +49,25 @@ const fallbackNameTranslations: Record<
   fallow: { ru: "Пар", kz: "Пар", en: "Fallow" },
   flax: { ru: "Лен", kz: "Зығыр", en: "Flax" },
   "grass mix": { ru: "Травосмесь", kz: "Шөп қоспасы", en: "Grass mix" },
+  "grass-mix": { ru: "Травосмесь", kz: "Шөп қоспасы", en: "Grass mix" },
   lentils: { ru: "Чечевица", kz: "Жасымық", en: "Lentils" },
   lucerne: { ru: "Люцерна", kz: "Жоңышқа", en: "Lucerne" },
-  oats: { ru: "Овес", kz: "Сұлы", en: "Oats" },
-  "oats/grass mix": { ru: "Овес/травосмесь", kz: "Сұлы/шөп қоспасы", en: "Oats/Grass Mix" },
+  oat: { ru: "Овёс", kz: "Сұлы", en: "Oat" },
+  oats: { ru: "Овёс", kz: "Сұлы", en: "Oats" },
+  "oats/grass mix": { ru: "Овёс/травосмесь", kz: "Сұлы/шөп қоспасы", en: "Oats/Grass Mix" },
+  "oats-grass-mix": { ru: "Овёс/травосмесь", kz: "Сұлы/шөп қоспасы", en: "Oats/Grass Mix" },
   pea: { ru: "Горох", kz: "Бұршақ", en: "Pea" },
   peas: { ru: "Горох", kz: "Бұршақ", en: "Peas" },
+  potato: { ru: "Картофель", kz: "Картоп", en: "Potato" },
   potatoes: { ru: "Картофель", kz: "Картоп", en: "Potatoes" },
   soybeans: { ru: "Соя", kz: "Соя", en: "Soybeans" },
   sunflower: { ru: "Подсолнечник", kz: "Күнбағыс", en: "Sunflower" },
   wheat: { ru: "Пшеница", kz: "Бидай", en: "Wheat" },
   vegetables: { ru: "Овощи", kz: "Көкөністер", en: "Vegetables" },
   "perennial grass": { ru: "Многолетние травы", kz: "Көпжылдық шөптер", en: "Perennial grass" },
+  "perennial-grass": { ru: "Многолетние травы", kz: "Көпжылдық шөптер", en: "Perennial grass" },
   "sudan grass": { ru: "Суданская трава", kz: "Судан шөбі", en: "Sudan grass" },
+  "sudan-grass": { ru: "Суданская трава", kz: "Судан шөбі", en: "Sudan grass" },
 
   // Warehouses
   "main storage facility": { ru: "Основной склад", kz: "Негізгі қойма", en: "Main Storage Facility" },
@@ -69,16 +75,14 @@ const fallbackNameTranslations: Record<
   "fertilizer warehouse": { ru: "Склад удобрений", kz: "Тыңайтқыш қоймасы", en: "Fertilizer Warehouse" },
   "seed warehouse": { ru: "Склад семян", kz: "Тұқым қоймасы", en: "Seed Warehouse" },
 
-  // Products
-  "ammonium nitrate": { ru: "Аммиачная селитра", kz: "Аммиак селитрасы", en: "Ammonium Nitrate" },
-  "ammophos 12-52": { ru: "Аммофос 12-52", kz: "Аммофос 12-52", en: "Ammophos 12-52" },
-  "urea 46%": { ru: "Карбамид 46%", kz: "Карбамид 46%", en: "Urea 46%" },
-  "fertilizer npk 15-15-15": { ru: "Удобрение NPK 15-15-15", kz: "Тыңайтқыш NPK 15-15-15", en: "Fertilizer NPK 15-15-15" },
-  "herbicide glyphosate 360": { ru: "Гербицид Глифосат 360", kz: "Гербицид Глифосат 360", en: "Herbicide Glyphosate 360" },
-  "glyphosate 480": { ru: "Глифосат 480", kz: "Глифосат 480", en: "Glyphosate 480" },
-  dicamba: { ru: "Дикамба", kz: "Дикамба", en: "Dicamba" },
-  metribuzin: { ru: "Метрибузин", kz: "Метрибузин", en: "Metribuzin" },
-  "seed potato - russet burbank": { ru: "Семенной картофель — Russet Burbank", kz: "Тұқымдық картоп — Russet Burbank", en: "Seed Potato - Russet Burbank" },
+  // Seed reproductions
+  original: { ru: "Оригинальные", kz: "Оригинал", en: "Original" },
+  elite: { ru: "Элита", kz: "Элита", en: "Elite" },
+  superelite: { ru: "Суперэлита", kz: "Суперэлита", en: "Superelite" },
+  "super elite": { ru: "Суперэлита", kz: "Суперэлита", en: "Super elite" },
+  "first reproduction": { ru: "1 репродукция", kz: "1 репродукция", en: "First reproduction" },
+  "second reproduction": { ru: "2 репродукция", kz: "2 репродукция", en: "Second reproduction" },
+  "third reproduction": { ru: "3 репродукция", kz: "3 репродукция", en: "Third reproduction" },
 };
 
 function fallbackTranslateName(value: string, language: Language): string {
@@ -100,16 +104,54 @@ export function localizeUnit(unit: unknown, language: Language): string {
 export function localizedName<T extends Record<string, unknown>>(
   row: T | null | undefined,
   language: Language,
-  fallbackKeys: string[] = ["name", "title"]
+  fallbackKeys: string[] = ["name", "title", "canonical_slug", "slug"]
 ): string {
   if (!row) return "";
-  const localizedKey = `name_${language}`;
-  const localizedValue = String(row[localizedKey] || "").trim();
-  if (localizedValue) return localizedValue;
-
-  for (const key of fallbackKeys) {
+  const localizedKeys =
+    language === "kz"
+      ? ["name_kz", "name_kk"]
+      : [`name_${language}`];
+  const preferredKeys = [
+    ...localizedKeys,
+    ...(language !== "ru" ? ["name_ru"] : []),
+  ];
+  const seenKeys = new Set<string>();
+  for (const key of preferredKeys) {
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
     const value = String(row[key] || "").trim();
     if (value) return fallbackTranslateName(value, language);
+  }
+
+  for (const key of fallbackKeys) {
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    const value = String(row[key] || "").trim();
+    if (value) return fallbackTranslateName(value, language);
+  }
+  return "";
+}
+
+export function brandName<T extends Record<string, unknown>>(
+  row: T | null | undefined,
+  fallbackKeys: string[] = ["trade_name", "original_name", "name", "normalized_name"]
+): string {
+  if (!row) return "";
+  for (const key of fallbackKeys) {
+    const value = String(row[key] || "").trim();
+    if (value) return value;
+  }
+  const aliases = row.aliases;
+  if (Array.isArray(aliases)) {
+    const alias = aliases.map((item) => String(item || "").trim()).find(Boolean);
+    if (alias) return alias;
+  }
+  if (typeof aliases === "string") {
+    const alias = aliases
+      .split(/[;,]/)
+      .map((item) => item.trim())
+      .find(Boolean);
+    if (alias) return alias;
   }
   return "";
 }

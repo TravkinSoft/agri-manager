@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { localizedName } from "@/lib/i18n/helpers";
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function GET(request: NextRequest) {
     const [cropsRes, varietiesRes, reproductionsRes] = await Promise.all([
       supabase
         .from("crops")
-        .select("id,name,name_ru,name_kz,name_en,company_id,is_active,archived")
+        .select("id,name,name_ru,name_kz,name_en,slug,company_id,is_active,archived")
         .or(`company_id.eq.${companyId},company_id.is.null`)
         .eq("archived", false)
         .order("name"),
@@ -22,7 +23,7 @@ export async function GET(request: NextRequest) {
         .order("name"),
       supabase
         .from("seed_reproductions")
-        .select("id,name,name_ru,name_kz,name_en,company_id,is_active,archived,level_order")
+        .select("id,name,name_ru,name_kz,name_en,code,company_id,is_active,archived,level_order")
         .or(`company_id.eq.${companyId},company_id.is.null`)
         .eq("archived", false)
         .order("level_order", { ascending: true })
@@ -40,6 +41,9 @@ export async function GET(request: NextRequest) {
       "Суперсуперэлита",
       "Суперэлита",
       "Элита",
+      "1 репродукция",
+      "2 репродукция",
+      "3 репродукция",
       "Первая репродукция",
       "Вторая репродукция",
       "Третья репродукция",
@@ -47,7 +51,7 @@ export async function GET(request: NextRequest) {
     ]);
     const reproductionMap = new Map<string, any>();
     for (const row of reproductionsRes.data || []) {
-      const name = String((row as any).name_ru || (row as any).name || "").trim();
+      const name = localizedName(row as any, "ru", ["name", "code"]);
       if (!canonicalReproductionNames.has(name)) continue;
       if (!reproductionMap.has(name) || (reproductionMap.get(name).company_id != null && (row as any).company_id == null)) {
         reproductionMap.set(name, row);

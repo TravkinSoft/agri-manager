@@ -83,25 +83,40 @@ export async function GET(
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
     }
 
-    const [{ data: lines }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: drivers }, { data: vehicles }, { data: operators }] = await Promise.all([
+    const [{ data: lines }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: drivers }, { data: vehicles }, { data: operators }, { data: counterparties }] = await Promise.all([
       supabase.from("ticket_lines").select("*").eq("ticket_id", id).order("created_at", { ascending: true }),
       supabase.from("fields").select("id,name").eq("company_id", ticket.company_id),
       supabase.from("warehouses").select("id,name").eq("company_id", ticket.company_id),
-      supabase.from("products").select("id,name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
+      supabase.from("products").select("id,name,trade_name,normalized_name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
       supabase.from("varieties").select("id,name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
       supabase.from("seed_reproductions").select("id,name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
       supabase.from("reference_vehicles").select("id,name,plate_number").eq("company_id", ticket.company_id),
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
+      supabase.from("counterparties").select("id,name").eq("company_id", ticket.company_id),
     ]);
 
-    const line = (lines || [])[0] as any;
+    const ticketLines = (lines || []) as any[];
+    const line = ticketLines[0] as any;
+    const isHarvest = String(ticket.op_type || "") === "harvest_incoming";
+    const isSupplierReceipt = String(ticket.op_type || "") === "supplier_receipt";
+    const isDirectSupplierReceipt = isSupplierReceipt && String(ticket.receipt_mode || "") === "direct";
+    const isTransfer = String(ticket.direction || "") === "transfer" || String(ticket.op_type || "") === "warehouse_transfer";
+    const isShipment = String(ticket.op_type || "") === "shipment_outbound";
     const fieldName = (fields || []).find((x: any) => x.id === ticket.field_id)?.name || "-";
     const fromWarehouse = (warehouses || []).find((x: any) => x.id === ticket.warehouse_from_id)?.name || "-";
     const toWarehouse = (warehouses || []).find((x: any) => x.id === ticket.warehouse_to_id)?.name || "-";
-    const productName = line
-      ? line.product_name_snapshot || (products || []).find((x: any) => x.id === line.product_id)?.name || "-"
-      : "-";
+    const counterpartyName = (id: string | null | undefined) =>
+      id ? (counterparties || []).find((x: any) => x.id === id)?.name || "-" : "-";
+    const supplierName = counterpartyName(ticket.supplier_id);
+    const buyerName = counterpartyName(ticket.buyer_id);
+    const productName = (pdfLine: any) =>
+      pdfLine
+        ? pdfLine.product_name_snapshot ||
+          (products || []).find((x: any) => x.id === pdfLine.product_id)?.trade_name ||
+          (products || []).find((x: any) => x.id === pdfLine.product_id)?.name ||
+          "-"
+        : "-";
     const varietyName = line?.variety_id
       ? (varieties || []).find((x: any) => x.id === line.variety_id)?.name || "-"
       : "-";
@@ -123,20 +138,70 @@ export async function GET(
         "-"
       : "-";
 
-    const linesPdf = [
+    const contextLabel = isSupplierReceipt
+      ? `Supplier: ${supplierName}`
+      : isTransfer
+        ? `Transfer: ${fromWarehouse} -> ${toWarehouse}`
+        : isShipment
+          ? `Shipment: ${fromWarehouse} -> ${buyerName}`
+          : `Field: ${fieldName}`;
+
+    const operationLabel = isSupplierReceipt
+      ? "Supplier receipt"
+      : isTransfer
+        ? "Warehouse transfer"
+        : isShipment
+          ? "Shipment"
+          : isHarvest
+            ? "Harvest from field"
+            : ticket.op_type || "-";
+
+    const productLinePdf = ticketLines.map((item: any, index: number) => {
+      const lineWarehouse =
+        (warehouses || []).find((x: any) => x.id === item.warehouse_to_id)?.name ||
+        (warehouses || []).find((x: any) => x.id === item.warehouse_from_id)?.name ||
+        toWarehouse ||
+        fromWarehouse ||
+        "-";
+      const price = item.unit_price == null ? "" : `, price: ${item.unit_price}`;
+      const lot = item.lot_id ? `, lot: ${item.lot_id}` : "";
+      const warehouse = lineWarehouse && lineWarehouse !== "-" ? `, warehouse: ${lineWarehouse}` : "";
+      return `${index + 1}. ${productName(item)} - ${item.quantity ?? "-"} ${item.uom || "kg"}${warehouse}${lot}${price}`;
+    });
+
+    const directSupplierPdf = [
+      "AgriManager",
+      "Supplier Receipt Document",
+      "----------------------------------------",
+      `Status: ${ticket.status || "-"}`,
+      `Operation type: Supplier receipt`,
+      `Supplier: ${supplierName}`,
+      `Destination warehouse: ${toWarehouse}`,
+      ticket.supplier_document_no ? `Document No: ${ticket.supplier_document_no}` : "",
+      `Created at: ${fmt(ticket.created_at)}`,
+      ticket.finalized_at ? `Closed at: ${fmt(ticket.finalized_at)}` : "",
+      `Operator: ${operatorName}`,
+      ticket.notes ? `Comment: ${ticket.notes}` : "",
+      "",
+      "Products in document:",
+      ...productLinePdf,
+      "",
+      "Generated by AgriManager",
+    ].filter((line) => line !== "");
+
+    const linesPdf = isDirectSupplierReceipt ? directSupplierPdf : [
       "AgriManager",
       "Weighbridge Ticket",
       "----------------------------------------",
       `Ticket No: ${ticket.ticket_no || "-"}`,
       `Created at: ${fmt(ticket.created_at)}`,
       `Closed at: ${fmt(ticket.finalized_at)}`,
-      `Operation type: ${ticket.op_type || "-"}`,
+      `Operation type: ${operationLabel}`,
       `Direction: ${ticket.direction || "-"}`,
-      `Field / From: ${fieldName !== "-" ? fieldName : fromWarehouse}`,
-      `Warehouse / To: ${toWarehouse !== "-" ? toWarehouse : fieldName}`,
-      `Crop / Product: ${productName}`,
-      `Variety: ${varietyName}`,
-      `Reproduction: ${reproductionName}`,
+      contextLabel,
+      `Destination warehouse: ${toWarehouse}`,
+      ...(isHarvest ? [`Crop: ${productName(line)}`] : []),
+      ...(isHarvest ? [`Variety: ${varietyName}`, `Reproduction: ${reproductionName}`] : []),
       `Driver: ${driverName}`,
       `Vehicle: ${vehicleName}`,
       `Cashier / Operator: ${operatorName}`,
@@ -144,6 +209,9 @@ export async function GET(
       `Tare: ${ticket.tare_weight_kg ?? "-"} kg`,
       `Net: ${ticket.net_weight_kg ?? "-"} kg`,
       `Comment: ${ticket.notes || "-"}`,
+      "",
+      "Products in document:",
+      ...productLinePdf,
       "",
       "Generated by AgriManager",
     ];

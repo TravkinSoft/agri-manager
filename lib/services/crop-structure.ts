@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import { CropStructure, CropStructureFormData, CropStructureWithDetails } from "@/lib/types/crop-structure";
 import { getFieldDisplayName } from "@/lib/fields/display";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 
 export async function getCropStructures(
   companyId: string,
@@ -12,9 +13,9 @@ export async function getCropStructures(
       *,
       fields!inner(name,notes),
       seasons!inner(year),
-      crops!inner(name),
+      crops!inner(name,name_ru,name_kz,name_en,slug),
       varieties(name),
-      seed_reproductions(name)
+      seed_reproductions(name,name_ru,name_kz,name_en,code)
     `)
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
@@ -33,9 +34,9 @@ export async function getCropStructures(
     ...item,
     field_name: getFieldDisplayName(item.fields),
     season_year: item.seasons.year,
-    crop_name: item.crops.name,
-    variety_name: item.varieties?.name || null,
-    reproduction_name: item.seed_reproductions?.name || null,
+    crop_name: localizedName(item.crops, "ru") || item.crops.name,
+    variety_name: brandName(item.varieties) || null,
+    reproduction_name: localizedName(item.seed_reproductions, "ru") || null,
   })) as CropStructureWithDetails[];
 }
 
@@ -50,9 +51,9 @@ export async function getCropStructuresBySeasonId(
       *,
       fields!inner(name,notes),
       seasons!inner(year),
-      crops!inner(name),
+      crops!inner(name,name_ru,name_kz,name_en,slug),
       varieties(name),
-      seed_reproductions(name)
+      seed_reproductions(name,name_ru,name_kz,name_en,code)
     `)
     .eq("company_id", companyId)
     .eq("season_id", seasonId)
@@ -72,9 +73,9 @@ export async function getCropStructuresBySeasonId(
     ...item,
     field_name: getFieldDisplayName(item.fields),
     season_year: item.seasons.year,
-    crop_name: item.crops.name,
-    variety_name: item.varieties?.name || null,
-    reproduction_name: item.seed_reproductions?.name || null,
+    crop_name: localizedName(item.crops, "ru") || item.crops.name,
+    variety_name: brandName(item.varieties) || null,
+    reproduction_name: localizedName(item.seed_reproductions, "ru") || null,
   })) as CropStructureWithDetails[];
 }
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
 
 function buildTicketNo(companyId: string): string {
@@ -10,6 +11,12 @@ function buildTicketNo(companyId: string): string {
 }
 
 const sameNullable = (a: unknown, b: unknown) => String(a || "") === String(b || "");
+
+async function cleanupCreatedTicket(supabase: ReturnType<typeof getServiceClient>, ticketId: string) {
+  await supabase.from("ticket_weighings").delete().eq("ticket_id", ticketId);
+  await supabase.from("ticket_lines").delete().eq("ticket_id", ticketId);
+  await supabase.from("tickets").delete().eq("id", ticketId);
+}
 
 async function resolveActiveSeasonId(
   supabase: ReturnType<typeof getServiceClient>,
@@ -61,6 +68,11 @@ export async function GET(request: NextRequest) {
           product_id,
           quantity,
           uom,
+          warehouse_from_id,
+          warehouse_to_id,
+          unit_price,
+          amount,
+          notes,
           product_name_snapshot,
           variety_id,
           variety_name_snapshot,
@@ -70,9 +82,9 @@ export async function GET(request: NextRequest) {
           batch_id,
           operation_line_id,
           lot_id,
-          products:product_id(name),
+          products:product_id(name,trade_name,normalized_name),
           varieties:variety_id(name),
-          reproductions:reproduction_id(name)
+          reproductions:reproduction_id(name,name_ru,name_kz,name_en,code)
         )
       `)
       .eq("company_id", companyId)
@@ -90,11 +102,16 @@ export async function GET(request: NextRequest) {
         product_id: String(line.product_id),
         quantity: Number(line.quantity || 0),
         uom: String(line.uom || "kg"),
-        product_name: String(line.product_name_snapshot || line.products?.name || "-"),
+        warehouse_from_id: line.warehouse_from_id ? String(line.warehouse_from_id) : null,
+        warehouse_to_id: line.warehouse_to_id ? String(line.warehouse_to_id) : null,
+        unit_price: line.unit_price == null ? null : Number(line.unit_price),
+        amount: line.amount == null ? null : Number(line.amount),
+        notes: line.notes ? String(line.notes) : null,
+        product_name: String(line.product_name_snapshot || brandName(line.products) || "-"),
         variety_id: line.variety_id ? String(line.variety_id) : null,
-        variety_name: String(line.variety_name_snapshot || line.varieties?.name || "-"),
+        variety_name: String(line.variety_name_snapshot || brandName(line.varieties) || "-"),
         reproduction_id: line.reproduction_id ? String(line.reproduction_id) : null,
-        reproduction_name: String(line.reproduction_name_snapshot || line.reproductions?.name || "-"),
+        reproduction_name: String(line.reproduction_name_snapshot || localizedName(line.reproductions, "ru", ["name", "code"]) || "-"),
         batch_class: line.batch_class ? String(line.batch_class) : null,
         batch_id: line.batch_id ? String(line.batch_id) : null,
         operation_line_id: line.operation_line_id ? String(line.operation_line_id) : null,
@@ -116,13 +133,24 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now();
+  const timing = {
+    authMs: 0,
+    validationMs: 0,
+    dbMs: 0,
+    rpcMs: 0,
+    totalMs: 0,
+  };
   try {
     const body = await request.json();
     const rawTicket = (body?.ticket || {}) as TicketInput;
+    const authStartedAt = Date.now();
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
       requestedCompanyId: String(body?.companyId || rawTicket.company_id || "").trim() || null,
     });
+    timing.authMs = Date.now() - authStartedAt;
+    const validationStartedAt = Date.now();
     const ticket = {
       ...rawTicket,
       company_id: companyId,
@@ -152,6 +180,9 @@ export async function POST(request: NextRequest) {
     const isDisposal =
       String(ticket.direction || "") === "outgoing" &&
       String(ticket.op_type || "").toLowerCase() === "disposal";
+    const isHarvestIncoming =
+      String(ticket.direction || "") === "incoming" &&
+      String(ticket.op_type || "").toLowerCase() === "harvest_incoming";
     const isDirectWarehouseTransfer =
       isWarehouseTransfer &&
       String(ticket.weigh_method || "").toLowerCase() === "manual_override_with_reason";
@@ -160,9 +191,16 @@ export async function POST(request: NextRequest) {
       String(ticket.weigh_method || "").toLowerCase() === "manual_override_with_reason";
     const supplierReceiptMode = String((ticket as any).receipt_mode || "weighbridge");
     const supplierReceiptKind = String((ticket as any).supplier_receipt_kind || "generic");
+    const isDirectSupplierReceipt = isSupplierReceipt && supplierReceiptMode === "direct";
     const requiresVehicle =
       isShipment ||
-      (!isDirectFieldIssue && !isDirectWarehouseTransfer && (!isSupplierReceipt || supplierReceiptMode !== "direct"));
+      isHarvestIncoming ||
+      (isSupplierReceipt && supplierReceiptMode !== "direct") ||
+      (isWarehouseTransfer && !isDirectWarehouseTransfer) ||
+      (isFieldIssue && !isDirectFieldIssue);
+    const activeShiftIdPromise = isDirectSupplierReceipt
+      ? Promise.resolve<string | null>(null)
+      : resolveActiveShiftId(supabase, ticket.company_id);
     if (requiresVehicle && !ticket.vehicle_id) {
       return NextResponse.json({ error: "vehicle_id is required" }, { status: 400 });
     }
@@ -240,9 +278,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const isHarvestIncoming =
-      String(ticket.direction || "") === "incoming" &&
-      String(ticket.op_type || "").toLowerCase() === "harvest_incoming";
     if (isSupplierReceipt) {
       if (!ticket.supplier_id || String(ticket.source_kind || "") !== "supplier") {
         return NextResponse.json({ error: "supplier_id is required for supplier receipt" }, { status: 400 });
@@ -250,18 +285,28 @@ export async function POST(request: NextRequest) {
       if (!ticket.warehouse_to_id || String(ticket.destination_kind || "") !== "warehouse") {
         return NextResponse.json({ error: "warehouse_to_id is required for supplier receipt" }, { status: 400 });
       }
-      const gross = Number(ticket.gross_weight_kg || 0);
-      if (!Number.isFinite(gross) || gross <= 0) {
-        return NextResponse.json({ error: "quantity/gross is required and must be positive for supplier receipt" }, { status: 400 });
-      }
       if (supplierReceiptMode === "direct") {
-        ticket.tare_weight_kg = 0;
+        ticket.gross_weight_kg = null;
+        ticket.tare_weight_kg = null;
         ticket.weigh_method = "manual_override_with_reason";
+      } else {
+        const gross = Number(ticket.gross_weight_kg || 0);
+        if (!Number.isFinite(gross) || gross <= 0) {
+          return NextResponse.json({ error: "Укажите брутто для прихода через весовую." }, { status: 400 });
+        }
       }
       for (const line of lines) {
         const qty = Number(line.quantity || 0);
         if (!line.product_id || !Number.isFinite(qty) || qty <= 0) {
           return NextResponse.json({ error: "product and positive quantity are required for supplier receipt lines" }, { status: 400 });
+        }
+        line.uom = String(line.uom || "").trim();
+        if (!line.uom) {
+          return NextResponse.json({ error: "Выберите единицу измерения по каждой строке поставки" }, { status: 400 });
+        }
+        line.warehouse_to_id = line.warehouse_to_id || ticket.warehouse_to_id || null;
+        if (!line.warehouse_to_id) {
+          return NextResponse.json({ error: "Выберите склад по каждой строке поставки" }, { status: 400 });
         }
         if (supplierReceiptKind === "agro_identity") {
           if (!line.crop_id || !line.variety_id || !line.reproduction_id) {
@@ -519,8 +564,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const activeShiftId = await resolveActiveShiftId(supabase, ticket.company_id);
-    if (!activeShiftId) {
+    const activeShiftId = await activeShiftIdPromise;
+    if (!isDirectSupplierReceipt && !activeShiftId) {
       return NextResponse.json(
         { error: "Open weighbridge shift is required before ticket creation" },
         { status: 400 }
@@ -557,28 +602,27 @@ export async function POST(request: NextRequest) {
     }
 
     if (ticket.vehicle_id) {
-      const { data: vehicle, error: vehicleError } = await supabase
+      const vehiclePromise = supabase
         .from("reference_vehicles")
         .select("id, name, plate_number, status, is_active, archived")
         .eq("company_id", ticket.company_id)
         .eq("id", ticket.vehicle_id)
         .maybeSingle();
-
-      if (vehicleError || !vehicle?.id) {
-        return NextResponse.json({ error: "Vehicle not found in current company" }, { status: 400 });
-      }
-      if (!vehicle.is_active || vehicle.archived) {
-        return NextResponse.json({ error: "Vehicle is inactive or archived" }, { status: 400 });
-      }
-
-      const { data: activeByVehicle, error: activeByVehicleError } = await supabase
+      const activeByVehiclePromise = supabase
         .from("tickets")
         .select("id, ticket_no")
         .eq("company_id", ticket.company_id)
         .eq("vehicle_id", ticket.vehicle_id)
         .in("status", ["draft", "active", "ready_to_close"])
         .limit(1);
-
+      const [{ data: vehicle, error: vehicleError }, { data: activeByVehicle, error: activeByVehicleError }] =
+        await Promise.all([vehiclePromise, activeByVehiclePromise]);
+      if (vehicleError || !vehicle?.id) {
+        return NextResponse.json({ error: "Vehicle not found in current company" }, { status: 400 });
+      }
+      if (!vehicle.is_active || vehicle.archived) {
+        return NextResponse.json({ error: "Vehicle is inactive or archived" }, { status: 400 });
+      }
       if (activeByVehicleError) {
         return NextResponse.json({ error: activeByVehicleError.message }, { status: 400 });
       }
@@ -638,7 +682,27 @@ export async function POST(request: NextRequest) {
         }
       }
     }
+    timing.validationMs = Date.now() - validationStartedAt;
+    const dbStartedAt = Date.now();
     const ticketNo = buildTicketNo(ticket.company_id);
+    const productIds = Array.from(new Set(lines.map((line) => line.product_id).filter(Boolean).map(String)));
+    const varietyIds = Array.from(new Set(lines.map((line) => line.variety_id).filter(Boolean).map(String)));
+    const reproductionIds = Array.from(new Set(lines.map((line) => line.reproduction_id).filter(Boolean).map(String)));
+    const productsPromise = productIds.length > 0
+      ? Promise.resolve(
+          supabase
+            .from("products")
+            .select("id,name,trade_name,normalized_name")
+            .in("id", productIds)
+            .or(`company_id.eq.${ticket.company_id},company_id.is.null`)
+        )
+      : Promise.resolve({ data: [] } as any);
+    const varietiesPromise = varietyIds.length > 0
+      ? Promise.resolve(supabase.from("varieties").select("id, name").in("id", varietyIds))
+      : Promise.resolve({ data: [] } as any);
+    const reproductionsPromise = reproductionIds.length > 0
+      ? Promise.resolve(supabase.from("seed_reproductions").select("id, name").in("id", reproductionIds))
+      : Promise.resolve({ data: [] } as any);
 
     const { data: createdTicket, error: ticketError } = await supabase
       .from("tickets")
@@ -646,7 +710,7 @@ export async function POST(request: NextRequest) {
         ...ticket,
         shift_id: ticket.shift_id || activeShiftId,
         ticket_no: ticketNo,
-        status: "active",
+        status: isDirectSupplierReceipt ? "ready_to_close" : "active",
       })
       .select("*")
       .single();
@@ -658,36 +722,19 @@ export async function POST(request: NextRequest) {
     const productsMap = new Map<string, string>();
     const varietiesMap = new Map<string, string>();
     const reproductionsMap = new Map<string, string>();
-    const productIds = lines.map((line) => line.product_id).filter(Boolean);
-    if (productIds.length > 0) {
-      const { data: products } = await supabase
-        .from("products")
-        .select("id, name")
-        .in("id", productIds)
-        .eq("company_id", ticket.company_id);
-      for (const p of products || []) {
-        productsMap.set(String((p as any).id), String((p as any).name));
-      }
+    const [productsResult, varietiesResult, reproductionsResult] = await Promise.all([
+      productsPromise,
+      varietiesPromise,
+      reproductionsPromise,
+    ]);
+    for (const p of productsResult.data || []) {
+      productsMap.set(String((p as any).id), brandName(p) || String((p as any).name || ""));
     }
-    const varietyIds = Array.from(new Set(lines.map((line) => line.variety_id).filter(Boolean))) as string[];
-    if (varietyIds.length > 0) {
-      const { data: varieties } = await supabase
-        .from("varieties")
-        .select("id, name")
-        .in("id", varietyIds);
-      for (const v of varieties || []) {
-        varietiesMap.set(String((v as any).id), String((v as any).name));
-      }
+    for (const v of varietiesResult.data || []) {
+      varietiesMap.set(String((v as any).id), String((v as any).name));
     }
-    const reproductionIds = Array.from(new Set(lines.map((line) => line.reproduction_id).filter(Boolean))) as string[];
-    if (reproductionIds.length > 0) {
-      const { data: reproductions } = await supabase
-        .from("seed_reproductions")
-        .select("id, name")
-        .in("id", reproductionIds);
-      for (const r of reproductions || []) {
-        reproductionsMap.set(String((r as any).id), String((r as any).name));
-      }
+    for (const r of reproductionsResult.data || []) {
+      reproductionsMap.set(String((r as any).id), String((r as any).name));
     }
 
     const linesPayload = lines.map((line) => ({
@@ -696,7 +743,11 @@ export async function POST(request: NextRequest) {
       product_id: line.product_id,
       crop_id: line.crop_id ?? null,
       quantity: Number(line.quantity || 0),
-      uom: line.uom || "kg",
+      uom: String(line.uom || "kg").trim(),
+      warehouse_from_id: line.warehouse_from_id || (ticket.direction === "outgoing" || ticket.direction === "transfer" ? ticket.warehouse_from_id || null : null),
+      warehouse_to_id: line.warehouse_to_id || (ticket.direction === "incoming" || ticket.direction === "transfer" ? ticket.warehouse_to_id || null : null),
+      unit_price: line.unit_price == null ? null : Number(line.unit_price),
+      amount: line.amount == null ? null : Number(line.amount),
       product_name_snapshot: productsMap.get(line.product_id) || null,
       variety_name_snapshot: line.variety_id ? varietiesMap.get(String(line.variety_id)) || null : null,
       reproduction_name_snapshot: line.reproduction_id ? reproductionsMap.get(String(line.reproduction_id)) || null : null,
@@ -717,6 +768,7 @@ export async function POST(request: NextRequest) {
 
     const { error: linesError } = await supabase.from("ticket_lines").insert(linesPayload);
     if (linesError) {
+      await cleanupCreatedTicket(supabase, createdTicket.id);
       return NextResponse.json({ error: linesError.message }, { status: 400 });
     }
 
@@ -733,6 +785,7 @@ export async function POST(request: NextRequest) {
       }));
       const { error: weighingsError } = await supabase.from("ticket_weighings").insert(weighingsPayload);
       if (weighingsError) {
+        await cleanupCreatedTicket(supabase, createdTicket.id);
         return NextResponse.json({ error: weighingsError.message }, { status: 400 });
       }
     }
@@ -744,8 +797,33 @@ export async function POST(request: NextRequest) {
         .eq("id", ticket.vehicle_id)
         .eq("company_id", ticket.company_id);
     }
+    timing.dbMs = Date.now() - dbStartedAt;
 
-    return NextResponse.json({ ticket: createdTicket });
+    if (isDirectSupplierReceipt) {
+      const rpcStartedAt = Date.now();
+      const { error: finalizeError } = await supabase.rpc("finalize_weighbridge_ticket_v2", {
+        p_ticket_id: createdTicket.id,
+        p_actor_user_id: actor.id,
+      });
+      timing.rpcMs = Date.now() - rpcStartedAt;
+
+      if (finalizeError) {
+        await cleanupCreatedTicket(supabase, createdTicket.id);
+        return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
+      }
+
+      const { data: finalizedTicket } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("id", createdTicket.id)
+        .maybeSingle();
+
+      timing.totalMs = Date.now() - startedAt;
+      return NextResponse.json({ ticket: finalizedTicket || createdTicket, debug: timing });
+    }
+
+    timing.totalMs = Date.now() - startedAt;
+    return NextResponse.json({ ticket: createdTicket, debug: timing });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {

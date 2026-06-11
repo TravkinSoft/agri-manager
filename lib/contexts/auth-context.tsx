@@ -45,6 +45,38 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AUTH_REQUEST_TIMEOUT_MS = 8000;
+const AUTH_PROFILE_TIMEOUT_MS = 15000;
+const AUTH_BOOT_TIMEOUT_MS = 10000;
+
+function withAuthTimeout<T>(promise: Promise<T>, label: string, timeoutMs = AUTH_REQUEST_TIMEOUT_MS): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out`)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
+
+function clearLocalSupabaseSession() {
+  try {
+    void supabase.auth.signOut({ scope: "local" }).catch(() => {});
+  } catch {
+    // The app must recover even if Supabase auth storage is already broken.
+  }
+
+  try {
+    if (typeof window === "undefined") return;
+    for (const key of Object.keys(window.localStorage)) {
+      if (key.startsWith("sb-") && key.includes("auth-token")) {
+        window.localStorage.removeItem(key);
+      }
+    }
+  } catch {
+    // localStorage can be unavailable in private or restricted browser contexts.
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -54,20 +86,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    const bootWatchdog = window.setTimeout(() => {
+      if (!mounted) return;
+      setLoading(false);
+    }, AUTH_BOOT_TIMEOUT_MS);
 
     const initializeAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await withAuthTimeout(supabase.auth.getSession(), "Supabase session");
 
         if (!mounted) return;
 
         setUser(session?.user ?? null);
 
         if (session?.user) {
-          await loadProfile(session.user.id, session.user.email || null);
+          try {
+            await withAuthTimeout(
+              loadProfile(session.user.id, session.user.email || null),
+              "Profile load",
+              AUTH_PROFILE_TIMEOUT_MS
+            );
+          } catch (profileError) {
+            console.error("Error loading profile:", profileError);
+            if (mounted) setProfile(null);
+          }
+        } else {
+          setProfile(null);
         }
       } catch (error) {
         console.error('Error loading session:', error);
+        clearLocalSupabaseSession();
+        if (mounted) {
+          setUser(null);
+          setProfile(null);
+        }
       } finally {
         if (mounted) {
           setLoading(false);
@@ -80,18 +132,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         (async () => {
-          if (!mounted) return;
+          try {
+            if (!mounted) return;
 
-          setUser(session?.user ?? null);
+            setUser(session?.user ?? null);
 
-          if (session?.user) {
-            await loadProfile(session.user.id, session.user.email || null);
-          } else {
+            if (session?.user) {
+              try {
+                await withAuthTimeout(
+                  loadProfile(session.user.id, session.user.email || null),
+                  "Profile load",
+                  AUTH_PROFILE_TIMEOUT_MS
+                );
+              } catch (profileError) {
+                console.error("Error loading profile after auth state change:", profileError);
+                if (mounted) setProfile(null);
+              }
+            } else {
+              setProfile(null);
+            }
+          } catch (error) {
+            console.error("Error handling auth state:", error);
+            if (!mounted) return;
+            setUser(session?.user ?? null);
             setProfile(null);
-          }
-
-          if (mounted) {
-            setLoading(false);
+          } finally {
+            if (mounted) {
+              setLoading(false);
+            }
           }
         })();
       }
@@ -99,6 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      window.clearTimeout(bootWatchdog);
       subscription.unsubscribe();
     };
   }, []);
@@ -158,12 +227,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         return;
       }
-      const roleRawKey = normalizeRoleKey(data.role);
-      const roleIsLegacyAlias = roleRawKey !== normalizedRole;
-
       const contextCompanyId = await resolveGlobalAdminContextCompanyId(userId, normalizedRole);
       const actorContext = await resolveActorContextFromServer();
       const actor = actorContext?.actor || null;
+      const displayProfile = await resolveDisplayProfileForActor(data, actor);
 
       if (data.status === 'pending') {
         await supabase
@@ -176,13 +243,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             ? contextCompanyId
             : await resolveEffectiveCompanyId(data.company_id));
         const effectiveRole = parseCanonicalRole(actor?.role) || normalizedRole;
+        const effectiveRoleRawKey = normalizeRoleKey(actor?.role || displayProfile.role || data.role);
         const effectiveProfileId = String(actor?.id || data.id || "").trim() || data.id;
         setProfile({
-          ...data,
+          ...displayProfile,
           id: effectiveProfileId,
           role: effectiveRole,
-          role_raw_key: roleRawKey,
-          role_is_legacy_alias: roleIsLegacyAlias,
+          role_raw_key: effectiveRoleRawKey,
+          role_is_legacy_alias: effectiveRoleRawKey !== effectiveRole,
           status: 'active',
           home_company_id: data.company_id,
           context_company_id: actor?.contextCompanyId || contextCompanyId,
@@ -200,14 +268,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             ? contextCompanyId
             : await resolveEffectiveCompanyId(data?.company_id));
         const effectiveRole = parseCanonicalRole(actor?.role) || normalizedRole;
+        const effectiveRoleRawKey = normalizeRoleKey(actor?.role || displayProfile.role || data.role);
         const effectiveProfileId = String(actor?.id || data.id || "").trim() || data.id;
         setProfile(
           {
-            ...data,
+            ...displayProfile,
             id: effectiveProfileId,
             role: effectiveRole,
-            role_raw_key: roleRawKey,
-            role_is_legacy_alias: roleIsLegacyAlias,
+            role_raw_key: effectiveRoleRawKey,
+            role_is_legacy_alias: effectiveRoleRawKey !== effectiveRole,
             home_company_id: data.company_id,
             context_company_id: actor?.contextCompanyId || contextCompanyId,
             company_id: effectiveCompany || data.company_id,
@@ -222,6 +291,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.error('Error loading profile:', error);
       setProfile(null);
+    }
+  };
+
+  const resolveDisplayProfileForActor = async (baseProfile: any, actor?: { id?: string; isImpersonating?: boolean } | null) => {
+    const actorProfileId = String(actor?.id || "").trim();
+    const baseProfileId = String(baseProfile?.id || "").trim();
+    if (!actor?.isImpersonating || !actorProfileId || actorProfileId === baseProfileId) {
+      return baseProfile;
+    }
+
+    try {
+      const { data: actorProfile, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", actorProfileId)
+        .maybeSingle();
+      if (error || !actorProfile?.id) return baseProfile;
+      return actorProfile;
+    } catch {
+      return baseProfile;
     }
   };
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import {
   type CatalogFilter,
   type CatalogFormField,
@@ -48,6 +49,13 @@ import { Badge } from "@/components/ui/badge";
 
 type RowRecord = Record<string, any>;
 type Option = { label: string; value: string };
+
+function optionLabel(entity: GlobalCatalogEntity, row: RowRecord): string {
+  if (entity === "varieties" || entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+    return brandName(row) || row.full_name || row.code || row.slug || row.id;
+  }
+  return localizedName(row, "ru") || row.full_name || brandName(row, ["name", "trade_name"]) || row.code || row.slug || row.id;
+}
 
 const BOOL_KEYS = new Set(["is_active", "is_common_in_kz"]);
 
@@ -188,7 +196,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
           if (!response.ok) return [target.targetKey, []] as const;
 
           const options: Option[] = (payload?.rows || []).map((row: any) => ({
-            label: row.name_ru || row.name || row.full_name || row.trade_name || row.code || row.slug || row.id,
+            label: optionLabel(target.entity, row),
             value: row.id,
           }));
           return [target.targetKey, options] as const;
@@ -583,4 +591,3 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     </div>
   );
 }
-

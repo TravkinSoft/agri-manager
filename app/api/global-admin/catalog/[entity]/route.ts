@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
+import { localizedName } from "@/lib/i18n/helpers";
 import type { GlobalCatalogEntity } from "@/lib/platform/global-catalog-config";
 
 type EntityConfig = {
@@ -16,6 +17,12 @@ type EntityConfig = {
 };
 
 const PLATFORM_GLOBAL_COMPANY_ID = "10000000-0000-0000-0000-000000000001";
+
+const PRODUCT_SEARCH_ALIASES = [
+  ["revus top", "revus top sc", "ревус топ"],
+  ["celest top", "celest top fs", "селест топ"],
+  ["black jack", "blackjack", "блек джек"],
+] as const;
 
 function applyGlobalScope(query: any) {
   return query.or(`company_id.is.null,company_id.eq.${PLATFORM_GLOBAL_COMPANY_ID}`);
@@ -344,6 +351,41 @@ function parseBool(value: string | null): boolean | null {
   return null;
 }
 
+function normalizeSearchText(value: unknown): string {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[«»"'`]/g, "")
+    .replace(/\b(кс|вдг|вр|sc|wg|ec|fs)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function expandProductSearchTerms(search: string): string[] {
+  const normalized = normalizeSearchText(search);
+  const terms = new Set<string>([search]);
+  for (const group of PRODUCT_SEARCH_ALIASES) {
+    if (!group.some((item) => normalizeSearchText(item) === normalized)) continue;
+    group.forEach((item) => terms.add(item));
+  }
+  return Array.from(terms).filter(Boolean);
+}
+
+function productSearchMatches(row: any, search: string): boolean {
+  const searchTerms = expandProductSearchTerms(search).map(normalizeSearchText);
+  const hay = [
+    row.trade_name,
+    row.name,
+    row.normalized_name,
+    row.active_ingredients,
+    row.active_ingredient,
+    row.manufacturer_name,
+    row.manufacturer,
+  ].map(normalizeSearchText);
+  return searchTerms.some((term) => term && hay.some((value) => value.includes(term)));
+}
+
 function isUuidLike(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
@@ -415,7 +457,7 @@ async function attachCropNamesToVarieties(supabase: any, rows: any[]) {
 
   const { data: crops, error } = await supabase
     .from("crops")
-    .select("id,name,name_ru")
+    .select("id,name,name_ru,name_kz,name_en,slug")
     .in("id", cropIds);
 
   if (error || !crops) {
@@ -424,7 +466,7 @@ async function attachCropNamesToVarieties(supabase: any, rows: any[]) {
 
   const cropMap = new Map<string, string>();
   for (const crop of crops) {
-    cropMap.set(crop.id, crop.name_ru || crop.name || "-");
+    cropMap.set(crop.id, localizedName(crop, "ru") || "-");
   }
 
   return rows.map((row) => ({
@@ -590,7 +632,11 @@ export async function GET(
 
     const search = String(request.nextUrl.searchParams.get("search") || "").trim();
     if (search) {
-      const orParts = config.searchColumns.map((column) => `${column}.ilike.%${search}%`);
+      const searchTerms =
+        entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators"
+          ? expandProductSearchTerms(search)
+          : [search];
+      const orParts = searchTerms.flatMap((term) => config.searchColumns.map((column) => `${column}.ilike.%${term}%`));
       query = query.or(orParts.join(","));
     }
 
@@ -670,17 +716,7 @@ export async function GET(
     }
 
     if (search && (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators")) {
-      const normalizedSearch = search.toLowerCase();
-      hydratedRows = hydratedRows.filter((row: any) => {
-        const tradeName = String(row.trade_name || row.name || "").toLowerCase();
-        const ingredients = String(row.active_ingredients || row.active_ingredient || "").toLowerCase();
-        const manufacturer = String(row.manufacturer_name || row.manufacturer || "").toLowerCase();
-        return (
-          tradeName.includes(normalizedSearch) ||
-          ingredients.includes(normalizedSearch) ||
-          manufacturer.includes(normalizedSearch)
-        );
-      });
+      hydratedRows = hydratedRows.filter((row: any) => productSearchMatches(row, search));
     }
 
     const rows = hydratedRows.map((row: any) => (config.normalizeRow ? config.normalizeRow(row) : row));

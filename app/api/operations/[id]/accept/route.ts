@@ -3,7 +3,7 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 
-const START_ALLOWED_ROLES = [
+const ACCEPT_ALLOWED_ROLES = [
   "global_admin",
   "company_admin",
   "agronomist",
@@ -32,12 +32,12 @@ export async function POST(
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...START_ALLOWED_ROLES],
+      allowedRoles: [...ACCEPT_ALLOWED_ROLES],
     });
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("id,company_id,responsible_user_id,work_status,status,accepted_at")
+      .select("id,company_id,responsible_user_id,assigned_to,work_status,status,accepted_at")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -49,62 +49,42 @@ export async function POST(
       );
     }
 
-    const isAdmin =
+    const isManager =
       actor.role === "global_admin" || actor.role === "company_admin" || actor.role === "agronomist";
-    const responsibleId = String(operation.responsible_user_id || "").trim();
-    if (!isAdmin && responsibleId && responsibleId !== actor.id) {
+    const assignedId = String(operation.responsible_user_id || operation.assigned_to || "").trim();
+    if (!isManager && assignedId && assignedId !== actor.id) {
       return NextResponse.json({ error: "Operation is assigned to another specialist" }, { status: 403 });
     }
 
-    const { data: requests, error: reqError } = await supabase
-      .from("warehouse_issue_requests")
-      .select("id,status,issued_at")
-      .eq("company_id", companyId)
-      .eq("operation_id", operationId);
-
-    if (reqError) {
-      return NextResponse.json({ error: reqError.message }, { status: 400 });
-    }
-
-    const activeMaterialRequests = (requests || []).filter(
-      (row: any) => !["cancelled"].includes(String(row.status || ""))
-    );
-
-    if (activeMaterialRequests.length > 0) {
-      const everyRequestIssued = activeMaterialRequests.every((row: any) => {
-        const status = String(row.status || "");
-        if (status === "issued" || status === "issued_by_warehouse") return true;
-        return status === "received_confirmed" && Boolean(row.issued_at);
-      });
-      if (!everyRequestIssued) {
-        return NextResponse.json(
-          {
-            error:
-              "Operation cannot be started before warehouse issue is completed.",
-          },
-          { status: 409 }
-        );
-      }
+    if (operation.work_status === "completed" || operation.status === "completed") {
+      return NextResponse.json({ error: "Completed operation cannot be accepted" }, { status: 409 });
     }
 
     const nowIso = new Date().toISOString();
+    const patch: Record<string, unknown> = {
+      status: operation.status === "in_progress" ? "in_progress" : "accepted",
+      accepted_at: operation.accepted_at || nowIso,
+      updated_at: nowIso,
+    };
+
     const { data: updated, error: updateError } = await supabase
       .from("operations")
-      .update({
-        work_status: "in_progress",
-        status: "in_progress",
-        accepted_at: operation.accepted_at || nowIso,
-        started_at: nowIso,
-        updated_at: nowIso,
-      })
+      .update(patch)
       .eq("id", operationId)
       .eq("company_id", companyId)
       .select("*")
       .single();
 
     if (updateError || !updated?.id) {
-      return NextResponse.json({ error: updateError?.message || "Failed to start operation" }, { status: 400 });
+      return NextResponse.json({ error: updateError?.message || "Failed to accept operation" }, { status: 400 });
     }
+
+    await supabase
+      .from("warehouse_issue_requests")
+      .update({ status: "active", updated_at: nowIso })
+      .eq("company_id", companyId)
+      .eq("operation_id", operationId)
+      .eq("status", "new");
 
     return NextResponse.json({ operation: updated });
   } catch (error) {

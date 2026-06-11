@@ -1,5 +1,6 @@
 import type { AssistantToolContext, AssistantToolDefinition, AssistantToolName } from "@/lib/assistant/engine/types";
 import { getFieldDisplayName } from "@/lib/fields/display";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import {
   findCropAliasesInText,
   findCropGroupsInText,
@@ -760,13 +761,13 @@ async function buildLookupMaps(
       ? queryLookupRowsById(context, "products", "id,name,trade_name", ids.products as string[], strictActive)
       : Promise.resolve({ data: [], error: null } as any),
     (ids.crops || []).length
-      ? queryLookupRowsById(context, "crops", "id,name,name_ru,name_en", ids.crops as string[], strictActive)
+      ? queryLookupRowsById(context, "crops", "id,name,name_ru,name_kz,name_en,slug", ids.crops as string[], strictActive)
       : Promise.resolve({ data: [], error: null } as any),
     (ids.varieties || []).length
       ? queryLookupRowsById(context, "varieties", "id,name", ids.varieties as string[], strictActive)
       : Promise.resolve({ data: [], error: null } as any),
     (ids.reproductions || []).length
-      ? queryLookupRowsById(context, "seed_reproductions", "id,name", ids.reproductions as string[], strictActive)
+      ? queryLookupRowsById(context, "seed_reproductions", "id,name,name_ru,name_kz,name_en,code", ids.reproductions as string[], strictActive)
       : Promise.resolve({ data: [], error: null } as any),
     (ids.fields || []).length
       ? (strictActive
@@ -787,20 +788,20 @@ async function buildLookupMaps(
 
   const byProduct = new Map<string, string>();
   (productsRes.data || productsRes || []).forEach((row: any) =>
-    byProduct.set(String(row.id), String(row.trade_name || row.name || row.id))
+    byProduct.set(String(row.id), brandName(row) || String(row.id))
   );
 
   const byCrop = new Map<string, string>();
   (cropsRes.data || cropsRes || []).forEach((row: any) =>
-    byCrop.set(String(row.id), String(row.name_ru || row.name || row.name_en || row.id))
+    byCrop.set(String(row.id), localizedName(row, "ru") || String(row.id))
   );
 
   const byVariety = new Map<string, string>();
-  (varietiesRes.data || varietiesRes || []).forEach((row: any) => byVariety.set(String(row.id), String(row.name || row.id)));
+  (varietiesRes.data || varietiesRes || []).forEach((row: any) => byVariety.set(String(row.id), brandName(row) || String(row.id)));
 
   const byReproduction = new Map<string, string>();
   (reproductionsRes.data || reproductionsRes || []).forEach((row: any) =>
-    byReproduction.set(String(row.id), String(row.name || row.id))
+    byReproduction.set(String(row.id), localizedName(row, "ru", ["name", "code"]) || String(row.id))
   );
 
   const byField = new Map<string, string>();

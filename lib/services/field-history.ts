@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Language } from "@/lib/i18n/translations";
-import { localizedName } from "@/lib/i18n/helpers";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { getFieldDisplayName } from "@/lib/fields/display";
 
 export interface FieldHistoryRecord {
@@ -73,7 +73,7 @@ export async function getAllFieldHistory(fieldId?: string, language: Language = 
     fieldName: getFieldDisplayName(record.fields || {}) || "Unknown",
     seasonYear: record.seasons?.year || 0,
     cropName: localizedName(record.crops, language) || "Unknown",
-    varietyName: localizedName(record.varieties, language) || null,
+    varietyName: brandName(record.varieties) || null,
     area: Number(record.area),
     expectedYield: record.expected_yield ? Number(record.expected_yield) : null,
     status: record.status,

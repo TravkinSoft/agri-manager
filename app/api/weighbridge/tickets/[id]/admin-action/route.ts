@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 
 type AdminAction = "void" | "archive" | "force_close";
 
@@ -37,7 +37,23 @@ export async function POST(
 
     if (action === "void" || action === "archive") {
       if (ticket.status === "finalized") {
-        return NextResponse.json({ error: "Finalized tickets cannot be voided by admin cleanup" }, { status: 400 });
+        if (action !== "void") {
+          return NextResponse.json({ error: "Закрытый талон можно только аннулировать через storno." }, { status: 400 });
+        }
+        const { error: voidError } = await supabase.rpc("void_ticket_with_storno_v2", {
+          p_ticket_id: id,
+          p_actor_user_id: actor.id,
+          p_reason: reason || "Admin void finalized ticket",
+        });
+        if (voidError) {
+          return NextResponse.json({ error: weighbridgeUserError(voidError.message) }, { status: 400 });
+        }
+        const { data: updated } = await supabase
+          .from("tickets")
+          .select("*")
+          .eq("id", id)
+          .maybeSingle();
+        return NextResponse.json({ ok: true, ticket: updated || ticket });
       }
       if (ticket.status === "voided") {
         return NextResponse.json({ ok: true, ticket }, { status: 200 });

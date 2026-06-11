@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const startedAt = Date.now();
+  const timing = { authMs: 0, validationMs: 0, dbMs: 0, rpcMs: 0, totalMs: 0 };
   try {
     const { id } = await params;
     const body = await request.json().catch(() => ({}));
@@ -17,10 +19,13 @@ export async function POST(
       );
     }
 
+    const authStartedAt = Date.now();
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
+    timing.authMs = Date.now() - authStartedAt;
+    const validationStartedAt = Date.now();
     const { data: ticketBefore, error: ticketBeforeError } = await supabase
       .from("tickets")
       .select("id, company_id, vehicle_id")
@@ -30,17 +35,21 @@ export async function POST(
     if (ticketBeforeError || !ticketBefore?.id) {
       return NextResponse.json({ error: ticketBeforeError?.message || "Ticket not found" }, { status: 404 });
     }
+    timing.validationMs = Date.now() - validationStartedAt;
 
+    const rpcStartedAt = Date.now();
     const { error } = await supabase.rpc("void_ticket_with_storno_v2", {
       p_ticket_id: id,
       p_actor_user_id: actor.id,
       p_reason: reason,
     });
+    timing.rpcMs = Date.now() - rpcStartedAt;
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: weighbridgeUserError(error.message) }, { status: 400 });
     }
 
+    const dbStartedAt = Date.now();
     const { data: updated } = await supabase
       .from("tickets")
       .select("*")
@@ -65,8 +74,10 @@ export async function POST(
           .eq("company_id", ticketBefore.company_id);
       }
     }
+    timing.dbMs = Date.now() - dbStartedAt;
 
-    return NextResponse.json({ ticket: updated });
+    timing.totalMs = Date.now() - startedAt;
+    return NextResponse.json({ ticket: updated, debug: timing });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {

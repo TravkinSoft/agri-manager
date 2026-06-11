@@ -1,74 +1,250 @@
 'use client';
 
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { PageHeader } from '@/components/layout/page-header';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { useLanguage } from '@/lib/contexts/language-context';
+import { localizeUnit } from '@/lib/i18n/helpers';
 import { supabase } from '@/lib/supabase/client';
-import { PageHeader } from '@/components/layout/page-header';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { CircleCheck as CheckCircle, Clock } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { hasQaDataMarker } from '@/lib/utils/qa-data';
 import {
   confirmWarehouseReceipt,
   getRecipientWarehouseIssueRequests,
   returnWarehouseRequestMaterials,
 } from '@/lib/services/warehouse-requests';
 import type { WarehouseIssueRequest } from '@/lib/types/warehouse-request';
+import {
+  CalendarDays,
+  CheckCircle,
+  Clock,
+  PackageCheck,
+  Play,
+  RotateCcw,
+  Search,
+} from 'lucide-react';
+
+interface OperationLine {
+  id: string;
+  planned_area_ha: number | null;
+  actual_area_ha: number | null;
+}
+
+interface OperationMaterial {
+  id: string;
+  material_type: string | null;
+  planned_quantity: number | null;
+  issued_quantity: number | null;
+  consumed_quantity: number | null;
+  returned_quantity: number | null;
+  actual_rate: number | null;
+  unit: string | null;
+  products?: { name: string | null; trade_name?: string | null; unit?: string | null } | null;
+}
 
 interface Operation {
   id: string;
   operation_type: string;
   date: string;
-  notes: string;
+  notes: string | null;
   status?: string | null;
   work_status?: 'active' | 'in_progress' | 'completed' | null;
+  accepted_at?: string | null;
   completed_at: string | null;
-  fields?: { name: string };
+  fields?: { name: string | null } | null;
   crop_structure?: {
-    crops?: { name: string };
-    varieties?: { name: string };
-  };
+    crops?: { name: string | null; name_ru?: string | null } | null;
+    varieties?: { name: string | null } | null;
+    seed_reproductions?: { name: string | null } | null;
+  } | null;
+  operation_lines?: OperationLine[];
+  operation_materials?: OperationMaterial[];
 }
 
-type TaskTab = 'my_ops' | 'receiving' | 'in_work' | 'history';
+type TaskPhase = 'active' | 'accepted' | 'in_progress' | 'completed';
+
+function operationHasQaMarker(operation: Operation): boolean {
+  return hasQaDataMarker(
+    [
+      operation.operation_type,
+      operation.notes,
+      operation.fields?.name,
+      operation.crop_structure?.crops?.name,
+      operation.crop_structure?.crops?.name_ru,
+      operation.crop_structure?.varieties?.name,
+    ].join(' ')
+  );
+}
+
+function requestHasQaMarker(request: WarehouseIssueRequest): boolean {
+  return hasQaDataMarker(
+    [
+      request.request_number,
+      request.comment,
+      request.operation_type,
+      request.field_name,
+      request.source_warehouse_name,
+      ...(request.items || []).map((item) => `${item.product_name || ''} ${item.product_type || ''}`),
+    ].join(' ')
+  );
+}
+
+function relationOne<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function toNumber(value: unknown, fallback = 0): number {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function normalizeOperationRow(row: any): Operation {
+  const cropStructure = relationOne(row.crop_structure);
+  return {
+    ...row,
+    fields: relationOne(row.fields),
+    crop_structure: cropStructure
+      ? {
+          ...cropStructure,
+          crops: relationOne(cropStructure.crops),
+          varieties: relationOne(cropStructure.varieties),
+          seed_reproductions: relationOne(cropStructure.seed_reproductions),
+        }
+      : null,
+    operation_lines: Array.isArray(row.operation_lines)
+      ? row.operation_lines.map((line: any) => ({
+          id: String(line.id),
+          planned_area_ha: line.planned_area_ha == null ? null : toNumber(line.planned_area_ha),
+          actual_area_ha: line.actual_area_ha == null ? null : toNumber(line.actual_area_ha),
+        }))
+      : [],
+    operation_materials: Array.isArray(row.operation_materials)
+      ? row.operation_materials.map((material: any) => ({
+          ...material,
+          products: relationOne(material.products),
+          planned_quantity: material.planned_quantity == null ? null : toNumber(material.planned_quantity),
+          issued_quantity: material.issued_quantity == null ? null : toNumber(material.issued_quantity),
+          consumed_quantity: material.consumed_quantity == null ? null : toNumber(material.consumed_quantity),
+          returned_quantity: material.returned_quantity == null ? null : toNumber(material.returned_quantity),
+          actual_rate: material.actual_rate == null ? null : toNumber(material.actual_rate),
+        }))
+      : [],
+  } as Operation;
+}
+
+function getTaskPhase(task: Operation): TaskPhase {
+  if (task.work_status === 'completed' || task.status === 'completed') return 'completed';
+  if (task.work_status === 'in_progress' || task.status === 'in_progress') return 'in_progress';
+  if (task.status === 'accepted' || task.accepted_at) return 'accepted';
+  return 'active';
+}
+
+function materialRequestsReadyForStart(requests: WarehouseIssueRequest[]): boolean {
+  const activeRequests = requests.filter((request) => request.status !== 'cancelled');
+  if (activeRequests.length === 0) return true;
+  return activeRequests.every((request) => {
+    if (request.status === 'issued' || request.status === 'issued_by_warehouse') return true;
+    return request.status === 'received_confirmed' && Boolean(request.issued_at);
+  });
+}
+
+function materialStatusText(requests: WarehouseIssueRequest[]): string {
+  const activeRequests = requests.filter((request) => request.status !== 'cancelled');
+  if (activeRequests.length === 0) return 'Материалы не требуются';
+  if (activeRequests.some((request) => request.status === 'ready')) return 'Материалы готовы, нужно принять';
+  if (activeRequests.some((request) => request.status === 'received_confirmed' && !request.issued_at)) {
+    return 'Товар принят, ждём выдачу склада';
+  }
+  if (materialRequestsReadyForStart(activeRequests)) return 'Материалы выданы';
+  if (activeRequests.some((request) => request.status === 'preparing')) return 'Склад готовит материалы';
+  return 'Заявка на складе';
+}
+
+function taskStatusBadge(phase: TaskPhase) {
+  const map: Record<TaskPhase, { label: string; className: string }> = {
+    active: { label: 'Новая', className: 'bg-slate-700 text-slate-100' },
+    accepted: { label: 'Активная', className: 'bg-blue-500/15 text-blue-200 border border-blue-400/30' },
+    in_progress: { label: 'В работе', className: 'bg-amber-500/15 text-amber-200 border border-amber-400/30' },
+    completed: { label: 'Закончена', className: 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/30' },
+  };
+  const item = map[phase];
+  return <Badge className={item.className}>{item.label}</Badge>;
+}
+
+function requestStatusBadge(status: string) {
+  if (status === 'ready') return <Badge className="bg-blue-500/15 text-blue-200 border border-blue-400/30">Готово к выдаче</Badge>;
+  if (status === 'received_confirmed') return <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/30">Товар принят</Badge>;
+  if (status === 'issued' || status === 'issued_by_warehouse') {
+    return <Badge className="bg-violet-500/15 text-violet-200 border border-violet-400/30">Выдано</Badge>;
+  }
+  if (status === 'partially_issued') return <Badge className="bg-amber-500/15 text-amber-200 border border-amber-400/30">Частично выдано</Badge>;
+  if (status === 'preparing') return <Badge className="bg-cyan-500/15 text-cyan-200 border border-cyan-400/30">Готовится</Badge>;
+  return <Badge className="bg-slate-700 text-slate-100">На складе</Badge>;
+}
+
+function formatDate(value: string | null | undefined): string {
+  if (!value) return 'Дата не указана';
+  return new Date(value).toLocaleDateString('ru-RU');
+}
+
+function formatQty(value: unknown, unit?: string | null): string {
+  const numeric = toNumber(value, 0);
+  const formatted = numeric % 1 === 0 ? numeric.toFixed(0) : numeric.toFixed(2);
+  return `${formatted} ${unit || ''}`.trim();
+}
+
+function operationMaterialName(material: OperationMaterial): string {
+  return material.products?.trade_name || material.products?.name || material.material_type || 'Материал';
+}
+
+function operationVisibleMaterials(operation: Operation): OperationMaterial[] {
+  return (operation.operation_materials || []).filter((material) => !hasQaDataMarker(operationMaterialName(material)));
+}
+
+function operationLineDefaultArea(operation: Operation): string {
+  const firstLine = operation.operation_lines?.[0];
+  const area = firstLine?.actual_area_ha ?? firstLine?.planned_area_ha ?? null;
+  return area == null ? '' : String(area);
+}
 
 export default function TasksPage() {
   const { profile } = useAuth();
   const { language } = useLanguage();
   const { toast } = useToast();
 
-  const [myTasks, setMyTasks] = useState<Operation[]>([]);
-  const [completedTasks, setCompletedTasks] = useState<Operation[]>([]);
-  const [pendingReceipts, setPendingReceipts] = useState<WarehouseIssueRequest[]>([]);
-  const [receiptHistory, setReceiptHistory] = useState<WarehouseIssueRequest[]>([]);
+  const [operations, setOperations] = useState<Operation[]>([]);
+  const [materialRequests, setMaterialRequests] = useState<WarehouseIssueRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [confirmingReceiptId, setConfirmingReceiptId] = useState<string | null>(null);
-  const [returningReceiptId, setReturningReceiptId] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
+  const [lineFactDraft, setLineFactDraft] = useState<Record<string, string>>({});
+  const [materialFactDraft, setMaterialFactDraft] = useState<Record<string, { consumed: string; returned: string; actualRate: string }>>({});
+  const [completionComment, setCompletionComment] = useState('Выполнено специалистом');
   const [returnDraftByItemId, setReturnDraftByItemId] = useState<Record<string, string>>({});
-  const [activeTab, setActiveTab] = useState<TaskTab>('my_ops');
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyFrom, setHistoryFrom] = useState('');
+  const [historyTo, setHistoryTo] = useState('');
 
-  const getTaskStatus = (task: Operation): 'active' | 'in_progress' | 'completed' => {
-    if (task.work_status === 'active' || task.work_status === 'in_progress' || task.work_status === 'completed') {
-      return task.work_status;
-    }
-    if (task.status === 'completed') return 'completed';
-    if (task.status === 'in_progress' || task.status === 'accepted') return 'in_progress';
-    return 'active';
-  };
-
-  useEffect(() => {
-    if (profile) void loadTasks();
-  }, [profile, language]);
+  const isTaskRole = profile?.role === 'specialist' || profile?.role === 'brigadier';
 
   const buildAuthHeaders = async () => {
     const { data, error } = await supabase.auth.getSession();
     if (error || !data.session?.access_token) {
-      throw new Error('Session not found. Please log in again.');
+      throw new Error('Сессия не найдена. Войдите заново.');
     }
     return {
       Authorization: `Bearer ${data.session.access_token}`,
@@ -77,56 +253,74 @@ export default function TasksPage() {
   };
 
   const loadTasks = async () => {
+    if (!profile?.id || !profile.company_id) return;
+    setLoading(true);
     try {
-      const [operationsResult, receiptsResult] = await Promise.all([
+      const [operationsResult, requestsResult] = await Promise.all([
         supabase
           .from('operations')
           .select(
             `
-            *,
+            id,
+            operation_type,
+            date,
+            notes,
+            status,
+            work_status,
+            accepted_at,
+            completed_at,
             fields(name),
             crop_structure(
-              crops(name),
-              varieties(name)
+              crops(name,name_ru),
+              varieties(name),
+              seed_reproductions(name)
+            ),
+            operation_lines(id,planned_area_ha,actual_area_ha),
+            operation_materials(
+              id,
+              material_type,
+              planned_quantity,
+              issued_quantity,
+              consumed_quantity,
+              returned_quantity,
+              actual_rate,
+              unit,
+              products(name,trade_name,unit)
             )
           `
           )
-          .or(`responsible_user_id.eq.${profile?.id},assigned_to.eq.${profile?.id}`)
+          .eq('company_id', profile.company_id)
+          .or(`responsible_user_id.eq.${profile.id},assigned_to.eq.${profile.id}`)
+          .eq('archived', false)
           .order('date', { ascending: true }),
-        profile?.company_id && profile?.id
-          ? getRecipientWarehouseIssueRequests({
-              companyId: profile.company_id,
-              recipientUserId: profile.id,
-            })
-          : Promise.resolve([] as WarehouseIssueRequest[]),
+        getRecipientWarehouseIssueRequests({
+          companyId: profile.company_id,
+          recipientUserId: profile.id,
+        }),
       ]);
 
       if (operationsResult.error) throw operationsResult.error;
 
-      const data = operationsResult.data || [];
-      setMyTasks(data.filter((op) => getTaskStatus(op) !== 'completed'));
-      setCompletedTasks(data.filter((op) => getTaskStatus(op) === 'completed'));
+      const cleanOperations = ((operationsResult.data || []) as any[])
+        .map(normalizeOperationRow)
+        .filter((operation) => !operationHasQaMarker(operation));
+      const cleanRequests = (requestsResult || []).filter((request) => !requestHasQaMarker(request));
+      setOperations(cleanOperations);
+      setMaterialRequests(cleanRequests);
 
-      const requests = receiptsResult || [];
-      setPendingReceipts(
-        requests.filter((r) => r.status === 'issued_by_warehouse' || r.status === 'partially_issued' || r.status === 'issued')
-      );
-
-      const confirmed = requests.filter((r) => r.status === 'received_confirmed');
-      setReceiptHistory(confirmed);
-
-      const nextReturnDraft: Record<string, string> = {};
-      confirmed.forEach((request) => {
-        (request.items || []).forEach((item) => {
-          nextReturnDraft[item.id] = '0';
+      const returnDraft: Record<string, string> = {};
+      cleanRequests
+        .filter((request) => ['received_confirmed', 'issued', 'issued_by_warehouse', 'partially_issued'].includes(request.status))
+        .forEach((request) => {
+          (request.items || []).forEach((item) => {
+            returnDraft[item.id] = returnDraftByItemId[item.id] ?? '0';
+          });
         });
-      });
-      setReturnDraftByItemId(nextReturnDraft);
-    } catch (error) {
-      console.error('Error loading tasks:', error);
+      setReturnDraftByItemId(returnDraft);
+    } catch (error: any) {
       toast({
-        title: 'Error',
-        description: 'Failed to load tasks',
+        title: 'Ошибка',
+        description: error?.message || 'Не удалось загрузить задачи',
         variant: 'destructive',
       });
     } finally {
@@ -134,417 +328,746 @@ export default function TasksPage() {
     }
   };
 
-  const handleConfirmReceipt = async (requestId: string) => {
+  useEffect(() => {
+    if (profile?.id && profile.company_id) void loadTasks();
+  }, [profile?.id, profile?.company_id, language]);
+
+  const requestsByOperation = useMemo(() => {
+    const map = new Map<string, WarehouseIssueRequest[]>();
+    materialRequests.forEach((request) => {
+      const operationId = String(request.operation_id || '');
+      if (!operationId) return;
+      const list = map.get(operationId) || [];
+      list.push(request);
+      map.set(operationId, list);
+    });
+    return map;
+  }, [materialRequests]);
+
+  const activeOperations = operations.filter((operation) => {
+    const phase = getTaskPhase(operation);
+    return phase === 'active' || phase === 'accepted';
+  });
+  const inProgressOperations = operations.filter((operation) => getTaskPhase(operation) === 'in_progress');
+  const completedOperations = operations.filter((operation) => getTaskPhase(operation) === 'completed');
+  const receiptHistory = materialRequests.filter((request) =>
+    ['received_confirmed', 'issued', 'issued_by_warehouse', 'partially_issued'].includes(request.status)
+  );
+
+  const selectedOperation = useMemo(
+    () => operations.find((operation) => operation.id === selectedOperationId) || null,
+    [operations, selectedOperationId]
+  );
+
+  const filteredCompletedOperations = useMemo(() => {
+    const search = historySearch.trim().toLowerCase();
+    return completedOperations.filter((operation) => {
+      const text = `${operation.operation_type} ${operation.fields?.name || ''} ${operation.notes || ''}`.toLowerCase();
+      const dateValue = operation.completed_at || operation.date;
+      const date = dateValue ? dateValue.slice(0, 10) : '';
+      const matchesSearch = !search || text.includes(search);
+      const matchesFrom = !historyFrom || date >= historyFrom;
+      const matchesTo = !historyTo || date <= historyTo;
+      return matchesSearch && matchesFrom && matchesTo;
+    });
+  }, [completedOperations, historyFrom, historySearch, historyTo]);
+
+  const openOperationDetails = (operation: Operation) => {
+    const lineDraft: Record<string, string> = {};
+    (operation.operation_lines || []).forEach((line) => {
+      const area = line.actual_area_ha ?? line.planned_area_ha;
+      lineDraft[line.id] = area == null ? '' : String(area);
+    });
+    if (Object.keys(lineDraft).length === 0) {
+      lineDraft.__fallback = operationLineDefaultArea(operation);
+    }
+
+    const materialDraft: Record<string, { consumed: string; returned: string; actualRate: string }> = {};
+    (operation.operation_materials || []).forEach((material) => {
+      const issued = material.issued_quantity ?? 0;
+      const consumed = material.consumed_quantity ?? (issued > 0 ? issued : material.planned_quantity ?? 0);
+      const returned = material.returned_quantity ?? 0;
+      materialDraft[material.id] = {
+        consumed: consumed == null ? '' : String(consumed),
+        returned: returned == null ? '0' : String(returned),
+        actualRate: material.actual_rate == null ? '' : String(material.actual_rate),
+      };
+    });
+
+    setLineFactDraft(lineDraft);
+    setMaterialFactDraft(materialDraft);
+    setCompletionComment('Выполнено специалистом');
+    setSelectedOperationId(operation.id);
+  };
+
+  const runOperationAction = async (action: 'accept' | 'start', operationId: string) => {
     if (!profile?.company_id) return;
+    const labels = {
+      accept: 'Задача принята',
+      start: 'Работа начата',
+    };
     try {
-      setConfirmingReceiptId(requestId);
-      await confirmWarehouseReceipt({
-        requestId,
-        companyId: profile.company_id,
+      setBusyKey(`${action}:${operationId}`);
+      const headers = await buildAuthHeaders();
+      const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/${action}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ companyId: profile.company_id }),
       });
-      toast({
-        title: 'Receipt confirmed',
-        description: 'Materials receipt confirmed. Stock deduction finalized.',
-      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Действие не выполнено');
+      toast({ title: labels[action] });
       await loadTasks();
     } catch (error: any) {
-      console.error('Error confirming receipt:', error);
       toast({
-        title: 'Error',
-        description: error?.message || 'Failed to confirm receipt',
+        title: 'Ошибка',
+        description: error?.message || 'Действие не выполнено',
         variant: 'destructive',
       });
     } finally {
-      setConfirmingReceiptId(null);
+      setBusyKey(null);
+    }
+  };
+
+  const handleCompleteOperation = async (operation: Operation) => {
+    if (!profile?.company_id) return;
+
+    const lineFacts = Object.entries(lineFactDraft)
+      .filter(([lineId]) => lineId !== '__fallback')
+      .map(([lineId, value]) => ({ lineId, actualAreaHa: value.trim() ? Number(value) : null }));
+    const fallbackArea = lineFactDraft.__fallback?.trim() ? Number(lineFactDraft.__fallback) : null;
+    const hasInvalidLine = lineFacts.some((line) => line.actualAreaHa == null || !Number.isFinite(line.actualAreaHa) || line.actualAreaHa <= 0);
+    if ((operation.operation_lines || []).length > 0 && hasInvalidLine) {
+      toast({ title: 'Ошибка', description: 'Укажите фактическую площадь по участку.', variant: 'destructive' });
+      return;
+    }
+    if ((operation.operation_lines || []).length === 0 && (fallbackArea == null || !Number.isFinite(fallbackArea) || fallbackArea <= 0)) {
+      toast({ title: 'Ошибка', description: 'Укажите фактическую площадь.', variant: 'destructive' });
+      return;
+    }
+
+    const materialFacts = Object.entries(materialFactDraft).map(([materialId, draft]) => ({
+      materialId,
+      actualRate: draft.actualRate.trim() ? Number(draft.actualRate) : null,
+      consumedQuantity: draft.consumed.trim() ? Number(draft.consumed) : null,
+      returnedQuantity: draft.returned.trim() ? Number(draft.returned) : 0,
+    }));
+    const invalidMaterial = materialFacts.find((fact) => {
+      const consumedInvalid = fact.consumedQuantity == null || !Number.isFinite(fact.consumedQuantity) || fact.consumedQuantity < 0;
+      const returnedInvalid = fact.returnedQuantity == null || !Number.isFinite(fact.returnedQuantity) || fact.returnedQuantity < 0;
+      const rateInvalid = fact.actualRate != null && (!Number.isFinite(fact.actualRate) || fact.actualRate < 0);
+      return consumedInvalid || returnedInvalid || rateInvalid;
+    });
+    if (invalidMaterial) {
+      toast({ title: 'Ошибка', description: 'Проверьте фактический расход и возврат материалов.', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      setBusyKey(`complete:${operation.id}`);
+      const headers = await buildAuthHeaders();
+      const response = await fetch(`/api/operations/${encodeURIComponent(operation.id)}/complete`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          companyId: profile.company_id,
+          comment: completionComment.trim() || 'Выполнено специалистом',
+          actualAreaHa: fallbackArea,
+          lineFacts,
+          materialFacts,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'Операция не закрыта');
+      toast({ title: 'Операция закрыта' });
+      setSelectedOperationId(null);
+      await loadTasks();
+    } catch (error: any) {
+      toast({
+        title: 'Ошибка',
+        description: error?.message || 'Операция не закрыта',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleConfirmReceipt = async (requestId: string) => {
+    if (!profile?.company_id) return;
+    try {
+      setBusyKey(`receipt:${requestId}`);
+      await confirmWarehouseReceipt({ requestId, companyId: profile.company_id });
+      toast({
+        title: 'Товар принят',
+        description: 'Теперь склад может подтвердить фактическую выдачу.',
+      });
+      await loadTasks();
+    } catch (error: any) {
+      toast({
+        title: 'Ошибка',
+        description: error?.message || 'Не удалось принять товар',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusyKey(null);
     }
   };
 
   const handleConfirmReturn = async (request: WarehouseIssueRequest) => {
     if (!profile?.company_id) return;
-
-    const items = (request.items || [])
-      .map((item) => {
-        const raw = String(returnDraftByItemId[item.id] || '').trim();
-        const qty = Number(raw);
-        const issued = Number(item.issued_quantity || 0);
-        const returned = Number(item.returned_quantity || 0);
-        const maxQty = Math.max(issued - returned, 0);
-
-        if (!Number.isFinite(qty) || qty <= 0) return null;
-        if (qty > maxQty + 0.000001) {
-          throw new Error(`Return exceeds available quantity for ${item.product_name || 'material'}`);
-        }
-
-        return {
-          itemId: item.id,
-          returnedQuantity: Number(qty.toFixed(4)),
-        };
-      })
-      .filter(Boolean) as Array<{ itemId: string; returnedQuantity: number }>;
-
-    if (items.length === 0) {
-      toast({
-        title: 'Error',
-        description: 'Enter return quantity for at least one material.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
     try {
-      setReturningReceiptId(request.id);
-      await returnWarehouseRequestMaterials({
-        requestId: request.id,
-        companyId: profile.company_id,
-        items,
-      });
-      toast({
-        title: 'Return confirmed',
-        description: 'Return movement created and request quantities updated.',
-      });
+      const items = (request.items || [])
+        .map((item) => {
+          const qty = Number(returnDraftByItemId[item.id] || 0);
+          const issued = Number(item.issued_quantity || 0);
+          const returned = Number(item.returned_quantity || 0);
+          const maxQty = Math.max(issued - returned, 0);
+          if (!Number.isFinite(qty) || qty <= 0) return null;
+          if (qty > maxQty + 0.000001) {
+            throw new Error(`Возврат больше выданного остатка: ${item.product_name || 'материал'}`);
+          }
+          return { itemId: item.id, returnedQuantity: Number(qty.toFixed(4)) };
+        })
+        .filter(Boolean) as Array<{ itemId: string; returnedQuantity: number }>;
+
+      if (items.length === 0) {
+        throw new Error('Укажите количество возврата хотя бы по одному материалу.');
+      }
+
+      setBusyKey(`return:${request.id}`);
+      await returnWarehouseRequestMaterials({ requestId: request.id, companyId: profile.company_id, items });
+      toast({ title: 'Возврат зарегистрирован' });
       await loadTasks();
     } catch (error: any) {
       toast({
-        title: 'Error',
-        description: error?.message || 'Failed to register return',
+        title: 'Ошибка',
+        description: error?.message || 'Не удалось зарегистрировать возврат',
         variant: 'destructive',
       });
     } finally {
-      setReturningReceiptId(null);
+      setBusyKey(null);
     }
   };
 
-  const handleAccept = async (taskId: string) => {
-    try {
-      const headers = await buildAuthHeaders();
-      const response = await fetch(`/api/operations/${encodeURIComponent(taskId)}/start`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ companyId: profile?.company_id }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error || 'Failed to start operation');
+  const renderMaterialPreview = (operation: Operation, requests: WarehouseIssueRequest[]) => {
+    const requestItems = requests.flatMap((request) => request.items || []);
+    const operationMaterials = operationVisibleMaterials(operation);
+    const previewRows =
+      requestItems.length > 0
+        ? requestItems.map((item) => ({
+            id: item.id,
+            name: item.product_name || 'Материал',
+            qty: formatQty(item.planned_quantity ?? item.required_quantity, localizeUnit(item.unit || item.product_unit || '', language)),
+          }))
+        : operationMaterials.map((material) => ({
+            id: material.id,
+            name: operationMaterialName(material),
+            qty: formatQty(material.planned_quantity, localizeUnit(material.unit || material.products?.unit || '', language)),
+          }));
 
-      toast({
-        title: 'Task accepted',
-        description: 'Operation moved to in-progress.',
-      });
-      await loadTasks();
-    } catch (error) {
-      console.error('Error accepting task:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to accept task',
-        variant: 'destructive',
-      });
+    if (previewRows.length === 0) {
+      return <div className="text-xs text-slate-400">{materialStatusText(requests)}</div>;
     }
+
+    const visible = previewRows.slice(0, 3);
+    const hiddenCount = previewRows.length - visible.length;
+    return (
+      <div className="space-y-1">
+        {visible.map((item) => (
+          <div key={item.id} className="flex justify-between gap-2 text-xs text-slate-300">
+            <span className="truncate">{item.name}</span>
+            <span className="shrink-0 text-slate-400">{item.qty}</span>
+          </div>
+        ))}
+        {hiddenCount > 0 ? <div className="text-xs text-slate-500">+ ещё {hiddenCount}</div> : null}
+      </div>
+    );
   };
 
-  const handleComplete = async (taskId: string) => {
-    try {
-      const headers = await buildAuthHeaders();
-      const response = await fetch(`/api/operations/${encodeURIComponent(taskId)}/complete`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ companyId: profile?.company_id }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(payload?.error || 'Failed to complete operation');
+  const renderOperationCard = (operation: Operation, isCompleted = false) => {
+    const phase = getTaskPhase(operation);
+    const requests = requestsByOperation.get(operation.id) || [];
+    const readyForStart = materialRequestsReadyForStart(requests);
+    const readyRequest = requests.find((request) => request.status === 'ready');
+    const waitingWarehouseIssue = requests.some((request) => request.status === 'received_confirmed' && !request.issued_at);
+    const cropName = operation.crop_structure?.crops?.name_ru || operation.crop_structure?.crops?.name || null;
+    const varietyName = operation.crop_structure?.varieties?.name || null;
+    const visibleOperationMaterials = operationVisibleMaterials(operation);
 
-      toast({
-        title: 'Task completed',
-        description: 'Operation marked as completed.',
-      });
-      await loadTasks();
-    } catch (error) {
-      console.error('Error completing task:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to complete task',
-        variant: 'destructive',
-      });
-    }
-  };
+    return (
+      <Card
+        key={operation.id}
+        role="button"
+        tabIndex={0}
+        onClick={() => openOperationDetails(operation)}
+        className="cursor-pointer border-slate-700 bg-slate-900/70 transition hover:border-yellow-500/60 hover:bg-slate-900"
+      >
+        <CardContent className="space-y-3 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 space-y-1">
+              <div className="truncate text-sm font-semibold text-yellow-100">{operation.operation_type}</div>
+              <div className="truncate text-lg font-bold text-white">{operation.fields?.name || 'Поле не указано'}</div>
+              <div className="truncate text-xs text-slate-400">
+                {[cropName, varietyName].filter(Boolean).join(' • ') || 'Культура не указана'}
+              </div>
+            </div>
+            {taskStatusBadge(phase)}
+          </div>
 
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      active: 'bg-slate-100 text-slate-800',
-      in_progress: 'bg-orange-100 text-orange-800',
-      completed: 'bg-green-100 text-green-800',
-    };
-    return <Badge className={styles[status as keyof typeof styles] || styles.active}>{status.replace('_', ' ')}</Badge>;
-  };
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <CalendarDays className="h-3.5 w-3.5" />
+            {formatDate(operation.date)}
+          </div>
 
-  const renderTaskCard = (task: Operation, isCompleted = false) => (
-    <Card key={task.id} className="mb-4">
-      <CardHeader>
-        <div className="flex items-start justify-between gap-2">
-          <div className="space-y-1">
-            <CardTitle className="text-lg">{task.operation_type}</CardTitle>
-            <div className="space-y-1 text-sm text-slate-500">
-              <p>Field: {task.fields?.name || 'Unknown'}</p>
-              {task.crop_structure && (
-                <p>
-                  Crop: {task.crop_structure.crops?.name} - {task.crop_structure.varieties?.name}
-                </p>
-              )}
-              <p>Date: {new Date(task.date).toLocaleDateString()}</p>
+          {operation.notes ? <div className="line-clamp-2 text-xs text-slate-400">{operation.notes}</div> : null}
+
+          <div className="rounded-md border border-slate-700 bg-slate-950/60 p-3">
+            <div className="mb-1 text-xs font-semibold text-slate-200">Материалы</div>
+            {renderMaterialPreview(operation, requests)}
+            <div className="mt-2 text-[11px] text-slate-500">
+              {requests.length === 0 && visibleOperationMaterials.length > 0 ? 'Материалы запланированы' : materialStatusText(requests)}
             </div>
           </div>
-          {getStatusBadge(getTaskStatus(task))}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {task.notes ? <p className="mb-4 text-sm text-slate-600">{task.notes}</p> : null}
-        {!isCompleted ? (
-          <div className="flex flex-wrap gap-2">
-            {getTaskStatus(task) === 'active' ? (
-              <Button onClick={() => handleAccept(task.id)} size="sm">
-                <Clock className="mr-2 h-4 w-4" />
-                Accept
-              </Button>
-            ) : null}
-            {getTaskStatus(task) === 'in_progress' ? (
-              <Button onClick={() => handleComplete(task.id)} size="sm" className="bg-green-600 hover:bg-green-700">
-                <CheckCircle className="mr-2 h-4 w-4" />
-                Complete
-              </Button>
-            ) : null}
+
+          {!isCompleted ? (
+            <div className="flex flex-wrap gap-2">
+              {phase === 'active' ? (
+                <Button
+                  size="sm"
+                  onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                    event.stopPropagation();
+                    void runOperationAction('accept', operation.id);
+                  }}
+                  disabled={busyKey === `accept:${operation.id}`}
+                >
+                  <Clock className="mr-2 h-4 w-4" />
+                  Принять
+                </Button>
+              ) : null}
+
+              {phase === 'accepted' && readyRequest ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                    event.stopPropagation();
+                    void handleConfirmReceipt(readyRequest.id);
+                  }}
+                  disabled={busyKey === `receipt:${readyRequest.id}`}
+                >
+                  <PackageCheck className="mr-2 h-4 w-4" />
+                  Принять товар
+                </Button>
+              ) : null}
+
+              {phase === 'accepted' && !readyRequest && waitingWarehouseIssue ? (
+                <Button size="sm" variant="outline" disabled onClick={(event) => event.stopPropagation()}>
+                  Ждём склад
+                </Button>
+              ) : null}
+
+              {phase === 'accepted' && readyForStart ? (
+                <Button
+                  size="sm"
+                  onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                    event.stopPropagation();
+                    void runOperationAction('start', operation.id);
+                  }}
+                  disabled={busyKey === `start:${operation.id}`}
+                >
+                  <Play className="mr-2 h-4 w-4" />
+                  В работу
+                </Button>
+              ) : null}
+
+              {phase === 'in_progress' ? (
+                <Button
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                    event.stopPropagation();
+                    openOperationDetails(operation);
+                  }}
+                  disabled={busyKey === `complete:${operation.id}`}
+                >
+                  <CheckCircle className="mr-2 h-4 w-4" />
+                  Завершить
+                </Button>
+              ) : null}
+            </div>
+          ) : operation.completed_at ? (
+            <div className="text-xs text-emerald-300">
+              Выполнена: {new Date(operation.completed_at).toLocaleString('ru-RU')}
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  };
+
+  const renderReceiptHistoryCard = (request: WarehouseIssueRequest) => (
+    <Card key={request.id} className="border-slate-700 bg-slate-900/70">
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-white">{request.request_number}</div>
+            <div className="truncate text-xs text-slate-400">
+              {request.field_name || '-'} • {request.operation_type || '-'}
+            </div>
           </div>
-        ) : null}
-        {isCompleted && task.completed_at ? (
-          <p className="text-sm text-green-600">Completed: {new Date(task.completed_at).toLocaleString()}</p>
+          {requestStatusBadge(request.status)}
+        </div>
+        <div className="space-y-1">
+          {(request.items || []).slice(0, 3).map((item) => (
+            <div key={item.id} className="flex justify-between gap-2 text-xs text-slate-300">
+              <span className="truncate">{item.product_name || 'Материал'}</span>
+              <span className="shrink-0 text-slate-400">
+                {formatQty(item.issued_quantity ?? item.planned_quantity ?? item.required_quantity, localizeUnit(item.unit || item.product_unit || '', language))}
+              </span>
+            </div>
+          ))}
+          {(request.items || []).length > 3 ? <div className="text-xs text-slate-500">+ ещё {(request.items || []).length - 3}</div> : null}
+        </div>
+        {['issued', 'issued_by_warehouse', 'partially_issued'].includes(request.status) ? (
+          <div className="space-y-2 rounded-md border border-slate-700 bg-slate-950/60 p-3">
+            <div className="text-xs font-semibold text-slate-200">Возврат материалов</div>
+            {(request.items || []).map((item) => {
+              const issued = Number(item.issued_quantity || 0);
+              const returned = Number(item.returned_quantity || 0);
+              const available = Math.max(issued - returned, 0);
+              if (available <= 0) return null;
+              return (
+                <div key={item.id} className="grid grid-cols-[1fr_88px] gap-2 text-xs">
+                  <div className="truncate text-slate-400">{item.product_name || 'Материал'}</div>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={available}
+                    step="0.01"
+                    value={returnDraftByItemId[item.id] ?? '0'}
+                    onChange={(event) =>
+                      setReturnDraftByItemId((prev) => ({ ...prev, [item.id]: event.target.value }))
+                    }
+                    className="h-8"
+                  />
+                </div>
+              );
+            })}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setReturnDraftByItemId((prev) => {
+                    const next = { ...prev };
+                    (request.items || []).forEach((item) => {
+                      const issued = Number(item.issued_quantity || 0);
+                      const returned = Number(item.returned_quantity || 0);
+                      next[item.id] = Math.max(issued - returned, 0).toFixed(2);
+                    });
+                    return next;
+                  });
+                }}
+              >
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Всё
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => handleConfirmReturn(request)}
+                disabled={busyKey === `return:${request.id}`}
+              >
+                Зарегистрировать
+              </Button>
+            </div>
+          </div>
         ) : null}
       </CardContent>
     </Card>
   );
 
-  const renderReturnCard = (request: WarehouseIssueRequest) => (
-    <div key={request.id} className="rounded-md border p-3">
-      <div className="font-medium">{request.request_number}</div>
-      <div className="text-sm text-slate-500">
-        {request.field_name || '-'} • {request.operation_type || '-'}
+  const renderColumn = (title: string, count: number, children: React.ReactNode) => (
+    <section className="min-h-[320px] rounded-lg border border-slate-800 bg-slate-950/30 p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-white">{title}</h2>
+        <Badge className="bg-slate-800 text-slate-200">{count}</Badge>
       </div>
-      <div className="mt-2 flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            setReturnDraftByItemId((prev) => {
-              const next = { ...prev };
-              (request.items || []).forEach((item) => {
-                const issued = Number(item.issued_quantity || 0);
-                const returned = Number(item.returned_quantity || 0);
-                next[item.id] = Math.max(issued - returned, 0).toFixed(2);
-              });
-              return next;
-            });
-          }}
-        >
-          Return all
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            setReturnDraftByItemId((prev) => {
-              const next = { ...prev };
-              (request.items || []).forEach((item) => {
-                next[item.id] = '0';
-              });
-              return next;
-            });
-          }}
-        >
-          Clear
-        </Button>
-      </div>
-      <div className="mt-2 space-y-2">
-        {(request.items || []).map((item) => {
-          const issued = Number(item.issued_quantity || 0);
-          const returned = Number(item.returned_quantity || 0);
-          const available = Math.max(issued - returned, 0);
-          return (
-            <div key={item.id} className="rounded-md border p-2 text-sm">
-              <div className="font-medium">{item.product_name || '-'}</div>
-              <div className="text-xs text-slate-500">
-                Issued {issued.toFixed(2)} {item.unit} • Returned {returned.toFixed(2)} {item.unit} • Available {available.toFixed(2)} {item.unit}
-              </div>
-              <div className="mt-1 flex items-center gap-2">
-                <Input
-                  type="number"
-                  min={0}
-                  max={available}
-                  step="0.01"
-                  value={returnDraftByItemId[item.id] ?? '0'}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                    setReturnDraftByItemId((prev) => ({
-                      ...prev,
-                      [item.id]: event.target.value,
-                    }))
-                  }
-                  className="h-8"
-                />
-                <span className="text-xs text-slate-500">{item.unit}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      <div className="mt-2">
-        <Button type="button" variant="outline" onClick={() => handleConfirmReturn(request)} disabled={returningReceiptId === request.id}>
-          Register return
-        </Button>
-      </div>
-    </div>
+      <div className="space-y-3">{children}</div>
+    </section>
   );
-
-  const inProgressTasks = myTasks.filter((task) => getTaskStatus(task) === 'in_progress');
-  const isTaskRole = profile?.role === 'specialist' || profile?.role === 'brigadier';
 
   if (!isTaskRole) {
     return (
       <div>
-        <PageHeader title="My Tasks" description="Your assigned operations and material requests" />
+        <PageHeader title="Мои задачи" description="Операции и материалы специалиста" />
         <Alert variant="destructive">
-          <AlertDescription>Access denied. This page is available for specialists and brigadiers only.</AlertDescription>
+          <AlertDescription>Эта страница доступна специалистам и бригадирам.</AlertDescription>
         </Alert>
       </div>
     );
   }
 
   return (
-    <div className="pb-20 md:pb-0">
-      <PageHeader title="My Tasks" description="View and manage your assigned operations" />
+    <div className="space-y-4">
+      <PageHeader title="Мои задачи" description="Работы, получение материалов и история выполнения" />
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TaskTab)} className="space-y-4">
-        <TabsList className="hidden md:grid md:w-fit md:grid-cols-4">
-          <TabsTrigger value="my_ops">My operations ({myTasks.length})</TabsTrigger>
-          <TabsTrigger value="receiving">Receiving ({pendingReceipts.length})</TabsTrigger>
-          <TabsTrigger value="in_work">In progress ({inProgressTasks.length})</TabsTrigger>
-          <TabsTrigger value="history">History ({completedTasks.length + receiptHistory.length})</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="my_ops">
-          {loading ? (
-            <Card><CardContent className="p-6 text-center text-slate-500">Loading tasks...</CardContent></Card>
-          ) : myTasks.length === 0 ? (
-            <Card><CardContent className="p-6 text-center text-slate-500">No active tasks assigned to you.</CardContent></Card>
+      <div className="grid gap-4 xl:grid-cols-3">
+        {renderColumn(
+          'Активные',
+          activeOperations.length,
+          loading ? (
+            <Card className="border-slate-700 bg-slate-900/70"><CardContent className="p-5 text-center text-slate-400">Загрузка задач...</CardContent></Card>
+          ) : activeOperations.length === 0 ? (
+            <Card className="border-slate-700 bg-slate-900/70"><CardContent className="p-5 text-center text-slate-400">Активных задач нет.</CardContent></Card>
           ) : (
-            <div>{myTasks.map((task) => renderTaskCard(task))}</div>
-          )}
-        </TabsContent>
+            activeOperations.map((task) => renderOperationCard(task))
+          )
+        )}
 
-        <TabsContent value="receiving">
-          {loading ? (
-            <Card><CardContent className="p-6 text-center text-slate-500">Loading receipt requests...</CardContent></Card>
+        {renderColumn(
+          'В работе',
+          inProgressOperations.length,
+          loading ? (
+            <Card className="border-slate-700 bg-slate-900/70"><CardContent className="p-5 text-center text-slate-400">Загрузка работ...</CardContent></Card>
+          ) : inProgressOperations.length === 0 ? (
+            <Card className="border-slate-700 bg-slate-900/70"><CardContent className="p-5 text-center text-slate-400">Операций в работе нет.</CardContent></Card>
           ) : (
-            <div className="space-y-4">
-              <Card>
-                <CardHeader><CardTitle>Pending confirmation</CardTitle></CardHeader>
-                <CardContent>
-                  {pendingReceipts.length === 0 ? (
-                    <div className="text-sm text-slate-500">No pending material receipts.</div>
+            inProgressOperations.map((task) => renderOperationCard(task))
+          )
+        )}
+
+        {renderColumn(
+          'Законченные',
+          filteredCompletedOperations.length + receiptHistory.length,
+          <>
+            <div className="space-y-2 rounded-md border border-slate-800 bg-slate-950/50 p-3">
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <Search className="h-3.5 w-3.5" />
+                Фильтр истории
+              </div>
+              <Input
+                value={historySearch}
+                onChange={(event) => setHistorySearch(event.target.value)}
+                placeholder="Поиск по полю или операции"
+                className="h-8"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <Input type="date" value={historyFrom} onChange={(event) => setHistoryFrom(event.target.value)} className="h-8" />
+                <Input type="date" value={historyTo} onChange={(event) => setHistoryTo(event.target.value)} className="h-8" />
+              </div>
+            </div>
+            {loading ? (
+              <Card className="border-slate-700 bg-slate-900/70"><CardContent className="p-5 text-center text-slate-400">Загрузка истории...</CardContent></Card>
+            ) : filteredCompletedOperations.length === 0 && receiptHistory.length === 0 ? (
+              <Card className="border-slate-700 bg-slate-900/70"><CardContent className="p-5 text-center text-slate-400">Истории пока нет.</CardContent></Card>
+            ) : (
+              <>
+                {filteredCompletedOperations.map((task) => renderOperationCard(task, true))}
+                {receiptHistory.map(renderReceiptHistoryCard)}
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      <Dialog open={Boolean(selectedOperation)} onOpenChange={(open) => !open && setSelectedOperationId(null)}>
+        <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto border-slate-700 bg-slate-950 text-slate-100">
+          {selectedOperation ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl text-white">{selectedOperation.operation_type}</DialogTitle>
+                <DialogDescription className="text-slate-400">
+                  {selectedOperation.fields?.name || 'Поле не указано'} • {formatDate(selectedOperation.date)}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="grid gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-4 md:grid-cols-2">
+                  <div>
+                    <div className="text-xs text-slate-500">Поле</div>
+                    <div className="font-semibold text-white">{selectedOperation.fields?.name || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500">Культура</div>
+                    <div className="font-semibold text-white">
+                      {selectedOperation.crop_structure?.crops?.name_ru || selectedOperation.crop_structure?.crops?.name || '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500">Сорт</div>
+                    <div className="text-slate-200">{selectedOperation.crop_structure?.varieties?.name || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500">Репродукция</div>
+                    <div className="text-slate-200">{selectedOperation.crop_structure?.seed_reproductions?.name || '-'}</div>
+                  </div>
+                </div>
+
+                {selectedOperation.notes ? (
+                  <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
+                    {selectedOperation.notes}
+                  </div>
+                ) : null}
+
+                <div className="space-y-2">
+                  <h3 className="font-semibold text-white">Материалы</h3>
+                  {operationVisibleMaterials(selectedOperation).length === 0 ? (
+                    <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-400">Материалы не требуются</div>
                   ) : (
-                    <div className="space-y-3">
-                      {pendingReceipts.map((request) => (
-                        <Card key={request.id}>
-                          <CardContent className="pt-4">
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div className="space-y-1 text-sm">
-                                <div><span className="text-slate-500">Request:</span> {request.request_number}</div>
-                                <div><span className="text-slate-500">Operation:</span> {request.operation_type} ({request.operation_date || '-'})</div>
-                                <div><span className="text-slate-500">Field:</span> {request.field_name || '-'}</div>
-                                <div><span className="text-slate-500">Warehouse:</span> {request.source_warehouse_name || '-'}</div>
-                              </div>
-                              <Button
-                                onClick={() => handleConfirmReceipt(request.id)}
-                                disabled={confirmingReceiptId === request.id}
-                                className="bg-green-600 hover:bg-green-700"
-                              >
-                                Confirm receipt
-                              </Button>
+                    <div className="space-y-2">
+                      {operationVisibleMaterials(selectedOperation).map((material) => (
+                        <div key={material.id} className="rounded-md border border-slate-800 bg-slate-900/70 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="font-medium text-white">{operationMaterialName(material)}</div>
+                            <div className="text-sm text-slate-400">
+                              План: {formatQty(material.planned_quantity, localizeUnit(material.unit || material.products?.unit || '', language))}
                             </div>
-                            <div className="mt-3 text-sm">
-                              <div className="mb-1 font-medium">Materials</div>
-                              <div className="space-y-1">
-                                {request.items.map((item) => (
-                                  <div key={item.id}>
-                                    {item.product_name} - {Number(item.required_quantity || 0).toFixed(2)} {item.unit}
-                                  </div>
-                                ))}
-                              </div>
+                          </div>
+                          <div className="mt-2 grid gap-2 md:grid-cols-3">
+                            <div>
+                              <Label className="text-xs text-slate-400">Факт расход</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={materialFactDraft[material.id]?.consumed ?? ''}
+                                onChange={(event) =>
+                                  setMaterialFactDraft((prev) => ({
+                                    ...prev,
+                                    [material.id]: { ...(prev[material.id] || { returned: '0', actualRate: '' }), consumed: event.target.value },
+                                  }))
+                                }
+                              />
                             </div>
-                          </CardContent>
-                        </Card>
+                            <div>
+                              <Label className="text-xs text-slate-400">Возврат</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={materialFactDraft[material.id]?.returned ?? '0'}
+                                onChange={(event) =>
+                                  setMaterialFactDraft((prev) => ({
+                                    ...prev,
+                                    [material.id]: { ...(prev[material.id] || { consumed: '', actualRate: '' }), returned: event.target.value },
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs text-slate-400">Факт норма / га</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={materialFactDraft[material.id]?.actualRate ?? ''}
+                                onChange={(event) =>
+                                  setMaterialFactDraft((prev) => ({
+                                    ...prev,
+                                    [material.id]: { ...(prev[material.id] || { consumed: '', returned: '0' }), actualRate: event.target.value },
+                                  }))
+                                }
+                              />
+                            </div>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   )}
-                </CardContent>
-              </Card>
+                </div>
 
-              <Card>
-                <CardHeader><CardTitle>Confirmed receipts</CardTitle></CardHeader>
-                <CardContent>
-                  {receiptHistory.length === 0 ? (
-                    <div className="text-sm text-slate-500">No confirmed receipts yet.</div>
+                <div className="space-y-2">
+                  <h3 className="font-semibold text-white">Заявки склада</h3>
+                  {(requestsByOperation.get(selectedOperation.id) || []).length === 0 ? (
+                    <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-400">Заявок на склад нет</div>
                   ) : (
-                    <div className="space-y-3">{receiptHistory.map((request) => renderReturnCard(request))}</div>
+                    (requestsByOperation.get(selectedOperation.id) || []).map((request) => (
+                      <div key={request.id} className="rounded-md border border-slate-800 bg-slate-900/70 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div className="font-medium text-white">{request.request_number}</div>
+                          {requestStatusBadge(request.status)}
+                        </div>
+                        <div className="space-y-1">
+                          {(request.items || []).map((item) => (
+                            <div key={item.id} className="flex justify-between gap-3 text-sm text-slate-300">
+                              <span>{item.product_name || 'Материал'}</span>
+                              <span className="shrink-0">
+                                {formatQty(item.planned_quantity ?? item.required_quantity, localizeUnit(item.unit || item.product_unit || '', language))}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        {request.status === 'ready' ? (
+                          <Button
+                            size="sm"
+                            className="mt-3 bg-green-600 hover:bg-green-700"
+                            onClick={() => handleConfirmReceipt(request.id)}
+                            disabled={busyKey === `receipt:${request.id}`}
+                          >
+                            <PackageCheck className="mr-2 h-4 w-4" />
+                            Товар принят
+                          </Button>
+                        ) : null}
+                      </div>
+                    ))
                   )}
-                </CardContent>
-              </Card>
-            </div>
-          )}
-        </TabsContent>
+                </div>
 
-        <TabsContent value="in_work">
-          {loading ? (
-            <Card><CardContent className="p-6 text-center text-slate-500">Loading tasks...</CardContent></Card>
-          ) : inProgressTasks.length === 0 ? (
-            <Card><CardContent className="p-6 text-center text-slate-500">No operations in progress.</CardContent></Card>
-          ) : (
-            <div>{inProgressTasks.map((task) => renderTaskCard(task))}</div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="history">
-          {loading ? (
-            <Card><CardContent className="p-6 text-center text-slate-500">Loading history...</CardContent></Card>
-          ) : (
-            <div className="space-y-4">
-              {completedTasks.length > 0 ? <div>{completedTasks.map((task) => renderTaskCard(task, true))}</div> : null}
-              {completedTasks.length === 0 && receiptHistory.length === 0 ? (
-                <Card><CardContent className="p-6 text-center text-slate-500">No history yet.</CardContent></Card>
-              ) : null}
-              {receiptHistory.length > 0 ? (
-                <Card>
-                  <CardHeader><CardTitle>Confirmed receipts</CardTitle></CardHeader>
-                  <CardContent className="space-y-3 text-sm">{receiptHistory.map((request) => renderReturnCard(request))}</CardContent>
-                </Card>
-              ) : null}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
-
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-2 py-2 shadow md:hidden">
-        <div className="grid grid-cols-4 gap-1 text-xs">
-          <Button type="button" variant={activeTab === 'my_ops' ? 'default' : 'outline'} className="h-9 px-1" onClick={() => setActiveTab('my_ops')}>
-            Ops
-          </Button>
-          <Button type="button" variant={activeTab === 'receiving' ? 'default' : 'outline'} className="h-9 px-1" onClick={() => setActiveTab('receiving')}>
-            Receive
-          </Button>
-          <Button type="button" variant={activeTab === 'in_work' ? 'default' : 'outline'} className="h-9 px-1" onClick={() => setActiveTab('in_work')}>
-            Work
-          </Button>
-          <Button type="button" variant={activeTab === 'history' ? 'default' : 'outline'} className="h-9 px-1" onClick={() => setActiveTab('history')}>
-            History
-          </Button>
-        </div>
-      </div>
+                {getTaskPhase(selectedOperation) === 'in_progress' ? (
+                  <div className="space-y-3 rounded-lg border border-green-700/50 bg-green-950/20 p-4">
+                    <h3 className="font-semibold text-white">Закрытие работы</h3>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {(selectedOperation.operation_lines || []).length > 0 ? (
+                        (selectedOperation.operation_lines || []).map((line) => (
+                          <div key={line.id}>
+                            <Label className="text-xs text-slate-400">
+                              Фактическая площадь, га {line.planned_area_ha ? `(план ${line.planned_area_ha})` : ''}
+                            </Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={line.planned_area_ha || undefined}
+                              step="0.01"
+                              value={lineFactDraft[line.id] ?? ''}
+                              onChange={(event) => setLineFactDraft((prev) => ({ ...prev, [line.id]: event.target.value }))}
+                            />
+                          </div>
+                        ))
+                      ) : (
+                        <div>
+                          <Label className="text-xs text-slate-400">Фактическая площадь, га</Label>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={lineFactDraft.__fallback ?? ''}
+                            onChange={(event) => setLineFactDraft((prev) => ({ ...prev, __fallback: event.target.value }))}
+                          />
+                        </div>
+                      )}
+                      <div>
+                        <Label className="text-xs text-slate-400">Комментарий</Label>
+                        <Input value={completionComment} onChange={(event) => setCompletionComment(event.target.value)} />
+                      </div>
+                    </div>
+                    <Button
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => handleCompleteOperation(selectedOperation)}
+                      disabled={busyKey === `complete:${selectedOperation.id}`}
+                    >
+                      <CheckCircle className="mr-2 h-4 w-4" />
+                      {busyKey === `complete:${selectedOperation.id}` ? 'Закрываем...' : 'Закрыть операцию'}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

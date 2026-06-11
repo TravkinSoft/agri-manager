@@ -34,23 +34,23 @@ import type { Warehouse } from "@/lib/types/warehouse";
 import type { WarehouseIssueRequest } from "@/lib/types/warehouse-request";
 
 function statusBadge(status: string) {
-  if (status === "received_confirmed") return "bg-emerald-100 text-emerald-800";
-  if (status === "issued_by_warehouse" || status === "issued") return "bg-violet-100 text-violet-800";
-  if (status === "partially_issued") return "bg-amber-100 text-amber-800";
-  if (status === "preparing") return "bg-cyan-100 text-cyan-800";
-  if (status === "ready") return "bg-blue-100 text-blue-800";
-  if (status === "cancelled") return "bg-slate-200 text-slate-700";
-  return "bg-amber-100 text-amber-800";
+  if (status === "received_confirmed") return "bg-emerald-500/15 text-emerald-200 border border-emerald-400/30";
+  if (status === "issued_by_warehouse" || status === "issued") return "bg-violet-500/15 text-violet-200 border border-violet-400/30";
+  if (status === "partially_issued") return "bg-amber-500/15 text-amber-200 border border-amber-400/30";
+  if (status === "preparing") return "bg-cyan-500/15 text-cyan-200 border border-cyan-400/30";
+  if (status === "ready") return "bg-blue-500/15 text-blue-200 border border-blue-400/30";
+  if (status === "cancelled") return "bg-slate-700 text-slate-200";
+  return "bg-yellow-500/15 text-yellow-200 border border-yellow-400/30";
 }
 
 function statusLabel(status: string, t: (key: any) => string): string {
   if (status === "new" || status === "active") return t("status_new");
-  if (status === "preparing") return "Preparing";
-  if (status === "ready") return t("status_ready");
-  if (status === "partially_issued") return "Partially issued";
-  if (status === "issued") return t("status_issued_by_warehouse");
-  if (status === "issued_by_warehouse") return t("status_issued_by_warehouse");
-  if (status === "received_confirmed") return t("status_received_confirmed");
+  if (status === "preparing") return "Готовится";
+  if (status === "ready") return "Готово к выдаче";
+  if (status === "partially_issued") return "Частично выдано";
+  if (status === "issued") return "Выдано";
+  if (status === "issued_by_warehouse") return "Выдано";
+  if (status === "received_confirmed") return "Товар принят специалистом";
   if (status === "cancelled") return t("status_cancelled");
   return status;
 }
@@ -58,6 +58,15 @@ function statusLabel(status: string, t: (key: any) => string): string {
 function toQty(value: unknown, fallback = 0): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+function requestRecipientLabel(row: WarehouseIssueRequest): string {
+  return (
+    row.recipient_name ||
+    row.assigned_specialist_name ||
+    row.recipient_email ||
+    "-"
+  );
 }
 
 export default function WarehouseRequestsPage() {
@@ -128,7 +137,7 @@ export default function WarehouseRequestsPage() {
 
   const filteredRequests = useMemo(() => {
     return requests.filter((row) => {
-      const text = `${row.request_number} ${row.field_name || ""} ${row.recipient_email || ""}`.toLowerCase();
+      const text = `${row.request_number} ${row.field_name || ""} ${requestRecipientLabel(row)}`.toLowerCase();
       const matchSearch = !search || text.includes(search.toLowerCase());
       const workflowStatus = String((row as any).workflow_status || row.status || "");
       const matchStatus =
@@ -194,7 +203,7 @@ export default function WarehouseRequestsPage() {
       setSubmitting(true);
       await fn();
       await loadData();
-      toast({ title: "Success", description: successMessage });
+      toast({ title: "Готово", description: successMessage });
     } catch (error: any) {
       toast({
         title: t("error"),
@@ -225,7 +234,7 @@ export default function WarehouseRequestsPage() {
       return;
     }
     if (tab === "history") {
-      setStatusFilter("received_confirmed");
+      setStatusFilter("issued");
     }
   };
 
@@ -267,6 +276,14 @@ export default function WarehouseRequestsPage() {
 
   const handleIssue = async () => {
     if (!selectedRequest || !profile?.company_id) return;
+    if (selectedRequest.status !== "received_confirmed") {
+      toast({
+        title: t("error"),
+        description: "Сначала специалист должен нажать «Товар принят». До этого складская выдача запрещена.",
+        variant: "destructive",
+      });
+      return;
+    }
     const warehouseId = effectiveSourceWarehouseId;
     if (!warehouseId) {
       toast({
@@ -294,8 +311,8 @@ export default function WarehouseRequestsPage() {
       toast({
         title: t("error"),
         description: firstOver
-          ? `${firstOver.item.product_name || t("material")}: issue quantity exceeds remaining planned amount.`
-          : "Issue quantity exceeds remaining planned amount.",
+          ? `${firstOver.item.product_name || t("material")}: количество к выдаче больше остатка по заявке.`
+          : "Количество к выдаче больше остатка по заявке.",
         variant: "destructive",
       });
       return;
@@ -312,7 +329,7 @@ export default function WarehouseRequestsPage() {
     if (issueItems.length === 0) {
       toast({
         title: t("error"),
-        description: "Set at least one issue quantity greater than zero.",
+        description: "Укажите количество к выдаче больше нуля хотя бы по одной позиции.",
         variant: "destructive",
       });
       return;
@@ -341,7 +358,7 @@ export default function WarehouseRequestsPage() {
           ? stockCheckRows.find((row) => row.item.product_id === referencedItem.product_id)
           : stockCheckRows.find((row) => !row.enough);
         if (shortageRow) {
-          formattedMessage = `${shortageRow.item.product_name || "Material"}: ${selectedWarehouseName}. Available ${shortageRow.available.toFixed(2)} ${shortageRow.item.unit || shortageRow.item.product_unit || ""}, required ${shortageRow.toIssue.toFixed(2)} ${shortageRow.item.unit || shortageRow.item.product_unit || ""}.`;
+          formattedMessage = `${shortageRow.item.product_name || "Материал"}: ${selectedWarehouseName}. Доступно ${shortageRow.available.toFixed(2)} ${shortageRow.item.unit || shortageRow.item.product_unit || ""}, нужно ${shortageRow.toIssue.toFixed(2)} ${shortageRow.item.unit || shortageRow.item.product_unit || ""}.`;
         }
       }
 
@@ -436,10 +453,10 @@ export default function WarehouseRequestsPage() {
               <SelectContent>
                 <SelectItem value="all">{t("all_statuses")}</SelectItem>
                 <SelectItem value="new">{t("status_new")}</SelectItem>
-                <SelectItem value="active">Active</SelectItem>
-                <SelectItem value="preparing">Preparing</SelectItem>
+                <SelectItem value="active">Активные</SelectItem>
+                <SelectItem value="preparing">Готовится</SelectItem>
                 <SelectItem value="ready">{t("status_ready")}</SelectItem>
-                <SelectItem value="partially_issued">Partially issued</SelectItem>
+                <SelectItem value="partially_issued">Частично выдано</SelectItem>
                 <SelectItem value="issued_by_warehouse">{t("status_issued_by_warehouse")}</SelectItem>
                 <SelectItem value="issued">{t("status_issued_by_warehouse")}</SelectItem>
                 <SelectItem value="received_confirmed">{t("status_received_confirmed")}</SelectItem>
@@ -469,16 +486,16 @@ export default function WarehouseRequestsPage() {
                     <button
                       key={row.id}
                       type="button"
-                      className={`w-full rounded-lg border p-3 text-left ${row.id === selectedId ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white"}`}
+                      className={`w-full rounded-lg border p-3 text-left ${row.id === selectedId ? "border-emerald-500/60 bg-emerald-950/30" : "border-slate-700 bg-slate-900/70"}`}
                       onClick={() => setSelectedId(row.id)}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div className="text-sm font-semibold text-slate-900">{row.request_number}</div>
+                        <div className="text-sm font-semibold text-slate-100">{row.request_number}</div>
                         <Badge className={statusBadge(row.status)}>{statusLabel(row.status, t)}</Badge>
                       </div>
-                      <div className="mt-2 text-xs text-slate-600">
+                      <div className="mt-2 text-xs text-slate-400">
                         <div>{t("field")}: {row.field_name || "-"}</div>
-                        <div>{t("recipient")}: {row.recipient_email || "-"}</div>
+                        <div>{t("recipient")}: {requestRecipientLabel(row)}</div>
                         <div>{t("planned_date")}: {row.planned_datetime ? new Date(row.planned_datetime).toLocaleString() : "-"}</div>
                         <div>{t("items")}: {row.items?.length || 0}</div>
                       </div>
@@ -501,7 +518,7 @@ export default function WarehouseRequestsPage() {
                       {filteredRequests.map((row) => (
                         <TableRow
                           key={row.id}
-                          className={row.id === selectedId ? "bg-emerald-50" : ""}
+                          className={row.id === selectedId ? "bg-emerald-950/30" : ""}
                           onClick={() => setSelectedId(row.id)}
                         >
                           <TableCell className="font-medium">{row.request_number}</TableCell>
@@ -509,7 +526,7 @@ export default function WarehouseRequestsPage() {
                             <Badge className={statusBadge(row.status)}>{statusLabel(row.status, t)}</Badge>
                           </TableCell>
                           <TableCell>{row.field_name || "-"}</TableCell>
-                          <TableCell>{row.recipient_email || "-"}</TableCell>
+                          <TableCell>{requestRecipientLabel(row)}</TableCell>
                           <TableCell>
                             {row.planned_datetime ? new Date(row.planned_datetime).toLocaleString() : "-"}
                           </TableCell>
@@ -541,7 +558,7 @@ export default function WarehouseRequestsPage() {
                   <div><span className="text-slate-500">{t("status")}:</span> {statusLabel(selectedRequest.status, t)}</div>
                   <div><span className="text-slate-500">{t("operation")}:</span> {selectedRequest.operation_type} ({selectedRequest.operation_date || "-"})</div>
                   <div><span className="text-slate-500">{t("field")}:</span> {selectedRequest.field_name || "-"}</div>
-                  <div><span className="text-slate-500">{t("recipient")}:</span> {selectedRequest.recipient_email || "-"}</div>
+                  <div><span className="text-slate-500">{t("recipient")}:</span> {requestRecipientLabel(selectedRequest)}</div>
                   <div><span className="text-slate-500">{t("planned_date")}:</span> {selectedRequest.planned_datetime ? new Date(selectedRequest.planned_datetime).toLocaleString() : "-"}</div>
                   <div><span className="text-slate-500">{t("comment")}:</span> {selectedRequest.comment || "-"}</div>
                   <div><span className="text-slate-500">Талон весовой:</span> {selectedRequest.linked_ticket_id || "-"}</div>
@@ -573,12 +590,12 @@ export default function WarehouseRequestsPage() {
                 </div>
 
                 {effectiveSourceWarehouseId && stockCheckRows.length > 0 && (
-                  <div className="rounded-md border p-3 text-sm">
+                  <div className="rounded-md border border-slate-700 bg-slate-950/40 p-3 text-sm">
                     <div className="font-medium mb-2">{t("stock_check_selected_warehouse")}</div>
                     <div className="space-y-1">
                       {stockCheckRows.map((row) => (
-                        <div key={row.item.id} className={row.enough ? "text-emerald-700" : "text-red-700"}>
-                          {row.item.product_name || "-"}: {t("available")} {row.available.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, to issue {row.toIssue.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, remaining {row.remaining.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}
+                        <div key={row.item.id} className={row.enough ? "text-emerald-300" : "text-red-300"}>
+                          {row.item.product_name || "-"}: доступно {row.available.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, к выдаче {row.toIssue.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, осталось по заявке {row.remaining.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}
                         </div>
                       ))}
                     </div>
@@ -591,19 +608,19 @@ export default function WarehouseRequestsPage() {
                     const issued = toQty(item.issued_quantity, 0);
                     const remaining = Math.max(planned - issued, 0);
                     const editable =
-                      selectedRequest.status === "ready" || selectedRequest.status === "partially_issued";
+                      selectedRequest.status === "ready" || selectedRequest.status === "received_confirmed";
                     return (
-                      <div key={item.id} className="rounded-lg border border-slate-200 p-3 text-sm">
-                        <div className="font-medium text-slate-900">{item.product_name || "-"}</div>
+                      <div key={item.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-3 text-sm">
+                        <div className="font-medium text-slate-100">{item.product_name || "-"}</div>
                         <div className="mt-1 text-xs text-slate-500">{item.product_type || item.product_category || "-"}</div>
-                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
-                          <div>Planned: {planned.toFixed(2)}</div>
-                          <div>Issued: {issued.toFixed(2)}</div>
-                          <div>Remaining: {remaining.toFixed(2)}</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-400">
+                          <div>План: {planned.toFixed(2)}</div>
+                          <div>Выдано: {issued.toFixed(2)}</div>
+                          <div>Осталось: {remaining.toFixed(2)}</div>
                           <div>{t("unit")}: {localizeUnit(item.unit || item.product_unit || "kg", language)}</div>
                         </div>
                         <div className="mt-2">
-                          <Label className="mb-1 block text-xs">To issue</Label>
+                          <Label className="mb-1 block text-xs">К выдаче</Label>
                           <Input
                             type="number"
                             step="0.01"
@@ -630,10 +647,10 @@ export default function WarehouseRequestsPage() {
                       <TableRow>
                         <TableHead>{t("material")}</TableHead>
                         <TableHead>{t("category")}</TableHead>
-                        <TableHead className="text-right">Planned</TableHead>
-                        <TableHead className="text-right">Issued</TableHead>
-                        <TableHead className="text-right">Remaining</TableHead>
-                        <TableHead className="text-right">To issue</TableHead>
+                        <TableHead className="text-right">План</TableHead>
+                        <TableHead className="text-right">Выдано</TableHead>
+                        <TableHead className="text-right">Осталось</TableHead>
+                        <TableHead className="text-right">К выдаче</TableHead>
                         <TableHead>{t("unit")}</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -643,7 +660,7 @@ export default function WarehouseRequestsPage() {
                         const issued = toQty(item.issued_quantity, 0);
                         const remaining = Math.max(planned - issued, 0);
                         const editable =
-                          selectedRequest.status === "ready" || selectedRequest.status === "partially_issued";
+                          selectedRequest.status === "ready" || selectedRequest.status === "received_confirmed";
                         return (
                         <TableRow key={item.id}>
                           <TableCell>{item.product_name || "-"}</TableCell>
@@ -693,7 +710,7 @@ export default function WarehouseRequestsPage() {
                                     status: "preparing",
                                     sourceWarehouseId,
                                   }),
-                                "Request moved to preparing"
+                                "Заявка переведена в подготовку"
                               )
                             }
                             disabled={submitting}
@@ -706,7 +723,16 @@ export default function WarehouseRequestsPage() {
                       </>
                     )}
 
-                    {(selectedRequest.status === "ready" || selectedRequest.status === "partially_issued") && (
+                    {selectedRequest.status === "ready" && (
+                      <>
+                        <div className="rounded-md border border-blue-500/40 bg-blue-950/30 px-3 py-2 text-sm text-blue-100">
+                          Ожидаем, когда специалист нажмёт «Товар принят». До этого «Выдано» недоступно.
+                        </div>
+                        <Button variant="outline" onClick={handleCancel} disabled={submitting}>{t("cancel")}</Button>
+                      </>
+                    )}
+
+                    {selectedRequest.status === "received_confirmed" && (
                       <>
                         <Button className="hidden" onClick={handleCreateIssueTicket} disabled={submitting || !effectiveSourceWarehouseId || hasStockShortage}>
                           Создать талон выдачи
@@ -723,14 +749,14 @@ export default function WarehouseRequestsPage() {
                 {(selectedRequest.status === "issued_by_warehouse" ||
                   selectedRequest.status === "issued" ||
                   selectedRequest.status === "partially_issued") && (
-                  <div className="rounded-md border border-violet-200 bg-violet-50 p-3 text-sm text-violet-900">
-                    {t("waiting_recipient_confirmation")}
+                    <div className="rounded-md border border-violet-500/40 bg-violet-950/30 p-3 text-sm text-violet-100">
+                    Фактическая выдача подтверждена складом. Движение зафиксировано.
                   </div>
                 )}
 
                 {selectedRequest.status === "received_confirmed" && (
-                  <div className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-                    {t("recipient_confirmed_inventory_finalized")}
+                  <div className="rounded-md border border-emerald-500/40 bg-emerald-950/30 p-3 text-sm text-emerald-100">
+                    Специалист принял подготовленный товар. Теперь склад может подтвердить фактическую выдачу.
                   </div>
                 )}
               </>
@@ -739,7 +765,7 @@ export default function WarehouseRequestsPage() {
         </Card>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 px-2 py-2 shadow md:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-700 bg-slate-950/95 px-2 py-2 shadow md:hidden">
         <div className="grid grid-cols-5 gap-1 text-[11px]">
           <Button
             type="button"

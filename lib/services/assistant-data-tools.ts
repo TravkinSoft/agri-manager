@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 
 type ProductType = "pesticide" | "fertilizer" | "growth_regulator" | "adjuvant";
 
@@ -249,7 +250,7 @@ async function hydrateProductsRelations(
 }
 
 function rowTradeName(row: AssistantProductRow): string {
-  return String(row.trade_name || row.name || "");
+  return brandName(row);
 }
 
 export async function getProducts(
@@ -416,7 +417,7 @@ async function getInventoryBalancesRaw(
         warehouseId: String(row.warehouse_id),
         warehouseName: warehouseNameById.get(String(row.warehouse_id)) || "РЎРєР»Р°Рґ",
         productId: String(row.product_id),
-        productName: String(product?.trade_name || product?.name || "-"),
+        productName: brandName(product) || "-",
         productType: String(product?.product_type || product?.type || "-"),
         unit: String(row.uom || product?.base_uom || product?.unit || "kg"),
         quantity: qty,
@@ -458,7 +459,7 @@ async function getInventoryBalancesRaw(
     if (!Number.isFinite(qty) || qty === 0) return;
     const productId = String(row.product_id || "");
     if (!productId) return;
-    const productName = row.products?.trade_name || row.products?.name || "-";
+    const productName = brandName(row.products) || "-";
     const productType = row.products?.product_type || row.products?.type || "-";
     const unit = row.products?.unit || "kg";
     const movementType = movementTypeOf(row);
@@ -648,7 +649,7 @@ export async function getCompanyCrops(
 ): Promise<Array<{ id: string; name: string }>> {
   const { data, error } = await supabase
     .from("crop_structure")
-    .select("crop_id,crops:crop_id(id,name,name_ru,name_en)")
+    .select("crop_id,crops:crop_id(id,name,name_ru,name_kz,name_en,slug)")
     .eq("company_id", companyId)
     .eq("archived", false);
 
@@ -658,7 +659,7 @@ export async function getCompanyCrops(
   (data || []).forEach((row: any) => {
     const cropId = String(row.crop_id || row.crops?.id || "");
     if (!cropId) return;
-    const cropName = row.crops?.name_ru || row.crops?.name || row.crops?.name_en || "-";
+    const cropName = localizedName(row.crops, "ru") || "-";
     if (!map.has(cropId)) map.set(cropId, cropName);
   });
 
@@ -742,7 +743,7 @@ export async function getCompanySeedReproductions(
 ): Promise<Array<{ id: string; name: string }>> {
   const { data: usedRows, error: usedRowsError } = await supabase
     .from("crop_structure")
-    .select("reproduction_id,seed_reproductions:reproduction_id(id,name)")
+    .select("reproduction_id,seed_reproductions:reproduction_id(id,name,name_ru,name_kz,name_en,code)")
     .eq("company_id", companyId)
     .eq("archived", false)
     .not("reproduction_id", "is", null);
@@ -751,7 +752,7 @@ export async function getCompanySeedReproductions(
     const usedMap = new Map<string, string>();
     (usedRows || []).forEach((row: any) => {
       const id = String(row.reproduction_id || row.seed_reproductions?.id || "");
-      const name = String(row.seed_reproductions?.name || "");
+      const name = localizedName(row.seed_reproductions, "ru", ["name", "code"]);
       if (!id || !name) return;
       if (!usedMap.has(id)) usedMap.set(id, name);
     });
@@ -764,7 +765,7 @@ export async function getCompanySeedReproductions(
 
   const { data, error } = await supabase
     .from("seed_reproductions")
-    .select("id,name,company_id")
+    .select("id,name,name_ru,name_kz,name_en,code,company_id")
     .or(`company_id.eq.${companyId},company_id.is.null`)
     .eq("archived", false)
     .order("level_order", { ascending: true })
@@ -773,7 +774,7 @@ export async function getCompanySeedReproductions(
 
   const map = new Map<string, { id: string; name: string; companyId: string | null }>();
   (data || []).forEach((row: any) => {
-    const name = String(row.name || "-");
+    const name = localizedName(row, "ru", ["name", "code"]) || "-";
     const key = normalizeLookup(name);
     const item = { id: String(row.id), name, companyId: row.company_id ? String(row.company_id) : null };
     const existing = map.get(key);
@@ -814,7 +815,7 @@ export async function getProductCandidatesByDiseaseOrGoal(
     rows.filter((row) => {
       const hay = normalizeLookup(
         [
-          row.trade_name || row.name || "",
+          brandName(row),
           row.category_name || "",
           row.target_crops || "",
           row.active_ingredients.join(" "),
@@ -830,7 +831,7 @@ export async function getProductCandidatesByDiseaseOrGoal(
 }
 
 function formatProductLine(product: AssistantProductRow): string {
-  const tradeName = product.trade_name || product.name || "-";
+  const tradeName = brandName(product) || "-";
   const ai = product.active_ingredients.length ? product.active_ingredients.join(", ") : "-";
   const category = product.category_name || "-";
   const manufacturer = product.manufacturer || "-";

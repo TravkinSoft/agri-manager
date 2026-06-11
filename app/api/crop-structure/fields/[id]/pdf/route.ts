@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { getServiceClient } from "@/lib/supabase/service";
 
 function htmlEscape(value: string) {
@@ -134,9 +135,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           .eq("field_id", fieldId)
           .eq("season_id", seasonId)
           .eq("archived", false),
-        supabase.from("crops").select("id,name,name_ru,name_en,company_id").is("company_id", null).eq("archived", false),
+        supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,company_id").is("company_id", null).eq("archived", false),
         supabase.from("varieties").select("id,name,company_id").is("company_id", null).eq("archived", false),
-        supabase.from("seed_reproductions").select("id,name,company_id").is("company_id", null).eq("archived", false),
+        supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code,company_id").is("company_id", null).eq("archived", false),
         supabase
           .from("seasons")
           .select("id,year")
@@ -146,9 +147,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           .limit(6),
       ]);
 
-    const cropMap = new Map((crops || []).map((x: any) => [x.id, x.name_ru || x.name_en || x.name || "-"]));
-    const varMap = new Map((varieties || []).map((x: any) => [x.id, x.name || "-"]));
-    const repMap = new Map((reproductions || []).map((x: any) => [x.id, x.name || "-"]));
+    const cropMap = new Map((crops || []).map((x: any) => [x.id, localizedName(x, "ru") || "-"]));
+    const varMap = new Map((varieties || []).map((x: any) => [x.id, brandName(x) || "-"]));
+    const repMap = new Map((reproductions || []).map((x: any) => [x.id, localizedName(x, "ru", ["name", "code"]) || "-"]));
 
     const historyIds = (seasons || []).filter((s: any) => s.id !== seasonId).map((s: any) => s.id);
     const { data: historyRows } = historyIds.length

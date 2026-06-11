@@ -8,8 +8,12 @@ export interface TicketLineInput {
   batch_id?: string | null;
   lot_id?: string | null;
   supplier_lot?: string | null;
+  warehouse_from_id?: string | null;
+  warehouse_to_id?: string | null;
   quantity: number;
   uom?: string;
+  unit_price?: number | null;
+  amount?: number | null;
   notes?: string;
   net_line_weight_kg?: number | null;
   moisture_percent?: number | null;
@@ -121,6 +125,13 @@ export interface WeighbridgeTicket {
     reproduction_name?: string | null;
     batch_class?: string | null;
     lot_id?: string | null;
+    warehouse_from_id?: string | null;
+    warehouse_to_id?: string | null;
+    warehouse_from_name?: string | null;
+    warehouse_to_name?: string | null;
+    unit_price?: number | null;
+    amount?: number | null;
+    notes?: string | null;
     operation_line_id?: string | null;
   }>;
 }

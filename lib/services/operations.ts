@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import {
   Operation,
   OperationMaterial,
@@ -77,9 +78,9 @@ function normalizeOperationLines(rows: any[] | null | undefined): OperationLine[
     return {
       ...row,
       field_name: (field as any)?.name || null,
-      crop_name: (crop as any)?.name || null,
-      variety_name: (variety as any)?.name || null,
-      reproduction_name: (reproduction as any)?.name || null,
+      crop_name: localizedName(crop as any, "ru") || (crop as any)?.name || null,
+      variety_name: brandName(variety as any) || (variety as any)?.name || null,
+      reproduction_name: localizedName(reproduction as any, "ru") || (reproduction as any)?.name || null,
     };
   }) as OperationLine[];
 }
@@ -127,8 +128,8 @@ function normalizeOperationRow(op: any): OperationWithDetails {
     tank_mix: (config as any).tank_mix && typeof (config as any).tank_mix === "object" ? (config as any).tank_mix : null,
     work_status: op.work_status || (op.status === "completed" ? "completed" : op.status === "in_progress" ? "in_progress" : "active"),
     field_name: op.fields?.name || primaryLine?.field_name || "-",
-    crop_name: primaryLine?.crop_name || op.crop_structure?.crops?.name || "-",
-    variety_name: primaryLine?.variety_name || op.crop_structure?.varieties?.name || "-",
+    crop_name: primaryLine?.crop_name || localizedName(op.crop_structure?.crops, "ru") || "-",
+    variety_name: primaryLine?.variety_name || brandName(op.crop_structure?.varieties) || "-",
     reproduction_name: primaryLine?.reproduction_name || "-",
     materials: normalizeOperationMaterials(op.operation_materials),
     ...parseOperationDraftDetails(op.notes),
@@ -190,7 +191,7 @@ export async function getOperations(
       *,
       fields:field_id (name),
       crop_structure:crop_structure_id (
-        crops:crop_id (name),
+        crops:crop_id (name,name_ru,name_kz,name_en,slug),
         varieties:variety_id (name)
       ),
       operation_materials:operation_materials (
@@ -218,9 +219,9 @@ export async function getOperations(
         created_at,
         updated_at,
         fields:field_id (name),
-        crops:crop_id (name),
+        crops:crop_id (name,name_ru,name_kz,name_en,slug),
         varieties:variety_id (name),
-        reproductions:reproduction_id (name)
+        reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
       )
     `)
     .eq("company_id", companyId)
@@ -249,7 +250,7 @@ export async function getSpecialistOperations(
       *,
       fields:field_id (name),
       crop_structure:crop_structure_id (
-        crops:crop_id (name),
+        crops:crop_id (name,name_ru,name_kz,name_en,slug),
         varieties:variety_id (name)
       ),
       operation_materials:operation_materials (
@@ -277,9 +278,9 @@ export async function getSpecialistOperations(
         created_at,
         updated_at,
         fields:field_id (name),
-        crops:crop_id (name),
+        crops:crop_id (name,name_ru,name_kz,name_en,slug),
         varieties:variety_id (name),
-        reproductions:reproduction_id (name)
+        reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
       )
     `)
     .eq("company_id", companyId)

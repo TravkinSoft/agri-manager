@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import { Language } from "@/lib/i18n/translations";
-import { localizedName } from "@/lib/i18n/helpers";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 
 export type DraftOption = {
   id: string;
@@ -62,7 +62,7 @@ export async function getAssistantDraftResources(
       .order("name", { ascending: true }),
     supabase
       .from("products")
-      .select("id, name, name_ru, name_kz, name_en")
+      .select("id, name, trade_name, normalized_name")
       .eq("company_id", companyId)
       .eq("archived", false)
       .order("name", { ascending: true }),
@@ -112,7 +112,7 @@ export async function getAssistantDraftResources(
     productsRes.status === "fulfilled"
       ? ((productsRes.value.data || []).map((p: any) => ({
           id: String(p.id),
-          name: localizedName(p, language, ["name"]),
+          name: brandName(p),
         })) as DraftOption[])
       : [];
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 
 const READ_ROLES = [
   "global_admin",
@@ -86,9 +87,9 @@ export async function GET(request: NextRequest) {
         actual_area_ha,
         operations:operation_id(id,date,operation_type,company_id),
         fields:field_id(name),
-        crops:crop_id(name),
+        crops:crop_id(name,name_ru,name_kz,name_en,slug),
         varieties:variety_id(name),
-        reproductions:reproduction_id(name)
+        reproductions:reproduction_id(name,name_ru,name_kz,name_en,code)
       `)
       .eq("company_id", companyId)
       .order("created_at", { ascending: true })
@@ -128,7 +129,7 @@ export async function GET(request: NextRequest) {
         product_id,
         quantity_kg,
         norm_per_ha,
-        products:product_id(name,type)
+        products:product_id(name,trade_name,normalized_name,type)
       `)
       .eq("company_id", companyId)
       .or(`operation_line_id.in.(${operationLineIds.join(",")}),operation_id.in.(${operationIds.join(",")})`);
@@ -220,9 +221,9 @@ export async function GET(request: NextRequest) {
           operation_line_id: lineId,
           operation_date: operationRel?.date || null,
           field_name: fieldRel?.name || "-",
-          crop_name: cropRel?.name || "Potato",
-          variety_name: varietyRel?.name || null,
-          reproduction_name: reproductionRel?.name || null,
+          crop_name: localizedName(cropRel, "ru") || "Картофель",
+          variety_name: brandName(varietyRel) || null,
+          reproduction_name: localizedName(reproductionRel, "ru", ["name", "code"]) || null,
           planned_area_ha: plannedArea,
           actual_area_ha: actualArea,
           completion_pct: completionPct,
@@ -244,7 +245,7 @@ export async function GET(request: NextRequest) {
         { qty: number; norms: number[]; category: string | null; name: string }
       >();
       for (const item of matchedConsumptions) {
-        const materialName = normalizeText(item.products?.name) || "Material";
+        const materialName = brandName(item.products) || "Material";
         const key = `${String(item.product_id || "")}|${materialName}`;
         const existing = byMaterial.get(key) || {
           qty: 0,
@@ -270,9 +271,9 @@ export async function GET(request: NextRequest) {
           operation_line_id: lineId,
           operation_date: operationRel?.date || null,
           field_name: fieldRel?.name || "-",
-          crop_name: cropRel?.name || "Potato",
-          variety_name: varietyRel?.name || null,
-          reproduction_name: reproductionRel?.name || null,
+          crop_name: localizedName(cropRel, "ru") || "Картофель",
+          variety_name: brandName(varietyRel) || null,
+          reproduction_name: localizedName(reproductionRel, "ru", ["name", "code"]) || null,
           planned_area_ha: plannedArea,
           actual_area_ha: actualArea,
           completion_pct: completionPct,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 
 type Row = {
   id: string;
@@ -48,13 +48,13 @@ export async function GET(request: NextRequest) {
 
     const [cropsRes, varietiesRes, reproductionsRes] = await Promise.all([
       cropIds.length
-        ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en").in("id", cropIds)
+        ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", cropIds)
         : Promise.resolve({ data: [], error: null } as any),
       varietyIds.length
         ? supabase.from("varieties").select("id,name,name_ru,name_kz,name_en").in("id", varietyIds)
         : Promise.resolve({ data: [], error: null } as any),
       reproductionIds.length
-        ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en").in("id", reproductionIds)
+        ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", reproductionIds)
         : Promise.resolve({ data: [], error: null } as any),
     ]);
 
@@ -88,11 +88,11 @@ export async function GET(request: NextRequest) {
         allocationId: String(row.id || ""),
         areaHa: Number(row.area || 0),
         cropId,
-        cropName: cropRef?.name_ru || cropRef?.name || "",
+        cropName: localizedName(cropRef, "ru") || "",
         varietyId,
-        varietyName: varietyRef?.name_ru || varietyRef?.name || "",
+        varietyName: brandName(varietyRef) || "",
         reproductionId,
-        reproductionName: reproductionRef?.name_ru || reproductionRef?.name || "",
+        reproductionName: localizedName(reproductionRef, "ru", ["name", "code"]) || "",
         isIncomplete,
         debug: {
           cropId,

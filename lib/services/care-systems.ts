@@ -1,8 +1,9 @@
 import { supabase } from "@/lib/supabase/client";
 import { createOperation } from "@/lib/services/operations";
+import { localizedName } from "@/lib/i18n/helpers";
 
 export type CareSeason = { id: string; year: number };
-export type CareCrop = { id: string; name_ru: string | null; name_en: string | null; name: string | null };
+export type CareCrop = { id: string; name_ru: string | null; name_kz?: string | null; name_en: string | null; name: string | null; slug?: string | null };
 export type CareVariety = { id: string; crop_id: string; name: string };
 export type CareField = { id: string; name: string; area: number };
 
@@ -70,7 +71,7 @@ export type CareContextData = {
 };
 
 function cropLabel(crop: CareCrop): string {
-  return String(crop.name_ru || crop.name || crop.name_en || "-");
+  return localizedName(crop as any, "ru") || "-";
 }
 
 export async function loadCareSystemsContext(
@@ -79,7 +80,7 @@ export async function loadCareSystemsContext(
 ): Promise<CareContextData> {
   const [seasonsRes, cropsRes, varietiesRes, fieldsRes] = await Promise.all([
     supabase.from("seasons").select("id,year").eq("company_id", companyId).eq("archived", false).order("year", { ascending: false }),
-    supabase.from("crops").select("id,name_ru,name_en,name").is("company_id", null).eq("archived", false).eq("is_active", true).order("name_ru"),
+    supabase.from("crops").select("id,name_ru,name_kz,name_en,name,slug").is("company_id", null).eq("archived", false).eq("is_active", true).order("name_ru"),
     supabase.from("varieties").select("id,crop_id,name").is("company_id", null).eq("archived", false).eq("is_active", true).order("name"),
     supabase.from("fields").select("id,name,area").eq("company_id", companyId).eq("archived", false).order("name"),
   ]);

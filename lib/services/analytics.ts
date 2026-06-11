@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 
 export interface SeasonSummary {
   totalFields: number;
@@ -85,9 +86,9 @@ export async function getCropStructureReport(
       reproduction_id,
       area,
       expected_yield,
-      crops:crop_id (name),
+      crops:crop_id (name,name_ru,name_kz,name_en,slug),
       varieties:variety_id (name),
-      seed_reproductions:reproduction_id (name)
+      seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
     `)
     .eq("season_id", seasonId)
     .eq("user_id", user.id)
@@ -101,9 +102,9 @@ export async function getCropStructureReport(
   const reportMap = new Map<string, CropStructureReport>();
 
   data?.forEach((record: any) => {
-    const cropName = record.crops?.name || "—";
-    const varietyName = record.varieties?.name || null;
-    const reproductionName = record.seed_reproductions?.name || null;
+    const cropName = localizedName(record.crops, "ru") || "—";
+    const varietyName = brandName(record.varieties) || null;
+    const reproductionName = localizedName(record.seed_reproductions, "ru") || null;
     const key = `${cropName}-${varietyName}-${reproductionName}`;
 
     if (reportMap.has(key)) {
@@ -199,7 +200,7 @@ export async function getInventorySummary(): Promise<InventorySummary[]> {
   );
 
   const productsRes = productIds.length
-    ? await supabase.from("products").select("id,name,type,product_type").in("id", productIds)
+    ? await supabase.from("products").select("id,name,trade_name,normalized_name,type,product_type").in("id", productIds)
     : ({ data: [], error: null } as any);
 
   const productById = new Map<string, any>();
@@ -218,7 +219,7 @@ export async function getInventorySummary(): Promise<InventorySummary[]> {
   (balances || []).forEach((record: any) => {
     const productId = record.product_id;
     const product = productById.get(String(productId));
-    const productName = product?.name || "Unknown";
+    const productName = brandName(product) || "Unknown";
     const productType = product?.product_type || product?.type || "unknown";
     const warehouseId = record.warehouse_id;
     const quantity = Number(record.quantity || 0);

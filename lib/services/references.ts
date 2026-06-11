@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Language } from "@/lib/i18n/translations";
-import { localizedName } from "@/lib/i18n/helpers";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import {
   Crop,
   CropFormData,
@@ -15,6 +15,9 @@ import {
   EquipmentFormData,
   SpecialistReference,
   SpecialistReferenceFormData,
+  CompanyPerson,
+  CompanyPersonFormData,
+  CompanyPersonRoleType,
   AgrochemicalReference,
   PesticideFormData,
   FertilizerFormData,
@@ -160,7 +163,7 @@ export async function getVarieties(
     const crop = cropsMap.get(String(item.crop_id));
     return {
       ...item,
-      name: localizedName(item, language) || item.name,
+      name: brandName(item) || item.name,
       crop_name: localizedName(crop, language) || crop?.name || "-",
     };
   }) as VarietyWithCrop[];
@@ -200,7 +203,7 @@ export async function getVarietiesByCrop(
   });
   return Array.from(map.values()).map((row: any) => ({
     ...row,
-    name: localizedName(row, language) || row.name,
+    name: brandName(row) || row.name,
   }));
 }
 
@@ -528,6 +531,266 @@ export async function archiveEquipmentReference(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+function isCompanyPeopleSchemaMissing(error: any): boolean {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("company_people") && (
+    message.includes("schema cache") ||
+    message.includes("does not exist") ||
+    message.includes("not found")
+  );
+}
+
+function roleTypeToSpecialistType(roleType?: CompanyPersonRoleType | null): "driver" | "machine_operator" | null {
+  if (roleType === "driver") return "driver";
+  if (roleType === "machine_operator") return "machine_operator";
+  return null;
+}
+
+function normalizeCompanyPersonPayload(payload: CompanyPersonFormData) {
+  return {
+    full_name: payload.full_name.trim(),
+    short_name: payload.short_name?.trim() || null,
+    role_type: payload.role_type || "worker",
+    employment_type: payload.employment_type || "unknown",
+    phone: payload.phone?.trim() || null,
+    iin: payload.iin?.trim() || null,
+    status: payload.status || "active",
+    notes: payload.notes?.trim() || null,
+    user_id: payload.user_id || null,
+  };
+}
+
+async function syncPersonToSpecialistReference(person: CompanyPerson, actorUserId?: string): Promise<void> {
+  const specialistType = roleTypeToSpecialistType(person.role_type);
+  const shouldBeActive = specialistType && person.status !== "archived" && !person.deleted_at;
+
+  const { data: byPerson, error: byPersonError } = await supabase
+    .from("reference_specialists")
+    .select("id")
+    .eq("company_id", person.company_id)
+    .eq("person_id", person.id)
+    .maybeSingle();
+
+  if (byPersonError) {
+    const message = String(byPersonError.message || "").toLowerCase();
+    if (!message.includes("person_id") && !message.includes("schema cache")) throw new Error(byPersonError.message);
+    return;
+  }
+
+  if (!shouldBeActive) {
+    if (byPerson?.id) {
+      const { error } = await supabase
+        .from("reference_specialists")
+        .update({ status: "inactive", archived: true })
+        .eq("id", byPerson.id);
+      if (error) throw new Error(error.message);
+    }
+    return;
+  }
+
+  const specialistPayload = {
+    person_id: person.id,
+    full_name: person.full_name,
+    role: person.role_type,
+    personnel_type: specialistType,
+    phone: person.phone || null,
+    status: person.status === "active" ? "active" : "inactive",
+    note: person.notes || null,
+    archived: false,
+  };
+
+  if (byPerson?.id) {
+    const { error } = await supabase
+      .from("reference_specialists")
+      .update(specialistPayload)
+      .eq("id", byPerson.id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  const { data: byName, error: byNameError } = await supabase
+    .from("reference_specialists")
+    .select("id")
+    .eq("company_id", person.company_id)
+    .ilike("full_name", person.full_name)
+    .eq("personnel_type", specialistType)
+    .eq("archived", false)
+    .maybeSingle();
+
+  if (byNameError) throw new Error(byNameError.message);
+
+  if (byName?.id) {
+    const { error } = await supabase
+      .from("reference_specialists")
+      .update(specialistPayload)
+      .eq("id", byName.id);
+    if (error) throw new Error(error.message);
+    return;
+  }
+
+  if (!actorUserId) return;
+  const { error } = await supabase
+    .from("reference_specialists")
+    .insert([{ ...specialistPayload, company_id: person.company_id, user_id: actorUserId }]);
+  if (error) throw new Error(error.message);
+}
+
+async function ensureCompanyPersonForSpecialist(
+  companyId: string,
+  userId: string,
+  payload: SpecialistReferenceFormData
+): Promise<string | null> {
+  const roleType = (payload.personnel_type || "driver") as CompanyPersonRoleType;
+
+  const { data: existing, error: existingError } = await supabase
+    .from("company_people")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("role_type", roleType)
+    .ilike("full_name", payload.full_name.trim())
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (existingError) {
+    if (isCompanyPeopleSchemaMissing(existingError)) return null;
+    throw new Error(existingError.message);
+  }
+  if (existing?.id) return String(existing.id);
+
+  const personPayload = {
+    company_id: companyId,
+    created_by_user_id: userId,
+    updated_by_user_id: userId,
+    ...normalizeCompanyPersonPayload({
+      full_name: payload.full_name,
+      role_type: roleType,
+      employment_type: "unknown",
+      phone: payload.phone || "",
+      status: payload.status === "inactive" ? "inactive" : "active",
+      notes: payload.note || "",
+      user_id: null,
+    }),
+  };
+
+  const { data, error } = await supabase
+    .from("company_people")
+    .insert([personPayload])
+    .select("id")
+    .single();
+
+  if (error) {
+    if (isCompanyPeopleSchemaMissing(error)) return null;
+    throw new Error(error.message);
+  }
+  return data?.id ? String(data.id) : null;
+}
+
+export async function getCompanyPeople(
+  companyId: string,
+  includeArchived = false
+): Promise<CompanyPerson[]> {
+  let query = supabase
+    .from("company_people")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("full_name", { ascending: true });
+
+  if (!includeArchived) query = query.neq("status", "archived").is("deleted_at", null);
+
+  const { data, error } = await query;
+  if (error) {
+    if (isCompanyPeopleSchemaMissing(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data || []) as CompanyPerson[];
+}
+
+export async function createCompanyPerson(
+  companyId: string,
+  userId: string,
+  payload: CompanyPersonFormData
+): Promise<CompanyPerson> {
+  const normalizedPayload = normalizeCompanyPersonPayload(payload);
+
+  const { data: existing, error: existingError } = await supabase
+    .from("company_people")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("role_type", normalizedPayload.role_type)
+    .ilike("full_name", normalizedPayload.full_name)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+  if (existing?.id) throw new Error("Работник с таким ФИО и ролью уже существует");
+
+  const { data, error } = await supabase
+    .from("company_people")
+    .insert([{
+      ...normalizedPayload,
+      company_id: companyId,
+      created_by_user_id: userId,
+      updated_by_user_id: userId,
+    }])
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  const person = data as CompanyPerson;
+  await syncPersonToSpecialistReference(person, userId);
+  return person;
+}
+
+export async function updateCompanyPerson(
+  companyId: string,
+  personId: string,
+  userId: string,
+  payload: CompanyPersonFormData
+): Promise<CompanyPerson> {
+  const normalizedPayload = normalizeCompanyPersonPayload(payload);
+
+  const { data: existing, error: existingError } = await supabase
+    .from("company_people")
+    .select("id")
+    .eq("company_id", companyId)
+    .eq("role_type", normalizedPayload.role_type)
+    .ilike("full_name", normalizedPayload.full_name)
+    .is("deleted_at", null)
+    .neq("id", personId)
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+  if (existing?.id) throw new Error("Другой работник с таким ФИО и ролью уже существует");
+
+  const { data, error } = await supabase
+    .from("company_people")
+    .update({ ...normalizedPayload, updated_by_user_id: userId })
+    .eq("company_id", companyId)
+    .eq("id", personId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  const person = data as CompanyPerson;
+  await syncPersonToSpecialistReference(person, userId);
+  return person;
+}
+
+export async function archiveCompanyPerson(
+  companyId: string,
+  personId: string,
+  userId: string
+): Promise<void> {
+  const { data, error } = await supabase
+    .from("company_people")
+    .update({ status: "archived", deleted_at: new Date().toISOString(), updated_by_user_id: userId })
+    .eq("company_id", companyId)
+    .eq("id", personId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  await syncPersonToSpecialistReference(data as CompanyPerson, userId);
+}
+
 export async function getSpecialistReferences(
   companyId: string,
   includeArchived = false
@@ -582,7 +845,8 @@ export async function createSpecialistReference(
   if (existing.error) throw new Error(existing.error.message);
   if (existing.data?.id) throw new Error("Специалист с таким ФИО уже существует");
 
-  const normalizedPayload = {
+  const linkedPersonId = await ensureCompanyPersonForSpecialist(companyId, userId, payload);
+  const normalizedPayload: Record<string, any> = {
     ...payload,
     personnel_type: payload.personnel_type || "driver",
     phone: payload.phone || null,
@@ -591,13 +855,20 @@ export async function createSpecialistReference(
     machine_id: payload.machine_id || null,
     equipment_id: payload.equipment_id || null,
   };
+  if (linkedPersonId) normalizedPayload.person_id = linkedPersonId;
   const { data, error } = await supabase
     .from("reference_specialists")
     .insert([{ ...normalizedPayload, company_id: companyId, user_id: userId }])
     .select()
     .single();
   if (error) {
-    if (error.message?.toLowerCase().includes("machine_id") || error.message?.toLowerCase().includes("equipment_id")) {
+    const lowerMessage = error.message?.toLowerCase() || "";
+    if (
+      lowerMessage.includes("machine_id") ||
+      lowerMessage.includes("equipment_id") ||
+      lowerMessage.includes("person_id") ||
+      lowerMessage.includes("schema cache")
+    ) {
       const fallbackPayload = {
         full_name: payload.full_name,
         role: payload.role || null,
@@ -608,6 +879,9 @@ export async function createSpecialistReference(
         company_id: companyId,
         user_id: userId,
       };
+      if (linkedPersonId && !lowerMessage.includes("person_id") && !lowerMessage.includes("schema cache")) {
+        (fallbackPayload as any).person_id = linkedPersonId;
+      }
       const fallback = await supabase
         .from("reference_specialists")
         .insert([fallbackPayload])
@@ -667,6 +941,23 @@ export async function updateSpecialistReference(
     throw new Error(error.message);
   }
   const updated = data as SpecialistReference;
+  if ((updated as any).person_id) {
+    const roleType = (updated.personnel_type || "driver") as CompanyPersonRoleType;
+    const { error: personUpdateError } = await supabase
+      .from("company_people")
+      .update({
+        full_name: updated.full_name,
+        role_type: roleType,
+        phone: updated.phone || null,
+        status: updated.status === "inactive" ? "inactive" : "active",
+        notes: updated.note || null,
+        updated_by_user_id: (updated as any).user_id || null,
+      })
+      .eq("id", (updated as any).person_id);
+    if (personUpdateError && !isCompanyPeopleSchemaMissing(personUpdateError)) {
+      throw new Error(personUpdateError.message);
+    }
+  }
   if (Array.isArray(payload.assigned_vehicle_ids)) {
     const { data: specialistRow, error: specialistRowError } = await supabase
       .from("reference_specialists")
@@ -750,7 +1041,7 @@ export async function archiveSpecialistReference(id: string): Promise<void> {
 function mapAgrochemicalRow(row: any, language: Language): AgrochemicalReference {
   return {
     ...row,
-    name: localizedName(row, language) || row.name,
+    name: brandName(row) || row.name,
     trade_name: row.trade_name || null,
     pesticide_category: row.pesticide_category || null,
     pesticide_subcategories: row.pesticide_subcategories || null,

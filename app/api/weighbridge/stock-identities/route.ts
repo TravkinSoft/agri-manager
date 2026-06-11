@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 
 const batchClassLabel = (value: string | null | undefined) => {
   const key = String(value || "commodity").toLowerCase();
@@ -18,8 +19,8 @@ const formatKg = (value: number) => {
   return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
 };
 
-const nameOf = (row: any, fallback = "-") =>
-  String(row?.name_ru || row?.name || row?.full_name || row?.title || fallback);
+const systemNameOf = (row: any, fallback = "-") => localizedName(row, "ru", ["name", "full_name", "title", "code", "slug"]) || fallback;
+const brandNameOf = (row: any, fallback = "-") => brandName(row, ["trade_name", "original_name", "name", "full_name", "title", "normalized_name"]) || fallback;
 
 const firstSnapshot = (rows: any[], idKey: string, nameKey: string) => {
   const map = new Map<string, string>();
@@ -67,16 +68,16 @@ export async function GET(request: NextRequest) {
       { data: lineSnapshots },
     ] = await Promise.all([
       productIds.length
-        ? supabase.from("products").select("id,name,name_ru,full_name,type,product_type").in("id", productIds)
+        ? supabase.from("products").select("id,name,trade_name,normalized_name,full_name,type,product_type").in("id", productIds)
         : Promise.resolve({ data: [] as any[] }),
       productIds.length
-        ? supabase.from("crops").select("id,name,name_ru,full_name").in("id", productIds)
+        ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,full_name").in("id", productIds)
         : Promise.resolve({ data: [] as any[] }),
       varietyIds.length
-        ? supabase.from("varieties").select("id,name,name_ru,full_name").in("id", varietyIds)
+        ? supabase.from("varieties").select("id,name,full_name").in("id", varietyIds)
         : Promise.resolve({ data: [] as any[] }),
       reproductionIds.length
-        ? supabase.from("seed_reproductions").select("id,name,name_ru,full_name").in("id", reproductionIds)
+        ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code,full_name").in("id", reproductionIds)
         : Promise.resolve({ data: [] as any[] }),
       productIds.length || varietyIds.length || reproductionIds.length
         ? supabase
@@ -87,14 +88,14 @@ export async function GET(request: NextRequest) {
         : Promise.resolve({ data: [] as any[] }),
     ]);
 
-    const productMap = new Map((products || []).map((x: any) => [String(x.id), nameOf(x, "")]));
+    const productMap = new Map((products || []).map((x: any) => [String(x.id), brandNameOf(x, "")]));
     const productTypeMap = new Map((products || []).map((x: any) => [String(x.id), String(x.product_type || x.type || "").toLowerCase()]));
     for (const crop of cropFallbacks || []) {
       const id = String((crop as any).id || "");
-      if (id && !productMap.get(id)) productMap.set(id, nameOf(crop, ""));
+      if (id && !productMap.get(id)) productMap.set(id, systemNameOf(crop, ""));
     }
-    const varietyMap = new Map((varieties || []).map((x: any) => [String(x.id), nameOf(x, "")]));
-    const reproductionMap = new Map((reproductions || []).map((x: any) => [String(x.id), nameOf(x, "")]));
+    const varietyMap = new Map((varieties || []).map((x: any) => [String(x.id), brandNameOf(x, "")]));
+    const reproductionMap = new Map((reproductions || []).map((x: any) => [String(x.id), systemNameOf(x, "")]));
     const productSnapshotMap = firstSnapshot(lineSnapshots || [], "product_id", "product_name_snapshot");
     const varietySnapshotMap = firstSnapshot(lineSnapshots || [], "variety_id", "variety_name_snapshot");
     const reproductionSnapshotMap = firstSnapshot(lineSnapshots || [], "reproduction_id", "reproduction_name_snapshot");

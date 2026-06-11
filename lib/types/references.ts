@@ -57,6 +57,39 @@ export const specialistReferenceSchema = z.object({
   equipment_id: z.string().uuid().optional().or(z.literal("")),
 });
 
+export const companyPersonRoleValues = [
+  "driver",
+  "machine_operator",
+  "worker",
+  "cook",
+  "office",
+  "guard",
+  "manager",
+  "other",
+] as const;
+
+export const companyPersonEmploymentValues = [
+  "permanent",
+  "temporary",
+  "seasonal",
+  "contractor",
+  "unknown",
+] as const;
+
+export const companyPersonStatusValues = ["active", "inactive", "archived"] as const;
+
+export const companyPersonSchema = z.object({
+  full_name: z.string().min(1, "Name is required").max(150, "Name is too long"),
+  short_name: z.string().max(80, "Short name is too long").optional().or(z.literal("")),
+  role_type: z.enum(companyPersonRoleValues).default("worker"),
+  employment_type: z.enum(companyPersonEmploymentValues).default("unknown"),
+  phone: z.string().max(32, "Phone is too long").optional().or(z.literal("")),
+  iin: z.string().max(16, "IIN is too long").optional().or(z.literal("")),
+  status: z.enum(companyPersonStatusValues).default("active"),
+  notes: z.string().max(1000, "Notes are too long").optional().or(z.literal("")),
+  user_id: z.string().uuid().optional().nullable(),
+});
+
 export const pesticideCategoryValues = [
   "herbicide",
   "fungicide",
@@ -109,6 +142,10 @@ export type SeedReproductionFormData = z.input<typeof seedReproductionSchema>;
 export type MachineFormData = z.input<typeof machineSchema>;
 export type EquipmentFormData = z.input<typeof equipmentSchema>;
 export type SpecialistReferenceFormData = z.input<typeof specialistReferenceSchema>;
+export type CompanyPersonFormData = z.input<typeof companyPersonSchema>;
+export type CompanyPersonRoleType = (typeof companyPersonRoleValues)[number];
+export type CompanyPersonEmploymentType = (typeof companyPersonEmploymentValues)[number];
+export type CompanyPersonStatus = (typeof companyPersonStatusValues)[number];
 export type VehicleFormData = z.input<typeof vehicleSchema>;
 export type PesticideFormData = z.input<typeof pesticideSchema>;
 export type FertilizerFormData = z.input<typeof fertilizerSchema>;
@@ -195,6 +232,7 @@ export interface EquipmentReference {
 
 export interface SpecialistReference {
   id: string;
+  person_id?: string | null;
   full_name: string;
   role: string | null;
   personnel_type?: "driver" | "machine_operator" | null;
@@ -209,6 +247,25 @@ export interface SpecialistReference {
   updated_at: string;
   user_id: string;
   company_id: string;
+}
+
+export interface CompanyPerson {
+  id: string;
+  company_id: string;
+  user_id?: string | null;
+  full_name: string;
+  short_name?: string | null;
+  role_type: CompanyPersonRoleType;
+  employment_type: CompanyPersonEmploymentType;
+  phone?: string | null;
+  iin?: string | null;
+  status: CompanyPersonStatus;
+  notes?: string | null;
+  created_by_user_id?: string | null;
+  updated_by_user_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
 }
 
 export interface GlobalVehicleBrand {

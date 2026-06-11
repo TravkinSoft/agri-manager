@@ -15,7 +15,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/lib/contexts/language-context";
-import { localizedName } from "@/lib/i18n/helpers";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getWeighbridgeBootstrap, listTickets, openShift, patchTicket, voidTicket } from "@/lib/services/weighbridge";
@@ -26,6 +26,17 @@ type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "drying";
 type MovementGroup = "warehouse_inbound" | "field_issue" | "internal_transfer" | "shipment" | "writeoff";
 type Option = { id: string; name: string };
+type SupplierOption = Option & { source?: "counterparty" | "global_supplier"; globalSupplierId?: string };
+type SupplierReceiptLineDraft = {
+  localId: string;
+  productId: string;
+  quantityKg: string;
+  uom: string;
+  warehouseToId: string;
+  supplierLot: string;
+  unitPrice: string;
+  notes: string;
+};
 type LinkedOperationOption = { id: string; field_id: string | null; label: string };
 type LinkedOperationLineOption = {
   id: string;
@@ -41,7 +52,19 @@ type LocalizedRef = {
   name_kz?: string | null;
   name_en?: string | null;
 };
-type ProductOption = Option & { type?: string };
+type ProductOption = Option & {
+  type?: string;
+  productType?: string;
+  unit?: string;
+  defaultUnit?: string;
+  baseUom?: string;
+  packUom?: string;
+  packageUnit?: string;
+  productForm?: string;
+  formulation?: string;
+  category?: string;
+  subcategory?: string;
+};
 type StockIdentityOption = {
   key: string;
   product_id: string;
@@ -112,6 +135,8 @@ type FormState = {
   linkedOperationId: string;
   linkedOperationLineId: string;
   quantityKg: string;
+  quantityUom: string;
+  unitPrice: string;
   dryingOutputKg: string;
   moistureIn: string;
   moistureOut: string;
@@ -151,6 +176,8 @@ const INITIAL_FORM: FormState = {
   linkedOperationId: "",
   linkedOperationLineId: "",
   quantityKg: "",
+  quantityUom: "",
+  unitPrice: "",
   dryingOutputKg: "",
   moistureIn: "",
   moistureOut: "",
@@ -161,6 +188,17 @@ const INITIAL_FORM: FormState = {
   disposalReason: "",
   notes: "",
 };
+
+const createSupplierReceiptLineDraft = (warehouseToId = ""): SupplierReceiptLineDraft => ({
+  localId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  productId: "",
+  quantityKg: "",
+  uom: "",
+  warehouseToId,
+  supplierLot: "",
+  unitPrice: "",
+  notes: "",
+});
 
 const PERSIST_KEYS: Array<keyof FormState> = [
   "operationType",
@@ -189,6 +227,7 @@ const PERSIST_KEYS: Array<keyof FormState> = [
   "stockIdentityKey",
   "linkedOperationId",
   "linkedOperationLineId",
+  "quantityUom",
   "disposalCategory",
   "notes",
 ];
@@ -413,6 +452,57 @@ const net = (gross: string, tare: string) => {
   if (g == null || t == null) return null;
   return g - t;
 };
+const normalizeUnit = (value: string | null | undefined) => {
+  const unit = String(value || "").trim().toLowerCase().replace(/\.$/, "");
+  if (!unit) return "";
+  if (["kg", "кг", "kilogram", "kilograms", "килограмм", "килограмма", "килограммы", "килограммов"].includes(unit)) return "kg";
+  if (["g", "гр", "г", "gram", "grams", "грамм", "грамма", "граммы", "граммов"].includes(unit)) return "g";
+  if (["l", "л", "liter", "litre", "liters", "litres", "литр", "литра", "литры", "литров"].includes(unit)) return "l";
+  if (["m", "м", "meter", "metre", "meters", "metres", "метр", "метра", "метры", "метров"].includes(unit)) return "m";
+  if (["roll", "rolls", "бухта", "бухты"].includes(unit)) return "roll";
+  if (["pcs", "pc", "шт", "штука", "штук"].includes(unit)) return "pcs";
+  if (["pack", "package", "уп", "упак", "упаковка"].includes(unit)) return "pack";
+  return unit;
+};
+const unitLabel = (unit: string | null | undefined) => {
+  const normalized = normalizeUnit(unit);
+  if (normalized === "kg") return "кг";
+  if (normalized === "g") return "г";
+  if (normalized === "l") return "л";
+  if (normalized === "m") return "м";
+  if (normalized === "roll") return "бухта";
+  if (normalized === "pcs") return "шт";
+  if (normalized === "pack") return "уп.";
+  return normalized || "ед.";
+};
+const inferProductUnit = (product: ProductOption | null | undefined) => {
+  if (!product) return "";
+  const explicit = normalizeUnit(product.unit || product.defaultUnit || product.baseUom || product.packUom || product.packageUnit);
+  if (explicit) return explicit;
+  const hay = [
+    product.name,
+    product.type,
+    product.productType,
+    product.productForm,
+    product.formulation,
+    product.category,
+    product.subcategory,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (!hay.trim()) return "";
+  if (hay.includes("капель") || hay.includes("drip tape") || hay.includes("лента")) return "m";
+  if (hay.includes("liquid") || hay.includes("жид") || hay.includes("концентрат") || /\b(ec|кэ|вр|sc|sl|se|кс)\b/i.test(hay)) return "l";
+  if (hay.includes("granule") || hay.includes("гранул") || hay.includes("порош") || hay.includes("fertilizer") || hay.includes("удобр") || /\b(wg|вдг|вг)\b/i.test(hay)) return "kg";
+  if (hay.includes("seed") || hay.includes("семен") || hay.includes("семенной картофель")) return "kg";
+  return "";
+};
+const formatQuantityWithUnit = (quantity: unknown, unit?: string | null) => {
+  const n = Number(quantity || 0);
+  if (!Number.isFinite(n)) return "-";
+  return `${n.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} ${unitLabel(unit)}`;
+};
 const getLang = (language: string): Lang => (language === "kz" || language === "en" ? language : "ru");
 const normName = (value: string) => value.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, " ").trim();
 const isUuidLike = (value: string | null | undefined) =>
@@ -441,10 +531,12 @@ export default function WeighbridgeOperationsPage() {
   const [finalizing, setFinalizing] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [supplierReceiptLines, setSupplierReceiptLines] = useState<SupplierReceiptLineDraft[]>([]);
+  const [showSupplierExtraFields, setShowSupplierExtraFields] = useState(false);
   const [tickets, setTickets] = useState<WeighbridgeTicket[]>([]);
   const [fields, setFields] = useState<{ id: string; name: string; area: number }[]>([]);
   const [warehouses, setWarehouses] = useState<Option[]>([]);
-  const [suppliers, setSuppliers] = useState<Option[]>([]);
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [buyers, setBuyers] = useState<Option[]>([]);
   const [vehicles, setVehicles] = useState<{ id: string; name: string; plate: string; primaryPersonnelId: string | null }[]>([]);
   const [processingPoints, setProcessingPoints] = useState<Option[]>([]);
@@ -483,15 +575,17 @@ export default function WeighbridgeOperationsPage() {
   const [confirmActionLabel, setConfirmActionLabel] = useState("Подтвердить");
   const confirmResolverRef = useRef<null | ((value: boolean) => void)>(null);
   const historyRef = useRef<HTMLDivElement | null>(null);
+  const tareInputRef = useRef<HTMLInputElement | null>(null);
 
   const canOperate =
     profile?.role === "company_admin" ||
     profile?.role === "global_admin" ||
+    profile?.role === "director" ||
     profile?.role === "warehouse" ||
     profile?.role === "warehouse_operator" ||
     profile?.role === "weighman";
-  const canView = canOperate || profile?.role === "agronomist";
-  const canVoid = profile?.role === "company_admin" || profile?.role === "global_admin";
+  const canView = canOperate || profile?.role === "agronomist" || profile?.role === "specialist";
+  const canVoid = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director";
   const persistKey = useMemo(
     () => (profile?.company_id && profile?.id ? `travkin.weighbridge.formDraft.${profile.company_id}.${profile.id}` : ""),
     [profile?.company_id, profile?.id]
@@ -577,20 +671,15 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const loadSuppliers = async (companyId: string) => {
-    const { data, error } = await supabase
-      .from("counterparties")
-      .select("id,name,counterparty_type,is_active,archived")
-      .eq("company_id", companyId)
-      .eq("archived", false)
-      .eq("is_active", true)
-      .in("counterparty_type", ["supplier", "both"])
-      .order("name");
-    if (error) {
-      const msg = String(error.message || "").toLowerCase();
-      if (msg.includes("counterparties") || msg.includes("schema cache")) return [] as Option[];
-      throw error;
-    }
-    return (data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Поставщик") }));
+    const headers = await getSessionAuthHeaders();
+    const resp = await fetch(`/api/weighbridge/suppliers?companyId=${encodeURIComponent(companyId)}`, {
+      cache: "no-store",
+      headers,
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(String(json?.error || "Не удалось загрузить поставщиков"));
+    return (json?.suppliers || []) as SupplierOption[];
+
   };
 
   const loadBuyers = async (companyId: string) => {
@@ -603,7 +692,7 @@ export default function WeighbridgeOperationsPage() {
       .in("counterparty_type", ["buyer", "both", "other"])
       .order("name");
     if (error) {
-      const msg = String(error.message || "").toLowerCase();
+      const msg = String(error?.message || "").toLowerCase();
       if (msg.includes("counterparties") || msg.includes("schema cache")) return [] as Option[];
       throw error;
     }
@@ -612,6 +701,31 @@ export default function WeighbridgeOperationsPage() {
 
   const getSessionAuthHeaders = async () => {
     return buildClientAuthHeaders("none");
+  };
+
+  const resolveSupplierCounterparty = async (supplierId: string) => {
+    if (!supplierId || !profile?.company_id) return supplierId;
+    if (!supplierId.startsWith("global_supplier:")) return supplierId;
+
+    const headers = await buildClientAuthHeaders("json");
+    const resp = await fetch("/api/weighbridge/suppliers", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ companyId: profile.company_id, supplierId }),
+    });
+    const json = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(String(json?.error || "Не удалось подготовить поставщика"));
+
+    const localSupplier = json?.supplier as SupplierOption | undefined;
+    if (localSupplier?.id) {
+      setSuppliers((prev) => {
+        const next = prev.filter((item) => item.id !== supplierId && item.id !== localSupplier.id);
+        next.push(localSupplier);
+        return next.sort((a, b) => a.name.localeCompare(b.name, "ru"));
+      });
+    }
+
+    return String(json?.supplierId || supplierId);
   };
 
   const loadMasterIdentityRefs = async (companyId: string) => {
@@ -640,7 +754,7 @@ export default function WeighbridgeOperationsPage() {
         supabase.from("processing_points").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase
           .from("products")
-          .select("id,name,name_ru,name_kz,name_en,company_id,type,product_type")
+          .select("id,name,trade_name,normalized_name,company_id,type,product_type,unit,default_unit,base_uom,pack_uom,package_unit,product_form,formulation,category,subcategory")
           .or(`company_id.eq.${profile.company_id},company_id.is.null`)
           .eq("archived", false)
           .order("name"),
@@ -683,14 +797,14 @@ export default function WeighbridgeOperationsPage() {
 
       const productRows = dedupeByName(
         (productsRes.data || []).filter((row: any) =>
-          !hasQaDataMarker(`${localizedName(row, lang, ["name"]) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
+          !hasQaDataMarker(`${brandName(row) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
         )
       );
       const cropRows = dedupeByName(
         (identityRefs.crops || []).filter((row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || ""))
       );
       const varietyRowsRaw = ((identityRefs.varieties || []) as any[]).filter(
-        (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
+        (row: any) => !hasQaDataMarker(brandName(row) || row.name || "")
       );
       const reproductionRowsRaw = ((identityRefs.reproductions || []) as any[]).filter(
         (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
@@ -701,7 +815,7 @@ export default function WeighbridgeOperationsPage() {
         cropRows.map((c: any) => [String(c.id), localizedName(c, lang, ["name"]) || String(c.name || "").trim()])
       );
       const varietyNameById = new Map<string, string>(
-        varietyRowsRaw.map((v: any) => [String(v.id), localizedName(v, lang, ["name"]) || String(v.name || "").trim()])
+        varietyRowsRaw.map((v: any) => [String(v.id), brandName(v) || String(v.name || "").trim()])
       );
       const reproductionNameById = new Map<string, string>(
         reproductionRowsRaw.map((r: any) => [String(r.id), localizedName(r, lang, ["name"]) || String(r.name || "").trim()])
@@ -710,15 +824,25 @@ export default function WeighbridgeOperationsPage() {
       setProducts(
         productRows.map((r: any) => ({
           id: String(r.id),
-          name: localizedName(r, lang, ["name"]) || String(r.name || "Номенклатура"),
+          name: brandName(r) || String(r.name || "Номенклатура"),
           type: String(r.product_type || r.type || "").toLowerCase(),
+          productType: String(r.product_type || ""),
+          unit: String(r.unit || ""),
+          defaultUnit: String(r.default_unit || ""),
+          baseUom: String(r.base_uom || ""),
+          packUom: String(r.pack_uom || ""),
+          packageUnit: String(r.package_unit || ""),
+          productForm: String(r.product_form || ""),
+          formulation: String(r.formulation || ""),
+          category: String(r.category || ""),
+          subcategory: String(r.subcategory || ""),
         }))
       );
       setCrops(cropRows.map((r: any) => ({ id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Культура") })));
       setVarieties(
         varietyRows.map((r: any) => ({
           id: String(r.id),
-          name: localizedName(r, lang, ["name"]) || String(r.name || "Сорт"),
+          name: brandName(r) || String(r.name || "Сорт"),
           cropId: String(r.crop_id || ""),
           cropName: localizedName(r.crops, lang, ["name"]) || cropNameById.get(String(r.crop_id || "")) || "",
         }))
@@ -731,11 +855,11 @@ export default function WeighbridgeOperationsPage() {
       );
       setDrivers(driverRows);
       setTickets(ticketRows || []);
-      const fieldNameById = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "РџРѕР»Рµ")]));
+      const fieldNameById = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "Поле")]));
       setLinkedOperations(
         (operationsRes.data || []).map((row: any) => {
           const fieldId = row.field_id ? String(row.field_id) : null;
-          const fieldName = fieldId ? fieldNameById.get(fieldId) || "РџРѕР»Рµ" : "РџРѕР»Рµ";
+          const fieldName = fieldId ? fieldNameById.get(fieldId) || "Поле" : "Поле";
           const dateText = row.date ? formatDate(String(row.date)) : "—";
           return {
             id: String(row.id),
@@ -928,6 +1052,9 @@ export default function WeighbridgeOperationsPage() {
     if (!activeTicket) return;
     setClosingTare(activeTicket.tare_weight_kg != null ? String(activeTicket.tare_weight_kg) : "");
     setVoidReason("");
+    if (activeTicket.status !== "finalized" && activeTicket.status !== "voided") {
+      window.setTimeout(() => tareInputRef.current?.focus(), 80);
+    }
   }, [activeTicket?.id]);
 
   useEffect(() => {
@@ -1172,6 +1299,11 @@ export default function WeighbridgeOperationsPage() {
   const activeTickets = useMemo(() => tickets.filter((t) => ["draft", "active", "ready_to_close"].includes(t.status)), [tickets]);
   const historyTypes = useMemo(() => Array.from(new Set(tickets.map((t) => t.op_type).filter(Boolean))), [tickets]);
   const historyTickets = useMemo(() => tickets.filter((t) => ["finalized", "voided"].includes(t.status) && (historyTypeFilter === "all" || t.op_type === historyTypeFilter)), [tickets, historyTypeFilter]);
+  const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
+  const activeTicketLineTotal = useMemo(
+    () => (activeTicket?.lines || []).reduce((sum, line) => sum + Number(line.quantity || 0), 0),
+    [activeTicket?.id, activeTicket?.lines]
+  );
   const selectedTransferStock = useMemo(
     () => stockIdentityOptions.find((item) => item.key === form.stockIdentityKey) || null,
     [stockIdentityOptions, form.stockIdentityKey]
@@ -1197,7 +1329,7 @@ export default function WeighbridgeOperationsPage() {
     const rest = drivers.filter((d) => !d.assignedVehicleIds.includes(form.vehicleId));
     return linked.length ? [...linked, ...rest] : drivers;
   }, [drivers, form.vehicleId]);
-  const gross = activeTicket?.gross_weight_kg != null ? String(activeTicket.gross_weight_kg) : "";
+  const gross = activeTicket?.gross_weight_kg != null ? String(activeTicket.gross_weight_kg) : activeTicket?.weigh_method === "manual_override_with_reason" && activeTicketLineTotal > 0 ? String(activeTicketLineTotal) : "";
   const pure = net(gross, closingTare);
   const liveWeightKg = useMemo(() => {
     if (form.grossKg && Number.isFinite(Number(form.grossKg))) return Number(form.grossKg);
@@ -1225,8 +1357,37 @@ export default function WeighbridgeOperationsPage() {
     (isFieldIssue && form.fieldIssueMode === "weighbridge") ||
     isShipment ||
     isDisposal;
+  const supplierReceiptGenericLineDrafts = useMemo(() => {
+    if (form.operationType !== "supplier_receipt" || form.supplierItemMode !== "generic") return [];
+    const base: SupplierReceiptLineDraft = {
+      localId: "base",
+      productId: form.productId,
+      quantityKg: form.quantityKg,
+      uom: form.quantityUom,
+      warehouseToId: form.warehouseToId,
+      supplierLot: form.supplierLot,
+      unitPrice: form.unitPrice,
+      notes: "",
+    };
+    return [base, ...supplierReceiptLines].filter(
+      (line) =>
+        line.localId === "base" ||
+        Boolean(line.productId || line.quantityKg || line.supplierLot || line.notes)
+    );
+  }, [form.operationType, form.supplierItemMode, form.productId, form.quantityKg, form.quantityUom, form.warehouseToId, form.supplierLot, form.unitPrice, supplierReceiptLines]);
+  const supplierReceiptGenericLineTotal = useMemo(
+    () => supplierReceiptGenericLineDrafts.reduce((sum, line) => sum + Number(toNum(line.quantityKg) || 0), 0),
+    [supplierReceiptGenericLineDrafts]
+  );
+  const supplierReceiptUsesMultipleLines =
+    form.operationType === "supplier_receipt" &&
+    form.supplierItemMode === "generic" &&
+    supplierReceiptLines.length > 0;
 
   const selectOperation = (operationType: OperationType) => {
+    if (operationType !== "supplier_receipt") {
+      setSupplierReceiptLines([]);
+    }
     setForm((prev) => {
       const next: FormState = {
         ...INITIAL_FORM,
@@ -1297,6 +1458,8 @@ export default function WeighbridgeOperationsPage() {
       next.vehicleId = "";
       next.grossKg = "";
       next.quantityKg = "";
+      next.quantityUom = "";
+      next.unitPrice = "";
       next.dryingOutputKg = "";
       next.moistureIn = "";
       next.moistureOut = "";
@@ -1325,10 +1488,25 @@ export default function WeighbridgeOperationsPage() {
         if (!form.driverId) return "Выберите водителя";
         if (!form.vehicleId) return "Выберите машину";
         if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
-      } else if (!toNum(form.quantityKg) || Number(form.quantityKg) <= 0) {
+      } else if (form.supplierItemMode === "generic" && supplierReceiptGenericLineTotal <= 0) {
+        return "Укажите количество по накладной";
+      } else if (form.supplierItemMode === "agro_identity" && (!toNum(form.quantityKg) || Number(form.quantityKg) <= 0)) {
         return "Укажите количество по накладной";
       }
-      if (form.supplierItemMode === "generic" && !form.productId) return "Выберите номенклатуру";
+      if (form.supplierItemMode === "generic") {
+        if (!supplierReceiptGenericLineDrafts.length || supplierReceiptGenericLineDrafts.some((line) => !line.productId)) {
+          return "Выберите номенклатуру по каждой строке поставки";
+        }
+        if (supplierReceiptGenericLineDrafts.some((line) => !normalizeUnit(line.uom || inferProductUnit(productById.get(line.productId))))) {
+          return "Выберите единицу измерения по каждой строке поставки";
+        }
+        if (supplierReceiptGenericLineDrafts.some((line) => !(line.warehouseToId || form.warehouseToId))) {
+          return "Выберите склад по каждой строке поставки";
+        }
+        if ((form.supplierReceiptMode === "direct" || supplierReceiptUsesMultipleLines) && supplierReceiptGenericLineDrafts.some((line) => !toNum(line.quantityKg) || Number(line.quantityKg) <= 0)) {
+          return "Укажите количество по каждой строке поставки";
+        }
+      }
       if (form.supplierItemMode === "agro_identity") {
         if (!form.cropId || !form.varietyId || !form.reproductionId) return "Для семян/агро укажите культуру, сорт и репродукцию";
         if (!form.supplierLot.trim()) return "Укажите партию поставщика";
@@ -1492,7 +1670,7 @@ export default function WeighbridgeOperationsPage() {
       });
       return;
     }
-    if (!activeShift) {
+    if (!activeShift && !(form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct")) {
       toast({
         title: "Смена не открыта",
         description: "Перед созданием талона откройте смену в верхней панели.",
@@ -1546,6 +1724,9 @@ export default function WeighbridgeOperationsPage() {
     const isFieldIssueWeighbridge = isFieldIssue && form.fieldIssueMode === "weighbridge";
     const isDirectQuantity = isSupplierDirect || isTransferDirect || isFieldIssueDirect;
     const movementQuantity =
+      form.operationType === "supplier_receipt" && form.supplierItemMode === "generic" && form.supplierReceiptMode === "direct"
+        ? supplierReceiptGenericLineTotal
+        :
       form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") || (isTransfer && form.transferMode === "weighbridge") || isFieldIssueWeighbridge || isShipment
         || isDisposal
         ? Number(form.grossKg)
@@ -1556,6 +1737,17 @@ export default function WeighbridgeOperationsPage() {
       form.operationType === "supplier_receipt" && form.harvestYear.trim() ? `Год урожая: ${form.harvestYear.trim()}` : "",
     ].filter(Boolean);
 
+    let supplierCounterpartyId = form.supplierId;
+    try {
+      supplierCounterpartyId =
+        form.operationType === "supplier_receipt"
+          ? await resolveSupplierCounterparty(form.supplierId)
+          : form.supplierId;
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e?.message || "Не удалось подготовить поставщика", variant: "destructive" });
+      return;
+    }
+
     const ticket: TicketInput = {
       company_id: profile.company_id,
       created_by: profile.id,
@@ -1564,10 +1756,10 @@ export default function WeighbridgeOperationsPage() {
       direction: meta.direction,
       source_kind: meta.sourceKind,
       destination_kind: meta.destinationKind,
-      source_id: form.operationType === "harvest_incoming" ? form.fieldId : form.operationType === "supplier_receipt" ? form.supplierId : form.warehouseFromId || null,
+      source_id: form.operationType === "harvest_incoming" ? form.fieldId : form.operationType === "supplier_receipt" ? supplierCounterpartyId : form.warehouseFromId || null,
       destination_id: form.operationType === "harvest_incoming" ? form.warehouseToId : form.operationType === "issue_to_field" ? form.fieldId : form.operationType === "shipment_outbound" ? form.buyerId : form.operationType === "drying" ? form.processingPointId : form.warehouseToId || null,
       crop_structure_allocation_id: form.operationType === "harvest_incoming" || isFieldIssue ? form.cropStructureAllocationId || null : null,
-      supplier_id: form.operationType === "supplier_receipt" ? form.supplierId || null : null,
+      supplier_id: form.operationType === "supplier_receipt" ? supplierCounterpartyId || null : null,
       buyer_id: form.operationType === "shipment_outbound" ? form.buyerId || null : null,
       shipment_purpose: form.operationType === "shipment_outbound" ? form.shipmentPurpose : null,
       destination_text: form.operationType === "shipment_outbound" ? form.destinationText.trim() || null : null,
@@ -1585,8 +1777,8 @@ export default function WeighbridgeOperationsPage() {
       processing_point_from_id: form.operationType === "drying" ? form.processingPointId || null : null,
       vehicle_id: form.vehicleId || null,
       driver_id: form.driverId || null,
-      gross_weight_kg: isDirectQuantity ? movementQuantity : toNum(form.grossKg),
-      tare_weight_kg: isDirectQuantity ? 0 : null,
+      gross_weight_kg: isSupplierDirect ? null : isDirectQuantity ? movementQuantity : toNum(form.grossKg),
+      tare_weight_kg: isSupplierDirect ? null : isDirectQuantity ? 0 : null,
       weigh_method: isDirectQuantity ? "manual_override_with_reason" : "preset_tare",
       notes: [
         form.operationType === "shipment_outbound" && form.externalDocumentNo.trim() ? `Документ отгрузки: ${form.externalDocumentNo.trim()}` : "",
@@ -1602,6 +1794,8 @@ export default function WeighbridgeOperationsPage() {
       crop_id: form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierItemMode === "agro_identity") || (isFieldIssue && isSeedIssueOperation(form.fieldMaterialCategory)) ? form.cropId : null,
       quantity: movementQuantity,
       uom: "kg",
+      warehouse_from_id: form.warehouseFromId || null,
+      warehouse_to_id: form.warehouseToId || null,
       notes: form.operationType === "harvest_incoming" ? "Приемка урожая" : form.operationType === "supplier_receipt" ? "Приемка от поставщика" : form.operationType === "transfer_between_warehouses" ? "Межскладское перемещение" : undefined,
       lot_id: form.operationType === "supplier_receipt" ? form.supplierLot.trim() || null : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal) ? selectedTransferStock?.batch_id || null : null,
       supplier_lot: form.operationType === "supplier_receipt" ? form.supplierLot.trim() || null : null,
@@ -1613,11 +1807,45 @@ export default function WeighbridgeOperationsPage() {
       moisture_percent: form.operationType === "drying" ? toNum(form.moistureIn) : null,
       net_line_weight_kg: form.operationType === "drying" ? toNum(form.dryingOutputKg) : null,
     };
+    const linesToCreate: TicketLineInput[] =
+      form.operationType === "supplier_receipt" && form.supplierItemMode === "generic"
+        ? supplierReceiptGenericLineDrafts.map((draft, index) => {
+            const qty = toNum(draft.quantityKg) ?? (supplierReceiptGenericLineDrafts.length === 1 ? movementQuantity : 0);
+            const unitPrice = toNum(draft.unitPrice);
+            const uom = normalizeUnit(draft.uom || inferProductUnit(productById.get(draft.productId)));
+            return {
+              product_id: draft.productId,
+              crop_id: null,
+              quantity: qty,
+              uom,
+              warehouse_to_id: draft.warehouseToId || form.warehouseToId || null,
+              unit_price: unitPrice,
+              amount: unitPrice != null && qty ? unitPrice * qty : null,
+              notes: [
+                "Приемка от поставщика",
+                draft.notes.trim(),
+                supplierReceiptGenericLineDrafts.length > 1 ? `Строка ${index + 1} из ${supplierReceiptGenericLineDrafts.length}` : "",
+              ].filter(Boolean).join("\n"),
+              lot_id: draft.supplierLot.trim() || null,
+              supplier_lot: draft.supplierLot.trim() || null,
+              batch_class: "commodity",
+            };
+          })
+        : [line];
 
     setSubmitting(true);
     try {
-      await createTicket(ticket, [line], []);
-      toast({ title: "Талон создан", description: "Талон добавлен в активные" });
+      const result = await createTicket(ticket, linesToCreate, []);
+      const createdStatus = String(result?.ticket?.status || "");
+      if (isSupplierDirect || createdStatus === "finalized") {
+        toast({
+          title: "Приход по накладной проведён",
+          description: "Партия и складское движение созданы без активного талона весовой.",
+        });
+      }
+      if (!isSupplierDirect && createdStatus !== "finalized") {
+        toast({ title: "Талон создан", description: "Талон добавлен в активные" });
+      }
       setForm((prev) => ({
         ...INITIAL_FORM,
         operationType: prev.operationType,
@@ -1629,7 +1857,7 @@ export default function WeighbridgeOperationsPage() {
         varietyId: prev.varietyId,
         reproductionId: prev.reproductionId,
         cropStructureAllocationId: prev.cropStructureAllocationId,
-        supplierId: prev.supplierId,
+        supplierId: form.operationType === "supplier_receipt" ? supplierCounterpartyId : prev.supplierId,
         buyerId: prev.buyerId,
         supplierDocumentNo: prev.supplierDocumentNo,
         shipmentPurpose: prev.shipmentPurpose,
@@ -1640,7 +1868,7 @@ export default function WeighbridgeOperationsPage() {
         transferMode: prev.transferMode,
         fieldIssueMode: prev.fieldIssueMode,
         fieldMaterialCategory: prev.fieldMaterialCategory,
-        supplierLot: prev.supplierLot,
+        supplierLot: "",
         harvestYear: prev.harvestYear,
         productId: prev.productId,
         stockIdentityKey: prev.stockIdentityKey,
@@ -1648,8 +1876,11 @@ export default function WeighbridgeOperationsPage() {
         linkedOperationLineId: prev.linkedOperationLineId,
         disposalCategory: prev.disposalCategory,
         disposalReason: prev.disposalReason,
+        unitPrice: "",
         notes: prev.notes,
       }));
+      setSupplierReceiptLines([]);
+      setShowSupplierExtraFields(false);
       await refreshTickets();
     } catch (e: any) {
       toast({ title: "Ошибка создания", description: e?.message || "Не удалось создать талон", variant: "destructive" });
@@ -1664,10 +1895,12 @@ export default function WeighbridgeOperationsPage() {
     const isDirectTransferTicket = activeTicket.op_type === "warehouse_transfer" && activeTicket.weigh_method === "manual_override_with_reason";
     const isDirectFieldIssueTicket = activeTicket.op_type === "issue_to_field" && activeTicket.weigh_method === "manual_override_with_reason";
     const isDirectQuantityTicket = isDirectSupplierTicket || isDirectTransferTicket || isDirectFieldIssueTicket;
-    const g = Number(activeTicket.gross_weight_kg || 0);
+    const g = isDirectQuantityTicket
+      ? Number(activeTicket.gross_weight_kg || 0) || activeTicketLineTotal
+      : Number(activeTicket.gross_weight_kg || 0);
     const t = isDirectQuantityTicket ? 0 : Number(closingTare || 0);
     if (!Number.isFinite(g) || g <= 0) return toast({ title: "Ошибка", description: "Брутто не заполнено", variant: "destructive" });
-    if (!isDirectQuantityTicket && (!Number.isFinite(t) || t <= 0)) return toast({ title: "Ошибка", description: "Укажите тару", variant: "destructive" });
+    if (!isDirectQuantityTicket && (!Number.isFinite(t) || t < 0)) return toast({ title: "Ошибка", description: "Укажите тару", variant: "destructive" });
     if (t > g) return toast({ title: "Ошибка", description: "Тара больше брутто", variant: "destructive" });
     if (!(await siteConfirm({ title: "Закрыть талон", description: "После закрытия будет создано движение по складу.", actionLabel: "Закрыть" }))) return;
 
@@ -1791,6 +2024,42 @@ export default function WeighbridgeOperationsPage() {
   const ticketAllocationLabel = (ticket: any) => {
     const id = String(ticket?.crop_structure_allocation_id || "");
     return ticket?.crop_structure_allocation_label || allocationLabelById.get(id) || (id ? `Участок ${id.slice(0, 8)}` : "-");
+  };
+  const isHarvestTicket = (ticket: any) => String(ticket?.op_type || "") === "harvest_incoming";
+  const isDirectSupplierTicket = (ticket: any) => String(ticket?.op_type || "") === "supplier_receipt" && String(ticket?.receipt_mode || "") === "direct";
+  const supplierName = (ticket: any) => suppliers.find((item) => item.id === ticket?.supplier_id)?.name || (ticket as any)?.supplier_name_snapshot || "-";
+  const buyerName = (ticket: any) => buyers.find((item) => item.id === ticket?.buyer_id)?.name || (ticket as any)?.buyer_name_snapshot || "-";
+  const warehouseName = (id: string | null | undefined) => warehouses.find((w) => w.id === id)?.name || "-";
+  const lineWarehouseName = (line: any, ticket: any) =>
+    line?.warehouse_to_name ||
+    line?.warehouse_from_name ||
+    warehouseName(line?.warehouse_to_id || line?.warehouse_from_id || ticket?.warehouse_to_id || ticket?.warehouse_from_id);
+  const productSummary = (ticket: any, limit = 3) => {
+    const names = (ticket?.lines || []).map((line: any) => String(line.product_name || line.product_name_snapshot || "").trim()).filter(Boolean);
+    if (names.length === 0) return "-";
+    const shown = names.slice(0, limit).join(", ");
+    return names.length > limit ? `${shown} + ещё ${names.length - limit}` : shown;
+  };
+  const ticketQuantitySummary = (ticket: any, limit = 3) => {
+    const lines = ticket?.lines || [];
+    if (lines.length > 0) {
+      const shown = lines.slice(0, limit).map((line: any) => formatQuantityWithUnit(line.quantity, line.uom)).join(", ");
+      return lines.length > limit ? `${shown} + ещё ${lines.length - limit}` : shown;
+    }
+    return ticket?.net_weight_kg != null ? formatQuantityWithUnit(ticket.net_weight_kg, "kg") : "-";
+  };
+  const ticketCardMeta = (ticket: any, vehicleName: string, driverName: string) => {
+    if (isDirectSupplierTicket(ticket)) return `Поставка от ${supplierName(ticket)}`;
+    return `${operationUiLabel(ticket.op_type)} • ${vehicleName} • ${driverName}`;
+  };
+  const ticketRouteSummary = (ticket: any) => {
+    if (!ticket) return "-";
+    if (ticket.op_type === "supplier_receipt") return `Поставка от ${supplierName(ticket)} → ${warehouseName(ticket.warehouse_to_id)}`;
+    if (ticket.op_type === "harvest_incoming") return `${fields.find((f) => f.id === ticket.field_id)?.name || "Поле"} → ${warehouseName(ticket.warehouse_to_id)}`;
+    if (ticket.op_type === "warehouse_transfer") return `${warehouseName(ticket.warehouse_from_id)} → ${warehouseName(ticket.warehouse_to_id)}`;
+    if (ticket.op_type === "shipment_outbound") return `${warehouseName(ticket.warehouse_from_id)} → ${buyerName(ticket)}`;
+    if (ticket.op_type === "issue_to_field") return `${warehouseName(ticket.warehouse_from_id)} → ${fields.find((f) => f.id === ticket.field_id)?.name || "Поле"}`;
+    return `${warehouseName(ticket.warehouse_from_id)} → ${ticket.destination_text || ticket.destination_kind || "-"}`;
   };
   const from = activeTicket ? (activeTicket.direction === "incoming" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_from_id)?.name) || "-" : "-";
   const to = activeTicket ? (activeTicket.direction === "incoming" ? warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name : activeTicket.direction === "outgoing" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name) || "-" : "-";
@@ -1982,7 +2251,7 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
             {form.operationType === "supplier_receipt" ? (
-              <div className="space-y-2 rounded-md border bg-slate-50 p-2">
+              <div className="space-y-2 rounded-md border border-slate-700 bg-slate-950/40 p-2">
                 <div className="grid gap-1.5 md:grid-cols-2">
                   <Button type="button" size="sm" variant={form.supplierReceiptMode === "weighbridge" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "weighbridge" }))}>Через весовую</Button>
                   <Button type="button" size="sm" variant={form.supplierReceiptMode === "direct" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>По накладной</Button>
@@ -1992,12 +2261,105 @@ export default function WeighbridgeOperationsPage() {
                   <Button type="button" size="sm" variant={form.supplierItemMode === "agro_identity" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierItemMode: "agro_identity", productId: "" }))}>Семена / Агро</Button>
                 </div>
                 {form.supplierItemMode === "generic" ? (
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v }))}>
-                      <SelectTrigger className="h-8"><SelectValue placeholder="Номенклатура" /></SelectTrigger>
-                      <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
-                    </Select>
-                    {form.supplierReceiptMode === "direct" ? <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" /> : null}
+                  <div className="space-y-2">
+                    <div className="text-sm font-semibold text-slate-100">Товары в поставке</div>
+                    <div className="grid gap-2 md:grid-cols-5">
+                      <div className="space-y-1 md:col-span-2">
+                        <Label>Номенклатура *</Label>
+                        <Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v, quantityUom: inferProductUnit(productById.get(v)) }))}>
+                          <SelectTrigger className="h-8"><SelectValue placeholder="Выберите товар" /></SelectTrigger>
+                          <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label>{form.supplierReceiptMode === "direct" || supplierReceiptUsesMultipleLines ? "Количество *" : "Количество"}</Label>
+                        <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder={form.supplierReceiptMode === "weighbridge" && !supplierReceiptUsesMultipleLines ? "опц." : ""} />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Ед. *</Label>
+                        <Select value={form.quantityUom} onValueChange={(v) => setForm((p) => ({ ...p, quantityUom: v }))}>
+                          <SelectTrigger className="h-8"><SelectValue placeholder="Ед." /></SelectTrigger>
+                          <SelectContent>{["kg", "g", "l", "m", "roll", "pcs", "pack"].map((unit) => <SelectItem key={unit} value={unit}>{unitLabel(unit)}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Склад строки *</Label>
+                        <Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}>
+                          <SelectTrigger className="h-8"><SelectValue placeholder="Склад" /></SelectTrigger>
+                          <SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs text-slate-300" onClick={() => setShowSupplierExtraFields((v) => !v)}>
+                      {showSupplierExtraFields ? "Скрыть дополнительные данные" : "Показать номер партии / цену"}
+                    </Button>
+                    {showSupplierExtraFields ? (
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <div className="space-y-1">
+                          <Label>Партия / номер партии</Label>
+                          <Input className="h-8" value={form.supplierLot} onChange={(e) => setForm((p) => ({ ...p, supplierLot: e.target.value }))} placeholder="необязательно" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Цена</Label>
+                          <Input className="h-8" value={form.unitPrice} onChange={(e) => setForm((p) => ({ ...p, unitPrice: e.target.value }))} placeholder="необязательно" />
+                        </div>
+                      </div>
+                    ) : null}
+                    {supplierReceiptLines.map((line) => (
+                      <div key={line.localId} className="grid gap-2 rounded-md border border-slate-700 bg-slate-900/70 p-2 md:grid-cols-[1.2fr_110px_90px_160px_auto]">
+                        <div className="space-y-1">
+                          <Label>Номенклатура *</Label>
+                          <Select
+                            value={line.productId}
+                            onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, productId: v, uom: inferProductUnit(productById.get(v)) } : item))}
+                          >
+                            <SelectTrigger className="h-8"><SelectValue placeholder="Выберите товар" /></SelectTrigger>
+                            <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Количество *</Label>
+                          <Input className="h-8" value={line.quantityKg} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, quantityKg: e.target.value } : item))} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Ед. *</Label>
+                          <Select value={line.uom} onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, uom: v } : item))}>
+                            <SelectTrigger className="h-8"><SelectValue placeholder="Ед." /></SelectTrigger>
+                            <SelectContent>{["kg", "g", "l", "m", "roll", "pcs", "pack"].map((unit) => <SelectItem key={unit} value={unit}>{unitLabel(unit)}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Склад строки *</Label>
+                          <Select value={line.warehouseToId || form.warehouseToId} onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, warehouseToId: v } : item))}>
+                            <SelectTrigger className="h-8"><SelectValue placeholder="Склад" /></SelectTrigger>
+                            <SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        {showSupplierExtraFields ? (
+                          <>
+                            <div className="space-y-1 md:col-span-2">
+                              <Label>Партия / номер партии</Label>
+                              <Input className="h-8" value={line.supplierLot} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, supplierLot: e.target.value } : item))} placeholder="необязательно" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Цена</Label>
+                              <Input className="h-8" value={line.unitPrice} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, unitPrice: e.target.value } : item))} placeholder="необязательно" />
+                            </div>
+                          </>
+                        ) : null}
+                        <div className="flex items-end">
+                          <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setSupplierReceiptLines((prev) => prev.filter((item) => item.localId !== line.localId))}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between gap-2">
+                      <Button type="button" size="sm" variant="outline" className="h-8" onClick={() => setSupplierReceiptLines((prev) => [...prev, createSupplierReceiptLineDraft(form.warehouseToId)])}>
+                        + Добавить строку
+                      </Button>
+                      {supplierReceiptGenericLineDrafts.length > 1 ? <div className="text-xs text-slate-400">Итого по строкам: {supplierReceiptGenericLineTotal.toLocaleString("ru-RU", { maximumFractionDigits: 3 })}</div> : null}
+                    </div>
                   </div>
                 ) : (
                   <div className="grid gap-2 md:grid-cols-3">
@@ -2049,7 +2411,7 @@ export default function WeighbridgeOperationsPage() {
                     <SelectTrigger className="h-8"><SelectValue placeholder="Материал из наличия склада" /></SelectTrigger>
                     <SelectContent>{fieldIssueStockOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectContent>
                   </Select>
-                  {form.fieldIssueMode === "direct" ? <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" /> : <div className="rounded-md border bg-white px-2 py-1.5 text-xs text-slate-600">Количество рассчитается при закрытии: нетто = брутто - тара.</div>}
+                  {form.fieldIssueMode === "direct" ? <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" /> : <div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-xs text-slate-300">Количество рассчитается при закрытии: нетто = брутто - тара.</div>}
                 </div>
               </div>
             ) : null}
@@ -2144,7 +2506,7 @@ export default function WeighbridgeOperationsPage() {
                   <Label>Брутто / вес (кг) *</Label>
                   <Input className="h-8" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} />
                 </div>
-                <div className="rounded-md border bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
+                <div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-xs text-slate-300">
                   Тара указывается при закрытии талона. Нетто = брутто - тара.
                 </div>
               </div>
@@ -2158,12 +2520,12 @@ export default function WeighbridgeOperationsPage() {
             </div>
 
             {canOperate ? (
-              <div className="sticky bottom-0 z-10 border-t bg-white/95 pt-2 backdrop-blur">
+              <div className="sticky bottom-0 z-10 border-t border-slate-700 bg-slate-950/95 pt-2 backdrop-blur">
                 <Button className="h-9 w-full" onClick={create} disabled={submitting}>
                   {submitting ? "Создание..." : "Создать талон"}
                 </Button>
-                {loading ? <div className="mt-1 text-xs text-amber-700">Данные ещё загружаются. Повторите через пару секунд.</div> : null}
-                {!loading && !activeShift ? <div className="mt-1 text-xs text-amber-700">Смена закрыта: откройте смену сверху.</div> : null}
+                {loading ? <div className="mt-1 text-xs text-amber-300">Данные ещё загружаются. Повторите через пару секунд.</div> : null}
+                {!loading && !activeShift && !isSupplierDirect ? <div className="mt-1 text-xs text-amber-300">Смена закрыта: откройте смену сверху.</div> : null}
               </div>
             ) : null}
           </CardContent>
@@ -2257,9 +2619,72 @@ export default function WeighbridgeOperationsPage() {
             {form.operationType === "harvest_incoming" ? <div className="space-y-1.5">{fieldHarvestOptions.length > 1 ? <div className="space-y-1"><Label>Посевная строка *</Label><Select value={form.cropStructureAllocationId} onValueChange={(v) => setForm((p) => ({ ...p, cropStructureAllocationId: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Выберите строку структуры посевов" /></SelectTrigger><SelectContent>{fieldHarvestOptions.map((x) => <SelectItem key={x.allocationId} value={x.allocationId}>{x.cropName} / {x.varietyName} / {x.reproductionName} • {x.areaHa.toFixed(2)} га</SelectItem>)}</SelectContent></Select></div> : null}<div className="grid gap-2 md:grid-cols-3"><div className="space-y-1"><Label>Культура *</Label><Input className="h-8" value={selectedHarvestAllocation?.cropName || crops.find((c) => c.id === form.cropId)?.name || ""} readOnly placeholder="Авто из структуры посевов" /></div><div className="space-y-1"><Label>Сорт *</Label><Input className="h-8" value={selectedHarvestAllocation?.varietyName || ""} readOnly placeholder="Авто из структуры посевов" /></div><div className="space-y-1"><Label>Репродукция *</Label><Input className="h-8" value={selectedHarvestAllocation?.reproductionName || ""} readOnly placeholder="Авто из структуры посевов" /></div></div><div className="rounded-md border bg-slate-50 px-2 py-1.5 text-xs"><div className="text-slate-700">Партия: {(selectedHarvestAllocation?.cropName || crops.find((c) => c.id === form.cropId)?.name || "—")} / {(selectedHarvestAllocation?.varietyName || "—")} / {(selectedHarvestAllocation?.reproductionName || "—")}</div><div className="text-slate-600">Поле: {fields.find((f) => f.id === form.fieldId)?.name || "—"} • Склад: {warehouses.find((w) => w.id === form.warehouseToId)?.name || "—"}</div></div>{form.fieldId && harvestIncompleteFields[form.fieldId] ? <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">В структуре посевов для этого поля не указан сорт/репродукция.</div> : null}{form.fieldId && fieldHarvestOptions.length === 0 && !harvestIncompleteFields[form.fieldId] ? <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">Для этого поля нет структуры посевов в активном сезоне.</div> : null}</div> : form.operationType === "supplier_receipt" ? (
               <div className="space-y-2">
                 {form.supplierItemMode === "generic" ? (
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <div className="space-y-1"><Label>Номенклатура *</Label><Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Удобрения, СЗР, ГСМ..." /></SelectTrigger><SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div>
-                    {form.supplierReceiptMode === "direct" ? <div className="space-y-1"><Label>Количество по накладной (кг) *</Label><Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} /></div> : null}
+                  <div className="space-y-2">
+                    <div className="grid gap-2 md:grid-cols-5">
+                      <div className="space-y-1"><Label>Номенклатура *</Label><Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v, quantityUom: inferProductUnit(productById.get(v)) }))}><SelectTrigger className="h-8"><SelectValue placeholder="Удобрения, СЗР, ГСМ..." /></SelectTrigger><SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div>
+                      <div className="space-y-1"><Label>{form.supplierReceiptMode === "direct" || supplierReceiptUsesMultipleLines ? "Количество *" : "Количество"}</Label><Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder={form.supplierReceiptMode === "weighbridge" && !supplierReceiptUsesMultipleLines ? "опц. для нескольких строк" : ""} /></div>
+                      <div className="space-y-1"><Label>Ед. *</Label><Select value={form.quantityUom} onValueChange={(v) => setForm((p) => ({ ...p, quantityUom: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Ед." /></SelectTrigger><SelectContent>{["kg","g","l","m","roll","pcs","pack"].map((unit) => <SelectItem key={unit} value={unit}>{unitLabel(unit)}</SelectItem>)}</SelectContent></Select></div>
+                      <div className="space-y-1"><Label>Склад строки *</Label><Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Склад" /></SelectTrigger><SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent></Select></div>
+                    </div>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs text-slate-300" onClick={() => setShowSupplierExtraFields((v) => !v)}>
+                      {showSupplierExtraFields ? "Скрыть дополнительные данные" : "Показать номер партии / цену"}
+                    </Button>
+                    {showSupplierExtraFields ? <div className="grid gap-2 md:grid-cols-2"><div className="space-y-1"><Label>Партия / номер партии</Label><Input className="h-8" value={form.supplierLot} onChange={(e) => setForm((p) => ({ ...p, supplierLot: e.target.value }))} placeholder="необязательно" /></div><div className="space-y-1"><Label>Цена</Label><Input className="h-8" value={form.unitPrice} onChange={(e) => setForm((p) => ({ ...p, unitPrice: e.target.value }))} placeholder="необязательно" /></div></div> : null}
+                    {supplierReceiptLines.map((line) => (
+                      <div key={line.localId} className="grid gap-2 rounded-md border border-slate-700 bg-slate-950/40 p-2 md:grid-cols-[1fr_110px_90px_160px_auto]">
+                        <div className="space-y-1">
+                          <Label>Номенклатура *</Label>
+                          <Select
+                            value={line.productId}
+                            onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, productId: v, uom: inferProductUnit(productById.get(v)) } : item))}
+                          >
+                            <SelectTrigger className="h-8"><SelectValue placeholder="Выберите товар" /></SelectTrigger>
+                            <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Количество *</Label>
+                          <Input className="h-8" value={line.quantityKg} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, quantityKg: e.target.value } : item))} />
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Ед. *</Label>
+                          <Select value={line.uom} onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, uom: v } : item))}>
+                            <SelectTrigger className="h-8"><SelectValue placeholder="Ед." /></SelectTrigger>
+                            <SelectContent>{["kg","g","l","m","roll","pcs","pack"].map((unit) => <SelectItem key={unit} value={unit}>{unitLabel(unit)}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <Label>Склад *</Label>
+                          <Select value={line.warehouseToId || form.warehouseToId} onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, warehouseToId: v } : item))}>
+                            <SelectTrigger className="h-8"><SelectValue placeholder="Склад" /></SelectTrigger>
+                            <SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                          </Select>
+                        </div>
+                        {showSupplierExtraFields ? (
+                          <>
+                            <div className="space-y-1 md:col-span-2">
+                              <Label>Партия / номер партии</Label>
+                              <Input className="h-8" value={line.supplierLot} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, supplierLot: e.target.value } : item))} placeholder="необязательно" />
+                            </div>
+                            <div className="space-y-1">
+                              <Label>Цена</Label>
+                              <Input className="h-8" value={line.unitPrice} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, unitPrice: e.target.value } : item))} placeholder="необязательно" />
+                            </div>
+                          </>
+                        ) : null}
+                        <div className="flex items-end">
+                          <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setSupplierReceiptLines((prev) => prev.filter((item) => item.localId !== line.localId))}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-between gap-2">
+                      <Button type="button" size="sm" variant="outline" className="h-8" onClick={() => setSupplierReceiptLines((prev) => [...prev, createSupplierReceiptLineDraft(form.warehouseToId)])}>
+                        + Добавить строку поставки
+                      </Button>
+                      {supplierReceiptGenericLineDrafts.length > 1 ? <div className="text-xs text-slate-400">Итого по строкам: {supplierReceiptGenericLineTotal.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div> : null}
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -2480,7 +2905,7 @@ export default function WeighbridgeOperationsPage() {
                       <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} />
                     </div>
                   ) : (
-                    <div className="rounded-md border bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
+                    <div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-xs text-slate-300">
                       Количество будет рассчитано при закрытии: нетто = брутто - тара.
                     </div>
                   )}
@@ -2551,7 +2976,7 @@ export default function WeighbridgeOperationsPage() {
               <div className="space-y-2"><Label>Машина{(form.operationType === "transfer_between_warehouses" && form.transferMode === "direct") || (form.operationType === "issue_to_field" && form.fieldIssueMode === "direct") ? "" : " *"}</Label><Select value={form.vehicleId} onValueChange={(v) => setForm((p) => ({ ...p, vehicleId: v }))}><SelectTrigger><SelectValue placeholder="Выберите машину" /></SelectTrigger><SelectContent>{vehicles.map((v) => <SelectItem key={v.id} value={v.id}>{v.name} ({v.plate})</SelectItem>)}</SelectContent></Select></div>
             </div>}
 
-            {form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") || (form.operationType === "transfer_between_warehouses" && form.transferMode === "weighbridge") || (form.operationType === "issue_to_field" && form.fieldIssueMode === "weighbridge") ? <div className="grid gap-2 md:grid-cols-2"><div className="space-y-1"><Label>Брутто (кг) *</Label><Input className="h-8" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} /></div><div className="rounded-md border bg-slate-50 px-2 py-1.5 text-xs"><div className="font-medium text-slate-700">Тара указывается только при закрытии талона</div><div className="mt-1 text-slate-500">Формула: нетто = брутто - тара</div></div></div> : null}
+            {form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") || (form.operationType === "transfer_between_warehouses" && form.transferMode === "weighbridge") || (form.operationType === "issue_to_field" && form.fieldIssueMode === "weighbridge") ? <div className="grid gap-2 md:grid-cols-2"><div className="space-y-1"><Label>Брутто (кг) *</Label><Input className="h-8" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} /></div><div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-xs"><div className="font-medium text-slate-200">Тара указывается только при закрытии талона</div><div className="mt-1 text-slate-400">Формула: нетто = брутто - тара</div></div></div> : null}
             {form.operationType === "drying" ? <div className="grid gap-3 md:grid-cols-3"><div className="space-y-2"><Label>Масса после сушки (кг) *</Label><Input value={form.dryingOutputKg} onChange={(e) => setForm((p) => ({ ...p, dryingOutputKg: e.target.value }))} /></div><div className="space-y-2"><Label>Влажность до (%)</Label><Input value={form.moistureIn} onChange={(e) => setForm((p) => ({ ...p, moistureIn: e.target.value }))} /></div><div className="space-y-2"><Label>Влажность после (%)</Label><Input value={form.moistureOut} onChange={(e) => setForm((p) => ({ ...p, moistureOut: e.target.value }))} /></div></div> : null}
             {form.operationType === "disposal_writeoff" ? <div className="space-y-2"><Label>Причина списания *</Label><Input value={form.disposalReason} onChange={(e) => setForm((p) => ({ ...p, disposalReason: e.target.value }))} /></div> : null}
             <div className="space-y-1">
@@ -2566,7 +2991,7 @@ export default function WeighbridgeOperationsPage() {
                   {submitting ? "Создание..." : "Создать талон"}
                 </Button>
                 {loading ? <div className="text-xs text-amber-700">Данные ещё загружаются. Если нажать сейчас, сайт попросит повторить через пару секунд.</div> : null}
-                {!loading && !activeShift ? <div className="text-xs text-amber-700">Смена закрыта: откройте смену сверху, затем создайте талон.</div> : null}
+                {!loading && !activeShift && !isSupplierDirect ? <div className="text-xs text-amber-700">Смена закрыта: откройте смену сверху, затем создайте талон.</div> : null}
               </div>
             ) : null}
           </CardContent>
@@ -2582,13 +3007,14 @@ export default function WeighbridgeOperationsPage() {
             {loading ? <div className="text-sm text-slate-500">Загрузка...</div> : activeTickets.length === 0 ? <div className="rounded-md border border-dashed p-5 text-center text-sm text-slate-500">Открытых талонов нет</div> : [...activeTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = drivers.find((d) => d.id === t.driver_id)?.name || "Без водителя";
+              const meta = ticketCardMeta(t, vehicleName, driverName);
               return (
                 <button key={`open-${t.id}`} type="button" onClick={() => setActiveTicket(t)} className="w-full rounded-md border border-slate-200 p-2 text-left transition hover:border-blue-300 hover:bg-slate-50">
-                  <div className="truncate text-sm font-semibold">{vehicleName}</div>
-                  <div className="truncate text-xs text-slate-700">{driverName}</div>
-                  <div className="mt-0.5 truncate text-xs text-slate-600">{operationUiLabel(t.op_type)}</div>
+                  <div className="truncate text-sm font-semibold">{productSummary(t)}</div>
+                  <div className="truncate text-xs text-slate-700">{ticketRouteSummary(t)}</div>
+                  <div className="mt-0.5 truncate text-xs text-slate-600">{meta}</div>
                   <div className="mt-1 flex items-center justify-between text-xs">
-                    <span className="font-medium text-slate-700">{t.gross_weight_kg ?? "-"} кг</span>
+                    <span className="font-medium text-slate-700">{ticketQuantitySummary(t)}</span>
                     <Badge className="h-5 rounded px-2 text-[10px]">{ticketStageLabel(t)}</Badge>
                   </div>
                   <div className="mt-0.5 text-[11px] text-slate-500">{fmt(t.created_at, lang)} • {t.ticket_no}</div>
@@ -2608,29 +3034,18 @@ export default function WeighbridgeOperationsPage() {
             {!loading && historyTickets.slice(0, 80).map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = drivers.find((d) => d.id === t.driver_id)?.name || "Без водителя";
-              const operationLabel = operationUiLabel(t.op_type);
-              const routeFrom =
-                t.direction === "incoming"
-                  ? fields.find((f) => f.id === t.field_id)?.name || "Поле"
-                  : warehouses.find((w) => w.id === t.warehouse_from_id)?.name || "Источник";
-              const routeTo =
-                t.direction === "incoming"
-                  ? warehouses.find((w) => w.id === t.warehouse_to_id)?.name || "Склад"
-                  : t.direction === "outgoing"
-                    ? fields.find((f) => f.id === t.field_id)?.name || "Поле"
-                    : warehouses.find((w) => w.id === t.warehouse_to_id)?.name || "Назначение";
-              const routeLabel = `${routeFrom} в†’ ${routeTo}`;
+              const directSupplier = isDirectSupplierTicket(t);
+              const meta = ticketCardMeta(t, vehicleName, driverName);
               const grossValue = t.gross_weight_kg != null ? `${Number(t.gross_weight_kg).toLocaleString("ru-RU")} кг` : "—";
               const tareValue = t.tare_weight_kg != null ? `${Number(t.tare_weight_kg).toLocaleString("ru-RU")} кг` : "—";
-              const netValue = t.net_weight_kg != null ? `${Number(t.net_weight_kg).toLocaleString("ru-RU")} кг` : "—";
               const dt = fmt(t.finalized_at || t.updated_at || t.created_at, lang);
               return (
                 <div key={t.id} className="rounded-md border p-3">
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="text-base font-semibold leading-tight">{vehicleName}</div>
-                      <div className="mt-0.5 text-sm text-slate-700">{driverName}</div>
-                      <div className="mt-1 text-xs text-slate-600">{operationLabel} • {routeLabel}</div>
+                      <div className="text-base font-semibold leading-tight">{productSummary(t)}</div>
+                      <div className="mt-0.5 text-sm text-slate-700">{ticketRouteSummary(t)}</div>
+                      <div className="mt-1 text-xs text-slate-600">{meta}</div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Badge className={statusClass(t.status)}>{statusLabel(t.status)}</Badge>
@@ -2638,10 +3053,10 @@ export default function WeighbridgeOperationsPage() {
                       <Button variant="outline" size="sm" onClick={async () => { if (!profile?.id) return; try { await downloadTicketPdf(t.id, profile.id); } catch (error: any) { toast({ title: "Ошибка PDF", description: error?.message || "Не удалось скачать PDF", variant: "destructive" }); } }}><FileDown className="mr-1 h-4 w-4" />PDF</Button>
                     </div>
                   </div>
-                  <div className="mt-2 grid grid-cols-4 gap-2 text-sm">
-                    <div><div className="text-xs text-slate-500">Брутто</div><div className="font-semibold">{grossValue}</div></div>
-                    <div><div className="text-xs text-slate-500">Тара</div><div className="font-semibold">{tareValue}</div></div>
-                    <div><div className="text-xs text-slate-500">Нетто</div><div className="font-semibold">{netValue}</div></div>
+                  <div className={directSupplier ? "mt-2 grid grid-cols-2 gap-2 text-sm" : "mt-2 grid grid-cols-4 gap-2 text-sm"}>
+                    {!directSupplier ? <div><div className="text-xs text-slate-500">Брутто</div><div className="font-semibold">{grossValue}</div></div> : null}
+                    {!directSupplier ? <div><div className="text-xs text-slate-500">Тара</div><div className="font-semibold">{tareValue}</div></div> : null}
+                    <div><div className="text-xs text-slate-500">Количество</div><div className="font-semibold">{ticketQuantitySummary(t)}</div></div>
                     <div><div className="text-xs text-slate-500">Время</div><div className="font-semibold">{dt}</div></div>
                   </div>
                   <div className="mt-1 text-[11px] text-slate-400">{t.ticket_no}</div>
@@ -2686,16 +3101,15 @@ export default function WeighbridgeOperationsPage() {
 
                 <div className="mb-3 grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-[#5d4f3d]">Тип операции:</span> <span className="font-bold">{operationUiLabel(activeTicket.op_type)}</span></div>
-                  <div><span className="text-[#5d4f3d]">Поле:</span> <span className="font-semibold">{fields.find((f) => f.id === activeTicket.field_id)?.name || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Культура:</span> <span className="font-semibold">{activeLine?.product_name || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Склад:</span> <span className="font-semibold">{warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name || warehouses.find((w) => w.id === activeTicket.warehouse_from_id)?.name || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Сорт:</span> <span className="font-semibold">{activeLine?.variety_name || varieties.find((v) => v.id === activeLine?.variety_id)?.name || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Посевная строка:</span> <span className="font-semibold">{ticketAllocationLabel(activeTicket)}</span></div>
-                  <div><span className="text-[#5d4f3d]">Репродукция:</span> <span className="font-semibold">{activeLine?.reproduction_name || reproductions.find((r) => r.id === activeLine?.reproduction_id)?.name || "-"}</span></div>
-                  <div />
+                  {isDirectSupplierTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Контрагент:</span> <span className="font-semibold">{supplierName(activeTicket)}</span></div> : <div><span className="text-[#5d4f3d]">{isHarvestTicket(activeTicket) ? "Поле:" : "Контекст:"}</span> <span className="font-semibold">{isHarvestTicket(activeTicket) ? fields.find((f) => f.id === activeTicket.field_id)?.name || "-" : ticketRouteSummary(activeTicket)}</span></div>}
+                  {isDirectSupplierTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Склад назначения:</span> <span className="font-semibold">{warehouseName(activeTicket.warehouse_to_id)}</span></div> : <div><span className="text-[#5d4f3d]">Склад:</span> <span className="font-semibold">{warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name || warehouses.find((w) => w.id === activeTicket.warehouse_from_id)?.name || "-"}</span></div>}
+                  {isHarvestTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Культура:</span> <span className="font-semibold">{activeLine?.product_name || "-"}</span></div> : (activeTicket.lines || []).length === 0 ? <div><span className="text-[#5d4f3d]">Товары:</span> <span className="font-semibold">{productSummary(activeTicket)}</span></div> : null}
+                  {isHarvestTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Сорт:</span> <span className="font-semibold">{activeLine?.variety_name || varieties.find((v) => v.id === activeLine?.variety_id)?.name || "-"}</span></div> : null}
+                  {isHarvestTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Посевная строка:</span> <span className="font-semibold">{ticketAllocationLabel(activeTicket)}</span></div> : null}
+                  {isHarvestTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Репродукция:</span> <span className="font-semibold">{activeLine?.reproduction_name || reproductions.find((r) => r.id === activeLine?.reproduction_id)?.name || "-"}</span></div> : null}
                 </div>
 
-                <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
+                {!isDirectSupplierTicket(activeTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
                   <div className="mb-2 text-center text-lg font-bold">ТРАНСПОРТ И ВОДИТЕЛЬ</div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><span className="text-[#5d4f3d]">Машина:</span> <span className="font-bold">{activeVehicle?.name || "-"}</span></div>
@@ -2703,20 +3117,38 @@ export default function WeighbridgeOperationsPage() {
                     <div><span className="text-[#5d4f3d]">Госномер:</span> <span className="font-semibold">{activeVehicle?.plate || "-"}</span></div>
                     <div />
                   </div>
-                </div>
+                </div> : null}
 
-                <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
+                {!isDirectSupplierTicket(activeTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
                   <div className="mb-2 text-center text-lg font-bold">ВЕСОВЫЕ ДАННЫЕ</div>
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{activeTicket.gross_weight_kg ?? "-"} кг</div></div>
                     <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{activeTicket.tare_weight_kg ?? "-"} кг</div></div>
                     <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{activeTicket.net_weight_kg ?? "-"} кг</div></div>
                   </div>
-                </div>
+                </div> : null}
+
+                {(activeTicket.lines || []).length > 0 ? (
+                  <div className="mb-3 rounded border border-[#b8a788] p-2 text-xs">
+                    <div className="mb-2 text-center text-base font-bold">Товары в документе</div>
+                    <div className="space-y-1">
+                      {(activeTicket.lines || []).map((line: any, index: number) => (
+                        <div key={line.id || index} className="grid grid-cols-[22px_1fr_auto] gap-2 border-b border-[#c7b797] pb-1 last:border-0 last:pb-0">
+                          <div className="font-bold">{index + 1}.</div>
+                          <div>
+                            <div className="font-semibold">{line.product_name || "-"}</div>
+                            <div className="text-[#5d4f3d]">{lineWarehouseName(line, activeTicket)}{line.lot_id ? ` • партия ${line.lot_id}` : ""}</div>
+                          </div>
+                          <div className="text-right font-bold">{formatQuantityWithUnit(line.quantity, line.uom)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="text-sm">
                   <div><span className="text-[#5d4f3d]">Статус:</span> <span className="font-semibold">{statusLabel(activeTicket.status)}</span></div>
-                  <div><span className="text-[#5d4f3d]">Время взвешивания:</span> <span className="font-semibold">{fmt(activeTicket.finalized_at || activeTicket.updated_at || activeTicket.created_at, lang)}</span></div>
+                  <div><span className="text-[#5d4f3d]">{isDirectSupplierTicket(activeTicket) ? "Дата документа:" : "Время взвешивания:"}</span> <span className="font-semibold">{fmt(activeTicket.finalized_at || activeTicket.updated_at || activeTicket.created_at, lang)}</span></div>
                   <div><span className="text-[#5d4f3d]">Создан:</span> <span className="font-semibold">{fmt(activeTicket.created_at, lang)}</span></div>
                   <div><span className="text-[#5d4f3d]">Весовщик:</span> <span className="font-semibold">{profile?.full_name?.trim() || profile?.email || "-"}</span></div>
                   <div><span className="text-[#5d4f3d]">Примечание:</span> <span className="font-semibold">{activeTicket.notes || "-"}</span></div>
@@ -2727,19 +3159,19 @@ export default function WeighbridgeOperationsPage() {
               <div className="rounded-md border p-3">
                 <div className="space-y-2">
                   <Label>Брутто (кг)</Label>
-                  <Input value={gross} readOnly className="bg-slate-50" />
+                  <Input value={gross} readOnly className="border-slate-700 bg-slate-950 font-semibold text-slate-100" />
                 </div>
                 <div className="mt-3 space-y-2">
                   <Label>Тара (кг)</Label>
-                  <Input value={closingTare} onChange={(e) => setClosingTare(e.target.value)} />
+                  <Input ref={tareInputRef} value={closingTare} onChange={(e) => setClosingTare(e.target.value)} />
                 </div>
-                <div className="mt-3 rounded-md border bg-slate-50 p-3 text-sm">
+                <div className="mt-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-sm text-slate-100">
                   <div className="flex items-center justify-between"><span>Брутто</span><span>{gross || "-"}</span></div>
                   <div className="flex items-center justify-between"><span>Тара</span><span>{closingTare || "-"}</span></div>
-                  <div className="my-2 border-t" />
+                  <div className="my-2 border-t border-slate-700" />
                   <div className="flex items-center justify-between font-semibold"><span>Чистый вес (нетто)</span><span>{pure == null ? "-" : pure.toFixed(3)}</span></div>
-                  <div className="mt-2 text-xs text-slate-500">Формула: net = gross - tare</div>
-                  {pure != null && pure <= 0 ? <div className="mt-2 text-xs text-red-600">Ошибка: тара не может быть больше или равна брутто</div> : null}
+                  <div className="mt-2 text-xs text-slate-400">Формула: net = gross - tare</div>
+                  {pure != null && pure <= 0 ? <div className="mt-2 text-xs text-red-300">Ошибка: тара не может быть больше или равна брутто</div> : null}
                 </div>
               </div>
 
@@ -2754,7 +3186,7 @@ export default function WeighbridgeOperationsPage() {
                     </Button>
                   </div>
                   {canVoid ? (
-                    <div className="space-y-2 rounded-md border border-red-200 bg-red-50 p-3">
+                    <div className="space-y-2 rounded-md border border-red-500/30 bg-red-950/30 p-3 text-red-50">
                       <Label>Причина аннулирования</Label>
                       <Textarea value={voidReason} onChange={(e) => setVoidReason(e.target.value)} rows={2} />
                       <Button variant="destructive" className="w-full" onClick={handleVoid} disabled={voiding}>
@@ -2785,14 +3217,14 @@ export default function WeighbridgeOperationsPage() {
                 <div className="mb-3 grid grid-cols-2 gap-3 text-sm">
                   <div><span className="text-[#5d4f3d]">Статус:</span> <span className="font-bold">{statusLabel(historyPreviewTicket.status).toUpperCase()}</span></div>
                   <div><span className="text-[#5d4f3d]">Тип операции:</span> <span className="font-bold">{operationUiLabel(historyPreviewTicket.op_type)}</span></div>
-                  <div><span className="text-[#5d4f3d]">Поле:</span> <span className="font-semibold">{fields.find((f) => f.id === historyPreviewTicket.field_id)?.name || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Склад:</span> <span className="font-semibold">{warehouses.find((w) => w.id === historyPreviewTicket.warehouse_to_id)?.name || warehouses.find((w) => w.id === historyPreviewTicket.warehouse_from_id)?.name || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Культура:</span> <span className="font-semibold">{historyPreviewTicket.lines?.[0]?.product_name || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Посевная строка:</span> <span className="font-semibold">{ticketAllocationLabel(historyPreviewTicket)}</span></div>
-                  <div><span className="text-[#5d4f3d]">Сорт:</span> <span className="font-semibold">{historyPreviewTicket.lines?.[0]?.variety_name || varieties.find((v) => v.id === historyPreviewTicket.lines?.[0]?.variety_id)?.name || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Репродукция:</span> <span className="font-semibold">{historyPreviewTicket.lines?.[0]?.reproduction_name || reproductions.find((r) => r.id === historyPreviewTicket.lines?.[0]?.reproduction_id)?.name || "-"}</span></div>
+                  {isDirectSupplierTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Контрагент:</span> <span className="font-semibold">{supplierName(historyPreviewTicket)}</span></div> : <div><span className="text-[#5d4f3d]">{isHarvestTicket(historyPreviewTicket) ? "Поле:" : "Контекст:"}</span> <span className="font-semibold">{isHarvestTicket(historyPreviewTicket) ? fields.find((f) => f.id === historyPreviewTicket.field_id)?.name || "-" : ticketRouteSummary(historyPreviewTicket)}</span></div>}
+                  {isDirectSupplierTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Склад назначения:</span> <span className="font-semibold">{warehouseName(historyPreviewTicket.warehouse_to_id)}</span></div> : <div><span className="text-[#5d4f3d]">Склад:</span> <span className="font-semibold">{warehouses.find((w) => w.id === historyPreviewTicket.warehouse_to_id)?.name || warehouses.find((w) => w.id === historyPreviewTicket.warehouse_from_id)?.name || "-"}</span></div>}
+                  {isHarvestTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Культура:</span> <span className="font-semibold">{historyPreviewTicket.lines?.[0]?.product_name || "-"}</span></div> : (historyPreviewTicket.lines || []).length === 0 ? <div><span className="text-[#5d4f3d]">Товары:</span> <span className="font-semibold">{productSummary(historyPreviewTicket)}</span></div> : null}
+                  {isHarvestTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Посевная строка:</span> <span className="font-semibold">{ticketAllocationLabel(historyPreviewTicket)}</span></div> : null}
+                  {isHarvestTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Сорт:</span> <span className="font-semibold">{historyPreviewTicket.lines?.[0]?.variety_name || varieties.find((v) => v.id === historyPreviewTicket.lines?.[0]?.variety_id)?.name || "-"}</span></div> : null}
+                  {isHarvestTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Репродукция:</span> <span className="font-semibold">{historyPreviewTicket.lines?.[0]?.reproduction_name || reproductions.find((r) => r.id === historyPreviewTicket.lines?.[0]?.reproduction_id)?.name || "-"}</span></div> : null}
                 </div>
-                <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
+                {!isDirectSupplierTicket(historyPreviewTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
                   <div className="mb-2 text-center text-lg font-bold">ТРАНСПОРТ И ВОДИТЕЛЬ</div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><span className="text-[#5d4f3d]">Машина:</span> <span className="font-bold">{vehicles.find((v) => v.id === historyPreviewTicket.vehicle_id)?.name || "-"}</span></div>
@@ -2800,17 +3232,34 @@ export default function WeighbridgeOperationsPage() {
                     <div><span className="text-[#5d4f3d]">Госномер:</span> <span className="font-semibold">{vehicles.find((v) => v.id === historyPreviewTicket.vehicle_id)?.plate || "-"}</span></div>
                     <div />
                   </div>
-                </div>
-                <div className="mb-3 rounded border border-[#b8a788] p-2 text-sm">
+                </div> : null}
+                {!isDirectSupplierTicket(historyPreviewTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-2 text-sm">
                   <div className="mb-2 text-center text-lg font-bold">ВЕСОВЫЕ ДАННЫЕ</div>
                   <div className="grid grid-cols-3 gap-2">
                     <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{historyPreviewTicket.gross_weight_kg ?? "-"} кг</div></div>
                     <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{historyPreviewTicket.tare_weight_kg ?? "-"} кг</div></div>
                     <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{historyPreviewTicket.net_weight_kg ?? "-"} кг</div></div>
                   </div>
-                </div>
+                </div> : null}
+                {(historyPreviewTicket.lines || []).length > 0 ? (
+                  <div className="mb-3 rounded border border-[#b8a788] p-2 text-xs">
+                    <div className="mb-2 text-center text-base font-bold">Товары в документе</div>
+                    <div className="space-y-1">
+                      {(historyPreviewTicket.lines || []).map((line: any, index: number) => (
+                        <div key={line.id || index} className="grid grid-cols-[22px_1fr_auto] gap-2 border-b border-[#c7b797] pb-1 last:border-0 last:pb-0">
+                          <div className="font-bold">{index + 1}.</div>
+                          <div>
+                            <div className="font-semibold">{line.product_name || "-"}</div>
+                            <div className="text-[#5d4f3d]">{lineWarehouseName(line, historyPreviewTicket)}{line.lot_id ? ` • партия ${line.lot_id}` : ""}{line.unit_price ? ` • цена ${Number(line.unit_price).toLocaleString("ru-RU")}` : ""}</div>
+                          </div>
+                          <div className="text-right font-bold">{formatQuantityWithUnit(line.quantity, line.uom)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="text-sm">
-                  <div><span className="text-[#5d4f3d]">Время взвешивания:</span> <span className="font-semibold">{fmt(historyPreviewTicket.finalized_at || historyPreviewTicket.updated_at || historyPreviewTicket.created_at, lang)}</span></div>
+                  <div><span className="text-[#5d4f3d]">{isDirectSupplierTicket(historyPreviewTicket) ? "Дата документа:" : "Время взвешивания:"}</span> <span className="font-semibold">{fmt(historyPreviewTicket.finalized_at || historyPreviewTicket.updated_at || historyPreviewTicket.created_at, lang)}</span></div>
                   <div><span className="text-[#5d4f3d]">Создан:</span> <span className="font-semibold">{fmt(historyPreviewTicket.created_at, lang)}</span></div>
                   <div><span className="text-[#5d4f3d]">Весовщик:</span> <span className="font-semibold">{profile?.full_name?.trim() || profile?.email || "-"}</span></div>
                   <div><span className="text-[#5d4f3d]">Примечание:</span> <span className="font-semibold">{historyPreviewTicket.notes || "-"}</span></div>
@@ -2842,4 +3291,3 @@ export default function WeighbridgeOperationsPage() {
     </div>
   );
 }
-

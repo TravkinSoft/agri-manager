@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { resolveCanonicalOperationType } from "@/lib/operations/operation-engine";
 
 const READ_ROLES = [
@@ -76,9 +77,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
       .select(`
         *,
         fields:field_id (name),
-        crops:crop_id (name),
+        crops:crop_id (name,name_ru,name_kz,name_en,slug),
         varieties:variety_id (name),
-        reproductions:reproduction_id (name)
+        reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
       `)
       .eq("company_id", companyId)
       .eq("operation_id", operationId)
@@ -88,9 +89,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const rows = (data || []).map((row: any) => ({
       ...row,
       field_name: row.fields?.name || null,
-      crop_name: row.crops?.name || null,
-      variety_name: row.varieties?.name || null,
-      reproduction_name: row.reproductions?.name || null,
+      crop_name: localizedName(row.crops, "ru") || null,
+      variety_name: brandName(row.varieties) || null,
+      reproduction_name: localizedName(row.reproductions, "ru", ["name", "code"]) || null,
     }));
 
     return NextResponse.json({ operation_lines: rows });

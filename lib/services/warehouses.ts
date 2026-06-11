@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Language } from "@/lib/i18n/translations";
-import { localizedName } from "@/lib/i18n/helpers";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   Warehouse,
@@ -335,7 +335,7 @@ export async function getProducts(
   const payload = await parseJsonOrThrow(response);
   return ((payload?.products || []) as Product[]).map((row: any) => ({
     ...row,
-    name: localizedName(row, language) || row.name,
+    name: brandName(row) || row.name,
   })).filter((row) => !hasQaDataMarker(`${row.name} ${row.product_type || ""} ${row.type || ""} ${row.description || ""}`));
 }
 
@@ -429,7 +429,7 @@ export async function getInventoryTransactions(
       `
       *,
       warehouses:warehouse_id (name, name_ru, name_kz, name_en),
-      products:product_id (name, name_ru, name_kz, name_en, type, product_type, unit, base_uom),
+      products:product_id (name, trade_name, normalized_name, type, product_type, unit, base_uom),
       profiles:created_by (email),
       tickets:ticket_id (ticket_no)
     `
@@ -476,7 +476,7 @@ export async function getInventoryTransactions(
       warehouse_name: warehouseName,
       source_warehouse_name: direction === "out" ? warehouseName : "-",
       destination_warehouse_name: direction === "in" ? warehouseName : "-",
-      product_name: localizedName(product, language) || "N/A",
+      product_name: brandName(product) || "N/A",
       product_type: product.product_type || product.type || "N/A",
       product_unit: row.uom || product.base_uom || product.unit || "kg",
       created_by_email: row.profiles?.email || "N/A",
@@ -598,7 +598,7 @@ export async function getInventoryBalances(companyId: string, language: Language
       productIds.length
         ? supabase
             .from("products")
-            .select("id,name,name_ru,name_kz,name_en,type,product_type,unit,base_uom")
+            .select("id,name,trade_name,normalized_name,type,product_type,unit,base_uom")
             .in("id", productIds)
         : Promise.resolve({ data: [], error: null } as any),
     ]);
@@ -610,7 +610,7 @@ export async function getInventoryBalances(companyId: string, language: Language
 
     return canonicalRows
       .map((row: any) => {
-        const productName = localizedName(productById.get(String(row.product_id)), language) || "N/A";
+        const productName = brandName(productById.get(String(row.product_id))) || "N/A";
         const classLabel =
           String(row.batch_class || "commodity") === "seed"
             ? "Семенной фонд"
@@ -672,7 +672,7 @@ export async function getInventoryBalances(companyId: string, language: Language
       ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").in("id", warehouseIds)
       : Promise.resolve({ data: [], error: null } as any),
     productIds.length
-      ? supabase.from("products").select("id,name,name_ru,name_kz,name_en,type,product_type,unit,base_uom").in("id", productIds)
+      ? supabase.from("products").select("id,name,trade_name,normalized_name,type,product_type,unit,base_uom").in("id", productIds)
       : Promise.resolve({ data: [], error: null } as any),
     varietyIds.length
       ? supabase
@@ -727,9 +727,9 @@ export async function getInventoryBalances(companyId: string, language: Language
 
   return (data || [])
     .map((row: any) => {
-      const productName = localizedName(productById.get(String(row.product_id)), language) || "N/A";
+      const productName = brandName(productById.get(String(row.product_id))) || "N/A";
       const varietyName = row.variety_id
-        ? (localizedName(varietyById.get(String(row.variety_id)), language) ||
+        ? (brandName(varietyById.get(String(row.variety_id))) ||
           varietySnapshotById.get(String(row.variety_id)) ||
           "-")
         : "-";

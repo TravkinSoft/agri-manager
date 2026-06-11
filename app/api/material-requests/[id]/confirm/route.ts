@@ -25,13 +25,69 @@ export async function POST(
 
     const { data: reqRow, error: reqError } = await supabase
       .from("warehouse_issue_requests")
-      .select("id,status,company_id")
+      .select("id,status,company_id,assigned_specialist_id,recipient_user_id,source_warehouse_id")
       .eq("id", requestId)
       .eq("company_id", companyId)
       .maybeSingle();
 
     if (reqError || !reqRow?.id) {
       return NextResponse.json({ error: reqError?.message || "Material request not found" }, { status: 404 });
+    }
+
+    const assignedSpecialistId = String(reqRow.assigned_specialist_id || reqRow.recipient_user_id || "").trim();
+    const canBypassAssignee =
+      actor.role === "global_admin" || actor.role === "company_admin" || actor.role === "agronomist";
+    if (assignedSpecialistId && actor.id !== assignedSpecialistId && !canBypassAssignee) {
+      return NextResponse.json({ error: "Only assigned specialist can accept these materials" }, { status: 403 });
+    }
+
+    if (String(reqRow.status || "") === "ready") {
+      if (!reqRow.source_warehouse_id) {
+        return NextResponse.json({ error: "Source warehouse is not set for request" }, { status: 400 });
+      }
+
+      const nowIso = new Date().toISOString();
+      const { data: updated, error: updateError } = await supabase
+        .from("warehouse_issue_requests")
+        .update({
+          status: "received_confirmed",
+          received_confirmed_at: nowIso,
+          specialist_confirmed_at: nowIso,
+          received_confirmed_by_user_id: actor.id,
+          specialist_confirmed_by_user_id: actor.id,
+          updated_at: nowIso,
+        })
+        .eq("id", requestId)
+        .eq("company_id", companyId)
+        .eq("status", "ready")
+        .select("id,status,received_confirmed_at,specialist_confirmed_at")
+        .single();
+
+      if (updateError || !updated?.id) {
+        return NextResponse.json(
+          { error: updateError?.message || "Failed to accept prepared materials" },
+          { status: 400 }
+        );
+      }
+
+      return NextResponse.json({
+        result: updated,
+        workflow_status: toWorkflowStatus(updated.status),
+      });
+    }
+
+    if (String(reqRow.status || "") === "received_confirmed") {
+      return NextResponse.json({
+        result: { success: true, already_confirmed: true, request_id: requestId, status: "received_confirmed" },
+        workflow_status: toWorkflowStatus("received_confirmed"),
+      });
+    }
+
+    if (!["issued_by_warehouse", "partially_issued"].includes(String(reqRow.status || ""))) {
+      return NextResponse.json(
+        { error: "Materials can be accepted only after warehouse marks the request ready" },
+        { status: 409 }
+      );
     }
 
     const { data: rpcData, error: rpcError } = await sessionSupabase.rpc("confirm_warehouse_request_receipt", {

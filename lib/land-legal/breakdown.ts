@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getFieldDisplayName, getFieldMetadata, getFieldTechnicalKey } from "@/lib/fields/display";
+import { localizedName } from "@/lib/i18n/helpers";
 
 export const STEM_LEGAL_ENTITY_NAME = 'ТОО "Астык-STEM"';
 export const KARAGASH_LEGAL_ENTITY_NAME = 'ТОО "Астык-Караагаш"';
@@ -198,7 +199,7 @@ export function buildCanonicalRows(input: BuildCanonicalRowsInput): BuildCanonic
 
   const crops = (input.cropsRaw || []).map((crop: any) => ({
     id: String(crop.id),
-    name: String(crop.name_ru || crop.name || CROP_NOT_SET_LABEL),
+    name: localizedName(crop, "ru") || CROP_NOT_SET_LABEL,
   }));
 
   const fieldById = new Map<string, LandLegalFieldOption>(fields.map((field) => [field.id, field]));

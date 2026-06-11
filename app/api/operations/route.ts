@@ -21,6 +21,14 @@ import {
 } from "@/lib/operations/operation-engine";
 
 const CREATE_ALLOWED_ROLES = ["global_admin", "company_admin", "agronomist"] as const;
+const WHOLE_FIELD_ALLOWED_CATEGORIES = new Set([
+  "harvesting",
+  "service_operation",
+  "transport",
+  "logistics_operation",
+  "post_harvest",
+  "post_harvest_operation",
+]);
 
 type OperationCreateTiming = {
   auth_session_ms: number;
@@ -447,6 +455,8 @@ export async function POST(request: NextRequest) {
     });
     const operationTypeSlug = requestedTypeSlug || canonicalType?.slug || null;
     const canonicalCategorySlug = canonicalType?.categorySlug || operationCategorySlug;
+    const isWholeFieldScope = requestedOperationParams.scope === "whole_field";
+    const wholeFieldAllowed = WHOLE_FIELD_ALLOWED_CATEGORIES.has(canonicalCategorySlug || "");
     let purposes = normalizePurposeList(body.purposes);
     let operationTemplate: string | null =
       requestedTypeSlug && requestedTypeSlug !== canonicalType?.slug ? requestedTypeSlug : null;
@@ -458,13 +468,19 @@ export async function POST(request: NextRequest) {
       storageOperationTypeSlug = "spraying";
       purposes = Array.from(new Set([...purposes, "desiccation" as const]));
     }
-    const cropStructureRequired = requiresCropStructure(canonicalCategorySlug, operationTypeSlug, operationType);
+    const cropStructureRequired = requiresCropStructure(canonicalCategorySlug, operationTypeSlug, operationType) && !(isWholeFieldScope && wholeFieldAllowed);
     if (cropStructureRequired && !fieldId) {
       return NextResponse.json({ error: "field_id is required for production operations" }, { status: 400 });
     }
     if (cropStructureRequired && !cropStructureId) {
       return NextResponse.json(
         { error: "crop_structure_id is required for production operations" },
+        { status: 400 }
+      );
+    }
+    if (isWholeFieldScope && !wholeFieldAllowed) {
+      return NextResponse.json(
+        { error: "whole field scope is allowed only for harvesting, logistics, service and post-harvest operations" },
         { status: 400 }
       );
     }
@@ -647,13 +663,18 @@ export async function POST(request: NextRequest) {
     }
 
     const effectivePlannedArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
-    if (operationTemplate === "potato_planting" && (!resolvedSeedSpacingCm || resolvedSeedSpacingCm <= 0)) {
+    const isPotatoPlantingTemplate = operationTemplate === "potato_planting";
+    const seedRateKgHa = toNullableNumber(body.rate_per_ha);
+    if (isPotatoPlantingTemplate && (!resolvedSeedSpacingCm || resolvedSeedSpacingCm <= 0)) {
       return NextResponse.json({ error: "seed_spacing_cm is required for potato planting" }, { status: 400 });
+    }
+    if (isPotatoPlantingTemplate && (!seedRateKgHa || seedRateKgHa <= 0)) {
+      return NextResponse.json({ error: "seed planting rate kg/ha is required for potato planting" }, { status: 400 });
     }
     const productIds = Array.from(
       new Set(operationComponents.map((item) => toNullableUuid(item?.product_id)).filter(Boolean) as string[])
     );
-    if (productIds.length > 0) {
+    if (productIds.length > 0 && !isPotatoPlantingTemplate) {
       const { data: warehouseRows, error: warehouseError } = await supabase
         .from("warehouses")
         .select("id,name,warehouse_type,description,archived,is_archived")
@@ -718,6 +739,12 @@ export async function POST(request: NextRequest) {
       calculatedPlantsPerHa && effectivePlannedArea && effectivePlannedArea > 0
         ? Math.round(calculatedPlantsPerHa * effectivePlannedArea)
         : null;
+    const seedRateTHa = seedRateKgHa && seedRateKgHa > 0 ? seedRateKgHa / 1000 : null;
+    const seedRequirementKg =
+      seedRateKgHa && seedRateKgHa > 0 && effectivePlannedArea && effectivePlannedArea > 0
+        ? seedRateKgHa * effectivePlannedArea
+        : null;
+    const seedRequirementT = seedRequirementKg && seedRequirementKg > 0 ? seedRequirementKg / 1000 : null;
 
     const operationConfig = {
       operation_engine_type: canonicalType?.slug || operationTypeSlug || null,
@@ -728,8 +755,23 @@ export async function POST(request: NextRequest) {
         irrigation_type: resolvedIrrigationType,
         row_spacing_m: resolvedRowSpacingM,
         seed_spacing_cm: resolvedSeedSpacingCm,
+        seed_rate_kg_ha: isPotatoPlantingTemplate ? seedRateKgHa : requestedOperationParams.seed_rate_kg_ha,
+        seed_rate_t_ha: isPotatoPlantingTemplate ? seedRateTHa : requestedOperationParams.seed_rate_t_ha,
+        seed_requirement_kg: isPotatoPlantingTemplate ? seedRequirementKg : requestedOperationParams.seed_requirement_kg,
+        seed_requirement_t: isPotatoPlantingTemplate ? seedRequirementT : requestedOperationParams.seed_requirement_t,
         calculated_plants_per_ha: calculatedPlantsPerHa,
         calculated_total_plants: calculatedTotalPlants,
+        calculated_tubers_per_ha: isPotatoPlantingTemplate ? calculatedPlantsPerHa : requestedOperationParams.calculated_tubers_per_ha,
+        calculated_total_tubers: isPotatoPlantingTemplate ? calculatedTotalPlants : requestedOperationParams.calculated_total_tubers,
+        expected_density_plants_per_ha: isPotatoPlantingTemplate ? calculatedPlantsPerHa : requestedOperationParams.expected_density_plants_per_ha,
+        seed_material_context: isPotatoPlantingTemplate
+          ? {
+              crop_id: resolvedCropId,
+              variety_id: resolvedVarietyId,
+              reproduction_id: resolvedReproductionId,
+              area_ha: effectivePlannedArea,
+            }
+          : requestedOperationParams.seed_material_context,
       },
       idempotency_key: idempotencyKey,
       request_fingerprint: requestFingerprint,
