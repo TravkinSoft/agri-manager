@@ -76,7 +76,35 @@ export async function POST(
     }
     const itemById = new Map((requestItems || []).map((row: any) => [String(row.id), row]));
 
-    const normalized: Array<{ itemId: string; returnedQuantity: number; dbItem: any }> = [];
+    const operationMaterialByProduct = new Map<string, any>();
+    if (requestRow.operation_id) {
+      const { data: operationMaterials, error: operationMaterialsError } = await supabase
+        .from("operation_materials")
+        .select("product_id,consumed_quantity,returned_quantity")
+        .eq("operation_id", requestRow.operation_id)
+        .eq("company_id", companyId);
+
+      if (operationMaterialsError) {
+        return NextResponse.json(
+          { error: operationMaterialsError.message || "Failed to load operation material facts" },
+          { status: 400 }
+        );
+      }
+
+      for (const material of operationMaterials || []) {
+        const productId = String((material as any).product_id || "");
+        if (productId) operationMaterialByProduct.set(productId, material);
+      }
+    }
+
+    const normalized: Array<{
+      itemId: string;
+      returnedQuantity: number;
+      dbItem: any;
+      issuedQuantity: number;
+      consumedQuantity: number;
+      alreadyReturned: number;
+    }> = [];
     for (const raw of itemsRaw) {
       const item = raw as ReturnItemInput;
       const itemId = String(item?.itemId || "").trim();
@@ -89,14 +117,42 @@ export async function POST(
         return NextResponse.json({ error: `Request item ${itemId} not found` }, { status: 404 });
       }
       const issuedQty = Number(dbItem.issued_quantity || 0);
-      const alreadyReturned = Number(dbItem.returned_quantity || 0);
-      if (alreadyReturned + returnedQty > issuedQty + MATERIAL_QTY_EPS) {
+      const operationMaterial = operationMaterialByProduct.get(String(dbItem.product_id || ""));
+      const consumedRaw = dbItem.consumed_quantity ?? operationMaterial?.consumed_quantity ?? null;
+      const returnedRaw = dbItem.returned_quantity ?? operationMaterial?.returned_quantity ?? null;
+      const consumptionKnown = consumedRaw !== null && consumedRaw !== undefined;
+      const consumedQty = consumptionKnown ? Number(consumedRaw || 0) : null;
+      const alreadyReturned = Number(returnedRaw || 0);
+      const dueReturnQty = consumptionKnown
+        ? Math.max(issuedQty - Number(consumedQty || 0) - alreadyReturned, 0)
+        : Math.max(issuedQty - alreadyReturned, 0);
+
+      if (!consumptionKnown) {
         return NextResponse.json(
-          { error: `Return quantity exceeds issued quantity for item ${itemId}` },
+          { error: `Actual material usage is required before registering return for item ${itemId}` },
+          { status: 409 }
+        );
+      }
+      if (closeWithoutReturn && dueReturnQty > MATERIAL_QTY_EPS) {
+        return NextResponse.json(
+          { error: `Return quantity is required for item ${itemId}` },
+          { status: 409 }
+        );
+      }
+      if (alreadyReturned + returnedQty > issuedQty + MATERIAL_QTY_EPS || returnedQty > dueReturnQty + MATERIAL_QTY_EPS) {
+        return NextResponse.json(
+          { error: `Return quantity exceeds required return quantity for item ${itemId}` },
           { status: 400 }
         );
       }
-      normalized.push({ itemId, returnedQuantity: returnedQty, dbItem });
+      normalized.push({
+        itemId,
+        returnedQuantity: returnedQty,
+        dbItem,
+        issuedQuantity: issuedQty,
+        consumedQuantity: Number(consumedQty || 0),
+        alreadyReturned,
+      });
     }
 
     const nowIso = new Date().toISOString();
@@ -134,14 +190,12 @@ export async function POST(
     }
 
     for (const row of normalized) {
-      const nextReturned = Number(row.dbItem.returned_quantity || 0) + row.returnedQuantity;
-      const issuedQty = Number(row.dbItem.issued_quantity || 0);
-      const nextConsumed = Math.max(issuedQty - nextReturned, 0);
+      const nextReturned = row.alreadyReturned + row.returnedQuantity;
       const { error: updateError } = await supabase
         .from("warehouse_issue_request_items")
         .update({
           returned_quantity: Number(nextReturned.toFixed(4)),
-          consumed_quantity: Number(nextConsumed.toFixed(4)),
+          consumed_quantity: Number(row.consumedQuantity.toFixed(4)),
         })
         .eq("id", row.itemId)
         .eq("company_id", companyId);

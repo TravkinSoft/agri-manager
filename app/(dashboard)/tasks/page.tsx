@@ -222,13 +222,15 @@ function getReturnResolution(request: WarehouseIssueRequest, operation?: Operati
     const issued = toNumber(item.issued_quantity, 0);
     const returned = item.returned_quantity ?? materialFact?.returned_quantity ?? null;
     const consumed = item.consumed_quantity ?? materialFact?.consumed_quantity ?? null;
+    const consumptionKnown = consumed !== null && consumed !== undefined;
     const returnedValue = returned == null ? 0 : toNumber(returned, 0);
-    const consumedValue = consumed == null ? 0 : toNumber(consumed, 0);
+    const consumedValue = consumptionKnown ? toNumber(consumed, 0) : 0;
+    const dueReturnQty = consumptionKnown ? Math.max(issued - consumedValue - returnedValue, 0) : null;
     const resolved =
       issued <= MATERIAL_QTY_EPS ||
-      (returned != null && consumed != null && consumedValue + returnedValue >= issued - MATERIAL_QTY_EPS);
-    const maxReturnQty = Math.max(issued - returnedValue, 0);
-    return { item, issued, returned, consumed, returnedValue, consumedValue, resolved, maxReturnQty };
+      (consumptionKnown && (dueReturnQty || 0) <= MATERIAL_QTY_EPS);
+    const maxReturnQty = dueReturnQty ?? Math.max(issued - returnedValue, 0);
+    return { item, issued, returned, consumed, consumptionKnown, returnedValue, consumedValue, dueReturnQty, resolved, maxReturnQty };
   });
 
   return {
@@ -557,7 +559,11 @@ export default function TasksPage() {
     try {
       const operation = operationById.get(request.operation_id);
       const returnResolution = getReturnResolution(request, operation);
-      let closeWithoutReturn = false;
+      const hasUnknownConsumption = returnResolution.pendingRows.some((row) => !row.consumptionKnown);
+      if (hasUnknownConsumption) {
+        throw new Error('Сначала закройте работу и укажите фактический расход. Без факта расхода система не знает, сколько нужно вернуть.');
+      }
+
       let items = returnResolution.pendingRows
         .map((row) => {
           const qty = Number(returnDraftByItemId[row.item.id] || 0);
@@ -570,13 +576,12 @@ export default function TasksPage() {
         .filter(Boolean) as Array<{ itemId: string; returnedQuantity: number }>;
 
       if (items.length === 0) {
-        closeWithoutReturn = true;
-        items = returnResolution.pendingRows.map((row) => ({ itemId: row.item.id, returnedQuantity: 0 }));
+        throw new Error('Укажите количество возврата. Если материал израсходован полностью, карточка исчезнет после факта расхода.');
       }
 
       setBusyKey(`return:${request.id}`);
-      await returnWarehouseRequestMaterials({ requestId: request.id, companyId: profile.company_id, items, closeWithoutReturn });
-      toast({ title: closeWithoutReturn ? 'Возврат закрыт: остатка нет' : 'Возврат зарегистрирован' });
+      await returnWarehouseRequestMaterials({ requestId: request.id, companyId: profile.company_id, items });
+      toast({ title: 'Возврат зарегистрирован' });
       await loadTasks();
     } catch (error: any) {
       toast({
@@ -778,13 +783,20 @@ export default function TasksPage() {
             <div className="space-y-2 rounded-md border border-slate-700 bg-slate-950/60 p-3">
               <div className="text-xs font-semibold text-slate-200">Возврат материалов</div>
               <div className="text-[11px] text-slate-500">
-                Если материалов не осталось, оставьте 0 и подтвердите: заявка закроется без прихода на склад.
+                Возврат нужен только по остатку после фактического расхода. Если материал израсходован на 100%, карточка исчезнет сама.
               </div>
               {pendingReturnRows.map((row) => {
                 const item = row.item;
                 return (
                   <div key={item.id} className="grid grid-cols-[1fr_88px] gap-2 text-xs">
-                    <div className="truncate text-slate-400">{item.product_name || 'Материал'}</div>
+                    <div className="min-w-0">
+                      <div className="truncate text-slate-400">{item.product_name || 'Материал'}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {row.consumptionKnown
+                          ? `К возврату: ${formatQty(row.maxReturnQty, localizeUnit(item.unit || item.product_unit || '', language))}`
+                          : 'Сначала нужен факт расхода'}
+                      </div>
+                    </div>
                     <Input
                       type="number"
                       min={0}
