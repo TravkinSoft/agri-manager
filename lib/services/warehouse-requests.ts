@@ -172,6 +172,7 @@ export async function returnWarehouseRequestMaterials(params: {
   requestId: string;
   companyId: string;
   items: Array<{ itemId: string; returnedQuantity: number }>;
+  closeWithoutReturn?: boolean;
 }): Promise<void> {
   const headers = await buildAuthHeaders("json");
   const response = await fetch(`/api/material-requests/${encodeURIComponent(params.requestId)}/return`, {
@@ -180,6 +181,7 @@ export async function returnWarehouseRequestMaterials(params: {
     body: JSON.stringify({
       companyId: params.companyId,
       items: params.items,
+      closeWithoutReturn: Boolean(params.closeWithoutReturn),
     }),
   });
   await parseApiResponse(response);

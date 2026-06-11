@@ -10,10 +10,12 @@ type ReturnItemInput = {
   returnedQuantity: number;
 };
 
-function toPositiveNumber(value: unknown): number | null {
+const MATERIAL_QTY_EPS = 0.000001;
+
+function toNonNegativeNumber(value: unknown): number | null {
   if (value == null || value === "") return null;
   const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return null;
+  if (!Number.isFinite(n) || n < 0) return null;
   return n;
 }
 
@@ -30,6 +32,7 @@ export async function POST(
 
     const body = await request.json().catch(() => ({}));
     const itemsRaw = Array.isArray(body.items) ? body.items : [];
+    const closeWithoutReturn = Boolean(body.closeWithoutReturn);
     if (itemsRaw.length === 0) {
       return NextResponse.json({ error: "Return items are required" }, { status: 400 });
     }
@@ -77,8 +80,8 @@ export async function POST(
     for (const raw of itemsRaw) {
       const item = raw as ReturnItemInput;
       const itemId = String(item?.itemId || "").trim();
-      const returnedQty = toPositiveNumber(item?.returnedQuantity);
-      if (!itemId || returnedQty == null) {
+      const returnedQty = toNonNegativeNumber(item?.returnedQuantity);
+      if (!itemId || returnedQty == null || (!closeWithoutReturn && returnedQty <= MATERIAL_QTY_EPS)) {
         return NextResponse.json({ error: "Invalid return item payload" }, { status: 400 });
       }
       const dbItem = itemById.get(itemId);
@@ -87,7 +90,7 @@ export async function POST(
       }
       const issuedQty = Number(dbItem.issued_quantity || 0);
       const alreadyReturned = Number(dbItem.returned_quantity || 0);
-      if (alreadyReturned + returnedQty > issuedQty + 0.000001) {
+      if (alreadyReturned + returnedQty > issuedQty + MATERIAL_QTY_EPS) {
         return NextResponse.json(
           { error: `Return quantity exceeds issued quantity for item ${itemId}` },
           { status: 400 }
@@ -97,33 +100,37 @@ export async function POST(
     }
 
     const nowIso = new Date().toISOString();
-    const txPayload = normalized.map((row) => ({
-      warehouse_id: requestRow.source_warehouse_id,
-      source_warehouse_id: null,
-      destination_warehouse_id: requestRow.source_warehouse_id,
-      product_id: row.dbItem.product_id,
-      quantity: row.returnedQuantity,
-      transaction_type: "in",
-      movement_type: "adjustment",
-      status: "confirmed",
-      operation_datetime: nowIso,
-      date: nowIso.slice(0, 10),
-      notes: `Material return from request ${requestId}`,
-      responsible_user_id: assignedSpecialistId || null,
-      confirmed_at: nowIso,
-      user_id: actor.id,
-      company_id: companyId,
-      warehouse_issue_request_id: requestId,
-      warehouse_issue_request_item_id: row.itemId,
-      operation_id: requestRow.operation_id || null,
-      field_id: requestRow.field_id || null,
-    }));
+    const txPayload = normalized
+      .filter((row) => row.returnedQuantity > MATERIAL_QTY_EPS)
+      .map((row) => ({
+        warehouse_id: requestRow.source_warehouse_id,
+        source_warehouse_id: null,
+        destination_warehouse_id: requestRow.source_warehouse_id,
+        product_id: row.dbItem.product_id,
+        quantity: row.returnedQuantity,
+        transaction_type: "in",
+        movement_type: "adjustment",
+        status: "confirmed",
+        operation_datetime: nowIso,
+        date: nowIso.slice(0, 10),
+        notes: `Material return from request ${requestId}`,
+        responsible_user_id: assignedSpecialistId || null,
+        confirmed_at: nowIso,
+        user_id: actor.id,
+        company_id: companyId,
+        warehouse_issue_request_id: requestId,
+        warehouse_issue_request_item_id: row.itemId,
+        operation_id: requestRow.operation_id || null,
+        field_id: requestRow.field_id || null,
+      }));
 
-    const { error: insertError } = await supabase
-      .from("inventory_transactions")
-      .insert(txPayload);
-    if (insertError) {
-      return NextResponse.json({ error: insertError.message || "Failed to register return movement" }, { status: 400 });
+    if (txPayload.length > 0) {
+      const { error: insertError } = await supabase
+        .from("inventory_transactions")
+        .insert(txPayload);
+      if (insertError) {
+        return NextResponse.json({ error: insertError.message || "Failed to register return movement" }, { status: 400 });
+      }
     }
 
     for (const row of normalized) {
@@ -147,6 +154,8 @@ export async function POST(
     return NextResponse.json({
       success: true,
       returned_items: normalized.length,
+      return_movements: txPayload.length,
+      closed_without_return: closeWithoutReturn,
       request_id: requestId,
     });
   } catch (error) {

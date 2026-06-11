@@ -45,6 +45,7 @@ interface OperationLine {
 
 interface OperationMaterial {
   id: string;
+  product_id: string | null;
   material_type: string | null;
   planned_quantity: number | null;
   issued_quantity: number | null;
@@ -207,6 +208,40 @@ function formatQty(value: unknown, unit?: string | null): string {
   return `${formatted} ${unit || ''}`.trim();
 }
 
+const MATERIAL_QTY_EPS = 0.000001;
+
+function findOperationMaterialForRequestItem(operation: Operation | null | undefined, item: WarehouseIssueRequest['items'][number]) {
+  const productId = String(item.product_id || '');
+  if (!productId) return null;
+  return (operation?.operation_materials || []).find((material) => String(material.product_id || '') === productId) || null;
+}
+
+function getReturnResolution(request: WarehouseIssueRequest, operation?: Operation | null) {
+  const rows = (request.items || []).map((item) => {
+    const materialFact = findOperationMaterialForRequestItem(operation, item);
+    const issued = toNumber(item.issued_quantity, 0);
+    const returned = item.returned_quantity ?? materialFact?.returned_quantity ?? null;
+    const consumed = item.consumed_quantity ?? materialFact?.consumed_quantity ?? null;
+    const returnedValue = returned == null ? 0 : toNumber(returned, 0);
+    const consumedValue = consumed == null ? 0 : toNumber(consumed, 0);
+    const resolved =
+      issued <= MATERIAL_QTY_EPS ||
+      (returned != null && consumed != null && consumedValue + returnedValue >= issued - MATERIAL_QTY_EPS);
+    const maxReturnQty = Math.max(issued - returnedValue, 0);
+    return { item, issued, returned, consumed, returnedValue, consumedValue, resolved, maxReturnQty };
+  });
+
+  return {
+    rows,
+    pendingRows: rows.filter((row) => row.issued > MATERIAL_QTY_EPS && !row.resolved),
+  };
+}
+
+function requestNeedsReturnDecision(request: WarehouseIssueRequest, operation?: Operation | null): boolean {
+  if (!['issued', 'issued_by_warehouse', 'partially_issued'].includes(request.status)) return false;
+  return getReturnResolution(request, operation).pendingRows.length > 0;
+}
+
 function operationMaterialName(material: OperationMaterial): string {
   return material.products?.trade_name || material.products?.name || material.material_type || 'Материал';
 }
@@ -279,6 +314,7 @@ export default function TasksPage() {
             operation_materials(
               id,
               material_type,
+              product_id,
               planned_quantity,
               issued_quantity,
               consumed_quantity,
@@ -332,6 +368,10 @@ export default function TasksPage() {
     if (profile?.id && profile.company_id) void loadTasks();
   }, [profile?.id, profile?.company_id, language]);
 
+  const operationById = useMemo(() => {
+    return new Map(operations.map((operation) => [operation.id, operation]));
+  }, [operations]);
+
   const requestsByOperation = useMemo(() => {
     const map = new Map<string, WarehouseIssueRequest[]>();
     materialRequests.forEach((request) => {
@@ -350,9 +390,7 @@ export default function TasksPage() {
   });
   const inProgressOperations = operations.filter((operation) => getTaskPhase(operation) === 'in_progress');
   const completedOperations = operations.filter((operation) => getTaskPhase(operation) === 'completed');
-  const receiptHistory = materialRequests.filter((request) =>
-    ['received_confirmed', 'issued', 'issued_by_warehouse', 'partially_issued'].includes(request.status)
-  );
+  const receiptHistory = materialRequests.filter((request) => requestNeedsReturnDecision(request, operationById.get(request.operation_id)));
 
   const selectedOperation = useMemo(
     () => operations.find((operation) => operation.id === selectedOperationId) || null,
@@ -517,27 +555,28 @@ export default function TasksPage() {
   const handleConfirmReturn = async (request: WarehouseIssueRequest) => {
     if (!profile?.company_id) return;
     try {
-      const items = (request.items || [])
-        .map((item) => {
-          const qty = Number(returnDraftByItemId[item.id] || 0);
-          const issued = Number(item.issued_quantity || 0);
-          const returned = Number(item.returned_quantity || 0);
-          const maxQty = Math.max(issued - returned, 0);
+      const operation = operationById.get(request.operation_id);
+      const returnResolution = getReturnResolution(request, operation);
+      let closeWithoutReturn = false;
+      let items = returnResolution.pendingRows
+        .map((row) => {
+          const qty = Number(returnDraftByItemId[row.item.id] || 0);
           if (!Number.isFinite(qty) || qty <= 0) return null;
-          if (qty > maxQty + 0.000001) {
-            throw new Error(`Возврат больше выданного остатка: ${item.product_name || 'материал'}`);
+          if (qty > row.maxReturnQty + MATERIAL_QTY_EPS) {
+            throw new Error(`Возврат больше выданного остатка: ${row.item.product_name || 'материал'}`);
           }
-          return { itemId: item.id, returnedQuantity: Number(qty.toFixed(4)) };
+          return { itemId: row.item.id, returnedQuantity: Number(qty.toFixed(4)) };
         })
         .filter(Boolean) as Array<{ itemId: string; returnedQuantity: number }>;
 
       if (items.length === 0) {
-        throw new Error('Укажите количество возврата хотя бы по одному материалу.');
+        closeWithoutReturn = true;
+        items = returnResolution.pendingRows.map((row) => ({ itemId: row.item.id, returnedQuantity: 0 }));
       }
 
       setBusyKey(`return:${request.id}`);
-      await returnWarehouseRequestMaterials({ requestId: request.id, companyId: profile.company_id, items });
-      toast({ title: 'Возврат зарегистрирован' });
+      await returnWarehouseRequestMaterials({ requestId: request.id, companyId: profile.company_id, items, closeWithoutReturn });
+      toast({ title: closeWithoutReturn ? 'Возврат закрыт: остатка нет' : 'Возврат зарегистрирован' });
       await loadTasks();
     } catch (error: any) {
       toast({
@@ -706,88 +745,93 @@ export default function TasksPage() {
     );
   };
 
-  const renderReceiptHistoryCard = (request: WarehouseIssueRequest) => (
-    <Card key={request.id} className="border-slate-700 bg-slate-900/70">
-      <CardContent className="space-y-3 p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-white">{request.request_number}</div>
-            <div className="truncate text-xs text-slate-400">
-              {request.field_name || '-'} • {request.operation_type || '-'}
+  const renderReceiptHistoryCard = (request: WarehouseIssueRequest) => {
+    const operation = operationById.get(request.operation_id);
+    const fieldName = operation?.fields?.name || request.field_name || '-';
+    const returnResolution = getReturnResolution(request, operation);
+    const pendingReturnRows = returnResolution.pendingRows;
+
+    return (
+      <Card key={request.id} className="border-slate-700 bg-slate-900/70">
+        <CardContent className="space-y-3 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-white">{request.request_number}</div>
+              <div className="truncate text-xs text-slate-400">
+                {fieldName} • {request.operation_type || '-'}
+              </div>
             </div>
+            {requestStatusBadge(request.status)}
           </div>
-          {requestStatusBadge(request.status)}
-        </div>
-        <div className="space-y-1">
-          {(request.items || []).slice(0, 3).map((item) => (
-            <div key={item.id} className="flex justify-between gap-2 text-xs text-slate-300">
-              <span className="truncate">{item.product_name || 'Материал'}</span>
-              <span className="shrink-0 text-slate-400">
-                {formatQty(item.issued_quantity ?? item.planned_quantity ?? item.required_quantity, localizeUnit(item.unit || item.product_unit || '', language))}
-              </span>
-            </div>
-          ))}
-          {(request.items || []).length > 3 ? <div className="text-xs text-slate-500">+ ещё {(request.items || []).length - 3}</div> : null}
-        </div>
-        {['issued', 'issued_by_warehouse', 'partially_issued'].includes(request.status) ? (
-          <div className="space-y-2 rounded-md border border-slate-700 bg-slate-950/60 p-3">
-            <div className="text-xs font-semibold text-slate-200">Возврат материалов</div>
-            {(request.items || []).map((item) => {
-              const issued = Number(item.issued_quantity || 0);
-              const returned = Number(item.returned_quantity || 0);
-              const available = Math.max(issued - returned, 0);
-              if (available <= 0) return null;
-              return (
-                <div key={item.id} className="grid grid-cols-[1fr_88px] gap-2 text-xs">
-                  <div className="truncate text-slate-400">{item.product_name || 'Материал'}</div>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={available}
-                    step="0.01"
-                    value={returnDraftByItemId[item.id] ?? '0'}
-                    onChange={(event) =>
-                      setReturnDraftByItemId((prev) => ({ ...prev, [item.id]: event.target.value }))
-                    }
-                    className="h-8"
-                  />
-                </div>
-              );
-            })}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  setReturnDraftByItemId((prev) => {
-                    const next = { ...prev };
-                    (request.items || []).forEach((item) => {
-                      const issued = Number(item.issued_quantity || 0);
-                      const returned = Number(item.returned_quantity || 0);
-                      next[item.id] = Math.max(issued - returned, 0).toFixed(2);
+          <div className="space-y-1">
+            {(request.items || []).slice(0, 3).map((item) => (
+              <div key={item.id} className="flex justify-between gap-2 text-xs text-slate-300">
+                <span className="truncate">{item.product_name || 'Материал'}</span>
+                <span className="shrink-0 text-slate-400">
+                  {formatQty(item.issued_quantity ?? item.planned_quantity ?? item.required_quantity, localizeUnit(item.unit || item.product_unit || '', language))}
+                </span>
+              </div>
+            ))}
+            {(request.items || []).length > 3 ? <div className="text-xs text-slate-500">+ ещё {(request.items || []).length - 3}</div> : null}
+          </div>
+          {pendingReturnRows.length > 0 ? (
+            <div className="space-y-2 rounded-md border border-slate-700 bg-slate-950/60 p-3">
+              <div className="text-xs font-semibold text-slate-200">Возврат материалов</div>
+              <div className="text-[11px] text-slate-500">
+                Если материалов не осталось, оставьте 0 и подтвердите: заявка закроется без прихода на склад.
+              </div>
+              {pendingReturnRows.map((row) => {
+                const item = row.item;
+                return (
+                  <div key={item.id} className="grid grid-cols-[1fr_88px] gap-2 text-xs">
+                    <div className="truncate text-slate-400">{item.product_name || 'Материал'}</div>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={row.maxReturnQty}
+                      step="0.01"
+                      value={returnDraftByItemId[item.id] ?? '0'}
+                      onChange={(event) =>
+                        setReturnDraftByItemId((prev) => ({ ...prev, [item.id]: event.target.value }))
+                      }
+                      className="h-8"
+                    />
+                  </div>
+                );
+              })}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setReturnDraftByItemId((prev) => {
+                      const next = { ...prev };
+                      pendingReturnRows.forEach((row) => {
+                        next[row.item.id] = row.maxReturnQty.toFixed(2);
+                      });
+                      return next;
                     });
-                    return next;
-                  });
-                }}
-              >
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Всё
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => handleConfirmReturn(request)}
-                disabled={busyKey === `return:${request.id}`}
-              >
-                Зарегистрировать
-              </Button>
+                  }}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Вернуть всё
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => handleConfirmReturn(request)}
+                  disabled={busyKey === `return:${request.id}`}
+                >
+                  Подтвердить возврат
+                </Button>
+              </div>
             </div>
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
-  );
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  };
 
   const renderColumn = (title: string, count: number, children: React.ReactNode) => (
     <section className="min-h-[320px] rounded-lg border border-slate-800 bg-slate-950/30 p-3">

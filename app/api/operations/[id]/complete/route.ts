@@ -190,7 +190,7 @@ export async function POST(
 
       const { data: materials, error: materialsError } = await supabase
         .from("operation_materials")
-        .select("id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
+        .select("id,product_id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
         .eq("operation_id", operationId)
         .eq("company_id", companyId);
       if (materialsError) {
@@ -248,7 +248,7 @@ export async function POST(
             .eq("id", material.id)
             .eq("operation_id", operationId)
             .eq("company_id", companyId)
-            .select("id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
+            .select("id,product_id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
             .single();
           if (materialUpdateError || !updatedMaterial?.id) {
             return NextResponse.json(
@@ -292,6 +292,54 @@ export async function POST(
           },
           { status: 400 }
         );
+      }
+
+      const materialFactsForRequests = (normalizedMaterials || []).filter((material: any) => {
+        return (
+          material.product_id &&
+          material.consumed_quantity !== null &&
+          material.consumed_quantity !== undefined &&
+          material.returned_quantity !== null &&
+          material.returned_quantity !== undefined
+        );
+      });
+
+      if (materialFactsForRequests.length > 0) {
+        const { data: linkedRequests, error: linkedRequestsError } = await supabase
+          .from("warehouse_issue_requests")
+          .select("id")
+          .eq("operation_id", operationId)
+          .eq("company_id", companyId)
+          .in("status", ["issued", "issued_by_warehouse", "partially_issued", "received_confirmed"]);
+
+        if (linkedRequestsError) {
+          return NextResponse.json(
+            { error: linkedRequestsError.message || "Failed to load linked material requests" },
+            { status: 400 }
+          );
+        }
+
+        const requestIds = (linkedRequests || []).map((requestRow: any) => String(requestRow.id)).filter(Boolean);
+        if (requestIds.length > 0) {
+          for (const material of materialFactsForRequests as any[]) {
+            const { error: requestItemSyncError } = await supabase
+              .from("warehouse_issue_request_items")
+              .update({
+                consumed_quantity: Number(Number(material.consumed_quantity || 0).toFixed(4)),
+                returned_quantity: Number(Number(material.returned_quantity || 0).toFixed(4)),
+              })
+              .eq("company_id", companyId)
+              .eq("product_id", material.product_id)
+              .in("request_id", requestIds);
+
+            if (requestItemSyncError) {
+              return NextResponse.json(
+                { error: requestItemSyncError.message || "Failed to sync request material facts" },
+                { status: 400 }
+              );
+            }
+          }
+        }
       }
     }
 
