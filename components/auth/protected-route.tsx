@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/contexts/auth-context';
 import { Loader as Loader2 } from 'lucide-react';
 
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, profile, loading, signOut } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -14,7 +14,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     if (!loading && !user && !pathname?.startsWith('/auth')) {
       router.push('/auth/login');
     }
-  }, [user, loading, router, pathname]);
+    if (!loading && user && profile && profile.status !== "active" && !pathname?.startsWith('/auth')) {
+      void signOut();
+    }
+  }, [user, profile, loading, router, pathname, signOut]);
 
   if (loading) {
     return (
@@ -25,6 +28,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user && !pathname?.startsWith('/auth')) {
+    return null;
+  }
+
+  if (user && profile && profile.status !== "active" && !pathname?.startsWith('/auth')) {
     return null;
   }
 

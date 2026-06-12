@@ -39,6 +39,9 @@ interface AuthContextType {
     fullName: string;
     companyName: string;
   }) => Promise<void>;
+  verifySignupCode: (email: string, token: string) => Promise<void>;
+  resendSignupCode: (email: string) => Promise<void>;
+  activateCurrentProfile: () => Promise<void>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   updatePassword: (newPassword: string) => Promise<void>;
@@ -61,15 +64,64 @@ function withAuthTimeout<T>(promise: Promise<T>, label: string, timeoutMs = AUTH
 
 function clearLocalSupabaseSession() {
   try {
-    void supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    if (typeof window === "undefined") return;
+    const stores = [window.localStorage, window.sessionStorage].filter(Boolean);
+    for (const store of stores) {
+      for (const key of Object.keys(store)) {
+        if (key.startsWith("sb-") && key.includes("auth-token")) {
+          store.removeItem(key);
+        }
+      }
+    }
   } catch {
-    // The app must recover even if Supabase auth storage is already broken.
+    // localStorage can be unavailable in private or restricted browser contexts.
+  }
+}
+
+async function clearServerImpersonationContext(accessToken?: string | null) {
+  const token = String(accessToken || "").trim();
+  if (!token || typeof window === "undefined") return;
+
+  try {
+    await fetch("/api/global-admin/impersonation", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+  } catch {
+    // This is best-effort. Non-global-admin users will be rejected by the API.
+  }
+}
+
+async function activateProfileWithCurrentSession(accessToken?: string | null) {
+  const token = String(accessToken || "").trim();
+  if (!token) {
+    throw new Error("Missing authorization token");
   }
 
+  const response = await fetch("/api/auth/complete-signup", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload?.error || "Failed to activate account");
+  }
+}
+
+function getEmailRedirectTo(type: "signup" | "recovery") {
+  if (typeof window === "undefined") return undefined;
+  if (type === "signup") return `${window.location.origin}/auth/register`;
+  return `${window.location.origin}/auth/reset-password`;
+}
+
+function clearRememberedAuthUiState() {
   try {
     if (typeof window === "undefined") return;
     for (const key of Object.keys(window.localStorage)) {
-      if (key.startsWith("sb-") && key.includes("auth-token")) {
+      if (key.includes("impersonation") || key.includes("context_company")) {
         window.localStorage.removeItem(key);
       }
     }
@@ -188,12 +240,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (byId.error) throw byId.error;
       if (Array.isArray(byId.data)) addRows(byId.data);
 
-      const userIdProbe = await supabase.from("profiles").select("user_id").limit(1);
-      if (!userIdProbe.error) {
-        const byUserId = await supabase.from("profiles").select("*").eq("user_id", userId).limit(10);
-        if (!byUserId.error && Array.isArray(byUserId.data)) addRows(byUserId.data);
-      }
-
       const normalizedEmail = String(userEmail || "").trim().toLowerCase();
       if (normalizedEmail) {
         const byEmail = await supabase.from("profiles").select("*").ilike("email", normalizedEmail).limit(20);
@@ -232,26 +278,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const actor = actorContext?.actor || null;
       const displayProfile = await resolveDisplayProfileForActor(data, actor);
 
-      if (data.status === 'pending') {
-        await supabase
-          .from('profiles')
-          .update({ status: 'active' })
-          .eq('id', userId);
-        const effectiveCompany =
-          actor?.companyId ||
-          (normalizedRole === "global_admin" && contextCompanyId
-            ? contextCompanyId
-            : await resolveEffectiveCompanyId(data.company_id));
-        const effectiveRole = parseCanonicalRole(actor?.role) || normalizedRole;
-        const effectiveRoleRawKey = normalizeRoleKey(actor?.role || displayProfile.role || data.role);
-        const effectiveProfileId = String(actor?.id || data.id || "").trim() || data.id;
-        setProfile({
+      const effectiveCompany =
+        actor?.companyId ||
+        (normalizedRole === "global_admin" && contextCompanyId
+          ? contextCompanyId
+          : await resolveEffectiveCompanyId(data?.company_id));
+      const effectiveRole = parseCanonicalRole(actor?.role) || normalizedRole;
+      const effectiveRoleRawKey = normalizeRoleKey(actor?.role || displayProfile.role || data.role);
+      const effectiveProfileId = String(actor?.id || data.id || "").trim() || data.id;
+      setProfile(
+        {
           ...displayProfile,
           id: effectiveProfileId,
           role: effectiveRole,
           role_raw_key: effectiveRoleRawKey,
           role_is_legacy_alias: effectiveRoleRawKey !== effectiveRole,
-          status: 'active',
           home_company_id: data.company_id,
           context_company_id: actor?.contextCompanyId || contextCompanyId,
           company_id: effectiveCompany || data.company_id,
@@ -260,34 +301,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           impersonated_company_id: actor?.impersonatedCompanyId || null,
           impersonated_by_profile_id: actor?.impersonatedByProfileId || null,
           impersonated_by_auth_user_id: actor?.impersonatedByAuthUserId || null,
-        });
-      } else {
-        const effectiveCompany =
-          actor?.companyId ||
-          (normalizedRole === "global_admin" && contextCompanyId
-            ? contextCompanyId
-            : await resolveEffectiveCompanyId(data?.company_id));
-        const effectiveRole = parseCanonicalRole(actor?.role) || normalizedRole;
-        const effectiveRoleRawKey = normalizeRoleKey(actor?.role || displayProfile.role || data.role);
-        const effectiveProfileId = String(actor?.id || data.id || "").trim() || data.id;
-        setProfile(
-          {
-            ...displayProfile,
-            id: effectiveProfileId,
-            role: effectiveRole,
-            role_raw_key: effectiveRoleRawKey,
-            role_is_legacy_alias: effectiveRoleRawKey !== effectiveRole,
-            home_company_id: data.company_id,
-            context_company_id: actor?.contextCompanyId || contextCompanyId,
-            company_id: effectiveCompany || data.company_id,
-            is_impersonating: Boolean(actor?.isImpersonating),
-            impersonated_profile_id: actor?.impersonatedProfileId || null,
-            impersonated_company_id: actor?.impersonatedCompanyId || null,
-            impersonated_by_profile_id: actor?.impersonatedByProfileId || null,
-            impersonated_by_auth_user_id: actor?.impersonatedByAuthUserId || null,
-          }
-        );
-      }
+        }
+      );
     } catch (error) {
       console.error('Error loading profile:', error);
       setProfile(null);
@@ -368,12 +383,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (email: string, password: string) => {
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    clearLocalSupabaseSession();
+    clearRememberedAuthUiState();
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) throw error;
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token || null;
+    await clearServerImpersonationContext(accessToken);
+
+    const { data: userData } = await supabase.auth.getUser();
+    const signedInUserId = userData.user?.id || null;
+    if (signedInUserId) {
+      const { data: profileRow } = await supabase
+        .from("profiles")
+        .select("status")
+        .eq("id", signedInUserId)
+        .maybeSingle();
+      if (profileRow && String(profileRow.status || "active").toLowerCase() !== "active") {
+        await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+        clearLocalSupabaseSession();
+        setUser(null);
+        setProfile(null);
+        throw new Error("Подтвердите email кодом из письма перед входом.");
+      }
+    }
   };
 
   const signUp = async (payload: {
@@ -383,37 +423,107 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     companyName: string;
   }) => {
     const { email, password, fullName, companyName } = payload;
+    const normalizedEmail = String(email || "").trim().toLowerCase();
     const normalizedFullName = String(fullName || "").trim().replace(/\s+/g, " ");
     const normalizedCompanyName = String(companyName || "").trim().replace(/\s+/g, " ");
 
-    if (!normalizedFullName || !normalizedCompanyName) {
-      throw new Error("Full name and company name are required");
+    if (!normalizedEmail || !normalizedFullName || !normalizedCompanyName) {
+      throw new Error("Email, full name and company name are required");
     }
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    clearLocalSupabaseSession();
+
+    const registrationResponse = await fetch("/api/auth/register-company", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        email: normalizedEmail,
+        password,
+        fullName: normalizedFullName,
+        companyName: normalizedCompanyName,
+      }),
+    });
+
+    if (!registrationResponse.ok) {
+      const body = await registrationResponse.json().catch(() => ({}));
+      throw new Error(body?.error || "Failed to register company");
+    }
+
+    const { error: otpError } = await supabase.auth.signInWithOtp({
+      email: normalizedEmail,
       options: {
-        data: {
-          role: "company_admin",
-          full_name: normalizedFullName,
-          company_name: normalizedCompanyName,
-        },
+        shouldCreateUser: false,
+        emailRedirectTo: getEmailRedirectTo("signup"),
+      },
+    });
+
+    if (otpError) throw otpError;
+
+    clearLocalSupabaseSession();
+    setUser(null);
+    setProfile(null);
+  };
+
+  const verifySignupCode = async (email: string, token: string) => {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const normalizedToken = String(token || "").trim();
+    if (!normalizedEmail || !normalizedToken) {
+      throw new Error("Email and confirmation code are required");
+    }
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      email: normalizedEmail,
+      token: normalizedToken,
+      type: "email",
+    });
+
+    if (error) throw error;
+
+    const accessToken = data.session?.access_token || (await supabase.auth.getSession()).data.session?.access_token;
+    await activateProfileWithCurrentSession(accessToken);
+    await supabase.auth.signOut({ scope: "local" }).catch(() => {});
+    clearLocalSupabaseSession();
+    setUser(null);
+    setProfile(null);
+  };
+
+  const resendSignupCode = async (email: string) => {
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    if (!normalizedEmail) throw new Error("Email is required");
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: normalizedEmail,
+      options: {
+        shouldCreateUser: false,
+        emailRedirectTo: getEmailRedirectTo("signup"),
       },
     });
 
     if (error) throw error;
   };
 
+  const activateCurrentProfile = async () => {
+    const { data } = await supabase.auth.getSession();
+    await activateProfileWithCurrentSession(data.session?.access_token || null);
+  };
+
   const signOut = async () => {
+    const { data } = await supabase.auth.getSession();
+    await clearServerImpersonationContext(data.session?.access_token || null);
     const { error } = await supabase.auth.signOut();
+    clearLocalSupabaseSession();
+    clearRememberedAuthUiState();
+    setUser(null);
+    setProfile(null);
     if (error) throw error;
     router.push('/auth/login');
   };
 
   const resetPassword = async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset-password`,
+      redirectTo: getEmailRedirectTo("recovery"),
     });
 
     if (error) throw error;
@@ -435,6 +545,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         signIn,
         signUp,
+        verifySignupCode,
+        resendSignupCode,
+        activateCurrentProfile,
         signOut,
         resetPassword,
         updatePassword,

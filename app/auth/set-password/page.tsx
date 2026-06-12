@@ -17,7 +17,7 @@ export default function SetPasswordPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionResolving, setSessionResolving] = useState(true);
-  const { updatePassword, user, profile, loading: authLoading } = useAuth();
+  const { updatePassword, activateCurrentProfile, user, profile, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const resolvedOnceRef = useRef(false);
@@ -33,17 +33,17 @@ export default function SetPasswordPage() {
     resolvedOnceRef.current = true;
 
     const resolveInviteSession = async () => {
-      const callbackError = searchParams.get('error');
-      const callbackErrorDescription = searchParams.get('error_description');
+      const callbackError = searchParams?.get('error');
+      const callbackErrorDescription = searchParams?.get('error_description');
       if (callbackError) {
         setError(callbackErrorDescription || callbackError);
         setSessionResolving(false);
         return;
       }
 
-      const code = searchParams.get('code');
-      const tokenHash = searchParams.get('token_hash');
-      const type = searchParams.get('type');
+      const code = searchParams?.get('code');
+      const tokenHash = searchParams?.get('token_hash');
+      const type = searchParams?.get('type');
 
       try {
         if (code) {
@@ -88,6 +88,7 @@ export default function SetPasswordPage() {
     setLoading(true);
     try {
       await updatePassword(password);
+      await activateCurrentProfile();
       router.push('/dashboard');
     } catch (err: any) {
       setError(err.message || 'Failed to set password');

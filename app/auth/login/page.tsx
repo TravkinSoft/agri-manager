@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { signIn } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const infoMessage =
+    searchParams?.get('registered') === '1'
+      ? 'Email подтверждён. Теперь войдите с вашим email и паролем.'
+      : searchParams?.get('password_reset') === '1'
+        ? 'Пароль обновлён. Войдите с новым паролем.'
+        : '';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -48,6 +56,11 @@ export default function LoginPage() {
             {error && (
               <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+            {infoMessage && !error && (
+              <Alert>
+                <AlertDescription>{infoMessage}</AlertDescription>
               </Alert>
             )}
             <div className="space-y-2">
