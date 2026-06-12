@@ -33,6 +33,11 @@ function workflowToRawStatuses(status: string): string[] {
   }
 }
 
+function isV5WarehouseSchemaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
+  return /warehouse_request_status|collecting_at|schema cache|column/i.test(message);
+}
+
 export async function GET(request: NextRequest) {
   try {
     const statusFilter = String(request.nextUrl.searchParams.get("status") || "").trim();
@@ -203,20 +208,24 @@ export async function PATCH(request: NextRequest) {
 
     if (action === "preparing") {
       patch.status = "preparing";
+      patch.warehouse_request_status = "collecting";
+      patch.collecting_at = nowIso;
       patch.prepared_at = nowIso;
       if (sourceWarehouseId) patch.source_warehouse_id = sourceWarehouseId;
     }
     if (action === "ready") {
       patch.status = "ready";
+      patch.warehouse_request_status = "ready_for_pickup";
       patch.ready_at = nowIso;
       if (sourceWarehouseId) patch.source_warehouse_id = sourceWarehouseId;
     }
     if (action === "cancel") {
       patch.status = "cancelled";
+      patch.warehouse_request_status = "cancelled";
       patch.cancelled_at = nowIso;
     }
 
-    const { data, error } = await supabase
+    let updateResult = await supabase
       .from("warehouse_issue_requests")
       .update(patch)
       .eq("id", requestId)
@@ -224,14 +233,27 @@ export async function PATCH(request: NextRequest) {
       .select("id,status,source_warehouse_id,ready_at,prepared_at,cancelled_at,updated_at")
       .single();
 
-    if (error || !data?.id) {
-      return NextResponse.json({ error: error?.message || "Failed to update request status" }, { status: 400 });
+    if (updateResult.error && isV5WarehouseSchemaError(updateResult.error)) {
+      const fallbackPatch = { ...patch };
+      delete fallbackPatch.warehouse_request_status;
+      delete fallbackPatch.collecting_at;
+      updateResult = await supabase
+        .from("warehouse_issue_requests")
+        .update(fallbackPatch)
+        .eq("id", requestId)
+        .eq("company_id", companyId)
+        .select("id,status,source_warehouse_id,ready_at,prepared_at,cancelled_at,updated_at")
+        .single();
+    }
+
+    if (updateResult.error || !updateResult.data?.id) {
+      return NextResponse.json({ error: updateResult.error?.message || "Failed to update request status" }, { status: 400 });
     }
 
     return NextResponse.json({
       request: {
-        ...data,
-        workflow_status: toWorkflowStatus(data.status),
+        ...updateResult.data,
+        workflow_status: toWorkflowStatus(updateResult.data.status),
         actor_id: actor.id,
       },
     });

@@ -56,6 +56,9 @@ function normalizeRequestRow(row: any): WarehouseIssueRequest {
         returned_quantity: item.returned_quantity == null ? null : toNumber(item.returned_quantity),
         planned_rate_per_ha: item.planned_rate_per_ha == null ? null : toNumber(item.planned_rate_per_ha),
         actual_rate_per_ha: item.actual_rate_per_ha == null ? null : toNumber(item.actual_rate_per_ha),
+        expected_return_quantity: item.expected_return_quantity == null ? null : toNumber(item.expected_return_quantity),
+        return_received_quantity: item.return_received_quantity == null ? null : toNumber(item.return_received_quantity),
+        loss_quantity: item.loss_quantity == null ? null : toNumber(item.loss_quantity),
       }))
     : [];
 

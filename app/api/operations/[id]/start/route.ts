@@ -11,6 +11,11 @@ const START_ALLOWED_ROLES = [
   "brigadier",
 ] as const;
 
+function isV5SchemaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
+  return /operation_status|specialist_task_status|schema cache|column/i.test(message);
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -88,25 +93,42 @@ export async function POST(
     }
 
     const nowIso = new Date().toISOString();
-    const { data: updated, error: updateError } = await supabase
+    const basePatch = {
+      work_status: "in_progress",
+      status: "in_progress",
+      accepted_at: operation.accepted_at || nowIso,
+      started_at: nowIso,
+      updated_at: nowIso,
+    };
+    const v5Patch = {
+      ...basePatch,
+      operation_status: "in_progress",
+      specialist_task_status: "in_progress",
+    };
+
+    let updateResult = await supabase
       .from("operations")
-      .update({
-        work_status: "in_progress",
-        status: "in_progress",
-        accepted_at: operation.accepted_at || nowIso,
-        started_at: nowIso,
-        updated_at: nowIso,
-      })
+      .update(v5Patch)
       .eq("id", operationId)
       .eq("company_id", companyId)
       .select("*")
       .single();
 
-    if (updateError || !updated?.id) {
-      return NextResponse.json({ error: updateError?.message || "Failed to start operation" }, { status: 400 });
+    if (updateResult.error && isV5SchemaError(updateResult.error)) {
+      updateResult = await supabase
+        .from("operations")
+        .update(basePatch)
+        .eq("id", operationId)
+        .eq("company_id", companyId)
+        .select("*")
+        .single();
     }
 
-    return NextResponse.json({ operation: updated });
+    if (updateResult.error || !updateResult.data?.id) {
+      return NextResponse.json({ error: updateResult.error?.message || "Failed to start operation" }, { status: 400 });
+    }
+
+    return NextResponse.json({ operation: updateResult.data });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

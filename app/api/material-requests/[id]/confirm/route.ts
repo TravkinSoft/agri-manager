@@ -6,6 +6,11 @@ import {
   toWorkflowStatus,
 } from "@/app/api/material-requests/_helpers";
 
+function isV5WarehouseSchemaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
+  return /warehouse_request_status|picked_up_at|schema cache|column/i.test(message);
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -47,32 +52,50 @@ export async function POST(
       }
 
       const nowIso = new Date().toISOString();
-      const { data: updated, error: updateError } = await supabase
+      const basePatch = {
+        status: "received_confirmed",
+        received_confirmed_at: nowIso,
+        specialist_confirmed_at: nowIso,
+        received_confirmed_by_user_id: actor.id,
+        specialist_confirmed_by_user_id: actor.id,
+        updated_at: nowIso,
+      };
+      const v5Patch = {
+        ...basePatch,
+        warehouse_request_status: "picked_up_by_specialist",
+        picked_up_at: nowIso,
+      };
+
+      let updateResult = await supabase
         .from("warehouse_issue_requests")
-        .update({
-          status: "received_confirmed",
-          received_confirmed_at: nowIso,
-          specialist_confirmed_at: nowIso,
-          received_confirmed_by_user_id: actor.id,
-          specialist_confirmed_by_user_id: actor.id,
-          updated_at: nowIso,
-        })
+        .update(v5Patch)
         .eq("id", requestId)
         .eq("company_id", companyId)
         .eq("status", "ready")
         .select("id,status,received_confirmed_at,specialist_confirmed_at")
         .single();
 
-      if (updateError || !updated?.id) {
+      if (updateResult.error && isV5WarehouseSchemaError(updateResult.error)) {
+        updateResult = await supabase
+          .from("warehouse_issue_requests")
+          .update(basePatch)
+          .eq("id", requestId)
+          .eq("company_id", companyId)
+          .eq("status", "ready")
+          .select("id,status,received_confirmed_at,specialist_confirmed_at")
+          .single();
+      }
+
+      if (updateResult.error || !updateResult.data?.id) {
         return NextResponse.json(
-          { error: updateError?.message || "Failed to accept prepared materials" },
+          { error: updateResult.error?.message || "Failed to accept prepared materials" },
           { status: 400 }
         );
       }
 
       return NextResponse.json({
-        result: updated,
-        workflow_status: toWorkflowStatus(updated.status),
+        result: updateResult.data,
+        workflow_status: toWorkflowStatus(updateResult.data.status),
       });
     }
 

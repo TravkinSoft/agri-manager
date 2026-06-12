@@ -19,6 +19,11 @@ function toNonNegativeNumber(value: unknown): number | null {
   return n;
 }
 
+function isV5WarehouseSchemaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
+  return /warehouse_request_status|return_received_at|return_closed_at|expected_return_quantity|return_received_quantity|loss_quantity|schema cache|column/i.test(message);
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -191,18 +196,64 @@ export async function POST(
 
     for (const row of normalized) {
       const nextReturned = row.alreadyReturned + row.returnedQuantity;
-      const { error: updateError } = await supabase
+      const baseItemPatch = {
+        returned_quantity: Number(nextReturned.toFixed(4)),
+        consumed_quantity: Number(row.consumedQuantity.toFixed(4)),
+      };
+      const v5ItemPatch = {
+        ...baseItemPatch,
+        expected_return_quantity: Number(row.returnedQuantity.toFixed(4)),
+        return_received_quantity: Number(row.returnedQuantity.toFixed(4)),
+      };
+      let itemUpdateResult = await supabase
         .from("warehouse_issue_request_items")
-        .update({
-          returned_quantity: Number(nextReturned.toFixed(4)),
-          consumed_quantity: Number(row.consumedQuantity.toFixed(4)),
-        })
+        .update(v5ItemPatch)
         .eq("id", row.itemId)
         .eq("company_id", companyId);
 
-      if (updateError) {
-        return NextResponse.json({ error: updateError.message || "Failed to update return quantities" }, { status: 400 });
+      if (itemUpdateResult.error && isV5WarehouseSchemaError(itemUpdateResult.error)) {
+        itemUpdateResult = await supabase
+          .from("warehouse_issue_request_items")
+          .update(baseItemPatch)
+          .eq("id", row.itemId)
+          .eq("company_id", companyId);
       }
+
+      if (itemUpdateResult.error) {
+        return NextResponse.json({ error: itemUpdateResult.error.message || "Failed to update return quantities" }, { status: 400 });
+      }
+    }
+
+    const baseRequestPatch = {
+      updated_at: nowIso,
+    };
+    const v5RequestPatch = {
+      ...baseRequestPatch,
+      warehouse_request_status: closeWithoutReturn || txPayload.length === 0 ? "closed" : "return_received",
+      return_received_at: txPayload.length > 0 ? nowIso : null,
+      return_closed_at: nowIso,
+      return_requested_by_user_id: actor.id,
+      return_received_by_user_id: actor.id,
+    };
+    let requestUpdateResult = await supabase
+      .from("warehouse_issue_requests")
+      .update(v5RequestPatch)
+      .eq("id", requestId)
+      .eq("company_id", companyId);
+
+    if (requestUpdateResult.error && isV5WarehouseSchemaError(requestUpdateResult.error)) {
+      requestUpdateResult = await supabase
+        .from("warehouse_issue_requests")
+        .update(baseRequestPatch)
+        .eq("id", requestId)
+        .eq("company_id", companyId);
+    }
+
+    if (requestUpdateResult.error) {
+      return NextResponse.json(
+        { error: requestUpdateResult.error.message || "Failed to update return workflow status" },
+        { status: 400 }
+      );
     }
 
     return NextResponse.json({

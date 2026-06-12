@@ -62,6 +62,8 @@ interface Operation {
   date: string;
   notes: string | null;
   status?: string | null;
+  operation_status?: string | null;
+  specialist_task_status?: string | null;
   work_status?: 'active' | 'in_progress' | 'completed' | null;
   accepted_at?: string | null;
   completed_at: string | null;
@@ -258,6 +260,20 @@ function operationLineDefaultArea(operation: Operation): string {
   return area == null ? '' : String(area);
 }
 
+function operationAreaStats(operation: Operation) {
+  const lines = operation.operation_lines || [];
+  const planned = lines.reduce((sum, line) => sum + toNumber(line.planned_area_ha, 0), 0);
+  const completed = lines.reduce((sum, line) => sum + toNumber(line.actual_area_ha, 0), 0);
+  const remaining = Math.max(planned - completed, 0);
+  const percent = planned > 0 ? Math.min((completed / planned) * 100, 100) : 0;
+  return {
+    planned,
+    completed,
+    remaining,
+    percent,
+  };
+}
+
 export default function TasksPage() {
   const { profile } = useAuth();
   const { language } = useLanguage();
@@ -271,6 +287,10 @@ export default function TasksPage() {
   const [lineFactDraft, setLineFactDraft] = useState<Record<string, string>>({});
   const [materialFactDraft, setMaterialFactDraft] = useState<Record<string, { consumed: string; returned: string; actualRate: string }>>({});
   const [completionComment, setCompletionComment] = useState('Выполнено специалистом');
+  const [progressAreaDraft, setProgressAreaDraft] = useState('');
+  const [progressStopReason, setProgressStopReason] = useState('');
+  const [progressWeatherNote, setProgressWeatherNote] = useState('');
+  const [progressComment, setProgressComment] = useState('');
   const [returnDraftByItemId, setReturnDraftByItemId] = useState<Record<string, string>>({});
   const [historySearch, setHistorySearch] = useState('');
   const [historyFrom, setHistoryFrom] = useState('');
@@ -437,6 +457,11 @@ export default function TasksPage() {
     setLineFactDraft(lineDraft);
     setMaterialFactDraft(materialDraft);
     setCompletionComment('Выполнено специалистом');
+    const areaStats = operationAreaStats(operation);
+    setProgressAreaDraft(areaStats.remaining > 0 ? String(Number(areaStats.remaining.toFixed(2))) : '');
+    setProgressStopReason('');
+    setProgressWeatherNote('');
+    setProgressComment('');
     setSelectedOperationId(operation.id);
   };
 
@@ -469,8 +494,67 @@ export default function TasksPage() {
     }
   };
 
+  const handleReportProgress = async (operation: Operation) => {
+    if (!profile?.company_id) return;
+    const completedAreaHa = Number(progressAreaDraft);
+    if (!Number.isFinite(completedAreaHa) || completedAreaHa <= 0) {
+      toast({ title: 'Ошибка', description: 'Укажите выполненную площадь за смену.', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      setBusyKey(`progress:${operation.id}`);
+      const headers = await buildAuthHeaders();
+      const response = await fetch(`/api/operations/${encodeURIComponent(operation.id)}/progress`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          companyId: profile.company_id,
+          completedAreaHa,
+          stopReason: progressStopReason.trim() || null,
+          weatherNote: progressWeatherNote.trim() || null,
+          comment: progressComment.trim() || null,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        if (response.status === 409 && payload?.attempted_total_area_ha && payload?.planned_area_ha) {
+          throw new Error(
+            `Выполненная площадь больше плана: план ${payload.planned_area_ha} га, попытка ${payload.attempted_total_area_ha} га.`
+          );
+        }
+        throw new Error(payload?.error || 'Прогресс не сохранён');
+      }
+      const progress = payload?.progress;
+      toast({
+        title: 'Прогресс сохранён',
+        description: progress
+          ? `Выполнено ${progress.completed_area_ha} из ${progress.planned_area_ha} га. Осталось ${progress.remaining_area_ha} га.`
+          : undefined,
+      });
+      await loadTasks();
+    } catch (error: any) {
+      toast({
+        title: 'Ошибка',
+        description: error?.message || 'Прогресс не сохранён',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
   const handleCompleteOperation = async (operation: Operation) => {
     if (!profile?.company_id) return;
+    const areaStats = operationAreaStats(operation);
+    if (areaStats.planned > 0 && areaStats.completed < areaStats.planned - 0.000001) {
+      toast({
+        title: 'Работа ещё не закрыта по площади',
+        description: `Выполнено ${areaStats.completed.toFixed(2)} из ${areaStats.planned.toFixed(2)} га. Сначала сдайте оставшийся прогресс.`,
+        variant: 'destructive',
+      });
+      return;
+    }
 
     const lineFacts = Object.entries(lineFactDraft)
       .filter(([lineId]) => lineId !== '__fallback')
@@ -486,12 +570,20 @@ export default function TasksPage() {
       return;
     }
 
-    const materialFacts = Object.entries(materialFactDraft).map(([materialId, draft]) => ({
-      materialId,
-      actualRate: draft.actualRate.trim() ? Number(draft.actualRate) : null,
-      consumedQuantity: draft.consumed.trim() ? Number(draft.consumed) : null,
-      returnedQuantity: draft.returned.trim() ? Number(draft.returned) : 0,
-    }));
+    const materialFacts = operationVisibleMaterials(operation).map((material) => {
+      const draft = materialFactDraft[material.id] || { consumed: '', returned: '0', actualRate: '' };
+      const issued = toNumber(material.issued_quantity, 0);
+      const returnedQuantity = draft.returned.trim() ? Number(draft.returned) : 0;
+      const consumedQuantity = Math.max(issued - returnedQuantity, 0);
+      const completedArea = areaStats.completed > 0 ? areaStats.completed : fallbackArea || 0;
+      const actualRate = completedArea > 0 ? Number((consumedQuantity / completedArea).toFixed(4)) : null;
+      return {
+        materialId: material.id,
+        actualRate,
+        consumedQuantity,
+        returnedQuantity,
+      };
+    });
     const invalidMaterial = materialFacts.find((fact) => {
       const consumedInvalid = fact.consumedQuantity == null || !Number.isFinite(fact.consumedQuantity) || fact.consumedQuantity < 0;
       const returnedInvalid = fact.returnedQuantity == null || !Number.isFinite(fact.returnedQuantity) || fact.returnedQuantity < 0;
@@ -638,6 +730,7 @@ export default function TasksPage() {
     const cropName = operation.crop_structure?.crops?.name_ru || operation.crop_structure?.crops?.name || null;
     const varietyName = operation.crop_structure?.varieties?.name || null;
     const visibleOperationMaterials = operationVisibleMaterials(operation);
+    const areaStats = operationAreaStats(operation);
 
     return (
       <Card
@@ -665,6 +758,22 @@ export default function TasksPage() {
           </div>
 
           {operation.notes ? <div className="line-clamp-2 text-xs text-slate-400">{operation.notes}</div> : null}
+
+          {areaStats.planned > 0 ? (
+            <div className="space-y-1 rounded-md border border-slate-800 bg-slate-950/50 p-2">
+              <div className="flex items-center justify-between text-[11px] text-slate-400">
+                <span>Прогресс</span>
+                <span>{areaStats.completed.toFixed(2)} / {areaStats.planned.toFixed(2)} га</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                <div
+                  className="h-full rounded-full bg-emerald-500"
+                  style={{ width: `${Math.max(0, Math.min(areaStats.percent, 100))}%` }}
+                />
+              </div>
+              <div className="text-[11px] text-slate-500">Осталось {areaStats.remaining.toFixed(2)} га</div>
+            </div>
+          ) : null}
 
           <div className="rounded-md border border-slate-700 bg-slate-950/60 p-3">
             <div className="mb-1 text-xs font-semibold text-slate-200">Материалы</div>
@@ -968,6 +1077,77 @@ export default function TasksPage() {
                   </div>
                 ) : null}
 
+                {getTaskPhase(selectedOperation) === 'in_progress' ? (
+                  (() => {
+                    const areaStats = operationAreaStats(selectedOperation);
+                    return (
+                      <div className="space-y-3 rounded-lg border border-emerald-700/40 bg-emerald-950/10 p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-semibold text-white">Сдача смены</h3>
+                            <div className="text-sm text-slate-400">
+                              Выполнено {areaStats.completed.toFixed(2)} из {areaStats.planned.toFixed(2)} га, осталось {areaStats.remaining.toFixed(2)} га.
+                            </div>
+                          </div>
+                          <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/30">
+                            {areaStats.percent.toFixed(0)}%
+                          </Badge>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                          <div
+                            className="h-full rounded-full bg-emerald-500"
+                            style={{ width: `${Math.max(0, Math.min(areaStats.percent, 100))}%` }}
+                          />
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div>
+                            <Label className="text-xs text-slate-400">Выполнено за смену, га</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              max={areaStats.remaining || undefined}
+                              step="0.01"
+                              value={progressAreaDraft}
+                              onChange={(event) => setProgressAreaDraft(event.target.value)}
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-slate-400">Причина остановки, если работа не закончена</Label>
+                            <Input
+                              value={progressStopReason}
+                              onChange={(event) => setProgressStopReason(event.target.value)}
+                              placeholder="например: дождь, темно, поломка"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-slate-400">Погода</Label>
+                            <Input
+                              value={progressWeatherNote}
+                              onChange={(event) => setProgressWeatherNote(event.target.value)}
+                              placeholder="ветер, дождь, температура"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-xs text-slate-400">Комментарий</Label>
+                            <Input
+                              value={progressComment}
+                              onChange={(event) => setProgressComment(event.target.value)}
+                              placeholder="что важно передать агроному"
+                            />
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          onClick={() => handleReportProgress(selectedOperation)}
+                          disabled={busyKey === `progress:${selectedOperation.id}`}
+                        >
+                          {busyKey === `progress:${selectedOperation.id}` ? 'Сохраняем...' : 'Сдать прогресс'}
+                        </Button>
+                      </div>
+                    );
+                  })()
+                ) : null}
+
                 <div className="space-y-2">
                   <h3 className="font-semibold text-white">Материалы</h3>
                   {operationVisibleMaterials(selectedOperation).length === 0 ? (
@@ -983,50 +1163,45 @@ export default function TasksPage() {
                             </div>
                           </div>
                           <div className="mt-2 grid gap-2 md:grid-cols-3">
-                            <div>
-                              <Label className="text-xs text-slate-400">Факт расход</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={materialFactDraft[material.id]?.consumed ?? ''}
-                                onChange={(event) =>
-                                  setMaterialFactDraft((prev) => ({
-                                    ...prev,
-                                    [material.id]: { ...(prev[material.id] || { returned: '0', actualRate: '' }), consumed: event.target.value },
-                                  }))
-                                }
-                              />
+                            <div className="rounded-md border border-slate-800 bg-slate-950/40 p-2 text-xs">
+                              <div className="text-slate-500">Выдано</div>
+                              <div className="font-semibold text-slate-100">
+                                {formatQty(material.issued_quantity || 0, localizeUnit(material.unit || material.products?.unit || '', language))}
+                              </div>
                             </div>
                             <div>
-                              <Label className="text-xs text-slate-400">Возврат</Label>
+                              <Label className="text-xs text-slate-400">Вернуть на склад</Label>
                               <Input
                                 type="number"
                                 min={0}
+                                max={material.issued_quantity || undefined}
                                 step="0.01"
                                 value={materialFactDraft[material.id]?.returned ?? '0'}
-                                onChange={(event) =>
+                                onChange={(event) => {
+                                  const returned = event.target.value;
+                                  const issued = toNumber(material.issued_quantity, 0);
+                                  const returnedNumber = Number(returned || 0);
+                                  const consumed = Number.isFinite(returnedNumber)
+                                    ? Math.max(issued - returnedNumber, 0).toFixed(2)
+                                    : '';
                                   setMaterialFactDraft((prev) => ({
                                     ...prev,
-                                    [material.id]: { ...(prev[material.id] || { consumed: '', actualRate: '' }), returned: event.target.value },
-                                  }))
-                                }
+                                    [material.id]: { ...(prev[material.id] || { actualRate: '' }), consumed, returned },
+                                  }));
+                                }}
                               />
                             </div>
-                            <div>
-                              <Label className="text-xs text-slate-400">Факт норма / га</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                step="0.01"
-                                value={materialFactDraft[material.id]?.actualRate ?? ''}
-                                onChange={(event) =>
-                                  setMaterialFactDraft((prev) => ({
-                                    ...prev,
-                                    [material.id]: { ...(prev[material.id] || { consumed: '', returned: '0' }), actualRate: event.target.value },
-                                  }))
-                                }
-                              />
+                            <div className="rounded-md border border-slate-800 bg-slate-950/40 p-2 text-xs">
+                              <div className="text-slate-500">Расход посчитается</div>
+                              <div className="font-semibold text-slate-100">
+                                {formatQty(
+                                  Math.max(
+                                    toNumber(material.issued_quantity, 0) - toNumber(materialFactDraft[material.id]?.returned, 0),
+                                    0
+                                  ),
+                                  localizeUnit(material.unit || material.products?.unit || '', language)
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1073,51 +1248,32 @@ export default function TasksPage() {
                 </div>
 
                 {getTaskPhase(selectedOperation) === 'in_progress' ? (
-                  <div className="space-y-3 rounded-lg border border-green-700/50 bg-green-950/20 p-4">
-                    <h3 className="font-semibold text-white">Закрытие работы</h3>
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {(selectedOperation.operation_lines || []).length > 0 ? (
-                        (selectedOperation.operation_lines || []).map((line) => (
-                          <div key={line.id}>
-                            <Label className="text-xs text-slate-400">
-                              Фактическая площадь, га {line.planned_area_ha ? `(план ${line.planned_area_ha})` : ''}
-                            </Label>
-                            <Input
-                              type="number"
-                              min={0}
-                              max={line.planned_area_ha || undefined}
-                              step="0.01"
-                              value={lineFactDraft[line.id] ?? ''}
-                              onChange={(event) => setLineFactDraft((prev) => ({ ...prev, [line.id]: event.target.value }))}
-                            />
+                  (() => {
+                    const areaStats = operationAreaStats(selectedOperation);
+                    const canCloseByArea = areaStats.planned <= 0 || areaStats.completed >= areaStats.planned - 0.000001;
+                    return (
+                      <div className="space-y-3 rounded-lg border border-green-700/50 bg-green-950/20 p-4">
+                        <h3 className="font-semibold text-white">Закрытие работы</h3>
+                        {!canCloseByArea ? (
+                          <div className="rounded-md border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">
+                            До закрытия осталось сдать {areaStats.remaining.toFixed(2)} га. Сначала внесите прогресс смены.
                           </div>
-                        ))
-                      ) : (
+                        ) : null}
                         <div>
-                          <Label className="text-xs text-slate-400">Фактическая площадь, га</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            value={lineFactDraft.__fallback ?? ''}
-                            onChange={(event) => setLineFactDraft((prev) => ({ ...prev, __fallback: event.target.value }))}
-                          />
+                          <Label className="text-xs text-slate-400">Комментарий к закрытию</Label>
+                          <Input value={completionComment} onChange={(event) => setCompletionComment(event.target.value)} />
                         </div>
-                      )}
-                      <div>
-                        <Label className="text-xs text-slate-400">Комментарий</Label>
-                        <Input value={completionComment} onChange={(event) => setCompletionComment(event.target.value)} />
+                        <Button
+                          className="bg-green-600 hover:bg-green-700"
+                          onClick={() => handleCompleteOperation(selectedOperation)}
+                          disabled={!canCloseByArea || busyKey === `complete:${selectedOperation.id}`}
+                        >
+                          <CheckCircle className="mr-2 h-4 w-4" />
+                          {busyKey === `complete:${selectedOperation.id}` ? 'Закрываем...' : 'Закрыть операцию'}
+                        </Button>
                       </div>
-                    </div>
-                    <Button
-                      className="bg-green-600 hover:bg-green-700"
-                      onClick={() => handleCompleteOperation(selectedOperation)}
-                      disabled={busyKey === `complete:${selectedOperation.id}`}
-                    >
-                      <CheckCircle className="mr-2 h-4 w-4" />
-                      {busyKey === `complete:${selectedOperation.id}` ? 'Закрываем...' : 'Закрыть операцию'}
-                    </Button>
-                  </div>
+                    );
+                  })()
                 ) : null}
               </div>
             </>

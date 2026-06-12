@@ -11,6 +11,11 @@ const ACCEPT_ALLOWED_ROLES = [
   "brigadier",
 ] as const;
 
+function isV5SchemaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
+  return /operation_status|specialist_task_status|schema cache|column/i.test(message);
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -61,13 +66,18 @@ export async function POST(
     }
 
     const nowIso = new Date().toISOString();
-    const patch: Record<string, unknown> = {
+    const basePatch: Record<string, unknown> = {
       status: operation.status === "in_progress" ? "in_progress" : "accepted",
       accepted_at: operation.accepted_at || nowIso,
       updated_at: nowIso,
     };
+    const patch: Record<string, unknown> = {
+      ...basePatch,
+      operation_status: operation.status === "in_progress" ? "in_progress" : "accepted",
+      specialist_task_status: "accepted",
+    };
 
-    const { data: updated, error: updateError } = await supabase
+    let updateResult = await supabase
       .from("operations")
       .update(patch)
       .eq("id", operationId)
@@ -75,18 +85,36 @@ export async function POST(
       .select("*")
       .single();
 
-    if (updateError || !updated?.id) {
-      return NextResponse.json({ error: updateError?.message || "Failed to accept operation" }, { status: 400 });
+    if (updateResult.error && isV5SchemaError(updateResult.error)) {
+      updateResult = await supabase
+        .from("operations")
+        .update(basePatch)
+        .eq("id", operationId)
+        .eq("company_id", companyId)
+        .select("*")
+        .single();
     }
 
-    await supabase
+    if (updateResult.error || !updateResult.data?.id) {
+      return NextResponse.json({ error: updateResult.error?.message || "Failed to accept operation" }, { status: 400 });
+    }
+
+    const requestActivation = await supabase
       .from("warehouse_issue_requests")
-      .update({ status: "active", updated_at: nowIso })
+      .update({ status: "active", warehouse_request_status: "pending", updated_at: nowIso })
       .eq("company_id", companyId)
       .eq("operation_id", operationId)
       .eq("status", "new");
+    if (requestActivation.error && /warehouse_request_status|schema cache|column/i.test(requestActivation.error.message || "")) {
+      await supabase
+        .from("warehouse_issue_requests")
+        .update({ status: "active", updated_at: nowIso })
+        .eq("company_id", companyId)
+        .eq("operation_id", operationId)
+        .eq("status", "new");
+    }
 
-    return NextResponse.json({ operation: updated });
+    return NextResponse.json({ operation: updateResult.data });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

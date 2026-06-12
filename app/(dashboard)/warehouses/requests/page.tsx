@@ -69,6 +69,41 @@ function requestRecipientLabel(row: WarehouseIssueRequest): string {
   );
 }
 
+type WarehouseColumnKey =
+  | "new"
+  | "collecting"
+  | "ready"
+  | "issued"
+  | "return_expected"
+  | "returns";
+
+function warehouseColumnKey(row: WarehouseIssueRequest): WarehouseColumnKey {
+  const v5Status = String(row.warehouse_request_status || "");
+  if (v5Status === "collecting") return "collecting";
+  if (v5Status === "ready_for_pickup") return "ready";
+  if (v5Status === "picked_up_by_specialist" || v5Status === "issued") return "issued";
+  if (v5Status === "return_expected") return "return_expected";
+  if (v5Status === "return_received" || v5Status === "closed") return "returns";
+  if (v5Status === "cancelled") return "returns";
+
+  if (row.status === "preparing") return "collecting";
+  if (row.status === "ready") return "ready";
+  if (row.status === "received_confirmed" || row.status === "issued" || row.status === "issued_by_warehouse" || row.status === "partially_issued") {
+    return "issued";
+  }
+  if (row.status === "cancelled") return "returns";
+  return "new";
+}
+
+const WAREHOUSE_COLUMNS: Array<{ key: WarehouseColumnKey; title: string }> = [
+  { key: "new", title: "Новые" },
+  { key: "collecting", title: "Сборка" },
+  { key: "ready", title: "Готово" },
+  { key: "issued", title: "Выдано" },
+  { key: "return_expected", title: "Ожидают возврат" },
+  { key: "returns", title: "Возвраты" },
+];
+
 export default function WarehouseRequestsPage() {
   const router = useRouter();
   const { profile } = useAuth();
@@ -148,6 +183,18 @@ export default function WarehouseRequestsPage() {
       return matchSearch && matchStatus;
     });
   }, [requests, search, statusFilter]);
+
+  const requestsByWarehouseColumn = useMemo(() => {
+    const grouped = new Map<WarehouseColumnKey, WarehouseIssueRequest[]>();
+    WAREHOUSE_COLUMNS.forEach((column) => grouped.set(column.key, []));
+    filteredRequests.forEach((row) => {
+      const key = warehouseColumnKey(row);
+      const list = grouped.get(key) || [];
+      list.push(row);
+      grouped.set(key, list);
+    });
+    return grouped;
+  }, [filteredRequests]);
 
   const selectedRequest = filteredRequests.find((row) => row.id === selectedId) || null;
   const effectiveSourceWarehouseId = sourceWarehouseId || selectedRequest?.source_warehouse_id || "";
@@ -465,6 +512,54 @@ export default function WarehouseRequestsPage() {
           </Select>
         </CardContent>
       </Card>
+
+      <div className="grid gap-3 xl:grid-cols-6">
+        {WAREHOUSE_COLUMNS.map((column) => {
+          const rows = requestsByWarehouseColumn.get(column.key) || [];
+          return (
+            <section key={column.key} className="min-h-[180px] rounded-lg border border-slate-800 bg-slate-950/30 p-3">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold text-slate-100">{column.title}</h2>
+                <Badge className="bg-slate-800 text-slate-200">{rows.length}</Badge>
+              </div>
+              <div className="space-y-2">
+                {loading ? (
+                  <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-400">Загрузка...</div>
+                ) : rows.length === 0 ? (
+                  <div className="rounded-md border border-slate-800 bg-slate-900/50 p-3 text-xs text-slate-500">Пусто</div>
+                ) : (
+                  rows.slice(0, 8).map((row) => (
+                    <button
+                      key={row.id}
+                      type="button"
+                      onClick={() => setSelectedId(row.id)}
+                      className={`w-full rounded-md border p-3 text-left transition ${
+                        row.id === selectedId
+                          ? "border-yellow-500/70 bg-yellow-500/10"
+                          : "border-slate-800 bg-slate-900/70 hover:border-yellow-500/40"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="truncate text-xs font-semibold text-slate-100">{row.request_number}</div>
+                          <div className="truncate text-[11px] text-slate-400">{row.field_name || "-"}</div>
+                        </div>
+                        <span className="shrink-0 text-[11px] text-slate-500">{row.items?.length || 0} поз.</span>
+                      </div>
+                      <div className="mt-2 line-clamp-2 text-[11px] text-slate-400">
+                        {row.operation_type || "Операция"} • {requestRecipientLabel(row)}
+                      </div>
+                    </button>
+                  ))
+                )}
+                {rows.length > 8 ? (
+                  <div className="text-center text-[11px] text-slate-500">+ ещё {rows.length - 8}</div>
+                ) : null}
+              </div>
+            </section>
+          );
+        })}
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

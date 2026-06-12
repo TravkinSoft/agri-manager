@@ -61,6 +61,11 @@ function nullablePositiveNumber(value: unknown): number | null {
   return n;
 }
 
+function isV5SchemaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
+  return /operation_status|specialist_task_status|planned_area_ha|completed_area_ha|remaining_area_ha|progress_percent|schema cache|column/i.test(message);
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -261,6 +266,60 @@ export async function POST(
         normalizedMaterials = updatedMaterials;
       }
 
+      if (normalizedMaterials.length > 0) {
+        const completedArea = (normalizedLines || []).reduce(
+          (sum: number, line: any) => sum + Number(line.actual_area_ha || 0),
+          0
+        );
+        const autoCompletedMaterials: any[] = [];
+
+        for (const material of normalizedMaterials as any[]) {
+          const issued = Number(material.issued_quantity || 0);
+          const hasConsumed = material.consumed_quantity !== null && material.consumed_quantity !== undefined;
+          const hasReturned = material.returned_quantity !== null && material.returned_quantity !== undefined;
+          const returned = hasReturned ? Number(material.returned_quantity || 0) : 0;
+          const consumed = hasConsumed ? Number(material.consumed_quantity || 0) : Math.max(issued - returned, 0);
+          const actualRate =
+            material.actual_rate !== null && material.actual_rate !== undefined
+              ? material.actual_rate
+              : completedArea > 0
+                ? Number((consumed / completedArea).toFixed(4))
+                : 0;
+
+          if (
+            Number(material.consumed_quantity || 0) === consumed &&
+            Number(material.returned_quantity || 0) === returned &&
+            Number(material.actual_rate || 0) === Number(actualRate || 0)
+          ) {
+            autoCompletedMaterials.push(material);
+            continue;
+          }
+
+          const { data: updatedMaterial, error: materialAutoUpdateError } = await supabase
+            .from("operation_materials")
+            .update({
+              actual_rate: actualRate,
+              consumed_quantity: Number(consumed.toFixed(4)),
+              returned_quantity: Number(returned.toFixed(4)),
+            })
+            .eq("id", material.id)
+            .eq("operation_id", operationId)
+            .eq("company_id", companyId)
+            .select("id,product_id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
+            .single();
+
+          if (materialAutoUpdateError || !updatedMaterial?.id) {
+            return NextResponse.json(
+              { error: materialAutoUpdateError?.message || "Failed to auto-complete material facts" },
+              { status: 400 }
+            );
+          }
+          autoCompletedMaterials.push(updatedMaterial);
+        }
+
+        normalizedMaterials = autoCompletedMaterials;
+      }
+
       const incompleteMaterial = (normalizedMaterials || []).find((material: any) => {
         const actualRateSet = material.actual_rate !== null && material.actual_rate !== undefined;
         const consumedSet = material.consumed_quantity !== null && material.consumed_quantity !== undefined;
@@ -344,28 +403,60 @@ export async function POST(
     }
 
     const nowIso = new Date().toISOString();
-    const { data: updated, error: updateError } = await supabase
+    const { data: completedLines } = await supabase
+      .from("operation_lines")
+      .select("planned_area_ha,actual_area_ha")
+      .eq("operation_id", operationId)
+      .eq("company_id", companyId);
+    const plannedFromLines = (completedLines || []).reduce((sum: number, line: any) => sum + Number(line.planned_area_ha || 0), 0);
+    const actualFromLines = (completedLines || []).reduce((sum: number, line: any) => sum + Number(line.actual_area_ha || 0), 0);
+    const finalPlannedArea = plannedFromLines > 0 ? plannedFromLines : Number(fallbackActualArea || 0);
+    const finalActualArea = actualFromLines > 0 ? actualFromLines : Number(fallbackActualArea || 0);
+    const finalProgressPercent = finalPlannedArea > 0 ? Math.min((finalActualArea / finalPlannedArea) * 100, 100) : 100;
+    const baseCompletionPatch = {
+      work_status: "completed",
+      status: "completed",
+      completed_at: nowIso,
+      specialist_comment: comment || null,
+      updated_at: nowIso,
+    };
+    const v5CompletionPatch = {
+      ...baseCompletionPatch,
+      operation_status: "completed",
+      specialist_task_status: "completed",
+      planned_area_ha: Number(finalPlannedArea.toFixed(4)),
+      completed_area_ha: Number(finalActualArea.toFixed(4)),
+      remaining_area_ha: Math.max(Number((finalPlannedArea - finalActualArea).toFixed(4)), 0),
+      progress_percent: Number(finalProgressPercent.toFixed(2)),
+      last_progress_at: nowIso,
+    };
+
+    let updateResult = await supabase
       .from("operations")
-      .update({
-        work_status: "completed",
-        status: "completed",
-        completed_at: nowIso,
-        specialist_comment: comment || null,
-        updated_at: nowIso,
-      })
+      .update(v5CompletionPatch)
       .eq("id", operationId)
       .eq("company_id", companyId)
       .select("*")
       .single();
 
-    if (updateError || !updated?.id) {
+    if (updateResult.error && isV5SchemaError(updateResult.error)) {
+      updateResult = await supabase
+        .from("operations")
+        .update(baseCompletionPatch)
+        .eq("id", operationId)
+        .eq("company_id", companyId)
+        .select("*")
+        .single();
+    }
+
+    if (updateResult.error || !updateResult.data?.id) {
       return NextResponse.json(
-        { error: updateError?.message || "Failed to complete operation" },
+        { error: updateResult.error?.message || "Failed to complete operation" },
         { status: 400 }
       );
     }
 
-    return NextResponse.json({ operation: updated });
+    return NextResponse.json({ operation: updateResult.data });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });

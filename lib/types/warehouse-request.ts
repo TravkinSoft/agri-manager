@@ -9,6 +9,17 @@ export type WarehouseIssueRequestStatus =
   | "received_confirmed"
   | "cancelled";
 
+export type WarehouseRequestV5Status =
+  | "pending"
+  | "collecting"
+  | "ready_for_pickup"
+  | "picked_up_by_specialist"
+  | "issued"
+  | "return_expected"
+  | "return_received"
+  | "closed"
+  | "cancelled";
+
 export interface WarehouseIssueRequestItem {
   id: string;
   request_id: string;
@@ -23,6 +34,12 @@ export interface WarehouseIssueRequestItem {
   unit: string;
   planned_rate_per_ha?: number | null;
   actual_rate_per_ha?: number | null;
+  expected_return_quantity?: number | null;
+  return_received_quantity?: number | null;
+  loss_quantity?: number | null;
+  loss_reason?: string | null;
+  loss_comment?: string | null;
+  return_comment?: string | null;
   batch_id?: string | null;
   created_at: string;
   product_name?: string;
@@ -46,6 +63,7 @@ export interface WarehouseIssueRequest {
   planned_datetime: string | null;
   comment: string | null;
   status: WarehouseIssueRequestStatus;
+  warehouse_request_status?: WarehouseRequestV5Status | null;
   workflow_status?: "active" | "preparing" | "ready" | "issued" | "partially_issued" | "cancelled";
   confirm_token: string | null;
   created_at: string;
@@ -53,10 +71,17 @@ export interface WarehouseIssueRequest {
   prepared_at?: string | null;
   ready_at: string | null;
   issued_at: string | null;
+  collecting_at?: string | null;
+  picked_up_at?: string | null;
+  return_expected_at?: string | null;
+  return_received_at?: string | null;
+  return_closed_at?: string | null;
   received_confirmed_at?: string | null;
   specialist_confirmed_at?: string | null;
   cancelled_at: string | null;
   issued_by_user_id?: string | null;
+  return_requested_by_user_id?: string | null;
+  return_received_by_user_id?: string | null;
   received_confirmed_by_user_id?: string | null;
   specialist_confirmed_by_user_id?: string | null;
   linked_ticket_id?: string | null;

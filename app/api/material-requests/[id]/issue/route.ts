@@ -24,6 +24,11 @@ function toNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function isV5WarehouseSchemaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
+  return /warehouse_request_status|schema cache|column/i.test(message);
+}
+
 async function getProductBalance(
   supabase: any,
   params: {
@@ -437,23 +442,39 @@ export async function POST(
       ? "issued_by_warehouse"
       : "partially_issued";
 
-    const { data: updatedRequest, error: requestUpdateError } = await supabase
+    const baseRequestPatch = {
+      status: nextStatusRaw,
+      source_warehouse_id: sourceWarehouseId,
+      issued_at: nowIso,
+      issued_by_user_id: actor.id,
+      updated_at: nowIso,
+    };
+    const v5RequestPatch = {
+      ...baseRequestPatch,
+      warehouse_request_status: "issued",
+    };
+
+    let requestUpdateResult = await supabase
       .from("warehouse_issue_requests")
-      .update({
-        status: nextStatusRaw,
-        source_warehouse_id: sourceWarehouseId,
-        issued_at: nowIso,
-        issued_by_user_id: actor.id,
-        updated_at: nowIso,
-      })
+      .update(v5RequestPatch)
       .eq("id", requestId)
       .eq("company_id", companyId)
       .select("id,status,issued_at")
       .single();
 
-    if (requestUpdateError || !updatedRequest?.id) {
+    if (requestUpdateResult.error && isV5WarehouseSchemaError(requestUpdateResult.error)) {
+      requestUpdateResult = await supabase
+        .from("warehouse_issue_requests")
+        .update(baseRequestPatch)
+        .eq("id", requestId)
+        .eq("company_id", companyId)
+        .select("id,status,issued_at")
+        .single();
+    }
+
+    if (requestUpdateResult.error || !requestUpdateResult.data?.id) {
       return NextResponse.json(
-        { error: requestUpdateError?.message || "Failed to update request after issue" },
+        { error: requestUpdateResult.error?.message || "Failed to update request after issue" },
         { status: 400 }
       );
     }
