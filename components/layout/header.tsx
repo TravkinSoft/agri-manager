@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useSidebar } from "@/lib/contexts/sidebar-context";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
+import { TravkinLogo } from "@/components/layout/travkin-logo";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { isGlobalAdmin } from "@/lib/auth/roles";
 import { supabase } from "@/lib/supabase/client";
@@ -106,17 +107,17 @@ export function Header() {
   };
 
   const getRoleLabel = (role?: string | null) => {
-    if (role === "global_admin") return "Глобальный администратор";
-    if (role === "company_admin") return "Администратор компании";
+    if (role === "global_admin") return t("role_global_admin");
+    if (role === "company_admin") return t("role_company_admin");
     if (role === "agronomist") return t("role_agronomist");
-    if (role === "director") return "Директор";
+    if (role === "director") return t("role_director");
     if (role === "specialist") return t("role_specialist");
     if (role === "warehouse") return t("role_warehouse");
-    if (role === "warehouse_operator") return "Складской оператор";
+    if (role === "warehouse_operator") return t("role_warehouse_operator");
     if (role === "weighman") return t("role_weighman");
-    if (role === "fuel_operator") return "Оператор АЗС / ГСМ";
-    if (role === "brigadier") return "Бригадир";
-    if (role === "legal_operator") return "Юрист / бухгалтер";
+    if (role === "fuel_operator") return t("role_fuel_operator");
+    if (role === "brigadier") return t("role_brigadier");
+    if (role === "legal_operator") return t("role_legal_operator");
     return role || "-";
   };
 
@@ -149,22 +150,33 @@ export function Header() {
         size="icon"
         onClick={toggleSidebar}
         className="hidden text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6] md:inline-flex"
+        aria-label={t("mobile_more")}
       >
         <Menu className="h-5 w-5" />
       </Button>
+
+      <div className="flex min-w-0 items-center gap-2 md:hidden">
+        <TravkinLogo compact />
+        <div className="min-w-0 leading-tight">
+          <div className="truncate text-sm font-semibold text-[#F3F4F6]">TRAVKINFLOW</div>
+          <div className="truncate text-[11px] text-[#9CA3AF]">
+            {activeCompanyName || (isGlobal ? t("platform_mode") : getRoleLabel(profile?.role))}
+          </div>
+        </div>
+      </div>
 
       <div className="ml-auto flex min-w-0 items-center gap-1 sm:gap-2 md:gap-4">
         {isGlobal ? (
           <div className="hidden min-w-[340px] items-center gap-2 md:flex">
             <span className="text-xs font-medium text-[#9CA3AF]">
-              {activeCompanyId ? "Вы в компании" : "Режим платформы"}
+              {activeCompanyId ? t("company_context") : t("platform_mode")}
             </span>
             <Select value={activeCompanyId || "__none__"} onValueChange={handleSwitchCompany} disabled={switchingCompany}>
               <SelectTrigger className="h-9 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
-                <SelectValue placeholder="Выберите компанию" />
+                <SelectValue placeholder={t("select_company")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">Вернуться в платформу</SelectItem>
+                <SelectItem value="__none__">{t("return_to_platform")}</SelectItem>
                 {companies.map((company) => (
                   <SelectItem key={company.id} value={company.id}>
                     {company.name}
@@ -177,7 +189,13 @@ export function Header() {
         ) : null}
 
         <LanguageSwitcher />
-        <Button variant="ghost" size="icon" className="h-9 w-9 text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]"
+          aria-label={t("notifications")}
+          title={t("notifications")}
+        >
           <Bell className="h-5 w-5" />
         </Button>
 
@@ -187,6 +205,8 @@ export function Header() {
               variant="ghost"
               size="icon"
               className="h-9 w-9 rounded-full text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]"
+              aria-label={t("profile_menu")}
+              title={t("profile_menu")}
             >
               <User className="h-5 w-5" />
             </Button>

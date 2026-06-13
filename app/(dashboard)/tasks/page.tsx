@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { PageHeader } from '@/components/layout/page-header';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -168,6 +168,7 @@ function materialRequestsReadyForStart(requests: WarehouseIssueRequest[]): boole
 function materialStatusText(requests: WarehouseIssueRequest[]): string {
   const activeRequests = requests.filter((request) => request.status !== 'cancelled');
   if (activeRequests.length === 0) return 'Материалы не требуются';
+  if (activeRequests.some((request) => request.status === 'new' || request.status === 'active')) return 'Заявка на складе';
   if (activeRequests.some((request) => request.status === 'ready')) return 'Материалы готовы, нужно принять';
   if (activeRequests.some((request) => request.status === 'received_confirmed' && !request.issued_at)) {
     return 'Товар принят, ждём выдачу склада';
@@ -180,7 +181,7 @@ function materialStatusText(requests: WarehouseIssueRequest[]): string {
 function taskStatusBadge(phase: TaskPhase) {
   const map: Record<TaskPhase, { label: string; className: string }> = {
     active: { label: 'Новая', className: 'bg-slate-700 text-slate-100' },
-    accepted: { label: 'Активная', className: 'bg-blue-500/15 text-blue-200 border border-blue-400/30' },
+    accepted: { label: 'Принята', className: 'bg-blue-500/15 text-blue-200 border border-blue-400/30' },
     in_progress: { label: 'В работе', className: 'bg-amber-500/15 text-amber-200 border border-amber-400/30' },
     completed: { label: 'Закончена', className: 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/30' },
   };
@@ -406,11 +407,11 @@ export default function TasksPage() {
     return map;
   }, [materialRequests]);
 
-  const activeOperations = operations.filter((operation) => {
+  const activeOperations = operations.filter((operation) => getTaskPhase(operation) === 'active');
+  const currentOperations = operations.filter((operation) => {
     const phase = getTaskPhase(operation);
-    return phase === 'active' || phase === 'accepted';
+    return phase === 'accepted' || phase === 'in_progress';
   });
-  const inProgressOperations = operations.filter((operation) => getTaskPhase(operation) === 'in_progress');
   const completedOperations = operations.filter((operation) => getTaskPhase(operation) === 'completed');
   const receiptHistory = materialRequests.filter((request) => requestNeedsReturnDecision(request, operationById.get(request.operation_id)));
 
@@ -726,10 +727,14 @@ export default function TasksPage() {
     const requests = requestsByOperation.get(operation.id) || [];
     const readyForStart = materialRequestsReadyForStart(requests);
     const readyRequest = requests.find((request) => request.status === 'ready');
+    const hasMaterialRequests = requests.filter((request) => request.status !== 'cancelled').length > 0;
+    const warehouseIsPreparing = requests.some((request) => ['new', 'active', 'preparing'].includes(request.status));
     const waitingWarehouseIssue = requests.some((request) => request.status === 'received_confirmed' && !request.issued_at);
     const cropName = operation.crop_structure?.crops?.name_ru || operation.crop_structure?.crops?.name || null;
     const varietyName = operation.crop_structure?.varieties?.name || null;
     const visibleOperationMaterials = operationVisibleMaterials(operation);
+    const hasPlannedMaterialsWithoutRequest = visibleOperationMaterials.length > 0 && requests.length === 0;
+    const canStartOperation = readyForStart && !hasPlannedMaterialsWithoutRequest;
     const areaStats = operationAreaStats(operation);
 
     return (
@@ -738,13 +743,19 @@ export default function TasksPage() {
         role="button"
         tabIndex={0}
         onClick={() => openOperationDetails(operation)}
-        className="cursor-pointer border-slate-700 bg-slate-900/70 transition hover:border-yellow-500/60 hover:bg-slate-900"
+        onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openOperationDetails(operation);
+          }
+        }}
+        className="cursor-pointer rounded-2xl border-slate-800 bg-slate-900/70 transition hover:border-yellow-500/60 hover:bg-slate-900"
       >
-        <CardContent className="space-y-3 p-4">
+        <CardContent className="space-y-2.5 p-3 sm:p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
-              <div className="truncate text-sm font-semibold text-yellow-100">{operation.operation_type}</div>
-              <div className="truncate text-lg font-bold text-white">{operation.fields?.name || 'Поле не указано'}</div>
+              <div className="truncate text-xs font-semibold uppercase tracking-wide text-yellow-200/90">{operation.operation_type}</div>
+              <div className="truncate text-lg font-bold leading-tight text-white">{operation.fields?.name || 'Поле не указано'}</div>
               <div className="truncate text-xs text-slate-400">
                 {[cropName, varietyName].filter(Boolean).join(' • ') || 'Культура не указана'}
               </div>
@@ -760,7 +771,7 @@ export default function TasksPage() {
           {operation.notes ? <div className="line-clamp-2 text-xs text-slate-400">{operation.notes}</div> : null}
 
           {areaStats.planned > 0 ? (
-            <div className="space-y-1 rounded-md border border-slate-800 bg-slate-950/50 p-2">
+            <div className="space-y-1 rounded-lg bg-slate-950/45 p-2">
               <div className="flex items-center justify-between text-[11px] text-slate-400">
                 <span>Прогресс</span>
                 <span>{areaStats.completed.toFixed(2)} / {areaStats.planned.toFixed(2)} га</span>
@@ -775,7 +786,7 @@ export default function TasksPage() {
             </div>
           ) : null}
 
-          <div className="rounded-md border border-slate-700 bg-slate-950/60 p-3">
+          <div className="rounded-lg bg-slate-950/55 p-2.5">
             <div className="mb-1 text-xs font-semibold text-slate-200">Материалы</div>
             {renderMaterialPreview(operation, requests)}
             <div className="mt-2 text-[11px] text-slate-500">
@@ -788,6 +799,7 @@ export default function TasksPage() {
               {phase === 'active' ? (
                 <Button
                   size="sm"
+                  className="w-full sm:w-auto"
                   onClick={(event: MouseEvent<HTMLButtonElement>) => {
                     event.stopPropagation();
                     void runOperationAction('accept', operation.id);
@@ -795,7 +807,7 @@ export default function TasksPage() {
                   disabled={busyKey === `accept:${operation.id}`}
                 >
                   <Clock className="mr-2 h-4 w-4" />
-                  Принять
+                  Принять операцию
                 </Button>
               ) : null}
 
@@ -803,6 +815,7 @@ export default function TasksPage() {
                 <Button
                   size="sm"
                   variant="outline"
+                  className="w-full sm:w-auto"
                   onClick={(event: MouseEvent<HTMLButtonElement>) => {
                     event.stopPropagation();
                     void handleConfirmReceipt(readyRequest.id);
@@ -810,19 +823,32 @@ export default function TasksPage() {
                   disabled={busyKey === `receipt:${readyRequest.id}`}
                 >
                   <PackageCheck className="mr-2 h-4 w-4" />
-                  Принять товар
+                  Товар принят
                 </Button>
               ) : null}
 
-              {phase === 'accepted' && !readyRequest && waitingWarehouseIssue ? (
-                <Button size="sm" variant="outline" disabled onClick={(event) => event.stopPropagation()}>
-                  Ждём склад
+              {phase === 'accepted' && hasMaterialRequests && !readyRequest && warehouseIsPreparing ? (
+                <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled onClick={(event) => event.stopPropagation()}>
+                  Товар принят
                 </Button>
               ) : null}
 
-              {phase === 'accepted' && readyForStart ? (
+              {phase === 'accepted' && hasPlannedMaterialsWithoutRequest ? (
+                <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled onClick={(event) => event.stopPropagation()}>
+                  Нет заявки склада
+                </Button>
+              ) : null}
+
+              {phase === 'accepted' && waitingWarehouseIssue ? (
+                <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled onClick={(event) => event.stopPropagation()}>
+                  Ждём выдачу склада
+                </Button>
+              ) : null}
+
+              {phase === 'accepted' && canStartOperation ? (
                 <Button
                   size="sm"
+                  className="w-full sm:w-auto"
                   onClick={(event: MouseEvent<HTMLButtonElement>) => {
                     event.stopPropagation();
                     void runOperationAction('start', operation.id);
@@ -837,7 +863,7 @@ export default function TasksPage() {
               {phase === 'in_progress' ? (
                 <Button
                   size="sm"
-                  className="bg-green-600 hover:bg-green-700"
+                  className="w-full bg-green-600 hover:bg-green-700 sm:w-auto"
                   onClick={(event: MouseEvent<HTMLButtonElement>) => {
                     event.stopPropagation();
                     openOperationDetails(operation);
@@ -866,8 +892,8 @@ export default function TasksPage() {
     const pendingReturnRows = returnResolution.pendingRows;
 
     return (
-      <Card key={request.id} className="border-slate-700 bg-slate-900/70">
-        <CardContent className="space-y-3 p-4">
+      <Card key={request.id} className="rounded-2xl border-slate-800 bg-slate-900/70">
+        <CardContent className="space-y-2.5 p-3 sm:p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-white">{request.request_number}</div>
@@ -889,7 +915,7 @@ export default function TasksPage() {
             {(request.items || []).length > 3 ? <div className="text-xs text-slate-500">+ ещё {(request.items || []).length - 3}</div> : null}
           </div>
           {pendingReturnRows.length > 0 ? (
-            <div className="space-y-2 rounded-md border border-slate-700 bg-slate-950/60 p-3">
+            <div className="space-y-2 rounded-lg bg-slate-950/60 p-3">
               <div className="text-xs font-semibold text-slate-200">Возврат материалов</div>
               <div className="text-[11px] text-slate-500">
                 Возврат нужен только по остатку после фактического расхода. Если материал израсходован на 100%, карточка исчезнет сама.
@@ -955,7 +981,7 @@ export default function TasksPage() {
   };
 
   const renderColumn = (title: string, count: number, children: React.ReactNode) => (
-    <section className="min-h-[320px] rounded-lg border border-slate-800 bg-slate-950/30 p-3">
+    <section className="min-h-[320px] rounded-2xl border border-slate-800/80 bg-slate-950/30 p-2.5 sm:p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-base font-semibold text-white">{title}</h2>
         <Badge className="bg-slate-800 text-slate-200">{count}</Badge>
@@ -994,13 +1020,13 @@ export default function TasksPage() {
 
         {renderColumn(
           'В работе',
-          inProgressOperations.length,
+          currentOperations.length,
           loading ? (
             <Card className="border-slate-700 bg-slate-900/70"><CardContent className="p-5 text-center text-slate-400">Загрузка работ...</CardContent></Card>
-          ) : inProgressOperations.length === 0 ? (
-            <Card className="border-slate-700 bg-slate-900/70"><CardContent className="p-5 text-center text-slate-400">Операций в работе нет.</CardContent></Card>
+          ) : currentOperations.length === 0 ? (
+            <Card className="border-slate-700 bg-slate-900/70"><CardContent className="p-5 text-center text-slate-400">Принятых операций и работ сейчас нет.</CardContent></Card>
           ) : (
-            inProgressOperations.map((task) => renderOperationCard(task))
+            currentOperations.map((task) => renderOperationCard(task))
           )
         )}
 
@@ -1039,7 +1065,7 @@ export default function TasksPage() {
       </div>
 
       <Dialog open={Boolean(selectedOperation)} onOpenChange={(open) => !open && setSelectedOperationId(null)}>
-        <DialogContent className="max-h-[88vh] max-w-3xl overflow-y-auto border-slate-700 bg-slate-950 text-slate-100">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto border-slate-700 bg-slate-950 text-slate-100 sm:max-h-[88vh]">
           {selectedOperation ? (
             <>
               <DialogHeader>

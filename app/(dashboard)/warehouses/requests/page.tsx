@@ -44,7 +44,8 @@ function statusBadge(status: string) {
 }
 
 function statusLabel(status: string, t: (key: any) => string): string {
-  if (status === "new" || status === "active") return t("status_new");
+  if (status === "new") return "Ожидает принятия операции";
+  if (status === "active") return "К выдаче";
   if (status === "preparing") return "Готовится";
   if (status === "ready") return "Готово к выдаче";
   if (status === "partially_issued") return "Частично выдано";
@@ -73,35 +74,34 @@ type WarehouseColumnKey =
   | "new"
   | "collecting"
   | "ready"
+  | "handoff"
   | "issued"
-  | "return_expected"
   | "returns";
 
 function warehouseColumnKey(row: WarehouseIssueRequest): WarehouseColumnKey {
   const v5Status = String(row.warehouse_request_status || "");
   if (v5Status === "collecting") return "collecting";
   if (v5Status === "ready_for_pickup") return "ready";
-  if (v5Status === "picked_up_by_specialist" || v5Status === "issued") return "issued";
-  if (v5Status === "return_expected") return "return_expected";
+  if (v5Status === "picked_up_by_specialist") return "handoff";
+  if (v5Status === "issued" || v5Status === "return_expected") return "issued";
   if (v5Status === "return_received" || v5Status === "closed") return "returns";
   if (v5Status === "cancelled") return "returns";
 
   if (row.status === "preparing") return "collecting";
   if (row.status === "ready") return "ready";
-  if (row.status === "received_confirmed" || row.status === "issued" || row.status === "issued_by_warehouse" || row.status === "partially_issued") {
-    return "issued";
-  }
+  if (row.status === "received_confirmed") return "handoff";
+  if (row.status === "issued" || row.status === "issued_by_warehouse" || row.status === "partially_issued") return "issued";
   if (row.status === "cancelled") return "returns";
   return "new";
 }
 
 const WAREHOUSE_COLUMNS: Array<{ key: WarehouseColumnKey; title: string }> = [
-  { key: "new", title: "Новые" },
+  { key: "new", title: "К выдаче" },
   { key: "collecting", title: "Сборка" },
-  { key: "ready", title: "Готово" },
-  { key: "issued", title: "Выдано" },
-  { key: "return_expected", title: "Ожидают возврат" },
-  { key: "returns", title: "Возвраты" },
+  { key: "ready", title: "Ждём спеца" },
+  { key: "handoff", title: "К отдаче" },
+  { key: "issued", title: "Отдано" },
+  { key: "returns", title: "История" },
 ];
 
 export default function WarehouseRequestsPage() {
@@ -142,7 +142,8 @@ export default function WarehouseRequestsPage() {
         getWarehouses(profile.company_id, false, language),
         getInventoryBalances(profile.company_id, language),
       ]);
-      setRequests(requestRows);
+      const visibleRequests = requestRows.filter((row) => row.status !== "new");
+      setRequests(visibleRequests);
       setWarehouses(warehouseRows);
       const nextBalanceMap: Record<string, number> = {};
       balances.forEach((row) => {
@@ -150,8 +151,10 @@ export default function WarehouseRequestsPage() {
       });
       setBalanceByWarehouseProduct(nextBalanceMap);
 
-      if (!selectedId && requestRows.length > 0) {
-        setSelectedId(requestRows[0].id);
+      if (!selectedId && visibleRequests.length > 0) {
+        setSelectedId(visibleRequests[0].id);
+      } else if (selectedId && !visibleRequests.some((row) => row.id === selectedId)) {
+        setSelectedId(visibleRequests[0]?.id || null);
       }
     } catch (error: any) {
       toast({
@@ -178,8 +181,7 @@ export default function WarehouseRequestsPage() {
       const matchStatus =
         statusFilter === "all" ||
         row.status === statusFilter ||
-        workflowStatus === statusFilter ||
-        (statusFilter === "active" && row.status === "new");
+        workflowStatus === statusFilter;
       return matchSearch && matchStatus;
     });
   }, [requests, search, statusFilter]);
@@ -499,8 +501,7 @@ export default function WarehouseRequestsPage() {
             </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t("all_statuses")}</SelectItem>
-                <SelectItem value="new">{t("status_new")}</SelectItem>
-                <SelectItem value="active">Активные</SelectItem>
+                <SelectItem value="active">К выдаче</SelectItem>
                 <SelectItem value="preparing">Готовится</SelectItem>
                 <SelectItem value="ready">{t("status_ready")}</SelectItem>
                 <SelectItem value="partially_issued">Частично выдано</SelectItem>
@@ -547,7 +548,7 @@ export default function WarehouseRequestsPage() {
                         <span className="shrink-0 text-[11px] text-slate-500">{row.items?.length || 0} поз.</span>
                       </div>
                       <div className="mt-2 line-clamp-2 text-[11px] text-slate-400">
-                        {row.operation_type || "Операция"} • {requestRecipientLabel(row)}
+                        {row.operation_type || "Операция"} • {row.field_name || "-"} • {requestRecipientLabel(row)}
                       </div>
                     </button>
                   ))
@@ -653,6 +654,7 @@ export default function WarehouseRequestsPage() {
                   <div><span className="text-slate-500">{t("status")}:</span> {statusLabel(selectedRequest.status, t)}</div>
                   <div><span className="text-slate-500">{t("operation")}:</span> {selectedRequest.operation_type} ({selectedRequest.operation_date || "-"})</div>
                   <div><span className="text-slate-500">{t("field")}:</span> {selectedRequest.field_name || "-"}</div>
+                  <div><span className="text-slate-500">Культура:</span> {[selectedRequest.crop_name, selectedRequest.variety_name, selectedRequest.reproduction_name].filter(Boolean).join(" • ") || "-"}</div>
                   <div><span className="text-slate-500">{t("recipient")}:</span> {requestRecipientLabel(selectedRequest)}</div>
                   <div><span className="text-slate-500">{t("planned_date")}:</span> {selectedRequest.planned_datetime ? new Date(selectedRequest.planned_datetime).toLocaleString() : "-"}</div>
                   <div><span className="text-slate-500">{t("comment")}:</span> {selectedRequest.comment || "-"}</div>
@@ -667,6 +669,7 @@ export default function WarehouseRequestsPage() {
                     disabled={
                       !canProcess ||
                       selectedRequest.status === "issued_by_warehouse" ||
+                      selectedRequest.status === "ready" ||
                       selectedRequest.status === "received_confirmed" ||
                       selectedRequest.status === "cancelled"
                     }
@@ -810,10 +813,10 @@ export default function WarehouseRequestsPage() {
                             }
                             disabled={submitting}
                           >
-                            Start preparation
+                            Начать сборку
                           </Button>
                         ) : null}
-                        <Button onClick={handleReady} disabled={submitting}>{t("mark_ready")}</Button>
+                        <Button onClick={handleReady} disabled={submitting}>Готово к выдаче</Button>
                         <Button variant="outline" onClick={handleCancel} disabled={submitting}>{t("cancel")}</Button>
                       </>
                     )}
@@ -821,7 +824,7 @@ export default function WarehouseRequestsPage() {
                     {selectedRequest.status === "ready" && (
                       <>
                         <div className="rounded-md border border-blue-500/40 bg-blue-950/30 px-3 py-2 text-sm text-blue-100">
-                          Ожидаем, когда специалист нажмёт «Товар принят». До этого «Выдано» недоступно.
+                          Склад собрал товар. Ожидаем, когда специалист нажмёт «Товар принят». До этого «Товар отдан» недоступно.
                         </div>
                         <Button variant="outline" onClick={handleCancel} disabled={submitting}>{t("cancel")}</Button>
                       </>
@@ -833,7 +836,7 @@ export default function WarehouseRequestsPage() {
                           Создать талон выдачи
                         </Button>
                         <Button onClick={handleIssue} disabled={submitting || !effectiveSourceWarehouseId || hasStockShortage}>
-                          {t("confirm_physical_issue")}
+                          Товар отдан
                         </Button>
                         <Button variant="outline" onClick={handleCancel} disabled={submitting}>{t("cancel")}</Button>
                       </>
@@ -845,13 +848,13 @@ export default function WarehouseRequestsPage() {
                   selectedRequest.status === "issued" ||
                   selectedRequest.status === "partially_issued") && (
                     <div className="rounded-md border border-violet-500/40 bg-violet-950/30 p-3 text-sm text-violet-100">
-                    Фактическая выдача подтверждена складом. Движение зафиксировано.
+                    Товар отдан. Складское списание зафиксировано.
                   </div>
                 )}
 
                 {selectedRequest.status === "received_confirmed" && (
                   <div className="rounded-md border border-emerald-500/40 bg-emerald-950/30 p-3 text-sm text-emerald-100">
-                    Специалист принял подготовленный товар. Теперь склад может подтвердить фактическую выдачу.
+                    Специалист подтвердил получение. Теперь можно нажать «Товар отдан» и списать материалы со склада.
                   </div>
                 )}
               </>

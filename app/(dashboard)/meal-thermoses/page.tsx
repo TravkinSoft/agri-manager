@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
@@ -120,11 +121,11 @@ function isBrigadierRole(role: string | null | undefined) {
 }
 
 export default function MealThermosesPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const companyId = profile?.company_id || null;
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [bootstrap, setBootstrap] = useState<MealThermosBootstrapPayload | null>(null);
   const [mealDateFilter, setMealDateFilter] = useState<string>(new Date().toISOString().slice(0, 10));
@@ -188,16 +189,26 @@ export default function MealThermosesPage() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
     if (companyId && canRead) {
       void loadBootstrap();
+    } else {
+      setLoading(false);
     }
-  }, [companyId, canRead, mealDateFilter, statusFilter]);
+  }, [authLoading, companyId, canRead, mealDateFilter, statusFilter]);
 
   const orders = bootstrap?.orders || [];
   const fields = bootstrap?.fields || [];
   const thermoses = bootstrap?.thermoses || [];
   const awaitingReturns = bootstrap?.awaiting_returns || [];
   const summary = bootstrap?.summary;
+  const dataLoading = authLoading || loading || (canRead && !bootstrap);
+  const summaryValue = (value: number | undefined, className = "text-slate-100") =>
+    dataLoading ? (
+      <Skeleton className="mt-2 h-6 w-14 bg-slate-700" />
+    ) : (
+      <div className={`text-xl font-semibold ${className}`}>{value ?? 0}</div>
+    );
 
   const fieldById = useMemo(() => {
     const map = new Map<string, { id: string; name: string; area: number | null }>();
@@ -359,6 +370,10 @@ export default function MealThermosesPage() {
     }
   };
 
+  if (authLoading) {
+    return <PageHeader title="Питание / Термосы" description="Проверка доступа..." />;
+  }
+
   if (!canRead) {
     return <PageHeader title="Питание / Термосы" description="Нет доступа для текущей роли" />;
   }
@@ -378,27 +393,27 @@ export default function MealThermosesPage() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
             <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
               <div className="text-xs text-slate-400">Заявок сегодня</div>
-              <div className="text-xl font-semibold text-slate-100">{summary?.orders_today ?? 0}</div>
+              {summaryValue(summary?.orders_today)}
             </div>
             <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
               <div className="text-xs text-slate-400">Обедов сегодня</div>
-              <div className="text-xl font-semibold text-slate-100">{summary?.lunches_today ?? 0}</div>
+              {summaryValue(summary?.lunches_today)}
             </div>
             <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
               <div className="text-xs text-slate-400">Выдано термосов</div>
-              <div className="text-xl font-semibold text-slate-100">{summary?.thermoses_issued ?? 0}</div>
+              {summaryValue(summary?.thermoses_issued)}
             </div>
             <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
               <div className="text-xs text-slate-400">Ожидают возврата</div>
-              <div className="text-xl font-semibold text-slate-100">{summary?.awaiting_return ?? 0}</div>
+              {summaryValue(summary?.awaiting_return)}
             </div>
             <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
               <div className="text-xs text-slate-400">Потеряно</div>
-              <div className="text-xl font-semibold text-rose-300">{summary?.thermoses_lost ?? 0}</div>
+              {summaryValue(summary?.thermoses_lost, "text-rose-300")}
             </div>
             <div className="rounded-lg border border-[#2B3448] bg-[#151C28] p-3">
               <div className="text-xs text-slate-400">Повреждено</div>
-              <div className="text-xl font-semibold text-amber-300">{summary?.thermoses_damaged ?? 0}</div>
+              {summaryValue(summary?.thermoses_damaged, "text-amber-300")}
             </div>
           </div>
         </CardContent>
@@ -430,7 +445,7 @@ export default function MealThermosesPage() {
               </Select>
             </div>
             <div className="flex items-end md:col-span-2">
-              <Button variant="outline" onClick={() => void loadBootstrap()} disabled={loading}>
+              <Button variant="outline" onClick={() => void loadBootstrap()} disabled={dataLoading}>
                 Обновить
               </Button>
             </div>
@@ -540,8 +555,8 @@ export default function MealThermosesPage() {
             <CardTitle className="text-base">Очередь заявок</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {loading ? <div className="text-sm text-slate-400">Загрузка...</div> : null}
-            {!loading && orders.length === 0 ? (
+            {dataLoading ? <div className="text-sm text-slate-400">Загрузка...</div> : null}
+            {!dataLoading && orders.length === 0 ? (
               <div className="rounded-lg border border-dashed border-[#2B3448] p-3 text-sm text-slate-400">
                 Заявки не найдены.
               </div>
@@ -689,7 +704,7 @@ export default function MealThermosesPage() {
             <CardTitle className="text-base">Ожидают возврата</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {awaitingReturns.length === 0 ? (
+            {!dataLoading && awaitingReturns.length === 0 ? (
               <div className="rounded-lg border border-dashed border-[#2B3448] p-3 text-sm text-slate-400">
                 Выданных термосов без возврата сейчас нет.
               </div>
@@ -779,7 +794,7 @@ export default function MealThermosesPage() {
               </div>
             ) : null}
 
-            {thermoses.length === 0 ? (
+            {!dataLoading && thermoses.length === 0 ? (
               <div className="rounded-lg border border-dashed border-[#2B3448] p-3 text-sm text-slate-400">
                 Термосы пока не добавлены.
               </div>

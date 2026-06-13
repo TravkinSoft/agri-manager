@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  ArrowDown,
   AudioLines,
   Bot,
   Clock3,
@@ -641,6 +642,8 @@ export function AssistantChatPane({
   const [confirmingDraftId, setConfirmingDraftId] = useState<string | null>(null);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [expandedDraftRecommendations, setExpandedDraftRecommendations] = useState<Record<string, boolean>>({});
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -650,6 +653,28 @@ export function AssistantChatPane({
     window.requestAnimationFrame(() => {
       inputRef.current?.focus();
     });
+  }, []);
+  const updateJumpToBottomVisibility = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container || activeTab !== "chat") {
+      setShowJumpToBottom(false);
+      return;
+    }
+
+    const bottomGap = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const shouldShow = bottomGap > 120 && messages.length > 0;
+    setShowJumpToBottom((current) => (current === shouldShow ? current : shouldShow));
+  }, [activeTab, messages.length]);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior });
+      setShowJumpToBottom(false);
+      return;
+    }
+    bottomRef.current?.scrollIntoView({ behavior, block: "end" });
+    setShowJumpToBottom(false);
   }, []);
 
   const disabledReason = useMemo(() => resolveDisabledReason(access), [access]);
@@ -934,9 +959,29 @@ export function AssistantChatPane({
     return () => window.clearInterval(id);
   }, [loading]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, loading, activeTab]);
+  useLayoutEffect(() => {
+    if (!isOpen || activeTab !== "chat") {
+      setShowJumpToBottom(false);
+      return;
+    }
+
+    if (showJumpToBottom && !loading) {
+      updateJumpToBottomVisibility();
+      return;
+    }
+
+    scrollToBottom();
+  }, [
+    activeTab,
+    isOpen,
+    loading,
+    messages.length,
+    messagesLoading,
+    scrollToBottom,
+    showJumpToBottom,
+    storageHydrated,
+    updateJumpToBottomVisibility,
+  ]);
 
   useEffect(() => {
     if (activeTab === "chat") {
@@ -1937,8 +1982,12 @@ export function AssistantChatPane({
           </TabsList>
         </div>
 
-        <TabsContent value="chat" className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-          <div className="travkin-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+        <TabsContent value="chat" className="relative mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
+          <div
+            ref={scrollContainerRef}
+            onScroll={updateJumpToBottomVisibility}
+            className="travkin-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4"
+          >
             {messagesLoading && messages.length === 0 ? (
               <div className="flex items-center gap-2 px-1 py-2 text-xs text-[#94A3B8]">
                 <Loader2 className="h-4 w-4 animate-spin text-[#E0B100]" />
@@ -2069,6 +2118,18 @@ export function AssistantChatPane({
             ) : null}
             <div ref={bottomRef} />
           </div>
+
+          {showJumpToBottom ? (
+            <button
+              type="button"
+              aria-label="Перейти к последнему сообщению"
+              title="Перейти к последнему сообщению"
+              onClick={() => scrollToBottom()}
+              className="absolute bottom-[92px] left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-[#334058] bg-[#0B111B]/95 text-[#E0B100] shadow-[0_10px_28px_rgba(0,0,0,0.38)] backdrop-blur transition hover:border-[#E0B100]/70 hover:bg-[#151C28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E0B100]/70"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </button>
+          ) : null}
 
           <div className="border-t border-[#262D3D] bg-[#0F141E] px-3 py-3">
             {voiceState === "recording" ? (

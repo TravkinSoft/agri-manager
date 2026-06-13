@@ -27,7 +27,9 @@ export function AssistantLauncher() {
 
       <button
         type="button"
+        onPointerEnter={open}
         onMouseEnter={open}
+        onMouseMove={open}
         onFocus={open}
         onClick={open}
         aria-label="Открыть Travkin Copilot"

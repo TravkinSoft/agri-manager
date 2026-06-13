@@ -289,7 +289,7 @@ export async function ensureMaterialRequestForOperation(params: {
       assigned_specialist_id: responsibleUserId,
       planned_datetime: `${operationDate}T08:00:00.000Z`,
       comment: "Auto-created from operation",
-      status: "active",
+      status: "new",
     })
     .select("id,request_number,status")
     .single();

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFieldDisplayName } from "@/lib/fields/display";
 import { fieldsMapErrorResponse, resolveFieldsMapContext } from "@/lib/fields-map/server";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { FieldMapFieldCard, FieldsMapBootstrapPayload, GeoJsonGeometry } from "@/lib/types/fields-map";
 import { getServiceClient } from "@/lib/supabase/service";
 
@@ -57,9 +58,9 @@ type CropRow = {
   crop_id: string | null;
   variety_id: string | null;
   reproduction_id: string | null;
-  crops?: { name?: string | null } | null;
+  crops?: { name?: string | null; name_ru?: string | null; name_kz?: string | null; name_en?: string | null; slug?: string | null } | null;
   varieties?: { name?: string | null } | null;
-  seed_reproductions?: { name?: string | null } | null;
+  seed_reproductions?: { name?: string | null; name_ru?: string | null; name_kz?: string | null; name_en?: string | null; code?: string | null } | null;
 };
 
 function resolveWorkStatus(operationRows: any[]): FieldMapFieldCard["work_status"] {
@@ -144,10 +145,10 @@ function buildFieldCards(params: {
       crop_plan: mainCrop
         ? {
             crop_id: mainCrop.crop_id ? String(mainCrop.crop_id) : null,
-            crop_name: mainCrop.crops?.name == null ? null : String(mainCrop.crops.name),
-            variety_name: mainCrop.varieties?.name == null ? null : String(mainCrop.varieties.name),
+            crop_name: localizedName(mainCrop.crops, "ru") || null,
+            variety_name: brandName(mainCrop.varieties) || null,
             reproduction_name:
-              mainCrop.seed_reproductions?.name == null ? null : String(mainCrop.seed_reproductions.name),
+              localizedName(mainCrop.seed_reproductions, "ru", ["name", "code"]) || null,
             planned_area_ha: Number(mainCrop.area || 0),
           }
         : null,
@@ -164,66 +165,67 @@ export async function GET(request: NextRequest) {
     const seasonIdParam = request.nextUrl.searchParams.get("seasonId");
     const { selectedSeasonId, seasons } = await resolveSeasonId({ seasonIdParam, companyId, supabase });
     const selectedSeason = seasons.find((item) => item.id === selectedSeasonId) || null;
+    const selectedYear = selectedSeason?.year ? Number(selectedSeason.year) : null;
 
-    const companyRes = await supabase.from("companies").select("id,name").eq("id", companyId).maybeSingle();
-    if (companyRes.error || !companyRes.data?.id) {
-      return NextResponse.json({ error: companyRes.error?.message || "Компания не найдена" }, { status: 400 });
-    }
-
-    const fieldsRes = await supabase
+    const companyPromise = supabase.from("companies").select("id,name").eq("id", companyId).maybeSingle();
+    const fieldsPromise = supabase
       .from("fields")
       .select("id,name,area,notes")
       .eq("company_id", companyId)
       .eq("archived", false)
       .order("name", { ascending: true });
+    const geometryPromise = supabase
+      .from("field_geometries")
+      .select("id,field_id,geometry_geojson,area_from_kml_ha")
+      .eq("company_id", companyId)
+      .eq("is_active", true);
+    const cropPromise = selectedSeasonId
+      ? supabase
+          .from("crop_structure")
+          .select("field_id,area,crop_id,variety_id,reproduction_id,crops(name,name_ru,name_kz,name_en,slug),varieties(name),seed_reproductions(name,name_ru,name_kz,name_en,code)")
+          .eq("company_id", companyId)
+          .eq("season_id", selectedSeasonId)
+          .eq("archived", false)
+      : Promise.resolve({ data: [], error: null } as any);
+    const operationsPromise = selectedYear
+      ? supabase
+          .from("operations")
+          .select("id,field_id,operation_type,date,status,work_status,created_at")
+          .eq("company_id", companyId)
+          .eq("archived", false)
+          .gte("date", `${selectedYear}-01-01`)
+          .lte("date", `${selectedYear}-12-31`)
+          .order("date", { ascending: false })
+          .limit(300)
+      : Promise.resolve({ data: [], error: null } as any);
+
+    const [companyRes, fieldsRes, geometryRes, cropRes, operationsRes] = await Promise.all([
+      companyPromise,
+      fieldsPromise,
+      geometryPromise,
+      cropPromise,
+      operationsPromise,
+    ]);
+    if (companyRes.error || !companyRes.data?.id) {
+      return NextResponse.json({ error: companyRes.error?.message || "Компания не найдена" }, { status: 400 });
+    }
 
     if (fieldsRes.error) {
       return NextResponse.json({ error: fieldsRes.error.message }, { status: 400 });
     }
 
-    const geometryRes = await supabase
-      .from("field_geometries")
-      .select("id,field_id,geometry_geojson,area_from_kml_ha")
-      .eq("company_id", companyId)
-      .eq("is_active", true);
-
     if (geometryRes.error) {
       throw new Error(geometryRes.error.message);
     }
 
-    let cropRows: CropRow[] = [];
-    if (selectedSeasonId) {
-      const cropRes = await supabase
-        .from("crop_structure")
-        .select("field_id,area,crop_id,variety_id,reproduction_id,crops(name),varieties(name),seed_reproductions(name)")
-        .eq("company_id", companyId)
-        .eq("season_id", selectedSeasonId)
-        .eq("archived", false);
-      if (!cropRes.error) {
-        cropRows = (cropRes.data || []) as CropRow[];
-      }
-    }
-
-    let operationRows: any[] = [];
-    if (selectedSeason?.year) {
-      const year = Number(selectedSeason.year);
-      const operationsRes = await supabase
-        .from("operations")
-        .select("id,field_id,operation_type,date,status,work_status,created_at")
-        .eq("company_id", companyId)
-        .eq("archived", false)
-        .gte("date", `${year}-01-01`)
-        .lte("date", `${year}-12-31`)
-        .order("date", { ascending: false })
-        .limit(300);
-      if (!operationsRes.error) {
-        operationRows = (operationsRes.data || []).map((row: any) => ({
+    const cropRows: CropRow[] = cropRes.error ? [] : ((cropRes.data || []) as CropRow[]);
+    const operationRows: any[] = operationsRes.error
+      ? []
+      : (operationsRes.data || []).map((row: any) => ({
           ...row,
           operation_date: row.date,
           status: row.work_status || row.status,
         }));
-      }
-    }
 
     const payload: FieldsMapBootstrapPayload = {
       company: { id: String(companyRes.data.id), name: String(companyRes.data.name || "") },

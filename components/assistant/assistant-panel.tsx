@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Bot, Download, Maximize2, Minimize2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Bot, Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AssistantConversationHost } from "@/components/assistant/assistant-conversation-host";
@@ -23,6 +23,7 @@ export function AssistantPanel() {
     setPanelWidth,
   } = useAssistantShell();
   const engine = defaultAssistantPanelEngine;
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const [exportChatEnabled, setExportChatEnabled] = useState(false);
   const [isMobileView, setIsMobileView] = useState(false);
 
@@ -42,6 +43,18 @@ export function AssistantPanel() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (contentRef.current?.contains(target)) return;
+      close();
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [close, isOpen]);
 
   const clampPanelWidth = useCallback((width: number) => {
     if (typeof window === "undefined") return Math.min(920, Math.max(360, width));
@@ -81,13 +94,14 @@ export function AssistantPanel() {
   return (
     <Sheet modal={false} open={isOpen} onOpenChange={(next) => (next ? open() : close())}>
       <SheetContent
+        ref={contentRef}
         forceMount
         side={isMobileView ? "bottom" : "right"}
         showOverlay={false}
         showClose={false}
-        onPointerDownOutside={(event) => event.preventDefault()}
-        onInteractOutside={(event) => event.preventDefault()}
-        onEscapeKeyDown={(event) => event.preventDefault()}
+        onPointerDownOutside={() => close()}
+        onInteractOutside={() => close()}
+        onEscapeKeyDown={() => close()}
         className={
           isMobileView
             ? "travkin-scrollbar h-[82vh] w-full max-w-none rounded-t-2xl border-[#262D3D] bg-[#11151E] p-0"
@@ -150,43 +164,6 @@ export function AssistantPanel() {
                     {debugMonitorOpen ? "Debug: вкл" : "Debug"}
                   </Button>
                 ) : null}
-                {!isMobileView ? (
-                  <>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      aria-label="Компактная ширина"
-                      title="Компактная ширина"
-                      className="h-9 w-9 border-[#334058] bg-[#121824] text-[#E5E7EB] hover:bg-[#202738]"
-                      onClick={() => setPanelWidth(420)}
-                    >
-                      <Minimize2 className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      type="button"
-                      size="icon"
-                      variant="outline"
-                      aria-label="Расширить до половины экрана"
-                      title="Расширить до половины экрана"
-                      className="h-9 w-9 border-[#334058] bg-[#121824] text-[#E5E7EB] hover:bg-[#202738]"
-                      onClick={() => setPanelWidth(clampPanelWidth(Math.floor(window.innerWidth * 0.5)))}
-                    >
-                      <Maximize2 className="h-4 w-4" />
-                    </Button>
-                  </>
-                ) : null}
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="outline"
-                  aria-label="Свернуть Copilot"
-                  title="Свернуть Copilot"
-                  className="h-9 w-9 border-[#334058] bg-[#121824] text-[#E5E7EB] hover:bg-[#202738]"
-                  onClick={close}
-                >
-                  <Minimize2 className="h-4 w-4" />
-                </Button>
               </div>
             </div>
           </SheetHeader>

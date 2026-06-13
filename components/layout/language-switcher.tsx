@@ -14,14 +14,15 @@ export function LanguageSwitcher() {
   ];
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-0.5 rounded-xl bg-[#0B0F17]/60 p-0.5">
       {languages.map((lang) => (
         <Button
           key={lang.code}
           variant={language === lang.code ? 'default' : 'ghost'}
           size="sm"
           onClick={() => setLanguage(lang.code)}
-          className="h-8 px-2 text-xs font-medium"
+          aria-label={lang.label}
+          className="h-8 min-w-8 rounded-lg px-2 text-xs font-medium"
         >
           {lang.label}
         </Button>

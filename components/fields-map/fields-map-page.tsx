@@ -640,6 +640,7 @@ export function FieldsMapPage() {
     () => fields.filter((field) => includeByCrop(field.crop_plan?.crop_name, selectedCrop)),
     [fields, selectedCrop]
   );
+  const filteredFieldsCountLabel = loading ? "..." : String(filteredFields.length);
 
   const mappedFields = useMemo(() => filteredFields.filter((field) => !!field.geometry), [filteredFields]);
 
@@ -1832,7 +1833,7 @@ export function FieldsMapPage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[340px_1fr]">
         <Card className={`${showFieldListMobile ? "block" : "hidden"} order-2 md:block xl:order-1`}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Поля ({filteredFields.length})</CardTitle>
+            <CardTitle className="text-base">Поля ({filteredFieldsCountLabel})</CardTitle>
           </CardHeader>
           <CardContent className="travkin-scrollbar max-h-[700px] space-y-2 overflow-y-auto">
             <div className="mb-2 space-y-2 rounded-lg border border-[#2B3448] bg-[#151C28] p-2">
@@ -1903,7 +1904,7 @@ export function FieldsMapPage() {
                 </button>
               );
             })}
-            {filteredFields.length === 0 ? <div className="text-sm text-slate-400">Поля по фильтру не найдены.</div> : null}
+            {!loading && filteredFields.length === 0 ? <div className="text-sm text-slate-400">Поля по фильтру не найдены.</div> : null}
           </CardContent>
         </Card>
 
@@ -2352,7 +2353,7 @@ export function FieldsMapPage() {
               </tbody>
             </table>
           </div>
-          {imports.length === 0 ? <div className="py-4 text-sm text-slate-400">История импортов пока пустая.</div> : null}
+          {!loading && imports.length === 0 ? <div className="py-4 text-sm text-slate-400">История импортов пока пустая.</div> : null}
         </CardContent>
       </Card>
     </div>

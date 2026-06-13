@@ -136,6 +136,7 @@ export async function GET(request: NextRequest) {
         field_name: row.fields?.name || "-",
         operation_type: row.operations?.operation_type || "-",
         operation_date: row.operations?.date || null,
+        operation_notes: row.operations?.notes || null,
         operation_work_status: row.operations?.work_status || row.operations?.status || null,
         crop_name: localizedName(row.crops, "ru") || null,
         variety_name: brandName(row.varieties) || null,
