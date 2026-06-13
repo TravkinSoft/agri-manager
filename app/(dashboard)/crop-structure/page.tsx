@@ -1240,10 +1240,10 @@ export default function CropStructurePage() {
     return (
       <Card
         key={field.id}
-        className="h-[188px] cursor-pointer overflow-hidden border-slate-200 transition hover:border-emerald-300 hover:shadow-sm"
+        className="h-[202px] cursor-pointer overflow-hidden border-slate-200 transition hover:border-emerald-300 hover:shadow-sm"
         onClick={() => openField(field.id)}
       >
-        <CardContent className="flex h-full flex-col p-3">
+        <CardContent className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-3">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0 truncate text-[20px] font-bold leading-tight text-[#facc15]">
               Поле {field.name}
@@ -1253,28 +1253,28 @@ export default function CropStructurePage() {
             </div>
           </div>
 
-          <div className="mt-3 min-h-0 flex-1 space-y-1.5">
+          <div className="min-h-0 space-y-1 overflow-hidden">
             {visibleCrops.length ? visibleCrops.map((item) => (
-              <div key={`${field.id}-${item.cropId || item.name}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1.5 py-0.5 text-[13px] leading-5 text-slate-100">
+              <div key={`${field.id}-${item.cropId || item.name}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-0 text-[12px] leading-[18px] text-slate-100">
                 <span className="shrink-0 text-base leading-none">{cropIcon(item.name)}</span>
                 <span className="min-w-0 truncate font-medium">{item.name}</span>
-                <span className="shrink-0 rounded-md bg-slate-800/80 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-100">{fmtHa(item.area)}</span>
+                <span className="shrink-0 rounded-md bg-slate-800/80 px-1.5 py-0 text-[10px] font-semibold tabular-nums text-slate-100">{fmtHa(item.area)}</span>
               </div>
             )) : (
               <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2 py-3 text-center text-xs text-slate-500">
                 Культура не задана
               </div>
             )}
-            {hiddenCrops > 0 ? <div className="truncate px-1.5 text-xs font-medium text-slate-400">+ ещё {hiddenCrops}</div> : null}
+            {hiddenCrops > 0 ? <div className="truncate px-1 text-[12px] font-medium leading-[18px] text-slate-400">+ ещё {hiddenCrops}</div> : null}
           </div>
 
           <Button
             type="button"
-            className="mt-3 h-9 w-full"
+            className="h-8 w-full text-[12px]"
             onClick={(event) => openPrimaryOperationPlan(field, event)}
             disabled={!FIELD_FIRST_CREATE_ENABLED}
           >
-            <Plus className="mr-2 h-4 w-4" />Операция
+            <Plus className="mr-1.5 h-3.5 w-3.5" />Операция
           </Button>
         </CardContent>
       </Card>
