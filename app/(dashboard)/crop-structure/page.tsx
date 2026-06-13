@@ -1244,26 +1244,28 @@ export default function CropStructurePage() {
         onClick={() => openField(field.id)}
       >
         <CardContent className="flex h-full flex-col p-3">
-          <div className="min-w-0">
-            <div className="truncate text-[20px] font-bold leading-tight text-[#facc15]">
-              Поле {field.name} — {fmtHa(field.area)}
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0 truncate text-[20px] font-bold leading-tight text-[#facc15]">
+              Поле {field.name}
+            </div>
+            <div className="shrink-0 rounded-md border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-100">
+              {fmtHa(field.area)}
             </div>
           </div>
 
           <div className="mt-3 min-h-0 flex-1 space-y-1.5">
             {visibleCrops.length ? visibleCrops.map((item) => (
-              <div key={`${field.id}-${item.cropId || item.name}`} className="flex min-w-0 items-center gap-1.5 text-[13px] leading-5 text-slate-800">
+              <div key={`${field.id}-${item.cropId || item.name}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1.5 py-0.5 text-[13px] leading-5 text-slate-100">
                 <span className="shrink-0 text-base leading-none">{cropIcon(item.name)}</span>
-                <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-                <span className="shrink-0 text-slate-500">—</span>
-                <span className="shrink-0 font-semibold text-slate-900">{fmtHa(item.area)}</span>
+                <span className="min-w-0 truncate font-medium">{item.name}</span>
+                <span className="shrink-0 rounded-md bg-slate-800/80 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-100">{fmtHa(item.area)}</span>
               </div>
             )) : (
               <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2 py-3 text-center text-xs text-slate-500">
                 Культура не задана
               </div>
             )}
-            {hiddenCrops > 0 ? <div className="truncate text-xs font-medium text-slate-500">* ещё {hiddenCrops}</div> : null}
+            {hiddenCrops > 0 ? <div className="truncate px-1.5 text-xs font-medium text-slate-400">+ ещё {hiddenCrops}</div> : null}
           </div>
 
           <Button
@@ -1302,13 +1304,15 @@ export default function CropStructurePage() {
                     <td className="px-3 py-2 font-semibold text-[#facc15]">Поле {field.name}</td>
                     <td className="px-3 py-2 text-slate-700">
                       {visibleCrops.length ? (
-                        <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1">
+                        <div className="flex min-w-0 flex-wrap gap-2">
                           {visibleCrops.map((item) => (
-                            <span key={`${field.id}-table-${item.cropId || item.name}`} className="max-w-[220px] truncate">
-                              {cropIcon(item.name)} {item.name} — {fmtHa(item.area)}
+                            <span key={`${field.id}-table-${item.cropId || item.name}`} className="inline-flex max-w-[240px] items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1">
+                              <span className="shrink-0">{cropIcon(item.name)}</span>
+                              <span className="min-w-0 truncate">{item.name}</span>
+                              <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">{fmtHa(item.area)}</span>
                             </span>
                           ))}
-                          {hiddenCrops > 0 ? <span className="text-slate-500">* ещё {hiddenCrops}</span> : null}
+                          {hiddenCrops > 0 ? <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-slate-500">+ ещё {hiddenCrops}</span> : null}
                         </div>
                       ) : (
                         <span className="text-slate-400">Культура не задана</span>
