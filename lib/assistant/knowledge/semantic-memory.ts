@@ -71,10 +71,10 @@ const INTENT_SECTION_HINTS: Record<AssistantIntentName, string[]> = {
   navigation_help: ["6. ERP -> Tool Map", "5. Default Decision Tree"],
   create_draft: ["1.2 Core Operational Principles", "6. ERP -> Tool Map"],
   clarification_required: ["5. Default Decision Tree"],
-  warehouse_count: ["3.4 РЎРєР»Р°РґС‹ Рё РѕСЃС‚Р°С‚РєРё", "4.4 Warehouse Balance Template", "6. ERP -> Tool Map"],
-  crop_structure_area: ["3.2 РЎС‚СЂСѓРєС‚СѓСЂР° РїРѕСЃРµРІРѕРІ", "4.2 Crop Structure Summary Template", "6. ERP -> Tool Map"],
-  field_total_area: ["3.1 РџРѕР»СЏ", "4.1 Fields Summary Template", "6. ERP -> Tool Map"],
-  rotation_history: ["3.1 РџРѕР»СЏ", "5. Default Decision Tree", "6. ERP -> Tool Map"],
+  warehouse_count: ["3.4 Склады и остатки", "4.4 Warehouse Balance Template", "6. ERP -> Tool Map"],
+  crop_structure_area: ["3.2 Структура посевов", "4.2 Crop Structure Summary Template", "6. ERP -> Tool Map"],
+  field_total_area: ["3.1 Поля", "4.1 Fields Summary Template", "6. ERP -> Tool Map"],
+  rotation_history: ["3.1 Поля", "5. Default Decision Tree", "6. ERP -> Tool Map"],
   general_question: ["1.2 Core Operational Principles", "5. Default Decision Tree"],
 };
 

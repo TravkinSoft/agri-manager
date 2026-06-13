@@ -45,9 +45,11 @@ type AssistantShellContextValue = {
   debugMonitorOpen: boolean;
   debugMonitorCollapsed: boolean;
   debugSnapshot: AssistantDebugMetadata | null;
+  panelWidth: number;
   setContextEntity: (entity: AssistantContextEntity | null) => void;
   setSelectedRows: (rows: string[]) => void;
   setManualFilters: (filters: Record<string, string | string[]>) => void;
+  setPanelWidth: (width: number) => void;
   openDebugMonitor: () => void;
   closeDebugMonitor: () => void;
   toggleDebugMonitor: () => void;
@@ -85,6 +87,15 @@ type AssistantServerContextPayload = {
 };
 
 const DEFAULT_ASSISTANT_SEASON = "2026";
+const DEFAULT_ASSISTANT_PANEL_WIDTH = 520;
+const MIN_ASSISTANT_PANEL_WIDTH = 360;
+const MAX_ASSISTANT_PANEL_WIDTH = 920;
+
+function clampAssistantPanelWidth(width: unknown): number {
+  const parsed = typeof width === "number" ? width : Number(width);
+  if (!Number.isFinite(parsed)) return DEFAULT_ASSISTANT_PANEL_WIDTH;
+  return Math.min(MAX_ASSISTANT_PANEL_WIDTH, Math.max(MIN_ASSISTANT_PANEL_WIDTH, Math.round(parsed)));
+}
 
 function createSessionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -136,6 +147,22 @@ async function getAuthHeaders() {
 }
 
 function mapContextErrorMessage(code: string | null, fallback: string | null): string {
+  const readableMessages: Record<string, string> = {
+    COMPANY_CONTEXT_REQUIRED: "Выберите компанию в верхнем переключателе, чтобы использовать ассистента.",
+    COMPANY_CONTEXT_MISSING: "Компания для текущего пользователя не настроена. Обратитесь к администратору.",
+    COMPANY_CONTEXT_INVALID: "Контекст компании поврежден. Выберите компанию заново в верхнем переключателе.",
+    COMPANY_CONTEXT_MISMATCH: "Запрошенный контекст компании не совпадает с вашим доступом.",
+    ROLE_FORBIDDEN: "Для вашей роли ассистент недоступен.",
+    ROLE_LEGACY_ALIAS: "Обнаружена устаревшая роль пользователя. Обновите роль через администратора.",
+    AUTH_MISSING: "Сессия истекла. Обновите страницу и войдите снова.",
+    AUTH_INVALID: "Сессия истекла. Обновите страницу и войдите снова.",
+    PROFILE_NOT_FOUND: "Профиль пользователя не найден. Обратитесь к администратору.",
+    PROFILE_INACTIVE: "Профиль пользователя неактивен.",
+    ROLE_UNKNOWN: "Роль пользователя не распознана. Доступ к ассистенту закрыт.",
+  };
+  if (code && readableMessages[code]) return readableMessages[code];
+  return fallback || "Не удалось определить контекст ассистента.";
+
   switch (code) {
     case "COMPANY_CONTEXT_REQUIRED":
       return "Выберите компанию в верхнем переключателе, чтобы использовать ассистента.";
@@ -187,6 +214,7 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
   const [debugMonitorOpen, setDebugMonitorOpen] = useState(false);
   const [debugMonitorCollapsed, setDebugMonitorCollapsed] = useState(false);
   const [debugSnapshot, setDebugSnapshot] = useState<AssistantDebugMetadata | null>(null);
+  const [panelWidth, setPanelWidthState] = useState(DEFAULT_ASSISTANT_PANEL_WIDTH);
   const [manualEntity, setManualEntity] = useState<AssistantContextEntity | null>(null);
   const [selectedRows, setSelectedRows] = useState<string[]>([]);
   const [manualFilters, setManualFilters] = useState<Record<string, string | string[]>>({});
@@ -196,21 +224,22 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
   }));
 
   const [serverContext, setServerContext] = useState<AssistantServerContextPayload | null>(null);
+  const initialAccessMessage = enabled
+    ? "Загрузка контекста ассистента..."
+    : profile?.role_is_legacy_alias
+      ? "Обнаружена устаревшая роль пользователя. Обновите роль через администратора."
+      : "Ассистент недоступен для текущей роли.";
   const [access, setAccess] = useState<AssistantAccessState>({
     status: enabled ? "loading" : "denied",
     role: profile?.role || null,
-    message: enabled
-      ? "Загрузка контекста ассистента..."
-      : profile?.role_is_legacy_alias
-        ? "Обнаружена устаревшая роль пользователя. Обновите роль через администратора."
-        : "Ассистент недоступен для текущей роли.",
+    message: initialAccessMessage,
     debugSource: null,
     debugDetails: null,
   });
 
   const contextFromRoute = useMemo(() => {
     const filters: Record<string, string | string[]> = {};
-    searchParams.forEach((value, key) => {
+    searchParams?.forEach((value, key) => {
       if (key in filters) {
         const current = filters[key];
         filters[key] = Array.isArray(current) ? [...current, value] : [current, value];
@@ -221,12 +250,23 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
     return filters;
   }, [searchParams]);
 
+  const shellStorageKey = useMemo(() => storageKey(user?.id, profile?.company_id || null), [user?.id, profile?.company_id]);
+  const [storageHydrated, setStorageHydrated] = useState(false);
+  const [hydratedStorageKey, setHydratedStorageKey] = useState<string | null>(null);
+
   useEffect(() => {
-    const key = storageKey(user?.id, profile?.company_id || null);
-    if (!key) return;
+    setStorageHydrated(false);
+    setHydratedStorageKey(shellStorageKey);
+    if (!shellStorageKey) {
+      setStorageHydrated(true);
+      return;
+    }
     try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return;
+      const raw = localStorage.getItem(shellStorageKey);
+      if (!raw) {
+        setStorageHydrated(true);
+        return;
+      }
       const parsed = JSON.parse(raw) as {
         isOpen?: boolean;
         debugMonitorOpen?: boolean;
@@ -234,6 +274,7 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
         sessionId?: string;
         selectedRows?: string[];
         manualFilters?: Record<string, string | string[]>;
+        panelWidth?: number;
       };
       if (typeof parsed.isOpen === "boolean") setIsOpen(parsed.isOpen);
       if (typeof parsed.debugMonitorOpen === "boolean") setDebugMonitorOpen(parsed.debugMonitorOpen);
@@ -241,14 +282,16 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
       if (parsed.sessionId) setSession({ sessionId: parsed.sessionId, updatedAt: new Date().toISOString() });
       if (Array.isArray(parsed.selectedRows)) setSelectedRows(parsed.selectedRows.map(String));
       if (parsed.manualFilters && typeof parsed.manualFilters === "object") setManualFilters(parsed.manualFilters);
+      if (parsed.panelWidth != null) setPanelWidthState(clampAssistantPanelWidth(parsed.panelWidth));
     } catch {
       // Ignore malformed local storage payload.
+    } finally {
+      setStorageHydrated(true);
     }
-  }, [user?.id, profile?.company_id]);
+  }, [shellStorageKey]);
 
   useEffect(() => {
-    const key = storageKey(user?.id, profile?.company_id || null);
-    if (!key) return;
+    if (!shellStorageKey || !storageHydrated || hydratedStorageKey !== shellStorageKey) return;
     const payload = {
       isOpen,
       debugMonitorOpen,
@@ -256,18 +299,21 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
       sessionId: session.sessionId,
       selectedRows,
       manualFilters,
+      panelWidth,
       updatedAt: new Date().toISOString(),
     };
-    localStorage.setItem(key, JSON.stringify(payload));
+    localStorage.setItem(shellStorageKey, JSON.stringify(payload));
   }, [
-    user?.id,
-    profile?.company_id,
+    shellStorageKey,
+    storageHydrated,
+    hydratedStorageKey,
     isOpen,
     debugMonitorOpen,
     debugMonitorCollapsed,
     session.sessionId,
     selectedRows,
     manualFilters,
+    panelWidth,
   ]);
 
   useEffect(() => {
@@ -396,6 +442,39 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
     const selectedWarehouseLabel =
       cleanString((mergedFilters as Record<string, unknown>).warehouseLabel) ||
       (selectedEntityType === "warehouse" ? cleanString(entity?.label) : null);
+    const selectedCropStructureSectionId =
+      cleanString((mergedFilters as Record<string, unknown>).cropStructureId) ||
+      cleanString((mergedFilters as Record<string, unknown>).crop_structure_id) ||
+      cleanString((mergedFilters as Record<string, unknown>).sectionId) ||
+      cleanString((mergedFilters as Record<string, unknown>).structureId) ||
+      (selectedEntityType === "crop_structure_line" ? selectedEntityId : null);
+    const selectedCropStructureSectionLabel =
+      cleanString((mergedFilters as Record<string, unknown>).cropStructureLabel) ||
+      cleanString((mergedFilters as Record<string, unknown>).sectionLabel) ||
+      (selectedEntityType === "crop_structure_line" ? cleanString(entity?.label) : null);
+    const selectedOperationId =
+      cleanString((mergedFilters as Record<string, unknown>).operationId) ||
+      cleanString((mergedFilters as Record<string, unknown>).operation_id) ||
+      (selectedEntityType === "operation" ? selectedEntityId : null);
+    const selectedOperationLabel =
+      cleanString((mergedFilters as Record<string, unknown>).operationLabel) ||
+      (selectedEntityType === "operation" ? cleanString(entity?.label) : null);
+    const selectedTicketId =
+      cleanString((mergedFilters as Record<string, unknown>).ticketId) ||
+      cleanString((mergedFilters as Record<string, unknown>).ticket_id) ||
+      (selectedEntityType === "ticket" ? selectedEntityId : null);
+    const selectedTicketLabel =
+      cleanString((mergedFilters as Record<string, unknown>).ticketNo) ||
+      cleanString((mergedFilters as Record<string, unknown>).ticketLabel) ||
+      (selectedEntityType === "ticket" ? cleanString(entity?.label) : null);
+    const selectedBatchId =
+      cleanString((mergedFilters as Record<string, unknown>).batchId) ||
+      cleanString((mergedFilters as Record<string, unknown>).batch_id) ||
+      (selectedEntityType === "batch" ? selectedEntityId : null);
+    const selectedBatchLabel =
+      cleanString((mergedFilters as Record<string, unknown>).batchCode) ||
+      cleanString((mergedFilters as Record<string, unknown>).batchLabel) ||
+      (selectedEntityType === "batch" ? cleanString(entity?.label) : null);
     const selectedCrop =
       cleanString((mergedFilters as Record<string, unknown>).crop) ||
       cleanString((mergedFilters as Record<string, unknown>).culture) ||
@@ -429,6 +508,14 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
       selectedFieldLabel,
       selectedWarehouseId,
       selectedWarehouseLabel,
+      selectedCropStructureSectionId,
+      selectedCropStructureSectionLabel,
+      selectedOperationId,
+      selectedOperationLabel,
+      selectedTicketId,
+      selectedTicketLabel,
+      selectedBatchId,
+      selectedBatchLabel,
       selectedCrop,
       language: language || "ru",
       locale: language || "ru",
@@ -458,6 +545,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
   const toggleDebugMonitor = useCallback(() => setDebugMonitorOpen((prev) => !prev), []);
   const handleSetDebugMonitorCollapsed = useCallback((collapsed: boolean) => setDebugMonitorCollapsed(Boolean(collapsed)), []);
   const handleSetDebugSnapshot = useCallback((snapshot: AssistantDebugMetadata | null) => setDebugSnapshot(snapshot), []);
+  const setPanelWidth = useCallback((width: number) => {
+    setPanelWidthState(clampAssistantPanelWidth(width));
+  }, []);
 
   const value = useMemo<AssistantShellContextValue>(
     () => ({
@@ -473,9 +563,11 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
       debugMonitorOpen,
       debugMonitorCollapsed,
       debugSnapshot,
+      panelWidth,
       setContextEntity: setManualEntity,
       setSelectedRows,
       setManualFilters,
+      setPanelWidth,
       openDebugMonitor,
       closeDebugMonitor,
       toggleDebugMonitor,
@@ -495,6 +587,8 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
       debugMonitorOpen,
       debugMonitorCollapsed,
       debugSnapshot,
+      panelWidth,
+      setPanelWidth,
       openDebugMonitor,
       closeDebugMonitor,
       toggleDebugMonitor,

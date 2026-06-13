@@ -43,10 +43,16 @@ export type AssistantToolName =
   | "resolve_warehouse_by_name"
   | "resolve_field_by_number"
   | "resolve_fuel_source_by_name"
+  | "resolve_entity"
   | "resolve_page_or_module"
   | "resolve_crop_variety"
   | "resolve_vehicle_or_equipment"
   | "resolve_operation_type"
+  | "get_quick_insights"
+  | "get_morning_report"
+  | "get_operation_insights"
+  | "get_warehouse_insights"
+  | "get_weighbridge_insights"
   | "create_operation_draft"
   | "create_field_draft"
   | "create_meal_order_draft"
@@ -90,6 +96,21 @@ export type AssistantOutputType =
 
 export type AssistantEngineMode = "tool_first" | "hybrid" | "model_first";
 export type AssistantDecisionSource = "fast_path" | "router" | "model" | "memory_followup";
+export type AssistantWorkingMemoryEntityType =
+  | "field"
+  | "warehouse"
+  | "operation"
+  | "ticket"
+  | "crop_structure_line"
+  | "batch"
+  | "crop"
+  | "module";
+export type AssistantPendingActionType =
+  | "navigate"
+  | "open_entity"
+  | "create_draft"
+  | "fill_form"
+  | "confirm_required";
 
 export type AssistantUiContext = {
   currentPage: string;
@@ -110,6 +131,14 @@ export type AssistantUiContext = {
   selectedFieldLabel: string | null;
   selectedWarehouseId: string | null;
   selectedWarehouseLabel: string | null;
+  selectedCropStructureSectionId: string | null;
+  selectedCropStructureSectionLabel: string | null;
+  selectedOperationId: string | null;
+  selectedOperationLabel: string | null;
+  selectedTicketId: string | null;
+  selectedTicketLabel: string | null;
+  selectedBatchId: string | null;
+  selectedBatchLabel: string | null;
   selectedCrop: string | null;
   language: "ru" | "kz" | "en" | null;
   locale: "ru" | "kz" | "en" | null;
@@ -138,6 +167,21 @@ export type AssistantSessionState = {
   lastFieldsAreaHa: number | null;
   lastDetectedInconsistency: string | null;
   lastInconsistencyAt: string | null;
+  focusEntityType: AssistantWorkingMemoryEntityType | null;
+  focusEntityId: string | null;
+  focusEntityLabel: string | null;
+  focusModule: string | null;
+  focusRoute: string | null;
+  focusSource: "tool_output" | "page_context" | "user_text" | "action" | null;
+  focusUpdatedAt: string | null;
+  pendingActionType: AssistantPendingActionType | null;
+  pendingActionSummary: string | null;
+  pendingActionRoute: string | null;
+  pendingActionPayloadJson: string | null;
+  pendingActionUpdatedAt: string | null;
+  lastActionType: AssistantPendingActionType | null;
+  lastActionSummary: string | null;
+  lastActionAt: string | null;
 };
 
 export type AssistantAnswerDiagnostics = {
@@ -210,7 +254,7 @@ export type AssistantNavigationAction =
       type: "open_entity";
       page: string;
       route: string;
-      entityType: "warehouse" | "field" | "fuel";
+      entityType: "warehouse" | "field" | "fuel" | "operation" | "ticket" | "crop_structure_line" | "batch";
       entityId: string | null;
       entityQuery: string | null;
       filters: Record<string, string>;
@@ -236,6 +280,7 @@ export type AssistantEngineInput = {
   runtimeContext?: Partial<AssistantUiContext> | null;
   sessionState?: Partial<AssistantSessionState> | null;
   chatHistory?: Array<{ role?: string; content?: string }> | null;
+  longTermMemoryContext?: string | null;
 };
 
 export type AssistantEngineResult = {

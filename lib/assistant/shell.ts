@@ -55,6 +55,14 @@ export type AssistantRuntimeUiContext = {
   selectedFieldLabel: string | null;
   selectedWarehouseId: string | null;
   selectedWarehouseLabel: string | null;
+  selectedCropStructureSectionId: string | null;
+  selectedCropStructureSectionLabel: string | null;
+  selectedOperationId: string | null;
+  selectedOperationLabel: string | null;
+  selectedTicketId: string | null;
+  selectedTicketLabel: string | null;
+  selectedBatchId: string | null;
+  selectedBatchLabel: string | null;
   selectedCrop: string | null;
   language: "ru" | "kz" | "en" | null;
   locale: "ru" | "kz" | "en" | null;

@@ -5,6 +5,7 @@ import { normalizeAssistantUiContext } from "@/lib/assistant/engine/runtime";
 import {
   EMPTY_ASSISTANT_SESSION_STATE,
   normalizeSessionState,
+  updateSessionStateFromRuntimeContext,
   updateSessionStateFromToolOutput,
 } from "@/lib/assistant/engine/session-state";
 import type {
@@ -46,7 +47,9 @@ import {
   applySemanticExpansions,
   buildSemanticMemoryContext,
 } from "@/lib/assistant/knowledge/semantic-memory";
+import { buildCompanyKnowledgeContext } from "@/lib/assistant/knowledge/company-knowledge";
 import { runModelOrchestrator } from "@/lib/assistant/engine/model-orchestrator";
+import { applyAssistantActionPlanToSessionState, buildAssistantActionPlan } from "@/lib/assistant/engine/action-engine";
 import { applyNavigationPolicy, hasExplicitNavigationRequest } from "@/lib/assistant/engine/navigation-policy";
 import { noDataGroundedMessage, validateGroundedAnswer } from "@/lib/assistant/engine/response-validator";
 
@@ -83,6 +86,13 @@ function llmNotCalled(): LlmDiagnostics {
 function cleanString(value: unknown): string | null {
   const text = String(value || "").trim();
   return text.length ? text : null;
+}
+
+function combineMemoryContext(...parts: Array<string | null | undefined>): string | null {
+  const lines = parts
+    .map((part) => cleanString(part))
+    .filter(Boolean) as string[];
+  return lines.length ? lines.join("\n\n") : null;
 }
 
 function asNumber(value: unknown): number {
@@ -137,7 +147,7 @@ function formatDateTime(value: unknown): string {
 
 function formatShortDate(value: unknown): string {
   const text = cleanString(value);
-  if (!text) return "вЂ”";
+  if (!text) return "-";
   const date = new Date(text);
   if (Number.isNaN(date.getTime())) return text;
   return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
@@ -549,7 +559,7 @@ function validateAnswerDataByIntent(params: {
       pass = false;
       contradictionDetected = true;
       inconsistencyText =
-        "РС‚РѕРі РїРѕ Р·РµРјРµР»СЊРЅРѕРјСѓ Р±Р°РЅРєСѓ РґРѕР»Р¶РµРЅ СЃС‡РёС‚Р°С‚СЊСЃСЏ С‚РѕР»СЊРєРѕ РёР· fields (land_bank_summary), Р° РЅРµ РёР· search/list output.";
+        "Итог по земельному банку должен считаться только из fields (land_bank_summary), а не из search/list output.";
     }
     if (fieldArea <= 0 && cropArea > 0) {
       pass = false;
@@ -874,6 +884,39 @@ function hasAnyRoutingPattern(text: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(text));
 }
 
+function extractExplicitFieldReference(text: string): string | null {
+  const normalized = normalizeRoutingText(text);
+  const afterLabel = normalized.match(/(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)\s*([0-9]{1,3}(?:-[0-9]{1,3}){0,2})/i);
+  if (afterLabel?.[1]) return afterLabel[1];
+  const beforeLabel = normalized.match(/([0-9]{1,3}(?:-[0-9]{1,3}){0,2})\s*(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)/i);
+  if (beforeLabel?.[1]) return beforeLabel[1];
+  return null;
+}
+
+function applyUserTextFocusToSessionState(state: AssistantSessionState, message: string): AssistantSessionState {
+  const fieldRef = extractExplicitFieldReference(message);
+  if (fieldRef) {
+    return {
+      ...state,
+      lastField: fieldRef,
+      lastFieldLabel: fieldRef,
+      focusEntityType: "field",
+      focusEntityId: null,
+      focusEntityLabel: fieldRef,
+      focusSource: "user_text",
+      focusUpdatedAt: new Date().toISOString(),
+    };
+  }
+  return state;
+}
+
+function hasDeicticReference(text: string): boolean {
+  return hasAnyRoutingPattern(text, [
+    /(\u044d\u0442|\u0442\u0430\u043c|\u0442\u0443\u0442|\u043d\u0435\u043c\u0443|\u043d\u0435\u0439|\u043d\u0435\u043c|\u043d\u0438\u043c|\u0434\u0430\u043d\u043d|\u0442\u0435\u043a\u0443\u0449|\u0432\u044b\u0431\u0440\u0430\u043d)/i,
+    /\b(this|that|there|it|current|selected|same)\b/i,
+  ]);
+}
+
 function hasExplicitFieldInText(text: string): boolean {
   if (/(?:поле|field)\s*\d{1,3}(?:-\d{1,3}){0,2}/i.test(text)) return true;
   if (/\d{1,3}(?:-\d{1,3}){0,2}\s*(?:поле|field)/i.test(text)) return true;
@@ -913,22 +956,28 @@ function resolveRoutingMessageWithMemory(params: {
     };
   }
 
+  const focusType = params.state.focusEntityType;
+  const focusRef = cleanString(params.state.focusEntityLabel) || cleanString(params.state.focusEntityId);
   const fieldRef =
     cleanString(params.state.lastFieldLabel) ||
     cleanString(params.state.lastField) ||
     cleanString(params.state.lastFieldId) ||
+    (focusType === "field" ? focusRef : null) ||
     cleanString(params.runtimeContext.selectedFieldLabel) ||
     cleanString(params.runtimeContext.selectedFieldId);
   const warehouseRef =
     cleanString(params.state.lastWarehouseLabel) ||
     cleanString(params.state.lastWarehouse) ||
     cleanString(params.state.lastWarehouseId) ||
+    (focusType === "warehouse" ? focusRef : null) ||
     cleanString(params.runtimeContext.selectedWarehouseLabel) ||
     cleanString(params.runtimeContext.selectedWarehouseId);
   const cropRef =
     cleanString(params.state.lastVariety) ||
     cleanString(params.state.lastCrop) ||
+    (focusType === "crop" ? focusRef : null) ||
     cleanString(params.runtimeContext.selectedCrop);
+  const deicticFollowUp = hasDeicticReference(normalized);
 
   const mentionsMaterials = /(материал|удобр|сзр|семен|внесл|расход|выдали|списан)/i.test(normalized);
   const mentionsOperations = /(операц|работ|делал|выполн|в работе)/i.test(normalized);
@@ -958,11 +1007,11 @@ function resolveRoutingMessageWithMemory(params: {
     ]);
   const mentionsInventoryBalance = hasAnyRoutingPattern(normalized, [
     /(\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u0441\u043a\u043e\u043b\u044c\u043a\u043e|stock|balance|inventory)/i,
-    /(РѕСЃС‚Р°С‚|РЅР°Р»РёС‡|СЃРєРѕР»СЊРєРѕ|stock|balance|inventory)/i,
+    /(остат|налич|сколько|stock|balance|inventory)/i,
   ]);
   const mentionsNegativeStock = hasAnyRoutingPattern(normalized, [
     /(\u043e\u0442\u0440\u0438\u0446\u0430\u0442|\u043c\u0438\u043d\u0443\u0441|negative)/i,
-    /(РѕС‚СЂРёС†Р°С‚|РјРёРЅСѓСЃ|negative)/i,
+    /(отрицат|минус|negative)/i,
   ]);
   const mentionsWarehouseFollowupV2 =
     mentionsWarehouseFollowup ||
@@ -987,6 +1036,33 @@ function resolveRoutingMessageWithMemory(params: {
     };
   }
 
+  if (deicticFollowUp && focusRef && focusType && !hasExplicitCrop) {
+    const entityContext =
+      focusType === "field"
+        ? `field ${focusRef}`
+        : focusType === "warehouse"
+          ? `warehouse ${focusRef}`
+          : focusType === "operation"
+            ? `operation ${focusRef}`
+            : focusType === "ticket"
+              ? `ticket ${focusRef}`
+              : focusType === "crop_structure_line"
+                ? `crop structure line ${focusRef}`
+                : focusType === "batch"
+                  ? `batch ${focusRef}`
+                  : focusType === "crop"
+                    ? `crop ${focusRef}`
+                    : null;
+    if (entityContext) {
+      return {
+        routingMessage: appendMemoryContext(raw, entityContext),
+        used: true,
+        keysUsed: ["focusEntityType", "focusEntityLabel", "focusEntityId"],
+        resolvedEntitySource: params.state.focusSource === "page_context" ? "page_context" : "session_memory",
+      };
+    }
+  }
+
   if ((mentionsMaterialsV2 || mentionsOperationsV2 || mentionsHarvestV2) && fieldRef) {
     return {
       routingMessage: appendMemoryContext(raw, `field ${fieldRef}`),
@@ -998,7 +1074,7 @@ function resolveRoutingMessageWithMemory(params: {
     };
   }
 
-  if ((mentionsWarehouseMovesV2 || mentionsWarehouseFollowupV2 || mentionsInventoryBalance || mentionsNegativeStock || hasExplicitCrop) && warehouseRef) {
+  if ((mentionsWarehouseMovesV2 || mentionsWarehouseFollowupV2 || mentionsInventoryBalance || mentionsNegativeStock) && warehouseRef) {
     return {
       routingMessage: appendMemoryContext(raw, `warehouse ${warehouseRef}`),
       used: true,
@@ -1437,11 +1513,11 @@ function formatFieldLandBankSummaryRows(rows: Array<Record<string, unknown>>): s
   const row = rows[0] || {};
   const totalFields = asNumber(row.total_fields);
   const totalArea = asNumber(row.total_area_ha);
-  if (!totalFields && !totalArea) return "Р—РµРјРµР»СЊРЅС‹Р№ Р±Р°РЅРє РїРѕ РїРѕР»СЏРј РЅРµ РЅР°Р№РґРµРЅ.";
+  if (!totalFields && !totalArea) return "Земельный банк по полям не найден.";
   return [
-    `Р’СЃРµРіРѕ РїРѕР»РµР№: ${formatNumber(totalFields, 0)}.`,
-    `РћР±С‰Р°СЏ РїР»РѕС‰Р°РґСЊ С…РѕР·СЏР№СЃС‚РІР°: ${formatNumber(totalArea, 2)} РіР°.`,
-    "РСЃС‚РѕС‡РЅРёРє: fields, С„РёР»СЊС‚СЂ company_id + archived=false.",
+    `Всего полей: ${formatNumber(totalFields, 0)}.`,
+    `Общая площадь хозяйства: ${formatNumber(totalArea, 2)} га.`,
+    "Источник: fields, фильтр company_id + archived=false.",
   ].join("\n");
 }
 
@@ -1727,6 +1803,12 @@ function buildCapabilitiesAnswer(locale: "ru" | "en" | "kz"): string {
 function mapToolNamespace(tool: AssistantToolName): string {
   const map: Record<string, string> = {
     get_current_context: "context.getPageContext",
+    resolve_entity: "context.resolveEntity",
+    get_quick_insights: "context.quickInsights",
+    get_morning_report: "report.morning",
+    get_operation_insights: "operation.insights",
+    get_warehouse_insights: "warehouse.insights",
+    get_weighbridge_insights: "weighbridge.insights",
     get_routes: "navigation.getRoutes",
     get_company_context: "context.getCompanyContext",
     get_current_season: "context.getCurrentSeason",
@@ -1855,6 +1937,9 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     if (entityType === "warehouse") tools.unshift("resolve_warehouse_by_name");
     if (entityType === "field") tools.unshift("resolve_field_by_number");
     if (entityType === "fuel") tools.unshift("resolve_fuel_source_by_name");
+    if (["operation", "ticket", "crop_structure_line", "batch"].includes(entityType || "")) {
+      tools.unshift("resolve_entity");
+    }
     tools.push("open_entity");
   }
 
@@ -1985,6 +2070,9 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     if (entityType === "warehouse") requiredTools.push("resolve_warehouse_by_name");
     if (entityType === "field") requiredTools.push("resolve_field_by_number");
     if (entityType === "fuel") requiredTools.push("resolve_fuel_source_by_name");
+    if (["operation", "ticket", "crop_structure_line", "batch"].includes(entityType || "")) {
+      requiredTools.push("resolve_entity");
+    }
   }
   if (intent.name === "crop_structure_area") {
     requiredTools.push("get_crop_structure_summary");
@@ -2096,7 +2184,8 @@ function getNavigationActions(params: {
       ? (resolverRow.filters as Record<string, string>)
       : null;
 
-  if (action === "open_entity" && entityType && ["warehouse", "field", "fuel"].includes(entityType)) {
+  const supportedEntityTypes = ["warehouse", "field", "fuel", "operation", "ticket", "crop_structure_line", "batch"];
+  if (action === "open_entity" && entityType && supportedEntityTypes.includes(entityType)) {
     if (!resolvedId) return [];
     const nextFilters: Record<string, string> = {
       ...((resolvedFilters || filters || (entityQuery ? { search: entityQuery } : {})) as Record<string, string>),
@@ -2107,12 +2196,20 @@ function getNavigationActions(params: {
     if (!nextFilters.entityId) nextFilters.entityId = resolvedId;
     if (!nextFilters.entityType) nextFilters.entityType = entityType;
     if (entityType === "warehouse" && !nextFilters.warehouseId) nextFilters.warehouseId = resolvedId;
+    if (entityType === "field" && !nextFilters.fieldId) nextFilters.fieldId = resolvedId;
+    if (entityType === "operation" && !nextFilters.operationId) nextFilters.operationId = resolvedId;
+    if (entityType === "ticket" && !nextFilters.ticketId) nextFilters.ticketId = resolvedId;
+    if (entityType === "crop_structure_line") {
+      if (!nextFilters.cropStructureId) nextFilters.cropStructureId = resolvedId;
+      if (!nextFilters.sectionId) nextFilters.sectionId = resolvedId;
+    }
+    if (entityType === "batch" && !nextFilters.batchId) nextFilters.batchId = resolvedId;
     return [
       {
         type: "open_entity",
         page: resolvedPage || page,
         route: resolvedRoute || route,
-        entityType: entityType as "warehouse" | "field" | "fuel",
+        entityType: entityType as "warehouse" | "field" | "fuel" | "operation" | "ticket" | "crop_structure_line" | "batch",
         entityId: resolvedId,
         entityQuery: resolvedName || entityQuery,
         filters: nextFilters,
@@ -2336,10 +2433,17 @@ export async function runAssistantEngine(params: {
   const message = String(input.message || "").trim();
   const runtimeContext = normalizeAssistantUiContext(input.runtimeContext);
   const normalizedState = normalizeSessionState(input.sessionState);
-  const initialSessionState: AssistantSessionState = {
-    ...EMPTY_ASSISTANT_SESSION_STATE,
-    ...normalizedState,
-  };
+  const longTermMemoryContext = cleanString(input.longTermMemoryContext);
+  const initialSessionState: AssistantSessionState = applyUserTextFocusToSessionState(
+    updateSessionStateFromRuntimeContext(
+      {
+        ...EMPTY_ASSISTANT_SESSION_STATE,
+        ...normalizedState,
+      },
+      runtimeContext
+    ),
+    message
+  );
   const memoryRouting = resolveRoutingMessageWithMemory({
     message,
     state: initialSessionState,
@@ -2352,11 +2456,52 @@ export async function runAssistantEngine(params: {
     runtimeContext,
     actorRole: actor.role,
     locale: runtimeContext.locale || "ru",
+    semanticMemoryContext: combineMemoryContext(longTermMemoryContext),
   });
   const promptMeta: PromptMeta = {
     promptVersion: promptBundle.version || TRAVKIN_CORE_PROMPT_VERSION,
     promptSource: promptBundle.source,
     promptUpdatedAt: promptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
+  };
+  const buildKnowledgePromptBundle = async (params: {
+    intentName: AssistantIntentName | null;
+    mode: AssistantEngineResult["mode"];
+    includeCompanyLibrary?: boolean;
+  }): Promise<{ promptBundle: typeof promptBundle; promptMeta: PromptMeta }> => {
+    const [semanticMemory, companyKnowledge] = await Promise.all([
+      buildSemanticMemoryContext({
+        message,
+        mode: params.mode,
+        intentName: params.intentName,
+        runtimeContext,
+      }).catch(() => null),
+      params.includeCompanyLibrary !== false && settings.knowledgePolicy?.internalLibraryFirst
+        ? buildCompanyKnowledgeContext({
+            supabase,
+            companyId,
+            message,
+          }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    const resolvedPromptBundle = resolveTravkinCorePrompt({
+      settings,
+      runtimeContext,
+      actorRole: actor.role,
+      locale: runtimeContext.locale || "ru",
+      semanticMemoryContext: combineMemoryContext(
+        longTermMemoryContext,
+        semanticMemory?.contextText,
+        companyKnowledge?.contextText
+      ),
+    });
+    return {
+      promptBundle: resolvedPromptBundle,
+      promptMeta: {
+        promptVersion: resolvedPromptBundle.version || TRAVKIN_CORE_PROMPT_VERSION,
+        promptSource: resolvedPromptBundle.source,
+        promptUpdatedAt: resolvedPromptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
+      },
+    };
   };
 
   const modelConfig = resolveAssistantModelConfig(settings);
@@ -2493,14 +2638,19 @@ export async function runAssistantEngine(params: {
       message,
       forceFastModel: true,
     });
+    const knowledgePrompt = await buildKnowledgePromptBundle({
+      intentName: knowledgeIntent.name,
+      mode: "agro_knowledge",
+      includeCompanyLibrary: true,
+    });
     const modelStartedAt = Date.now();
     const fallback = await generateGeneralAnswer({
       message,
       locale,
       settings,
       intentName: knowledgeIntent.name,
-      systemPrompt: promptBundle.text,
-      promptMeta,
+      systemPrompt: knowledgePrompt.promptBundle.text,
+      promptMeta: knowledgePrompt.promptMeta,
       forceFastModel: true,
     });
     modelMs = Date.now() - modelStartedAt;
@@ -2560,31 +2710,11 @@ export async function runAssistantEngine(params: {
     routerMs = 0;
     const plannerSeedIntent = buildPlannerSeedIntent(memoryRouting.routingMessage);
     const locale = runtimeContext.locale || "ru";
-    let llmPromptBundle = promptBundle;
-    let llmPromptMeta = promptMeta;
-    try {
-      const semanticMemory = await buildSemanticMemoryContext({
-        message,
-        mode: assistantMode,
-        intentName: plannerSeedIntent.name,
-        runtimeContext,
-      });
-      llmPromptBundle = resolveTravkinCorePrompt({
-        settings,
-        runtimeContext,
-        actorRole: actor.role,
-        locale,
-        semanticMemoryContext: semanticMemory.contextText,
-      });
-      llmPromptMeta = {
-        promptVersion: llmPromptBundle.version || TRAVKIN_CORE_PROMPT_VERSION,
-        promptSource: llmPromptBundle.source,
-        promptUpdatedAt: llmPromptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
-      };
-    } catch {
-      llmPromptBundle = promptBundle;
-      llmPromptMeta = promptMeta;
-    }
+    const { promptBundle: llmPromptBundle, promptMeta: llmPromptMeta } = await buildKnowledgePromptBundle({
+      intentName: plannerSeedIntent.name,
+      mode: assistantMode,
+      includeCompanyLibrary: assistantMode !== "erp_data",
+    });
 
     const modelStartedAt = Date.now();
     const planner = await runModelOrchestrator({
@@ -2680,18 +2810,26 @@ export async function runAssistantEngine(params: {
       ) {
         answer = "Данные показал. Если нужно, открою страницу по явной команде.";
       }
-      const plannerUpdatedState: AssistantSessionState = {
-        ...planner.sessionState,
-        lastIntent: plannerIntent.name,
-        lastDetectedInconsistency:
-          consistency.inconsistencyText ||
-          (consistency.contradictionDetected ? consistency.correctionText : null) ||
-          planner.sessionState.lastDetectedInconsistency,
-        lastInconsistencyAt:
-          (consistency.inconsistencyText || consistency.contradictionDetected)
-            ? new Date().toISOString()
-            : planner.sessionState.lastInconsistencyAt,
-      };
+      const plannerActionPlan = buildAssistantActionPlan({
+        intent: plannerIntent,
+        navigationActions: navigationResult.actions,
+        requestMessage: messageForRouting,
+      });
+      const plannerUpdatedState: AssistantSessionState = applyAssistantActionPlanToSessionState(
+        {
+          ...planner.sessionState,
+          lastIntent: plannerIntent.name,
+          lastDetectedInconsistency:
+            consistency.inconsistencyText ||
+            (consistency.contradictionDetected ? consistency.correctionText : null) ||
+            planner.sessionState.lastDetectedInconsistency,
+          lastInconsistencyAt:
+            (consistency.inconsistencyText || consistency.contradictionDetected)
+              ? new Date().toISOString()
+              : planner.sessionState.lastInconsistencyAt,
+        },
+        plannerActionPlan
+      );
 
       return {
         answer,
@@ -2781,31 +2919,11 @@ export async function runAssistantEngine(params: {
     plannerAttempted = true;
     decisionSource = "model";
     const locale = runtimeContext.locale || "ru";
-    let llmPromptBundle = promptBundle;
-    let llmPromptMeta = promptMeta;
-    try {
-      const semanticMemory = await buildSemanticMemoryContext({
-        message,
-        mode: resolvedMode,
-        intentName: intent.name,
-        runtimeContext,
-      });
-      llmPromptBundle = resolveTravkinCorePrompt({
-        settings,
-        runtimeContext,
-        actorRole: actor.role,
-        locale,
-        semanticMemoryContext: semanticMemory.contextText,
-      });
-      llmPromptMeta = {
-        promptVersion: llmPromptBundle.version || TRAVKIN_CORE_PROMPT_VERSION,
-        promptSource: llmPromptBundle.source,
-        promptUpdatedAt: llmPromptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
-      };
-    } catch {
-      llmPromptBundle = promptBundle;
-      llmPromptMeta = promptMeta;
-    }
+    const { promptBundle: llmPromptBundle, promptMeta: llmPromptMeta } = await buildKnowledgePromptBundle({
+      intentName: intent.name,
+      mode: resolvedMode,
+      includeCompanyLibrary: resolvedMode !== "erp_data",
+    });
 
     const modelStartedAt = Date.now();
     const planner = await runModelOrchestrator({
@@ -2889,18 +3007,26 @@ export async function runAssistantEngine(params: {
       ) {
         answer = "Данные показал. Если нужно, открою страницу по явной команде.";
       }
-      const plannerUpdatedState: AssistantSessionState = {
-        ...planner.sessionState,
-        lastIntent: intent.name,
-        lastDetectedInconsistency:
-          consistency.inconsistencyText ||
-          (consistency.contradictionDetected ? consistency.correctionText : null) ||
-          planner.sessionState.lastDetectedInconsistency,
-        lastInconsistencyAt:
-          (consistency.inconsistencyText || consistency.contradictionDetected)
-            ? new Date().toISOString()
-            : planner.sessionState.lastInconsistencyAt,
-      };
+      const plannerActionPlan = buildAssistantActionPlan({
+        intent,
+        navigationActions: navigationResult.actions,
+        requestMessage: messageForRouting,
+      });
+      const plannerUpdatedState: AssistantSessionState = applyAssistantActionPlanToSessionState(
+        {
+          ...planner.sessionState,
+          lastIntent: intent.name,
+          lastDetectedInconsistency:
+            consistency.inconsistencyText ||
+            (consistency.contradictionDetected ? consistency.correctionText : null) ||
+            planner.sessionState.lastDetectedInconsistency,
+          lastInconsistencyAt:
+            (consistency.inconsistencyText || consistency.contradictionDetected)
+              ? new Date().toISOString()
+              : planner.sessionState.lastInconsistencyAt,
+        },
+        plannerActionPlan
+      );
 
       return {
         answer,
@@ -3182,15 +3308,23 @@ export async function runAssistantEngine(params: {
       answerParts.push(consistency.advisoryText);
     }
 
-    const updatedState: AssistantSessionState = {
-      ...nextSessionState,
-      lastIntent: intent.name,
-      lastDetectedInconsistency: consistency.inconsistencyText || (consistency.contradictionDetected ? consistency.correctionText : null) || nextSessionState.lastDetectedInconsistency,
-      lastInconsistencyAt:
-        (consistency.inconsistencyText || consistency.contradictionDetected)
-          ? new Date().toISOString()
-          : nextSessionState.lastInconsistencyAt,
-    };
+    const actionPlan = buildAssistantActionPlan({
+      intent,
+      navigationActions: allowedNavigationActions,
+      requestMessage: messageForRouting,
+    });
+    const updatedState: AssistantSessionState = applyAssistantActionPlanToSessionState(
+      {
+        ...nextSessionState,
+        lastIntent: intent.name,
+        lastDetectedInconsistency: consistency.inconsistencyText || (consistency.contradictionDetected ? consistency.correctionText : null) || nextSessionState.lastDetectedInconsistency,
+        lastInconsistencyAt:
+          (consistency.inconsistencyText || consistency.contradictionDetected)
+            ? new Date().toISOString()
+            : nextSessionState.lastInconsistencyAt,
+      },
+      actionPlan
+    );
 
     return {
       answer: answerParts.join("\n\n"),
@@ -3332,31 +3466,11 @@ export async function runAssistantEngine(params: {
   }
 
   const locale = runtimeContext.locale || "ru";
-  let llmPromptBundle = promptBundle;
-  let llmPromptMeta = promptMeta;
-  try {
-      const semanticMemory = await buildSemanticMemoryContext({
-        message: memoryRouting.routingMessage,
-        mode: resolvedMode,
-        intentName: intent.name,
-        runtimeContext,
-    });
-    llmPromptBundle = resolveTravkinCorePrompt({
-      settings,
-      runtimeContext,
-      actorRole: actor.role,
-      locale,
-      semanticMemoryContext: semanticMemory.contextText,
-    });
-    llmPromptMeta = {
-      promptVersion: llmPromptBundle.version || TRAVKIN_CORE_PROMPT_VERSION,
-      promptSource: llmPromptBundle.source,
-      promptUpdatedAt: llmPromptBundle.updatedAt || TRAVKIN_CORE_PROMPT_UPDATED_AT,
-    };
-  } catch {
-    llmPromptBundle = promptBundle;
-    llmPromptMeta = promptMeta;
-  }
+  const { promptBundle: llmPromptBundle, promptMeta: llmPromptMeta } = await buildKnowledgePromptBundle({
+    intentName: intent.name,
+    mode: resolvedMode,
+    includeCompanyLibrary: resolvedMode !== "erp_data",
+  });
   const modelStartedAt = Date.now();
   const fallback = await generateGeneralAnswer({
     message: memoryRouting.routingMessage,

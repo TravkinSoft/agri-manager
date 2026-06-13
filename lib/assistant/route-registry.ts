@@ -1,5 +1,6 @@
 export type AssistantRouteKey =
   | "dashboard"
+  | "tasks"
   | "fields"
   | "field-card"
   | "fields-map"
@@ -18,7 +19,7 @@ export type AssistantRouteEntry = {
   routeKey: AssistantRouteKey;
   path: string;
   supportedFilters: string[];
-  entityTypes: Array<"field" | "warehouse" | "fuel" | "crop_structure_line" | "operation" | "none">;
+  entityTypes: Array<"field" | "warehouse" | "fuel" | "crop_structure_line" | "operation" | "ticket" | "batch" | "none">;
   openStrategy: "route" | "query-filter" | "entity-route";
   requiredPermission: string;
 };
@@ -31,6 +32,14 @@ const ROUTE_REGISTRY: AssistantRouteEntry[] = [
     entityTypes: ["none"],
     openStrategy: "route",
     requiredPermission: "dashboard.read",
+  },
+  {
+    routeKey: "tasks",
+    path: "/tasks",
+    supportedFilters: ["status", "date", "operationId"],
+    entityTypes: ["operation", "none"],
+    openStrategy: "route",
+    requiredPermission: "tasks.read",
   },
   {
     routeKey: "fields",
@@ -76,7 +85,7 @@ const ROUTE_REGISTRY: AssistantRouteEntry[] = [
     routeKey: "operations",
     path: "/operations",
     supportedFilters: ["search", "status", "crop", "field", "season", "operationId"],
-    entityTypes: ["operation", "field", "none"],
+    entityTypes: ["operation", "field", "crop_structure_line", "none"],
     openStrategy: "query-filter",
     requiredPermission: "operations.read",
   },
@@ -84,7 +93,7 @@ const ROUTE_REGISTRY: AssistantRouteEntry[] = [
     routeKey: "warehouses",
     path: "/warehouses",
     supportedFilters: ["search", "type", "product", "crop", "variety", "negativeOnly", "warehouseId", "entityId", "entityType"],
-    entityTypes: ["warehouse", "none"],
+    entityTypes: ["warehouse", "batch", "none"],
     openStrategy: "query-filter",
     requiredPermission: "warehouses.read",
   },
@@ -100,7 +109,7 @@ const ROUTE_REGISTRY: AssistantRouteEntry[] = [
     routeKey: "weighbridge",
     path: "/weighbridge",
     supportedFilters: ["status", "type", "field", "warehouse", "season"],
-    entityTypes: ["none", "field", "warehouse"],
+    entityTypes: ["none", "field", "warehouse", "ticket"],
     openStrategy: "route",
     requiredPermission: "weighbridge.read",
   },
@@ -108,7 +117,7 @@ const ROUTE_REGISTRY: AssistantRouteEntry[] = [
     routeKey: "weighbridge-history",
     path: "/weighbridge/history",
     supportedFilters: ["status", "type", "field", "warehouse", "season"],
-    entityTypes: ["none", "field", "warehouse"],
+    entityTypes: ["none", "field", "warehouse", "ticket"],
     openStrategy: "query-filter",
     requiredPermission: "weighbridge.read",
   },

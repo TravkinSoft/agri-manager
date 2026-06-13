@@ -8,6 +8,15 @@ import {
   listCropsByGroup,
   resolveKnownCropAlias,
 } from "@/lib/assistant/agro-taxonomy";
+import {
+  buildMorningReportRows,
+  buildQuickInsightRows,
+  buildWarehouseInsightRows,
+  buildWeighbridgeInsightRows,
+  collectAssistantContextRows,
+  normalizeWarehouseAlias,
+  resolveAssistantEntityRows,
+} from "@/lib/assistant/context-engine";
 import { applySemanticExpansions } from "@/lib/assistant/knowledge/semantic-memory";
 import { getAssistantRouteRegistry } from "@/lib/assistant/route-registry";
 
@@ -199,6 +208,10 @@ function includeArchivedByRequest(context: AssistantToolContext): boolean {
 function resolveWarehouseAliasQuery(raw: string | null): string | null {
   const text = normalizeSearchText(raw);
   if (!text) return null;
+  const unicodeAlias = normalizeWarehouseAlias(raw);
+  if (unicodeAlias && normalizeSearchText(unicodeAlias) !== text) {
+    return unicodeAlias;
+  }
   for (const rule of WAREHOUSE_ALIAS_RULES_RU) {
     if (rule.match.test(text)) {
       return rule.normalized;
@@ -1239,7 +1252,7 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
     });
     const warehouseSpecificTerms = warehouseTerms.filter((term) => {
       const normalized = normalizeSearchText(term);
-      return normalized && normalized !== "СЃРєР»Р°Рґ" && normalized !== "warehouse" && normalized !== "storage";
+      return normalized && normalized !== "склад" && normalized !== "warehouse" && normalized !== "storage";
     });
     const matchesWarehouseScope = (warehouseName: unknown): boolean => {
       if (!warehouseTerms.length) return true;
@@ -2812,6 +2825,30 @@ const getCurrentContextToolAlias: AssistantToolDefinition = {
           cleanString(context.runtimeContext.filters.crop) ||
           cleanString(context.runtimeContext.filters.culture) ||
           null,
+        selected_crop_structure_section:
+          context.runtimeContext.selectedCropStructureSectionId ||
+          cleanString(context.runtimeContext.filters.cropStructureId) ||
+          cleanString(context.runtimeContext.filters.sectionId) ||
+          cleanString(context.runtimeContext.filters.structureId) ||
+          null,
+        selected_operation:
+          context.runtimeContext.selectedOperationId ||
+          cleanString(context.runtimeContext.filters.operationId) ||
+          cleanString(context.runtimeContext.filters.operation_id) ||
+          null,
+        selected_ticket:
+          context.runtimeContext.selectedTicketId ||
+          cleanString(context.runtimeContext.filters.ticketId) ||
+          cleanString(context.runtimeContext.filters.ticket_id) ||
+          cleanString(context.runtimeContext.filters.ticketNo) ||
+          null,
+        selected_batch:
+          context.runtimeContext.selectedBatchId ||
+          cleanString(context.runtimeContext.filters.batchId) ||
+          cleanString(context.runtimeContext.filters.batch_id) ||
+          cleanString(context.runtimeContext.filters.batchCode) ||
+          null,
+        context_engine: collectAssistantContextRows(context)[0],
         filters: context.runtimeContext.filters || {},
         language: context.runtimeContext.language || context.runtimeContext.locale || "ru",
         locale: context.runtimeContext.locale || context.runtimeContext.language || "ru",
@@ -2826,6 +2863,115 @@ const getCurrentContextToolAlias: AssistantToolDefinition = {
   }),
 };
 
+const resolveEntityTool: AssistantToolDefinition = {
+  name: "resolve_entity",
+  description: "Resolve a user phrase to TravkinFlow entities: field, warehouse, operation, ticket, crop structure section, or batch",
+  domains: ["assistant", "context", "navigation"],
+  run: async (context) => ({
+    title: "Resolved entities",
+    rows: await resolveAssistantEntityRows(context, {
+      query: cleanString(context.intent.parameters.query) || cleanString(context.intent.parameters.entityQuery),
+      entityType: cleanString(context.intent.parameters.entityType),
+      limit: parseLimit(context.intent.parameters.limit, 12, 1, 30),
+    }),
+    source: {
+      module: "assistant",
+      tableOrView: "resolve_entity",
+      season: context.runtimeContext.season,
+      fetchedAt: nowIso(),
+    },
+  }),
+};
+
+const getQuickInsightsTool: AssistantToolDefinition = {
+  name: "get_quick_insights",
+  description: "Quick read-only insight for the current or resolved entity",
+  domains: ["assistant", "context", "insights"],
+  run: async (context) => ({
+    title: "Quick insights",
+    rows: await buildQuickInsightRows(context),
+    source: {
+      module: "assistant",
+      tableOrView: "quick_insights",
+      season: context.runtimeContext.season,
+      fetchedAt: nowIso(),
+    },
+  }),
+};
+
+const getMorningReportTool: AssistantToolDefinition = {
+  name: "get_morning_report",
+  description: "Read-only operational morning report foundation",
+  domains: ["assistant", "operations", "warehouses", "weighbridge", "reports"],
+  run: async (context) => ({
+    title: "Morning report",
+    rows: await buildMorningReportRows(context),
+    source: {
+      module: "assistant",
+      tableOrView: "operations + tickets + v_stock_balance_identity",
+      season: context.runtimeContext.season,
+      fetchedAt: nowIso(),
+    },
+  }),
+};
+
+const getOperationInsightsTool: AssistantToolDefinition = {
+  name: "get_operation_insights",
+  description: "Read-only operation insight using progress/material context",
+  domains: ["assistant", "operations", "insights"],
+  run: async (context) => ({
+    title: "Operation insights",
+    rows: await buildQuickInsightRows({
+      ...context,
+      intent: {
+        ...context.intent,
+        parameters: {
+          ...context.intent.parameters,
+          entityType: "operation",
+        },
+      },
+    }),
+    source: {
+      module: "assistant",
+      tableOrView: "operation_progress + operation_materials",
+      season: context.runtimeContext.season,
+      fetchedAt: nowIso(),
+    },
+  }),
+};
+
+const getWarehouseInsightsTool: AssistantToolDefinition = {
+  name: "get_warehouse_insights",
+  description: "Read-only warehouse insight: stock rows, total quantity, problem rows",
+  domains: ["assistant", "warehouses", "insights"],
+  run: async (context) => ({
+    title: "Warehouse insights",
+    rows: await buildWarehouseInsightRows(context),
+    source: {
+      module: "assistant",
+      tableOrView: "v_stock_balance_identity",
+      season: context.runtimeContext.season,
+      fetchedAt: nowIso(),
+    },
+  }),
+};
+
+const getWeighbridgeInsightsTool: AssistantToolDefinition = {
+  name: "get_weighbridge_insights",
+  description: "Read-only weighbridge insight: active tickets and recent receipts/shipments",
+  domains: ["assistant", "weighbridge", "insights"],
+  run: async (context) => ({
+    title: "Weighbridge insights",
+    rows: await buildWeighbridgeInsightRows(context),
+    source: {
+      module: "assistant",
+      tableOrView: "tickets",
+      season: context.runtimeContext.season,
+      fetchedAt: nowIso(),
+    },
+  }),
+};
+
 const getRoutesToolAlias: AssistantToolDefinition = {
   name: "get_routes",
   description: "Маршруты основных модулей Travkin Flow",
@@ -2833,6 +2979,7 @@ const getRoutesToolAlias: AssistantToolDefinition = {
   run: async (context) => {
     const routeNameMap: Record<string, string> = {
       dashboard: "Панель",
+      tasks: "Мои задачи",
       fields: "Поля",
       "field-card": "Карточка поля",
       "fields-map": "Карта полей",
@@ -3640,10 +3787,10 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
     const queryMaterialHint = (() => {
       const normalized = normalizeSearchText(searchQuery || "");
       if (!normalized) return null;
-      if (/(\u0443\u0434\u043e\u0431\u0440|fertiliz|dap|\u0430\u043c\u043c\u043e\u0444)/.test(normalized)) return "СѓРґРѕР±СЂРµРЅРёРµ";
-      if (/(\u0441\u0437\u0440|\u0445\u0438\u043c|pestic|fungic|herbic)/.test(normalized)) return "СЃР·СЂ";
-      if (/(\u0441\u0435\u043c\u044f\u043d|seed)/.test(normalized)) return "СЃРµРјРµРЅР°";
-      if (/(\u0431\u0435\u043d\u0437|\u0441\u043e\u043b\u044f\u0440|\u0434\u0438\u0437\u0435\u043b|\u0433\u0441\u043c|fuel)/.test(normalized)) return "С‚РѕРїР»РёРІРѕ";
+      if (/(\u0443\u0434\u043e\u0431\u0440|fertiliz|dap|\u0430\u043c\u043c\u043e\u0444)/.test(normalized)) return "удобрение";
+      if (/(\u0441\u0437\u0440|\u0445\u0438\u043c|pestic|fungic|herbic)/.test(normalized)) return "сзр";
+      if (/(\u0441\u0435\u043c\u044f\u043d|seed)/.test(normalized)) return "семена";
+      if (/(\u0431\u0435\u043d\u0437|\u0441\u043e\u043b\u044f\u0440|\u0434\u0438\u0437\u0435\u043b|\u0433\u0441\u043c|fuel)/.test(normalized)) return "топливо";
       return null;
     })();
     const productQuery = explicitProductQuery || queryAliasHint || queryMaterialHint || null;
@@ -3683,7 +3830,7 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
       });
       const warehouseSpecificTerms = warehouseTerms.filter((term) => {
         const normalized = normalizeSearchText(term);
-        return normalized && normalized !== "СЃРєР»Р°Рґ" && normalized !== "warehouse" && normalized !== "storage";
+      return normalized && normalized !== "склад" && normalized !== "warehouse" && normalized !== "storage";
       });
       const matchesWarehouseScope = (warehouseName: unknown): boolean => {
         if (!warehouseTerms.length) return true;
@@ -4098,7 +4245,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
     const selection = await resolveFieldSelection(context, query, 10);
     if (!selection.selected && selection.ambiguityReason && selection.candidates.length > 1) {
       return {
-        title: "РљР°СЂС‚РѕС‡РєР° РїРѕР»СЏ",
+        title: "Карточка поля",
         rows: selection.candidates.slice(0, 8).map((item) => ({
           field_id: item.id,
           field_name: item.displayName,
@@ -4112,7 +4259,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
           season: seasonLabel,
           fetchedAt: nowIso(),
         },
-        summary: "РќР°Р№РґРµРЅРѕ РЅРµСЃРєРѕР»СЊРєРѕ СЃРµРіРјРµРЅС‚РѕРІ РїРѕР»СЏ. РЈС‚РѕС‡РЅРёС‚Рµ РїРѕРґРїРѕР»Рµ (РЅР°РїСЂРёРјРµСЂ, 28-1).",
+        summary: "Найдено несколько сегментов поля. Уточните подполе, например 28-1.",
       };
     }
     const matchedField = selection.selected
@@ -4125,7 +4272,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
       : null;
     if (!matchedField) {
       return {
-        title: "РљР°СЂС‚РѕС‡РєР° РїРѕР»СЏ",
+        title: "Карточка поля",
         rows: [],
         source: {
           module: "fields",
@@ -4133,7 +4280,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
           season: context.runtimeContext.season,
           fetchedAt: nowIso(),
         },
-        summary: "РџРѕР»Рµ РЅРµ РЅР°Р№РґРµРЅРѕ.",
+        summary: "Поле не найдено.",
       };
     }
 
@@ -4401,7 +4548,7 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
     const selection = await resolveFieldSelection(context, query, 10);
     if (!selection.selected && selection.ambiguityReason && selection.candidates.length > 1) {
       return {
-        title: "РњР°С‚РµСЂРёР°Р»С‹ РїРѕР»СЏ",
+        title: "Материалы поля",
         rows: selection.candidates.slice(0, 8).map((item) => ({
           field_id: item.id,
           field_name: item.displayName,
@@ -4427,7 +4574,7 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
       : null;
     if (!matchedField) {
       return {
-        title: "Timeline РїРѕР»СЏ",
+        title: "История поля",
         rows: [],
         source: {
           module: "fields",
@@ -4814,6 +4961,12 @@ const toolRegistry: Record<AssistantToolName, AssistantToolDefinition> = {
   get_routes: getRoutesToolAlias,
   get_company_context: getCompanyContextTool,
   get_current_season: getCurrentSeasonTool,
+  resolve_entity: resolveEntityTool,
+  get_quick_insights: getQuickInsightsTool,
+  get_morning_report: getMorningReportTool,
+  get_operation_insights: getOperationInsightsTool,
+  get_warehouse_insights: getWarehouseInsightsTool,
+  get_weighbridge_insights: getWeighbridgeInsightsTool,
   get_field_land_bank_summary: getFieldLandBankSummaryTool,
   search_fields: searchFieldsToolAlias,
   get_field_card: getFieldCardToolAlias,

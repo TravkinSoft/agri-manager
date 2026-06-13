@@ -1,7 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Loader2, PlayCircle, RefreshCw, Save, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  BookOpen,
+  Brain,
+  Building2,
+  CheckCircle2,
+  Database,
+  Gauge,
+  Loader2,
+  LockKeyhole,
+  PlayCircle,
+  RefreshCw,
+  Route,
+  Save,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  UserRound,
+} from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import { DEFAULT_ASSISTANT_PLATFORM_SETTINGS } from "@/lib/assistant/settings-types";
@@ -265,6 +282,62 @@ export function AssistantPlatformSettingsForm() {
     const fromSettings = String(settings.model || "").trim();
     return Array.from(new Set([...MODEL_OPTIONS, ...(fromSettings ? [fromSettings] : [])]));
   }, [settings.model]);
+  const enabledToolsCount = useMemo(() => (settings.allowedTools || []).length, [settings.allowedTools]);
+  const allowedRolesCount = useMemo(() => (settings.allowedRoles || []).length, [settings.allowedRoles]);
+
+  const applyRecommendedDefaults = () => {
+    setSettings((prev) => ({
+      ...prev,
+      enabled: true,
+      temperature: 0.2,
+      reasoningEffort: "medium",
+      responseRules: {
+        ...prev.responseRules,
+        requireGroundingForDataQuestions: true,
+        maxClarifyingQuestions: 1,
+        alwaysIncludeSourceHints: true,
+      },
+      groundingRules: {
+        ...prev.groundingRules,
+        blockUngroundedDataAnswers: true,
+        disallowSeasonMixing: true,
+      },
+      actionConfirmation: {
+        ...prev.actionConfirmation,
+        alwaysRequireHumanConfirmation: true,
+        allowDraftAutofill: true,
+      },
+      knowledgePolicy: {
+        ...prev.knowledgePolicy,
+        internalLibraryFirst: true,
+        allowPublicInternetLookup: false,
+        requireLibrarySourceHints: true,
+        fallbackToModelKnowledge: true,
+      },
+      memoryPolicy: {
+        ...prev.memoryPolicy,
+        userMemoryEnabled: true,
+        companyMemoryEnabled: false,
+        explicitLearningOnly: true,
+        isolateMemoryPerUser: true,
+      },
+      companyPolicy: {
+        ...prev.companyPolicy,
+        allowCompanyInstructions: true,
+        companyInstructionsOverrideCore: false,
+      },
+      features: {
+        ...prev.features,
+        panelEnabled: true,
+        navigationEnabled: true,
+        actionDraftsEnabled: true,
+      },
+    }));
+    toast({
+      title: "Рекомендованный режим применён",
+      description: "Проверьте поля и сохраните настройки, чтобы они начали действовать.",
+    });
+  };
 
   const loadSettings = async () => {
     try {
@@ -491,9 +564,237 @@ export function AssistantPlatformSettingsForm() {
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Настройки ассистента</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Глобальные настройки Copilot + встроенный тестовый ассистент для проверки реального backend-runtime.
+          Пульт управления Travkin Copilot: мозг, источники знаний, память, действия и быстрый тест.
         </p>
       </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="border-slate-200">
+          <CardContent className="flex items-start gap-3 p-4">
+            <div className="rounded-lg bg-emerald-50 p-2 text-emerald-700">
+              <Brain className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">GPT — первый мозг</div>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                Сначала понимает запрос, потом выбирает tool или отвечает сам.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200">
+          <CardContent className="flex items-start gap-3 p-4">
+            <div className="rounded-lg bg-sky-50 p-2 text-sky-700">
+              <Database className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">ERP = факты</div>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                Остатки, площади, операции, талоны и статусы берутся только из данных системы.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200">
+          <CardContent className="flex items-start gap-3 p-4">
+            <div className="rounded-lg bg-amber-50 p-2 text-amber-700">
+              <BookOpen className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Библиотека первая</div>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                Книги, инструкции Grimme и агрономические материалы важнее общих знаний модели.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="border-slate-200">
+          <CardContent className="flex items-start gap-3 p-4">
+            <div className="rounded-lg bg-violet-50 p-2 text-violet-700">
+              <UserRound className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-sm font-semibold text-slate-900">Память по пользователю</div>
+              <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                Личные привычки агронома не применяются к специалисту или складовщику.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="border-slate-200">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>Рабочий режим</CardTitle>
+              <CardDescription>Главные переключатели без технической шелухи.</CardDescription>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={applyRecommendedDefaults} disabled={loading || saving}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Рекомендованный режим
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+            <span>
+              <span className="block text-sm font-medium text-slate-900">Ассистент включён</span>
+              <span className="block text-xs text-slate-500">Показывать Copilot пользователям разрешённых ролей.</span>
+            </span>
+            <Switch
+              checked={settings.enabled}
+              onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, enabled: checked }))}
+              disabled={loading || saving}
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+            <span>
+              <span className="block text-sm font-medium text-slate-900">Черновик перед действием</span>
+              <span className="block text-xs text-slate-500">Операции, талоны и движения только после подтверждения.</span>
+            </span>
+            <Switch
+              checked={settings.actionConfirmation.alwaysRequireHumanConfirmation}
+              onCheckedChange={(checked) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  actionConfirmation: { ...prev.actionConfirmation, alwaysRequireHumanConfirmation: checked },
+                }))
+              }
+              disabled={loading || saving}
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+            <span>
+              <span className="block text-sm font-medium text-slate-900">Память пользователя</span>
+              <span className="block text-xs text-slate-500">Запоминать явные предпочтения внутри текущего пользователя.</span>
+            </span>
+            <Switch
+              checked={settings.memoryPolicy.userMemoryEnabled}
+              onCheckedChange={(checked) =>
+                setSettings((prev) => ({ ...prev, memoryPolicy: { ...prev.memoryPolicy, userMemoryEnabled: checked } }))
+              }
+              disabled={loading || saving}
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+            <span>
+              <span className="block text-sm font-medium text-slate-900">Библиотека компании первая</span>
+              <span className="block text-xs text-slate-500">Для знаний и инструкций сначала читать внутренние документы.</span>
+            </span>
+            <Switch
+              checked={settings.knowledgePolicy.internalLibraryFirst}
+              onCheckedChange={(checked) =>
+                setSettings((prev) => ({ ...prev, knowledgePolicy: { ...prev.knowledgePolicy, internalLibraryFirst: checked } }))
+              }
+              disabled={loading || saving}
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+            <span>
+              <span className="block text-sm font-medium text-slate-900">Навигация по сайту</span>
+              <span className="block text-xs text-slate-500">Ассист может готовить переходы и открывать модули.</span>
+            </span>
+            <Switch
+              checked={settings.features.navigationEnabled}
+              onCheckedChange={(checked) =>
+                setSettings((prev) => ({ ...prev, features: { ...prev.features, navigationEnabled: checked } }))
+              }
+              disabled={loading || saving}
+            />
+          </label>
+          <label className="flex items-center justify-between gap-3 rounded-lg border bg-white p-3">
+            <span>
+              <span className="block text-sm font-medium text-slate-900">Публичный интернет</span>
+              <span className="block text-xs text-slate-500">По умолчанию выключен: источником служит ERP и библиотека.</span>
+            </span>
+            <Switch
+              checked={settings.knowledgePolicy.allowPublicInternetLookup}
+              onCheckedChange={(checked) =>
+                setSettings((prev) => ({ ...prev, knowledgePolicy: { ...prev.knowledgePolicy, allowPublicInternetLookup: checked } }))
+              }
+              disabled={loading || saving}
+            />
+          </label>
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200">
+        <CardHeader>
+          <CardTitle>Память, компания и база знаний</CardTitle>
+          <CardDescription>Как ассист учится и где ищет знания.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-lg border bg-slate-50 p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <LockKeyhole className="h-4 w-4 text-slate-600" />
+              Личная память
+            </div>
+            <p className="text-sm leading-relaxed text-slate-600">
+              Хранится по company + user. Команда “пиши коротко” применяется только к этому пользователю.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Badge variant={settings.memoryPolicy.userMemoryEnabled ? "default" : "secondary"}>
+                {settings.memoryPolicy.userMemoryEnabled ? "включена" : "выключена"}
+              </Badge>
+              <Badge variant="secondary">изолирована</Badge>
+              <Badge variant="secondary">не источник ERP</Badge>
+            </div>
+          </div>
+          <div className="rounded-lg border bg-slate-50 p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Building2 className="h-4 w-4 text-slate-600" />
+              Правила компании
+            </div>
+            <p className="text-sm leading-relaxed text-slate-600">
+              Локальные привычки компании могут дополнять ядро, но не заменяют безопасность и Source of Truth.
+            </p>
+            <label className="mt-3 flex items-center gap-3 text-sm">
+              <Switch
+                checked={settings.companyPolicy.allowCompanyInstructions}
+                onCheckedChange={(checked) =>
+                  setSettings((prev) => ({
+                    ...prev,
+                    companyPolicy: { ...prev.companyPolicy, allowCompanyInstructions: checked },
+                  }))
+                }
+                disabled={loading || saving}
+              />
+              Разрешить company-инструкции
+            </label>
+          </div>
+          <div className="rounded-lg border bg-slate-50 p-4">
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Route className="h-4 w-4 text-slate-600" />
+              Приоритет ответа
+            </div>
+            <ol className="space-y-1 text-sm text-slate-600">
+              <li>1. ERP tools для фактов.</li>
+              <li>2. Внутренняя библиотека для знаний.</li>
+              <li>3. Общие знания модели как fallback.</li>
+            </ol>
+          </div>
+          <div className="space-y-2 lg:col-span-3">
+            <Label htmlFor="companyInstructions">Базовые инструкции для компаний</Label>
+            <Textarea
+              id="companyInstructions"
+              rows={4}
+              value={settings.companyPolicy.defaultCompanyInstructions || ""}
+              placeholder="Например: отвечать языком хозяйства, учитывать локальные названия складов, не предлагать действия без подтверждения..."
+              onChange={(e) =>
+                setSettings((prev) => ({
+                  ...prev,
+                  companyPolicy: { ...prev.companyPolicy, defaultCompanyInstructions: e.target.value },
+                }))
+              }
+              disabled={loading || saving}
+            />
+            <p className="text-xs text-slate-500">
+              Это не главный prompt. Ядро TravkinFlow остаётся в коде, а здесь только дополнительные правила поведения.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -567,13 +868,11 @@ export function AssistantPlatformSettingsForm() {
           </div>
 
           <div className="col-span-full flex flex-wrap items-center gap-6">
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={settings.enabled}
-                onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, enabled: checked }))}
-                disabled={loading || saving}
-              />
-              <span className="text-sm">Ассистент включён</span>
+            <div className="flex items-center gap-2 text-sm text-slate-600">
+              <Gauge className="h-4 w-4" />
+              <span>
+                Активно: {settings.enabled ? "да" : "нет"} · ролей {allowedRolesCount} · tools {enabledToolsCount}
+              </span>
             </div>
             <div className="flex items-center gap-3">
               <Switch
@@ -594,8 +893,10 @@ export function AssistantPlatformSettingsForm() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Политика</CardTitle>
-          <CardDescription>System prompt, роли, инструменты и ограничения.</CardDescription>
+          <CardTitle>Ядро и доступ</CardTitle>
+          <CardDescription>
+            Ядро TravkinFlow всегда активно. Здесь только дополнительные правила и доступы.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-2 rounded border bg-slate-50 p-3 text-sm">
@@ -625,14 +926,18 @@ export function AssistantPlatformSettingsForm() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="systemPrompt">Системный prompt</Label>
+            <Label htmlFor="systemPrompt">Дополнительные платформенные правила</Label>
             <Textarea
               id="systemPrompt"
               rows={6}
               value={settings.systemPrompt || ""}
               onChange={(e) => setSettings((prev) => ({ ...prev, systemPrompt: e.target.value }))}
               disabled={loading || saving}
+              placeholder="Например: отвечать коротко, сначала вывод, потом 2-5 фактов и следующий шаг. Не заменяет ядро ассиста."
             />
+            <p className="text-xs text-slate-500">
+              Главный prompt нужен, но он должен жить в коде как стабильное ядро. Это поле только добавляет правила поверх ядра.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -649,43 +954,53 @@ export function AssistantPlatformSettingsForm() {
             </div>
           </div>
 
-          <div className="space-y-3">
-            <Label>Разрешённые инструменты</Label>
-            <div className="grid gap-2 md:grid-cols-2">
+          <details className="rounded-lg border bg-slate-50 p-3">
+            <summary className="cursor-pointer text-sm font-medium text-slate-800">
+              Расширенный список tools ({enabledToolsCount})
+            </summary>
+            <p className="mt-2 text-xs text-slate-500">
+              Это технический слой. В обычной работе лучше держать рекомендованный набор, чтобы GPT сам выбирал нужный tool.
+            </p>
+            <div className="mt-3 grid gap-2 md:grid-cols-2">
               {TOOL_OPTIONS.map((tool) => {
                 const checked = (settings.allowedTools || []).includes(tool);
                 return (
-                  <label key={tool} className="flex cursor-pointer items-center gap-2 rounded border p-2 text-sm">
+                  <label key={tool} className="flex cursor-pointer items-center gap-2 rounded border bg-white p-2 text-sm">
                     <Checkbox checked={checked} onCheckedChange={(next) => toggleAllowedTool(tool, !!next)} disabled={loading || saving} />
                     <span>{tool}</span>
                   </label>
                 );
               })}
             </div>
-          </div>
+          </details>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="forbiddenActions">Запрещённые действия (по одному на строку)</Label>
-              <Textarea
-                id="forbiddenActions"
-                rows={6}
-                value={forbiddenActionsText}
-                onChange={(e) => setForbiddenActionsText(e.target.value)}
-                disabled={loading || saving}
-              />
+          <details className="rounded-lg border bg-slate-50 p-3">
+            <summary className="cursor-pointer text-sm font-medium text-slate-800">
+              Безопасность и Source of Truth
+            </summary>
+            <div className="mt-3 grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="forbiddenActions">Запрещённые действия (по одному на строку)</Label>
+                <Textarea
+                  id="forbiddenActions"
+                  rows={6}
+                  value={forbiddenActionsText}
+                  onChange={(e) => setForbiddenActionsText(e.target.value)}
+                  disabled={loading || saving}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="groundingDomains">Где обязательны ERP tools</Label>
+                <Textarea
+                  id="groundingDomains"
+                  rows={6}
+                  value={groundingDomainsText}
+                  onChange={(e) => setGroundingDomainsText(e.target.value)}
+                  disabled={loading || saving}
+                />
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="groundingDomains">Grounding domains (по одному на строку)</Label>
-              <Textarea
-                id="groundingDomains"
-                rows={6}
-                value={groundingDomainsText}
-                onChange={(e) => setGroundingDomainsText(e.target.value)}
-                disabled={loading || saving}
-              />
-            </div>
-          </div>
+          </details>
         </CardContent>
       </Card>
 

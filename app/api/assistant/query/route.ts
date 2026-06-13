@@ -2,7 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { getAssistantPlatformSettings } from "@/lib/assistant/settings-store";
 import { runAssistantEngine } from "@/lib/assistant/engine/query";
+import {
+  buildAssistantLongTermMemoryContext,
+  captureAssistantMemorySignals,
+  type AssistantMemoryContext,
+  type AssistantMemoryWriteResult,
+} from "@/lib/assistant/memory-store";
 import { writeAssistantAuditLog } from "@/lib/assistant/audit-log";
+import { buildAssistantDraftCards } from "@/lib/assistant/draft-cards";
 import {
   appendAssistantThreadMessage,
   getAssistantThreadById,
@@ -115,7 +122,12 @@ function buildDebugTrustScore(params: {
   const isErpQuestion = looksLikeErpDataQuestion(requestMessage);
   const isFollowUp =
     requestMessage.trim().split(/\s+/).filter(Boolean).length <= 4 &&
-    Boolean(result.sessionState.lastIntent || result.sessionState.lastField || result.sessionState.lastWarehouse);
+    Boolean(
+      result.sessionState.lastIntent ||
+        result.sessionState.lastField ||
+        result.sessionState.lastWarehouse ||
+        result.sessionState.focusEntityLabel
+    );
   const isAnalytics = /(risk|risks|analysis|analytics|analyze|concern|problem|подозр|риск|анализ|опасен|вопрос)/i.test(
     requestMessage
   );
@@ -137,8 +149,13 @@ function buildDebugTrustScore(params: {
     notes.push("tool_error_present");
   }
 
-  const contextMemory = result.sessionState.lastIntent || result.sessionState.lastEntity ? 95 : 80;
-  const followUp = isFollowUp ? (result.sessionState.lastIntent ? 100 : 60) : 90;
+  const contextMemory =
+    result.sessionState.focusEntityLabel || result.sessionState.pendingActionType
+      ? 100
+      : result.sessionState.lastIntent || result.sessionState.lastEntity
+        ? 95
+        : 80;
+  const followUp = isFollowUp ? (result.sessionState.lastIntent || result.sessionState.focusEntityLabel ? 100 : 60) : 90;
 
   let navigation = 100;
   if (result.explicitNavigationRequested || navigationActions.length > 0 || result.intent.name === "navigation_help") {
@@ -228,6 +245,12 @@ function generateThreadTitle(message: string): string {
 function mapToolNamespace(tool: string): string {
   const map: Record<string, string> = {
     get_current_context: "context.getPageContext",
+    resolve_entity: "context.resolveEntity",
+    get_quick_insights: "context.quickInsights",
+    get_morning_report: "report.morning",
+    get_operation_insights: "operation.insights",
+    get_warehouse_insights: "warehouse.insights",
+    get_weighbridge_insights: "weighbridge.insights",
     get_routes: "navigation.getRoutes",
     get_company_context: "context.getCompanyContext",
     get_current_season: "context.getCurrentSeason",
@@ -281,14 +304,52 @@ type AssistantActionButton = {
   route?: string;
   filters?: Record<string, string>;
   prompt?: string;
+  actionType?: "navigate" | "open_module" | "continue_draft" | "prepare_draft" | string;
+  targetRoute?: string | null;
+  requiresConfirmation?: boolean;
+  payload?: Record<string, unknown>;
 };
+
+function parseActionPayload(value: unknown): Record<string, unknown> {
+  const text = asString(value);
+  if (!text) return {};
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function routeForDraftKind(kind: string | null): string | null {
+  switch (kind) {
+    case "operation":
+    case "field_task":
+    case "material_issue":
+      return "/operations";
+    case "weighbridge_ticket":
+      return "/weighbridge";
+    case "warehouse":
+    case "transfer":
+      return "/warehouses";
+    case "field":
+      return "/fields";
+    case "meal_order":
+      return "/meal-thermoses";
+    case "fuel_issue":
+      return "/fuel";
+    default:
+      return null;
+  }
+}
 
 function buildActionButtons(params: {
   intentName: string | null;
   requestMessage: string;
   navigationActions: AssistantNavigationAction[];
+  sessionState?: AssistantEngineResult["sessionState"] | null;
 }): AssistantActionButton[] {
-  const { navigationActions } = params;
+  const { navigationActions, sessionState } = params;
   const actions: AssistantActionButton[] = [];
   const add = (action: AssistantActionButton) => {
     if (!actions.some((item) => item.id === action.id)) actions.push(action);
@@ -302,6 +363,10 @@ function buildActionButtons(params: {
         label: "Открыть страницу",
         kind: "navigate",
         route: first.route,
+        targetRoute: first.route,
+        actionType: "navigate",
+        requiresConfirmation: false,
+        payload: { page: first.page, navigationType: first.type },
       });
     }
     if (first.type === "open_page_with_filter" || first.type === "apply_filter" || first.type === "open_entity") {
@@ -311,6 +376,57 @@ function buildActionButtons(params: {
         kind: "navigate",
         route: first.route,
         filters: first.filters || {},
+        targetRoute: first.route,
+        actionType: "navigate",
+        requiresConfirmation: false,
+        payload: {
+          page: first.page,
+          navigationType: first.type,
+          entityType: first.type === "open_entity" ? first.entityType : null,
+          entityId: first.type === "open_entity" ? first.entityId : null,
+        },
+      });
+    }
+  }
+
+  if (sessionState?.pendingActionType === "create_draft") {
+    const payload = parseActionPayload(sessionState.pendingActionPayloadJson);
+    const draftKind = asString(payload.draftKind) || "operation";
+    const missingFields = Array.isArray(payload.missingFields)
+      ? payload.missingFields
+          .map((item) => (item && typeof item === "object" ? asString((item as Record<string, unknown>).label) : null))
+          .filter(Boolean)
+      : [];
+    const missingText = missingFields.length ? ` Нужно уточнить: ${missingFields.join(", ")}.` : "";
+    add({
+      id: "continue_pending_draft",
+      label: "Продолжить черновик",
+      kind: "prompt",
+      prompt: `Продолжим черновик.${missingText}`,
+      actionType: "continue_draft",
+      requiresConfirmation: false,
+      payload: {
+        draftKind,
+        missingFields,
+        pendingActionType: sessionState.pendingActionType,
+      },
+    });
+
+    const route = routeForDraftKind(draftKind);
+    if (route) {
+      add({
+        id: "open_pending_draft_module",
+        label: "Открыть модуль",
+        kind: "navigate",
+        route,
+        targetRoute: route,
+        actionType: "open_module",
+        requiresConfirmation: false,
+        payload: {
+          page: route.replace(/^\//, "") || "dashboard",
+          draftKind,
+          pendingActionType: sessionState.pendingActionType,
+        },
       });
     }
   }
@@ -342,6 +458,10 @@ function buildDebugMetadata(params: {
     homeCompanyId: string | null;
   };
   threadPersistenceError: string | null;
+  longTermMemory: AssistantMemoryContext;
+  memoryWrite: AssistantMemoryWriteResult;
+  memoryReadMs: number | null;
+  memoryWriteMs: number | null;
 }): AssistantDebugMetadata {
   const {
     role,
@@ -359,6 +479,10 @@ function buildDebugMetadata(params: {
     latencyMs,
     actor,
     threadPersistenceError,
+    longTermMemory,
+    memoryWrite,
+    memoryReadMs,
+    memoryWriteMs,
   } = params;
 
   const runtime = (runtimeContext || {}) as Record<string, unknown>;
@@ -407,6 +531,19 @@ function buildDebugMetadata(params: {
       currentPage: asString(runtime.currentPage),
       currentRoute: asString(runtime.currentRoute),
       currentEntity: entityLabel(runtime.entity),
+      currentModule: asString(runtime.currentModule),
+      selectedFieldId: asString(runtime.selectedFieldId),
+      selectedFieldLabel: asString(runtime.selectedFieldLabel),
+      selectedWarehouseId: asString(runtime.selectedWarehouseId),
+      selectedWarehouseLabel: asString(runtime.selectedWarehouseLabel),
+      selectedCropStructureSectionId: asString(runtime.selectedCropStructureSectionId),
+      selectedCropStructureSectionLabel: asString(runtime.selectedCropStructureSectionLabel),
+      selectedOperationId: asString(runtime.selectedOperationId),
+      selectedOperationLabel: asString(runtime.selectedOperationLabel),
+      selectedTicketId: asString(runtime.selectedTicketId),
+      selectedTicketLabel: asString(runtime.selectedTicketLabel),
+      selectedBatchId: asString(runtime.selectedBatchId),
+      selectedBatchLabel: asString(runtime.selectedBatchLabel),
       selectedRowsCount: runtimeSelectedRows.length,
       activeFiltersCount: countActiveFilters(runtimeFilters),
       season: asString(runtime.season),
@@ -469,7 +606,24 @@ function buildDebugMetadata(params: {
       lastWarehouse: asString(result.sessionState.lastWarehouse),
       lastField: asString(result.sessionState.lastField),
       lastIntent: asString(result.sessionState.lastIntent),
-      followUpActive: Boolean(result.sessionState.lastResultContext || result.sessionState.lastEntity),
+      focusEntityType: asString(result.sessionState.focusEntityType),
+      focusEntityId: asString(result.sessionState.focusEntityId),
+      focusEntityLabel: asString(result.sessionState.focusEntityLabel),
+      focusModule: asString(result.sessionState.focusModule),
+      focusRoute: asString(result.sessionState.focusRoute),
+      focusSource: asString(result.sessionState.focusSource),
+      pendingActionType: asString(result.sessionState.pendingActionType),
+      pendingActionSummary: asString(result.sessionState.pendingActionSummary),
+      pendingActionRoute: asString(result.sessionState.pendingActionRoute),
+      lastActionType: asString(result.sessionState.lastActionType),
+      lastActionSummary: asString(result.sessionState.lastActionSummary),
+      longTermMemoryCount: longTermMemory.count,
+      longTermMemoryLatestAt: asString(longTermMemory.latestUpdatedAt),
+      longTermMemoryWarning: asString(longTermMemory.warning),
+      memorySavedCount: memoryWrite.savedCount,
+      memoryWriteSkippedReason: asString(memoryWrite.skippedReason),
+      memoryWriteWarning: asString(memoryWrite.warning),
+      followUpActive: Boolean(result.sessionState.lastResultContext || result.sessionState.lastEntity || result.sessionState.focusEntityLabel),
     },
     performance: {
       score: buildDebugPerformanceScore(result, latencyMs),
@@ -480,6 +634,8 @@ function buildDebugMetadata(params: {
       validatorMs: result.performance.validatorMs,
       modelMs: result.performance.modelMs,
       responseRenderMs: result.performance.responseRenderMs,
+      memoryReadMs,
+      memoryWriteMs,
       totalMs: result.performance.totalMs ?? Math.max(0, Math.round(latencyMs)),
       promptTokens: result.performance.promptTokens,
       completionTokens: result.performance.completionTokens,
@@ -554,10 +710,48 @@ export async function POST(request: NextRequest) {
     sessionId = asString(payload?.sessionId);
 
     const supabase = getServiceClient();
-    const companyRes = await supabase.from("companies").select("name").eq("id", companyId).maybeSingle();
+    let longTermMemory: AssistantMemoryContext = {
+      count: 0,
+      contextText: null,
+      latestUpdatedAt: null,
+      warning: null,
+    };
+    let memoryReadMs: number | null = null;
+    const memoryReadStartedAt = Date.now();
+    const companyPromise = supabase.from("companies").select("name").eq("id", companyId).maybeSingle();
+    const settingsPromise = getAssistantPlatformSettings(supabase, actor.id);
+    const memoryPromise = buildAssistantLongTermMemoryContext({
+      supabase,
+      companyId,
+      userId: actor.id,
+    })
+      .then((context) => {
+        return { context, warning: null as string | null };
+      })
+      .catch((error) => {
+        return {
+          context: {
+            count: 0,
+            contextText: null,
+            latestUpdatedAt: null,
+            warning: error instanceof Error ? error.message : "Failed to load assistant memory",
+          } satisfies AssistantMemoryContext,
+          warning: error instanceof Error ? error.message : "Failed to load assistant memory",
+        };
+      });
+
+    const [companyRes, settings, memoryReadResult] = await Promise.all([companyPromise, settingsPromise, memoryPromise]);
     companyName = asString(companyRes.data?.name) || null;
-    const settings = await getAssistantPlatformSettings(supabase, actor.id);
     shouldWriteAuditLog = !!settings.logging?.enabled;
+    longTermMemory = settings.memoryPolicy?.userMemoryEnabled
+      ? memoryReadResult.context
+      : {
+          count: 0,
+          contextText: null,
+          latestUpdatedAt: null,
+          warning: null,
+        };
+    memoryReadMs = Date.now() - memoryReadStartedAt;
     const runtimeContextPayload = buildRuntimeContextPayload({
       payload,
       actor: { id: actor.id, role: actor.role },
@@ -579,16 +773,36 @@ export async function POST(request: NextRequest) {
         chatHistory: productionChatHistory,
         runtimeContext: runtimeContextPayload,
         sessionState: payload?.sessionState || null,
+        longTermMemoryContext: longTermMemory.contextText,
       },
     });
     const safeAnswer = sanitizeAssistantAnswer(result.answer);
+    const memoryWrite: AssistantMemoryWriteResult = {
+      savedCount: 0,
+      skippedReason: "async_after_response",
+      warning: null,
+    };
+    const memoryWriteMs: number | null = null;
+    if (settings.memoryPolicy?.userMemoryEnabled) {
+      void captureAssistantMemorySignals({
+          supabase,
+          companyId,
+          userId: actor.id,
+          message: requestMessage,
+        }).catch(() => undefined);
+    }
     const responseActions = filterProductionActions(
       buildActionButtons({
         intentName: result.intent?.name || null,
         requestMessage: requestMessage || "",
         navigationActions: result.navigationActions || [],
+        sessionState: result.sessionState,
       })
     );
+    const responseDraftCards = buildAssistantDraftCards({
+      pendingActionType: result.sessionState.pendingActionType,
+      pendingActionPayloadJson: result.sessionState.pendingActionPayloadJson,
+    });
 
     if (threadId) {
       try {
@@ -627,6 +841,7 @@ export async function POST(request: NextRequest) {
               source_hints: result.sourceHints || [],
               tool_activity: filterProductionToolActivity(result.toolActivity || []),
               actions: responseActions,
+              draft_cards: responseDraftCards,
               tool_calls: result.toolCalls || [],
               navigation_actions: result.navigationActions || [],
               answer_source: result.answerSource,
@@ -676,6 +891,10 @@ export async function POST(request: NextRequest) {
             homeCompanyId: actor.homeCompanyId,
           },
           threadPersistenceError,
+          longTermMemory,
+          memoryWrite,
+          memoryReadMs,
+          memoryWriteMs,
         })
       : undefined;
 
@@ -709,6 +928,7 @@ export async function POST(request: NextRequest) {
       threadId,
       navigationActions: result.navigationActions || [],
       actions: responseActions,
+      draftCards: responseDraftCards,
       toolActivity: visibleToolActivity,
       meta: {
         intent: result.intent,

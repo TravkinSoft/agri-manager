@@ -217,12 +217,25 @@ function toRuntimeContext(runtimeContext: AssistantUiContext): string {
     {
       company: runtimeContext.companyName || runtimeContext.companyId,
       role: runtimeContext.userRole,
+      current_module: runtimeContext.currentModule,
       current_page: runtimeContext.currentPage,
       current_route: runtimeContext.currentRoute,
       selected_season: runtimeContext.season,
       selected_field_id: runtimeContext.selectedFieldId,
+      selected_field_label: runtimeContext.selectedFieldLabel,
       selected_warehouse_id: runtimeContext.selectedWarehouseId,
+      selected_warehouse_label: runtimeContext.selectedWarehouseLabel,
+      selected_crop_structure_section_id: runtimeContext.selectedCropStructureSectionId,
+      selected_crop_structure_section_label: runtimeContext.selectedCropStructureSectionLabel,
+      selected_operation_id: runtimeContext.selectedOperationId,
+      selected_operation_label: runtimeContext.selectedOperationLabel,
+      selected_ticket_id: runtimeContext.selectedTicketId,
+      selected_ticket_label: runtimeContext.selectedTicketLabel,
+      selected_batch_id: runtimeContext.selectedBatchId,
+      selected_batch_label: runtimeContext.selectedBatchLabel,
       selected_crop: runtimeContext.selectedCrop,
+      selected_entity_type: runtimeContext.entity?.type,
+      selected_entity_id: runtimeContext.entity?.id,
       filters: runtimeContext.filters,
     },
     null,
@@ -253,10 +266,38 @@ function toSessionSummary(sessionState: AssistantSessionState): string {
       last_fields_area_ha: sessionState.lastFieldsAreaHa ?? null,
       last_inconsistency: sessionState.lastDetectedInconsistency || null,
       last_inconsistency_at: sessionState.lastInconsistencyAt || null,
+      focus_entity_type: sessionState.focusEntityType || null,
+      focus_entity_id: sessionState.focusEntityId || null,
+      focus_entity_label: sessionState.focusEntityLabel || null,
+      focus_module: sessionState.focusModule || null,
+      focus_route: sessionState.focusRoute || null,
+      focus_source: sessionState.focusSource || null,
+      pending_action_type: sessionState.pendingActionType || null,
+      pending_action_summary: sessionState.pendingActionSummary || null,
+      pending_action_route: sessionState.pendingActionRoute || null,
+      pending_action_payload: safeJsonParse(sessionState.pendingActionPayloadJson),
+      last_action_type: sessionState.lastActionType || null,
+      last_action_summary: sessionState.lastActionSummary || null,
     },
     null,
     2
   );
+}
+
+function toPendingActionInstruction(sessionState: AssistantSessionState): string {
+  if (!sessionState.pendingActionType) return "";
+  const payload = safeJsonParse(sessionState.pendingActionPayloadJson);
+  const missingFields = Array.isArray(payload.missingFields)
+    ? payload.missingFields
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const value = item as Record<string, unknown>;
+          return clean(value.label) || clean(value.field);
+        })
+        .filter(Boolean)
+    : [];
+  const missingText = missingFields.length ? ` Missing required fields: ${missingFields.join(", ")}.` : "";
+  return `Pending action instruction: continue ${sessionState.pendingActionSummary || sessionState.pendingActionType}.${missingText} Ask one compact follow-up question if required data is missing. Do not claim the action is created or executed until an execution result confirms it.`;
 }
 
 function normalizeNavigationActions(actions: AssistantNavigationAction[]): AssistantNavigationAction[] {
@@ -367,6 +408,16 @@ export async function runModelOrchestrator(params: {
       { role: "system", content: `Router fallback hint only. Ignore it if the user asks a knowledge/process question:\n${toIntentContext(params.intent)}` },
       { role: "system", content: `Runtime context:\n${toRuntimeContext(params.runtimeContext)}` },
       { role: "system", content: `Session summary:\n${toSessionSummary(params.sessionState)}` },
+      {
+        role: "system",
+        content:
+          [
+            "Working Memory rule: resolve short follow-ups like 'this field', 'there', 'same warehouse', 'continue it' from focus_entity_* first. If pending_action_* exists, continue that action by asking only for missing required data. Do not ask which object if focus_entity_label is enough.",
+            toPendingActionInstruction(params.sessionState),
+          ]
+            .filter(Boolean)
+            .join("\n"),
+      },
       { role: "user", content: params.message },
     ];
 

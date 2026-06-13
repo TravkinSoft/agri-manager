@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Download } from "lucide-react";
+import { useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Bot, Download, Maximize2, Minimize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AssistantConversationHost } from "@/components/assistant/assistant-conversation-host";
@@ -14,9 +14,13 @@ export function AssistantPanel() {
     isOpen,
     close,
     open,
+    runtimeContext,
+    access,
     debugMonitorEnabled,
     debugMonitorOpen,
     toggleDebugMonitor,
+    panelWidth,
+    setPanelWidth,
   } = useAssistantShell();
   const engine = defaultAssistantPanelEngine;
   const [exportChatEnabled, setExportChatEnabled] = useState(false);
@@ -39,11 +43,40 @@ export function AssistantPanel() {
     return () => media.removeEventListener("change", update);
   }, []);
 
+  const clampPanelWidth = useCallback((width: number) => {
+    if (typeof window === "undefined") return Math.min(920, Math.max(360, width));
+    const maxByViewport = Math.max(380, Math.floor(window.innerWidth * 0.5));
+    return Math.min(maxByViewport, 920, Math.max(360, Math.round(width)));
+  }, []);
+
+  const startResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (isMobileView) return;
+      event.preventDefault();
+      const onMove = (moveEvent: PointerEvent) => {
+        setPanelWidth(clampPanelWidth(window.innerWidth - moveEvent.clientX));
+      };
+      const onUp = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp, { once: true });
+    },
+    [clampPanelWidth, isMobileView, setPanelWidth]
+  );
+
   if (!enabled) return null;
 
   const onExportChat = () => {
     window.dispatchEvent(new CustomEvent("travkin:assistant-export-trigger"));
   };
+  const seasonLabel = runtimeContext.season || runtimeContext.defaultSeason || "2026";
+  const contextLabel = [runtimeContext.companyName, seasonLabel, access.role].filter(Boolean).join(" · ");
 
   return (
     <Sheet modal={false} open={isOpen} onOpenChange={(next) => (next ? open() : close())}>
@@ -51,18 +84,47 @@ export function AssistantPanel() {
         forceMount
         side={isMobileView ? "bottom" : "right"}
         showOverlay={false}
-        onPointerDownOutside={() => close()}
+        showClose={false}
+        onPointerDownOutside={(event) => event.preventDefault()}
+        onInteractOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => event.preventDefault()}
         className={
           isMobileView
             ? "travkin-scrollbar h-[82vh] w-full max-w-none rounded-t-2xl border-[#262D3D] bg-[#11151E] p-0"
-            : "travkin-scrollbar w-[min(980px,calc(100vw-1rem))] max-w-none border-[#262D3D] bg-[#11151E] p-0"
+            : "travkin-scrollbar max-w-[50vw] border-[#262D3D] bg-[#11151E] p-0 shadow-2xl"
+        }
+        style={
+          isMobileView
+            ? undefined
+            : {
+                width: `${clampPanelWidth(panelWidth)}px`,
+                minWidth: "360px",
+              }
         }
       >
+        {!isMobileView ? (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            title="Потяните, чтобы изменить ширину"
+            onPointerDown={startResize}
+            onDoubleClick={() => setPanelWidth(520)}
+            className="group absolute inset-y-0 left-0 z-10 w-3 cursor-col-resize"
+          >
+            <div className="mx-auto h-full w-px bg-[#263247] transition group-hover:bg-[#E0B100]" />
+          </div>
+        ) : null}
         <div className="flex h-full min-h-0 flex-col">
-          <SheetHeader className="border-b border-[#262D3D] bg-[#121824] px-4 py-3">
+          <SheetHeader className="border-b border-[#262D3D] bg-[#10151F] px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <SheetTitle className="truncate text-lg font-semibold text-[#F3F4F6]">Travkin Copilot</SheetTitle>
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center text-[#E0B100]">
+                  <Bot className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <SheetTitle className="truncate text-lg font-semibold text-[#F3F4F6]">Travkin Copilot</SheetTitle>
+                  <div className="mt-0.5 truncate text-xs text-[#94A3B8]">{contextLabel || "Контекст загружается"}</div>
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
@@ -75,7 +137,7 @@ export function AssistantPanel() {
                   onClick={onExportChat}
                 >
                   <Download className="mr-1.5 h-3.5 w-3.5" />
-                  Export Chat
+                  Export
                 </Button>
                 {debugMonitorEnabled ? (
                   <Button
@@ -88,6 +150,43 @@ export function AssistantPanel() {
                     {debugMonitorOpen ? "Debug: вкл" : "Debug"}
                   </Button>
                 ) : null}
+                {!isMobileView ? (
+                  <>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      aria-label="Компактная ширина"
+                      title="Компактная ширина"
+                      className="h-9 w-9 border-[#334058] bg-[#121824] text-[#E5E7EB] hover:bg-[#202738]"
+                      onClick={() => setPanelWidth(420)}
+                    >
+                      <Minimize2 className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="outline"
+                      aria-label="Расширить до половины экрана"
+                      title="Расширить до половины экрана"
+                      className="h-9 w-9 border-[#334058] bg-[#121824] text-[#E5E7EB] hover:bg-[#202738]"
+                      onClick={() => setPanelWidth(clampPanelWidth(Math.floor(window.innerWidth * 0.5)))}
+                    >
+                      <Maximize2 className="h-4 w-4" />
+                    </Button>
+                  </>
+                ) : null}
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  aria-label="Свернуть Copilot"
+                  title="Свернуть Copilot"
+                  className="h-9 w-9 border-[#334058] bg-[#121824] text-[#E5E7EB] hover:bg-[#202738]"
+                  onClick={close}
+                >
+                  <Minimize2 className="h-4 w-4" />
+                </Button>
               </div>
             </div>
           </SheetHeader>

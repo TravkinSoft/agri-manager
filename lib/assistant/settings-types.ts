@@ -64,6 +64,26 @@ export type AssistantActionConfirmationRules = {
   allowDraftAutofill: boolean;
 };
 
+export type AssistantKnowledgePolicy = {
+  internalLibraryFirst: boolean;
+  allowPublicInternetLookup: boolean;
+  requireLibrarySourceHints: boolean;
+  fallbackToModelKnowledge: boolean;
+};
+
+export type AssistantMemoryPolicy = {
+  userMemoryEnabled: boolean;
+  companyMemoryEnabled: boolean;
+  explicitLearningOnly: boolean;
+  isolateMemoryPerUser: boolean;
+};
+
+export type AssistantCompanyPolicy = {
+  allowCompanyInstructions: boolean;
+  companyInstructionsOverrideCore: boolean;
+  defaultCompanyInstructions: string;
+};
+
 export type AssistantPlatformSettings = {
   systemPrompt: string;
   provider: AssistantProvider;
@@ -78,6 +98,9 @@ export type AssistantPlatformSettings = {
   groundingRules: AssistantGroundingRules;
   companyDataAccess: AssistantCompanyDataAccess;
   actionConfirmation: AssistantActionConfirmationRules;
+  knowledgePolicy: AssistantKnowledgePolicy;
+  memoryPolicy: AssistantMemoryPolicy;
+  companyPolicy: AssistantCompanyPolicy;
   limits: AssistantLimits;
   logging: AssistantLogging;
   features: AssistantFeatures;
@@ -198,6 +221,23 @@ export const DEFAULT_ASSISTANT_PLATFORM_SETTINGS: AssistantPlatformSettings = {
   actionConfirmation: {
     alwaysRequireHumanConfirmation: true,
     allowDraftAutofill: true,
+  },
+  knowledgePolicy: {
+    internalLibraryFirst: true,
+    allowPublicInternetLookup: false,
+    requireLibrarySourceHints: true,
+    fallbackToModelKnowledge: true,
+  },
+  memoryPolicy: {
+    userMemoryEnabled: true,
+    companyMemoryEnabled: false,
+    explicitLearningOnly: true,
+    isolateMemoryPerUser: true,
+  },
+  companyPolicy: {
+    allowCompanyInstructions: true,
+    companyInstructionsOverrideCore: false,
+    defaultCompanyInstructions: "",
   },
   limits: {
     maxRecentMessages: 20,

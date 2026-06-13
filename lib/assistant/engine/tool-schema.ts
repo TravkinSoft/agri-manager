@@ -53,6 +53,9 @@ function normalizeNavigationTarget(args: Record<string, unknown>, message?: stri
   const rawRoute = text(args.route) || "/dashboard";
   const haystack = `${rawPage} ${rawRoute} ${message || ""}`.toLowerCase();
 
+  if (/(my\s+tasks?|tasks?|мо[ия]\s+задач|задач[аиу]?)/i.test(haystack)) {
+    return { page: "tasks", route: "/tasks", filters };
+  }
   if (/(fields?-?map|field\s+map|карта\s+пол|карту\s+пол|карте\s+пол)/i.test(haystack)) {
     return { page: "fields-map", route: "/fields-map", filters };
   }
@@ -68,7 +71,94 @@ function normalizeNavigationTarget(args: Record<string, unknown>, message?: stri
   return { page: rawPage, route: rawRoute, filters };
 }
 
+function buildEntityNavigationFromRows(rows: Array<Record<string, unknown>>): AssistantNavigationAction[] {
+  const row = rows[0] || {};
+  const entityType = text(row.entity_type);
+  const entityId = text(row.entity_id);
+  const entityName = text(row.entity_name);
+  const route = text(row.route);
+  const page = text(row.page) || "dashboard";
+  const filters = toFiltersObject(row.filters);
+  if (!entityType || !route || !entityId) return [];
+  if (!["warehouse", "field", "fuel", "operation", "ticket", "crop_structure_line", "batch"].includes(entityType)) {
+    return [];
+  }
+  return [
+    {
+      type: "open_entity",
+      page,
+      route,
+      entityType: entityType as "warehouse" | "field" | "fuel" | "operation" | "ticket" | "crop_structure_line" | "batch",
+      entityId,
+      entityQuery: entityName,
+      filters,
+    },
+  ];
+}
+
 const TOOL_MAP: Record<string, PlannerToolMapping> = {
+  get_current_context: {
+    assistantTool: "get_current_context",
+    intentName: "company_context",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      output_type: "filtered_summary",
+    }),
+  },
+  resolve_entity: {
+    assistantTool: "resolve_entity",
+    intentName: "entity_resolution",
+    buildParams: (args, message) => ({
+      query: text(args.query) || text(args.entity) || message,
+      entityType: text(args.entity_type) || text(args.entityType),
+      limit: int(args.limit, 12),
+      output_type: "list",
+    }),
+  },
+  get_quick_insights: {
+    assistantTool: "get_quick_insights",
+    intentName: "fields_overview",
+    buildParams: (args, message) => ({
+      query: text(args.query) || text(args.entity) || message,
+      entityType: text(args.entity_type) || text(args.entityType),
+      output_type: "filtered_summary",
+    }),
+  },
+  get_morning_report: {
+    assistantTool: "get_morning_report",
+    intentName: "operations_recent",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      output_type: "summary_total",
+    }),
+  },
+  get_operation_insights: {
+    assistantTool: "get_operation_insights",
+    intentName: "operations_recent",
+    buildParams: (args, message) => ({
+      query: text(args.query) || text(args.operation) || message,
+      entityType: "operation",
+      output_type: "filtered_summary",
+    }),
+  },
+  get_warehouse_insights: {
+    assistantTool: "get_warehouse_insights",
+    intentName: "inventory_balance",
+    buildParams: (args, message) => ({
+      query: text(args.query) || text(args.warehouse) || message,
+      warehouse: text(args.warehouse),
+      entityType: "warehouse",
+      output_type: "filtered_summary",
+    }),
+  },
+  get_weighbridge_insights: {
+    assistantTool: "get_weighbridge_insights",
+    intentName: "weighbridge_tickets",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      output_type: "filtered_summary",
+    }),
+  },
   get_warehouse_count: {
     assistantTool: "get_warehouse_count",
     intentName: "warehouse_count",
@@ -329,6 +419,46 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
       ];
     },
   },
+  open_operation: {
+    assistantTool: "resolve_entity",
+    intentName: "navigation_help",
+    buildParams: (args, message) => ({
+      query: text(args.operation) || text(args.query) || message,
+      entityType: "operation",
+      output_type: "action_navigation",
+    }),
+    buildNavigation: (_args, rows) => buildEntityNavigationFromRows(rows),
+  },
+  open_ticket: {
+    assistantTool: "resolve_entity",
+    intentName: "navigation_help",
+    buildParams: (args, message) => ({
+      query: text(args.ticket) || text(args.query) || message,
+      entityType: "ticket",
+      output_type: "action_navigation",
+    }),
+    buildNavigation: (_args, rows) => buildEntityNavigationFromRows(rows),
+  },
+  open_crop_structure_section: {
+    assistantTool: "resolve_entity",
+    intentName: "navigation_help",
+    buildParams: (args, message) => ({
+      query: text(args.section) || text(args.field) || text(args.query) || message,
+      entityType: "crop_structure_line",
+      output_type: "action_navigation",
+    }),
+    buildNavigation: (_args, rows) => buildEntityNavigationFromRows(rows),
+  },
+  open_batch: {
+    assistantTool: "resolve_entity",
+    intentName: "navigation_help",
+    buildParams: (args, message) => ({
+      query: text(args.batch) || text(args.query) || message,
+      entityType: "batch",
+      output_type: "action_navigation",
+    }),
+    buildNavigation: (_args, rows) => buildEntityNavigationFromRows(rows),
+  },
   create_weighbridge_ticket_draft: {
     assistantTool: "create_weighbridge_ticket_draft",
     intentName: "create_draft",
@@ -373,6 +503,87 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
 
 export function getPlannerToolSchemas(): PlannerToolSchema[] {
   return [
+    {
+      type: "function",
+      function: {
+        name: "get_current_context",
+        description:
+          "Returns current UI context: company, season, page, route, user role, selected field, crop structure section, operation, warehouse, ticket, batch, and filters.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "resolve_entity",
+        description:
+          "Resolve user text to real ERP entity candidates: field, warehouse, operation, ticket, crop structure section, or batch. Use for phrases like Field 28, WR-2026-000025, Gala, vegetable warehouse, SZR warehouse.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            entity_type: {
+              type: "string",
+              enum: ["field", "warehouse", "operation", "ticket", "crop_structure_line", "batch"],
+            },
+            limit: { type: "integer", minimum: 1, maximum: 30 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_quick_insights",
+        description:
+          "Quick context-aware read-only summary for the current/resolved entity. Use for short follow-ups like 'how much left?', 'what is here?', 'what are the risks?' when page/entity context matters.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            entity_type: {
+              type: "string",
+              enum: ["field", "warehouse", "operation", "ticket", "crop_structure_line", "batch"],
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_morning_report",
+        description:
+          "Read-only morning report foundation: yesterday done operations, active/paused operations, open tickets, low/negative stock rows.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_operation_insights",
+        description: "Read-only operation insight: status, progress entries, done area, stop reason and material count.",
+        parameters: { type: "object", properties: { query: { type: "string" }, operation: { type: "string" } }, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_warehouse_insights",
+        description: "Read-only warehouse insight: balances, problem rows, issued/return placeholders.",
+        parameters: { type: "object", properties: { query: { type: "string" }, warehouse: { type: "string" } }, additionalProperties: false },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "get_weighbridge_insights",
+        description: "Read-only weighbridge insight: active/unclosed tickets, recent receipts and shipments.",
+        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+      },
+    },
     {
       type: "function",
       function: {
@@ -617,6 +828,67 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
           type: "object",
           properties: {
             warehouse: { type: "string" },
+            query: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "open_operation",
+        description: "Prepares navigation to an operation by name, id, field, crop, or status. Use only for explicit open/navigation commands.",
+        parameters: {
+          type: "object",
+          properties: {
+            operation: { type: "string" },
+            query: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "open_ticket",
+        description: "Prepares navigation to a weighbridge ticket by ticket number/id, for example WR-2026-000025. Use only for explicit open/navigation commands.",
+        parameters: {
+          type: "object",
+          properties: {
+            ticket: { type: "string" },
+            query: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "open_crop_structure_section",
+        description: "Prepares navigation to a crop-structure section/row by field, crop, variety, reproduction, or section id. Use only for explicit open/navigation commands.",
+        parameters: {
+          type: "object",
+          properties: {
+            section: { type: "string" },
+            field: { type: "string" },
+            query: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "open_batch",
+        description: "Prepares navigation to an inventory batch/lot by batch code, product, or warehouse. Use only for explicit open/navigation commands.",
+        parameters: {
+          type: "object",
+          properties: {
+            batch: { type: "string" },
             query: { type: "string" },
           },
           additionalProperties: false,

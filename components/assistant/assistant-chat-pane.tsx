@@ -7,12 +7,14 @@ import {
   AudioLines,
   Bot,
   Clock3,
+  Compass,
   Loader2,
   MessageSquare,
   Mic,
   RefreshCw,
   Send,
   Settings2,
+  Sparkles,
   Square,
   TerminalSquare,
   Trash2,
@@ -26,6 +28,7 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import type { AssistantRuntimeUiContext } from "@/lib/assistant/shell";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 import type { AssistantDebugMetadata } from "@/lib/assistant/debug-types";
+import type { AssistantDraftCard, AssistantDraftMaterialLine, AssistantDraftTankLine } from "@/lib/assistant/draft-cards";
 import { resolveRouteEntryByPath } from "@/lib/assistant/route-registry";
 import { buildAssistantChatExport } from "@/lib/assistant/export/chat-export";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
@@ -36,6 +39,7 @@ type AssistantChatMessage = {
   content: string;
   createdAt: string;
   actions?: AssistantActionButton[];
+  draftCards?: AssistantDraftCard[];
   meta?: {
     sourceHints?: string[];
     intent?: string;
@@ -51,6 +55,22 @@ type AssistantActionButton = {
   route?: string;
   filters?: Record<string, string>;
   prompt?: string;
+  actionType?: "navigate" | "open_module" | "continue_draft" | "prepare_draft" | string;
+  targetRoute?: string | null;
+  requiresConfirmation?: boolean;
+  payload?: Record<string, unknown>;
+};
+
+type AssistantActionReceipt = {
+  id: string;
+  actionId: string;
+  actionType: string;
+  status: "prepared" | "executed" | "failed" | "blocked";
+  targetRoute: string | null;
+  message: string;
+  error: string | null;
+  executedAt: string;
+  clientVerified: boolean;
 };
 
 type AssistantThread = {
@@ -89,6 +109,21 @@ type AssistantSessionStatePayload = {
   lastFieldsAreaHa: number | null;
   lastDetectedInconsistency: string | null;
   lastInconsistencyAt: string | null;
+  focusEntityType: string | null;
+  focusEntityId: string | null;
+  focusEntityLabel: string | null;
+  focusModule: string | null;
+  focusRoute: string | null;
+  focusSource: string | null;
+  focusUpdatedAt: string | null;
+  pendingActionType: string | null;
+  pendingActionSummary: string | null;
+  pendingActionRoute: string | null;
+  pendingActionPayloadJson: string | null;
+  pendingActionUpdatedAt: string | null;
+  lastActionType: string | null;
+  lastActionSummary: string | null;
+  lastActionAt: string | null;
 };
 
 type AssistantNavigationActionPayload =
@@ -107,7 +142,7 @@ type AssistantNavigationActionPayload =
       type: "open_entity";
       page: string;
       route: string;
-      entityType: "warehouse" | "field" | "fuel";
+      entityType: "warehouse" | "field" | "fuel" | "operation" | "ticket" | "crop_structure_line" | "batch";
       entityId: string | null;
       entityQuery: string | null;
       filters: Record<string, string>;
@@ -125,6 +160,7 @@ type QueryResponsePayload = {
   threadId?: string | null;
   navigationActions?: AssistantNavigationActionPayload[];
   actions?: AssistantActionButton[];
+  draftCards?: AssistantDraftCard[];
   toolActivity?: string[];
   meta?: {
     sourceHints?: string[];
@@ -141,6 +177,11 @@ type QueryResponsePayload = {
   debug?: AssistantDebugMetadata;
   error?: string;
   code?: string;
+};
+
+type AssistantQuickPrompt = {
+  label: string;
+  prompt: string;
 };
 
 const EMPTY_STATE: AssistantSessionStatePayload = {
@@ -166,9 +207,26 @@ const EMPTY_STATE: AssistantSessionStatePayload = {
   lastFieldsAreaHa: null,
   lastDetectedInconsistency: null,
   lastInconsistencyAt: null,
+  focusEntityType: null,
+  focusEntityId: null,
+  focusEntityLabel: null,
+  focusModule: null,
+  focusRoute: null,
+  focusSource: null,
+  focusUpdatedAt: null,
+  pendingActionType: null,
+  pendingActionSummary: null,
+  pendingActionRoute: null,
+  pendingActionPayloadJson: null,
+  pendingActionUpdatedAt: null,
+  lastActionType: null,
+  lastActionSummary: null,
+  lastActionAt: null,
 };
 
-const TOOL_LOADING_STEPS = ["Смотрю данные..."] as const;
+const TOOL_LOADING_STEPS = ["Смотрю контекст...", "Проверяю источники...", "Собираю короткий ответ..."] as const;
+
+const MAX_CACHED_MESSAGES = 80;
 
 function uid() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -180,6 +238,21 @@ function formatVoiceDuration(seconds: number): string {
   const minutes = Math.floor(safeSeconds / 60);
   const rest = safeSeconds % 60;
   return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+function compactContextLabel(value: string | null | undefined, fallback: string): string {
+  const text = String(value || "").trim();
+  return text || fallback;
+}
+
+function dedupeQuickPrompts(prompts: AssistantQuickPrompt[]): AssistantQuickPrompt[] {
+  const seen = new Set<string>();
+  return prompts.filter((item) => {
+    const key = `${item.label}:${item.prompt}`.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function getSupportedVoiceMimeType(): string {
@@ -243,6 +316,17 @@ function buildEntityFilters(action: Extract<AssistantNavigationActionPayload, { 
   if (!filters.search && action.entityQuery) filters.search = action.entityQuery;
   if (!filters.entityId && action.entityId) filters.entityId = action.entityId;
   if (!filters.entityType && action.entityType) filters.entityType = action.entityType;
+  if (action.entityId) {
+    if (action.entityType === "warehouse" && !filters.warehouseId) filters.warehouseId = action.entityId;
+    if (action.entityType === "field" && !filters.fieldId) filters.fieldId = action.entityId;
+    if (action.entityType === "operation" && !filters.operationId) filters.operationId = action.entityId;
+    if (action.entityType === "ticket" && !filters.ticketId) filters.ticketId = action.entityId;
+    if (action.entityType === "crop_structure_line") {
+      if (!filters.cropStructureId) filters.cropStructureId = action.entityId;
+      if (!filters.sectionId) filters.sectionId = action.entityId;
+    }
+    if (action.entityType === "batch" && !filters.batchId) filters.batchId = action.entityId;
+  }
   return filters;
 }
 
@@ -262,6 +346,42 @@ function matchRoutePath(actualPath: string, expectedPath: string): boolean {
   if (actualPath === expectedPath) return true;
   if (expectedPath.endsWith("/")) return actualPath.startsWith(expectedPath);
   return actualPath.startsWith(`${expectedPath}/`);
+}
+
+const ASSISTANT_ROLE_ROUTE_ALLOWLIST: Record<string, string[]> = {
+  agronomist: ["/dashboard", "/fields", "/fields-map", "/crop-structure", "/care-systems", "/field-history", "/operations", "/warehouses", "/technique", "/analytics", "/references"],
+  director: ["/dashboard", "/fields", "/fields-map", "/crop-structure", "/care-systems", "/field-history", "/operations", "/warehouses", "/land-legal", "/technique", "/analytics", "/references"],
+  specialist: ["/dashboard", "/tasks"],
+  brigadier: ["/dashboard", "/operations", "/fields", "/fields-map", "/meal-thermoses"],
+  warehouse: ["/dashboard", "/warehouses", "/inventory", "/warehouses/transactions", "/warehouses/requests", "/warehouses/manage", "/meal-thermoses"],
+  warehouse_operator: ["/dashboard", "/weighbridge", "/warehouses", "/inventory", "/warehouses/transactions", "/warehouses/requests", "/meal-thermoses"],
+  weighman: ["/weighbridge", "/machines", "/warehouses", "/processing", "/containers", "/ledger"],
+  legal_operator: ["/dashboard", "/land-legal", "/fields", "/fields-map", "/analytics"],
+  fuel_operator: ["/fuel"],
+};
+
+const ASSISTANT_FULL_NAV_ROLES = new Set(["global_admin", "company_admin", "admin"]);
+
+function routePathOnly(route: string | null): string {
+  if (!route) return "";
+  const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost";
+  return new URL(route, origin).pathname;
+}
+
+function isRouteAllowedForRole(role: string | null, route: string | null): boolean {
+  const normalizedRole = String(role || "").toLowerCase();
+  if (!normalizedRole || ASSISTANT_FULL_NAV_ROLES.has(normalizedRole)) return true;
+  const allowedRoutes = ASSISTANT_ROLE_ROUTE_ALLOWLIST[normalizedRole];
+  if (!allowedRoutes) return true;
+
+  const path = routePathOnly(route);
+  return allowedRoutes.some((allowed) => matchRoutePath(path, allowed));
+}
+
+function assertRouteAllowedForRole(role: string | null, route: string | null) {
+  if (isRouteAllowedForRole(role, route)) return;
+  const path = routePathOnly(route) || "route";
+  throw new Error(`Роль ${role || "не определена"} не имеет доступа к ${path}`);
 }
 
 async function confirmExecution(params: {
@@ -306,7 +426,12 @@ async function confirmExecution(params: {
       const inQuery =
         current.searchParams.get("entityId") === entityId ||
         current.searchParams.get("warehouseId") === entityId ||
-        current.searchParams.get("fieldId") === entityId;
+        current.searchParams.get("fieldId") === entityId ||
+        current.searchParams.get("operationId") === entityId ||
+        current.searchParams.get("ticketId") === entityId ||
+        current.searchParams.get("cropStructureId") === entityId ||
+        current.searchParams.get("sectionId") === entityId ||
+        current.searchParams.get("batchId") === entityId;
       if (entityId && !inPath && !inQuery) {
         await new Promise((resolve) => window.setTimeout(resolve, 80));
         continue;
@@ -340,6 +465,118 @@ function firstActionToSuccessText(action: AssistantNavigationActionPayload | nul
     return "Открыл страницу.";
   }
   return null;
+}
+
+function actionButtonToNavigationAction(
+  action: AssistantActionButton,
+  targetRoute: string,
+  filters: Record<string, string>
+): AssistantNavigationActionPayload {
+  const page = String(action.payload?.page || action.id || "assistant_action");
+  if (Object.keys(filters).length > 0) {
+    return {
+      type: "open_page_with_filter",
+      page,
+      route: targetRoute,
+      filters,
+    };
+  }
+  return {
+    type: "open_page",
+    page,
+    route: targetRoute,
+  };
+}
+
+function actionReceiptToMessage(receipt: AssistantActionReceipt): AssistantChatMessage {
+  return {
+    id: receipt.id,
+    role: "assistant",
+    content: receipt.message,
+    createdAt: receipt.executedAt,
+    meta: {
+      mode: "action_receipt",
+      toolActivity: [
+        `${receipt.actionType}:${receipt.status}`,
+        receipt.targetRoute ? `route:${receipt.targetRoute}` : "",
+        receipt.error ? `error:${receipt.error}` : "",
+      ].filter(Boolean),
+    },
+  };
+}
+
+function buildWorkingContextHint(params: {
+  runtimeContext: AssistantRuntimeUiContext;
+  sessionState: AssistantSessionStatePayload;
+}): string | null {
+  const { runtimeContext, sessionState } = params;
+  const hints = [
+    runtimeContext.companyName ? `company=${runtimeContext.companyName}` : null,
+    runtimeContext.season ? `season=${runtimeContext.season}` : null,
+    runtimeContext.currentRoute ? `route=${runtimeContext.currentRoute}` : null,
+    runtimeContext.selectedFieldLabel || runtimeContext.selectedFieldId
+      ? `selected_field=${runtimeContext.selectedFieldLabel || runtimeContext.selectedFieldId}`
+      : null,
+    runtimeContext.selectedCropStructureSectionLabel || runtimeContext.selectedCropStructureSectionId
+      ? `selected_section=${runtimeContext.selectedCropStructureSectionLabel || runtimeContext.selectedCropStructureSectionId}`
+      : null,
+    runtimeContext.selectedWarehouseLabel || runtimeContext.selectedWarehouseId
+      ? `selected_warehouse=${runtimeContext.selectedWarehouseLabel || runtimeContext.selectedWarehouseId}`
+      : null,
+    sessionState.focusEntityLabel ? `dialog_focus=${sessionState.focusEntityLabel}` : null,
+    sessionState.focusModule ? `focus_module=${sessionState.focusModule}` : null,
+    sessionState.lastFieldLabel || sessionState.lastField ? `last_field=${sessionState.lastFieldLabel || sessionState.lastField}` : null,
+    sessionState.lastWarehouseLabel || sessionState.lastWarehouse ? `last_warehouse=${sessionState.lastWarehouseLabel || sessionState.lastWarehouse}` : null,
+    sessionState.lastIntent ? `last_intent=${sessionState.lastIntent}` : null,
+  ].filter(Boolean);
+  return hints.length ? `Working context for follow-up interpretation: ${hints.join("; ")}.` : null;
+}
+
+function formatDraftNumber(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "";
+  return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatDraftQuantity(value: number | null | undefined, unit: string | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return unit || "";
+  return `${formatDraftNumber(value)}${unit ? ` ${unit}` : ""}`;
+}
+
+function recalculateDraftLines<T extends AssistantDraftMaterialLine | AssistantDraftTankLine>(
+  rows: T[],
+  areaHa: number | null,
+  sprayVolumeLHa?: number | null
+): T[] {
+  return rows.map((row) => {
+    if ("ratePerHa" in row) {
+      const nextQty = areaHa != null && row.ratePerHa != null ? Number((areaHa * row.ratePerHa).toFixed(4)) : row.requiredQty;
+      return {
+        ...row,
+        requiredQty: nextQty,
+        calculation:
+          areaHa != null && row.ratePerHa != null && row.unit
+            ? `${formatDraftNumber(row.ratePerHa)} × ${formatDraftNumber(areaHa)} = ${formatDraftNumber(nextQty)} ${row.unit}`
+            : row.calculation,
+      };
+    }
+    if (row.id === "tank_water" && areaHa != null && sprayVolumeLHa != null) {
+      return { ...row, quantity: Number((areaHa * sprayVolumeLHa).toFixed(2)) };
+    }
+    return row;
+  });
+}
+
+function patchDraftConfirmBody(card: AssistantDraftCard, patch: Record<string, unknown>): AssistantDraftCard {
+  return {
+    ...card,
+    confirm: {
+      ...card.confirm,
+      body: {
+        ...card.confirm.body,
+        ...patch,
+      },
+    },
+  };
 }
 
 function formatThreadDate(value: string): string {
@@ -388,6 +625,8 @@ export function AssistantChatPane({
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AssistantChatMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [storageHydrated, setStorageHydrated] = useState(false);
+  const [hydratedStorageKey, setHydratedStorageKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"chat" | "history" | "settings">("chat");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -398,6 +637,10 @@ export function AssistantChatPane({
   const [requestError, setRequestError] = useState<string | null>(null);
   const [sessionState, setSessionState] = useState<AssistantSessionStatePayload>(EMPTY_STATE);
   const [lastMode, setLastMode] = useState<string>("erp_data");
+  const [, setActionReceipts] = useState<AssistantActionReceipt[]>([]);
+  const [confirmingDraftId, setConfirmingDraftId] = useState<string | null>(null);
+  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
+  const [expandedDraftRecommendations, setExpandedDraftRecommendations] = useState<Record<string, boolean>>({});
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -415,12 +658,92 @@ export function AssistantChatPane({
     [runtimeContext.companyId, profile?.context_company_id, profile?.company_id]
   );
   const loadingText = TOOL_LOADING_STEPS[loadingStepIndex % TOOL_LOADING_STEPS.length];
+  const contextPills = useMemo(() => {
+    const selected =
+      runtimeContext.selectedFieldLabel ||
+      runtimeContext.selectedWarehouseLabel ||
+      runtimeContext.selectedOperationLabel ||
+      runtimeContext.selectedTicketLabel ||
+      runtimeContext.selectedBatchLabel ||
+      runtimeContext.selectedCropStructureSectionLabel ||
+      null;
+
+    return [
+      compactContextLabel(runtimeContext.companyName, "Компания не выбрана"),
+      compactContextLabel(runtimeContext.season || runtimeContext.defaultSeason, "Сезон не выбран"),
+      compactContextLabel(runtimeContext.currentModule || runtimeContext.currentPage, "Текущая страница"),
+      compactContextLabel(access.role, "Роль не определена"),
+      selected,
+    ].filter(Boolean) as string[];
+  }, [
+    access.role,
+    runtimeContext.companyName,
+    runtimeContext.currentModule,
+    runtimeContext.currentPage,
+    runtimeContext.defaultSeason,
+    runtimeContext.season,
+    runtimeContext.selectedBatchLabel,
+    runtimeContext.selectedCropStructureSectionLabel,
+    runtimeContext.selectedFieldLabel,
+    runtimeContext.selectedOperationLabel,
+    runtimeContext.selectedTicketLabel,
+    runtimeContext.selectedWarehouseLabel,
+  ]);
+  const quickPrompts = useMemo<AssistantQuickPrompt[]>(() => {
+    const route = runtimeContext.currentRoute || "";
+    const prompts: AssistantQuickPrompt[] = [];
+
+    if (runtimeContext.selectedFieldLabel) {
+      prompts.push({ label: runtimeContext.selectedFieldLabel, prompt: `Что по ${runtimeContext.selectedFieldLabel}?` });
+    }
+    if (runtimeContext.selectedWarehouseLabel) {
+      prompts.push({ label: runtimeContext.selectedWarehouseLabel, prompt: `Что по складу ${runtimeContext.selectedWarehouseLabel}?` });
+    }
+    if (runtimeContext.selectedOperationLabel) {
+      prompts.push({ label: "Операция", prompt: `Что по операции ${runtimeContext.selectedOperationLabel}?` });
+    }
+
+    if (route.includes("/tasks")) {
+      prompts.push({ label: "Мои задачи", prompt: "Что мне делать сейчас?" });
+    } else if (route.includes("/operations")) {
+      prompts.push({ label: "В работе", prompt: "Какие операции в работе?" });
+    } else if (route.includes("/warehouses")) {
+      prompts.push({ label: "Остатки", prompt: "Остатки по складам" });
+    } else if (route.includes("/weighbridge")) {
+      prompts.push({ label: "Талоны", prompt: "Последние 3 талона" });
+    } else if (route.includes("/crop-structure")) {
+      prompts.push({ label: "Структура", prompt: "Что по структуре посевов?" });
+    } else {
+      prompts.push({ label: "Сводка", prompt: "Что важно сейчас?" });
+    }
+
+    prompts.push(
+      { label: "Активные операции", prompt: "Покажи активные операции" },
+      { label: "Остатки", prompt: "Остатки по складам" }
+    );
+
+    return dedupeQuickPrompts(prompts).slice(0, 4);
+  }, [
+    runtimeContext.currentRoute,
+    runtimeContext.selectedFieldLabel,
+    runtimeContext.selectedOperationLabel,
+    runtimeContext.selectedWarehouseLabel,
+  ]);
 
   const stopVoiceStream = useCallback(() => {
     mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
     mediaStreamRef.current = null;
     mediaRecorderRef.current = null;
   }, []);
+
+  const applyQuickPrompt = useCallback(
+    (prompt: string) => {
+      setInput(prompt);
+      setActiveTab("chat");
+      focusInput();
+    },
+    [focusInput]
+  );
 
   useEffect(() => {
     if (voiceState !== "recording") return;
@@ -540,37 +863,65 @@ export function AssistantChatPane({
   }, [profile?.id, resolvedCompanyId, sessionId]);
 
   useEffect(() => {
-    if (!storageKey) return;
+    if (!storageKey) {
+      setStorageHydrated(true);
+      setHydratedStorageKey(null);
+      return;
+    }
+    setStorageHydrated(false);
+    setHydratedStorageKey(null);
     try {
       const raw = localStorage.getItem(storageKey);
-      if (!raw) return;
+      if (!raw) {
+        setActiveThreadId(null);
+        setActiveTab("chat");
+        setSessionState(EMPTY_STATE);
+        setMessages([]);
+        setInput("");
+        setLastMode("erp_data");
+        return;
+      }
       const parsed = JSON.parse(raw) as {
         activeThreadId?: string | null;
         activeTab?: "chat" | "history" | "settings";
         sessionState?: Partial<AssistantSessionStatePayload>;
+        messages?: AssistantChatMessage[];
+        input?: string;
+        lastMode?: string;
       };
       if (parsed.activeThreadId) setActiveThreadId(String(parsed.activeThreadId));
       if (parsed.activeTab) setActiveTab(parsed.activeTab);
       if (parsed.sessionState && typeof parsed.sessionState === "object") {
         setSessionState((prev) => ({ ...prev, ...parsed.sessionState }));
       }
+      if (Array.isArray(parsed.messages) && parsed.messages.length > 0) {
+        setMessages(parsed.messages.filter(isProductionAssistantMessage).slice(-MAX_CACHED_MESSAGES));
+      }
+      if (typeof parsed.input === "string") setInput(parsed.input);
+      if (typeof parsed.lastMode === "string") setLastMode(parsed.lastMode);
     } catch {
       // ignore malformed local storage payload
+    } finally {
+      setStorageHydrated(true);
+      setHydratedStorageKey(storageKey);
     }
   }, [storageKey]);
 
   useEffect(() => {
-    if (!storageKey) return;
+    if (!storageKey || !storageHydrated || hydratedStorageKey !== storageKey) return;
     localStorage.setItem(
       storageKey,
       JSON.stringify({
         activeThreadId,
         activeTab,
         sessionState,
+        messages: messages.filter(isProductionAssistantMessage).slice(-MAX_CACHED_MESSAGES),
+        input,
+        lastMode,
         updatedAt: new Date().toISOString(),
       })
     );
-  }, [storageKey, activeThreadId, activeTab, sessionState]);
+  }, [storageKey, storageHydrated, hydratedStorageKey, activeThreadId, activeTab, sessionState, messages, input, lastMode]);
 
   useEffect(() => {
     return () => stopVoiceStream();
@@ -666,6 +1017,7 @@ export function AssistantChatPane({
           content: String(message.content || ""),
           createdAt: String(message.created_at || new Date().toISOString()),
           actions: Array.isArray(metadata.actions) ? (metadata.actions as AssistantActionButton[]) : undefined,
+          draftCards: Array.isArray(metadata.draft_cards) ? (metadata.draft_cards as AssistantDraftCard[]) : undefined,
           meta: {
             sourceHints: Array.isArray(metadata.source_hints) ? (metadata.source_hints as string[]) : [],
             toolActivity: Array.isArray(metadata.tool_activity) ? (metadata.tool_activity as string[]) : [],
@@ -677,7 +1029,6 @@ export function AssistantChatPane({
       setMessages(nextMessages);
     } catch (error) {
       setRequestError(error instanceof Error ? error.message : "Не удалось загрузить сообщения.");
-      setMessages([]);
     } finally {
       setMessagesLoading(false);
     }
@@ -718,33 +1069,244 @@ export function AssistantChatPane({
   };
 
   useEffect(() => {
+    if (!storageHydrated) return;
     if (access.status !== "ready" || !resolvedCompanyId) return;
     if (!isOpen && threads.length === 0) return;
     if (threads.length > 0) return;
     void loadThreads();
-  }, [access.status, resolvedCompanyId, profile?.id, isOpen, threads.length]);
+  }, [access.status, resolvedCompanyId, profile?.id, isOpen, threads.length, storageHydrated]);
 
   useEffect(() => {
+    if (!storageHydrated) return;
     if (!activeThreadId) {
       setMessages([]);
       return;
     }
     void loadThreadMessages(activeThreadId);
-  }, [activeThreadId]);
+  }, [activeThreadId, storageHydrated]);
 
-  const executeAction = (action: AssistantActionButton) => {
+  const recordActionReceipt = useCallback((receipt: AssistantActionReceipt) => {
+    setActionReceipts((prev) => [receipt, ...prev].slice(0, 20));
+    setMessages((prev) => [...prev, actionReceiptToMessage(receipt)]);
+  }, []);
+
+  const updateDraftCard = useCallback(
+    (messageId: string, draftId: string, updater: (card: AssistantDraftCard) => AssistantDraftCard) => {
+      setMessages((prev) =>
+        prev.map((message) => {
+          if (message.id !== messageId || !message.draftCards?.length) return message;
+          return {
+            ...message,
+            draftCards: message.draftCards.map((card) => (card.id === draftId ? updater(card) : card)),
+          };
+        })
+      );
+    },
+    []
+  );
+
+  const setDraftCollapsed = useCallback(
+    (messageId: string, draftId: string, collapsed: boolean) => {
+      updateDraftCard(messageId, draftId, (card) => ({ ...card, collapsed }));
+    },
+    [updateDraftCard]
+  );
+
+  const cancelDraftCard = useCallback(
+    (messageId: string, draftId: string) => {
+      updateDraftCard(messageId, draftId, (card) => ({ ...card, status: "cancelled", collapsed: true, error: null }));
+    },
+    [updateDraftCard]
+  );
+
+  const startDraftChange = useCallback(
+    (card: AssistantDraftCard) => {
+      setEditingDraftId(card.id);
+      setInput(`Измени черновик операции: ${card.operationType || "операция"}. `);
+      setActiveTab("chat");
+      focusInput();
+    },
+    [focusInput]
+  );
+
+  const applyDraftQuickEdit = useCallback(
+    (messageId: string, draftId: string, patch: { areaHa?: number | null; date?: string | null; comment?: string | null }) => {
+      updateDraftCard(messageId, draftId, (card) => {
+        const nextArea = patch.areaHa !== undefined ? patch.areaHa : card.areaHa;
+        const nextDate = patch.date !== undefined ? patch.date : card.date;
+        const nextComment = patch.comment !== undefined ? patch.comment : card.comment;
+        const nextMaterials = recalculateDraftLines(card.materials, nextArea);
+        const materialTankRows = card.tankTotals.filter((row) => row.id !== "tank_water");
+        const nextTankTotals = [
+          ...recalculateDraftLines(materialTankRows, nextArea),
+          ...recalculateDraftLines(card.tankTotals.filter((row) => row.id === "tank_water"), nextArea, card.sprayVolumeLHa),
+        ];
+        return patchDraftConfirmBody(
+          {
+            ...card,
+            areaHa: nextArea,
+            date: nextDate,
+            comment: nextComment,
+            materials: nextMaterials,
+            tankTotals: nextTankTotals,
+            error: null,
+          },
+          {
+            planned_area_ha: nextArea,
+            date: nextDate,
+            notes: nextComment,
+          }
+        );
+      });
+      setEditingDraftId(null);
+    },
+    [updateDraftCard]
+  );
+
+  const confirmDraftCard = useCallback(
+    async (messageId: string, card: AssistantDraftCard) => {
+      if (confirmingDraftId || card.status === "confirmed") return;
+      if (card.confirm.missingFields.length > 0) {
+        const error = `Нельзя создать операцию: уточните ${card.confirm.missingFields.join(", ")}.`;
+        updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error }));
+        setRequestError(error);
+        return;
+      }
+
+      setConfirmingDraftId(card.id);
+      updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error: null }));
+      try {
+        const headers = await getAuthHeaders();
+        const response = await fetch(card.confirm.endpoint, {
+          method: card.confirm.method,
+          headers: {
+            ...headers,
+            "Idempotency-Key": card.confirm.idempotencyKey,
+            "X-Include-Timing": "1",
+          },
+          body: JSON.stringify({
+            ...card.confirm.body,
+            companyId: resolvedCompanyId,
+            idempotency_key: card.confirm.idempotencyKey,
+          }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          operation?: { id?: string; operation_type?: string };
+          error?: string;
+          idempotent_replay?: boolean;
+        };
+        if (!response.ok) throw new Error(payload.error || "Не удалось создать операцию.");
+        updateDraftCard(messageId, card.id, (draft) => ({
+          ...draft,
+          status: "confirmed",
+          collapsed: false,
+          error: null,
+        }));
+        recordActionReceipt({
+          id: uid(),
+          actionId: card.id,
+          actionType: "confirm_operation_draft",
+          status: "executed",
+          targetRoute: "/operations",
+          message: payload.idempotent_replay
+            ? "Черновик уже был подтверждён ранее. Операция найдена без дубля."
+            : "Черновик подтверждён. Операция создана в журнале.",
+          error: null,
+          executedAt: new Date().toISOString(),
+          clientVerified: true,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Не удалось подтвердить черновик.";
+        updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error: message }));
+        setRequestError(message);
+      } finally {
+        setConfirmingDraftId(null);
+      }
+    },
+    [confirmingDraftId, recordActionReceipt, resolvedCompanyId, updateDraftCard]
+  );
+
+  const executeAction = async (action: AssistantActionButton) => {
     if (action.kind === "prompt") {
       if (action.prompt) setInput(action.prompt);
+      recordActionReceipt({
+        id: uid(),
+        actionId: action.id,
+        actionType: action.actionType || "prompt",
+        status: "prepared",
+        targetRoute: null,
+        message:
+          action.actionType === "continue_draft"
+            ? "Продолжаю черновик. Заполните недостающие данные в сообщении."
+            : "Подготовил продолжение в поле ввода.",
+        error: null,
+        executedAt: new Date().toISOString(),
+        clientVerified: true,
+      });
       setActiveTab("chat");
       focusInput();
       return;
     }
-    const route = action.route || "/dashboard";
+    const route = action.targetRoute || action.route || "/dashboard";
     const filters = action.filters || {};
+    const targetRoute = routeWithFilters(route, filters);
+    const initialHref = window.location.href;
+    try {
+      assertRouteAllowedForRole(access.role, targetRoute);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось выполнить переход.";
+      setRequestError(message);
+      recordActionReceipt({
+        id: uid(),
+        actionId: action.id,
+        actionType: action.actionType || "navigate",
+        status: "blocked",
+        targetRoute,
+        message: `Не удалось выполнить переход: ${message}`,
+        error: message,
+        executedAt: new Date().toISOString(),
+        clientVerified: false,
+      });
+      return;
+    }
     setManualFilters(filters);
-    router.push(routeWithFilters(route, filters));
+    router.push(targetRoute);
     setActiveTab("chat");
     focusInput();
+    const navigationAction = actionButtonToNavigationAction(action, targetRoute, filters);
+    const confirmed = await confirmExecution({
+      action: navigationAction,
+      targetRoute,
+      initialHref,
+    });
+    const actionType = action.actionType || "navigate";
+    if (confirmed.executed) {
+      recordActionReceipt({
+        id: uid(),
+        actionId: action.id,
+        actionType,
+        status: "executed",
+        targetRoute,
+        message: action.label ? `${action.label}: выполнено.` : "Переход выполнен.",
+        error: null,
+        executedAt: new Date().toISOString(),
+        clientVerified: true,
+      });
+      return;
+    }
+    const error = confirmed.error || "URL не изменился.";
+    setRequestError(`Не удалось выполнить переход: ${error}`);
+    recordActionReceipt({
+      id: uid(),
+      actionId: action.id,
+      actionType,
+      status: "failed",
+      targetRoute,
+      message: `Не удалось выполнить переход: ${error}`,
+      error,
+      executedAt: new Date().toISOString(),
+      clientVerified: false,
+    });
   };
 
   const sendMessage = async () => {
@@ -771,10 +1333,14 @@ export function AssistantChatPane({
       }
       if (!threadId) throw new Error("Не удалось создать чат.");
 
-      const historyForRequest = [...messages, optimisticMessage]
+      const workingContextHint = buildWorkingContextHint({ runtimeContext, sessionState });
+      const historyForRequest = [
+        ...(workingContextHint ? [{ role: "system", content: workingContextHint }] : []),
+        ...[...messages, optimisticMessage]
         .filter(isProductionAssistantMessage)
         .slice(-20)
-        .map((message) => ({ role: message.role, content: message.content }));
+        .map((message) => ({ role: message.role, content: message.content })),
+      ];
 
       const response = await fetch("/api/assistant/query", {
         method: "POST",
@@ -803,6 +1369,7 @@ export function AssistantChatPane({
       const mode = typeof meta.mode === "string" ? meta.mode : "erp_data";
       const navigationActions = Array.isArray(payload.navigationActions) ? payload.navigationActions : [];
       const actions = Array.isArray(payload.actions) ? payload.actions : [];
+      const draftCards = Array.isArray(payload.draftCards) ? payload.draftCards : [];
       const toolActivity = Array.isArray(payload.toolActivity) ? payload.toolActivity : [];
       setLastMode(mode);
 
@@ -826,8 +1393,9 @@ export function AssistantChatPane({
           switch (firstAction.type) {
             case "open_page": {
               if (!firstAction.route) throw new Error("Missing route for open_page");
-              setManualFilters({});
               navigationRoute = routeWithFilters(firstAction.route);
+              assertRouteAllowedForRole(access.role, navigationRoute);
+              setManualFilters({});
               router.push(navigationRoute);
               actionFiltersForDebug = {};
               break;
@@ -836,8 +1404,9 @@ export function AssistantChatPane({
             case "apply_filter": {
               if (!firstAction.route) throw new Error("Missing route for filtered navigation");
               const filters = firstAction.filters || {};
-              setManualFilters(filters);
               navigationRoute = routeWithFilters(firstAction.route, filters);
+              assertRouteAllowedForRole(access.role, navigationRoute);
+              setManualFilters(filters);
               router.push(navigationRoute);
               actionFiltersForDebug = filters;
               break;
@@ -849,8 +1418,9 @@ export function AssistantChatPane({
               if (firstAction.entityType === "warehouse" && !filters.warehouseId) {
                 filters.warehouseId = firstAction.entityId;
               }
-              setManualFilters(filters);
               navigationRoute = routeWithFilters(firstAction.route, filters);
+              assertRouteAllowedForRole(access.role, navigationRoute);
+              setManualFilters(filters);
               router.push(navigationRoute);
               actionFiltersForDebug = filters;
               break;
@@ -909,6 +1479,7 @@ export function AssistantChatPane({
         content: finalAnswer,
         createdAt: new Date().toISOString(),
         actions,
+        draftCards,
         meta: {
           sourceHints,
           intent: intentName,
@@ -1016,6 +1587,7 @@ export function AssistantChatPane({
           content: message.content,
           createdAt: message.createdAt,
           actions: message.actions?.map((action) => ({ label: action.label, kind: action.kind })),
+          draftCards: message.draftCards?.map((card) => ({ kind: card.kind, status: card.status, title: card.title })),
         })),
       });
       downloadFile(result);
@@ -1048,6 +1620,277 @@ export function AssistantChatPane({
     return () => window.removeEventListener("travkin:assistant-export-trigger", handler);
   }, [onExportChat]);
 
+  const renderDraftCard = (messageId: string, card: AssistantDraftCard) => {
+    const isConfirming = confirmingDraftId === card.id;
+    const isEditing = editingDraftId === card.id;
+    const recommendationsOpen = !!expandedDraftRecommendations[card.id];
+    const visibleMaterials = card.materials.slice(0, 4);
+    const hiddenMaterialsCount = Math.max(0, card.materials.length - visibleMaterials.length);
+    const visibleTankTotals = card.tankTotals.slice(0, 5);
+    const hiddenTankCount = Math.max(0, card.tankTotals.length - visibleTankTotals.length);
+    const statusLabel =
+      card.status === "confirmed"
+        ? "Подтверждён"
+        : card.status === "cancelled"
+          ? "Отменён"
+          : card.status === "expired"
+            ? "Истёк"
+            : "Черновик";
+
+    if (card.collapsed) {
+      return (
+        <button
+          key={card.id}
+          type="button"
+          onClick={() => setDraftCollapsed(messageId, card.id, false)}
+          className="flex w-full items-center justify-between rounded-lg border border-[#334058] bg-[#111827] px-3 py-2 text-left text-xs text-[#CBD5E1] transition hover:border-[#E0B100]/70"
+        >
+          <span>Черновик операции {card.status === "cancelled" ? "(отменён)" : ""}</span>
+          <span className="text-[#E0B100]">Открыть</span>
+        </button>
+      );
+    }
+
+    return (
+      <div key={card.id} className="overflow-hidden rounded-xl border border-[#334058] bg-[#111827] shadow-[0_12px_28px_rgba(0,0,0,0.22)]">
+        <div className="flex items-start justify-between gap-3 border-b border-[#263247] bg-[#151E2D] px-3 py-2.5">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[#E0B100]">{card.title}</div>
+            <div className="mt-0.5 truncate text-sm font-semibold text-[#F8FAFC]">{card.operationType || "Операция"}</div>
+          </div>
+          <span
+            className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${
+              card.status === "confirmed"
+                ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200"
+                : card.status === "cancelled"
+                  ? "border-slate-500/50 bg-slate-600/20 text-slate-200"
+                  : "border-[#E0B100]/50 bg-[#E0B100]/10 text-[#FDE68A]"
+            }`}
+          >
+            {statusLabel}
+          </span>
+        </div>
+
+        <div className="space-y-2 px-3 py-2.5 text-xs text-[#CBD5E1]">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="text-[10px] uppercase text-[#64748B]">Поле</div>
+              <div className="truncate font-medium text-[#F8FAFC]">{card.field || "Уточнить"}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase text-[#64748B]">Площадь</div>
+              <div className="font-medium text-[#F8FAFC]">{card.areaHa != null ? `${formatDraftNumber(card.areaHa)} га` : "Уточнить"}</div>
+            </div>
+            {card.section ? (
+              <div className="col-span-2">
+                <div className="text-[10px] uppercase text-[#64748B]">Участок</div>
+                <div className="truncate font-medium text-[#F8FAFC]">{card.section}</div>
+              </div>
+            ) : null}
+            {card.crop ? (
+              <div>
+                <div className="text-[10px] uppercase text-[#64748B]">Культура</div>
+                <div className="truncate font-medium text-[#F8FAFC]">{card.crop}</div>
+              </div>
+            ) : null}
+            {card.sprayVolumeLHa != null ? (
+              <div>
+                <div className="text-[10px] uppercase text-[#64748B]">Норма вылива</div>
+                <div className="font-medium text-[#F8FAFC]">{formatDraftNumber(card.sprayVolumeLHa)} л/га</div>
+              </div>
+            ) : null}
+          </div>
+
+          {card.materials.length ? (
+            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase text-[#94A3B8]">Материалы</div>
+              <div className="space-y-1">
+                {visibleMaterials.map((material) => (
+                  <div key={material.id} className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[#E5E7EB]">{material.name}</span>
+                    <span className="shrink-0 text-[#CBD5E1]">
+                      {material.ratePerHa != null ? `${formatDraftNumber(material.ratePerHa)}${material.unit ? ` ${material.unit}` : ""}/га` : ""}
+                    </span>
+                  </div>
+                ))}
+                {hiddenMaterialsCount ? <div className="text-[#94A3B8]">+ ещё {hiddenMaterialsCount}</div> : null}
+              </div>
+            </div>
+          ) : null}
+
+          {card.materials.some((item) => item.calculation) ? (
+            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase text-[#94A3B8]">Расчёт потребности</div>
+              <div className="space-y-1">
+                {card.materials
+                  .filter((item) => item.calculation)
+                  .slice(0, 4)
+                  .map((material) => (
+                    <div key={`calc-${material.id}`} className="flex items-center justify-between gap-2">
+                      <span className="truncate text-[#E5E7EB]">{material.name}</span>
+                      <span className="shrink-0 text-[#CBD5E1]">{material.calculation}</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          ) : null}
+
+          {card.tankTotals.length ? (
+            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] p-2">
+              <div className="mb-1 text-[10px] font-semibold uppercase text-[#94A3B8]">Итого в раствор</div>
+              <div className="space-y-1">
+                {visibleTankTotals.map((line) => (
+                  <div key={line.id} className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[#E5E7EB]">{line.name}</span>
+                    <span className="shrink-0 text-[#CBD5E1]">{formatDraftQuantity(line.quantity, line.unit)}</span>
+                  </div>
+                ))}
+                {hiddenTankCount ? <div className="text-[#94A3B8]">+ ещё {hiddenTankCount}</div> : null}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <div className="text-[10px] uppercase text-[#64748B]">Дата</div>
+              <div className="font-medium text-[#F8FAFC]">{card.date || "Уточнить"}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase text-[#64748B]">Ответственный</div>
+              <div className="truncate font-medium text-[#F8FAFC]">{card.responsible || "Не назначен"}</div>
+            </div>
+          </div>
+
+          {card.comment ? (
+            <div>
+              <div className="text-[10px] uppercase text-[#64748B]">Комментарий</div>
+              <div className="line-clamp-2 text-[#E5E7EB]">{card.comment}</div>
+            </div>
+          ) : null}
+
+          {card.recommendations.length ? (
+            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E]">
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedDraftRecommendations((prev) => ({ ...prev, [card.id]: !recommendationsOpen }))
+                }
+                className="flex w-full items-center justify-between px-2 py-1.5 text-left text-xs text-[#E5E7EB]"
+              >
+                <span>Рекомендации</span>
+                <span className="text-[#E0B100]">{recommendationsOpen ? "Скрыть" : "Показать"}</span>
+              </button>
+              {recommendationsOpen ? (
+                <ol className="space-y-1 border-t border-[#2A3448] px-4 py-2 text-[#CBD5E1]">
+                  {card.recommendations.map((item, index) => (
+                    <li key={`${card.id}-rec-${index}`}>{index + 1}. {item}</li>
+                  ))}
+                </ol>
+              ) : null}
+            </div>
+          ) : null}
+
+          {card.confirm.missingFields.length ? (
+            <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] text-amber-100">
+              Нужно уточнить: {card.confirm.missingFields.join(", ")}.
+            </div>
+          ) : null}
+
+          {card.error ? (
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-100">
+              {card.error}
+            </div>
+          ) : null}
+
+          {isEditing ? (
+            <form
+              className="grid gap-2 rounded-lg border border-[#334058] bg-[#0F141E] p-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const data = new FormData(event.currentTarget);
+                const areaText = String(data.get("areaHa") || "").replace(",", ".").trim();
+                const areaHa = areaText ? Number(areaText) : null;
+                applyDraftQuickEdit(messageId, card.id, {
+                  areaHa: Number.isFinite(areaHa) ? areaHa : null,
+                  date: String(data.get("date") || "").trim() || null,
+                  comment: String(data.get("comment") || "").trim() || null,
+                });
+              }}
+            >
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-[11px] text-[#CBD5E1]">
+                  Площадь, га
+                  <input
+                    name="areaHa"
+                    defaultValue={card.areaHa ?? ""}
+                    className="mt-1 w-full rounded-md border border-[#334058] bg-[#111827] px-2 py-1 text-xs text-[#F8FAFC]"
+                  />
+                </label>
+                <label className="text-[11px] text-[#CBD5E1]">
+                  Дата
+                  <input
+                    name="date"
+                    type="date"
+                    defaultValue={card.date || ""}
+                    className="mt-1 w-full rounded-md border border-[#334058] bg-[#111827] px-2 py-1 text-xs text-[#F8FAFC]"
+                  />
+                </label>
+              </div>
+              <label className="text-[11px] text-[#CBD5E1]">
+                Комментарий
+                <textarea
+                  name="comment"
+                  defaultValue={card.comment || ""}
+                  rows={2}
+                  className="mt-1 w-full resize-none rounded-md border border-[#334058] bg-[#111827] px-2 py-1 text-xs text-[#F8FAFC]"
+                />
+              </label>
+              <div className="flex gap-1.5">
+                <button type="submit" className="rounded-md bg-[#E0B100] px-2.5 py-1 text-xs font-medium text-[#111827]">
+                  Сохранить
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingDraftId(null)}
+                  className="rounded-md border border-[#334058] px-2.5 py-1 text-xs text-[#E5E7EB]"
+                >
+                  Отмена
+                </button>
+              </div>
+            </form>
+          ) : null}
+
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            <button
+              type="button"
+              onClick={() => void confirmDraftCard(messageId, card)}
+              disabled={isConfirming || card.status === "confirmed" || card.status === "expired"}
+              className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isConfirming ? "Создаю..." : card.status === "confirmed" ? "Создано" : "Подтвердить"}
+            </button>
+            <button
+              type="button"
+              onClick={() => startDraftChange(card)}
+              disabled={card.status === "confirmed"}
+              className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-[#E0B100]/70 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Изменить
+            </button>
+            <button
+              type="button"
+              onClick={() => cancelDraftCard(messageId, card.id)}
+              disabled={card.status === "confirmed"}
+              className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-red-400/60 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Отменить
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col rounded-xl border border-[#262D3D] bg-[#0F141E] text-[#E5E7EB]">
       {disabledReason ? (
@@ -1068,35 +1911,111 @@ export function AssistantChatPane({
         onValueChange={(value) => setActiveTab(value as "chat" | "history" | "settings")}
         className="flex min-h-0 flex-1 flex-col"
       >
+        <div className="border-b border-[#262D3D] bg-[#0F141E] px-3 py-2">
+          <TabsList className="grid h-9 w-full grid-cols-3 rounded-xl border border-[#2A3448] bg-[#0B111B] p-1">
+            <TabsTrigger
+              value="chat"
+              className="rounded-lg text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
+            >
+              <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
+              Chat
+            </TabsTrigger>
+            <TabsTrigger
+              value="history"
+              className="rounded-lg text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
+            >
+              <Clock3 className="mr-1.5 h-3.5 w-3.5" />
+              History
+            </TabsTrigger>
+            <TabsTrigger
+              value="settings"
+              className="rounded-lg text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
+            >
+              <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+              Settings
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
         <TabsContent value="chat" className="mt-0 flex min-h-0 flex-1 flex-col data-[state=inactive]:hidden">
-          <div className="travkin-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-3">
-            {messagesLoading ? (
-              <div className="flex items-center gap-2 text-xs text-[#94A3B8]">
-                <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="travkin-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
+            {messagesLoading && messages.length === 0 ? (
+              <div className="flex items-center gap-2 px-1 py-2 text-xs text-[#94A3B8]">
+                <Loader2 className="h-4 w-4 animate-spin text-[#E0B100]" />
                 Загружаю сообщения...
               </div>
-            ) : messages.length === 0 ? null : (
-              messages.filter(isProductionAssistantMessage).map((message) => (
-                <div
-                  key={message.id}
-                  className={`flex gap-1.5 ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                >
+            ) : messages.length === 0 ? (
+              <div className="space-y-4 px-1 py-2">
+                <div>
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center text-[#E0B100]">
+                      <Sparkles className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-[#F8FAFC]">Контекст готов</div>
+                      <div className="mt-1 flex flex-wrap gap-1.5">
+                        {contextPills.slice(0, 5).map((pill) => (
+                          <span
+                            key={pill}
+                            className="max-w-[220px] truncate rounded-md border border-[#2A3448] px-2 py-1 text-[11px] text-[#CBD5E1]"
+                          >
+                            {pill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {quickPrompts.map((item) => (
+                    <button
+                      key={`${item.label}-${item.prompt}`}
+                      type="button"
+                      onClick={() => applyQuickPrompt(item.prompt)}
+                      className="group flex items-center justify-between gap-2 rounded-lg border border-[#2A3448] px-3 py-2 text-left text-sm text-[#E5E7EB] transition hover:border-[#E0B100]/70 hover:bg-[#151C28]"
+                    >
+                      <span className="truncate">{item.label}</span>
+                      <Compass className="h-3.5 w-3.5 shrink-0 text-[#E0B100] transition group-hover:translate-x-0.5" />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <>
+                {messagesLoading ? (
+                  <div className="flex items-center gap-2 px-1 py-1 text-xs text-[#94A3B8]">
+                    <Loader2 className="h-4 w-4 animate-spin text-[#E0B100]" />
+                    <span>Обновляю историю...</span>
+                  </div>
+                ) : null}
+                {messages.filter(isProductionAssistantMessage).map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex items-start gap-2.5 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                  >
                   {message.role !== "user" ? (
-                    <div className="mt-0.5 rounded-full bg-[#1B2435] p-1.5 text-[#F5C542]">
-                      <Bot className="h-4 w-4" />
+                    <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center text-[#E0B100]">
+                      <Bot className="h-3.5 w-3.5" />
                     </div>
                   ) : null}
 
-                  <div className="max-w-[92%] space-y-1">
+                  <div className={`${message.role === "user" ? "max-w-[86%]" : "max-w-[94%]"} space-y-2`}>
                     <div
-                      className={`whitespace-pre-wrap rounded-md px-2.5 py-1.5 text-sm leading-snug ${
+                      className={`whitespace-pre-wrap text-sm leading-relaxed ${
                         message.role === "user"
-                          ? "bg-[#E0B100] text-[#111827]"
-                          : "border border-[#2A3448] bg-[#151C28] text-[#E5E7EB]"
+                          ? "rounded-2xl bg-[#242B3A] px-3 py-2 text-[#F8FAFC]"
+                          : "px-0 py-0 text-[#E5E7EB]"
                       }`}
                     >
                       {message.content}
                     </div>
+
+                    {message.role !== "user" && message.draftCards?.length ? (
+                      <div className="space-y-2">
+                        {message.draftCards.map((card) => renderDraftCard(message.id, card))}
+                      </div>
+                    ) : null}
 
                     {debugMonitorEnabled && debugMonitorOpen && message.role !== "user" && message.meta?.toolActivity?.length ? (
                       <div className="rounded-md border border-[#334058] bg-[#101725] px-2.5 py-2 text-[11px] text-[#9CA3AF]">
@@ -1121,7 +2040,7 @@ export function AssistantChatPane({
                             key={action.id}
                             type="button"
                             onClick={() => executeAction(action)}
-                            className="rounded-md border border-[#334058] bg-[#141B29] px-2.5 py-1 text-xs text-[#E5E7EB] hover:bg-[#202738]"
+                            className="rounded-lg border border-[#334058] px-2.5 py-1 text-xs text-[#E5E7EB] transition hover:border-[#E0B100]/70 hover:bg-[#151C28]"
                           >
                             {action.label}
                           </button>
@@ -1131,18 +2050,19 @@ export function AssistantChatPane({
                   </div>
 
                   {message.role === "user" ? (
-                    <div className="mt-0.5 rounded-full bg-[#E0B100] p-1.5 text-[#111827]">
+                    <div className="mt-1 hidden h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#E0B100] text-[#111827] shadow-[0_0_0_1px_rgba(224,177,0,0.25)]">
                       <User className="h-4 w-4" />
                     </div>
                   ) : null}
                 </div>
-              ))
+                ))}
+              </>
             )}
 
             {loading ? (
-              <div className="rounded-md border border-[#334058] bg-[#101725] px-3 py-2 text-xs text-[#CBD5E1]">
-                <div className="flex items-center gap-1.5">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <div className="px-1 py-1 text-xs text-[#CBD5E1]">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#E0B100]" />
                   {loadingText}
                 </div>
               </div>
@@ -1150,11 +2070,11 @@ export function AssistantChatPane({
             <div ref={bottomRef} />
           </div>
 
-          <div className="border-t border-[#262D3D] bg-[#111827] px-3 py-3">
+          <div className="border-t border-[#262D3D] bg-[#0F141E] px-3 py-3">
             {voiceState === "recording" ? (
               <div
                 data-testid="assistant-voice-status"
-                className="mb-2 flex items-center gap-2 rounded-md border border-[#3B465C] bg-[#151C28] px-2.5 py-1.5 text-xs text-[#E5E7EB]"
+                className="mb-2 flex items-center gap-2 rounded-lg border border-[#3B465C] bg-[#151C28] px-2.5 py-1.5 text-xs text-[#E5E7EB]"
               >
                 <AudioLines className="h-4 w-4 text-[#E0B100]" />
                 <div className="flex h-5 items-end gap-0.5">
@@ -1177,7 +2097,7 @@ export function AssistantChatPane({
             {voiceError ? <div className="mb-2 text-xs text-red-200">{voiceError}</div> : null}
 
             <form
-              className="flex items-end gap-2"
+              className="flex items-end gap-2 rounded-2xl border border-[#2A3448] bg-[#0B111B] p-2 shadow-[0_12px_28px_rgba(0,0,0,0.18)] focus-within:border-[#E0B100]/60"
               onSubmit={(event) => {
                 event.preventDefault();
                 void sendMessage();
@@ -1188,7 +2108,7 @@ export function AssistantChatPane({
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Спросите про поле, склад, операцию или талон..."
-                className="min-h-[42px] resize-none border-[#334058] bg-[#0F141E] text-[#E5E7EB] placeholder:text-[#64748B]"
+                className="min-h-[44px] resize-none border-0 bg-transparent px-2 py-2 text-sm text-[#F8FAFC] shadow-none placeholder:text-[#64748B] focus-visible:ring-0"
                 disabled={loading || !!disabledReason}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
@@ -1205,7 +2125,7 @@ export function AssistantChatPane({
                 size="icon"
                 variant="outline"
                 disabled={loading || !!disabledReason || voiceState === "transcribing"}
-                className="border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738]"
+                className="h-9 w-9 shrink-0 rounded-xl border-0 bg-transparent text-[#CBD5E1] hover:bg-[#172033] hover:text-[#F8FAFC]"
                 data-testid="assistant-voice-button"
                 aria-label={voiceState === "recording" ? "Остановить запись" : "Голосовой ввод"}
                 aria-pressed={voiceState === "recording"}
@@ -1226,7 +2146,13 @@ export function AssistantChatPane({
                   <Mic className="h-4 w-4" />
                 )}
               </Button>
-              <Button type="submit" size="icon" disabled={!canSend} className="bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]">
+              <Button
+                type="submit"
+                size="icon"
+                disabled={!canSend}
+                aria-label={loading ? "Ответ формируется" : "Отправить"}
+                className="h-9 w-9 shrink-0 rounded-xl bg-[#E0B100] text-[#111827] hover:bg-[#C89F00] disabled:bg-[#1B2435] disabled:text-[#64748B] disabled:opacity-100"
+              >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
               </Button>
             </form>
@@ -1341,31 +2267,6 @@ export function AssistantChatPane({
           </div>
         </TabsContent>
 
-        <div className="border-t border-[#262D3D] bg-[#0F141E] px-2 py-2">
-          <TabsList className="grid h-auto w-full grid-cols-3 rounded-md border border-[#2A3448] bg-[#141B29] p-1">
-            <TabsTrigger
-              value="chat"
-              className="data-[state=active]:bg-[#E0B100] data-[state=active]:text-[#111827] text-[#CBD5E1]"
-            >
-              <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
-              Chat
-            </TabsTrigger>
-            <TabsTrigger
-              value="history"
-              className="data-[state=active]:bg-[#E0B100] data-[state=active]:text-[#111827] text-[#CBD5E1]"
-            >
-              <Clock3 className="mr-1.5 h-3.5 w-3.5" />
-              History
-            </TabsTrigger>
-            <TabsTrigger
-              value="settings"
-              className="data-[state=active]:bg-[#E0B100] data-[state=active]:text-[#111827] text-[#CBD5E1]"
-            >
-              <Settings2 className="mr-1.5 h-3.5 w-3.5" />
-              Settings
-            </TabsTrigger>
-          </TabsList>
-        </div>
       </Tabs>
     </div>
   );

@@ -183,6 +183,9 @@ function detectNavigationIntent(message: string, sessionState: AssistantSessionS
     hasAny(text, ["open", "go to", "navigate"]);
   if (!looksLikeNavigation) return null;
 
+  if (hasRegex(text, /(мо[ия]\s+задач|задач[аиу]?|tasks?)/)) {
+    return { page: "tasks", route: "/tasks", action: "open_page" };
+  }
   if (hasRegex(text, /(карт[ау]?\s+пол|fields?-?map|field\s+map)/)) {
     return { page: "fields-map", route: "/fields-map", action: "open_page" };
   }

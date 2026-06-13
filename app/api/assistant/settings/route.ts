@@ -77,6 +77,20 @@ function sanitizeSettingsPayload(raw: unknown): AssistantPlatformSettings {
         ? (row.actionConfirmation as Record<string, unknown>)
         : {}),
     },
+    knowledgePolicy: {
+      ...base.knowledgePolicy,
+      ...(typeof row.knowledgePolicy === "object" && row.knowledgePolicy
+        ? (row.knowledgePolicy as Record<string, unknown>)
+        : {}),
+    },
+    memoryPolicy: {
+      ...base.memoryPolicy,
+      ...(typeof row.memoryPolicy === "object" && row.memoryPolicy ? (row.memoryPolicy as Record<string, unknown>) : {}),
+    },
+    companyPolicy: {
+      ...base.companyPolicy,
+      ...(typeof row.companyPolicy === "object" && row.companyPolicy ? (row.companyPolicy as Record<string, unknown>) : {}),
+    },
     limits: {
       ...base.limits,
       ...(typeof row.limits === "object" && row.limits ? (row.limits as Record<string, unknown>) : {}),
