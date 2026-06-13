@@ -70,9 +70,12 @@ type Allocation = {
 };
 type Consumption = {
   id: string;
+  operation_id: string | null;
   field_id: string;
   crop_structure_row_id: string | null;
   operation_type: string;
+  material_type?: string | null;
+  unit?: string | null;
   product_id: string | null;
   product_name: string;
   variety_name: string | null;
@@ -86,6 +89,34 @@ type Consumption = {
   responsible_name: string | null;
   vehicle_name: string | null;
   notes: string | null;
+};
+
+type StructureOperationMaterialFact = {
+  product_id: string | null;
+  product_name: string;
+  material_type: string | null;
+  unit: string | null;
+  planned_quantity: number | null;
+  issued_quantity: number;
+  consumed_quantity: number | null;
+  returned_quantity: number | null;
+  actual_rate: number | null;
+};
+
+type StructureOperationFact = {
+  id: string;
+  field_id: string;
+  crop_structure_row_id: string | null;
+  operation_type: string;
+  operation_type_slug: string | null;
+  operation_category_slug: string | null;
+  date: string | null;
+  status: string | null;
+  work_status: string | null;
+  completed_at: string | null;
+  planned_area_ha: number | null;
+  actual_area_ha: number | null;
+  materials: StructureOperationMaterialFact[];
 };
 
 type FieldLegalLink = {
@@ -165,8 +196,30 @@ const fmtDate = (value?: string | null) => {
 
 const stageForOperation = (operation: string): StageKey => {
   const key = String(operation || "").toLowerCase();
-  return stageDefs.find((stage) => stage.operations.includes(key))?.key || "care";
+  const exact = stageDefs.find((stage) => stage.operations.includes(key))?.key;
+  if (exact) return exact;
+  if (key.includes("harvest") || key.includes("уборк") || key.includes("комбайн")) return "harvest";
+  if (key.includes("plant") || key.includes("seed") || key.includes("посев") || key.includes("посад")) return "seeding";
+  if (
+    key.includes("soil") ||
+    key.includes("tillage") ||
+    key.includes("cultiv") ||
+    key.includes("диск") ||
+    key.includes("культива") ||
+    key.includes("почво") ||
+    key.includes("греб") ||
+    key.includes("вспаш")
+  ) return "prep";
+  return "care";
 };
+
+const numberOrNull = (value: unknown): number | null => {
+  if (value == null || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const oneRelation = (value: unknown): any => (Array.isArray(value) ? value[0] : value);
 
 const batchClassLabel = (value?: string | null) => {
   if (value === "seed") return "Семенной";
@@ -179,7 +232,21 @@ const batchClassLabel = (value?: string | null) => {
 
 const materialCategory = (item: Consumption): MaterialCategory => {
   const op = String(item.operation_type || "").toLowerCase();
+  const materialType = norm(item.material_type);
   const name = norm(item.product_name);
+  if (materialType.includes("seed")) return "seed";
+  if (materialType.includes("fertilizer") || materialType.includes("micro_fertilizer")) return "fertilizer";
+  if (
+    materialType.includes("pesticide") ||
+    materialType.includes("crop_protection") ||
+    materialType.includes("adjuvant") ||
+    materialType.includes("ph_corrector") ||
+    materialType.includes("biological") ||
+    materialType.includes("biostimulant") ||
+    materialType.includes("defoamer")
+  ) return "chemical";
+  if (materialType.includes("water")) return "irrigation";
+  if (materialType.includes("fuel")) return "fuel";
   if (op === "seeding" || op === "planting" || item.batch_class === "seed") return "seed";
   if (name.includes("навоз") || name.includes("помет") || name.includes("помёт") || name.includes("компост") || name.includes("органик") || name.includes("биомасс")) return "organic";
   if (op === "fertilizing" || op === "top_dressing" || name.includes("селитр") || name.includes("аммофос") || name.includes("карбамид") || name.includes("npk") || name.includes("кас") || name.includes("удобр")) return "fertilizer";
@@ -207,6 +274,8 @@ export default function CropStructurePage() {
   const [allocByField, setAllocByField] = useState<Map<string, Allocation[]>>(new Map());
   const [initialByField, setInitialByField] = useState<Map<string, Allocation[]>>(new Map());
   const [consumptions, setConsumptions] = useState<Consumption[]>([]);
+  const [operationFacts, setOperationFacts] = useState<StructureOperationFact[]>([]);
+  const [operationConsumptions, setOperationConsumptions] = useState<Consumption[]>([]);
   const [search, setSearch] = useState("");
   const [cropFilter, setCropFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | FieldState>("all");
@@ -286,22 +355,66 @@ export default function CropStructurePage() {
   const allocationTitle = (allocation: Allocation) =>
     `${cropName(allocation.crop_id)} / ${varietyName(allocation.variety_id)} / ${reproductionName(allocation.reproduction_id)} — ${fmtHa(Number(allocation.area || 0))}`;
 
+  const cropStructureRowIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          Array.from(allocByField.values())
+            .flat()
+            .map((row) => row.id)
+            .filter((id): id is string => Boolean(id))
+        )
+      ),
+    [allocByField]
+  );
+
+  const consumptionIdentityKey = (
+    item: Pick<Consumption, "operation_id" | "crop_structure_row_id" | "product_id">
+  ) => {
+    if (!item.operation_id || !item.crop_structure_row_id || !item.product_id) return "";
+    return [item.operation_id, item.crop_structure_row_id, item.product_id].join("|");
+  };
+
+  const allConsumptions = useMemo(() => {
+    const materialFacts = new Set(consumptions.map(consumptionIdentityKey).filter(Boolean));
+    const derivedRows = operationConsumptions.filter((item) => {
+      const key = consumptionIdentityKey(item);
+      return !key || !materialFacts.has(key);
+    });
+    return [...consumptions, ...derivedRows];
+  }, [consumptions, operationConsumptions]);
+
   const consumptionsByAllocation = useMemo(() => {
     const map = new Map<string, Consumption[]>();
-    for (const item of consumptions) {
+    for (const item of allConsumptions) {
       if (!item.crop_structure_row_id) continue;
       map.set(item.crop_structure_row_id, [...(map.get(item.crop_structure_row_id) || []), item]);
     }
     return map;
-  }, [consumptions]);
+  }, [allConsumptions]);
 
   const consumptionsByField = useMemo(() => {
     const map = new Map<string, Consumption[]>();
-    for (const item of consumptions) {
+    for (const item of allConsumptions) {
       map.set(item.field_id, [...(map.get(item.field_id) || []), item]);
     }
     return map;
-  }, [consumptions]);
+  }, [allConsumptions]);
+
+  const operationFactsByAllocation = useMemo(() => {
+    const map = new Map<string, StructureOperationFact[]>();
+    for (const item of operationFacts) {
+      if (!item.crop_structure_row_id) continue;
+      map.set(item.crop_structure_row_id, [...(map.get(item.crop_structure_row_id) || []), item]);
+    }
+    for (const [key, rows] of Array.from(map.entries())) {
+      map.set(
+        key,
+        rows.sort((a: StructureOperationFact, b: StructureOperationFact) => new Date(b.completed_at || b.date || 0).getTime() - new Date(a.completed_at || a.date || 0).getTime())
+      );
+    }
+    return map;
+  }, [operationFacts]);
 
   useEffect(() => {
     try {
@@ -475,7 +588,7 @@ export default function CropStructurePage() {
       try {
         const res = await supabase
           .from("field_material_consumptions")
-          .select("id,field_id,crop_structure_row_id,operation_type,product_id,variety_id,reproduction_id,batch_class,quantity_kg,area_ha,norm_per_ha,consumed_at,ticket_id,responsible_personnel_id,vehicle_id,notes")
+          .select("id,operation_id,field_id,crop_structure_row_id,operation_type,product_id,variety_id,reproduction_id,batch_class,quantity_kg,area_ha,norm_per_ha,consumed_at,ticket_id,responsible_personnel_id,vehicle_id,notes")
           .eq("company_id", profile.company_id)
           .eq("season_id", seasonId)
           .order("consumed_at", { ascending: false });
@@ -503,9 +616,12 @@ export default function CropStructurePage() {
         const vehicleNames = new Map<string, string>((vehiclesRes.data || []).map((row: any) => [String(row.id), [row.name, row.plate_number].filter(Boolean).join(" ") || "Техника"]));
         setConsumptions(rows.map((row: any) => ({
           id: String(row.id),
+          operation_id: row.operation_id ? String(row.operation_id) : null,
           field_id: String(row.field_id),
           crop_structure_row_id: row.crop_structure_row_id ? String(row.crop_structure_row_id) : null,
           operation_type: String(row.operation_type || "other"),
+          material_type: null,
+          unit: null,
           product_id: row.product_id ? String(row.product_id) : null,
           product_name: productNames.get(String(row.product_id || "")) || "Материал",
           variety_name: row.variety_id ? brandName(varietyMap.get(String(row.variety_id)) as never) || null : null,
@@ -528,6 +644,149 @@ export default function CropStructurePage() {
       }
     })();
   }, [profile?.company_id, seasonId, varietyMap, reproductionMap]);
+
+  useEffect(() => {
+    if (!profile?.company_id || !seasonId || cropStructureRowIds.length === 0) {
+      setOperationFacts([]);
+      setOperationConsumptions([]);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await supabase
+          .from("operations")
+          .select(`
+            id,
+            field_id,
+            crop_structure_id,
+            operation_type,
+            operation_type_slug,
+            operation_category_slug,
+            date,
+            status,
+            work_status,
+            completed_at,
+            planned_area_ha,
+            operation_materials:operation_materials (
+              id,
+              product_id,
+              material_type,
+              unit,
+              planned_quantity,
+              issued_quantity,
+              consumed_quantity,
+              returned_quantity,
+              actual_rate,
+              products:product_id (name,trade_name,normalized_name)
+            ),
+            operation_lines:operation_lines (
+              id,
+              field_id,
+              planned_area_ha,
+              actual_area_ha
+            )
+          `)
+          .eq("company_id", profile.company_id)
+          .eq("archived", false)
+          .in("crop_structure_id", cropStructureRowIds)
+          .order("date", { ascending: false });
+
+        if (res.error) throw res.error;
+
+        const facts: StructureOperationFact[] = ((res.data || []) as any[]).map((row) => {
+          const lineRows = Array.isArray(row.operation_lines) ? row.operation_lines : [];
+          const plannedFromLines = lineRows.reduce((sum: number, line: any) => sum + Number(line.planned_area_ha || 0), 0);
+          const actualLineValues = lineRows
+            .map((line: any) => numberOrNull(line.actual_area_ha))
+            .filter((value: number | null): value is number => value != null);
+          const actualFromLines = actualLineValues.length
+            ? actualLineValues.reduce((sum: number, value: number) => sum + value, 0)
+            : null;
+          const materials: StructureOperationMaterialFact[] = (Array.isArray(row.operation_materials) ? row.operation_materials : []).map((material: any) => {
+            const product = oneRelation(material.products);
+            return {
+              product_id: material.product_id ? String(material.product_id) : null,
+              product_name: brandName(product) || String(product?.name || "Материал"),
+              material_type: material.material_type ? String(material.material_type) : null,
+              unit: material.unit ? String(material.unit) : null,
+              planned_quantity: numberOrNull(material.planned_quantity),
+              issued_quantity: Number(material.issued_quantity || 0),
+              consumed_quantity: numberOrNull(material.consumed_quantity),
+              returned_quantity: numberOrNull(material.returned_quantity),
+              actual_rate: numberOrNull(material.actual_rate),
+            };
+          });
+
+          return {
+            id: String(row.id),
+            field_id: String(row.field_id || ""),
+            crop_structure_row_id: row.crop_structure_id ? String(row.crop_structure_id) : null,
+            operation_type: String(row.operation_type || "Операция"),
+            operation_type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
+            operation_category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
+            date: row.date || null,
+            status: row.status ? String(row.status) : null,
+            work_status: row.work_status ? String(row.work_status) : null,
+            completed_at: row.completed_at || null,
+            planned_area_ha: plannedFromLines > 0 ? plannedFromLines : numberOrNull(row.planned_area_ha),
+            actual_area_ha: actualFromLines,
+            materials,
+          };
+        });
+
+        const derivedConsumptions: Consumption[] = facts.flatMap((fact) => {
+          if (!fact.crop_structure_row_id) return [];
+          const area = fact.actual_area_ha ?? fact.planned_area_ha ?? null;
+          const operationKey = fact.operation_type_slug || fact.operation_category_slug || fact.operation_type;
+          return fact.materials.flatMap((material) => {
+            const quantity = material.consumed_quantity ?? (material.issued_quantity > 0 ? material.issued_quantity : null);
+            if (!material.product_id || quantity == null || quantity <= 0) return [];
+            return [{
+              id: `operation-${fact.id}-${material.product_id}`,
+              operation_id: fact.id,
+              field_id: fact.field_id,
+              crop_structure_row_id: fact.crop_structure_row_id,
+              operation_type: operationKey,
+              material_type: material.material_type,
+              unit: material.unit,
+              product_id: material.product_id,
+              product_name: material.product_name,
+              variety_name: null,
+              reproduction_name: null,
+              batch_class: null,
+              quantity_kg: quantity,
+              area_ha: area,
+              norm_per_ha: material.actual_rate ?? (area && area > 0 ? quantity / area : null),
+              consumed_at: fact.completed_at || fact.date,
+              ticket_id: fact.id,
+              responsible_name: null,
+              vehicle_name: null,
+              notes: "operation_materials",
+            }];
+          });
+        });
+
+        if (cancelled) return;
+        setOperationFacts(facts);
+        setOperationConsumptions(derivedConsumptions);
+      } catch (error) {
+        if (cancelled) return;
+        setOperationFacts([]);
+        setOperationConsumptions([]);
+        toast({
+          title: "Ошибка",
+          description: error instanceof Error ? error.message : "Не удалось загрузить операции по участкам",
+          variant: "destructive",
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.company_id, seasonId, cropStructureRowIds, toast]);
 
   useEffect(() => {
     if (!profile?.company_id || !seasonId) {
@@ -1184,6 +1443,69 @@ export default function CropStructurePage() {
       });
   };
 
+  const operationKindLabel = (operation: StructureOperationFact) => {
+    const value = [
+      operation.operation_type,
+      operation.operation_type_slug,
+      operation.operation_category_slug,
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (value.includes("herbicide") || value.includes("гербиц")) return "Гербицидная";
+    if (value.includes("fungicide") || value.includes("фунгиц")) return "Фунгицидная";
+    if (value.includes("insecticide") || value.includes("инсектиц")) return "Инсектицидная";
+    if (value.includes("desiccation") || value.includes("десика")) return "Десикация";
+    if (value.includes("fertigation") || value.includes("фертиг")) return "Фертигация";
+    if (value.includes("fertilizer") || value.includes("удобр") || value.includes("разбрасыв")) return "Удобрение";
+    if (value.includes("spraying") || value.includes("опрыск") || value.includes("сзр")) return "СЗР";
+    if (value.includes("soil") || value.includes("tillage") || value.includes("почво") || value.includes("диск") || value.includes("греб")) return "Почвообработка";
+    if (value.includes("planting") || value.includes("seeding") || value.includes("посев") || value.includes("посад")) return "Посев / посадка";
+    if (value.includes("harvest") || value.includes("уборк")) return "Уборка";
+    return "Операция";
+  };
+
+  const operationStatusLabel = (operation: StructureOperationFact) => {
+    const value = String(operation.work_status || operation.status || "").toLowerCase();
+    if (value === "completed" || value === "done" || operation.completed_at) return "Закрыта";
+    if (value === "in_progress") return "В работе";
+    if (value === "accepted") return "Принята";
+    if (value === "active" || value === "planned") return "Запланирована";
+    return value || "Статус не указан";
+  };
+
+  const operationStatusClass = (operation: StructureOperationFact) => {
+    const label = operationStatusLabel(operation);
+    if (label === "Закрыта") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    if (label === "В работе") return "border-amber-200 bg-amber-50 text-amber-700";
+    return "border-slate-200 bg-slate-100 text-slate-700";
+  };
+
+  const operationAreaLabel = (operation: StructureOperationFact) => {
+    const value = operation.actual_area_ha ?? operation.planned_area_ha;
+    return value == null ? "площадь не указана" : fmtHa(value);
+  };
+
+  const operationMaterialsPreview = (operation: StructureOperationFact) => {
+    const actualMaterials = operation.materials.filter((material) => {
+      const quantity = material.consumed_quantity ?? material.issued_quantity;
+      return quantity != null && quantity > 0;
+    });
+    if (!actualMaterials.length) return "без фактических материалов";
+    const names = actualMaterials.slice(0, 3).map((material) => material.product_name);
+    const extra = actualMaterials.length > 3 ? ` + ещё ${actualMaterials.length - 3}` : "";
+    return `${names.join(", ")}${extra}`;
+  };
+
+  const buildOperationSummary = (operations: StructureOperationFact[]) => {
+    const grouped = new Map<string, number>();
+    for (const operation of operations) {
+      const label = operationKindLabel(operation);
+      grouped.set(label, (grouped.get(label) || 0) + 1);
+    }
+    return Array.from(grouped.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ru"));
+  };
+
   const renderFieldDossier = () => {
     if (!selectedField) return null;
     const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
@@ -1216,6 +1538,8 @@ export default function CropStructurePage() {
 
         {rows.length ? rows.map((allocation) => {
           const facts = allocationFacts(allocation);
+          const operationsForAllocation = allocation.id ? operationFactsByAllocation.get(allocation.id) || [] : [];
+          const operationSummary = buildOperationSummary(operationsForAllocation);
           const plannedArea = Number(allocation.area || 0);
           const field = fieldMap.get(allocation.field_id);
           const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
@@ -1230,7 +1554,7 @@ export default function CropStructurePage() {
                 <div>
                   <div className="text-xl font-semibold text-slate-950">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
                   <div className="mt-1 text-sm text-slate-600">
-                    {fmtHa(plannedArea)} · фактических выдач {facts.rows.length}
+                    {fmtHa(plannedArea)} · операций {operationsForAllocation.length} · материалов {facts.rows.length}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -1284,6 +1608,54 @@ export default function CropStructurePage() {
                   Фактических выдач материалов на эту посевную строку пока нет.
                 </div>
               )}
+
+              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-900">Операции по участку</div>
+                    <div className="text-xs text-slate-500">Что уже запланировано или выполнено по этой посевной строке</div>
+                  </div>
+                  <Badge className="border-slate-200 bg-white text-slate-700 hover:bg-white">
+                    {operationsForAllocation.length} операций
+                  </Badge>
+                </div>
+
+                {operationSummary.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {operationSummary.map((item) => (
+                      <span key={item.label} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
+                        {item.label}: {item.count}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                {operationsForAllocation.length ? (
+                  <div className="mt-3 space-y-2">
+                    {operationsForAllocation.slice(0, 6).map((operation) => (
+                      <div key={operation.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-950">{operation.operation_type}</div>
+                            <div className="mt-0.5 text-xs text-slate-500">
+                              {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
+                            </div>
+                          </div>
+                          <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
+                        </div>
+                        <div className="mt-1 truncate text-xs text-slate-600">{operationMaterialsPreview(operation)}</div>
+                      </div>
+                    ))}
+                    {operationsForAllocation.length > 6 ? (
+                      <div className="text-xs text-slate-500">+ ещё {operationsForAllocation.length - 6} операций в журнале</div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-3 text-sm text-slate-500">
+                    Операций по этому участку пока нет.
+                  </div>
+                )}
+              </div>
 
             </div>
           );
