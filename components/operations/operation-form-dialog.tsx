@@ -161,6 +161,10 @@ const HIDDEN_PLANTING_SUBTYPE_SLUGS = new Set([
   "seeding_with_microgranules",
 ]);
 
+const HIDDEN_OPERATION_CATEGORY_SLUGS = new Set([
+  "sampling",
+]);
+
 const WHOLE_FIELD_ALLOWED_CATEGORIES = new Set([
   "harvesting",
   "service_operation",
@@ -506,6 +510,7 @@ export function OperationFormDialog({
   const selectedCropStructureArea = selectedCropStructure ? Number(selectedCropStructure.area || 0) : null;
   const availableCategories = useMemo(() => {
     return categories.filter((category) => {
+      if (HIDDEN_OPERATION_CATEGORY_SLUGS.has(category.slug)) return false;
       if (isWholeFieldScope && !WHOLE_FIELD_ALLOWED_CATEGORIES.has(category.slug)) return false;
       const expectedSubtypeSlugs = new Set(
         OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === category.slug).map((item) => item.slug)
@@ -530,6 +535,7 @@ export function OperationFormDialog({
     );
     const subtypeRows = expectedSubtypeSlugs.size > 0 ? rows.filter((item) => expectedSubtypeSlugs.has(item.slug)) : rows;
     return subtypeRows.filter((item) => {
+      if (HIDDEN_OPERATION_CATEGORY_SLUGS.has(item.category_slug)) return false;
       if (isWholeFieldScope && !WHOLE_FIELD_ALLOWED_CATEGORIES.has(item.category_slug)) return false;
       if (item.category_slug === "planting" && HIDDEN_PLANTING_SUBTYPE_SLUGS.has(item.slug)) return false;
       return getOperationTemplateAvailability({
@@ -1519,7 +1525,7 @@ export function OperationFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-hidden border-slate-800 bg-[#0b1017] p-0 text-slate-100 shadow-2xl shadow-black/60 sm:max-w-[1120px]">
+      <DialogContent className="flex h-[92vh] max-h-[92vh] flex-col overflow-hidden border-slate-800 bg-[#0b1017] p-0 text-slate-100 shadow-2xl shadow-black/60 sm:max-w-[1120px]">
         <DialogHeader className="border-b border-slate-800 px-5 py-4">
           <DialogTitle>{isEdit ? "Редактировать операцию" : "Создать план работы"}</DialogTitle>
           <DialogDescription>
@@ -1528,7 +1534,7 @@ export function OperationFormDialog({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(submit, handleInvalidSubmit)} className="flex max-h-[calc(92vh-2px)] flex-col">
+          <form onSubmit={form.handleSubmit(submit, handleInvalidSubmit)} className="flex min-h-0 flex-1 flex-col">
             <div className="grid min-h-0 flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
               <aside className="space-y-4 border-b border-slate-800 bg-[#0f1724] p-4 lg:border-b-0 lg:border-r">
             {showField ? (
@@ -1627,82 +1633,6 @@ export function OperationFormDialog({
               </aside>
 
               <main className="min-h-0 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
-
-            {selectedCropStructure && categorySlug === "planting" ? (
-              <div className="rounded-lg border border-slate-700 bg-[#111827] p-3">
-                <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-3">
-                  <div>
-                    <div className="mb-1 text-xs font-medium text-slate-400">Культура</div>
-                    <SearchableSelect
-                      value={structureEditorCropId}
-                      onChange={(value) => {
-                        setStructureChangeCropId(value);
-                        setStructureChangeVarietyId("none");
-                      }}
-                      options={cropCatalogOptions}
-                      placeholder="Выберите культуру"
-                      emptyLabel="Культуры не найдены"
-                    />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs font-medium text-slate-400">Сорт</div>
-                    <SearchableSelect
-                      value={structureEditorVarietyId}
-                      onChange={(value) => {
-                        if (!structureChangeCropId && selectedCropStructure.crop_id) {
-                          setStructureChangeCropId(selectedCropStructure.crop_id);
-                        }
-                        setStructureChangeVarietyId(value);
-                      }}
-                      options={[{ id: "none", label: "Без сорта" }, ...structureChangeVarietyOptions]}
-                      placeholder="Выберите сорт"
-                      emptyLabel="Сорта не найдены"
-                    />
-                  </div>
-                  <div>
-                    <div className="mb-1 text-xs font-medium text-slate-400">Репродукция</div>
-                    <SearchableSelect
-                      value={structureEditorReproductionId}
-                      onChange={(value) => {
-                        if (!structureChangeCropId && selectedCropStructure.crop_id) {
-                          setStructureChangeCropId(selectedCropStructure.crop_id);
-                        }
-                        setStructureChangeReproductionId(value);
-                      }}
-                      options={[{ id: "none", label: "Без репродукции" }, ...structureChangeReproductionOptions]}
-                      placeholder="Выберите репродукцию"
-                      emptyLabel="Репродукции не найдены"
-                    />
-                  </div>
-                </div>
-                {structureChangeActive ? (
-                  <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-100">
-                    <div className="font-semibold">План структуры отличается от операции. Что сделать?</div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <Button
-                        type="button"
-                        variant={structureChangeMode === "crop_replace" ? "default" : "outline"}
-                        onClick={() => setStructureChangeMode("crop_replace")}
-                      >
-                        Заменить культуру на участке
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={structureChangeMode === "area_split" ? "default" : "outline"}
-                        onClick={() => setStructureChangeMode("area_split")}
-                      >
-                        Выделить часть площади
-                      </Button>
-                    </div>
-                    {structureChangeMode === "area_split" ? (
-                      <div className="mt-2 text-xs text-yellow-100/80">
-                        Укажите площадь ниже. Она станет новым участком, остаток останется за текущей культурой.
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
 
             <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1807,6 +1737,86 @@ export function OperationFormDialog({
                 </div>
               ) : null}
             </section>
+
+            {selectedCropStructure && categorySlug === "planting" ? (
+              <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold text-white">2. Уточнение посева</div>
+                  <div className="text-xs text-slate-500">Меняйте культуру только если операция должна изменить план участка.</div>
+                </div>
+                <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-slate-400">Культура</div>
+                    <SearchableSelect
+                      value={structureEditorCropId}
+                      onChange={(value) => {
+                        setStructureChangeCropId(value);
+                        setStructureChangeVarietyId("none");
+                      }}
+                      options={cropCatalogOptions}
+                      placeholder="Выберите культуру"
+                      emptyLabel="Культуры не найдены"
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-slate-400">Сорт</div>
+                    <SearchableSelect
+                      value={structureEditorVarietyId}
+                      onChange={(value) => {
+                        if (!structureChangeCropId && selectedCropStructure.crop_id) {
+                          setStructureChangeCropId(selectedCropStructure.crop_id);
+                        }
+                        setStructureChangeVarietyId(value);
+                      }}
+                      options={[{ id: "none", label: "Без сорта" }, ...structureChangeVarietyOptions]}
+                      placeholder="Выберите сорт"
+                      emptyLabel="Сорта не найдены"
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs font-medium text-slate-400">Репродукция</div>
+                    <SearchableSelect
+                      value={structureEditorReproductionId}
+                      onChange={(value) => {
+                        if (!structureChangeCropId && selectedCropStructure.crop_id) {
+                          setStructureChangeCropId(selectedCropStructure.crop_id);
+                        }
+                        setStructureChangeReproductionId(value);
+                      }}
+                      options={[{ id: "none", label: "Без репродукции" }, ...structureChangeReproductionOptions]}
+                      placeholder="Выберите репродукцию"
+                      emptyLabel="Репродукции не найдены"
+                    />
+                  </div>
+                </div>
+                {structureChangeActive ? (
+                  <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-100">
+                    <div className="font-semibold">План структуры отличается от операции. Что сделать?</div>
+                    <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
+                      <Button
+                        type="button"
+                        variant={structureChangeMode === "crop_replace" ? "default" : "outline"}
+                        onClick={() => setStructureChangeMode("crop_replace")}
+                      >
+                        Заменить культуру на участке
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={structureChangeMode === "area_split" ? "default" : "outline"}
+                        onClick={() => setStructureChangeMode("area_split")}
+                      >
+                        Выделить часть площади
+                      </Button>
+                    </div>
+                    {structureChangeMode === "area_split" ? (
+                      <div className="mt-2 text-xs text-yellow-100/80">
+                        Укажите площадь ниже. Она станет новым участком, остаток останется за текущей культурой.
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <FormField
