@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { normalizeRoleKey, parseCanonicalRole, type CanonicalRole } from "@/lib/auth/role-contract";
 
 interface Profile {
@@ -135,9 +135,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const pathname = usePathname();
+  const skipMarketingAuthBoot = pathname === "/" || pathname === "/demo";
 
   useEffect(() => {
+    if (skipMarketingAuthBoot) {
+      setUser(null);
+      setProfile(null);
+      return;
+    }
+
     let mounted = true;
+    setLoading(true);
     const bootWatchdog = window.setTimeout(() => {
       if (!mounted) return;
       setLoading(false);
@@ -222,7 +231,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       window.clearTimeout(bootWatchdog);
       subscription.unsubscribe();
     };
-  }, []);
+  }, [skipMarketingAuthBoot]);
 
   const loadProfile = async (userId: string, userEmail?: string | null) => {
     try {
