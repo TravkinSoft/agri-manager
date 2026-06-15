@@ -8,7 +8,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -30,7 +29,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -1507,10 +1505,22 @@ export function OperationFormDialog({
     }
   };
 
+  const responsibleUserId = form.watch("responsible_user_id");
+  const actionIssues = [
+    showField && !selectedFieldId ? "поле" : null,
+    cropStructureRequired && !selectedCropStructureId ? "участок" : null,
+    !categorySlug ? "тип работы" : null,
+    !selectedType ? "работа" : null,
+    !responsibleUserId ? "ответственный" : null,
+    isPotatoPlanting && (!seedSpacingCm || seedSpacingCm <= 0) ? "межклубневое расстояние" : null,
+    isPotatoPlanting && (!seedRateKgHa || seedRateKgHa <= 0) ? "норма посадки" : null,
+    (isIrrigation || isFertigation) && !operationParams.water_norm_mm && !operationParams.water_volume_m3 ? "норма воды" : null,
+  ].filter(Boolean) as string[];
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[820px]">
-        <DialogHeader>
+      <DialogContent className="max-h-[92vh] overflow-hidden border-slate-800 bg-[#0b1017] p-0 text-slate-100 shadow-2xl shadow-black/60 sm:max-w-[1120px]">
+        <DialogHeader className="border-b border-slate-800 px-5 py-4">
           <DialogTitle>{isEdit ? "Редактировать операцию" : "Создать план работы"}</DialogTitle>
           <DialogDescription>
             {sourceLabel || "Выберите поле, участок структуры и работу. Остальное заполняется только по необходимости."}
@@ -1518,9 +1528,11 @@ export function OperationFormDialog({
         </DialogHeader>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(submit, handleInvalidSubmit)} className="space-y-4">
+          <form onSubmit={form.handleSubmit(submit, handleInvalidSubmit)} className="flex max-h-[calc(92vh-2px)] flex-col">
+            <div className="grid min-h-0 flex-1 lg:grid-cols-[320px_minmax(0,1fr)]">
+              <aside className="space-y-4 border-b border-slate-800 bg-[#0f1724] p-4 lg:border-b-0 lg:border-r">
             {showField ? (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="space-y-3">
                 <FormField
                   control={form.control}
                   name="field_id"
@@ -1604,6 +1616,18 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-3 text-xs text-slate-400">
+                <div className="font-semibold uppercase tracking-[0.16em] text-slate-500">Логика плана</div>
+                <div className="mt-2 space-y-1.5">
+                  <div>1. Выберите участок.</div>
+                  <div>2. Выберите работу.</div>
+                  <div>3. Назначьте ответственного.</div>
+                </div>
+              </div>
+              </aside>
+
+              <main className="min-h-0 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+
             {selectedCropStructure && categorySlug === "planting" ? (
               <div className="rounded-lg border border-slate-700 bg-[#111827] p-3">
                 <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -1680,83 +1704,109 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <FormItem>
-                <FormLabel>Тип операции *</FormLabel>
-                <Select value={categorySlug} onValueChange={handleCategoryChange}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Выберите тип операции" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {availableCategories.map((category) => (
-                      <SelectItem key={category.id} value={category.slug}>
-                        {category.name_ru}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormItem>
+            <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm font-semibold text-white">1. Работа</div>
+                  <div className="text-xs text-slate-500">Сначала производственный блок, затем конкретная работа.</div>
+                </div>
+                {selectedType ? (
+                  <span className="rounded-full border border-yellow-400/40 bg-yellow-400/10 px-3 py-1 text-xs font-semibold text-yellow-200">
+                    {selectedType.name_ru}
+                  </span>
+                ) : null}
+              </div>
 
-              <FormItem>
-                <FormLabel>Операция *</FormLabel>
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                {availableCategories.map((category) => {
+                  const active = categorySlug === category.slug;
+                  return (
+                    <button
+                      key={category.id}
+                      type="button"
+                      className={cn(
+                        "min-h-[58px] rounded-xl border px-3 py-2 text-left text-sm font-semibold transition",
+                        active
+                          ? "border-yellow-400 bg-yellow-400 text-slate-950 shadow-[0_0_0_1px_rgba(250,204,21,0.35)]"
+                          : "border-slate-800 bg-slate-950/45 text-slate-200 hover:border-slate-600 hover:bg-slate-900"
+                      )}
+                      onClick={() => handleCategoryChange(category.slug)}
+                    >
+                      <span className="line-clamp-2">{category.name_ru}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4">
+                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Конкретная работа</div>
                 {compactAutoPlantingType && selectedType ? (
-                  <div className="flex h-10 items-center rounded-md border border-slate-700 bg-[#111827] px-3 text-sm font-medium text-slate-100">
+                  <div className="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-3 text-sm font-semibold text-emerald-100">
                     {selectedType.name_ru}
                   </div>
+                ) : !categorySlug ? (
+                  <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-3 py-4 text-sm text-slate-500">
+                    Выберите блок выше, и здесь появятся доступные работы.
+                  </div>
+                ) : typeOptions.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-3 py-4 text-sm text-slate-500">
+                    Для выбранного участка нет доступных работ этого блока.
+                  </div>
                 ) : (
-                  <Select
-                    value={typeSlug}
-                    onValueChange={handleTypeChange}
-                    disabled={!categorySlug}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue
-                          placeholder={
-                            !categorySlug
-                              ? "Сначала выберите тип операции"
-                              : typeOptions.length === 0
-                                ? "Типы не найдены"
-                                : "Выберите операцию"
-                          }
-                        />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {typeOptions.map((type) => (
-                        <SelectItem key={type.id} value={type.slug}>
-                          {type.name_ru}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {typeOptions.map((type) => {
+                      const active = typeSlug === type.slug;
+                      return (
+                        <button
+                          key={type.id}
+                          type="button"
+                          className={cn(
+                            "rounded-xl border px-3 py-2 text-left text-sm transition",
+                            active
+                              ? "border-yellow-400 bg-yellow-400/15 text-yellow-100"
+                              : "border-slate-800 bg-slate-950/45 text-slate-300 hover:border-slate-600"
+                          )}
+                          onClick={() => handleTypeChange(type.slug)}
+                        >
+                          <span className="font-semibold">{type.name_ru}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 )}
                 {form.formState.errors.operation_type?.message ? (
-                  <div className="mt-1 text-sm font-medium text-destructive">
+                  <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
                     {form.formState.errors.operation_type.message}
                   </div>
                 ) : null}
-              </FormItem>
-            </div>
-
-            {showPurposeEngine ? (
-              <div className="rounded-lg border p-3">
-                <div className="mb-2 text-sm font-semibold">Цели</div>
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {visiblePurposeOptions.map((purpose) => (
-                    <label key={purpose.slug} className="flex items-center gap-2 rounded border px-3 py-2 text-sm">
-                      <Checkbox
-                        checked={purposes.includes(purpose.slug)}
-                        onCheckedChange={(checked) => togglePurpose(purpose.slug, checked === true)}
-                      />
-                      <span>{purpose.label}</span>
-                    </label>
-                  ))}
-                </div>
               </div>
-            ) : null}
+
+              {showPurposeEngine ? (
+                <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/35 p-3">
+                  <div className="mb-2 text-sm font-semibold text-slate-100">Цели обработки</div>
+                  <div className="flex flex-wrap gap-2">
+                    {visiblePurposeOptions.map((purpose) => {
+                      const active = purposes.includes(purpose.slug);
+                      return (
+                        <button
+                          key={purpose.slug}
+                          type="button"
+                          className={cn(
+                            "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
+                            active
+                              ? "border-emerald-400 bg-emerald-400/15 text-emerald-100"
+                              : "border-slate-700 bg-slate-900 text-slate-300 hover:border-slate-500"
+                          )}
+                          onClick={() => togglePurpose(purpose.slug, !active)}
+                        >
+                          {purpose.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </section>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <FormField
@@ -2213,25 +2263,38 @@ export function OperationFormDialog({
               )}
             />
 
-            <DialogFooter>
-              {submitError ? (
-                <div className="mr-auto rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-left text-sm text-destructive">
-                  {submitError}
-                </div>
-              ) : null}
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Отмена
-              </Button>
-              <Button type="submit" disabled={submitting || form.formState.isSubmitting}>
-                {submitting || form.formState.isSubmitting
-                  ? isEdit
-                    ? "Сохраняю..."
-                    : "Создаётся план..."
-                  : isEdit
-                    ? "Сохранить"
-                    : "Создать план"}
-              </Button>
-            </DialogFooter>
+              </main>
+            </div>
+
+            <div className="flex flex-col gap-3 border-t border-slate-800 bg-[#0b1017]/95 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                {submitError ? (
+                  <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                    {submitError}
+                  </div>
+                ) : actionIssues.length > 0 ? (
+                  <div className="text-sm text-slate-400">
+                    Не заполнено: <span className="font-semibold text-yellow-200">{actionIssues.join(", ")}</span>
+                  </div>
+                ) : (
+                  <div className="text-sm text-emerald-200">План готов к созданию.</div>
+                )}
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <Button type="button" variant="outline" className="border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-900" onClick={() => onOpenChange(false)}>
+                  Отмена
+                </Button>
+                <Button type="submit" className="bg-yellow-400 font-semibold text-slate-950 hover:bg-yellow-300" disabled={submitting || form.formState.isSubmitting}>
+                  {submitting || form.formState.isSubmitting
+                    ? isEdit
+                      ? "Сохраняю..."
+                      : "Создаётся план..."
+                    : isEdit
+                      ? "Сохранить"
+                      : "Создать план"}
+                </Button>
+              </div>
+            </div>
           </form>
         </Form>
       </DialogContent>
