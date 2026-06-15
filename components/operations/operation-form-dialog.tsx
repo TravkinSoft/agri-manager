@@ -484,6 +484,7 @@ export function OperationFormDialog({
   );
   const isWholeFieldScope = operationParams.scope === "whole_field" || (lockedContext && !!selectedFieldId && !selectedCropStructureId);
   const selectedIrrigationType = normalizeIrrigationType((selectedCropStructure as any)?.irrigation_type);
+  const hasExplicitIrrigationType = selectedIrrigationType !== "unknown";
   const selectedIsPotato = isPotatoCropContext(
     selectedCropStructure?.crop_name,
     selectedCropStructure?.variety_name
@@ -1351,6 +1352,12 @@ export function OperationFormDialog({
       setSubmitError(message);
       return;
     }
+    if (!data.responsible_user_id) {
+      const message = "Выберите ответственного специалиста.";
+      form.setError("responsible_user_id", { message });
+      setSubmitError(message);
+      return;
+    }
     if (isPotatoPlanting && (!data.seed_spacing_cm || data.seed_spacing_cm <= 0)) {
       const message = "Укажите межклубневое расстояние для посадки картофеля.";
       form.setError("seed_spacing_cm", { message });
@@ -1580,7 +1587,9 @@ export function OperationFormDialog({
                     {Number(selectedCropStructure.area || 0).toFixed(2)} га
                   </span>
                 </div>
-                <div className="mt-1 text-slate-400">{getIrrigationTypeLabel(selectedIrrigationType)}</div>
+                {hasExplicitIrrigationType ? (
+                  <div className="mt-1 text-slate-400">{getIrrigationTypeLabel(selectedIrrigationType)}</div>
+                ) : null}
               </div>
             ) : isWholeFieldScope && selectedField ? (
               <div className="rounded-lg border border-slate-700 bg-[#111827] p-3 text-sm text-slate-100">
@@ -2171,7 +2180,7 @@ export function OperationFormDialog({
                 name="responsible_user_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Ответственный</FormLabel>
+                    <FormLabel>Ответственный *</FormLabel>
                     <FormControl>
                       <SearchableSelect
                         value={field.value || ""}

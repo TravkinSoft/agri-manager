@@ -445,6 +445,9 @@ export async function POST(request: NextRequest) {
 
     let cropStructureId = toNullableUuid(body.crop_structure_id);
     const responsibleUserId = toNullableUuid(body.responsible_user_id);
+    if (!responsibleUserId) {
+      return NextResponse.json({ error: "responsible_user_id is required" }, { status: 400 });
+    }
 
     const operationCategorySlug = toNullableText(body.operation_category_slug);
     const requestedTypeSlug = toNullableText(body.operation_type_slug);

@@ -215,7 +215,12 @@ export const operationSchema = z.object({
     })
     .optional(),
   date: z.string().min(1, "Date is required"),
-  responsible_user_id: z.string().uuid("Please select specialist").nullable().optional(),
+  responsible_user_id: z
+    .string()
+    .uuid("Выберите ответственного специалиста")
+    .nullable()
+    .optional()
+    .refine((value) => Boolean(value), "Выберите ответственного специалиста"),
   notes: z.string().optional(),
 });
 

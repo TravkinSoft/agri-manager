@@ -1478,9 +1478,9 @@ export default function CropStructurePage() {
 
   const operationStatusClass = (operation: StructureOperationFact) => {
     const label = operationStatusLabel(operation);
-    if (label === "Закрыта") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    if (label === "В работе") return "border-amber-200 bg-amber-50 text-amber-700";
-    return "border-slate-200 bg-slate-100 text-slate-700";
+    if (label === "Закрыта") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/10";
+    if (label === "В работе") return "border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/10";
+    return "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-800";
   };
 
   const operationAreaLabel = (operation: StructureOperationFact) => {
@@ -1516,155 +1516,150 @@ export default function CropStructurePage() {
     const planned = sumArea(rows);
     const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
     return (
-      <div className="space-y-4">
-        <div className="rounded-2xl border bg-[#f8faf7] p-4">
+      <div className="space-y-3 text-slate-100">
+        <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Что поле фактически получило за сезон</div>
-              <div className="mt-1 text-2xl font-semibold text-slate-950">Поле {selectedField.name}</div>
-              <div className="mt-1 text-sm text-slate-600">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Сезонный контур поля</div>
+              <div className="mt-1 text-2xl font-semibold text-white">Поле {selectedField.name}</div>
+              <div className="mt-1 text-sm text-slate-400">
                 Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
               </div>
             </div>
             <Badge className={stateClass(fieldState(selectedField.id))}>{stateText(fieldState(selectedField.id))}</Badge>
           </div>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {rows.length ? rows.map((allocation) => (
-              <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl bg-white px-3 py-2 text-sm">
-                <div className="font-semibold text-slate-900">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
-                <div className="text-xs text-slate-500">{fmtHa(Number(allocation.area || 0))}</div>
+              <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2 text-sm">
+                <div className="truncate font-semibold text-slate-100">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                <div className="text-xs text-slate-400">{fmtHa(Number(allocation.area || 0))}</div>
               </div>
             )) : (
-              <div className="rounded-xl border border-dashed bg-white px-3 py-3 text-sm text-slate-500">Посевные строки ещё не заданы.</div>
+              <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/55 px-3 py-3 text-sm text-slate-400">Посевные строки ещё не заданы.</div>
             )}
           </div>
         </div>
 
-        {rows.length ? rows.map((allocation) => {
-          const facts = allocationFacts(allocation);
-          const operationsForAllocation = allocation.id ? operationFactsByAllocation.get(allocation.id) || [] : [];
-          const operationSummary = buildOperationSummary(operationsForAllocation);
-          const plannedArea = Number(allocation.area || 0);
-          const field = fieldMap.get(allocation.field_id);
-          const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
-          const rateArea = actualCompletedArea || plannedArea;
-          const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади посевной строки";
-          const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
-          const hasMaterials = materialRows.length > 0;
+        {rows.length ? (
+          <div className="grid gap-3 xl:grid-cols-2">
+            {rows.map((allocation) => {
+              const facts = allocationFacts(allocation);
+              const operationsForAllocation = allocation.id ? operationFactsByAllocation.get(allocation.id) || [] : [];
+              const operationSummary = buildOperationSummary(operationsForAllocation);
+              const plannedArea = Number(allocation.area || 0);
+              const field = fieldMap.get(allocation.field_id);
+              const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
+              const rateArea = actualCompletedArea || plannedArea;
+              const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади участка";
+              const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
+              const hasMaterials = materialRows.length > 0;
 
-          return (
-            <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-xl font-semibold text-slate-950">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
-                  <div className="mt-1 text-sm text-slate-600">
-                    {fmtHa(plannedArea)} · операций {operationsForAllocation.length} · материалов {facts.rows.length}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {FIELD_FIRST_CREATE_ENABLED && field ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={(event) => openOperationPlan(field, allocation, event)}
-                    >
-                      Запланировать работу
-                    </Button>
-                  ) : null}
-                  <Badge className="bg-slate-900 text-white hover:bg-slate-900">Материалы сезона</Badge>
-                </div>
-              </div>
-
-              {hasMaterials ? (
-                <div className="mt-4 overflow-hidden rounded-xl border bg-white">
-                  <div className="flex items-center justify-end border-b bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-                    Расчёт факта: {rateBasis}
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-white text-[11px] uppercase tracking-wide text-slate-400">
-                        <tr>
-                          <th className="px-3 py-2 font-medium">Группа</th>
-                          <th className="px-3 py-2 font-medium">Продукт</th>
-                          <th className="px-3 py-2 font-medium">Партия/класс</th>
-                          <th className="px-3 py-2 text-right font-medium">Итого</th>
-                          <th className="px-3 py-2 text-right font-medium">На га</th>
-                          <th className="px-3 py-2 font-medium">Дата</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {materialRows.map((item) => (
-                          <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-slate-100">
-                            <td className="px-3 py-2 text-slate-700">{item.categoryLabel}</td>
-                            <td className="px-3 py-2 font-medium text-slate-900">{item.identity}</td>
-                            <td className="px-3 py-2 text-slate-500">{item.batchClass}</td>
-                            <td className="px-3 py-2 text-right font-semibold text-slate-900">{item.total}</td>
-                            <td className="px-3 py-2 text-right text-slate-700">{item.perHa}</td>
-                            <td className="px-3 py-2 text-slate-500">{item.date}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 rounded-xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
-                  Фактических выдач материалов на эту посевную строку пока нет.
-                </div>
-              )}
-
-              <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/80 p-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-900">Операции по участку</div>
-                    <div className="text-xs text-slate-500">Что уже запланировано или выполнено по этой посевной строке</div>
-                  </div>
-                  <Badge className="border-slate-200 bg-white text-slate-700 hover:bg-white">
-                    {operationsForAllocation.length} операций
-                  </Badge>
-                </div>
-
-                {operationSummary.length ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {operationSummary.map((item) => (
-                      <span key={item.label} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
-                        {item.label}: {item.count}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-
-                {operationsForAllocation.length ? (
-                  <div className="mt-3 space-y-2">
-                    {operationsForAllocation.slice(0, 6).map((operation) => (
-                      <div key={operation.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-                        <div className="flex flex-wrap items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-slate-950">{operation.operation_type}</div>
-                            <div className="mt-0.5 text-xs text-slate-500">
-                              {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
-                            </div>
-                          </div>
-                          <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
-                        </div>
-                        <div className="mt-1 truncate text-xs text-slate-600">{operationMaterialsPreview(operation)}</div>
+              return (
+                <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border border-slate-800 bg-[#111827] p-3 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-semibold text-white">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {fmtHa(plannedArea)} · операций {operationsForAllocation.length} · материалов {facts.rows.length}
                       </div>
-                    ))}
-                    {operationsForAllocation.length > 6 ? (
-                      <div className="text-xs text-slate-500">+ ещё {operationsForAllocation.length - 6} операций в журнале</div>
+                    </div>
+                    {FIELD_FIRST_CREATE_ENABLED && field ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 bg-yellow-400 px-3 text-xs font-semibold text-slate-950 hover:bg-yellow-300"
+                        onClick={(event) => openOperationPlan(field, allocation, event)}
+                      >
+                        Запланировать
+                      </Button>
                     ) : null}
                   </div>
-                ) : (
-                  <div className="mt-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-3 text-sm text-slate-500">
-                    Операций по этому участку пока нет.
-                  </div>
-                )}
-              </div>
 
-            </div>
-          );
-        }) : (
-          <div className="rounded-xl border border-dashed bg-white p-5 text-sm text-slate-500">Посевные строки ещё не заданы.</div>
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-100">Материалы</div>
+                          <div className="text-[11px] text-slate-500">Факт: {rateBasis}</div>
+                        </div>
+                        <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-300">{materialRows.length}</span>
+                      </div>
+
+                      {hasMaterials ? (
+                        <div className="mt-2 max-h-48 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                          <table className="w-full text-left text-xs">
+                            <tbody>
+                              {materialRows.map((item) => (
+                                <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-slate-800 first:border-t-0">
+                                  <td className="py-2 pr-2">
+                                    <div className="font-medium text-slate-100">{item.identity}</div>
+                                    <div className="text-[11px] text-slate-500">{item.categoryLabel} · {item.batchClass}</div>
+                                  </td>
+                                  <td className="py-2 text-right">
+                                    <div className="font-semibold text-slate-100">{item.total}</div>
+                                    <div className="text-[11px] text-slate-500">{item.perHa}</div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-950/60 px-3 py-3 text-xs text-slate-500">
+                          Фактических выдач пока нет.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-100">Операции</div>
+                          <div className="text-[11px] text-slate-500">План и факт по участку</div>
+                        </div>
+                        <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-300">{operationsForAllocation.length}</span>
+                      </div>
+
+                      {operationSummary.length ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {operationSummary.slice(0, 4).map((item) => (
+                            <span key={item.label} className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
+                              {item.label}: {item.count}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {operationsForAllocation.length ? (
+                        <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                          {operationsForAllocation.map((operation) => (
+                            <div key={operation.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
+                                  <div className="mt-0.5 text-[11px] text-slate-500">
+                                    {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
+                                  </div>
+                                </div>
+                                <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
+                              </div>
+                              <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-950/60 px-3 py-3 text-xs text-slate-500">
+                          Операций по этому участку пока нет.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-700 bg-[#111827] p-5 text-sm text-slate-400">Посевные строки ещё не заданы.</div>
         )}
       </div>
     );
@@ -1944,7 +1939,7 @@ export default function CropStructurePage() {
       ) : null}
 
       <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && closeField()}>
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+        <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1180px] [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent">
           <DialogHeader>
             <div className="flex items-center justify-between gap-2">
               <DialogTitle>{selectedField ? `Поле ${selectedField.name} — ${fmtHa(selectedField.area)}` : "Поле"}</DialogTitle>
