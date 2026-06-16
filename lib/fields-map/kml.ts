@@ -1,4 +1,4 @@
-import type { GeoJsonGeometry, GeoJsonLinearRing, GeoJsonPosition, ParsedKmlPolygonInput } from "@/lib/types/fields-map";
+import type { GeoJsonAreaGeometry, GeoJsonLinearRing, GeoJsonPosition, ParsedKmlPolygonInput } from "@/lib/types/fields-map";
 
 type ParseResult = {
   features: ParsedKmlPolygonInput[];
@@ -69,7 +69,7 @@ function polygonAreaHa(rings: GeoJsonLinearRing[]): number {
   return squareMeters / 10000;
 }
 
-function geometryAreaHa(geometry: GeoJsonGeometry): number {
+function geometryAreaHa(geometry: GeoJsonAreaGeometry): number {
   if (geometry.type === "Polygon") {
     return polygonAreaHa(geometry.coordinates);
   }
@@ -123,7 +123,7 @@ export function parseKmlToGeoJson(kmlText: string): ParseResult {
       return;
     }
 
-    const geometry: GeoJsonGeometry =
+    const geometry: GeoJsonAreaGeometry =
       polygons.length === 1
         ? { type: "Polygon", coordinates: polygons[0] }
         : { type: "MultiPolygon", coordinates: polygons };

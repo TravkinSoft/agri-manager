@@ -1,9 +1,12 @@
 import { supabase } from "@/lib/supabase/client";
 import type {
+  FieldEngineeringObject,
+  FieldEngineeringObjectType,
   FieldMapPreviewDiagnostics,
   FieldsMapBootstrapPayload,
   FieldMapImportSummary,
   FieldMapPreviewMatch,
+  GeoJsonGeometry,
   ParsedKmlPolygonInput,
 } from "@/lib/types/fields-map";
 
@@ -148,4 +151,46 @@ export async function downloadFieldMapImportKml(importId: string) {
   const fileNameMatch = disposition.match(/filename="?([^";]+)"?/iu);
   const fileName = fileNameMatch?.[1] || "fields-map-import.kml";
   return { blob, fileName };
+}
+
+export type FieldEngineeringObjectInput = {
+  season_id?: string | null;
+  field_id?: string | null;
+  crop_structure_id?: string | null;
+  object_type: FieldEngineeringObjectType;
+  name: string;
+  description?: string | null;
+  geometry: GeoJsonGeometry;
+  properties?: Record<string, unknown>;
+};
+
+export async function createFieldEngineeringObject(input: FieldEngineeringObjectInput) {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/fields-map/engineering-objects", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(input),
+  });
+  const payload = (await parseJsonOrThrow(response)) as { engineering_object: FieldEngineeringObject };
+  return payload.engineering_object;
+}
+
+export async function updateFieldEngineeringObject(objectId: string, input: FieldEngineeringObjectInput) {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(`/api/fields-map/engineering-objects/${encodeURIComponent(objectId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(input),
+  });
+  const payload = (await parseJsonOrThrow(response)) as { engineering_object: FieldEngineeringObject };
+  return payload.engineering_object;
+}
+
+export async function deleteFieldEngineeringObject(objectId: string) {
+  const headers = await buildAuthHeaders();
+  const response = await fetch(`/api/fields-map/engineering-objects/${encodeURIComponent(objectId)}`, {
+    method: "DELETE",
+    headers,
+  });
+  return parseJsonOrThrow(response);
 }

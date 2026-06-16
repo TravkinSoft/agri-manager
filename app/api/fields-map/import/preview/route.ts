@@ -4,7 +4,7 @@ import { buildFieldAliasIndex, resolveFieldByPolygonName } from "@/lib/fields-ma
 import { fieldsMapErrorResponse, resolveFieldsMapContext } from "@/lib/fields-map/server";
 import type {
   FieldMapPreviewDiagnostics,
-  GeoJsonGeometry,
+  GeoJsonAreaGeometry,
   ParsedKmlPolygonInput,
 } from "@/lib/types/fields-map";
 import { getServiceClient } from "@/lib/supabase/service";
@@ -29,7 +29,7 @@ function isValidRing(ring: unknown): boolean {
   return ring.every((point) => Array.isArray(point) && point.length >= 2 && Number.isFinite(Number(point[0])) && Number.isFinite(Number(point[1])));
 }
 
-function isValidGeometry(geometry: unknown): geometry is GeoJsonGeometry {
+function isValidGeometry(geometry: unknown): geometry is GeoJsonAreaGeometry {
   if (!geometry || typeof geometry !== "object") return false;
   const type = (geometry as any).type;
   const coordinates = (geometry as any).coordinates;
