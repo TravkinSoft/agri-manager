@@ -9,6 +9,7 @@ import {
   Bot,
   Clock3,
   Compass,
+  Download,
   Loader2,
   MessageSquare,
   Mic,
@@ -29,7 +30,13 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import type { AssistantRuntimeUiContext } from "@/lib/assistant/shell";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 import type { AssistantDebugMetadata } from "@/lib/assistant/debug-types";
-import type { AssistantDraftCard, AssistantDraftMaterialLine, AssistantDraftTankLine } from "@/lib/assistant/draft-cards";
+import type {
+  AssistantDraftCard,
+  AssistantGenericDraftCard,
+  AssistantDraftMaterialLine,
+  AssistantDraftTankLine,
+  AssistantOperationDraftCard,
+} from "@/lib/assistant/draft-cards";
 import { resolveRouteEntryByPath } from "@/lib/assistant/route-registry";
 import { buildAssistantChatExport } from "@/lib/assistant/export/chat-export";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
@@ -81,6 +88,23 @@ type AssistantThread = {
   updated_at: string;
 };
 
+function isOperationDraftCard(card: AssistantDraftCard): card is AssistantOperationDraftCard {
+  return card.kind === "operation";
+}
+
+type AssistantMemoryRecord = {
+  id: string;
+  scope: string;
+  category: string;
+  memory_key: string;
+  value: string;
+  confidence: number | null;
+  source: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 type AssistantAccessState = {
   status: "loading" | "ready" | "missing_company" | "denied" | "error";
   role: string | null;
@@ -98,6 +122,18 @@ type AssistantSessionStatePayload = {
   lastField: string | null;
   lastFieldId: string | null;
   lastFieldLabel: string | null;
+  lastOperation: string | null;
+  lastOperationId: string | null;
+  lastOperationLabel: string | null;
+  lastTicket: string | null;
+  lastTicketId: string | null;
+  lastTicketLabel: string | null;
+  lastCropStructureSection: string | null;
+  lastCropStructureSectionId: string | null;
+  lastCropStructureSectionLabel: string | null;
+  lastBatch: string | null;
+  lastBatchId: string | null;
+  lastBatchLabel: string | null;
   lastSeason: string | null;
   lastModule: string | null;
   lastToolSource: string | null;
@@ -159,6 +195,9 @@ type QueryResponsePayload = {
   response?: string;
   sessionState?: Partial<AssistantSessionStatePayload>;
   threadId?: string | null;
+  messageIds?: {
+    assistant?: string | null;
+  };
   navigationActions?: AssistantNavigationActionPayload[];
   actions?: AssistantActionButton[];
   draftCards?: AssistantDraftCard[];
@@ -196,6 +235,18 @@ const EMPTY_STATE: AssistantSessionStatePayload = {
   lastField: null,
   lastFieldId: null,
   lastFieldLabel: null,
+  lastOperation: null,
+  lastOperationId: null,
+  lastOperationLabel: null,
+  lastTicket: null,
+  lastTicketId: null,
+  lastTicketLabel: null,
+  lastCropStructureSection: null,
+  lastCropStructureSectionId: null,
+  lastCropStructureSectionLabel: null,
+  lastBatch: null,
+  lastBatchId: null,
+  lastBatchLabel: null,
   lastSeason: null,
   lastModule: null,
   lastToolSource: null,
@@ -528,6 +579,12 @@ function buildWorkingContextHint(params: {
     sessionState.focusModule ? `focus_module=${sessionState.focusModule}` : null,
     sessionState.lastFieldLabel || sessionState.lastField ? `last_field=${sessionState.lastFieldLabel || sessionState.lastField}` : null,
     sessionState.lastWarehouseLabel || sessionState.lastWarehouse ? `last_warehouse=${sessionState.lastWarehouseLabel || sessionState.lastWarehouse}` : null,
+    sessionState.lastOperationLabel || sessionState.lastOperation ? `last_operation=${sessionState.lastOperationLabel || sessionState.lastOperation}` : null,
+    sessionState.lastTicketLabel || sessionState.lastTicket ? `last_ticket=${sessionState.lastTicketLabel || sessionState.lastTicket}` : null,
+    sessionState.lastCropStructureSectionLabel || sessionState.lastCropStructureSection
+      ? `last_section=${sessionState.lastCropStructureSectionLabel || sessionState.lastCropStructureSection}`
+      : null,
+    sessionState.lastBatchLabel || sessionState.lastBatch ? `last_batch=${sessionState.lastBatchLabel || sessionState.lastBatch}` : null,
     sessionState.lastIntent ? `last_intent=${sessionState.lastIntent}` : null,
   ].filter(Boolean);
   return hints.length ? `Working context for follow-up interpretation: ${hints.join("; ")}.` : null;
@@ -567,7 +624,7 @@ function recalculateDraftLines<T extends AssistantDraftMaterialLine | AssistantD
   });
 }
 
-function patchDraftConfirmBody(card: AssistantDraftCard, patch: Record<string, unknown>): AssistantDraftCard {
+function patchDraftConfirmBody(card: AssistantOperationDraftCard, patch: Record<string, unknown>): AssistantOperationDraftCard {
   return {
     ...card,
     confirm: {
@@ -580,10 +637,212 @@ function patchDraftConfirmBody(card: AssistantDraftCard, patch: Record<string, u
   };
 }
 
+type AssistantDraftEditCommand = {
+  areaHa?: number | null;
+  date?: string | null;
+  comment?: string | null;
+  removeMaterial?: string | null;
+  replaceMaterial?: { from: string; to: string } | null;
+  restore?: boolean;
+  labels: string[];
+};
+
+function normalizeDraftEditText(value: string | null | undefined): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[.,;:()[\]{}"']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseDraftDate(value: string | null | undefined): string | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  const match = text.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
+  if (!match) return null;
+  const day = match[1].padStart(2, "0");
+  const month = match[2].padStart(2, "0");
+  const year = match[3] ? (match[3].length === 2 ? `20${match[3]}` : match[3]) : String(new Date().getFullYear());
+  return `${year}-${month}-${day}`;
+}
+
+function parseDraftEditCommand(text: string): AssistantDraftEditCommand | null {
+  const source = text.trim();
+  const lower = normalizeDraftEditText(source);
+  const labels: string[] = [];
+  const command: AssistantDraftEditCommand = { labels };
+
+  if (/(верни|восстанови|продолжи|вернуть|возобнови).*(черновик|план|карточк)/i.test(source)) {
+    command.restore = true;
+    labels.push("вернул черновик в работу");
+  }
+
+  const areaMatch = source.match(/(?:площадь|площадку|га|на)\s*(?:на|=|:)?\s*(\d+(?:[,.]\d+)?)\s*(?:га|ha)\b/i);
+  if (areaMatch) {
+    const areaHa = Number(areaMatch[1].replace(",", "."));
+    if (Number.isFinite(areaHa) && areaHa > 0) {
+      command.areaHa = areaHa;
+      labels.push(`площадь ${formatDraftNumber(areaHa)} га`);
+    }
+  }
+
+  const dateMatch =
+    source.match(/(?:дат[ау]|перенеси|поставь)\s*(?:на|=|:)?\s*(\d{4}-\d{2}-\d{2}|\d{1,2}[./-]\d{1,2}(?:[./-]\d{2,4})?)/i) ||
+    source.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  const date = parseDraftDate(dateMatch?.[1] || null);
+  if (date) {
+    command.date = date;
+    labels.push(`дата ${date}`);
+  }
+
+  const replaceMatch = source.match(/(?:замени|поменяй)\s+(.+?)\s+(?:на|->)\s+(.+?)(?:\s+в\s+черновике|\s+в\s+карточке|$)/i);
+  if (replaceMatch) {
+    const from = replaceMatch[1].trim();
+    const to = replaceMatch[2].trim();
+    if (from && to) {
+      command.replaceMaterial = { from, to };
+      labels.push(`замена ${from} → ${to}`);
+    }
+  }
+
+  const removeMatch = source.match(/(?:убери|удали|исключи)\s+(.+?)(?:\s+из\s+черновика|\s+из\s+карточки|$)/i);
+  if (removeMatch) {
+    const removeMaterial = removeMatch[1].trim();
+    if (removeMaterial) {
+      command.removeMaterial = removeMaterial;
+      labels.push(`убрал ${removeMaterial}`);
+    }
+  }
+
+  const commentMatch = source.match(/(?:комментарий|коммент|примечание)\s*(?:=|:|-)\s*(.+)$/i);
+  if (commentMatch?.[1]) {
+    command.comment = commentMatch[1].trim();
+    labels.push("обновил комментарий");
+  }
+
+  const looksLikeDraftEdit =
+    labels.length > 0 &&
+    (/(черновик|карточк|план|площадь|убери|удали|исключи|замени|поменяй|коммент|дат[ау])/i.test(source) ||
+      lower.startsWith("убери ") ||
+      lower.startsWith("замени "));
+  return looksLikeDraftEdit ? command : null;
+}
+
+function materialConfirmRowsFromDraft(materials: AssistantDraftMaterialLine[]): Array<Record<string, unknown>> {
+  return materials.map((item) => ({
+    product: item.name,
+    product_name: item.name,
+    rate_per_ha: item.ratePerHa,
+    unit: item.unit,
+  }));
+}
+
+function rebuildTankTotalsFromMaterials(
+  materials: AssistantDraftMaterialLine[],
+  currentTankTotals: AssistantDraftTankLine[],
+  areaHa: number | null,
+  sprayVolumeLHa: number | null
+): AssistantDraftTankLine[] {
+  const materialRows = materials
+    .filter((item) => item.requiredQty != null)
+    .map((item) => ({
+      id: `tank_${item.id}`,
+      name: item.name,
+      quantity: item.requiredQty,
+      unit: item.unit,
+    }));
+  const water = currentTankTotals.find((row) => row.id === "tank_water");
+  if (!water && (areaHa == null || sprayVolumeLHa == null)) return materialRows;
+  return [
+    ...materialRows,
+    {
+      id: "tank_water",
+      name: "Вода",
+      quantity: areaHa != null && sprayVolumeLHa != null ? Number((areaHa * sprayVolumeLHa).toFixed(2)) : water?.quantity ?? null,
+      unit: water?.unit || "л",
+    },
+  ];
+}
+
+function applyDraftEditCommandToCard(
+  card: AssistantOperationDraftCard,
+  command: AssistantDraftEditCommand
+): { card: AssistantOperationDraftCard; labels: string[]; warnings: string[] } {
+  const labels = [...command.labels];
+  const warnings: string[] = [];
+  const nextArea = command.areaHa !== undefined ? command.areaHa : card.areaHa;
+  const nextDate = command.date !== undefined ? command.date : card.date;
+  const nextComment = command.comment !== undefined ? command.comment : card.comment;
+  let nextMaterials = recalculateDraftLines(card.materials, nextArea);
+
+  if (command.removeMaterial) {
+    const target = normalizeDraftEditText(command.removeMaterial);
+    const before = nextMaterials.length;
+    nextMaterials = nextMaterials.filter((item) => !normalizeDraftEditText(item.name).includes(target));
+    if (nextMaterials.length === before) warnings.push(`Не нашёл материал “${command.removeMaterial}” в черновике.`);
+  }
+
+  if (command.replaceMaterial) {
+    const target = normalizeDraftEditText(command.replaceMaterial.from);
+    let replaced = false;
+    nextMaterials = nextMaterials.map((item) => {
+      if (!normalizeDraftEditText(item.name).includes(target)) return item;
+      replaced = true;
+      return {
+        ...item,
+        name: command.replaceMaterial?.to || item.name,
+      };
+    });
+    if (!replaced) warnings.push(`Не нашёл материал “${command.replaceMaterial.from}” для замены.`);
+  }
+
+  const nextTankTotals = rebuildTankTotalsFromMaterials(nextMaterials, card.tankTotals, nextArea, card.sprayVolumeLHa);
+  const updated = patchDraftConfirmBody(
+    {
+      ...card,
+      status: "draft",
+      collapsed: false,
+      areaHa: nextArea,
+      date: nextDate,
+      comment: nextComment,
+      materials: nextMaterials,
+      tankTotals: nextTankTotals,
+      error: warnings.length ? warnings.join(" ") : null,
+    },
+    {
+      planned_area_ha: nextArea,
+      date: nextDate,
+      notes: nextComment,
+      materials: materialConfirmRowsFromDraft(nextMaterials),
+    }
+  );
+
+  return { card: updated, labels, warnings };
+}
+
 function formatThreadDate(value: string): string {
   const dt = new Date(value);
   if (Number.isNaN(dt.getTime())) return value;
   return dt.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
+function memoryCategoryLabel(category: string): string {
+  switch (category) {
+    case "communication_preference":
+      return "Стиль общения";
+    case "workflow_preference":
+      return "Рабочая привычка";
+    case "user_identity":
+      return "Пользователь";
+    case "assistant_goal":
+      return "Цель ассиста";
+    case "explicit_note":
+      return "Заметка";
+    default:
+      return category || "Память";
+  }
 }
 
 function rolePermissionsLabel(role: string | null): string {
@@ -596,9 +855,66 @@ function isProductionAssistantMessage(message: Pick<AssistantChatMessage, "conte
   return !hasQaDataMarker(`${message.content || ""} ${JSON.stringify(message.actions || [])} ${JSON.stringify(message.meta || {})}`);
 }
 
+const INTERNAL_ASSISTANT_LINE_PATTERNS = [
+  /PLAN\/FACT control/i,
+  /Source of Truth contract/i,
+  /Source of Truth mismatch/i,
+  /Working Memory rule/i,
+  /Router fallback/i,
+  /crop_structure is PLAN/i,
+  /Do not merge them without labels/i,
+  /Do not choose one conflicting figure silently/i,
+  /Detected area mismatch/i,
+];
+
+function stripInternalAssistantLines(content: string): string {
+  return String(content || "")
+    .split(/\r?\n/)
+    .filter((line) => !INTERNAL_ASSISTANT_LINE_PATTERNS.some((pattern) => pattern.test(line)))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function sanitizeAssistantAnswer(content: string): string {
-  if (!hasQaDataMarker(content)) return content;
+  const cleaned = stripInternalAssistantLines(content);
+  if (!hasQaDataMarker(cleaned)) return cleaned || "Данных недостаточно, чтобы подтвердить ответ.";
   return "Ответ скрыт: в истории или источнике обнаружены тестовые QA-данные. Повторите запрос, и я проверю только производственные данные.";
+}
+
+const FIELD_LABEL_PATTERN = "[0-9]{1,3}(?:-[0-9]{1,3}){0,2}";
+const LARGEST_FIELD_ANSWER_PATTERN = new RegExp(
+  `самое\\s+большое\\s+поле[\\s\\S]{0,40}?(?:№\\s*)?(?:поле\\s*)?(${FIELD_LABEL_PATTERN})`,
+  "iu"
+);
+const FIELD_AREA_ANSWER_PATTERN = new RegExp(
+  `(?:^|\\n)\\s*(?:№\\s*)?(?:поле\\s*)?(${FIELD_LABEL_PATTERN})\\s*[:—-]\\s*[0-9][0-9\\s.,]*\\s*(?:га|ha)\\b`,
+  "iu"
+);
+
+function inferFieldFocusFromAssistantText(content: string): string | null {
+  const text = stripInternalAssistantLines(content);
+  const match = text.match(LARGEST_FIELD_ANSWER_PATTERN) || text.match(FIELD_AREA_ANSWER_PATTERN);
+  return match?.[1] || null;
+}
+
+function applyInferredFieldFocus(
+  state: AssistantSessionStatePayload,
+  fieldLabel: string | null
+): AssistantSessionStatePayload {
+  if (!fieldLabel) return state;
+  const sameField = state.lastField === fieldLabel || state.lastFieldLabel === fieldLabel;
+  return {
+    ...state,
+    lastField: fieldLabel,
+    lastFieldId: sameField ? state.lastFieldId : null,
+    lastFieldLabel: fieldLabel,
+    focusEntityType: "field",
+    focusEntityId: sameField ? state.focusEntityId : null,
+    focusEntityLabel: fieldLabel,
+    focusSource: "assistant_answer",
+    focusUpdatedAt: new Date().toISOString(),
+  };
 }
 
 export function AssistantChatPane({
@@ -643,7 +959,13 @@ export function AssistantChatPane({
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [expandedDraftRecommendations, setExpandedDraftRecommendations] = useState<Record<string, boolean>>({});
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const [memoryRecords, setMemoryRecords] = useState<AssistantMemoryRecord[]>([]);
+  const [memoryLoading, setMemoryLoading] = useState(false);
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
+  const [memoryBusyId, setMemoryBusyId] = useState<string | null>(null);
+  const [memoryWarning, setMemoryWarning] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const wasOpenRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -669,13 +991,33 @@ export function AssistantChatPane({
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const container = scrollContainerRef.current;
     if (container) {
-      container.scrollTo({ top: container.scrollHeight, behavior });
+      const applyScroll = () => {
+        if (behavior === "auto") {
+          container.scrollTop = container.scrollHeight;
+          return;
+        }
+        container.scrollTo({ top: container.scrollHeight, behavior });
+      };
+      applyScroll();
+      if (behavior === "auto") {
+        window.requestAnimationFrame(applyScroll);
+        window.setTimeout(applyScroll, 40);
+        window.setTimeout(applyScroll, 140);
+      }
       setShowJumpToBottom(false);
       return;
     }
     bottomRef.current?.scrollIntoView({ behavior, block: "end" });
     setShowJumpToBottom(false);
   }, []);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container || activeTab !== "chat") return;
+    container.addEventListener("scroll", updateJumpToBottomVisibility, { passive: true });
+    updateJumpToBottomVisibility();
+    return () => container.removeEventListener("scroll", updateJumpToBottomVisibility);
+  }, [activeTab, updateJumpToBottomVisibility]);
 
   const disabledReason = useMemo(() => resolveDisabledReason(access), [access]);
   const resolvedCompanyId = useMemo(
@@ -960,8 +1302,16 @@ export function AssistantChatPane({
   }, [loading]);
 
   useLayoutEffect(() => {
+    const openedNow = isOpen && !wasOpenRef.current;
+    wasOpenRef.current = isOpen;
+
     if (!isOpen || activeTab !== "chat") {
       setShowJumpToBottom(false);
+      return;
+    }
+
+    if (openedNow) {
+      scrollToBottom("auto");
       return;
     }
 
@@ -1135,24 +1485,102 @@ export function AssistantChatPane({
     setMessages((prev) => [...prev, actionReceiptToMessage(receipt)]);
   }, []);
 
+  const persistDraftCardsForMessage = useCallback(
+    async (messageId: string, draftCards: AssistantDraftCard[]) => {
+      if (!activeThreadId || !resolvedCompanyId || !messageId || !draftCards.length) return;
+      try {
+        const headers = await getAuthHeaders();
+        await fetch(`/api/assistant/threads/${encodeURIComponent(activeThreadId)}/messages`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            companyId: resolvedCompanyId,
+            messageId,
+            metadata: {
+              draft_cards: draftCards,
+            },
+          }),
+        });
+      } catch (error) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn("Failed to persist assistant draft card state", error);
+        }
+      }
+    },
+    [activeThreadId, resolvedCompanyId]
+  );
+
   const updateDraftCard = useCallback(
     (messageId: string, draftId: string, updater: (card: AssistantDraftCard) => AssistantDraftCard) => {
       setMessages((prev) =>
         prev.map((message) => {
           if (message.id !== messageId || !message.draftCards?.length) return message;
+          const draftCards = message.draftCards.map((card) => (card.id === draftId ? updater(card) : card));
+          window.setTimeout(() => {
+            void persistDraftCardsForMessage(messageId, draftCards);
+          }, 0);
           return {
             ...message,
-            draftCards: message.draftCards.map((card) => (card.id === draftId ? updater(card) : card)),
+            draftCards,
           };
         })
       );
     },
-    []
+    [persistDraftCardsForMessage]
   );
+
+  const appendThreadMessage = useCallback(
+    async (
+      threadId: string | null,
+      role: AssistantChatMessage["role"],
+      content: string,
+      metadata?: Record<string, unknown> | null
+    ) => {
+      if (!threadId || !resolvedCompanyId || !content.trim()) return;
+      try {
+        const headers = await getAuthHeaders();
+        await fetch(`/api/assistant/threads/${encodeURIComponent(threadId)}/messages`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            companyId: resolvedCompanyId,
+            role,
+            content,
+            metadata: metadata || null,
+          }),
+        });
+      } catch (error) {
+        if (process.env.NODE_ENV === "development") {
+          console.warn("Failed to persist local assistant message", error);
+        }
+      }
+    },
+    [resolvedCompanyId]
+  );
+
+  const findLatestDraftCard = useCallback((): { messageId: string; card: AssistantDraftCard } | null => {
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const message = messages[messageIndex];
+      const cards = message.draftCards || [];
+      for (let cardIndex = cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
+        const card = cards[cardIndex];
+        if (card.status === "confirmed" || card.status === "expired") continue;
+        return { messageId: message.id, card };
+      }
+    }
+    return null;
+  }, [messages]);
 
   const setDraftCollapsed = useCallback(
     (messageId: string, draftId: string, collapsed: boolean) => {
       updateDraftCard(messageId, draftId, (card) => ({ ...card, collapsed }));
+    },
+    [updateDraftCard]
+  );
+
+  const restoreDraftCard = useCallback(
+    (messageId: string, draftId: string) => {
+      updateDraftCard(messageId, draftId, (card) => ({ ...card, status: "draft", collapsed: false, error: null }));
     },
     [updateDraftCard]
   );
@@ -1167,7 +1595,11 @@ export function AssistantChatPane({
   const startDraftChange = useCallback(
     (card: AssistantDraftCard) => {
       setEditingDraftId(card.id);
-      setInput(`Измени черновик операции: ${card.operationType || "операция"}. `);
+      setInput(
+        isOperationDraftCard(card)
+          ? `Измени черновик операции: ${card.operationType || "операция"}. `
+          : `Измени черновик: ${card.title}. `
+      );
       setActiveTab("chat");
       focusInput();
     },
@@ -1177,6 +1609,7 @@ export function AssistantChatPane({
   const applyDraftQuickEdit = useCallback(
     (messageId: string, draftId: string, patch: { areaHa?: number | null; date?: string | null; comment?: string | null }) => {
       updateDraftCard(messageId, draftId, (card) => {
+        if (!isOperationDraftCard(card)) return card;
         const nextArea = patch.areaHa !== undefined ? patch.areaHa : card.areaHa;
         const nextDate = patch.date !== undefined ? patch.date : card.date;
         const nextComment = patch.comment !== undefined ? patch.comment : card.comment;
@@ -1209,8 +1642,20 @@ export function AssistantChatPane({
   );
 
   const confirmDraftCard = useCallback(
-    async (messageId: string, card: AssistantDraftCard) => {
+    async (messageId: string, card: AssistantOperationDraftCard) => {
       if (confirmingDraftId || card.status === "confirmed") return;
+      if (card.status === "cancelled") {
+        const error = "Черновик отменён. Сначала верните его в работу.";
+        updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error, collapsed: false }));
+        setRequestError(error);
+        return;
+      }
+      if (card.status === "expired") {
+        const error = "Срок действия черновика истёк. Создайте новый черновик.";
+        updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error, collapsed: false }));
+        setRequestError(error);
+        return;
+      }
       if (card.confirm.missingFields.length > 0) {
         const error = `Нельзя создать операцию: уточните ${card.confirm.missingFields.join(", ")}.`;
         updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error }));
@@ -1359,6 +1804,45 @@ export function AssistantChatPane({
     if (!text || loading || disabledReason) return;
 
     setRequestError(null);
+    const draftEditCommand = parseDraftEditCommand(text);
+    const draftTarget = draftEditCommand ? findLatestDraftCard() : null;
+    if (draftEditCommand && draftTarget && isOperationDraftCard(draftTarget.card)) {
+      const edited = applyDraftEditCommandToCard(draftTarget.card, draftEditCommand);
+      const userMessage: AssistantChatMessage = {
+        id: uid(),
+        role: "user",
+        content: text,
+        createdAt: new Date().toISOString(),
+      };
+      const statusText = edited.warnings.length
+        ? `Обновил черновик частично: ${edited.labels.join("; ")}.\n\n${edited.warnings.join("\n")}`
+        : `Обновил черновик: ${edited.labels.join("; ")}.\nПроверь карточку и нажми “Подтвердить”, когда всё верно.`;
+      const assistantMessage: AssistantChatMessage = {
+        id: uid(),
+        role: "assistant",
+        content: statusText,
+        createdAt: new Date().toISOString(),
+        meta: {
+          mode: "mixed",
+          intent: "edit_draft",
+          sourceHints: ["Черновик изменён локально, без записи в БД."],
+          toolActivity: [],
+        },
+      };
+      updateDraftCard(draftTarget.messageId, draftTarget.card.id, () => edited.card);
+      setMessages((prev) => [...prev, userMessage, assistantMessage]);
+      setInput("");
+      setActiveTab("chat");
+      focusInput();
+      void appendThreadMessage(activeThreadId, "user", userMessage.content);
+      void appendThreadMessage(activeThreadId, "assistant", assistantMessage.content, {
+        mode: "mixed",
+        intent: "edit_draft",
+        source_hints: ["Черновик изменён локально, без записи в БД."],
+      });
+      return;
+    }
+
     setLoading(true);
     const optimisticMessage: AssistantChatMessage = {
       id: uid(),
@@ -1519,7 +2003,7 @@ export function AssistantChatPane({
             : answer;
       const finalAnswer = sanitizeAssistantAnswer(rawFinalAnswer);
       const assistantMessage: AssistantChatMessage = {
-        id: uid(),
+        id: payload.messageIds?.assistant || uid(),
         role: "assistant",
         content: finalAnswer,
         createdAt: new Date().toISOString(),
@@ -1567,8 +2051,17 @@ export function AssistantChatPane({
         setDebugSnapshot(null);
       }
 
-      if (payload.sessionState && typeof payload.sessionState === "object") {
-        setSessionState((prev) => ({ ...prev, ...payload.sessionState }));
+      const inferredFieldFocus = inferFieldFocusFromAssistantText(finalAnswer);
+      if ((payload.sessionState && typeof payload.sessionState === "object") || inferredFieldFocus) {
+        setSessionState((prev) =>
+          applyInferredFieldFocus(
+            {
+              ...prev,
+              ...(payload.sessionState && typeof payload.sessionState === "object" ? payload.sessionState : {}),
+            },
+            inferredFieldFocus
+          )
+        );
       }
 
       if (payload.threadId && payload.threadId !== activeThreadId) {
@@ -1651,6 +2144,80 @@ export function AssistantChatPane({
     runtimeContext.season,
   ]);
 
+  const loadPersonalMemory = useCallback(async () => {
+    if (!resolvedCompanyId || disabledReason) return;
+    setMemoryLoading(true);
+    setMemoryWarning(null);
+    try {
+      const headers = await getAuthHeaders();
+      const response = await fetch(`/api/assistant/memory?companyId=${encodeURIComponent(resolvedCompanyId)}&limit=80`, {
+        method: "GET",
+        headers,
+        cache: "no-store",
+      });
+      const payload = (await response.json().catch(() => ({}))) as {
+        memories?: AssistantMemoryRecord[];
+        warning?: string | null;
+        error?: string;
+        code?: string;
+      };
+      if (!response.ok) throw new Error(mapAssistantError(payload.code || null, payload.error || null));
+      setMemoryRecords(Array.isArray(payload.memories) ? payload.memories.filter((item) => item.active !== false) : []);
+      setMemoryWarning(payload.warning || null);
+      setMemoryLoaded(true);
+    } catch (error) {
+      setMemoryWarning(error instanceof Error ? error.message : "Не удалось загрузить память ассиста.");
+    } finally {
+      setMemoryLoading(false);
+    }
+  }, [disabledReason, resolvedCompanyId]);
+
+  const forgetPersonalMemory = useCallback(
+    async (memoryId: string | null, all = false) => {
+      if (!resolvedCompanyId || disabledReason || memoryBusyId) return;
+      if (all && memoryRecords.length > 0 && !window.confirm("Очистить всю личную память ассиста для текущего пользователя?")) {
+        return;
+      }
+      setMemoryBusyId(all ? "__all__" : memoryId || "__unknown__");
+      setMemoryWarning(null);
+      try {
+        const headers = await getAuthHeaders();
+        const response = await fetch("/api/assistant/memory", {
+          method: "DELETE",
+          headers,
+          body: JSON.stringify({
+            companyId: resolvedCompanyId,
+            memoryId,
+            all,
+          }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          deactivated?: number;
+          warning?: string | null;
+          error?: string;
+          code?: string;
+        };
+        if (!response.ok) throw new Error(mapAssistantError(payload.code || null, payload.error || null));
+        if (all) {
+          setMemoryRecords([]);
+        } else if (memoryId) {
+          setMemoryRecords((prev) => prev.filter((item) => item.id !== memoryId));
+        }
+        setMemoryWarning(payload.warning || null);
+      } catch (error) {
+        setMemoryWarning(error instanceof Error ? error.message : "Не удалось обновить память ассиста.");
+      } finally {
+        setMemoryBusyId(null);
+      }
+    },
+    [disabledReason, memoryBusyId, memoryRecords.length, resolvedCompanyId]
+  );
+
+  useEffect(() => {
+    if (activeTab !== "settings" || memoryLoaded || memoryLoading) return;
+    void loadPersonalMemory();
+  }, [activeTab, loadPersonalMemory, memoryLoaded, memoryLoading]);
+
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("travkin:assistant-export-state", {
@@ -1665,7 +2232,198 @@ export function AssistantChatPane({
     return () => window.removeEventListener("travkin:assistant-export-trigger", handler);
   }, [onExportChat]);
 
+  const openGenericDraftModule = useCallback(
+    async (card: AssistantGenericDraftCard) => {
+      const targetRoute = card.route || "/dashboard";
+      const initialHref = window.location.href;
+      try {
+        assertRouteAllowedForRole(access.role, targetRoute);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Не удалось выполнить переход.";
+        setRequestError(message);
+        recordActionReceipt({
+          id: uid(),
+          actionId: card.id,
+          actionType: `open_${card.kind}_draft_module`,
+          status: "blocked",
+          targetRoute,
+          message: `Не удалось открыть модуль: ${message}`,
+          error: message,
+          executedAt: new Date().toISOString(),
+          clientVerified: false,
+        });
+        return;
+      }
+
+      router.push(targetRoute);
+      setActiveTab("chat");
+      focusInput();
+      const confirmed = await confirmExecution({
+        action: {
+          type: "open_page",
+          page: targetRoute.replace(/^\//, "") || "dashboard",
+          route: targetRoute,
+        },
+        targetRoute,
+        initialHref,
+      });
+
+      if (confirmed.executed) {
+        recordActionReceipt({
+          id: uid(),
+          actionId: card.id,
+          actionType: `open_${card.kind}_draft_module`,
+          status: "executed",
+          targetRoute,
+          message: `${card.actionLabel}: выполнено.`,
+          error: null,
+          executedAt: new Date().toISOString(),
+          clientVerified: true,
+        });
+        return;
+      }
+
+      const error = confirmed.error || "URL не изменился.";
+      setRequestError(`Не удалось открыть модуль: ${error}`);
+      recordActionReceipt({
+        id: uid(),
+        actionId: card.id,
+        actionType: `open_${card.kind}_draft_module`,
+        status: "failed",
+        targetRoute,
+        message: `Не удалось открыть модуль: ${error}`,
+        error,
+        executedAt: new Date().toISOString(),
+        clientVerified: false,
+      });
+    },
+    [access.role, focusInput, recordActionReceipt, router]
+  );
+
+  const renderGenericDraftCard = (messageId: string, card: AssistantGenericDraftCard) => {
+    const statusLabel =
+      card.status === "confirmed"
+        ? "Подтверждён"
+        : card.status === "cancelled"
+          ? "Отменён"
+          : card.status === "expired"
+            ? "Истёк"
+            : "Черновик";
+
+    if (card.collapsed) {
+      return (
+        <button
+          key={card.id}
+          type="button"
+          onClick={() => setDraftCollapsed(messageId, card.id, false)}
+          className="flex w-full items-center justify-between rounded-lg border border-[#334058] bg-[#111827] px-3 py-2 text-left text-xs text-[#CBD5E1] transition hover:border-[#E0B100]/70"
+        >
+          <span>
+            {card.title} {card.status === "cancelled" ? "(отменён)" : ""}
+          </span>
+          <span className="text-[#E0B100]">Открыть</span>
+        </button>
+      );
+    }
+
+    return (
+      <div key={card.id} className="overflow-hidden rounded-xl border border-[#334058] bg-[#111827] shadow-[0_12px_28px_rgba(0,0,0,0.22)]">
+        <div className="flex items-start justify-between gap-3 border-b border-[#263247] bg-[#151E2D] px-3 py-2.5">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[#E0B100]">{card.title}</div>
+            <div className="mt-0.5 line-clamp-2 text-sm font-semibold text-[#F8FAFC]">{card.summary}</div>
+          </div>
+          <span
+            className={`shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${
+              card.status === "cancelled"
+                ? "border-slate-500/50 bg-slate-600/20 text-slate-200"
+                : "border-[#E0B100]/50 bg-[#E0B100]/10 text-[#FDE68A]"
+            }`}
+          >
+            {statusLabel}
+          </span>
+        </div>
+
+        <div className="space-y-2 px-3 py-2.5 text-xs text-[#CBD5E1]">
+          {card.items.length ? (
+            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] p-2">
+              <div className="space-y-1">
+                {card.items.slice(0, 8).map((item) => (
+                  <div key={item.id} className="grid grid-cols-[94px_1fr] gap-2">
+                    <span className="truncate text-[#94A3B8]">{item.label}</span>
+                    <span className="line-clamp-2 text-[#E5E7EB]">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-[#2A3448] bg-[#0F141E] px-2 py-1.5 text-[#94A3B8]">
+              Данных пока мало. Можно уточнить детали в чате.
+            </div>
+          )}
+
+          {card.missingFields.length ? (
+            <div className="rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] text-amber-100">
+              Нужно уточнить: {card.missingFields.join(", ")}.
+            </div>
+          ) : null}
+
+          {card.note ? (
+            <div className="text-[11px] text-[#94A3B8]">{card.note}</div>
+          ) : null}
+
+          {card.error ? (
+            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-100">
+              {card.error}
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {card.status === "cancelled" ? (
+              <button
+                type="button"
+                onClick={() => restoreDraftCard(messageId, card.id)}
+                className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00]"
+              >
+                Вернуть в работу
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void openGenericDraftModule(card)}
+                  disabled={card.status !== "draft"}
+                  className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {card.actionLabel}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startDraftChange(card)}
+                  disabled={card.status !== "draft"}
+                  className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-[#E0B100]/70 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Изменить
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cancelDraftCard(messageId, card.id)}
+                  disabled={card.status !== "draft"}
+                  className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-red-400/60 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Отменить
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderDraftCard = (messageId: string, card: AssistantDraftCard) => {
+    if (!isOperationDraftCard(card)) return renderGenericDraftCard(messageId, card);
+
     const isConfirming = confirmingDraftId === card.id;
     const isEditing = editingDraftId === card.id;
     const recommendationsOpen = !!expandedDraftRecommendations[card.id];
@@ -1906,30 +2664,42 @@ export function AssistantChatPane({
           ) : null}
 
           <div className="flex flex-wrap gap-1.5 pt-0.5">
-            <button
-              type="button"
-              onClick={() => void confirmDraftCard(messageId, card)}
-              disabled={isConfirming || card.status === "confirmed" || card.status === "expired"}
-              className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isConfirming ? "Создаю..." : card.status === "confirmed" ? "Создано" : "Подтвердить"}
-            </button>
-            <button
-              type="button"
-              onClick={() => startDraftChange(card)}
-              disabled={card.status === "confirmed"}
-              className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-[#E0B100]/70 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Изменить
-            </button>
-            <button
-              type="button"
-              onClick={() => cancelDraftCard(messageId, card.id)}
-              disabled={card.status === "confirmed"}
-              className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-red-400/60 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Отменить
-            </button>
+            {card.status === "cancelled" ? (
+              <button
+                type="button"
+                onClick={() => restoreDraftCard(messageId, card.id)}
+                className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00]"
+              >
+                Вернуть в работу
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void confirmDraftCard(messageId, card)}
+                  disabled={isConfirming || card.status !== "draft"}
+                  className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isConfirming ? "Создаю..." : card.status === "confirmed" ? "Создано" : "Подтвердить"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startDraftChange(card)}
+                  disabled={card.status !== "draft"}
+                  className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-[#E0B100]/70 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Изменить
+                </button>
+                <button
+                  type="button"
+                  onClick={() => cancelDraftCard(messageId, card.id)}
+                  disabled={card.status !== "draft"}
+                  className="rounded-lg border border-[#334058] bg-[#141B29] px-3 py-1.5 text-xs text-[#E5E7EB] transition hover:border-red-400/60 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Отменить
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -1937,7 +2707,7 @@ export function AssistantChatPane({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col rounded-xl border border-[#262D3D] bg-[#0F141E] text-[#E5E7EB]">
+    <div className="flex h-full min-h-0 flex-col bg-[#0D121B] text-[#E5E7EB]">
       {disabledReason ? (
         <div className="mx-3 mt-3 rounded-md border border-amber-400/50 bg-amber-200/10 px-3 py-2 text-xs text-amber-100">
           {disabledReason}
@@ -1956,25 +2726,25 @@ export function AssistantChatPane({
         onValueChange={(value) => setActiveTab(value as "chat" | "history" | "settings")}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="border-b border-[#262D3D] bg-[#0F141E] px-3 py-2">
-          <TabsList className="grid h-9 w-full grid-cols-3 rounded-xl border border-[#2A3448] bg-[#0B111B] p-1">
+        <div className="border-b border-[#1F2937] bg-[#0D121B] px-1 pb-2">
+          <TabsList className="inline-flex h-8 w-auto rounded-xl border border-[#253044] bg-[#0A0F18] p-0.5">
             <TabsTrigger
               value="chat"
-              className="rounded-lg text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
+              className="h-7 rounded-lg px-3 text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
             >
               <MessageSquare className="mr-1.5 h-3.5 w-3.5" />
               Chat
             </TabsTrigger>
             <TabsTrigger
               value="history"
-              className="rounded-lg text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
+              className="h-7 rounded-lg px-3 text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
             >
               <Clock3 className="mr-1.5 h-3.5 w-3.5" />
               History
             </TabsTrigger>
             <TabsTrigger
               value="settings"
-              className="rounded-lg text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
+              className="h-7 rounded-lg px-3 text-xs text-[#CBD5E1] data-[state=active]:bg-[#1B2435] data-[state=active]:text-[#F8FAFC]"
             >
               <Settings2 className="mr-1.5 h-3.5 w-3.5" />
               Settings
@@ -2038,7 +2808,9 @@ export function AssistantChatPane({
                     <span>Обновляю историю...</span>
                   </div>
                 ) : null}
-                {messages.filter(isProductionAssistantMessage).map((message) => (
+                {messages.filter(isProductionAssistantMessage).map((message) => {
+                  const visibleContent = message.role === "assistant" ? sanitizeAssistantAnswer(message.content) : message.content;
+                  return (
                   <div
                     key={message.id}
                     className={`flex items-start gap-2.5 ${message.role === "user" ? "justify-end" : "justify-start"}`}
@@ -2057,7 +2829,7 @@ export function AssistantChatPane({
                           : "px-0 py-0 text-[#E5E7EB]"
                       }`}
                     >
-                      {message.content}
+                      {visibleContent}
                     </div>
 
                     {message.role !== "user" && message.draftCards?.length ? (
@@ -2104,7 +2876,8 @@ export function AssistantChatPane({
                     </div>
                   ) : null}
                 </div>
-                ))}
+                  );
+                })}
               </>
             )}
 
@@ -2122,16 +2895,17 @@ export function AssistantChatPane({
           {showJumpToBottom ? (
             <button
               type="button"
+              data-testid="assistant-jump-to-bottom"
               aria-label="Перейти к последнему сообщению"
               title="Перейти к последнему сообщению"
-              onClick={() => scrollToBottom()}
-              className="absolute bottom-[92px] left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-[#334058] bg-[#0B111B]/95 text-[#E0B100] shadow-[0_10px_28px_rgba(0,0,0,0.38)] backdrop-blur transition hover:border-[#E0B100]/70 hover:bg-[#151C28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E0B100]/70"
+              onClick={() => scrollToBottom("smooth")}
+              className="absolute bottom-[92px] left-1/2 z-20 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-[#334058] bg-[#0B111B]/95 text-[#E0B100] shadow-[0_10px_28px_rgba(0,0,0,0.38)] backdrop-blur transition hover:-translate-y-0.5 hover:border-[#E0B100]/70 hover:bg-[#151C28] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E0B100]/70"
             >
               <ArrowDown className="h-4 w-4" />
             </button>
           ) : null}
 
-          <div className="border-t border-[#262D3D] bg-[#0F141E] px-3 py-3">
+          <div className="border-t border-[#1F2937] bg-[#0D121B] px-1 pt-3">
             {voiceState === "recording" ? (
               <div
                 data-testid="assistant-voice-status"
@@ -2158,7 +2932,7 @@ export function AssistantChatPane({
             {voiceError ? <div className="mb-2 text-xs text-red-200">{voiceError}</div> : null}
 
             <form
-              className="flex items-end gap-2 rounded-2xl border border-[#2A3448] bg-[#0B111B] p-2 shadow-[0_12px_28px_rgba(0,0,0,0.18)] focus-within:border-[#E0B100]/60"
+              className="flex items-end gap-2 rounded-2xl border border-[#2A3448] bg-[#0A0F18] p-2 shadow-[0_12px_28px_rgba(0,0,0,0.18)] transition focus-within:border-[#E0B100]/60"
               onSubmit={(event) => {
                 event.preventDefault();
                 void sendMessage();
@@ -2302,7 +3076,96 @@ export function AssistantChatPane({
               <div className="text-xs text-[#E5E7EB]">{rolePermissionsLabel(access.role)}</div>
             </div>
 
+            <div className="rounded-md border border-[#2A3448] bg-[#141B29] px-3 py-2 text-sm">
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-xs font-semibold text-[#F8FAFC]">Личная память</div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-[#94A3B8]">
+                    Только для этого пользователя. Стиль и привычки не применяются к другим ролям и не считаются ERP-фактами.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  onClick={() => void loadPersonalMemory()}
+                  disabled={memoryLoading || !!disabledReason}
+                  className="h-8 w-8 shrink-0 border-[#334058] bg-[#0F141E] text-[#CBD5E1] hover:bg-[#202738]"
+                  aria-label="Обновить память"
+                  title="Обновить память"
+                >
+                  {memoryLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
+
+              {memoryWarning ? (
+                <div className="mb-2 rounded-md border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-[11px] text-amber-100">
+                  {memoryWarning}
+                </div>
+              ) : null}
+
+              {memoryLoading && memoryRecords.length === 0 ? (
+                <div className="flex items-center gap-2 py-2 text-xs text-[#94A3B8]">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-[#E0B100]" />
+                  Загружаю память...
+                </div>
+              ) : memoryRecords.length === 0 ? (
+                <div className="rounded-md border border-dashed border-[#334058] px-2.5 py-3 text-xs text-[#94A3B8]">
+                  Пока нет сохранённых личных предпочтений. Ассист запоминает только явные фразы вроде “запомни...” или “пиши мне коротко”.
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {memoryRecords.slice(0, 8).map((memory) => (
+                    <div key={memory.id} className="rounded-md border border-[#253044] bg-[#0F141E] px-2.5 py-2">
+                      <div className="mb-1 flex items-center justify-between gap-2">
+                        <span className="rounded-full border border-[#334058] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[#CBD5E1]">
+                          {memoryCategoryLabel(memory.category)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void forgetPersonalMemory(memory.id)}
+                          disabled={memoryBusyId === memory.id || memoryBusyId === "__all__"}
+                          className="rounded-md p-1 text-[#94A3B8] transition hover:bg-[#1B2435] hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          aria-label="Удалить запись памяти"
+                          title="Удалить запись памяти"
+                        >
+                          {memoryBusyId === memory.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                      <div className="line-clamp-3 text-xs leading-relaxed text-[#E5E7EB]">{memory.value}</div>
+                      <div className="mt-1 text-[10px] text-[#64748B]">обновлено: {formatThreadDate(memory.updated_at)}</div>
+                    </div>
+                  ))}
+                  {memoryRecords.length > 8 ? (
+                    <div className="text-[11px] text-[#94A3B8]">+ ещё {memoryRecords.length - 8} записей</div>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void forgetPersonalMemory(null, true)}
+                    disabled={memoryBusyId !== null || memoryRecords.length === 0}
+                    className="mt-1 w-full justify-start border-[#334058] bg-[#0F141E] text-[#E5E7EB] hover:bg-[#202738] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {memoryBusyId === "__all__" ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Trash2 className="mr-2 h-3.5 w-3.5" />}
+                    Очистить личную память
+                  </Button>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onExportChat}
+                disabled={!canExportChat}
+                className="justify-start border-[#334058] bg-[#141B29] text-[#E5E7EB] hover:bg-[#202738] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Экспортировать чат
+              </Button>
+
               {debugMonitorEnabled ? (
                 <Button
                   type="button"

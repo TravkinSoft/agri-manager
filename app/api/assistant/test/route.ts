@@ -92,6 +92,28 @@ function buildDisabledNavigationAnswer(): string {
   return "Навигация отключена в тестовом режиме. Команда распознана, но переходы по страницам и действия в системе здесь не выполняются.";
 }
 
+const INTERNAL_ANSWER_LINE_PATTERNS = [
+  /PLAN\/FACT control/i,
+  /Source of Truth contract/i,
+  /Source of Truth mismatch/i,
+  /Working Memory rule/i,
+  /Router fallback/i,
+  /crop_structure is PLAN/i,
+  /Do not merge them without labels/i,
+  /Do not choose one conflicting figure silently/i,
+  /Detected area mismatch/i,
+];
+
+function sanitizeVisibleAnswer(content: string): string {
+  const cleaned = String(content || "")
+    .split(/\r?\n/)
+    .filter((line) => !INTERNAL_ANSWER_LINE_PATTERNS.some((pattern) => pattern.test(line)))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return cleaned || "Данных недостаточно, чтобы подтвердить ответ.";
+}
+
 export async function POST(request: NextRequest) {
   const startedAt = Date.now();
 
@@ -149,7 +171,7 @@ export async function POST(request: NextRequest) {
 
     const latencyMs = Date.now() - startedAt;
     const navigationIntent = result.intent?.name === "navigation_help";
-    const answer = navigationIntent ? buildDisabledNavigationAnswer() : result.answer;
+    const answer = navigationIntent ? buildDisabledNavigationAnswer() : sanitizeVisibleAnswer(result.answer);
 
     const response: TestResponse = {
       answer,

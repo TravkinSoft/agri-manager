@@ -663,7 +663,80 @@ function isPureKnowledgeQuestion(message: string): boolean {
   );
 }
 
+function buildFastKnowledgeAnswer(message: string): string | null {
+  const text = String(message || "").toLowerCase();
+  if (/(\u0432\u0435\u0441\u043e\u0432|\u0432\u0437\u0432\u0435\u0448|weighbridge|scale)/i.test(text)) {
+    return [
+      "Весовая работает через талон рейса.",
+      "",
+      "- Создаётся талон: машина, водитель, тип движения, поле или склад.",
+      "- Фиксируется первое взвешивание: обычно брутто.",
+      "- После загрузки или разгрузки фиксируется второе взвешивание: обычно тара.",
+      "- Система считает нетто: брутто минус тара.",
+      "- После закрытия талона движение попадает в склад, операцию, историю поля или ledger.",
+      "",
+      "Следующий шаг: можно проверить активные талоны или последние закрытые рейсы.",
+    ].join("\n");
+  }
+
+  if (/(\u0441\u043a\u043b\u0430\u0434|\u043e\u0441\u0442\u0430\u0442|\u043f\u0430\u0440\u0442|warehouse|stock|batch|ledger)/i.test(text)) {
+    return [
+      "Склад в ERP должен считаться от движений, а не от карточки вручную.",
+      "",
+      "- Приход увеличивает остаток.",
+      "- Выдача, списание и отгрузка уменьшают остаток.",
+      "- Перемещение уменьшает остаток на складе-источнике и увеличивает на складе-получателе.",
+      "- Партии нужны, чтобы понимать происхождение, дату и качество товара.",
+      "- Ledger должен быть source of truth для проверки спорных остатков.",
+      "",
+      "Следующий шаг: можно проверить остатки или последние движения по конкретному складу.",
+    ].join("\n");
+  }
+
+  if (/(\u0444\u0438\u0442\u043e\u0444\u0442\u043e\u0440|phytophthora|late\s+blight)/i.test(text)) {
+    return [
+      "Фитофтора — опасное грибоподобное заболевание, особенно критичное для картофеля и томатов.",
+      "",
+      "- Быстро развивается при влажной погоде и умеренной температуре.",
+      "- Поражает листья, стебли и клубни.",
+      "- Риск выше при густой ботве, росе, туманах и слабой вентиляции.",
+      "- Защита строится на профилактике, мониторинге и своевременных фунгицидных обработках.",
+      "- Важно чередовать действующие вещества, чтобы не загнать резистентность.",
+      "",
+      "Следующий шаг: можно проверить поля картофеля и риск по погоде/операциям.",
+    ].join("\n");
+  }
+
+  if (/(\u0440\u0435\u043f\u0440\u043e\u0434\u0443\u043a\u0446|\u044d\u043b\u0438\u0442|super\s*elite|elite|seed\s+class)/i.test(text)) {
+    return [
+      "Репродукция семян показывает поколение и качество семенного материала.",
+      "",
+      "- Чем выше класс, тем чище сорт и ниже риск вырождения.",
+      "- Элита обычно используется как качественный исходный материал.",
+      "- Последующие репродукции дешевле, но требуют внимательнее смотреть здоровье и сортовую чистоту.",
+      "- Для картофеля репродукция особенно важна из-за накопления вирусов и болезней.",
+      "",
+      "Следующий шаг: можно проверить структуру посевов по сорту и репродукции.",
+    ].join("\n");
+  }
+
+  return null;
+}
+
 function buildPlannerSeedIntent(message: string): AssistantIntent {
+  if (isLargestFieldQuestionText(message)) {
+    return {
+      name: "fields_overview",
+      confidence: 0.95,
+      needsData: true,
+      parameters: {
+        query: cleanString(message) || "",
+        output_type: "list",
+        source_of_truth: "fields",
+      },
+    };
+  }
+
   return {
     name: "general_question",
     confidence: 1,
@@ -724,9 +797,9 @@ function buildContradictionExplanation(state: AssistantSessionState): string | n
 }
 
 function resolveAssistantEngineMode(): AssistantEngineMode {
-  const raw = String(process.env.ASSISTANT_ENGINE_MODE || "hybrid").trim().toLowerCase();
+  const raw = String(process.env.ASSISTANT_ENGINE_MODE || "model_first").trim().toLowerCase();
   if (raw === "tool_first" || raw === "model_first" || raw === "hybrid") return raw;
-  return "hybrid";
+  return "model_first";
 }
 
 function resolveHybridDomains(): Set<string> {
@@ -893,6 +966,16 @@ function extractExplicitFieldReference(text: string): string | null {
   return null;
 }
 
+function extractExplicitTicketReference(text: string): string | null {
+  const match = String(text || "").match(/\bWR-\d{4}-\d{5,}\b/i);
+  return cleanString(match?.[0]);
+}
+
+function extractExplicitUuidReference(text: string): string | null {
+  const match = String(text || "").match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i);
+  return cleanString(match?.[0]);
+}
+
 function applyUserTextFocusToSessionState(state: AssistantSessionState, message: string): AssistantSessionState {
   const fieldRef = extractExplicitFieldReference(message);
   if (fieldRef) {
@@ -907,12 +990,39 @@ function applyUserTextFocusToSessionState(state: AssistantSessionState, message:
       focusUpdatedAt: new Date().toISOString(),
     };
   }
+  const ticketRef = extractExplicitTicketReference(message);
+  if (ticketRef) {
+    return {
+      ...state,
+      lastTicket: ticketRef,
+      lastTicketLabel: ticketRef,
+      focusEntityType: "ticket",
+      focusEntityId: null,
+      focusEntityLabel: ticketRef,
+      focusSource: "user_text",
+      focusUpdatedAt: new Date().toISOString(),
+    };
+  }
+  const uuidRef = extractExplicitUuidReference(message);
+  if (uuidRef && /(\u043e\u043f\u0435\u0440\u0430\u0446|operation|task|\u0437\u0430\u0434\u0430\u0447)/i.test(message)) {
+    return {
+      ...state,
+      lastOperation: uuidRef,
+      lastOperationId: uuidRef,
+      focusEntityType: "operation",
+      focusEntityId: uuidRef,
+      focusEntityLabel: uuidRef,
+      focusSource: "user_text",
+      focusUpdatedAt: new Date().toISOString(),
+    };
+  }
   return state;
 }
 
 function hasDeicticReference(text: string): boolean {
   return hasAnyRoutingPattern(text, [
     /(\u044d\u0442|\u0442\u0430\u043c|\u0442\u0443\u0442|\u043d\u0435\u043c\u0443|\u043d\u0435\u0439|\u043d\u0435\u043c|\u043d\u0438\u043c|\u0434\u0430\u043d\u043d|\u0442\u0435\u043a\u0443\u0449|\u0432\u044b\u0431\u0440\u0430\u043d)/i,
+    /(\u0442\u043e\u0433\u0434\u0430|\u0434\u0430\u043b\u044c\u0448\u0435|\u043f\u043e\s+\u043d\u0435\u043c\u0443|\u0441\s+\u043d\u0438\u043c|\u0435\u0433\u043e|\u0435\u0435|\u0435\u0451)/i,
     /\b(this|that|there|it|current|selected|same)\b/i,
   ]);
 }
@@ -972,6 +1082,34 @@ function resolveRoutingMessageWithMemory(params: {
     (focusType === "warehouse" ? focusRef : null) ||
     cleanString(params.runtimeContext.selectedWarehouseLabel) ||
     cleanString(params.runtimeContext.selectedWarehouseId);
+  const operationRef =
+    cleanString(params.state.lastOperationLabel) ||
+    cleanString(params.state.lastOperation) ||
+    cleanString(params.state.lastOperationId) ||
+    (focusType === "operation" ? focusRef : null) ||
+    cleanString(params.runtimeContext.selectedOperationLabel) ||
+    cleanString(params.runtimeContext.selectedOperationId);
+  const ticketRef =
+    cleanString(params.state.lastTicketLabel) ||
+    cleanString(params.state.lastTicket) ||
+    cleanString(params.state.lastTicketId) ||
+    (focusType === "ticket" ? focusRef : null) ||
+    cleanString(params.runtimeContext.selectedTicketLabel) ||
+    cleanString(params.runtimeContext.selectedTicketId);
+  const sectionRef =
+    cleanString(params.state.lastCropStructureSectionLabel) ||
+    cleanString(params.state.lastCropStructureSection) ||
+    cleanString(params.state.lastCropStructureSectionId) ||
+    (focusType === "crop_structure_line" ? focusRef : null) ||
+    cleanString(params.runtimeContext.selectedCropStructureSectionLabel) ||
+    cleanString(params.runtimeContext.selectedCropStructureSectionId);
+  const batchRef =
+    cleanString(params.state.lastBatchLabel) ||
+    cleanString(params.state.lastBatch) ||
+    cleanString(params.state.lastBatchId) ||
+    (focusType === "batch" ? focusRef : null) ||
+    cleanString(params.runtimeContext.selectedBatchLabel) ||
+    cleanString(params.runtimeContext.selectedBatchId);
   const cropRef =
     cleanString(params.state.lastVariety) ||
     cleanString(params.state.lastCrop) ||
@@ -1033,6 +1171,100 @@ function resolveRoutingMessageWithMemory(params: {
       used: false,
       keysUsed: [],
       resolvedEntitySource: "explicit_user_text",
+    };
+  }
+
+  const mentionsOperationFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u043e\u043f\u0435\u0440\u0430\u0446|\u0437\u0430\u0434\u0430\u0447|\u0441\u0442\u0430\u0442\u0443\u0441|\u0438\u0441\u043f\u043e\u043b\u043d|\u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b|\u0432\u044b\u0434\u0430\u0447|\u043f\u0440\u0438\u043d\u044f\u0442|\u0437\u0430\u043a\u0440\u044b|operation|task|status|performer|material|issue|accept|complete)/i,
+  ]);
+  const mentionsTicketFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u0442\u0430\u043b\u043e\u043d|\u0432\u0435\u0441\u043e\u0432|\u0431\u0440\u0443\u0442\u0442\u043e|\u0442\u0430\u0440\u0430|\u043d\u0435\u0442\u0442\u043e|pdf|ticket|weighbridge|gross|tare|net)/i,
+  ]);
+  const mentionsSectionFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u0443\u0447\u0430\u0441\u0442|\u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440|\u043b\u0438\u043d\u0438|section|crop\s+structure|line)/i,
+  ]);
+  const mentionsBatchFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u043f\u0430\u0440\u0442|\u043b\u043e\u0442|batch|lot)/i,
+  ]);
+  const operationSpecificFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u0441\u0442\u0430\u0442\u0443\u0441|\u0438\u0441\u043f\u043e\u043b\u043d|\u0432\u044b\u0434\u0430\u0447|\u043f\u0440\u0438\u043d\u044f\u0442|\u0437\u0430\u043a\u0440\u044b|\u0444\u0430\u043a\u0442|status|performer|issue|accept|complete|fact)/i,
+  ]);
+
+  if ((mentionsMaterialsV2 || mentionsHarvestV2 || (mentionsOperationsV2 && !operationSpecificFollowup)) && fieldRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `field ${fieldRef}`),
+      used: true,
+      keysUsed: ["lastFieldLabel", "lastField", "lastFieldId"],
+      resolvedEntitySource: cleanString(params.state.lastFieldLabel) || cleanString(params.state.lastField) || cleanString(params.state.lastFieldId)
+        ? "session_memory"
+        : "page_context",
+    };
+  }
+
+  if ((deicticFollowUp || mentionsOperationFollowup) && operationRef && (focusType === "operation" || !fieldRef)) {
+    return {
+      routingMessage: appendMemoryContext(raw, `operation ${operationRef}`),
+      used: true,
+      keysUsed: ["lastOperationLabel", "lastOperation", "lastOperationId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastOperationLabel) ||
+        cleanString(params.state.lastOperation) ||
+        cleanString(params.state.lastOperationId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  if ((deicticFollowUp || mentionsTicketFollowup) && ticketRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `ticket ${ticketRef}`),
+      used: true,
+      keysUsed: ["lastTicketLabel", "lastTicket", "lastTicketId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastTicketLabel) ||
+        cleanString(params.state.lastTicket) ||
+        cleanString(params.state.lastTicketId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  if ((deicticFollowUp || mentionsSectionFollowup) && sectionRef && (focusType === "crop_structure_line" || !fieldRef)) {
+    return {
+      routingMessage: appendMemoryContext(raw, `crop structure line ${sectionRef}`),
+      used: true,
+      keysUsed: ["lastCropStructureSectionLabel", "lastCropStructureSection", "lastCropStructureSectionId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastCropStructureSectionLabel) ||
+        cleanString(params.state.lastCropStructureSection) ||
+        cleanString(params.state.lastCropStructureSectionId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  if ((deicticFollowUp || mentionsBatchFollowup) && batchRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `batch ${batchRef}`),
+      used: true,
+      keysUsed: ["lastBatchLabel", "lastBatch", "lastBatchId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastBatchLabel) ||
+        cleanString(params.state.lastBatch) ||
+        cleanString(params.state.lastBatchId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  if (deicticFollowUp && (mentionsMaterialsV2 || mentionsOperationsV2 || mentionsHarvestV2) && fieldRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `field ${fieldRef}`),
+      used: true,
+      keysUsed: ["lastFieldLabel", "lastField", "lastFieldId"],
+      resolvedEntitySource: cleanString(params.state.lastFieldLabel) || cleanString(params.state.lastField) || cleanString(params.state.lastFieldId)
+        ? "session_memory"
+        : "page_context",
     };
   }
 
@@ -1139,8 +1371,22 @@ function formatInventoryRows(
   intentParams?: AssistantIntent["parameters"]
 ): string {
   const warehouseAlias = cleanString(intentParams?.warehouse_alias) || cleanString(intentParams?.warehouse);
+  const productAlias =
+    cleanString(intentParams?.product) ||
+    cleanString(intentParams?.crop) ||
+    cleanString(intentParams?.crop_alias) ||
+    cleanString(intentParams?.query);
   const resolvedScopeLabel = warehouseAlias ? `По складу «${warehouseAlias}»` : "По всем активным складам";
-  if (!rows.length) return `${resolvedScopeLabel.toLowerCase()} по текущему фильтру остатки не найдены.`;
+  if (!rows.length) {
+    if (productAlias) {
+      return [
+        `По «${productAlias}» остатка на активных складах не найдено.`,
+        warehouseAlias ? `Проверенный склад: ${warehouseAlias}.` : "Проверены все активные склады.",
+        "Следующий шаг: можно проверить последние движения/выдачи по этому материалу.",
+      ].join("\n");
+    }
+    return `${resolvedScopeLabel.toLowerCase()} по текущему фильтру остатки не найдены.`;
+  }
   const byProduct = new Map<string, number>();
   const byWarehouse = new Map<string, number>();
   let total = 0;
@@ -1361,11 +1607,22 @@ function formatOperationsRows(
   rows: Array<Record<string, unknown>>,
   intentParams?: AssistantIntent["parameters"]
 ): string {
+  if (!rows.length) {
+    const emptyStatus = cleanString(intentParams?.status)?.toLowerCase();
+    const emptyTitle =
+      emptyStatus === "active"
+        ? "Активные операции"
+        : emptyStatus === "waiting_materials"
+          ? "Операции в ожидании материалов"
+          : "Операции";
+    const fieldContext = fieldContextFromIntent(intentParams);
+    return fieldContext ? `${emptyTitle} ${fieldContext} не найдены.` : `${emptyTitle} не найдены.`;
+  }
   const status = cleanString(intentParams?.status)?.toLowerCase();
   const activeOnly =
     status === "active" ||
     (rows.length > 0 && rows.every((row) => String((row as any).work_status || "").toLowerCase() === "active"));
-  const title =
+  let title =
     activeOnly
       ? "Активные операции"
       : status === "waiting_materials"
@@ -1373,6 +1630,10 @@ function formatOperationsRows(
         : "Операции";
 
   if (!rows.length) return `${title} не найдены.`;
+  if (!rows.length) {
+    const fieldContext = fieldContextFromIntent(intentParams);
+    return fieldContext ? `${title} ${fieldContext} не найдены.` : `${title} не найдены.`;
+  }
   const shown = rows.slice(0, 12);
   const lines = shown.map((row) => {
     const area = asNumber((row as any).area_ha);
@@ -1488,8 +1749,48 @@ function formatWarehouseMovementsRowsV2(rows: Array<Record<string, unknown>>): s
   return [`Последние движения:`, ...lines, tail].filter(Boolean).join("\n");
 }
 
-function formatFieldsRowsV2(rows: Array<Record<string, unknown>>): string {
+function isLargestFieldQuestionText(value: unknown): boolean {
+  const text = normalizeRoutingText(String(value || ""));
+  if (!text) return false;
+  const mentionsField = /(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field|fields|РїРѕР»Рµ|РїРѕР»СЏ)/i.test(text);
+  const asksLargest =
+    /(?:\u0441\u0430\u043c\w*\s+\u0431\u043e\u043b\u044c\u0448|\u043d\u0430\u0438\u0431\u043e\u043b\u044c\u0448|\u043a\u0440\u0443\u043f\u043d|\u043c\u0430\u043a\u0441|\u0431\u043e\u043b\u044c\u0448\u0435\s+\u0432\u0441\u0435\u0433\u043e|largest|biggest|max(?:imum)?|СЃР°Рј\w*\s+Р±РѕР»СЊС€|РЅР°РёР±РѕР»СЊС€|РєСЂСѓРїРЅ|РјР°РєСЃ|Р±РѕР»СЊС€Рµ\s+РІСЃРµРіРѕ)/i.test(
+      text
+    );
+  return mentionsField && asksLargest;
+}
+
+function pickLargestFieldRow(rows: Array<Record<string, unknown>>): Record<string, unknown> | null {
+  let best: Record<string, unknown> | null = null;
+  let bestArea = Number.NEGATIVE_INFINITY;
+  rows.forEach((row) => {
+    const area = asNumber((row as any).area_ha ?? (row as any).area);
+    const field = cleanString((row as any).field_name) || cleanString((row as any).field_label) || cleanString((row as any).name);
+    if (!field && !cleanString((row as any).field_id)) return;
+    if (area > bestArea) {
+      best = row;
+      bestArea = area;
+    }
+  });
+  return best;
+}
+
+function formatFieldsRowsV2(rows: Array<Record<string, unknown>>, intentParams?: AssistantIntent["parameters"]): string {
   if (!rows.length) return "Поля по текущему фильтру не найдены.";
+  const query = cleanString(intentParams?.query) || cleanString(intentParams?.entityQuery) || cleanString(intentParams?.field);
+  const largestField = isLargestFieldQuestionText(query) ? pickLargestFieldRow(rows) : null;
+  if (largestField) {
+    const fieldName =
+      cleanString((largestField as any).field_name) ||
+      cleanString((largestField as any).field_label) ||
+      cleanString((largestField as any).name) ||
+      cleanString((largestField as any).field_id) ||
+      "-";
+    return `Самое большое поле: ${fieldName} — ${formatNumber(
+      asNumber((largestField as any).area_ha ?? (largestField as any).area),
+      2
+    )} га.`;
+  }
   const shown = rows.slice(0, 5);
   const lines = shown.map((row) => `• ${safeText(row.field_name)} — ${formatNumber(asNumber(row.area_ha), 2)} га`);
   const tail = rows.length > shown.length ? `Показываю ${shown.length} из ${rows.length}.` : "";
@@ -1521,7 +1822,69 @@ function formatFieldLandBankSummaryRows(rows: Array<Record<string, unknown>>): s
   ].join("\n");
 }
 
-function formatFieldTimelineRowsV2(rows: Array<Record<string, unknown>>): string {
+function fieldContextFromIntent(intentParams?: AssistantIntent["parameters"]): string | null {
+  const queryField = (
+    cleanString(intentParams?.query) ||
+    cleanString(intentParams?.resolved_query) ||
+    cleanString(intentParams?.message)
+  )?.match(/\bfield\s+([0-9]{1,3}(?:-[0-9]{1,3}){0,2})\b/i)?.[1];
+  const field =
+    cleanString(intentParams?.field) ||
+    cleanString(intentParams?.field_alias) ||
+    cleanString(intentParams?.field_number) ||
+    cleanString(intentParams?.field_label) ||
+    queryField ||
+    cleanString(intentParams?.field_id);
+  return field ? `по полю ${field}` : null;
+}
+
+function formatFieldTimelineRowsV2(
+  rows: Array<Record<string, unknown>>,
+  intentParams?: AssistantIntent["parameters"]
+): string {
+  const queryText = [
+    cleanString(intentParams?.query),
+    cleanString(intentParams?.resolved_query),
+    cleanString(intentParams?.message),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const wantsOperations = /(\u043e\u043f\u0435\u0440\u0430\u0446|\u0440\u0430\u0431\u043e\u0442|operation|task)/i.test(queryText);
+  const fieldContext = fieldContextFromIntent(intentParams) || "по полю";
+
+  if (!rows.length) {
+    return wantsOperations ? `Операции ${fieldContext} не найдены.` : `История ${fieldContext} не найдена.`;
+  }
+
+  if (wantsOperations) {
+    const operationRows = rows.filter((row) => {
+      const eventType = cleanString(row.event_type)?.toLowerCase();
+      return eventType === "operation_fact" || Boolean(cleanString((row as any).operation_type));
+    });
+    if (!operationRows.length) return `Операции ${fieldContext} не найдены.`;
+    const shown = operationRows.slice(0, 10);
+    const lines = shown.map((row) => {
+      const type = cleanString((row as any).operation_type) || cleanString(row.title) || "Операция";
+      const status = cleanString((row as any).work_status) || cleanString(row.status);
+      const area = asNumber((row as any).area_ha);
+      const executor = cleanString((row as any).executor);
+      const materials = cleanString((row as any).materials_text);
+      return [
+        `- ${formatShortDate(row.date)}: ${type}`,
+        status ? `статус ${status}` : null,
+        area > 0 ? `${formatNumber(area, 2)} га` : null,
+        executor ? `исполнитель ${executor}` : null,
+        materials ? `материалы: ${materials}` : "материалы не указаны",
+      ]
+        .filter(Boolean)
+        .join(", ");
+    });
+    const tail = operationRows.length > shown.length ? `Показываю ${shown.length} из ${operationRows.length}.` : "";
+    return [`Операции ${fieldContext}: ${operationRows.length}.`, ...lines, tail].filter(Boolean).join("\n");
+  }
+
+  if (!rows.length) return `История ${fieldContextFromIntent(intentParams) || "по полю"} не найдена.`;
   if (!rows.length) return "История поля не найдена.";
   const labelByType: Record<string, string> = {
     issue: "выдача материалов",
@@ -1545,7 +1908,11 @@ function formatFieldTimelineRowsV2(rows: Array<Record<string, unknown>>): string
   return [`Последние события по полю:`, ...lines, tail].filter(Boolean).join("\n");
 }
 
-function formatFieldMaterialsRowsV2(rows: Array<Record<string, unknown>>): string {
+function formatFieldMaterialsRowsV2(
+  rows: Array<Record<string, unknown>>,
+  intentParams?: AssistantIntent["parameters"]
+): string {
+  if (!rows.length) return `Материалы ${fieldContextFromIntent(intentParams) || "по полю"} не найдены.`;
   if (!rows.length) return "Материалы по полю не найдены.";
   const shown = rows.slice(0, 12);
   const lines = shown.map((row) => {
@@ -1662,13 +2029,13 @@ function formatGroundedToolOutput(params: {
     intentName === "fields_overview" &&
     (toolName === "search_fields" || toolName === "get_fields" || toolName === "find_field")
   ) {
-    return outputType === "summary_total" ? formatFieldsSummaryRowsV2(rows) : formatFieldsRowsV2(rows);
+    return outputType === "summary_total" ? formatFieldsSummaryRowsV2(rows) : formatFieldsRowsV2(rows, intentParams);
   }
   if (intentName === "rotation_history" || toolName === "get_field_timeline") {
-    return formatFieldTimelineRowsV2(rows);
+    return formatFieldTimelineRowsV2(rows, intentParams);
   }
   if (toolName === "get_field_materials") {
-    return formatFieldMaterialsRowsV2(rows);
+    return formatFieldMaterialsRowsV2(rows, intentParams);
   }
   if (toolName === "get_field_card") {
     return formatFieldCardRowsV2(rows);
@@ -1731,17 +2098,77 @@ function buildMandatoryToolDataAnswer(params: {
   outputs: AssistantToolOutput[];
   toolCalls: AssistantToolCallLog[];
 }): string | null {
+  if (params.intent.name === "fields_overview" && isLargestFieldQuestionText(params.intent.parameters.query)) {
+    const rowsById = new Map<string, Record<string, unknown>>();
+    params.outputs.forEach((output) => {
+      (output.rows || []).forEach((row) => {
+        const fieldLabel =
+          cleanString((row as any).field_name) ||
+          cleanString((row as any).field_label) ||
+          cleanString((row as any).name) ||
+          cleanString((row as any).field_id);
+        const areaHa = asNumber((row as any).area_ha ?? (row as any).area);
+        if (!fieldLabel || areaHa <= 0) return;
+        const key = cleanString((row as any).field_id) || fieldLabel;
+        rowsById.set(key, row);
+      });
+    });
+    const rows = Array.from(rowsById.values()).sort(
+      (a, b) => asNumber((b as any).area_ha ?? (b as any).area) - asNumber((a as any).area_ha ?? (a as any).area)
+    );
+    const largest = rows[0];
+    if (largest) {
+      const largestLabel =
+        cleanString((largest as any).field_name) ||
+        cleanString((largest as any).field_label) ||
+        cleanString((largest as any).name) ||
+        cleanString((largest as any).field_id) ||
+        "-";
+      const topRows = rows.slice(1, 4).map((row, index) => {
+        const label =
+          cleanString((row as any).field_name) ||
+          cleanString((row as any).field_label) ||
+          cleanString((row as any).name) ||
+          cleanString((row as any).field_id) ||
+          "-";
+        return `${index + 2}. Поле ${label} — ${formatNumber(asNumber((row as any).area_ha ?? (row as any).area), 2)} га`;
+      });
+      return [
+        `Самое большое поле — ${largestLabel}, площадь ${formatNumber(
+          asNumber((largest as any).area_ha ?? (largest as any).area),
+          2
+        )} га.`,
+        topRows.length ? "" : null,
+        topRows.length ? "Ближайшие по площади:" : null,
+        ...topRows,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+  }
+
   const mandatoryTools = new Set<AssistantToolName>([
     "get_active_operations",
     "get_active_operations_summary",
     "get_operations",
     "search_operations",
+    "get_warehouse_stock",
+    "get_warehouse_balances",
+    "get_inventory",
+    "get_warehouse_movements",
+    "get_field_timeline",
+    "get_field_materials",
+  ]);
+  const allowEmptyRowsForTools = new Set<AssistantToolName>([
+    "get_warehouse_stock",
+    "get_warehouse_balances",
+    "get_inventory",
+    "get_warehouse_movements",
     "get_field_materials",
   ]);
   const blocks: string[] = [];
 
   params.outputs.forEach((output, index) => {
-    if (!output.rows.length) return;
     const loggedTool = params.toolCalls[index]?.tool;
     const toolName =
       loggedTool ||
@@ -1751,6 +2178,7 @@ function buildMandatoryToolDataAnswer(params: {
           ? "get_operations"
           : null);
     if (!toolName || !mandatoryTools.has(toolName as AssistantToolName)) return;
+    if (!output.rows.length && !allowEmptyRowsForTools.has(toolName as AssistantToolName)) return;
     const formatted = formatGroundedToolOutput({
       toolName: toolName as AssistantToolName,
       intentName: params.intent.name,
@@ -1948,20 +2376,30 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
 
   if (intent.name === "create_draft") {
-    if (/(питан|термос|обед|ужин|завтрак|meal|thermos|lunch|dinner|breakfast)/.test(queryText)) {
+    const requestedTool = cleanString(intent.parameters.tool)?.toLowerCase() || "";
+    const operationDraftRequested =
+      /(operation|spray|spraying|herbicid|fungicid|insecticid|fertiliz|planting|sowing|harvest|soil|rate)/i.test(queryText) ||
+      /(?:операц|обработ|гербицид|фунгицид|инсектицид|сзр|удобрен|посев|посадк|уборк|дисков|культивац|вспаш|борон|почво|норма|л\/га|кг\/га)/i.test(queryText);
+    if (requestedTool && getAssistantTool(requestedTool as AssistantToolName)) {
+      tools[0] = requestedTool as AssistantToolName;
+    } else if (/(питан|термос|обед|ужин|завтрак|meal|thermos|lunch|dinner|breakfast)/.test(queryText)) {
       tools[0] = "create_meal_order_draft";
     } else if (/(талон|весов|ticket|weighbridge)/.test(queryText)) {
       tools[0] = "create_weighbridge_ticket_draft";
+    } else if (/(перемещ|перенес|transfer|from warehouse|to warehouse)/.test(queryText)) {
+      tools[0] = "create_transfer_draft";
+    } else if (/(гсм|топлив|дизел|бензин|азс|fuel)/.test(queryText)) {
+      tools[0] = "create_fuel_issue_draft";
+    } else if (/(выдач|выдать|отпуст|заявк).*(материал|сзр|удобрен|семен|product|material)|material issue/.test(queryText)) {
+      tools[0] = "create_material_issue_draft";
     } else if (/(создай|создать|нов(ый|ое)|create|new).*(склад|warehouse)|^(склад|warehouse)/.test(queryText)) {
       tools[0] = "create_warehouse_draft";
     } else if (/(создай|создать|нов(ый|ое)|create|new).*(поле|field)/.test(queryText)) {
       tools[0] = "create_field_draft";
-    } else if (/(гсм|топлив|дизел|бензин|азс|fuel)/.test(queryText)) {
-      tools[0] = "create_fuel_issue_draft";
-    } else if (/(перемещ|transfer)/.test(queryText)) {
-      tools[0] = "create_transfer_draft";
     } else if (/(поле|задач|task)/.test(queryText)) {
       tools[0] = "create_field_task_draft";
+    } else if (operationDraftRequested) {
+      tools[0] = "create_operation_draft";
     }
   }
 
@@ -2021,12 +2459,13 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
 
   if (intent.name === "operations_recent" && queryText) {
-    tools.unshift("search_operations");
-    if (/(\bop[-_\s]?\d+\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.test(queryText)) {
-      tools.unshift("get_operation_details");
-    }
     if (mentionsFieldRef) {
-      tools.unshift(mentionsFieldMaterials ? "get_field_materials" : "get_field_timeline");
+      tools.splice(0, tools.length, mentionsFieldMaterials ? "get_field_materials" : "get_field_timeline");
+    } else {
+      tools.unshift("search_operations");
+      if (/(\bop[-_\s]?\d+\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.test(queryText)) {
+        tools.unshift("get_operation_details");
+      }
     }
   }
 
@@ -2116,13 +2555,10 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
 
   if (intent.name === "create_draft") {
     const selectedDraftTool = tools[0];
-    if (
-      selectedDraftTool &&
-      getAssistantTool(selectedDraftTool) &&
-      (allowByNamespaceFallback(selectedDraftTool) || allowedTools.has("create_operation_draft"))
-    ) {
+    if (selectedDraftTool && getAssistantTool(selectedDraftTool)) {
       return [selectedDraftTool];
     }
+    return ["create_operation_draft"];
   }
 
   const filtered = Array.from(new Set(tools)).filter((toolName) => allowByNamespaceFallback(toolName));
@@ -2146,7 +2582,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     entity_resolution: [],
     company_context: ["get_company_context"],
     navigation_help: ["navigate_to_page"],
-    create_draft: ["create_operation_draft", "create_weighbridge_ticket_draft", "create_field_draft", "create_meal_order_draft", "create_warehouse_draft"],
+    create_draft: ["create_operation_draft"],
     clarification_required: [],
     general_question: [],
   };
@@ -2252,10 +2688,33 @@ function buildNavigationAnswerV2(actions: AssistantNavigationAction[], intent?: 
   return `Подготовил переход на страницу ${first.page}.`;
 }
 
-function unavailableAssistantMessage(locale: "ru" | "en" | "kz"): string {
-  if (locale === "en") return "AI Assistant is temporarily unavailable. Please try again later.";
-  if (locale === "kz") return "AI Assistant уақытша қолжетімсіз. Кейінірек қайталап көріңіз.";
-  return "AI Assistant временно недоступен. Попробуйте позже.";
+function degradedAssistantMessage(
+  locale: "ru" | "en" | "kz",
+  reason: Pick<LlmDiagnostics, "status" | "httpStatus" | "errorCode">,
+): string {
+  const code = (reason.errorCode || "").toLowerCase();
+  const isRateLimited =
+    reason.httpStatus === 429 || code.includes("rate") || code.includes("quota") || code.includes("limit");
+
+  if (locale === "en") {
+    if (isRateLimited) {
+      return "The model provider is rate-limited right now, so I switched to safe mode. I can still navigate, prepare drafts, and check ERP data through tools; for open-ended reasoning, try again a bit later.";
+    }
+    return "The model did not answer, so I switched to safe mode. I can still navigate, prepare drafts, and check ERP data through tools; please retry the free-form question in a moment.";
+  }
+
+  if (locale === "kz") {
+    if (isRateLimited) {
+      return "Модель провайдері қазір лимитке тірелді, сондықтан қауіпсіз режимге өттім. Навигация, черновиктер және ERP деректерін tools арқылы тексеру жұмыс істей береді; еркін сұрақты сәл кейін қайталап көріңіз.";
+    }
+    return "Модель жауап бермеді, сондықтан қауіпсіз режимге өттім. Навигация, черновиктер және ERP деректерін tools арқылы тексеру жұмыс істей береді; еркін сұрақты сәл кейін қайталаңыз.";
+  }
+
+  if (isRateLimited) {
+    return "Модель сейчас уперлась в лимит OpenAI, поэтому я перешел в безопасный режим. Навигацию, черновики и проверку ERP-данных через tools я всё равно могу делать; свободный вопрос лучше повторить чуть позже.";
+  }
+
+  return "Модель сейчас не ответила, поэтому я перешел в безопасный режим. Навигацию, черновики и проверку ERP-данных через tools я всё равно могу делать; свободный вопрос лучше повторить через минуту.";
 }
 
 async function generateGeneralAnswer(params: {
@@ -2279,7 +2738,12 @@ async function generateGeneralAnswer(params: {
 
   if (!process.env.OPENAI_API_KEY) {
     return {
-      answer: unavailableAssistantMessage(locale),
+      answer:
+        locale === "en"
+          ? "The assistant model is not configured: OPENAI_API_KEY is missing."
+          : locale === "kz"
+            ? "Ассистент моделі бапталмаған: OPENAI_API_KEY жоқ."
+            : "Модель ассистента не настроена: отсутствует OPENAI_API_KEY.",
       actualModel: null,
       usage: emptyUsage,
       llm: {
@@ -2342,17 +2806,18 @@ async function generateGeneralAnswer(params: {
   }
 
   if (!response) {
+    const llm: LlmDiagnostics = {
+      status: "network_error",
+      httpStatus: null,
+      errorCode: "OPENAI_NETWORK_ERROR",
+      errorMessage: "Network request to OpenAI failed",
+      missingEnv: [],
+    };
     return {
-      answer: unavailableAssistantMessage(locale),
+      answer: degradedAssistantMessage(locale, llm),
       actualModel: usedModel,
       usage: emptyUsage,
-      llm: {
-        status: "network_error",
-        httpStatus: null,
-        errorCode: "OPENAI_NETWORK_ERROR",
-        errorMessage: "Network request to OpenAI failed",
-        missingEnv: [],
-      },
+      llm,
       promptMeta,
     };
   }
@@ -2368,17 +2833,18 @@ async function generateGeneralAnswer(params: {
   if (!response.ok) {
     const errCode = cleanString(data?.error?.code);
     const errMessage = cleanString(data?.error?.message) || cleanString(data?.error?.type);
+    const llm: LlmDiagnostics = {
+      status: "http_error",
+      httpStatus: response.status,
+      errorCode: errCode,
+      errorMessage: errMessage,
+      missingEnv: [],
+    };
     return {
-      answer: unavailableAssistantMessage(locale),
+      answer: degradedAssistantMessage(locale, llm),
       actualModel: usedModel,
       usage,
-      llm: {
-        status: "http_error",
-        httpStatus: response.status,
-        errorCode: errCode,
-        errorMessage: errMessage,
-        missingEnv: [],
-      },
+      llm,
       promptMeta,
     };
   }
@@ -2400,17 +2866,18 @@ async function generateGeneralAnswer(params: {
     };
   }
 
+  const llm: LlmDiagnostics = {
+    status: "invalid_response",
+    httpStatus: response.status,
+    errorCode: "OPENAI_EMPTY_RESPONSE",
+    errorMessage: "OpenAI response did not contain assistant message content",
+    missingEnv: [],
+  };
   return {
-    answer: unavailableAssistantMessage(locale),
+    answer: degradedAssistantMessage(locale, llm),
     actualModel: usedModel,
     usage,
-    llm: {
-      status: "invalid_response",
-      httpStatus: response.status,
-      errorCode: "OPENAI_EMPTY_RESPONSE",
-      errorMessage: "OpenAI response did not contain assistant message content",
-      missingEnv: [],
-    },
+    llm,
     promptMeta,
   };
 }
@@ -2617,7 +3084,7 @@ export async function runAssistantEngine(params: {
     };
   }
 
-  if (isPureKnowledgeQuestion(message)) {
+  if (String(process.env.ASSISTANT_LEGACY_KNOWLEDGE_FAST_PATH || "0") === "1" && isPureKnowledgeQuestion(message)) {
     decisionSource = "model";
     routerMs = 0;
     plannerMs = 0;
@@ -2633,23 +3100,85 @@ export async function runAssistantEngine(params: {
         request_type: "knowledge",
       },
     };
+    const preparedKnowledgePrompt = settings.knowledgePolicy?.internalLibraryFirst
+      ? await buildKnowledgePromptBundle({
+          intentName: knowledgeIntent.name,
+          mode: "agro_knowledge",
+          includeCompanyLibrary: true,
+        })
+      : null;
+    const hasLibraryContext = Boolean(
+      preparedKnowledgePrompt?.promptBundle.text.includes("Company knowledge library context:")
+    );
+    const fastKnowledgeAnswer = buildFastKnowledgeAnswer(message);
+    if (fastKnowledgeAnswer && !hasLibraryContext) {
+      validatorMs = 0;
+      modelMs = 0;
+      responseRenderMs = 0;
+      return {
+        answer: fastKnowledgeAnswer,
+        sessionState: {
+          ...initialSessionState,
+          lastIntent: knowledgeIntent.name,
+          lastAnswerType: "knowledge",
+        },
+        intent: knowledgeIntent,
+        outputType: "filtered_summary",
+        mode: "agro_knowledge",
+        toolCalls: [],
+        toolActivity: [],
+        navigationActions: [],
+        sourceHints: [],
+        answerSource: "fast_path_template",
+        grounded: false,
+        decisionSource,
+        explicitNavigationRequested,
+        navigationPolicy,
+        model: {
+          configuredModel: modelConfig.configuredModel,
+          actualModel: null,
+          settingsSource: modelConfig.settingsSource,
+          promptVersion: promptMeta.promptVersion,
+          promptSource: promptMeta.promptSource,
+          promptUpdatedAt: promptMeta.promptUpdatedAt,
+          requestMode: engineMode,
+          llm: modelLlmNotCalled,
+        },
+        diagnostics: buildDiagnostics({
+          expectedAnswerType: "filtered_summary",
+          selectedSource: "model_knowledge",
+          selectedTool: null,
+          consistencyCheck: "skipped",
+        }),
+        performance: buildPerformance({
+          routerMs,
+          plannerMs,
+          toolMs,
+          validatorMs,
+          modelMs,
+          responseRenderMs,
+        }),
+      };
+    }
     const knowledgeModelConfig = resolveAssistantModelConfig(settings, {
       intentName: knowledgeIntent.name,
       message,
       forceFastModel: true,
     });
-    const knowledgePrompt = await buildKnowledgePromptBundle({
-      intentName: knowledgeIntent.name,
-      mode: "agro_knowledge",
-      includeCompanyLibrary: true,
-    });
+    const knowledgePrompt =
+      preparedKnowledgePrompt ||
+      (await buildKnowledgePromptBundle({
+        intentName: knowledgeIntent.name,
+        mode: "agro_knowledge",
+        includeCompanyLibrary: true,
+      }));
     const modelStartedAt = Date.now();
     const fallback = await generateGeneralAnswer({
       message,
       locale,
       settings,
       intentName: knowledgeIntent.name,
-      systemPrompt: knowledgePrompt.promptBundle.text,
+      systemPrompt: `${knowledgePrompt.promptBundle.text}\n\nДля общих объяснений не используй текущий выбранный объект интерфейса, поле, склад или прошлый фокус, если пользователь явно не просит данные по нему в этом сообщении.`,
       promptMeta: knowledgePrompt.promptMeta,
       forceFastModel: true,
     });
@@ -2668,7 +3197,7 @@ export async function runAssistantEngine(params: {
       toolCalls: [],
       toolActivity: [],
       navigationActions: [],
-      sourceHints: [],
+      sourceHints: hasLibraryContext ? ["Источник знаний: внутренняя библиотека компании"] : [],
       answerSource: "llm_fallback",
       grounded: false,
       decisionSource,
@@ -2686,7 +3215,7 @@ export async function runAssistantEngine(params: {
       },
       diagnostics: buildDiagnostics({
         expectedAnswerType: "filtered_summary",
-        selectedSource: "model_knowledge",
+        selectedSource: hasLibraryContext ? "company_knowledge" : "model_knowledge",
         selectedTool: null,
         consistencyCheck: "skipped",
       }),
@@ -2702,8 +3231,8 @@ export async function runAssistantEngine(params: {
     };
   }
 
-  const explicitNavigationCommand = hasExplicitNavigationRequest(messageForRouting);
-  const plannerFirstEnabled = String(process.env.ASSISTANT_PLANNER_FIRST ?? "1") !== "0" && !explicitNavigationCommand;
+  const plannerFirstEnabled =
+    String(process.env.ASSISTANT_PLANNER_FIRST ?? "1") !== "0";
   if (plannerFirstEnabled) {
     plannerAttempted = true;
     decisionSource = "model";
@@ -2801,9 +3330,6 @@ export async function runAssistantEngine(params: {
       if (plannerUsedTools && consistency.inconsistencyText) {
         answer = `${answer}\n\n${consistency.inconsistencyText}`.trim();
       }
-      if (plannerUsedTools && consistency.advisoryText) {
-        answer = `${answer}\n\n${consistency.advisoryText}`.trim();
-      }
       if (
         navigationResult.policy === "blocked" &&
         /(открыл|открываю|перехожу|показываю страницу|i opened|opening)/i.test(String(answer).toLowerCase())
@@ -2814,6 +3340,8 @@ export async function runAssistantEngine(params: {
         intent: plannerIntent,
         navigationActions: navigationResult.actions,
         requestMessage: messageForRouting,
+        sessionState: planner.sessionState,
+        runtimeContext,
       });
       const plannerUpdatedState: AssistantSessionState = applyAssistantActionPlanToSessionState(
         {
@@ -2998,9 +3526,6 @@ export async function runAssistantEngine(params: {
       if (plannerUsedTools && consistency.inconsistencyText) {
         answer = `${answer}\n\n${consistency.inconsistencyText}`.trim();
       }
-      if (plannerUsedTools && consistency.advisoryText) {
-        answer = `${answer}\n\n${consistency.advisoryText}`.trim();
-      }
       if (
         navigationResult.policy === "blocked" &&
         /(открыл|открываю|перехожу|показываю страницу|i opened|opening)/i.test(String(answer).toLowerCase())
@@ -3011,6 +3536,8 @@ export async function runAssistantEngine(params: {
         intent,
         navigationActions: navigationResult.actions,
         requestMessage: messageForRouting,
+        sessionState: planner.sessionState,
+        runtimeContext,
       });
       const plannerUpdatedState: AssistantSessionState = applyAssistantActionPlanToSessionState(
         {
@@ -3304,14 +3831,12 @@ export async function runAssistantEngine(params: {
     if (consistency.inconsistencyText) {
       answerParts.push(consistency.inconsistencyText);
     }
-    if (consistency.advisoryText) {
-      answerParts.push(consistency.advisoryText);
-    }
-
     const actionPlan = buildAssistantActionPlan({
       intent,
       navigationActions: allowedNavigationActions,
       requestMessage: messageForRouting,
+      sessionState: nextSessionState,
+      runtimeContext,
     });
     const updatedState: AssistantSessionState = applyAssistantActionPlanToSessionState(
       {

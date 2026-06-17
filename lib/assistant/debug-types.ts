@@ -116,6 +116,10 @@ export type AssistantDebugMetadata = {
     lastVariety: string | null;
     lastWarehouse: string | null;
     lastField: string | null;
+    lastOperation?: string | null;
+    lastTicket?: string | null;
+    lastCropStructureSection?: string | null;
+    lastBatch?: string | null;
     lastIntent: string | null;
     focusEntityType?: string | null;
     focusEntityId?: string | null;

@@ -304,3 +304,62 @@ export async function appendAssistantThreadMessage(params: {
     created_at: String(row.created_at || new Date().toISOString()),
   };
 }
+
+export async function updateAssistantThreadMessageMetadata(params: {
+  supabase: SupabaseClient;
+  companyId: string;
+  userId: string;
+  threadId: string;
+  messageId: string;
+  metadata: Record<string, unknown>;
+}): Promise<AssistantThreadMessageRecord> {
+  const { supabase, companyId, userId, threadId, messageId } = params;
+  const thread = await getAssistantThreadById({ supabase, companyId, userId, threadId });
+  if (!thread) throw new Error("Thread not found in current company scope");
+
+  const existingRes = await supabase
+    .from("chat_messages")
+    .select("id,chat_id,role,content,metadata,created_at")
+    .eq("id", messageId)
+    .eq("chat_id", threadId)
+    .maybeSingle();
+  if (existingRes.error) throw new Error(existingRes.error.message);
+  if (!existingRes.data) throw new Error("Message not found in current thread");
+
+  const existingMetadata =
+    existingRes.data.metadata && typeof existingRes.data.metadata === "object"
+      ? (existingRes.data.metadata as Record<string, unknown>)
+      : {};
+  const nextMetadata = {
+    ...existingMetadata,
+    ...params.metadata,
+    message_role: existingMetadata.message_role || readRoleFromMessageRow(existingRes.data as Record<string, unknown>),
+  };
+
+  const updateRes = await supabase
+    .from("chat_messages")
+    .update({ metadata: nextMetadata })
+    .eq("id", messageId)
+    .eq("chat_id", threadId)
+    .select("id,chat_id,role,content,metadata,created_at")
+    .single();
+  if (updateRes.error) throw new Error(updateRes.error.message);
+
+  const touchRes = await supabase
+    .from("chats")
+    .update({ updated_at: new Date().toISOString() })
+    .eq("id", threadId)
+    .eq("company_id", companyId)
+    .eq("user_id", userId);
+  if (touchRes.error) throw new Error(touchRes.error.message);
+
+  const row = updateRes.data as Record<string, unknown>;
+  return {
+    id: String(row.id),
+    thread_id: String(row.chat_id),
+    role: readRoleFromMessageRow(row),
+    content: String(row.content || ""),
+    metadata: (row.metadata as Record<string, unknown> | null) || null,
+    created_at: String(row.created_at || new Date().toISOString()),
+  };
+}

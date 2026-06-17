@@ -155,6 +155,18 @@ export type AssistantSessionState = {
   lastField: string | null;
   lastFieldId: string | null;
   lastFieldLabel: string | null;
+  lastOperation: string | null;
+  lastOperationId: string | null;
+  lastOperationLabel: string | null;
+  lastTicket: string | null;
+  lastTicketId: string | null;
+  lastTicketLabel: string | null;
+  lastCropStructureSection: string | null;
+  lastCropStructureSectionId: string | null;
+  lastCropStructureSectionLabel: string | null;
+  lastBatch: string | null;
+  lastBatchId: string | null;
+  lastBatchLabel: string | null;
   lastSeason: string | null;
   lastModule: string | null;
   lastToolSource: string | null;

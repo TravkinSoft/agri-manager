@@ -180,6 +180,10 @@ export function AssistantDebugMonitor() {
                   <Row label="Last variety" value={debugSnapshot.memory.lastVariety} />
                   <Row label="Last warehouse" value={debugSnapshot.memory.lastWarehouse} />
                   <Row label="Last field" value={debugSnapshot.memory.lastField} />
+                  <Row label="Last operation" value={debugSnapshot.memory.lastOperation} />
+                  <Row label="Last ticket" value={debugSnapshot.memory.lastTicket} />
+                  <Row label="Last section" value={debugSnapshot.memory.lastCropStructureSection} />
+                  <Row label="Last batch" value={debugSnapshot.memory.lastBatch} />
                   <Row label="Last intent" value={debugSnapshot.memory.lastIntent} />
                   <Row label="Follow up active" value={debugSnapshot.memory.followUpActive} />
                 </section>

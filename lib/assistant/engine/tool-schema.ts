@@ -18,7 +18,7 @@ export type PlannerToolSchema = {
 type PlannerToolMapping = {
   assistantTool: AssistantToolName;
   intentName: AssistantIntentName;
-  buildParams: (args: Record<string, unknown>, message: string, runtimeContext: AssistantUiContext) => Record<string, string | number | boolean | null>;
+  buildParams: (args: Record<string, unknown>, message: string, runtimeContext: AssistantUiContext) => Record<string, unknown>;
   buildNavigation?: (args: Record<string, unknown>, rows: Array<Record<string, unknown>>) => AssistantNavigationAction[];
 };
 
@@ -31,6 +31,11 @@ function int(value: unknown, fallback: number): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(1, Math.min(100, Math.trunc(parsed)));
+}
+
+function numberValue(value: unknown): number | null {
+  const parsed = Number(String(value ?? "").replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function toFiltersObject(value: unknown): Record<string, string> {
@@ -70,6 +75,39 @@ function normalizeNavigationTarget(args: Record<string, unknown>, message?: stri
   }
   return { page: rawPage, route: rawRoute, filters };
 }
+
+const CREATE_OPERATION_DRAFT_PARAMETERS = {
+  type: "object",
+  properties: {
+    query: { type: "string" },
+    field: { type: "string" },
+    field_id: { type: "string" },
+    field_label: { type: "string" },
+    crop_structure: { type: "string" },
+    crop_structure_id: { type: "string" },
+    crop_structure_label: { type: "string" },
+    operation_type: { type: "string" },
+    area_ha: { type: "number" },
+    date: { type: "string" },
+    spray_volume_per_ha: { type: "number" },
+    materials: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          product: { type: "string" },
+          product_name: { type: "string" },
+          rate_per_ha: { type: "number" },
+          unit: { type: "string" },
+        },
+        additionalProperties: true,
+      },
+    },
+    responsible: { type: "string" },
+    comment: { type: "string" },
+  },
+  additionalProperties: false,
+};
 
 function buildEntityNavigationFromRows(rows: Array<Record<string, unknown>>): AssistantNavigationAction[] {
   const row = rows[0] || {};
@@ -248,11 +286,11 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
     }),
   },
   get_field_operations: {
-    assistantTool: "get_operations",
+    assistantTool: "get_field_timeline",
     intentName: "operations_recent",
     buildParams: (args, message) => ({
-      query: text(args.field) || text(args.query) || message,
-      output_type: "list",
+      query: text(args.field) ? `field ${text(args.field)}` : text(args.query) || message,
+      output_type: "filtered_summary",
     }),
   },
   get_active_operations_summary: {
@@ -324,11 +362,11 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
     }),
   },
   get_operations_by_field: {
-    assistantTool: "get_operations",
+    assistantTool: "get_field_timeline",
     intentName: "operations_recent",
     buildParams: (args, message) => ({
-      query: text(args.field) || text(args.query) || message,
-      output_type: "list",
+      query: text(args.field) ? `field ${text(args.field)}` : text(args.query) || message,
+      output_type: "filtered_summary",
     }),
   },
   navigate_to_page: {
@@ -464,6 +502,12 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
     intentName: "create_draft",
     buildParams: (args, message) => ({
       query: text(args.query) || message,
+      movement_type: text(args.movement_type) || text(args.direction),
+      warehouse: text(args.warehouse),
+      counterparty_or_source: text(args.counterparty_or_source) || text(args.counterparty) || text(args.supplier) || text(args.source),
+      product_lines: text(args.product_lines) || text(args.products) || text(args.materials),
+      document_number: text(args.document_number) || text(args.document),
+      tool: "create_weighbridge_ticket_draft",
       output_type: "filtered_summary",
     }),
   },
@@ -472,6 +516,20 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
     intentName: "create_draft",
     buildParams: (args, message) => ({
       query: text(args.query) || message,
+      field: text(args.field),
+      field_id: text(args.field_id),
+      field_label: text(args.field_label),
+      crop_structure: text(args.crop_structure),
+      crop_structure_id: text(args.crop_structure_id),
+      crop_structure_label: text(args.crop_structure_label),
+      operation_type: text(args.operation_type),
+      area_ha: numberValue(args.area_ha),
+      date: text(args.date),
+      spray_volume_per_ha: numberValue(args.spray_volume_per_ha),
+      materials: Array.isArray(args.materials) ? args.materials : undefined,
+      responsible: text(args.responsible),
+      comment: text(args.comment),
+      tool: "create_operation_draft",
       output_type: "filtered_summary",
     }),
   },
@@ -480,6 +538,11 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
     intentName: "create_draft",
     buildParams: (args, message) => ({
       query: text(args.query) || message,
+      name: text(args.name) || text(args.field),
+      area_ha: numberValue(args.area_ha) || numberValue(args.area),
+      crop: text(args.crop),
+      location: text(args.location),
+      tool: "create_field_draft",
       output_type: "filtered_summary",
     }),
   },
@@ -488,6 +551,12 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
     intentName: "create_draft",
     buildParams: (args, message) => ({
       query: text(args.query) || message,
+      meal_date: text(args.meal_date) || text(args.date),
+      meal_type: text(args.meal_type) || text(args.type),
+      people: text(args.people) || text(args.persons) || text(args.count),
+      location: text(args.location),
+      comment: text(args.comment),
+      tool: "create_meal_order_draft",
       output_type: "filtered_summary",
     }),
   },
@@ -496,13 +565,70 @@ const TOOL_MAP: Record<string, PlannerToolMapping> = {
     intentName: "create_draft",
     buildParams: (args, message) => ({
       query: text(args.query) || message,
+      name: text(args.name),
+      warehouse_type: text(args.warehouse_type) || text(args.type),
+      capacity: numberValue(args.capacity),
+      location: text(args.location),
+      tool: "create_warehouse_draft",
+      output_type: "filtered_summary",
+    }),
+  },
+  create_transfer_draft: {
+    assistantTool: "create_transfer_draft",
+    intentName: "create_draft",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      source_warehouse: text(args.source_warehouse) || text(args.from_warehouse),
+      destination_warehouse: text(args.destination_warehouse) || text(args.to_warehouse),
+      product_lines: text(args.product_lines) || text(args.products) || text(args.materials),
+      tool: "create_transfer_draft",
+      output_type: "filtered_summary",
+    }),
+  },
+  create_fuel_issue_draft: {
+    assistantTool: "create_fuel_issue_draft",
+    intentName: "create_draft",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      fuel_source: text(args.fuel_source) || text(args.source),
+      vehicle_or_machine: text(args.vehicle_or_machine) || text(args.vehicle) || text(args.machine),
+      quantity: numberValue(args.quantity),
+      unit: text(args.unit),
+      tool: "create_fuel_issue_draft",
+      output_type: "filtered_summary",
+    }),
+  },
+  create_field_task_draft: {
+    assistantTool: "create_field_task_draft",
+    intentName: "create_draft",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      field: text(args.field),
+      crop_structure: text(args.crop_structure),
+      task: text(args.task),
+      date: text(args.date),
+      responsible: text(args.responsible),
+      tool: "create_field_task_draft",
+      output_type: "filtered_summary",
+    }),
+  },
+  create_material_issue_draft: {
+    assistantTool: "create_material_issue_draft",
+    intentName: "create_draft",
+    buildParams: (args, message) => ({
+      query: text(args.query) || message,
+      operation: text(args.operation),
+      materials: text(args.materials) || text(args.product_lines) || text(args.products),
+      warehouse: text(args.warehouse),
+      date: text(args.date),
+      tool: "create_material_issue_draft",
       output_type: "filtered_summary",
     }),
   },
 };
 
 export function getPlannerToolSchemas(): PlannerToolSchema[] {
-  return [
+  const schemas: PlannerToolSchema[] = [
     {
       type: "function",
       function: {
@@ -605,7 +731,7 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       function: {
         name: "get_warehouse_stock",
         description:
-          "Возвращает остатки по продукту/складу. Если пользователь указал овощной, семенной, зерновой, удобрения или СЗР склад, обязательно передайте это в warehouse.",
+          "Возвращает остатки по продукту/складу. Используйте только если пользователь явно просит остаток/наличие/склад/stock/balance. Не используйте для голого названия продукта или короткого неоднозначного слова без запроса данных. Если пользователь указал овощной, семенной, зерновой, удобрения или СЗР склад, обязательно передайте это в warehouse.",
         parameters: {
           type: "object",
           properties: {
@@ -639,7 +765,8 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       type: "function",
       function: {
         name: "get_warehouse_balance_summary",
-        description: "Возвращает сводку остатков по складам.",
+        description:
+          "Возвращает сводку остатков по складам. Используйте только для явного вопроса об остатках/наличии/складах, а не для короткого неоднозначного слова.",
         parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
       },
     },
@@ -900,7 +1027,18 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       function: {
         name: "create_weighbridge_ticket_draft",
         description: "Готовит безопасный черновик талона весовой. Если данных не хватает, возвращает список недостающих полей.",
-        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            movement_type: { type: "string" },
+            warehouse: { type: "string" },
+            counterparty_or_source: { type: "string" },
+            product_lines: { type: "string" },
+            document_number: { type: "string" },
+          },
+          additionalProperties: false,
+        },
       },
     },
     {
@@ -916,7 +1054,17 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       function: {
         name: "create_field_draft",
         description: "Готовит безопасный черновик поля. Если данных не хватает, возвращает список недостающих полей.",
-        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            name: { type: "string" },
+            area_ha: { type: "number" },
+            crop: { type: "string" },
+            location: { type: "string" },
+          },
+          additionalProperties: false,
+        },
       },
     },
     {
@@ -924,7 +1072,18 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       function: {
         name: "create_meal_order_draft",
         description: "Готовит безопасный черновик заявки питания/термосов. Если данных не хватает, возвращает список недостающих полей.",
-        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            meal_date: { type: "string" },
+            meal_type: { type: "string" },
+            people: { type: "string" },
+            location: { type: "string" },
+            comment: { type: "string" },
+          },
+          additionalProperties: false,
+        },
       },
     },
     {
@@ -932,10 +1091,104 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       function: {
         name: "create_warehouse_draft",
         description: "Готовит безопасный черновик склада. Если данных не хватает, возвращает список недостающих полей.",
-        parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            name: { type: "string" },
+            warehouse_type: { type: "string" },
+            capacity: { type: "number" },
+            location: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_transfer_draft",
+        description: "Готовит безопасный черновик межскладского перемещения. Не создаёт ledger и не меняет остатки.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            source_warehouse: { type: "string" },
+            destination_warehouse: { type: "string" },
+            product_lines: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_fuel_issue_draft",
+        description: "Готовит безопасный черновик выдачи ГСМ на машину или технику. Не списывает топливо.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            fuel_source: { type: "string" },
+            vehicle_or_machine: { type: "string" },
+            quantity: { type: "number" },
+            unit: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_field_task_draft",
+        description: "Готовит безопасный черновик полевого задания без создания операции.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            field: { type: "string" },
+            crop_structure: { type: "string" },
+            task: { type: "string" },
+            date: { type: "string" },
+            responsible: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: "function",
+      function: {
+        name: "create_material_issue_draft",
+        description: "Готовит безопасный черновик выдачи материала под операцию. Не списывает склад и не создаёт заявку без подтверждения.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            operation: { type: "string" },
+            materials: { type: "string" },
+            warehouse: { type: "string" },
+            date: { type: "string" },
+          },
+          additionalProperties: false,
+        },
       },
     },
   ];
+
+  return schemas.map((schema) =>
+    schema.function.name === "create_operation_draft"
+      ? {
+          ...schema,
+          function: {
+            ...schema.function,
+            parameters: CREATE_OPERATION_DRAFT_PARAMETERS,
+          },
+        }
+      : schema
+  );
 }
 
 export function resolvePlannerToolCall(name: string): PlannerToolMapping | null {
@@ -953,6 +1206,6 @@ export function buildPlannerIntent(params: {
     name: params.mapping.intentName,
     confidence: 1,
     needsData: true,
-    parameters: intentParams,
+    parameters: intentParams as AssistantIntent["parameters"],
   };
 }
