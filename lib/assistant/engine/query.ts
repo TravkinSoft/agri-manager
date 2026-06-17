@@ -73,6 +73,23 @@ type LlmDiagnostics = {
   missingEnv: string[];
 };
 
+type GptFirstRequestType = "CHAT" | "QUESTION" | "DATA" | "ACTION";
+
+type GptFirstDecision = {
+  ok: boolean;
+  requestType: GptFirstRequestType | null;
+  answer: string | null;
+  toolHint: string | null;
+  toolParams: Record<string, unknown>;
+  confidence: number;
+  actualModel: string | null;
+  configuredModel: string | null;
+  settingsSource: "db" | "env" | "default";
+  usage: UsageStats;
+  llm: LlmDiagnostics;
+  durationMs: number;
+};
+
 function llmNotCalled(): LlmDiagnostics {
   return {
     status: "not_called",
@@ -86,6 +103,141 @@ function llmNotCalled(): LlmDiagnostics {
 function cleanString(value: unknown): string | null {
   const text = String(value || "").trim();
   return text.length ? text : null;
+}
+
+function combineUsageStats(...items: UsageStats[]): UsageStats {
+  const add = (key: keyof UsageStats): number | null => {
+    let saw = false;
+    const total = items.reduce((sum, item) => {
+      const value = item[key];
+      if (typeof value === "number") {
+        saw = true;
+        return sum + value;
+      }
+      return sum;
+    }, 0);
+    return saw ? total : null;
+  };
+  return {
+    promptTokens: add("promptTokens"),
+    completionTokens: add("completionTokens"),
+    totalTokens: add("totalTokens"),
+  };
+}
+
+function normalizeProductAliasForFastData(value: string | null): string | null {
+  const text = cleanString(value);
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (/(\u0441\u0435\u043b\u0438\u0442\u0440|\u0430\u043c\u043c\u0438\u0430\u0447|ammonium\s+nitrate)/i.test(normalized)) {
+    return "Ammonium Nitrate";
+  }
+  return text;
+}
+
+function hasShortAnswerPreference(memoryContext: string | null | undefined): boolean {
+  const text = String(memoryContext || "").toLowerCase();
+  return /(\u043a\u043e\u0440\u043e\u0442\u043a|\u043a\u0440\u0430\u0442\u043a|\u0431\u0435\u0437\s+\u0432\u043e\u0434|\u0441\u0436\u0430\u0442)/i.test(text);
+}
+
+function compactAnswerForShortPreference(answer: string): string {
+  const text = String(answer || "").trim();
+  if (text.length <= 380) return text;
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^(если нужно|могу дальше|хочешь|следующий шаг)/i.test(line));
+  if (lines.length >= 3) {
+    return lines.slice(0, 5).join("\n");
+  }
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+  return sentences.slice(0, 4).join(" ").trim();
+}
+
+function editDistanceWithinTwo(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 2) return false;
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let prevDiagonal = previous[0];
+    previous[0] = i;
+    let rowMin = previous[0];
+    for (let j = 1; j <= b.length; j += 1) {
+      const beforeUpdate = previous[j];
+      previous[j] =
+        a[i - 1] === b[j - 1]
+          ? prevDiagonal
+          : Math.min(previous[j - 1] + 1, previous[j] + 1, prevDiagonal + 1);
+      prevDiagonal = beforeUpdate;
+      rowMin = Math.min(rowMin, previous[j]);
+    }
+    if (rowMin > 2) return false;
+  }
+  return previous[b.length] <= 2;
+}
+
+function isSimpleGreetingLikeChat(message: string): boolean {
+  const raw = (cleanString(message) || "").toLowerCase();
+  if (!raw || raw.length > 40) return false;
+  if (/(остат|склад|движ|операц|поле|талон|созд|откро|покаж|скольк|материал|верни|выда)/i.test(raw)) {
+    return false;
+  }
+  if (/(добрый\s+(день|вечер|утро)|салам|здравств|hello|hi\b|hey\b|privet)/i.test(raw)) return true;
+  const tokens = raw
+    .replace(/[^\p{L}\p{N}\s-]+/gu, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.length > 2) return false;
+  return tokens.some((token) => token === "привет" || editDistanceWithinTwo(token, "привет"));
+}
+
+function normalizeChatAnswerForSmallTalk(message: string, answer: string): string {
+  if (!isSimpleGreetingLikeChat(message)) return answer;
+  return "Привет! Я на месте. Чем займёмся?";
+}
+
+function draftKindHumanLabel(kind: string | null | undefined): string {
+  switch (cleanString(kind)) {
+    case "weighbridge_ticket":
+      return "талона весовой";
+    case "warehouse":
+      return "склада";
+    case "field":
+      return "поля";
+    case "meal_order":
+      return "заявки питания";
+    case "transfer":
+      return "перемещения";
+    case "fuel_issue":
+      return "выдачи ГСМ";
+    case "field_task":
+      return "полевого задания";
+    case "material_issue":
+      return "выдачи материалов";
+    default:
+      return "операции";
+  }
+}
+
+function missingDraftFieldLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (item && typeof item === "object") return cleanString((item as Record<string, unknown>).label);
+      return cleanString(item);
+    })
+    .filter((item): item is string => Boolean(item));
+}
+
+function buildFastDraftAnswer(payload: Record<string, unknown>): string {
+  const kind = cleanString(payload.draftKind);
+  const missing = missingDraftFieldLabels(payload.missingFields);
+  const label = draftKindHumanLabel(kind);
+  if (missing.length) {
+    return `Подготовил черновик ${label}. Нужно уточнить: ${missing.join(", ")}. Данные ещё не записаны в систему.`;
+  }
+  return `Подготовил черновик ${label}. Проверь карточку и подтверди вручную. Данные ещё не записаны в систему.`;
 }
 
 function combineMemoryContext(...parts: Array<string | null | undefined>): string | null {
@@ -2668,6 +2820,26 @@ function buildNavigationAnswer(actions: AssistantNavigationAction[]): string {
   return buildNavigationAnswerV2(actions);
 }
 
+function humanNavigationPageName(page: string | null | undefined): string {
+  const key = cleanString(page) || "";
+  const labels: Record<string, string> = {
+    dashboard: "панель",
+    fields: "поля",
+    "fields-map": "карту полей",
+    "crop-structure": "структуру посевов",
+    operations: "операции",
+    warehouses: "склады",
+    weighbridge: "весовую",
+    "weighbridge-history": "историю талонов",
+    "meal-thermoses": "питание и термосы",
+    tasks: "задачи",
+    users: "пользователей",
+    settings: "настройки",
+    analytics: "аналитику",
+  };
+  return labels[key] || key || "страницу";
+}
+
 function buildNavigationAnswerV2(actions: AssistantNavigationAction[], intent?: AssistantIntent): string {
   if (!actions.length) {
     const action = cleanString(intent?.parameters?.action);
@@ -2678,14 +2850,15 @@ function buildNavigationAnswerV2(actions: AssistantNavigationAction[], intent?: 
     return "Не удалось выполнить переход: route не найден.";
   }
   const first = actions[0];
+  const pageLabel = humanNavigationPageName(first.page);
   if (first.type === "open_entity") {
     const label = first.entityQuery || first.entityId || first.page;
     return `Подготовил переход к объекту: ${label}.`;
   }
   if (first.type === "open_page_with_filter" || first.type === "apply_filter") {
-    return `Подготовил переход на страницу ${first.page} с фильтром.`;
+    return `Подготовил переход: ${pageLabel} с фильтром.`;
   }
-  return `Подготовил переход на страницу ${first.page}.`;
+  return `Подготовил переход: ${pageLabel}.`;
 }
 
 function degradedAssistantMessage(
@@ -2880,6 +3053,387 @@ async function generateGeneralAnswer(params: {
     llm,
     promptMeta,
   };
+}
+
+function parseGptFirstDecisionPayload(value: unknown): {
+  requestType: GptFirstRequestType | null;
+  answer: string | null;
+  toolHint: string | null;
+  toolParams: Record<string, unknown>;
+  confidence: number;
+} | null {
+  const raw = cleanString(value);
+  if (!raw) return null;
+  const jsonText = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+    const rawType = String(parsed.request_type || parsed.type || "").trim().toUpperCase();
+    const requestType = rawType === "CHAT" || rawType === "QUESTION" || rawType === "DATA" || rawType === "ACTION" ? rawType : null;
+    if (!requestType) return null;
+    const confidenceRaw = Number(parsed.confidence);
+    return {
+      requestType,
+      answer: cleanString(parsed.final_answer) || cleanString(parsed.answer),
+      toolHint: cleanString(parsed.tool_hint),
+      toolParams:
+        parsed.params && typeof parsed.params === "object" && !Array.isArray(parsed.params)
+          ? (parsed.params as Record<string, unknown>)
+          : {},
+      confidence: Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0.7,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function runGptFirstRequestDecision(params: {
+  message: string;
+  locale: "ru" | "en" | "kz";
+  settings: AssistantPlatformSettings;
+  runtimeContext: AssistantUiContext;
+  sessionState: AssistantSessionState;
+  longTermMemoryContext?: string | null;
+}): Promise<GptFirstDecision> {
+  const startedAt = Date.now();
+  const modelConfig = resolveAssistantModelConfig(params.settings, {
+    intentName: "general_question",
+    message: params.message,
+    forceFastModel: true,
+  });
+  const emptyUsage: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
+  const fail = (llm: LlmDiagnostics): GptFirstDecision => ({
+    ok: false,
+    requestType: null,
+    answer: null,
+    toolHint: null,
+    toolParams: {},
+    confidence: 0,
+    actualModel: null,
+    configuredModel: modelConfig.configuredModel,
+    settingsSource: modelConfig.settingsSource,
+    usage: emptyUsage,
+    llm,
+    durationMs: Date.now() - startedAt,
+  });
+
+  if (!process.env.OPENAI_API_KEY) {
+    return fail({
+      status: "missing_api_key",
+      httpStatus: null,
+      errorCode: "OPENAI_API_KEY_MISSING",
+      errorMessage: "OPENAI_API_KEY is not configured",
+      missingEnv: ["OPENAI_API_KEY"],
+    });
+  }
+
+  const context = {
+    page: params.runtimeContext.currentPage || null,
+    route: params.runtimeContext.currentRoute || null,
+    module: params.runtimeContext.currentModule || null,
+    company: params.runtimeContext.companyName || null,
+    season: params.runtimeContext.season || params.runtimeContext.defaultSeason || null,
+    focus_type: params.sessionState.focusEntityType || null,
+    focus_label: params.sessionState.focusEntityLabel || null,
+    last_intent: params.sessionState.lastIntent || null,
+    last_field: params.sessionState.lastFieldLabel || params.sessionState.lastField || null,
+    last_warehouse: params.sessionState.lastWarehouseLabel || params.sessionState.lastWarehouse || null,
+    pending_action: params.sessionState.pendingActionSummary || params.sessionState.pendingActionType || null,
+    durable_memory: cleanString(params.longTermMemoryContext)?.slice(0, 1200) || null,
+  };
+  const candidateModels = buildAssistantModelCandidateList(modelConfig.actualModel);
+  let usedModel = modelConfig.actualModel;
+  let usage = emptyUsage;
+  let lastLlm: LlmDiagnostics = {
+    status: "not_called",
+    httpStatus: null,
+    errorCode: null,
+    errorMessage: null,
+    missingEnv: [],
+  };
+
+  for (const candidateModel of candidateModels) {
+    usedModel = candidateModel;
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(
+        buildOpenAiChatCompletionBody({
+          model: candidateModel,
+          temperature: 0,
+          maxCompletionTokens: 320,
+          messages: [
+            {
+              role: "system",
+              content: [
+                "You are the first GPT decision layer for TravkinFlow Copilot.",
+                "Return JSON only. Schema: {\"request_type\":\"CHAT|QUESTION|DATA|ACTION\",\"confidence\":0..1,\"final_answer\":string|null,\"tool_hint\":string|null,\"params\":object}.",
+                "CHAT: greeting, thanks, small talk, typo greeting, 'what can you do'. No tools/DB.",
+                "QUESTION: knowledge/explanation/process/agronomy question answerable without live ERP data. No tools/DB.",
+                "DATA: user asks for factual live company data: fields, hectares, stock, movements, tickets, operations, returns.",
+                "Questions like 'сколько X осталось', 'остаток X', 'наличие X', 'X на складе' are DATA with tool_hint warehouse_stock and params.product = X.",
+                "ACTION: user asks to open/navigate/create/prepare/update/issue/close/register.",
+                "Ambiguous short words like 'привент', 'превет', 'селетра', 'Ревус топп' without explicit data/action words are CHAT with a short clarification, not DATA.",
+                "For CHAT final_answer must be a friendly short answer in the user's language.",
+                "For greeting or typo-greeting CHAT, answer like a normal person. Do not mention stock, movements, operations, tools, or ERP checks unless the user explicitly asked.",
+                "For ambiguous product-like CHAT final_answer should ask what to check, e.g. stock, movements, use, operation.",
+                "For QUESTION final_answer may answer briefly if confident; otherwise set null.",
+                "For DATA or ACTION final_answer must be null.",
+                "For simple DATA choose one tool_hint when obvious: field_land_bank, crop_structure, warehouse_stock, warehouse_movements, active_operations, weighbridge_tickets, warehouse_count.",
+                "For tool_hint params include product, warehouse, crop, field, status, limit, season when the user provided them. If unsure, tool_hint null.",
+                "For ACTION navigation params may include page and route if obvious.",
+              ].join("\n"),
+            },
+            { role: "system", content: `Runtime/session context: ${JSON.stringify(context)}` },
+            { role: "user", content: params.message },
+          ],
+        })
+      ),
+    }).catch(() => null);
+
+    if (!response) {
+      lastLlm = {
+        status: "network_error",
+        httpStatus: null,
+        errorCode: "OPENAI_NETWORK_ERROR",
+        errorMessage: "Network request to OpenAI failed",
+        missingEnv: [],
+      };
+      continue;
+    }
+
+    const data = await response.json().catch(() => ({}));
+    usage = {
+      promptTokens: Number.isFinite(Number(data?.usage?.prompt_tokens)) ? Number(data.usage.prompt_tokens) : null,
+      completionTokens: Number.isFinite(Number(data?.usage?.completion_tokens)) ? Number(data.usage.completion_tokens) : null,
+      totalTokens: Number.isFinite(Number(data?.usage?.total_tokens)) ? Number(data.usage.total_tokens) : null,
+    };
+
+    if (!response.ok) {
+      const errCode = cleanString(data?.error?.code);
+      const errMessage = cleanString(data?.error?.message) || cleanString(data?.error?.type);
+      lastLlm = {
+        status: "http_error",
+        httpStatus: response.status,
+        errorCode: errCode,
+        errorMessage: errMessage,
+        missingEnv: [],
+      };
+      const lower = String(errMessage || "").toLowerCase();
+      const modelUnavailable =
+        errCode === "model_not_found" ||
+        lower.includes("does not exist") ||
+        lower.includes("not available") ||
+        lower.includes("do not have access") ||
+        lower.includes("not have access") ||
+        lower.includes("model not found");
+      if (modelUnavailable) continue;
+      break;
+    }
+
+    const content = cleanString(data?.choices?.[0]?.message?.content);
+    const parsed = parseGptFirstDecisionPayload(content);
+    if (parsed) {
+      return {
+        ok: true,
+        requestType: parsed.requestType,
+        answer: parsed.answer,
+        toolHint: parsed.toolHint,
+        toolParams: parsed.toolParams,
+        confidence: parsed.confidence,
+        actualModel: usedModel,
+        configuredModel: modelConfig.configuredModel,
+        settingsSource: modelConfig.settingsSource,
+        usage,
+        llm: {
+          status: "ok",
+          httpStatus: response.status,
+          errorCode: null,
+          errorMessage: null,
+          missingEnv: [],
+        },
+        durationMs: Date.now() - startedAt,
+      };
+    }
+
+    lastLlm = {
+      status: "invalid_response",
+      httpStatus: response.status,
+      errorCode: "GPT_FIRST_DECISION_PARSE_FAILED",
+      errorMessage: "Decision response was not valid JSON",
+      missingEnv: [],
+    };
+    break;
+  }
+
+  return {
+    ok: false,
+    requestType: null,
+    answer: null,
+    toolHint: null,
+    toolParams: {},
+    confidence: 0,
+    actualModel: usedModel,
+    configuredModel: modelConfig.configuredModel,
+    settingsSource: modelConfig.settingsSource,
+    usage,
+    llm: lastLlm,
+    durationMs: Date.now() - startedAt,
+  };
+}
+
+function buildFastReadOnlyDataIntent(params: {
+  decision: GptFirstDecision;
+  message: string;
+  runtimeContext: AssistantUiContext;
+}): { intent: AssistantIntent; toolName: AssistantToolName } | null {
+  if (!params.decision.ok || params.decision.requestType !== "DATA") return null;
+  const hint = cleanString(params.decision.toolHint)?.toLowerCase();
+  if (!hint) return null;
+  const toolParams = params.decision.toolParams || {};
+  const query = cleanString(toolParams.query) || params.message;
+  const product = normalizeProductAliasForFastData(cleanString(toolParams.product));
+  const warehouse = cleanString(toolParams.warehouse);
+  const crop = cleanString(toolParams.crop);
+  const cropGroup = cleanString(toolParams.crop_group);
+  const field = cleanString(toolParams.field);
+  const status = cleanString(toolParams.status);
+  const limitRaw = Number(toolParams.limit);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(50, Math.trunc(limitRaw))) : null;
+  const season = cleanString(toolParams.season) || params.runtimeContext.season || params.runtimeContext.defaultSeason || "2026";
+
+  if (hint === "field_land_bank") {
+    return {
+      toolName: "get_field_land_bank_summary",
+      intent: {
+        name: "field_total_area",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          output_type: "summary_total",
+          source_of_truth: "fields",
+        },
+      },
+    };
+  }
+
+  if (hint === "warehouse_count") {
+    return {
+      toolName: "get_warehouse_count",
+      intent: {
+        name: "warehouse_count",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          output_type: "summary_total",
+        },
+      },
+    };
+  }
+
+  if (hint === "crop_structure") {
+    return {
+      toolName: "get_crop_structure_summary",
+      intent: {
+        name: "crop_structure_area",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          crop_alias: crop,
+          crop_group: cropGroup,
+          season,
+          output_type: crop || cropGroup ? "filtered_summary" : "summary_total",
+          source_of_truth: "crop_structure",
+        },
+      },
+    };
+  }
+
+  if (hint === "warehouse_stock") {
+    return {
+      toolName: "get_warehouse_stock",
+      intent: {
+        name: "inventory_balance",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          product,
+          warehouse_alias: warehouse,
+          allWarehouses: warehouse ? false : true,
+          intent_group: "inventory",
+          output_type: "balance",
+        },
+      },
+    };
+  }
+
+  if (hint === "warehouse_movements") {
+    return {
+      toolName: "get_warehouse_movements",
+      intent: {
+        name: "warehouse_movements",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          product,
+          warehouse_alias: warehouse,
+          limit: limit || 10,
+          intent_group: "inventory",
+          output_type: "movements",
+        },
+      },
+    };
+  }
+
+  if (hint === "active_operations") {
+    return {
+      toolName: "get_active_operations_summary",
+      intent: {
+        name: "operations_recent",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          field,
+          status: status || "active",
+          limit: limit || 20,
+          intent_group: "operations",
+          output_type: "list",
+        },
+      },
+    };
+  }
+
+  if (hint === "weighbridge_tickets") {
+    const active = /active|open|актив|открыт/i.test(status || query);
+    return {
+      toolName: active ? "get_active_tickets" : "get_recent_tickets",
+      intent: {
+        name: "weighbridge_tickets",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          status: active ? "active" : null,
+          limit: limit || 10,
+          intent_group: "weighbridge",
+          output_type: "filtered_summary",
+        },
+      },
+    };
+  }
+
+  return null;
 }
 
 export async function runAssistantEngine(params: {
@@ -3084,6 +3638,460 @@ export async function runAssistantEngine(params: {
     };
   }
 
+  const gptDecision = await runGptFirstRequestDecision({
+    message: memoryRouting.routingMessage,
+    locale: runtimeContext.locale || "ru",
+    settings,
+    runtimeContext,
+    sessionState: initialSessionState,
+    longTermMemoryContext,
+  });
+  const gptDecisionDurationMs = gptDecision.ok ? gptDecision.durationMs : 0;
+
+  if (gptDecision.ok && gptDecision.requestType === "CHAT" && gptDecision.answer) {
+    const chatAnswer = normalizeChatAnswerForSmallTalk(messageForRouting, gptDecision.answer);
+    decisionSource = "model";
+    routerMs = 0;
+    plannerMs = gptDecision.durationMs;
+    toolMs = 0;
+    validatorMs = 0;
+    modelMs = gptDecision.durationMs;
+    return {
+      answer: chatAnswer,
+      sessionState: {
+        ...initialSessionState,
+        lastIntent: "general_question",
+        lastAnswerType: "chat",
+      },
+      intent: {
+        name: "general_question",
+        confidence: gptDecision.confidence || 0.9,
+        needsData: false,
+        parameters: {
+          query: message,
+          request_type: "CHAT",
+          output_type: "filtered_summary",
+        },
+      },
+      outputType: "filtered_summary",
+      mode: "agro_knowledge",
+      toolCalls: [],
+      toolActivity: [],
+      navigationActions: [],
+      sourceHints: [],
+      answerSource: "llm_fallback",
+      grounded: false,
+      decisionSource,
+      explicitNavigationRequested: false,
+      navigationPolicy,
+      model: {
+        configuredModel: gptDecision.configuredModel,
+        actualModel: gptDecision.actualModel,
+        settingsSource: gptDecision.settingsSource,
+        promptVersion: promptMeta.promptVersion,
+        promptSource: promptMeta.promptSource,
+        promptUpdatedAt: promptMeta.promptUpdatedAt,
+        requestMode: engineMode,
+        llm: gptDecision.llm,
+      },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType: "filtered_summary",
+        selectedSource: "gpt_first_chat",
+        selectedTool: null,
+      }),
+      performance: buildPerformance({
+        promptTokens: gptDecision.usage.promptTokens,
+        completionTokens: gptDecision.usage.completionTokens,
+        totalTokens: gptDecision.usage.totalTokens,
+        routerMs,
+        plannerMs,
+        toolMs,
+        validatorMs,
+        modelMs,
+        responseRenderMs,
+      }),
+    };
+  }
+
+  if (gptDecision.ok && gptDecision.requestType === "QUESTION") {
+    decisionSource = "model";
+    routerMs = 0;
+    plannerMs = gptDecision.durationMs;
+    toolMs = 0;
+    validatorMs = 0;
+    const questionIntent: AssistantIntent = {
+      name: "general_question",
+      confidence: gptDecision.confidence || 0.85,
+      needsData: false,
+      parameters: {
+        query: message,
+        request_type: "QUESTION",
+        output_type: "filtered_summary",
+      },
+    };
+    const preparedKnowledgePrompt = settings.knowledgePolicy?.internalLibraryFirst
+      ? await buildKnowledgePromptBundle({
+          intentName: questionIntent.name,
+          mode: "agro_knowledge",
+          includeCompanyLibrary: true,
+        })
+      : null;
+    const hasLibraryContext = Boolean(
+      preparedKnowledgePrompt?.promptBundle.text.includes("Company knowledge library context:")
+    );
+    let answer: string | null = null;
+    let actualModel = gptDecision.actualModel;
+    let llm = gptDecision.llm;
+    let usage = gptDecision.usage;
+    let answerPromptMeta = promptMeta;
+    const knowledgePrompt =
+      preparedKnowledgePrompt ||
+      (await buildKnowledgePromptBundle({
+        intentName: questionIntent.name,
+        mode: "agro_knowledge",
+        includeCompanyLibrary: true,
+      }));
+    const modelStartedAt = Date.now();
+    const shortPreferenceInstruction = hasShortAnswerPreference(longTermMemoryContext)
+      ? "\n\nDurable user memory says the user wants short answers. Hard limit: 3-5 short lines, no long explanations, no numbered menu unless the user asks."
+      : "";
+    const fallback = await generateGeneralAnswer({
+      message,
+      locale: runtimeContext.locale || "ru",
+      settings,
+      intentName: questionIntent.name,
+      systemPrompt: `${knowledgePrompt.promptBundle.text}\n\nОтвечай как специалист хозяйства и соблюдай durable user memory, особенно стиль ответа и обращение. Не вызывай ERP tools для этого вопроса. Если вопрос требует живых данных компании, скажи, что нужно уточнить запрос как DATA.${shortPreferenceInstruction}`,
+      promptMeta: knowledgePrompt.promptMeta,
+      forceFastModel: true,
+    });
+    modelMs = gptDecision.durationMs + (Date.now() - modelStartedAt);
+    answer = fallback.answer;
+    if (hasShortAnswerPreference(longTermMemoryContext)) {
+      answer = compactAnswerForShortPreference(answer);
+    }
+    actualModel = fallback.actualModel;
+    llm = fallback.llm;
+    usage = combineUsageStats(gptDecision.usage, fallback.usage);
+    answerPromptMeta = fallback.promptMeta;
+    return {
+      answer: answer || "Данных недостаточно, чтобы уверенно ответить.",
+      sessionState: {
+        ...initialSessionState,
+        lastIntent: questionIntent.name,
+        lastAnswerType: "knowledge",
+      },
+      intent: questionIntent,
+      outputType: "filtered_summary",
+      mode: "agro_knowledge",
+      toolCalls: [],
+      toolActivity: [],
+      navigationActions: [],
+      sourceHints: hasLibraryContext ? ["Источник знаний: внутренняя библиотека компании"] : [],
+      answerSource: "llm_fallback",
+      grounded: false,
+      decisionSource,
+      explicitNavigationRequested: false,
+      navigationPolicy,
+      model: {
+        configuredModel: gptDecision.configuredModel,
+        actualModel,
+        settingsSource: gptDecision.settingsSource,
+        promptVersion: answerPromptMeta.promptVersion,
+        promptSource: answerPromptMeta.promptSource,
+        promptUpdatedAt: answerPromptMeta.promptUpdatedAt,
+        requestMode: engineMode,
+        llm,
+      },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType: "filtered_summary",
+        selectedSource: hasLibraryContext ? "company_knowledge" : "gpt_first_question",
+        selectedTool: null,
+      }),
+      performance: buildPerformance({
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens,
+        routerMs,
+        plannerMs,
+        toolMs,
+        validatorMs,
+        modelMs,
+        responseRenderMs,
+      }),
+    };
+  }
+
+  if (gptDecision.ok && gptDecision.requestType === "ACTION" && hasExplicitNavigationRequest(messageForRouting)) {
+    decisionSource = "model";
+    routerMs = 0;
+    plannerMs = gptDecision.durationMs;
+    toolMs = 0;
+    validatorMs = 0;
+    modelMs = gptDecision.durationMs;
+    const intent = await classifyAssistantIntent({
+      message: memoryRouting.routingMessage,
+      runtimeContext,
+      sessionState: initialSessionState,
+      settings,
+    });
+    if (intent.name === "navigation_help") {
+      const resolvedOutputType = resolveOutputType(intent);
+      const navigationResult = applyNavigationPolicy({
+        message: messageForRouting,
+        actions: getNavigationActions({ intent, outputs: [] }),
+        strict: strictNavigationPolicy,
+      });
+      explicitNavigationRequested = navigationResult.explicitNavigationRequested;
+      navigationPolicy = navigationResult.policy;
+      const actionPlan = buildAssistantActionPlan({
+        intent,
+        navigationActions: navigationResult.actions,
+        requestMessage: messageForRouting,
+        sessionState: initialSessionState,
+        runtimeContext,
+      });
+      const updatedState = applyAssistantActionPlanToSessionState(
+        {
+          ...initialSessionState,
+          lastIntent: intent.name,
+          lastAnswerType: "navigation",
+        },
+        actionPlan
+      );
+      return {
+        answer: buildNavigationAnswerV2(navigationResult.actions, intent),
+        sessionState: updatedState,
+        intent,
+        outputType: resolvedOutputType,
+        mode: "navigation",
+        toolCalls: [],
+        toolActivity: [],
+        navigationActions: navigationResult.actions,
+        sourceHints: [],
+        answerSource: "model_grounded",
+        grounded: false,
+        decisionSource,
+        explicitNavigationRequested,
+        navigationPolicy,
+        model: {
+          configuredModel: gptDecision.configuredModel,
+          actualModel: gptDecision.actualModel,
+          settingsSource: gptDecision.settingsSource,
+          promptVersion: promptMeta.promptVersion,
+          promptSource: promptMeta.promptSource,
+          promptUpdatedAt: promptMeta.promptUpdatedAt,
+          requestMode: engineMode,
+          llm: gptDecision.llm,
+        },
+        diagnostics: buildDiagnostics({
+          expectedAnswerType: resolvedOutputType,
+          selectedSource: "navigation_executor",
+          selectedTool: null,
+        }),
+        performance: buildPerformance({
+          promptTokens: gptDecision.usage.promptTokens,
+          completionTokens: gptDecision.usage.completionTokens,
+          totalTokens: gptDecision.usage.totalTokens,
+          routerMs,
+          plannerMs,
+          toolMs,
+          validatorMs,
+          modelMs,
+          responseRenderMs,
+        }),
+      };
+    }
+  }
+
+  if (gptDecision.ok && gptDecision.requestType === "ACTION") {
+    decisionSource = "model";
+    const routerStartedAt = Date.now();
+    const intent = await classifyAssistantIntent({
+      message: memoryRouting.routingMessage,
+      runtimeContext,
+      sessionState: initialSessionState,
+      settings,
+    });
+    routerMs = Date.now() - routerStartedAt;
+
+    if (intent.name === "create_draft") {
+      const actionPlan = buildAssistantActionPlan({
+        intent,
+        navigationActions: [],
+        requestMessage: messageForRouting,
+        sessionState: initialSessionState,
+        runtimeContext,
+      });
+      if (actionPlan?.requiresConfirmation) {
+        const updatedState = applyAssistantActionPlanToSessionState(
+          {
+            ...initialSessionState,
+            lastIntent: intent.name,
+            lastAnswerType: "action_draft",
+          },
+          actionPlan
+        );
+        plannerMs = gptDecision.durationMs;
+        toolMs = 0;
+        validatorMs = 0;
+        modelMs = gptDecision.durationMs;
+        const outputType = resolveOutputType(intent);
+        return {
+          answer: buildFastDraftAnswer(actionPlan.payload),
+          sessionState: updatedState,
+          intent,
+          outputType,
+          mode: "mixed",
+          toolCalls: [],
+          toolActivity: [],
+          navigationActions: [],
+          sourceHints: [],
+          answerSource: "model_grounded",
+          grounded: false,
+          decisionSource,
+          explicitNavigationRequested: false,
+          navigationPolicy,
+          model: {
+            configuredModel: gptDecision.configuredModel,
+            actualModel: gptDecision.actualModel,
+            settingsSource: gptDecision.settingsSource,
+            promptVersion: promptMeta.promptVersion,
+            promptSource: promptMeta.promptSource,
+            promptUpdatedAt: promptMeta.promptUpdatedAt,
+            requestMode: engineMode,
+            llm: gptDecision.llm,
+          },
+          diagnostics: buildDiagnostics({
+            expectedAnswerType: outputType,
+            selectedSource: "action_draft",
+            selectedTool: null,
+            consistencyCheck: "skipped",
+          }),
+          performance: buildPerformance({
+            promptTokens: gptDecision.usage.promptTokens,
+            completionTokens: gptDecision.usage.completionTokens,
+            totalTokens: gptDecision.usage.totalTokens,
+            routerMs,
+            plannerMs,
+            toolMs,
+            validatorMs,
+            modelMs,
+            responseRenderMs,
+          }),
+        };
+      }
+    }
+  }
+
+  const fastReadOnlyData = buildFastReadOnlyDataIntent({
+    decision: gptDecision,
+    message: messageForRouting,
+    runtimeContext,
+  });
+  if (fastReadOnlyData) {
+    const tool = getAssistantTool(fastReadOnlyData.toolName);
+    if (tool) {
+      const outputType = resolveOutputType(fastReadOnlyData.intent);
+      const toolStartedAt = Date.now();
+      try {
+        const output = await tool.run({
+          supabase,
+          actor,
+          companyId,
+          settings,
+          runtimeContext,
+          sessionState: initialSessionState,
+          intent: fastReadOnlyData.intent,
+        });
+        const fastToolMs = Date.now() - toolStartedAt;
+        const toolCall: AssistantToolCallLog = {
+          tool: fastReadOnlyData.toolName,
+          params: fastReadOnlyData.intent.parameters || {},
+          ok: true,
+          rows: output.rows.length,
+          durationMs: fastToolMs,
+        };
+        const answer =
+          buildMandatoryToolDataAnswer({
+            intent: fastReadOnlyData.intent,
+            outputType,
+            outputs: [output],
+            toolCalls: [toolCall],
+          }) ||
+          formatGroundedToolOutput({
+            toolName: fastReadOnlyData.toolName,
+            intentName: fastReadOnlyData.intent.name,
+            outputType,
+            intentParams: fastReadOnlyData.intent.parameters,
+            output,
+          }) ||
+          noDataGroundedMessage();
+        const nextSessionState = updateSessionStateFromToolOutput({
+          previous: initialSessionState,
+          intent: fastReadOnlyData.intent,
+          output,
+          seasonFromContext: runtimeContext.season,
+        });
+        decisionSource = "model";
+        routerMs = 0;
+        plannerMs = gptDecisionDurationMs;
+        toolMs = fastToolMs;
+        validatorMs = 0;
+        modelMs = gptDecisionDurationMs;
+        return {
+          answer,
+          sessionState: {
+            ...nextSessionState,
+            lastIntent: fastReadOnlyData.intent.name,
+          },
+          intent: fastReadOnlyData.intent,
+          outputType,
+          mode: fastReadOnlyData.intent.name === "navigation_help" ? "navigation" : "erp_data",
+          toolCalls: [toolCall],
+          toolActivity: buildToolActivityLogs([toolCall]),
+          navigationActions: [],
+          sourceHints: [
+            `${output.source.module} • ${output.source.tableOrView} • ${output.source.season || "-"} • ${output.source.fetchedAt}`,
+          ],
+          answerSource: "tools",
+          grounded: true,
+          decisionSource,
+          explicitNavigationRequested: false,
+          navigationPolicy,
+          model: {
+            configuredModel: gptDecision.configuredModel,
+            actualModel: gptDecision.actualModel,
+            settingsSource: gptDecision.settingsSource,
+            promptVersion: promptMeta.promptVersion,
+            promptSource: promptMeta.promptSource,
+            promptUpdatedAt: promptMeta.promptUpdatedAt,
+            requestMode: engineMode,
+            llm: gptDecision.llm,
+          },
+          diagnostics: buildDiagnostics({
+            expectedAnswerType: getExpectedAnswerType(fastReadOnlyData.intent.name),
+            selectedSource: getSelectedSource(fastReadOnlyData.intent.name),
+            selectedTool: fastReadOnlyData.toolName,
+            consistencyCheck: "skipped",
+          }),
+          performance: buildPerformance({
+            promptTokens: gptDecision.usage.promptTokens,
+            completionTokens: gptDecision.usage.completionTokens,
+            totalTokens: gptDecision.usage.totalTokens,
+            routerMs,
+            plannerMs,
+            toolMs,
+            validatorMs,
+            modelMs,
+            responseRenderMs,
+          }),
+        };
+      } catch {
+        // Fall through to the full planner path. The shortcut is read-only and safe to abandon.
+      }
+    }
+  }
+
   if (String(process.env.ASSISTANT_LEGACY_KNOWLEDGE_FAST_PATH || "0") === "1" && isPureKnowledgeQuestion(message)) {
     decisionSource = "model";
     routerMs = 0;
@@ -3261,9 +4269,9 @@ export async function runAssistantEngine(params: {
       forceHeavyModel: true,
     });
     modelMs = Date.now() - modelStartedAt;
-    plannerMs = planner.performance.plannerMs ?? modelMs;
+    plannerMs = gptDecisionDurationMs + (planner.performance.plannerMs ?? modelMs);
     toolMs = planner.performance.toolMs ?? toolMs;
-    modelMs = planner.performance.modelMs ?? modelMs;
+    modelMs = gptDecisionDurationMs + (planner.performance.modelMs ?? modelMs);
 
     if (planner.ok) {
       plannerSucceeded = true;
@@ -3468,9 +4476,9 @@ export async function runAssistantEngine(params: {
       companyId,
     });
     modelMs = Date.now() - modelStartedAt;
-    plannerMs = planner.performance.plannerMs ?? modelMs;
+    plannerMs = gptDecisionDurationMs + (planner.performance.plannerMs ?? modelMs);
     toolMs = planner.performance.toolMs ?? toolMs;
-    modelMs = planner.performance.modelMs ?? modelMs;
+    modelMs = gptDecisionDurationMs + (planner.performance.modelMs ?? modelMs);
 
     if (planner.ok) {
       plannerSucceeded = true;

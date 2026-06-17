@@ -123,11 +123,13 @@ function inferDraftKind(intent: AssistantIntent): AssistantDraftKind {
     return "operation";
   }
   const raw = JSON.stringify(intent.parameters || {}).toLowerCase();
+  if (/(weighbridge|ticket|талон|весов)/i.test(raw)) return "weighbridge_ticket";
+  if (/(meal|thermos|питан|термос)/i.test(raw)) return "meal_order";
+  if (/(transfer|перемещ)/i.test(raw)) return "transfer";
+  if (/(fuel|гсм|топлив|азс)/i.test(raw)) return "fuel_issue";
+  if (/(warehouse|stock|склад)/i.test(raw)) return "warehouse";
+  if (/(field|поле)/i.test(raw) && !isOperationDraftText(raw)) return "field";
   if (isOperationDraftText(raw)) return "operation";
-  if (raw.includes("weighbridge") || raw.includes("ticket")) return "weighbridge_ticket";
-  if (raw.includes("warehouse") || raw.includes("stock")) return "warehouse";
-  if (raw.includes("field")) return "field";
-  if (raw.includes("meal") || raw.includes("thermos")) return "meal_order";
   return "operation";
 }
 
@@ -165,6 +167,24 @@ function applyOperationDraftTextFields(output: Record<string, unknown>, query: s
     else if (/(посев|посадк|planting|sowing)/i.test(query)) output.operation_type = "planting";
     else if (/(уборк|harvest)/i.test(query)) output.operation_type = "harvesting";
     else if (/(почво|soil|диск|культивац|вспаш|борон)/i.test(query)) output.operation_type = "soil_operation";
+  }
+}
+
+function applyWeighbridgeDraftTextFields(output: Record<string, unknown>, query: string): void {
+  const text = query.toLowerCase();
+  if (!/(талон|весов|weighbridge|ticket)/i.test(text)) return;
+  if (output.movement_type == null) {
+    if (/(постав|приход|receipt)/i.test(text)) output.movement_type = "поставка/приход";
+    else if (/(отгруз|shipment)/i.test(text)) output.movement_type = "отгрузка";
+    else if (/(перемещ|transfer)/i.test(text)) output.movement_type = "перемещение";
+    else if (/(урожай|harvest)/i.test(text)) output.movement_type = "урожай с поля";
+  }
+  if (output.product_lines == null) {
+    const productMatch = query.match(
+      /(?:поставк[ауи]?|приход|отгрузк[ауи]?|товар(?:ы)?|материал(?:ы)?)\s+(.+?)(?:\s+(?:на|в)\s+склад|\s+со\s+склада|\s+от\s+|$)/i
+    );
+    const product = cleanString(productMatch?.[1]);
+    if (product) output.product_lines = product;
   }
 }
 
@@ -209,7 +229,10 @@ function collectDraftFields(intent: AssistantIntent): Record<string, unknown> {
   });
 
   const query = cleanString(params.query);
-  if (query) applyOperationDraftTextFields(output, query);
+  if (query) {
+    applyWeighbridgeDraftTextFields(output, query);
+    applyOperationDraftTextFields(output, query);
+  }
 
   return output;
 }

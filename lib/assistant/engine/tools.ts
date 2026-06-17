@@ -2638,10 +2638,15 @@ function getDraftRequiredFields(kind: string): DraftRequiredField[] {
   switch (kind) {
     case "create_weighbridge_ticket_draft":
       return [
-        { label: "водитель", signals: [/водител|driver/i] },
-        { label: "машина", signals: [/машин|vehicle|truck|номер/i] },
-        { label: "поле", signals: [/поле|field/i] },
-        { label: "операция", signals: [/операц|operation|уборк|приход|вывоз/i] },
+        { label: "тип движения", signals: [/постав|приход|отгруз|перемещ|выдач|списан|урожай|receipt|shipment|transfer/i] },
+        { label: "склад", signals: [/склад|овощ|семен|зерно|картоф|универс|warehouse/i] },
+        {
+          label: "строки товаров",
+          signals: [
+            /товар|продукт|материал|номенклатур|product|material|line/i,
+            /селитр|ревус|актар|диаммофоск|аммофоск|ph\s*power|смерч|agriful|ammonium|nitrate/i,
+          ],
+        },
       ];
     case "create_operation_draft":
       return [

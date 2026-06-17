@@ -225,6 +225,8 @@ const GENERIC_INTERNAL_KEYS = new Set([
   "companyId",
   "company_id",
   "query",
+  "tool",
+  "output_type",
   "requestMessage",
   "draftKind",
   "draft_kind",
