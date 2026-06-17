@@ -17,6 +17,7 @@ import {
   resolveCanonicalOperationType,
   toStorageMaterialType,
 } from "@/lib/operations/operation-engine";
+import { enqueueOfflineRequest } from "@/lib/offline/offline-queue";
 
 const DB_OPERATION_MATERIAL_TYPES = new Set([
   "seed",
@@ -313,24 +314,81 @@ export async function createOperation(
   companyId: string,
   operationData: OperationFormData,
   options?: { idempotencyKey?: string }
-): Promise<Operation & { material_request?: Record<string, unknown> }> {
+): Promise<Operation & { material_request?: Record<string, unknown>; offline_queued?: boolean; offline_queue_id?: string }> {
   const headers = await buildAuthHeaders("json");
   if (options?.idempotencyKey) {
     headers["Idempotency-Key"] = options.idempotencyKey;
   }
-  const response = await fetch("/api/operations", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      companyId,
-      ...operationData,
-      idempotency_key: options?.idempotencyKey,
-      responsible_user_id:
-        operationData.responsible_user_id && operationData.responsible_user_id !== "none"
-          ? operationData.responsible_user_id
-          : null,
-    }),
-  });
+  const body = {
+    companyId,
+    ...operationData,
+    idempotency_key: options?.idempotencyKey,
+    responsible_user_id:
+      operationData.responsible_user_id && operationData.responsible_user_id !== "none"
+        ? operationData.responsible_user_id
+        : null,
+  };
+  const queueable = Boolean(options?.idempotencyKey);
+  const queueHeaders = { ...headers };
+  delete queueHeaders.Authorization;
+
+  let response: Response;
+  try {
+    if (typeof navigator !== "undefined" && !navigator.onLine && queueable) {
+      throw new TypeError("offline");
+    }
+    response = await fetch("/api/operations", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (!queueable) throw error;
+    const item = enqueueOfflineRequest({
+      description: `Создание операции: ${operationData.operation_type || "план работы"}`,
+      url: "/api/operations",
+      method: "POST",
+      headers: queueHeaders,
+      body,
+      authRequired: true,
+      idempotencyKey: options?.idempotencyKey,
+    });
+    return {
+      id: item.id,
+      company_id: companyId,
+      field_id: operationData.field_id || null,
+      crop_structure_id: operationData.crop_structure_id || null,
+      operation_type: operationData.operation_type,
+      operation_category_slug: operationData.operation_category_slug || null,
+      operation_type_slug: operationData.operation_type_slug || null,
+      planned_area_ha: operationData.planned_area_ha ?? null,
+      crop_id: operationData.crop_id || null,
+      status: "queued",
+      date: operationData.date,
+      machine_id: operationData.machine_id || null,
+      equipment_id: operationData.equipment_id || null,
+      transport_id: operationData.transport_id || null,
+      operation_target: operationData.operation_target || null,
+      rate_per_ha: operationData.rate_per_ha ?? null,
+      spray_volume_per_ha: operationData.spray_volume_per_ha ?? null,
+      row_spacing_m: operationData.row_spacing_m ?? null,
+      seed_spacing_cm: operationData.seed_spacing_cm ?? null,
+      operation_params: operationData.operation_params || null,
+      operation_config: null,
+      notes: operationData.notes || null,
+      responsible_user_id: body.responsible_user_id,
+      work_status: "active",
+      accepted_at: null,
+      completed_at: null,
+      specialist_comment: null,
+      created_at: item.createdAt,
+      updated_at: item.updatedAt,
+      archived: false,
+      user_id: "",
+      offline_queued: true,
+      offline_queue_id: item.id,
+    } as Operation & { offline_queued: true; offline_queue_id: string };
+  }
   const payload = await parseApiResponse(response);
   return {
     ...(payload.operation as Operation),

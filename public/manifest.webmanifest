@@ -1,0 +1,19 @@
+{
+  "name": "TravkinFlow",
+  "short_name": "TravkinFlow",
+  "description": "AgriOS for modern farming operations",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#e0b100",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/travkin-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

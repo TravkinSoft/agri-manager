@@ -1222,9 +1222,16 @@ export default function CropStructurePage() {
       throw new Error(message);
     }
     try {
-      await createOperation(profile.company_id, data, options);
+      const created = await createOperation(profile.company_id, data, options);
       setOperationDialogOpen(false);
       setOperationDefaults(undefined);
+      if ((created as any)?.offline_queued) {
+        toast({
+          title: "Сохранено оффлайн",
+          description: "План добавлен в очередь и отправится автоматически, когда появится интернет.",
+        });
+        return;
+      }
       toast({ title: "План создан", description: "Работа добавлена в журнал операций." });
     } catch (error: any) {
       toast({ title: "Ошибка", description: error?.message || "Не удалось создать план работы", variant: "destructive" });

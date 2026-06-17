@@ -280,6 +280,14 @@ export default function OperationsPage() {
     if (!profile?.company_id) return;
     try {
       const created = await createOperation(profile.company_id, data, options);
+      if ((created as any)?.offline_queued) {
+        setIsFormOpen(false);
+        toast({
+          title: "Сохранено оффлайн",
+          description: "План добавлен в очередь и отправится автоматически, когда появится интернет.",
+        });
+        return;
+      }
       await loadData();
       setIsFormOpen(false);
       const requestMeta = (created as any)?.material_request as { created?: boolean; request_number?: string } | undefined;
