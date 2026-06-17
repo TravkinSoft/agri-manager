@@ -736,6 +736,22 @@ export default function TasksPage() {
     const hasPlannedMaterialsWithoutRequest = visibleOperationMaterials.length > 0 && requests.length === 0;
     const canStartOperation = readyForStart && !hasPlannedMaterialsWithoutRequest;
     const areaStats = operationAreaStats(operation);
+    const stepText =
+      phase === 'active'
+        ? 'Нужно принять операцию'
+        : phase === 'accepted' && readyRequest
+          ? 'Склад подготовил товар'
+          : phase === 'accepted' && hasMaterialRequests && warehouseIsPreparing
+            ? 'Склад готовит материалы'
+            : phase === 'accepted' && waitingWarehouseIssue
+              ? 'Ждём фактическую выдачу склада'
+              : phase === 'accepted' && canStartOperation
+                ? 'Можно начинать работу'
+                : phase === 'in_progress'
+                  ? 'Работа выполняется'
+                  : isCompleted
+                    ? 'Операция закрыта'
+                    : materialStatusText(requests);
 
     return (
       <Card
@@ -761,6 +777,9 @@ export default function TasksPage() {
               </div>
             </div>
             {taskStatusBadge(phase)}
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-950/45 px-2.5 py-2 text-xs text-slate-300">
+            {stepText}
           </div>
 
           <div className="flex items-center gap-2 text-xs text-slate-400">
@@ -807,7 +826,7 @@ export default function TasksPage() {
                   disabled={busyKey === `accept:${operation.id}`}
                 >
                   <Clock className="mr-2 h-4 w-4" />
-                  Принять операцию
+                  Принять
                 </Button>
               ) : null}
 
@@ -829,7 +848,7 @@ export default function TasksPage() {
 
               {phase === 'accepted' && hasMaterialRequests && !readyRequest && warehouseIsPreparing ? (
                 <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled onClick={(event) => event.stopPropagation()}>
-                  Товар принят
+                  Ждём склад
                 </Button>
               ) : null}
 
@@ -856,7 +875,7 @@ export default function TasksPage() {
                   disabled={busyKey === `start:${operation.id}`}
                 >
                   <Play className="mr-2 h-4 w-4" />
-                  В работу
+                  Начать работу
                 </Button>
               ) : null}
 
@@ -871,7 +890,7 @@ export default function TasksPage() {
                   disabled={busyKey === `complete:${operation.id}`}
                 >
                   <CheckCircle className="mr-2 h-4 w-4" />
-                  Завершить
+                  Сдать факт
                 </Button>
               ) : null}
             </div>
