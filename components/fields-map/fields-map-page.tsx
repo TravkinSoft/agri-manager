@@ -2450,6 +2450,7 @@ export function FieldsMapPage() {
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-3 p-3">
           <div className="pointer-events-auto max-w-[760px] rounded-xl border border-white/10 bg-[#0B111D]/90 p-2 shadow-xl backdrop-blur">
             <div className="flex flex-wrap items-center gap-2">
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Режим</div>
               <Button size="sm" variant={mapWorkMode === "agro" ? "default" : "outline"} onClick={() => { setMapWorkMode("agro"); setEngineeringDrawMode("none"); setSelectedEngineeringObjectId(null); }}>
                 <Layers className="mr-2 h-4 w-4" /> Агро
               </Button>
@@ -2462,13 +2463,23 @@ export function FieldsMapPage() {
                 <SelectContent>{(bootstrap?.seasons || []).map((season) => <SelectItem key={season.id} value={season.id}>{season.year}</SelectItem>)}</SelectContent>
               </Select>
               {mapWorkMode === "agro" ? (
-                <Select value={selectedCrop} onValueChange={setSelectedCrop}>
-                  <SelectTrigger className="h-9 w-[190px] bg-[#0A101B]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Все культуры</SelectItem>
-                    {cropOptions.map((crop) => <SelectItem key={crop} value={crop}>{crop}</SelectItem>)}
-                  </SelectContent>
-                </Select>
+                <>
+                  <Select value={selectedCrop} onValueChange={setSelectedCrop}>
+                    <SelectTrigger className="h-9 w-[190px] bg-[#0A101B]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все культуры</SelectItem>
+                      {cropOptions.map((crop) => <SelectItem key={crop} value={crop}>{crop}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <div className="h-6 w-px bg-white/10" />
+                  <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Цвет</div>
+                  <Button size="sm" variant={colorMode === "crop" ? "default" : "outline"} onClick={() => setColorMode("crop")}>
+                    Культура
+                  </Button>
+                  <Button size="sm" variant={colorMode === "work_status" ? "default" : "outline"} onClick={() => setColorMode("work_status")}>
+                    Работы
+                  </Button>
+                </>
               ) : (
                 <div className="flex max-w-[540px] flex-wrap gap-1">
                   {ENGINEERING_LAYER_FILTERS.map((item) => (
