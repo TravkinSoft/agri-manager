@@ -2068,21 +2068,27 @@ export default function WeighbridgeOperationsPage() {
   };
   const from = activeTicket ? (activeTicket.direction === "incoming" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_from_id)?.name) || "-" : "-";
   const to = activeTicket ? (activeTicket.direction === "incoming" ? warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name : activeTicket.direction === "outgoing" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name) || "-" : "-";
+  const terminalPanelClass = "rounded-2xl border border-slate-800/80 bg-[#101724]/95 shadow-[0_18px_60px_rgba(2,6,23,0.28)]";
+  const formSectionClass = "rounded-2xl border border-slate-800/80 bg-[#0B1220]/72 p-3";
+  const segmentClass = (active: boolean) =>
+    active
+      ? "h-9 border-yellow-500/70 bg-yellow-500/15 text-yellow-100 hover:bg-yellow-500/20"
+      : "h-9 border-slate-800 bg-slate-950/60 text-slate-200 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-50";
 
   return (
-    <div className="mx-auto max-w-[1360px] space-y-2 px-0 pb-2 sm:px-2">
-      <div className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-900/80 px-3 py-2 shadow-sm md:flex-row md:items-center md:justify-between">
+    <div className="mx-auto max-w-[1680px] space-y-3 px-2 pb-4 sm:px-4">
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-800/80 bg-[#101724]/95 px-4 py-3 shadow-sm md:flex-row md:items-center md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold text-slate-50">Весовая</h1>
-            <Badge className={activeShift ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-50">Весовая</h1>
+            <Badge className={activeShift ? "bg-emerald-400/15 text-emerald-200 border border-emerald-400/30" : "bg-amber-400/15 text-amber-200 border border-amber-400/30"}>
               {activeShift ? "смена открыта" : "смена закрыта"}
             </Badge>
           </div>
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
-            <span>Открытых: {shiftCounters.activeTickets}</span>
-            <span>Зависших: {shiftCounters.stuckTickets}</span>
-            <span>Проверка: {shiftCounters.requiresReview}</span>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
+            <span>Открытые: <b className="text-slate-100">{shiftCounters.activeTickets}</b></span>
+            <span>Зависшие: <b className="text-slate-100">{shiftCounters.stuckTickets}</b></span>
+            <span>Проверка: <b className="text-slate-100">{shiftCounters.requiresReview}</b></span>
             {activeShift?.opened_at ? <span>с {fmt(activeShift.opened_at, lang)}</span> : null}
           </div>
         </div>
@@ -2121,28 +2127,36 @@ export default function WeighbridgeOperationsPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_280px]">
-        <Card className="rounded-2xl border-slate-800 bg-slate-900/80 xl:col-start-1">
-          <CardHeader className="px-4 py-2">
-            <CardTitle className="flex items-center gap-2 text-base text-slate-50">
-              <Scale className="h-4 w-4 text-yellow-400" /> Новый талон
+      <div className="grid gap-3 xl:grid-cols-[minmax(760px,1fr)_340px]">
+        <Card className={`${terminalPanelClass} overflow-hidden xl:col-start-1`}>
+          <CardHeader className="border-b border-slate-800/80 px-4 py-3">
+            <CardTitle className="flex flex-col gap-3 text-base text-slate-50 md:flex-row md:items-center md:justify-between">
+              <span className="flex items-center gap-2">
+                <Scale className="h-4 w-4 text-yellow-400" />
+                Новый талон
+              </span>
+              <span className="flex items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 md:min-w-[260px]">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Live вес</span>
+                <span className="text-2xl font-black leading-none text-white">{liveWeightKg.toLocaleString("ru-RU")} кг</span>
+              </span>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 pt-0">
-            <div className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-white">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">LIVE вес</div>
-              <div className="text-2xl font-black leading-none">{liveWeightKg.toLocaleString("ru-RU")} кг</div>
-            </div>
-
+          <CardContent className="space-y-4 p-4">
             {!canOperate ? (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
                 Режим просмотра: создание и закрытие талонов недоступны.
               </div>
             ) : null}
 
-            <div className="space-y-1">
-              <Label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Вид движения</Label>
-              <div className="grid grid-cols-2 gap-1.5 md:grid-cols-4">
+            <div className={formSectionClass}>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Сценарий движения</Label>
+                  <div className="mt-1 text-sm text-slate-300">Сначала выберите, что происходит с товаром.</div>
+                </div>
+                <Badge className="border border-yellow-500/30 bg-yellow-500/10 text-yellow-100">{opMeta(form.operationType).title}</Badge>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {MOVEMENT_GROUPS.map((group) => {
                   const active = selectedMovementGroup === group.id;
                   return (
@@ -2152,36 +2166,31 @@ export default function WeighbridgeOperationsPage() {
                       variant="outline"
                       className={
                         active
-                          ? "h-auto justify-start border-yellow-500 bg-yellow-500 px-3 py-2 text-left text-slate-950 hover:bg-yellow-400"
-                          : "h-auto justify-start border-slate-800 bg-slate-950/70 px-3 py-2 text-left text-slate-200 hover:bg-slate-800 hover:text-slate-50"
+                          ? "h-auto min-h-[64px] justify-start rounded-xl border-yellow-500/70 bg-yellow-500/15 px-3 py-2 text-left text-yellow-50 hover:bg-yellow-500/20"
+                          : "h-auto min-h-[64px] justify-start rounded-xl border-slate-800 bg-slate-950/60 px-3 py-2 text-left text-slate-200 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-50"
                       }
                       onClick={() => selectOperation(GROUP_DEFAULT_OPERATION[group.id])}
                     >
-                      <span>
-                        <span className="block text-sm font-semibold">{group.title}</span>
-                        <span className={active ? "block text-[11px] text-slate-800" : "block text-[11px] text-slate-500"}>{group.hint}</span>
+                      <span className="min-w-0">
+                        <span className="block whitespace-normal text-sm font-semibold leading-snug">{group.title}</span>
+                        <span className={active ? "block text-[11px] text-yellow-200/80" : "block text-[11px] text-slate-500"}>{group.hint}</span>
                       </span>
                     </Button>
                   );
                 })}
               </div>
-            </div>
 
-            {selectedSubtypes.length > 1 ? (
-              <div className="space-y-1">
-                <Label className="text-xs font-semibold uppercase tracking-wide text-slate-400">Уточнение</Label>
-                <div className="grid grid-cols-2 gap-1.5 md:grid-cols-2">
+              {selectedSubtypes.length > 1 ? (
+              <div className="mt-3 space-y-2">
+                <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Уточнение</Label>
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
                   {selectedSubtypes.map((subtype) => (
                     <Button
                       key={subtype.type}
                       type="button"
                       size="sm"
                       variant="outline"
-                      className={
-                        form.operationType === subtype.type
-                          ? "h-8 justify-start border-yellow-500 bg-yellow-500 text-slate-950 hover:bg-yellow-400"
-                          : "h-8 justify-start border-slate-800 bg-slate-950/70 text-slate-200 hover:bg-slate-800 hover:text-slate-50"
-                      }
+                      className={`${segmentClass(form.operationType === subtype.type)} justify-start`}
                       onClick={() => selectOperation(subtype.type)}
                     >
                       {subtype.title}
@@ -2190,8 +2199,13 @@ export default function WeighbridgeOperationsPage() {
                 </div>
               </div>
             ) : null}
+            </div>
 
-            <div className="grid gap-2 md:grid-cols-2">
+            <div className={formSectionClass}>
+              <div className="mb-3">
+                <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Маршрут и документ</Label>
+              </div>
+            <div className="grid gap-3 md:grid-cols-2">
               {(form.operationType === "harvest_incoming" || isFieldIssue) ? (
                 <div className="space-y-1">
                   <Label>Поле *</Label>
@@ -2241,9 +2255,10 @@ export default function WeighbridgeOperationsPage() {
                 </>
               ) : null}
             </div>
+            </div>
 
             {form.operationType === "harvest_incoming" ? (
-              <div className="space-y-1.5 rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+              <div className={formSectionClass}>
                 {fieldHarvestOptions.length > 1 ? (
                   <div className="space-y-1">
                     <Label>Посевная строка *</Label>
@@ -2269,19 +2284,22 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
             {form.operationType === "supplier_receipt" ? (
-              <div className="space-y-2 rounded-md border border-slate-700 bg-slate-950/40 p-2">
-                <div className="grid gap-1.5 md:grid-cols-2">
-                  <Button type="button" size="sm" variant={form.supplierReceiptMode === "weighbridge" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "weighbridge" }))}>Через весовую</Button>
-                  <Button type="button" size="sm" variant={form.supplierReceiptMode === "direct" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>По накладной</Button>
+              <div className={formSectionClass}>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Товары в поставке</Label>
+                  <div className="text-xs text-slate-500">Один документ, несколько строк</div>
                 </div>
-                <div className="grid gap-1.5 md:grid-cols-2">
-                  <Button type="button" size="sm" variant={form.supplierItemMode === "generic" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierItemMode: "generic", cropId: "", varietyId: "", reproductionId: "", supplierLot: "", harvestYear: "" }))}>Обычная поставка</Button>
-                  <Button type="button" size="sm" variant={form.supplierItemMode === "agro_identity" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierItemMode: "agro_identity", productId: "" }))}>Семена / Агро</Button>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.supplierReceiptMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "weighbridge" }))}>Через весовую</Button>
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.supplierReceiptMode === "direct")} onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>По накладной</Button>
+                </div>
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.supplierItemMode === "generic")} onClick={() => setForm((p) => ({ ...p, supplierItemMode: "generic", cropId: "", varietyId: "", reproductionId: "", supplierLot: "", harvestYear: "" }))}>Обычная поставка</Button>
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.supplierItemMode === "agro_identity")} onClick={() => setForm((p) => ({ ...p, supplierItemMode: "agro_identity", productId: "" }))}>Семена / Агро</Button>
                 </div>
                 {form.supplierItemMode === "generic" ? (
-                  <div className="space-y-2">
-                    <div className="text-sm font-semibold text-slate-100">Товары в поставке</div>
-                    <div className="grid gap-2 md:grid-cols-5">
+                  <div className="mt-3 space-y-3">
+                    <div className="grid gap-2 rounded-xl border border-slate-800/80 bg-slate-950/45 p-3 md:grid-cols-5">
                       <div className="space-y-1 md:col-span-2">
                         <Label>Номенклатура *</Label>
                         <Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v, quantityUom: inferProductUnit(productById.get(v)) }))}>
@@ -2308,7 +2326,7 @@ export default function WeighbridgeOperationsPage() {
                         </Select>
                       </div>
                     </div>
-                    <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs text-slate-300" onClick={() => setShowSupplierExtraFields((v) => !v)}>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs text-slate-400 hover:text-slate-100" onClick={() => setShowSupplierExtraFields((v) => !v)}>
                       {showSupplierExtraFields ? "Скрыть дополнительные данные" : "Показать номер партии / цену"}
                     </Button>
                     {showSupplierExtraFields ? (
@@ -2324,7 +2342,7 @@ export default function WeighbridgeOperationsPage() {
                       </div>
                     ) : null}
                     {supplierReceiptLines.map((line) => (
-                      <div key={line.localId} className="grid gap-2 rounded-md border border-slate-700 bg-slate-900/70 p-2 md:grid-cols-[1.2fr_110px_90px_160px_auto]">
+                      <div key={line.localId} className="grid gap-2 rounded-xl border border-slate-800/80 bg-slate-950/45 p-3 md:grid-cols-[1.2fr_110px_90px_160px_auto]">
                         <div className="space-y-1">
                           <Label>Номенклатура *</Label>
                           <Select
@@ -2373,7 +2391,7 @@ export default function WeighbridgeOperationsPage() {
                       </div>
                     ))}
                     <div className="flex items-center justify-between gap-2">
-                      <Button type="button" size="sm" variant="outline" className="h-8" onClick={() => setSupplierReceiptLines((prev) => [...prev, createSupplierReceiptLineDraft(form.warehouseToId)])}>
+                      <Button type="button" size="sm" variant="outline" className="h-9 border-slate-700 bg-slate-950 text-slate-100 hover:bg-slate-900" onClick={() => setSupplierReceiptLines((prev) => [...prev, createSupplierReceiptLineDraft(form.warehouseToId)])}>
                         + Добавить строку
                       </Button>
                       {supplierReceiptGenericLineDrafts.length > 1 ? <div className="text-xs text-slate-400">Итого по строкам: {supplierReceiptGenericLineTotal.toLocaleString("ru-RU", { maximumFractionDigits: 3 })}</div> : null}
@@ -2402,14 +2420,14 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
             {isFieldIssue ? (
-              <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/50 p-2">
-                <div className="grid gap-1.5 md:grid-cols-2">
-                  <Button type="button" size="sm" variant={form.fieldIssueMode === "weighbridge" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
-                  <Button type="button" size="sm" variant={form.fieldIssueMode === "direct" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручная выдача</Button>
+              <div className={formSectionClass}>
+                <div className="grid gap-2 md:grid-cols-2">
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.fieldIssueMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
+                  <Button type="button" size="sm" variant="outline" className={segmentClass(form.fieldIssueMode === "direct")} onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручная выдача</Button>
                 </div>
-                <div className="grid gap-1.5 md:grid-cols-5">
+                <div className="mt-2 grid gap-2 md:grid-cols-5">
                   {(Object.keys(fieldMaterialCategoryLabels) as FieldMaterialCategory[]).map((type) => (
-                    <Button key={type} type="button" size="sm" variant={form.fieldMaterialCategory === type ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, fieldMaterialCategory: type, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}>
+                    <Button key={type} type="button" size="sm" variant="outline" className={segmentClass(form.fieldMaterialCategory === type)} onClick={() => setForm((p) => ({ ...p, fieldMaterialCategory: type, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}>
                       {fieldMaterialCategoryLabels[type]}
                     </Button>
                   ))}
@@ -2435,11 +2453,11 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
             {isTransfer || isDisposal || isShipment ? (
-              <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-950/50 p-2">
+              <div className={formSectionClass}>
                 {isTransfer ? (
-                  <div className="grid gap-1.5 md:grid-cols-2">
-                    <Button type="button" size="sm" variant={form.transferMode === "weighbridge" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, transferMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
-                    <Button type="button" size="sm" variant={form.transferMode === "direct" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, transferMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручное перемещение</Button>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Button type="button" size="sm" variant="outline" className={segmentClass(form.transferMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, transferMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
+                    <Button type="button" size="sm" variant="outline" className={segmentClass(form.transferMode === "direct")} onClick={() => setForm((p) => ({ ...p, transferMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручное перемещение</Button>
                   </div>
                 ) : null}
                 {isShipment ? (
@@ -2500,7 +2518,11 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
             {form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct" ? null : (
-              <div className="grid gap-2 md:grid-cols-2">
+              <div className={formSectionClass}>
+                <div className="mb-3">
+                  <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Транспорт</Label>
+                </div>
+              <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Водитель{isTransferDirect || isFieldIssueDirect ? "" : " *"}</Label>
                   <Select value={form.driverId} onValueChange={(v) => setForm((p) => ({ ...p, driverId: v }))}>
@@ -2516,10 +2538,13 @@ export default function WeighbridgeOperationsPage() {
                   </Select>
                 </div>
               </div>
+              </div>
             )}
 
             {isWeighbridgeForm ? (
-              <div className="grid gap-2 md:grid-cols-2">
+              <div className={formSectionClass}>
+                <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Вес</Label>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Брутто / вес (кг) *</Label>
                   <Input className="h-8" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} />
@@ -2527,6 +2552,7 @@ export default function WeighbridgeOperationsPage() {
                 <div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-xs text-slate-300">
                   Тара указывается при закрытии талона. Нетто = брутто - тара.
                 </div>
+              </div>
               </div>
             ) : null}
 
@@ -2538,8 +2564,8 @@ export default function WeighbridgeOperationsPage() {
             </div>
 
             {canOperate ? (
-              <div className="sticky bottom-0 z-10 border-t border-slate-700 bg-slate-950/95 pt-2 backdrop-blur">
-                <Button className="h-9 w-full" onClick={create} disabled={submitting}>
+              <div className="sticky bottom-0 z-10 -mx-4 border-t border-slate-800 bg-[#101724]/95 px-4 pt-3 backdrop-blur">
+                <Button className="h-11 w-full text-base font-semibold" onClick={create} disabled={submitting}>
                   {submitting ? "Создание..." : "Создать талон"}
                 </Button>
                 {loading ? <div className="mt-1 text-xs text-amber-300">Данные ещё загружаются. Повторите через пару секунд.</div> : null}
@@ -3015,27 +3041,34 @@ export default function WeighbridgeOperationsPage() {
           </CardContent>
         </Card>
 
-        <Card className="rounded-2xl border-slate-800 bg-slate-900/80 xl:col-start-2 xl:row-start-1">
-          <CardHeader className="px-3 py-3">
-            <CardTitle className="flex items-center gap-2 text-base text-slate-50">
-              <Clock3 className="h-4 w-4 text-yellow-400" />Открытые
+        <Card className={`${terminalPanelClass} xl:col-start-2 xl:row-start-1`}>
+          <CardHeader className="border-b border-slate-800/80 px-4 py-3">
+            <CardTitle className="flex items-center justify-between gap-2 text-base text-slate-50">
+              <span className="flex items-center gap-2">
+                <Clock3 className="h-4 w-4 text-yellow-400" />Открытые талоны
+              </span>
+              <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{activeTickets.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2 px-3 pt-0">
-            {loading ? <div className="text-sm text-slate-400">Загрузка...</div> : activeTickets.length === 0 ? <div className="rounded-lg border border-dashed border-slate-800 p-5 text-center text-sm text-slate-500">Открытых талонов нет</div> : [...activeTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
+          <CardContent className="max-h-[720px] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
+            {loading ? <div className="text-sm text-slate-400">Загрузка...</div> : activeTickets.length === 0 ? <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/45 p-6 text-center text-sm text-slate-500">Открытых талонов нет</div> : [...activeTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = drivers.find((d) => d.id === t.driver_id)?.name || "Без водителя";
               const meta = ticketCardMeta(t, vehicleName, driverName);
               return (
-                <button key={`open-${t.id}`} type="button" onClick={() => setActiveTicket(t)} className="w-full rounded-2xl border border-slate-800 bg-slate-950/70 px-3 py-2 text-left transition hover:border-yellow-500/50 hover:bg-slate-900">
-                  <div className="truncate text-sm font-semibold text-slate-50">{productSummary(t)}</div>
-                  <div className="truncate text-xs text-slate-400">{ticketRouteSummary(t)}</div>
-                  <div className="mt-0.5 truncate text-xs text-slate-500">{meta}</div>
-                  <div className="mt-1 flex items-center justify-between gap-2 text-xs">
-                    <span className="truncate font-medium text-slate-300">{ticketQuantitySummary(t)}</span>
-                    <Badge className="h-5 rounded px-2 text-[10px]">{ticketStageLabel(t)}</Badge>
+                <button key={`open-${t.id}`} type="button" onClick={() => setActiveTicket(t)} className="w-full rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-3 text-left transition hover:border-yellow-500/50 hover:bg-slate-900">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-50">{productSummary(t)}</div>
+                      <div className="mt-1 line-clamp-2 text-xs text-slate-400">{ticketRouteSummary(t)}</div>
+                    </div>
+                    <Badge className="h-5 shrink-0 rounded-full border border-yellow-500/30 bg-yellow-500/10 px-2 text-[10px] text-yellow-100">{ticketStageLabel(t)}</Badge>
                   </div>
-                  <div className="mt-0.5 text-[11px] text-slate-500">{fmt(t.created_at, lang)} • {t.ticket_no}</div>
+                  <div className="mt-2 flex items-center justify-between gap-2 text-xs">
+                    <span className="truncate font-semibold text-slate-200">{ticketQuantitySummary(t)}</span>
+                    <span className="shrink-0 text-[11px] text-slate-500">{fmt(t.created_at, lang)}</span>
+                  </div>
+                  <div className="mt-1 truncate text-[11px] text-slate-500">{meta} • {t.ticket_no}</div>
                 </button>
               );
             })}
@@ -3044,9 +3077,12 @@ export default function WeighbridgeOperationsPage() {
       </div>
 
       <div ref={historyRef}>
-        <Card className="rounded-2xl border-slate-800 bg-slate-900/80">
-          <CardHeader className="flex flex-col items-stretch justify-between gap-3 space-y-0 px-3 py-3 sm:flex-row sm:items-center sm:px-4">
-            <CardTitle className="text-xl text-slate-50">История талонов</CardTitle>
+        <Card className={terminalPanelClass}>
+          <CardHeader className="flex flex-col items-stretch justify-between gap-3 space-y-0 border-b border-slate-800/80 px-4 py-3 sm:flex-row sm:items-center">
+            <div>
+              <CardTitle className="text-xl text-slate-50">Журнал талонов</CardTitle>
+              <div className="mt-1 text-xs text-slate-500">Закрытые и аннулированные документы</div>
+            </div>
             <div className="w-full sm:w-[240px]">
               <Select value={historyTypeFilter} onValueChange={setHistoryTypeFilter}>
                 <SelectTrigger className="border-slate-700 bg-slate-950 text-slate-100"><SelectValue placeholder="Фильтр по типу" /></SelectTrigger>
@@ -3054,7 +3090,7 @@ export default function WeighbridgeOperationsPage() {
               </Select>
             </div>
           </CardHeader>
-          <CardContent className="space-y-1.5 px-3 pb-4 pt-0 sm:px-4">
+          <CardContent className="space-y-2 px-3 py-3 sm:px-4">
             {loading ? <div className="text-sm text-slate-400">Загрузка...</div> : null}
             {!loading && historyTickets.length === 0 ? <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">Закрытых талонов пока нет</div> : null}
             {!loading && historyTickets.slice(0, 80).map((t) => {
@@ -3063,12 +3099,12 @@ export default function WeighbridgeOperationsPage() {
               const meta = ticketCardMeta(t, vehicleName, driverName);
               const dt = fmt(t.finalized_at || t.updated_at || t.created_at, lang);
               return (
-                <div key={t.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 px-3 py-2">
+                <div key={t.id} className="rounded-xl border border-slate-800 bg-slate-950/45 px-3 py-2.5 transition hover:border-slate-700">
                   <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                     <div className="min-w-0">
                       <div className="truncate text-base font-semibold leading-tight text-slate-50">{productSummary(t)}</div>
                       <div className="mt-0.5 truncate text-sm text-slate-300">{ticketRouteSummary(t)}</div>
-                      <div className="mt-1 truncate text-xs text-slate-500">{meta}</div>
+                      <div className="mt-1 truncate text-xs text-slate-500">{meta} • {t.ticket_no}</div>
                     </div>
                     <div className="grid shrink-0 grid-cols-[1fr_auto_auto] items-center gap-2 md:flex">
                       <Badge className={statusClass(t.status)}>{statusLabel(t.status)}</Badge>
@@ -3079,7 +3115,6 @@ export default function WeighbridgeOperationsPage() {
                   <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs">
                     <div><span className="text-slate-500">Количество: </span><span className="font-semibold text-slate-100">{ticketQuantitySummary(t)}</span></div>
                     <div><span className="text-slate-500">Время: </span><span className="font-semibold text-slate-100">{dt}</span></div>
-                    <div className="text-[11px] text-slate-500">{t.ticket_no}</div>
                   </div>
                 </div>
               );
