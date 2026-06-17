@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   BookOpen,
   Brain,
   Building2,
   CheckCircle2,
   Database,
+  FileText,
   Gauge,
   Loader2,
   LockKeyhole,
@@ -17,6 +18,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trash2,
+  UploadCloud,
   UserRound,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
@@ -35,6 +37,13 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import {
+  archiveKnowledgeDocument,
+  KNOWLEDGE_SUPPORTED_FORMATS,
+  listGlobalKnowledgeDocuments,
+  uploadGlobalKnowledgeDocument,
+  type KnowledgeDocument,
+} from "@/lib/services/knowledge-base";
 
 type PromptRuntimeInfo = {
   version: string;
@@ -210,6 +219,10 @@ const QUICK_TEST_PROMPTS = [
   "Открой весовую",
 ] as const;
 
+const KNOWLEDGE_ACCEPT = [...KNOWLEDGE_SUPPORTED_FORMATS.documents, ...KNOWLEDGE_SUPPORTED_FORMATS.images]
+  .map((extension) => `.${extension}`)
+  .join(",");
+
 function asMultiline(items: string[]): string {
   return (items || []).join("\n");
 }
@@ -255,6 +268,27 @@ function bindingLabel(value: string): string {
   return value === "used" ? "используется runtime" : "зарезервировано";
 }
 
+function formatFileSize(bytes: number | null | undefined): string {
+  const value = Number(bytes || 0);
+  if (!Number.isFinite(value) || value <= 0) return "0 Б";
+  if (value < 1024) return `${Math.round(value)} Б`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} КБ`;
+  return `${(value / 1024 / 1024).toFixed(1)} МБ`;
+}
+
+function formatShortDate(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function knowledgeStatusLabel(status: KnowledgeDocument["status"]): string {
+  if (status === "ready") return "готов к ответам";
+  if (status === "failed") return "ошибка обработки";
+  return "загружен без текста";
+}
+
 export function AssistantPlatformSettingsForm() {
   const { toast } = useToast();
   const { profile } = useAuth();
@@ -276,14 +310,29 @@ export function AssistantPlatformSettingsForm() {
   const [testMeta, setTestMeta] = useState<TestResponse["metadata"] | null>(null);
   const [testToolActivity, setTestToolActivity] = useState<string[]>([]);
   const [testError, setTestError] = useState<TestResponse["debug"] | null>(null);
+  const [knowledgeDocuments, setKnowledgeDocuments] = useState<KnowledgeDocument[]>([]);
+  const [knowledgeLoading, setKnowledgeLoading] = useState(false);
+  const [knowledgeUploading, setKnowledgeUploading] = useState(false);
+  const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
 
   const canSave = useMemo(() => !loading && !saving, [loading, saving]);
+  const activeKnowledgeCompanyId = useMemo(
+    () => profile?.context_company_id || profile?.company_id || null,
+    [profile?.context_company_id, profile?.company_id]
+  );
   const modelOptions = useMemo(() => {
     const fromSettings = String(settings.model || "").trim();
     return Array.from(new Set([...MODEL_OPTIONS, ...(fromSettings ? [fromSettings] : [])]));
   }, [settings.model]);
   const enabledToolsCount = useMemo(() => (settings.allowedTools || []).length, [settings.allowedTools]);
   const allowedRolesCount = useMemo(() => (settings.allowedRoles || []).length, [settings.allowedRoles]);
+  const knowledgeStats = useMemo(() => {
+    const total = knowledgeDocuments.length;
+    const ready = knowledgeDocuments.filter((doc) => doc.status === "ready").length;
+    const uploaded = knowledgeDocuments.filter((doc) => doc.status === "uploaded").length;
+    const failed = knowledgeDocuments.filter((doc) => doc.status === "failed").length;
+    return { total, ready, uploaded, failed };
+  }, [knowledgeDocuments]);
 
   const applyRecommendedDefaults = () => {
     setSettings((prev) => ({
@@ -366,6 +415,76 @@ export function AssistantPlatformSettingsForm() {
   useEffect(() => {
     void loadSettings();
   }, []);
+
+  const loadKnowledgeDocuments = useCallback(async () => {
+    if (!activeKnowledgeCompanyId) {
+      setKnowledgeDocuments([]);
+      setKnowledgeError("Выберите компанию в верхнем контексте, чтобы видеть её базу знаний.");
+      return;
+    }
+    try {
+      setKnowledgeLoading(true);
+      setKnowledgeError(null);
+      const docs = await listGlobalKnowledgeDocuments(activeKnowledgeCompanyId);
+      setKnowledgeDocuments(docs);
+    } catch (error) {
+      setKnowledgeError(error instanceof Error ? error.message : "Не удалось загрузить базу знаний.");
+      setKnowledgeDocuments([]);
+    } finally {
+      setKnowledgeLoading(false);
+    }
+  }, [activeKnowledgeCompanyId]);
+
+  useEffect(() => {
+    void loadKnowledgeDocuments();
+  }, [loadKnowledgeDocuments]);
+
+  const handleKnowledgeUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    if (!file || knowledgeUploading) return;
+    if (!activeKnowledgeCompanyId) {
+      toast({
+        title: "Компания не выбрана",
+        description: "Сначала выберите компанию в верхнем контексте платформы.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      setKnowledgeUploading(true);
+      setKnowledgeError(null);
+      await uploadGlobalKnowledgeDocument(activeKnowledgeCompanyId, profile?.id, file);
+      await loadKnowledgeDocuments();
+      toast({
+        title: "Документ загружен",
+        description: "PDF, DOCX, TXT и XLSX извлекаются в текст, режутся на фрагменты и становятся доступными ассисту.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось загрузить документ.";
+      setKnowledgeError(message);
+      toast({ title: "Ошибка загрузки", description: message, variant: "destructive" });
+    } finally {
+      setKnowledgeUploading(false);
+    }
+  };
+
+  const archiveKnowledge = async (documentId: string) => {
+    try {
+      await archiveKnowledgeDocument(documentId);
+      await loadKnowledgeDocuments();
+      toast({
+        title: "Документ убран из базы",
+        description: "Ассист больше не будет использовать этот документ в ответах.",
+      });
+    } catch (error) {
+      toast({
+        title: "Ошибка",
+        description: error instanceof Error ? error.message : "Не удалось убрать документ.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const saveSettings = async () => {
     try {
@@ -505,7 +624,11 @@ export function AssistantPlatformSettingsForm() {
         );
         setTestMessages((prev) => [
           ...prev,
-          { id: toMessageId(), role: "assistant", content: "AI Assistant временно недоступен. Проверьте debug ниже." },
+          {
+            id: toMessageId(),
+            role: "assistant",
+            content: "Тестовый запрос не прошёл. Проверьте debug ниже: там будет источник ошибки, статус модели и код ответа.",
+          },
         ]);
         return;
       }
@@ -528,7 +651,11 @@ export function AssistantPlatformSettingsForm() {
       });
       setTestMessages((prev) => [
         ...prev,
-        { id: toMessageId(), role: "assistant", content: "AI Assistant временно недоступен. Проверьте debug ниже." },
+        {
+          id: toMessageId(),
+          role: "assistant",
+          content: "Тестовый запрос не прошёл на клиенте. Проверьте debug ниже и повторите тест.",
+        },
       ]);
     } finally {
       setTesting(false);
@@ -792,6 +919,161 @@ export function AssistantPlatformSettingsForm() {
             <p className="text-xs text-slate-500">
               Это не главный prompt. Ядро TravkinFlow остаётся в коде, а здесь только дополнительные правила поведения.
             </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200">
+        <CardHeader>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle>База знаний компании</CardTitle>
+              <CardDescription>
+                Внутренние книги, инструкции, регламенты и агрономические материалы. В ответах используются только документы со статусом “готов к ответам”.
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => void loadKnowledgeDocuments()} disabled={knowledgeLoading}>
+                {knowledgeLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                Обновить
+              </Button>
+              <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 shadow-sm transition hover:bg-slate-50">
+                {knowledgeUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <UploadCloud className="mr-2 h-4 w-4" />}
+                Загрузить
+                <input
+                  type="file"
+                  className="sr-only"
+                  accept={KNOWLEDGE_ACCEPT}
+                  disabled={knowledgeUploading || !activeKnowledgeCompanyId}
+                  onChange={handleKnowledgeUpload}
+                />
+              </label>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-4">
+            <div className="rounded-lg border bg-slate-50 p-3">
+              <div className="text-xs text-slate-500">Всего документов</div>
+              <div className="mt-1 text-2xl font-semibold text-slate-900">{knowledgeStats.total}</div>
+            </div>
+            <div className="rounded-lg border bg-emerald-50 p-3">
+              <div className="text-xs text-emerald-700">Готовы к ответам</div>
+              <div className="mt-1 text-2xl font-semibold text-emerald-900">{knowledgeStats.ready}</div>
+            </div>
+            <div className="rounded-lg border bg-amber-50 p-3">
+              <div className="text-xs text-amber-700">Ждут текста</div>
+              <div className="mt-1 text-2xl font-semibold text-amber-900">{knowledgeStats.uploaded}</div>
+            </div>
+            <div className="rounded-lg border bg-red-50 p-3">
+              <div className="text-xs text-red-700">Ошибки обработки</div>
+              <div className="mt-1 text-2xl font-semibold text-red-900">{knowledgeStats.failed}</div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div className="rounded-lg border bg-white p-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <BookOpen className="h-4 w-4 text-amber-700" />
+                Порядок источников
+              </div>
+              <ol className="space-y-1 text-sm text-slate-600">
+                <li>1. ERP — живые факты: поля, склады, операции, талоны.</li>
+                <li>2. Библиотека — инструкции, книги, техника, агрономия.</li>
+                <li>3. Общие знания модели — только когда библиотека не покрывает вопрос.</li>
+                <li>4. Интернет — выключен по умолчанию и не заменяет ERP.</li>
+              </ol>
+            </div>
+
+            <div className="space-y-3 rounded-lg border bg-white p-4 lg:col-span-2">
+              <label className="flex items-center justify-between gap-3">
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">Сначала внутренняя библиотека</span>
+                  <span className="block text-xs text-slate-500">Книги и инструкции компании важнее общих знаний модели.</span>
+                </span>
+                <Switch
+                  checked={settings.knowledgePolicy.internalLibraryFirst}
+                  onCheckedChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, knowledgePolicy: { ...prev.knowledgePolicy, internalLibraryFirst: checked } }))
+                  }
+                  disabled={loading || saving}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3">
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">Показывать источник знания</span>
+                  <span className="block text-xs text-slate-500">Ассист будет помечать, что опирался на библиотеку, когда она использована.</span>
+                </span>
+                <Switch
+                  checked={settings.knowledgePolicy.requireLibrarySourceHints}
+                  onCheckedChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, knowledgePolicy: { ...prev.knowledgePolicy, requireLibrarySourceHints: checked } }))
+                  }
+                  disabled={loading || saving}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3">
+                <span>
+                  <span className="block text-sm font-medium text-slate-900">Разрешить общие знания как fallback</span>
+                  <span className="block text-xs text-slate-500">Если документа нет, ассист может объяснить процесс общими знаниями, но не выдумывать ERP-факты.</span>
+                </span>
+                <Switch
+                  checked={settings.knowledgePolicy.fallbackToModelKnowledge}
+                  onCheckedChange={(checked) =>
+                    setSettings((prev) => ({ ...prev, knowledgePolicy: { ...prev.knowledgePolicy, fallbackToModelKnowledge: checked } }))
+                  }
+                  disabled={loading || saving}
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            PDF, DOCX, TXT и XLSX обрабатываются на сервере: текст извлекается, делится на фрагменты и используется ассистом только как внутренний источник знаний компании.
+          </div>
+
+          {knowledgeError ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{knowledgeError}</div>
+          ) : null}
+
+          <div className="rounded-lg border">
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 border-b bg-slate-50 px-3 py-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+              <span>Документ</span>
+              <span>Статус</span>
+              <span>Размер</span>
+              <span>Действие</span>
+            </div>
+            <div className="divide-y">
+              {knowledgeLoading ? (
+                <div className="flex items-center gap-2 px-3 py-4 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Загружаю базу знаний…
+                </div>
+              ) : knowledgeDocuments.length === 0 ? (
+                <div className="px-3 py-4 text-sm text-slate-500">
+                  Документов пока нет. Загрузите PDF, DOCX, TXT или XLSX, чтобы ассист начал использовать внутреннюю библиотеку.
+                </div>
+              ) : (
+                knowledgeDocuments.slice(0, 12).map((doc) => (
+                  <div key={doc.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 px-3 py-2 text-sm">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <FileText className="h-4 w-4 shrink-0 text-slate-500" />
+                        <span className="truncate font-medium text-slate-900">{doc.filename}</span>
+                      </div>
+                      <div className="mt-1 text-xs text-slate-500">Добавлен: {formatShortDate(doc.created_at)}</div>
+                    </div>
+                    <Badge variant={doc.status === "ready" ? "default" : doc.status === "failed" ? "destructive" : "secondary"}>
+                      {knowledgeStatusLabel(doc.status)}
+                    </Badge>
+                    <span className="whitespace-nowrap text-slate-600">{formatFileSize(doc.file_size)}</span>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => void archiveKnowledge(doc.id)} disabled={knowledgeUploading}>
+                      Убрать
+                    </Button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
