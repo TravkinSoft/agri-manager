@@ -362,6 +362,7 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "spraying", slug: "desiccation_treatment", label: "Десикация" },
   { categorySlug: "spraying", slug: "defoliation", label: "Дефолиация" },
   { categorySlug: "spraying", slug: "growth_regulator_treatment", label: "Регулятор роста" },
+  { categorySlug: "spraying", slug: "foliar_fertilization", label: "Листовая подкормка" },
 
   { categorySlug: "fertilizer_application", slug: "mineral_fertilizer_broadcast", label: "Разбрасывание минеральных удобрений" },
   { categorySlug: "fertilizer_application", slug: "organic_application", label: "Внесение органики" },
@@ -369,7 +370,6 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "fertilizer_application", slug: "starter_fertilizer_application", label: "Припосевное внесение" },
   { categorySlug: "fertilizer_application", slug: "uas_application", label: "Внесение КАС" },
   { categorySlug: "fertilizer_application", slug: "liquid_fertilizer_application", label: "Внесение ЖКУ" },
-  { categorySlug: "fertilizer_application", slug: "foliar_fertilization", label: "Листовая подкормка" },
 
   { categorySlug: "fertigation", slug: "fertigation_application", label: "Фертигация" },
   { categorySlug: "fertigation", slug: "drip_fertigation", label: "Фертигация через каплю" },

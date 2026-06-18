@@ -182,13 +182,28 @@ const ADDITIONAL_COMPONENT_TYPES = new Set<TankMixComponentType>([
   "other",
 ]);
 
+type ChemistryMaterialGroup = "pesticides" | "fertilizers" | "additives";
+
+const CHEMISTRY_GROUP_COMPONENTS: Record<ChemistryMaterialGroup, TankMixComponentType> = {
+  pesticides: "crop_protection",
+  fertilizers: "fertilizer",
+  additives: "adjuvant",
+};
+
+const CHEMISTRY_GROUP_LABELS: Record<ChemistryMaterialGroup, string> = {
+  pesticides: "Пестициды",
+  fertilizers: "Удобрения",
+  additives: "Добавки",
+};
+
 const IMPLIED_PURPOSE_BY_TEMPLATE: Record<string, OperationPurposeSlug> = {
   herbicide_treatment: "weed_control",
   fungicide_treatment: "disease_control",
   insecticide_treatment: "insect_control",
   desiccation_treatment: "desiccation",
-  defoliation_treatment: "defoliation",
-  growth_regulator: "growth_regulation",
+  defoliation: "defoliation",
+  growth_regulator_treatment: "growth_regulation",
+  foliar_fertilization: "foliar_feeding",
 };
 
 function normalizeNumber(value: string): number | null {
@@ -297,6 +312,60 @@ function productMatchesComponent(product: ProductOption | undefined, componentTy
     text.includes("tape") ||
     text.includes("лента")
   );
+}
+
+function chemistryGroupForComponent(componentType: TankMixComponentType): ChemistryMaterialGroup | null {
+  if (componentType === "crop_protection") return "pesticides";
+  if (componentType === "fertilizer" || componentType === "micro_fertilizer") return "fertilizers";
+  if (["adjuvant", "ph_corrector", "antifoam", "biological", "biostimulant", "other"].includes(componentType)) {
+    return "additives";
+  }
+  return null;
+}
+
+function productMatchesChemistryGroup(product: ProductOption | undefined, group: ChemistryMaterialGroup): boolean {
+  if (!product) return false;
+  const text = `${product.name || ""} ${product.type || ""}`.toLowerCase();
+  if (group === "pesticides") {
+    return (
+      productMatchesComponent(product, "crop_protection") ||
+      text.includes("acaricide") ||
+      text.includes("desiccant") ||
+      text.includes("growth regulator") ||
+      text.includes("plant growth") ||
+      text.includes("регулятор") ||
+      text.includes("десик") ||
+      text.includes("акариц")
+    );
+  }
+  if (group === "fertilizers") {
+    return productMatchesComponent(product, "fertilizer") || productMatchesComponent(product, "micro_fertilizer");
+  }
+  return (
+    productMatchesComponent(product, "adjuvant") ||
+    productMatchesComponent(product, "ph_corrector") ||
+    productMatchesComponent(product, "antifoam") ||
+    productMatchesComponent(product, "biological") ||
+    productMatchesComponent(product, "biostimulant") ||
+    text.includes("conditioner") ||
+    text.includes("anti salt") ||
+    text.includes("anti-salt") ||
+    text.includes("ph power") ||
+    text.includes("technofit") ||
+    text.includes("технофит") ||
+    text.includes("кондиционер") ||
+    text.includes("антисоль") ||
+    text.includes("прилип") ||
+    text.includes("адъювант")
+  );
+}
+
+function formatOperationNumber(value: number | null | undefined, digits = 2): string {
+  if (value == null || !Number.isFinite(value)) return "0";
+  return value.toLocaleString("ru-RU", {
+    maximumFractionDigits: digits,
+    minimumFractionDigits: value % 1 === 0 ? 0 : Math.min(digits, 2),
+  });
 }
 
 function requiresCropStructureForType(type: OperationTypeMaster | null): boolean {
@@ -810,7 +879,7 @@ export function OperationFormDialog({
       transport_id: initial.transport_id || null,
       operation_target: initial.operation_target || null,
       rate_per_ha: initial.rate_per_ha ?? null,
-      spray_volume_per_ha: initial.spray_volume_per_ha ?? null,
+      spray_volume_per_ha: initial.spray_volume_per_ha ?? initialTankMix?.total_solution_l_ha ?? null,
       row_spacing_m: initial.row_spacing_m ?? null,
       seed_spacing_cm: initial.seed_spacing_cm ?? null,
       operation_params: initial.operation_params || null,
@@ -1010,6 +1079,8 @@ export function OperationFormDialog({
   const isHarvest = canonicalType?.slug === "harvesting";
   const isFertigation = canonicalType?.slug === "fertigation";
   const isIrrigation = canonicalType?.slug === "irrigation";
+  const isSpraying = canonicalType?.slug === "spraying";
+  const usesChemistryMix = isSpraying || isFertigation;
   const isPotatoPlanting = operationIsPotato && typeSlug === "potato_planting";
   const compactAutoPlantingType =
     categorySlug === "planting" &&
@@ -1017,7 +1088,7 @@ export function OperationFormDialog({
     (typeSlug === "potato_planting" || typeSlug === "seeding");
   const isDripTapeRidge = typeSlug === "ridge_forming_with_drip_tape";
   const isDripTapeCollection = typeSlug === "drip_tape_collection" || typeSlug === "tape_residue_collection";
-  const showPurposeEngine = !!canonicalType?.supportsPurposes && visiblePurposeOptions.length > 0;
+  const showPurposeEngine = false;
   const showTankMix = !!canonicalType?.supportsTankMix;
   const showMaterials = (!!canonicalType?.supportsMaterials || isDripTapeRidge) && !isHarvest;
   const showMachine = canonicalType ? canonicalType.requiresMachine || isDripTapeCollection || typeSlug === "haulm_topping" : !!selectedType?.requires_machine;
@@ -1039,6 +1110,15 @@ export function OperationFormDialog({
   }, [isPotatoPlanting, open, products]);
 
   const componentOptions = useMemo(() => {
+    if (usesChemistryMix) {
+      const groups: ChemistryMaterialGroup[] = isFertigation
+        ? ["fertilizers", "additives"]
+        : ["pesticides", "fertilizers", "additives"];
+      return groups.map((group) => ({
+        ...getTankMixComponentDefinition(CHEMISTRY_GROUP_COMPONENTS[group]),
+        label: CHEMISTRY_GROUP_LABELS[group],
+      }));
+    }
     const allowed = isDripTapeRidge
       ? new Set<TankMixComponentType>(["other"])
       : isPotatoPlanting
@@ -1072,11 +1152,12 @@ export function OperationFormDialog({
           ? new Set<TankMixComponentType>(["fertilizer", "micro_fertilizer", "biological", "biostimulant", "other"])
           : new Set<TankMixComponentType>(TANK_MIX_COMPONENT_DEFINITIONS.map((item) => item.slug));
     return TANK_MIX_COMPONENT_DEFINITIONS.filter((item) => allowed.has(item.slug));
-  }, [isDripTapeRidge, isFertilizing, isPotatoPlanting, isSeeding, showTankMix]);
+  }, [isDripTapeRidge, isFertigation, isFertilizing, isPotatoPlanting, isSeeding, showTankMix, usesChemistryMix]);
   const rowSpacingM = form.watch("row_spacing_m");
   const seedSpacingCm = form.watch("seed_spacing_cm");
   const plannedAreaHa = form.watch("planned_area_ha");
   const seedRateKgHa = form.watch("rate_per_ha");
+  const sprayVolumePerHa = form.watch("spray_volume_per_ha");
   const plantsPerHa =
     rowSpacingM && seedSpacingCm && rowSpacingM > 0 && seedSpacingCm > 0
       ? Math.round(10000 / (rowSpacingM * (seedSpacingCm / 100)))
@@ -1108,6 +1189,9 @@ export function OperationFormDialog({
 
   const isAdditionalComponent = (componentType: TankMixComponentType) => {
     if (isDripTapeRidge) return false;
+    if (usesChemistryMix) {
+      return chemistryGroupForComponent(componentType) === "additives";
+    }
     if (isPotatoPlanting) {
       return componentType !== "fertilizer" && componentType !== "micro_fertilizer";
     }
@@ -1172,15 +1256,58 @@ export function OperationFormDialog({
     return productOptions.filter((option) => {
       const product = products.find((item) => item.id === option.id);
       if (isPotatoPlanting && isPotatoSeedProduct(product)) return false;
+      const chemistryGroup = usesChemistryMix ? chemistryGroupForComponent(component.slug) : null;
+      if (chemistryGroup) return productMatchesChemistryGroup(product, chemistryGroup);
       return productMatchesComponent(product, component.slug);
     });
   };
 
-  const renderMaterialRow = (material: OperationMaterialFormData, index: number) => (
-    <div key={`material-${index}`} className="rounded border p-2">
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-5">
+  const operationAreaForCalculation = Number(plannedAreaHa || 0);
+  const solutionRateLHa =
+    showTankMix && Number(sprayVolumePerHa ?? tankMixWaterRate ?? 0) > 0
+      ? Number(sprayVolumePerHa ?? tankMixWaterRate ?? 0)
+      : null;
+  const totalSolutionL =
+    solutionRateLHa && operationAreaForCalculation > 0 ? solutionRateLHa * operationAreaForCalculation : null;
+  const materialCalculationRows = materials
+    .map((material, index) => {
+      const rate = Number(material.planned_rate || 0);
+      const total = rate > 0 && operationAreaForCalculation > 0 ? rate * operationAreaForCalculation : null;
+      const product = products.find((item) => item.id === material.product_id);
+      const component = getTankMixComponentDefinition(material.component_type || material.material_type);
+      return {
+        index,
+        name: product?.name || "",
+        unit: material.unit || getDefaultUnitForComponent(component.slug),
+        rate,
+        total,
+      };
+    })
+    .filter((row) => row.total != null && row.total > 0);
+  const liquidProductsTotalL = materialCalculationRows
+    .filter((row) => row.unit === "l")
+    .reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const calculatedWaterTotalL =
+    totalSolutionL != null ? Math.max(totalSolutionL - liquidProductsTotalL, 0) : null;
+  const calculatedTankMixWaterRate =
+    calculatedWaterTotalL != null && operationAreaForCalculation > 0
+      ? calculatedWaterTotalL / operationAreaForCalculation
+      : null;
+  const solutionConcentration =
+    totalSolutionL && totalSolutionL > 0 ? (liquidProductsTotalL / totalSolutionL) * 100 : null;
+
+  const renderMaterialRow = (material: OperationMaterialFormData, index: number) => {
+    const component = getTankMixComponentDefinition(material.component_type || material.material_type);
+    const materialTotal =
+      Number(material.planned_rate || 0) > 0 && operationAreaForCalculation > 0
+        ? Number(material.planned_rate || 0) * operationAreaForCalculation
+        : null;
+
+    return (
+    <div key={`material-${index}`} className="rounded-xl border border-slate-800 bg-slate-950/35 p-2">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
         <div>
-          <div className="mb-1 text-xs text-slate-500">Тип</div>
+          <div className="mb-1 text-xs text-slate-500">{usesChemistryMix ? "Группа" : "Тип"}</div>
           <Select
             value={material.component_type || getTankMixComponentDefinition(material.material_type).slug}
             onValueChange={(value) => {
@@ -1234,13 +1361,19 @@ export function OperationFormDialog({
           )}
         </div>
         <div>
-          <div className="mb-1 text-xs text-slate-500">Норма</div>
+          <div className="mb-1 text-xs text-slate-500">Норма на га</div>
           <Input
             className="h-8 text-xs"
             value={material.planned_rate ?? ""}
             onChange={(event) => updateMaterial(index, { planned_rate: normalizeNumber(event.target.value) })}
-            placeholder="кг/га или л/га"
+            placeholder={`${material.unit || getDefaultUnitForComponent(component.slug)}/га`}
           />
+        </div>
+        <div>
+          <div className="mb-1 text-xs text-slate-500">Итого</div>
+          <div className="flex h-8 items-center rounded-md border border-slate-800 bg-slate-900/70 px-3 text-xs font-semibold text-slate-100">
+            {materialTotal != null ? `${formatOperationNumber(materialTotal)} ${material.unit}` : "—"}
+          </div>
         </div>
         <div>
           <div className="mb-1 text-xs text-slate-500">Ед.</div>
@@ -1275,7 +1408,8 @@ export function OperationFormDialog({
         </div>
       </div>
     </div>
-  );
+    );
+  };
 
   const togglePurpose = (slug: OperationPurposeSlug, checked: boolean) => {
     setPurposes((prev) => {
@@ -1492,8 +1626,8 @@ export function OperationFormDialog({
           tank_mix: showTankMix
             ? {
                 enabled: tankMixEnabled,
-                water_rate_l_ha: tankMixWaterRate,
-                total_solution_l_ha: data.spray_volume_per_ha ?? tankMixWaterRate,
+                water_rate_l_ha: calculatedTankMixWaterRate,
+                total_solution_l_ha: solutionRateLHa,
                 components: materialsForSubmit,
               }
             : undefined,
@@ -2144,34 +2278,24 @@ export function OperationFormDialog({
             ) : null}
 
             {showMaterials ? (
-              <div className="rounded-lg border p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-semibold">Основные материалы</div>
-                  </div>
-                  <Button type="button" size="sm" variant="outline" onClick={() => addMaterial("main")}>
-                    <Plus className="mr-1 h-4 w-4" />
-                    Добавить
-                  </Button>
+              <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold">{usesChemistryMix ? "Баковая смесь" : "Основные материалы"}</div>
+                  {usesChemistryMix ? (
+                    <div className="mt-1 text-xs text-slate-500">
+                      Один проход опрыскивателя. Препараты, удобрения и добавки считаются по норме на гектар.
+                    </div>
+                  ) : null}
                 </div>
 
                 {showTankMix ? (
                   <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div>
-                      <div className="mb-1 text-xs text-slate-500">Вода, л/га</div>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={tankMixWaterRate ?? ""}
-                        onChange={(event) => setTankMixWaterRate(normalizeNumber(event.target.value))}
-                      />
-                    </div>
                     <FormField
                       control={form.control}
                       name="spray_volume_per_ha"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Рабочий раствор, л/га</FormLabel>
+                          <FormLabel>Норма вылива, л/га</FormLabel>
                           <FormControl>
                             <Input
                               type="number"
@@ -2199,14 +2323,14 @@ export function OperationFormDialog({
                     {mainMaterialRows.map((row) => renderMaterialRow(row.material, row.index))}
                   </div>
                 )}
+                <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => addMaterial("main")}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Добавить строку
+                </Button>
 
                 <div className="mt-4 border-t pt-3">
                   <div className="mb-2 flex items-center justify-between">
                     <div className="text-sm font-semibold">Дополнительные материалы</div>
-                    <Button type="button" size="sm" variant="outline" onClick={() => addMaterial("additional")}>
-                      <Plus className="mr-1 h-4 w-4" />
-                      Добавить
-                    </Button>
                   </div>
                   {additionalMaterialRows.length === 0 ? (
                     <div className="rounded border border-dashed p-3 text-xs text-slate-500">
@@ -2217,7 +2341,53 @@ export function OperationFormDialog({
                       {additionalMaterialRows.map((row) => renderMaterialRow(row.material, row.index))}
                     </div>
                   )}
+                  <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => addMaterial("additional")}>
+                    <Plus className="mr-1 h-4 w-4" />
+                    Добавить строку
+                  </Button>
                 </div>
+                {showTankMix ? (
+                  <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                    <div className="mb-2 text-sm font-semibold text-emerald-100">Расчёт раствора</div>
+                    <div className="grid grid-cols-1 gap-2 text-xs text-slate-300 md:grid-cols-4">
+                      <div>
+                        <div className="text-slate-500">Площадь</div>
+                        <div className="font-semibold text-slate-100">{formatOperationNumber(operationAreaForCalculation)} га</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500">Норма вылива</div>
+                        <div className="font-semibold text-slate-100">{solutionRateLHa ? `${formatOperationNumber(solutionRateLHa)} л/га` : "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500">Итого раствора</div>
+                        <div className="font-semibold text-slate-100">{totalSolutionL != null ? `${formatOperationNumber(totalSolutionL)} л` : "—"}</div>
+                      </div>
+                      <div>
+                        <div className="text-slate-500">Концентрация</div>
+                        <div className="font-semibold text-slate-100">{solutionConcentration != null ? `${formatOperationNumber(solutionConcentration, 1)}%` : "—"}</div>
+                      </div>
+                    </div>
+                    {materialCalculationRows.length > 0 ? (
+                      <div className="mt-3 space-y-1 text-xs">
+                        <div className="font-semibold text-slate-200">Препараты</div>
+                        {materialCalculationRows.map((row) => (
+                          <div key={`material-total-${row.index}`} className="flex items-center justify-between gap-3 text-slate-300">
+                            <span className="truncate">{row.name || "Материал"}</span>
+                            <span className="shrink-0 font-semibold text-slate-100">
+                              {formatOperationNumber(row.total)} {row.unit}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {totalSolutionL != null ? (
+                      <div className="mt-3 rounded-lg border border-slate-800 bg-slate-950/40 px-3 py-2 text-xs text-slate-300">
+                        Вода: {formatOperationNumber(totalSolutionL)} л − {formatOperationNumber(liquidProductsTotalL)} л препаратов ={" "}
+                        <span className="font-semibold text-slate-100">{formatOperationNumber(calculatedWaterTotalL)} л</span>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
