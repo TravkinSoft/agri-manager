@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { getMaterialProductTypeFromProduct, type MaterialProductType } from "@/lib/materials/classification";
 
-type ProductType = "pesticide" | "fertilizer" | "growth_regulator" | "adjuvant";
+type ProductType = MaterialProductType | "growth_regulator" | "adjuvant";
 
 export type ProductLookupFilters = {
   companyId?: string;
@@ -23,6 +24,10 @@ export type AssistantProductRow = {
   company_id: string | null;
   product_type: string | null;
   type: string | null;
+  category: string | null;
+  subcategory: string | null;
+  pesticide_category: string | null;
+  fertilizer_type: string | null;
   trade_name: string | null;
   name: string | null;
   category_id: string | null;
@@ -136,7 +141,7 @@ async function fetchProductsBase(
   const queryBase = (q: any) =>
     q
       .select(
-        "id,company_id,product_type,type,trade_name,name,category_id,manufacturer,formulation,mode_of_action_type,target_crops,is_active,archived"
+        "id,company_id,product_type,type,category,subcategory,pesticide_category,fertilizer_type,trade_name,name,category_id,manufacturer,formulation,mode_of_action_type,target_crops,is_active,archived"
       )
       .eq("archived", false);
 
@@ -162,6 +167,10 @@ async function fetchProductsBase(
       company_id: row.company_id || null,
       product_type: row.product_type || null,
       type: row.type || null,
+      category: row.category || null,
+      subcategory: row.subcategory || null,
+      pesticide_category: row.pesticide_category || null,
+      fertilizer_type: row.fertilizer_type || null,
       trade_name: row.trade_name || null,
       name: row.name || null,
       category_id: row.category_id || null,
@@ -266,7 +275,11 @@ export async function getProducts(
   }
 
   if (filters.productType) {
-    rows = rows.filter((row) => normalize(String(row.product_type || row.type || "")) === filters.productType);
+    rows = rows.filter((row) => {
+      const canonical = getMaterialProductTypeFromProduct(row);
+      if (canonical === filters.productType) return true;
+      return normalize(String(row.product_type || row.type || "")) === filters.productType;
+    });
   }
 
   if (filters.categorySlug) {
@@ -395,7 +408,10 @@ async function getInventoryBalancesRaw(
       ? supabase.from("warehouses").select("id,name").in("id", warehouseIds)
       : Promise.resolve({ data: [], error: null } as any),
     productIds.length
-      ? supabase.from("products").select("id,name,trade_name,type,product_type,unit,base_uom").in("id", productIds)
+      ? supabase
+          .from("products")
+          .select("id,name,trade_name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,base_uom")
+          .in("id", productIds)
       : Promise.resolve({ data: [], error: null } as any),
   ]);
 
@@ -418,7 +434,7 @@ async function getInventoryBalancesRaw(
         warehouseName: warehouseNameById.get(String(row.warehouse_id)) || "РЎРєР»Р°Рґ",
         productId: String(row.product_id),
         productName: brandName(product) || "-",
-        productType: String(product?.product_type || product?.type || "-"),
+        productType: String(getMaterialProductTypeFromProduct(product || {}) || product?.product_type || product?.type || "-"),
         unit: String(row.uom || product?.base_uom || product?.unit || "kg"),
         quantity: qty,
       } as WarehouseStockRow;
@@ -460,7 +476,7 @@ async function getInventoryBalancesRaw(
     const productId = String(row.product_id || "");
     if (!productId) return;
     const productName = brandName(row.products) || "-";
-    const productType = row.products?.product_type || row.products?.type || "-";
+    const productType = getMaterialProductTypeFromProduct(row.products || {}) || row.products?.product_type || row.products?.type || "-";
     const unit = row.products?.unit || "kg";
     const movementType = movementTypeOf(row);
 
@@ -980,7 +996,7 @@ export async function answerGroundedAssistantQuery(params: {
   if (/какие.*препарат.*на склад|что есть на склад.*препарат/.test(message)) {
     const rows = await searchInventory(supabase, companyId, "");
     const onlyAgro = rows.filter((row) =>
-      ["pesticide", "fertilizer", "growth_regulator", "adjuvant"].includes(normalize(row.productType))
+      ["pesticide", "fertilizer", "additive", "growth_regulator", "adjuvant"].includes(normalize(row.productType))
     );
     return { source: "grounded_db", response: buildStockResponse("Препараты на складе:", onlyAgro) };
   }

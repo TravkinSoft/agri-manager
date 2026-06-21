@@ -4,6 +4,7 @@ export type GlobalCatalogEntity =
   | "seed_reproductions"
   | "pesticides"
   | "fertilizers"
+  | "additives"
   | "growth_regulators"
   | "pesticide_categories"
   | "active_ingredients"
@@ -75,6 +76,54 @@ const fertilizerTypeOptions: FilterOption[] = [
   { label: "Микроэлементное", value: "micronutrient" },
   { label: "Листовое", value: "foliar" },
   { label: "Органическое", value: "organic" },
+];
+
+const additiveSubtypeOptions: FilterOption[] = [
+  { label: "Адъювант", value: "adjuvant" },
+  { label: "Прилипатель", value: "sticker" },
+  { label: "Корректор pH", value: "pH_corrector" },
+  { label: "Пеногаситель", value: "antifoam" },
+  { label: "Кондиционер воды", value: "water_conditioner" },
+  { label: "Антисоль", value: "anti_salt" },
+  { label: "Другое", value: "other" },
+];
+
+const additiveColumns: CatalogColumn[] = [
+  { key: "trade_name", label: "Торговое название" },
+  { key: "subcategory", label: "Подтип" },
+  { key: "formulation", label: "Формуляция" },
+  { key: "manufacturer", label: "Производитель" },
+  { key: "default_unit", label: "Ед. учета" },
+  { key: "status", label: "Статус" },
+  { key: "is_active", label: "Активность" },
+];
+
+const additiveFilters: CatalogFilter[] = [
+  { key: "subcategory", label: "Подтип", options: [{ label: "Все", value: "all" }, ...additiveSubtypeOptions] },
+  { key: "formulation_id", label: "Формуляция", options: [{ label: "Все", value: "all" }], optionsEntity: "agrochem_formulations" },
+  { key: "manufacturer_id", label: "Производитель", options: [{ label: "Все", value: "all" }], optionsEntity: "agrochem_manufacturers" },
+  { key: "is_active", label: "Активность", options: activeFilterOptions },
+];
+
+const additiveFormFields: CatalogFormField[] = [
+  { key: "name", label: "Название", type: "text", required: true },
+  { key: "trade_name", label: "Торговое название", type: "text" },
+  { key: "subcategory", label: "Подтип", type: "select", required: true, options: additiveSubtypeOptions },
+  { key: "formulation_id", label: "Формуляция", type: "select", optionsEntity: "agrochem_formulations" },
+  { key: "manufacturer_id", label: "Производитель", type: "select", optionsEntity: "agrochem_manufacturers" },
+  {
+    key: "default_unit",
+    label: "Ед. учета",
+    type: "select",
+    options: [
+      { label: "л", value: "l" },
+      { label: "кг", value: "kg" },
+      { label: "г", value: "g" },
+      { label: "мл", value: "ml" },
+    ],
+  },
+  { key: "notes", label: "Заметки", type: "text" },
+  { key: "is_active", label: "Активен", type: "checkbox" },
 ];
 
 const activeIngredientTypeOptions: FilterOption[] = [
@@ -238,6 +287,16 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
       ...defaultAgrochemFormFields,
       { key: "fertilizer_type", label: "Тип удобрения", type: "select", required: true, options: fertilizerTypeOptions },
     ],
+  },
+  additives: {
+    entity: "additives",
+    title: "Глобальный каталог добавок",
+    description: "Адъюванты, корректоры pH, кондиционеры воды и прочие вспомогательные материалы.",
+    createLabel: "Добавить добавку",
+    searchPlaceholder: "Поиск по названию, подтипу, формуляции, производителю...",
+    columns: additiveColumns,
+    filters: additiveFilters,
+    formFields: additiveFormFields,
   },
   growth_regulators: {
     entity: "growth_regulators",

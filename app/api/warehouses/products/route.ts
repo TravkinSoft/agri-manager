@@ -23,6 +23,7 @@ const PRODUCT_TYPES = new Set([
   "seed",
   "fertilizer",
   "pesticide",
+  "additive",
   "organic",
   "fuel",
   "material",
@@ -117,6 +118,8 @@ export async function POST(request: NextRequest) {
       user_id: actor.authUserId,
       name,
       type,
+      product_type: ["pesticide", "fertilizer", "additive"].includes(type) ? type : null,
+      category: type === "additive" ? "additive" : null,
       crop_id: toNullableText(body.crop_id),
       product_form: toNullableText(body.product_form),
       accounting_mode: ACCOUNTING_MODES.has(String(body.accounting_mode || ""))

@@ -5,6 +5,7 @@ import { ChevronDown, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import {
   type CatalogFilter,
   type CatalogFormField,
@@ -51,7 +52,7 @@ type RowRecord = Record<string, any>;
 type Option = { label: string; value: string };
 
 function optionLabel(entity: GlobalCatalogEntity, row: RowRecord): string {
-  if (entity === "varieties" || entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+  if (entity === "varieties" || entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
     return brandName(row) || row.full_name || row.code || row.slug || row.id;
   }
   return localizedName(row, "ru") || row.full_name || brandName(row, ["name", "trade_name"]) || row.code || row.slug || row.id;
@@ -164,7 +165,11 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         if (value && value !== "all") params.set(key, value);
       });
 
-      const response = await fetch(`/api/global-admin/catalog/${config.entity}?${params.toString()}`);
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/global-admin/catalog/${config.entity}?${params.toString()}`, {
+        headers,
+        cache: "no-store",
+      });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить каталог");
       setRows(Array.isArray(payload?.rows) ? payload.rows : []);
@@ -187,11 +192,20 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     const targets = [...fieldTargets, ...filterTargets];
     if (!targets.length) return;
 
+    const headers = await buildClientAuthHeaders().catch(() => null);
+    if (!headers) {
+      setRemoteOptions({});
+      return;
+    }
+
     const entries = await Promise.all(
       targets.map(async (target) => {
         try {
           const params = new URLSearchParams({ userId: user.id });
-          const response = await fetch(`/api/global-admin/catalog/${target.entity}?${params.toString()}`);
+          const response = await fetch(`/api/global-admin/catalog/${target.entity}?${params.toString()}`, {
+            headers,
+            cache: "no-store",
+          });
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) return [target.targetKey, []] as const;
 
@@ -249,9 +263,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     if (!user?.id || !canSubmit || saving) return;
     setSaving(true);
     try {
+      const headers = await buildClientAuthHeaders("json");
       const response = await fetch(`/api/global-admin/catalog/${config.entity}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ userId: user.id, payload: formState }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -271,9 +286,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     if (!user?.id || !editingRow?.id || saving) return;
     setSaving(true);
     try {
+      const headers = await buildClientAuthHeaders("json");
       const response = await fetch(`/api/global-admin/catalog/${config.entity}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ userId: user.id, id: editingRow.id, payload: formState }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -294,9 +310,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     if (!user?.id || saving) return;
     setSaving(true);
     try {
+      const headers = await buildClientAuthHeaders("json");
       const response = await fetch(`/api/global-admin/catalog/${config.entity}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ userId: user.id, id: rowId }),
       });
       const payload = await response.json().catch(() => ({}));

@@ -57,6 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/platform/catalogs/agrochemistry/pesticides", labelKey: "pesticides" },
       { href: "/platform/catalogs/agrochemistry/fertilizers", labelKey: "fertilizers" },
+      { href: "/platform/catalogs/agrochemistry/additives", labelKey: "additives" },
       { href: "/platform/catalogs/agrochemistry/growth-regulators", labelKey: "growth_regulators" },
       { href: "/platform/catalogs/agrochemistry/pesticide-categories", labelKey: "pesticide_categories" },
       { href: "/platform/catalogs/agrochemistry/active-ingredients", labelKey: "active_ingredients" },

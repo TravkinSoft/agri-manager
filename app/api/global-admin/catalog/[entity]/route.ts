@@ -162,6 +162,48 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
       unit: payload.default_unit || "kg",
     }),
   },
+  additives: {
+    table: "products",
+    select: "*",
+    defaultOrder: "name",
+    scopeWhere: (query) =>
+      query
+        .is("company_id", null)
+        .or(
+          "product_type.eq.additive,product_type.eq.adjuvant,category.eq.additive,category.eq.adjuvant,pesticide_category.in.(adjuvant,surfactant,water_conditioner,pH_regulator,drift_reduction_agent,anti_foam)"
+        ),
+    searchColumns: ["name", "trade_name", "subcategory", "category", "manufacturer", "formulation"],
+    filters: ["subcategory", "manufacturer_id", "formulation_id", "is_active"],
+    normalizeRow: (row) => ({
+      ...row,
+      trade_name: row.trade_name || row.name || "-",
+      subcategory: row.subcategory || row.pesticide_category || row.category || "-",
+      formulation: row.formulation_name || row.formulation || "-",
+      manufacturer: row.manufacturer_name || row.manufacturer || "-",
+      default_unit: row.default_unit || row.unit || row.base_uom || "-",
+      status: "master",
+    }),
+    beforeCreate: (payload) => ({
+      ...payload,
+      type: "pesticide",
+      product_type: "additive",
+      category: "additive",
+      pesticide_category: null,
+      fertilizer_type: null,
+      company_id: null,
+      unit: payload.default_unit || "l",
+      base_uom: payload.default_unit || "l",
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      product_type: "additive",
+      category: "additive",
+      pesticide_category: null,
+      fertilizer_type: null,
+      unit: payload.default_unit || payload.unit || "l",
+      base_uom: payload.default_unit || payload.base_uom || "l",
+    }),
+  },
   growth_regulators: {
     table: "products",
     select: "*",
@@ -633,7 +675,7 @@ export async function GET(
     const search = String(request.nextUrl.searchParams.get("search") || "").trim();
     if (search) {
       const searchTerms =
-        entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators"
+        entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators"
           ? expandProductSearchTerms(search)
           : [search];
       const orParts = searchTerms.flatMap((term) => config.searchColumns.map((column) => `${column}.ilike.%${term}%`));
@@ -715,7 +757,7 @@ export async function GET(
       hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
     }
 
-    if (search && (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators")) {
+    if (search && (entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators")) {
       hydratedRows = hydratedRows.filter((row: any) => productSearchMatches(row, search));
     }
 

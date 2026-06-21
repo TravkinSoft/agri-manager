@@ -5,6 +5,7 @@ export type ProductCategory =
   | "seed"
   | "fertilizer"
   | "pesticide"
+  | "additive"
   | "organic"
   | "fuel"
   | "material"
@@ -180,7 +181,7 @@ export const warehouseSchema = z.object({
 
 export const productSchema = z.object({
   name: z.string().min(1, "Product name is required"),
-  type: z.enum(["crop", "seed", "fertilizer", "pesticide", "organic", "fuel", "material", "produce"], {
+  type: z.enum(["crop", "seed", "fertilizer", "pesticide", "additive", "organic", "fuel", "material", "produce"], {
     required_error: "Please select a product category",
   }),
   crop_id: z.string().uuid().optional().or(z.literal("")),

@@ -23,6 +23,7 @@ const PRODUCT_TYPES = new Set([
   "seed",
   "fertilizer",
   "pesticide",
+  "additive",
   "organic",
   "fuel",
   "material",
@@ -115,6 +116,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       const type = String(body.type || "").trim().toLowerCase();
       if (!PRODUCT_TYPES.has(type)) return NextResponse.json({ error: "Invalid product type" }, { status: 400 });
       patch.type = type;
+      patch.product_type = ["pesticide", "fertilizer", "additive"].includes(type) ? type : null;
+      patch.category = type === "additive" ? "additive" : null;
     }
     if (body.crop_id !== undefined) patch.crop_id = toNullableText(body.crop_id);
     if (body.product_form !== undefined) patch.product_form = toNullableText(body.product_form);
