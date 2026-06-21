@@ -1,9 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getMaterialProductTypeFromProduct } from "@/lib/materials/classification";
 
 type ParsedMaterialLine = {
   productName: string | null;
   productId: string | null;
   ratePerHa: number | null;
+  plannedQuantity?: number | null;
+  unit?: string | null;
 };
 
 function extractDraftValueFromNotes(notes: string | null | undefined, label: string): string | null {
@@ -55,16 +58,16 @@ async function resolveProductById(
   supabase: SupabaseClient,
   companyId: string,
   productId: string
-): Promise<{ id: string; name: string; type: string | null; unit: string | null } | null> {
+): Promise<{ id: string; name: string; type: string | null; product_type?: string | null; category?: string | null; subcategory?: string | null; pesticide_category?: string | null; fertilizer_type?: string | null; unit: string | null } | null> {
   const normalizedId = String(productId || "").trim();
   if (!normalizedId) return null;
 
   const { data } = await supabase
     .from("products")
-    .select("id,name,type,unit")
-    .eq("company_id", companyId)
+    .select("id,name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit")
     .eq("archived", false)
     .eq("id", normalizedId)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
     .maybeSingle();
 
   return data ? (data as any) : null;
@@ -74,34 +77,34 @@ async function resolveProductByName(
   supabase: SupabaseClient,
   companyId: string,
   productName: string
-): Promise<{ id: string; name: string; type: string | null; unit: string | null } | null> {
+): Promise<{ id: string; name: string; type: string | null; product_type?: string | null; category?: string | null; subcategory?: string | null; pesticide_category?: string | null; fertilizer_type?: string | null; unit: string | null } | null> {
   const normalizedName = String(productName || "").trim();
   if (!normalizedName) return null;
 
   const { data: exactRows } = await supabase
     .from("products")
-    .select("id,name,type,unit")
-    .eq("company_id", companyId)
+    .select("id,name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit")
     .eq("archived", false)
     .ilike("name", normalizedName)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
     .limit(1);
   if (exactRows && exactRows.length > 0) return exactRows[0] as any;
 
   const { data: tradeExactRows } = await supabase
     .from("products")
-    .select("id,name,type,unit,trade_name")
-    .eq("company_id", companyId)
+    .select("id,name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,trade_name")
     .eq("archived", false)
     .ilike("trade_name", normalizedName)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
     .limit(1);
   if (tradeExactRows && tradeExactRows.length > 0) return tradeExactRows[0] as any;
 
   const { data: fuzzyRows } = await supabase
     .from("products")
-    .select("id,name,type,unit,trade_name")
-    .eq("company_id", companyId)
+    .select("id,name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,trade_name")
     .eq("archived", false)
     .or(`name.ilike.%${normalizedName}%,trade_name.ilike.%${normalizedName}%`)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
     .limit(1);
   if (fuzzyRows && fuzzyRows.length > 0) return fuzzyRows[0] as any;
 
@@ -142,7 +145,7 @@ export async function ensureMaterialRequestForOperation(params: {
   const materialHints: ParsedMaterialLine[] = [];
   const { data: structuredMaterials } = await supabase
     .from("operation_materials")
-    .select("product_id,planned_rate")
+    .select("product_id,planned_rate,planned_quantity,unit")
     .eq("company_id", companyId)
     .eq("operation_id", operationId)
     .order("created_at", { ascending: true });
@@ -155,6 +158,8 @@ export async function ensureMaterialRequestForOperation(params: {
         productName: null,
         productId,
         ratePerHa: parseRate(String(item?.planned_rate || "")),
+        plannedQuantity: parseRate(String(item?.planned_quantity || "")),
+        unit: item?.unit ? String(item.unit) : null,
       });
     });
   }
@@ -259,13 +264,16 @@ export async function ensureMaterialRequestForOperation(params: {
 
     const rate = materialHint.ratePerHa && materialHint.ratePerHa > 0 ? materialHint.ratePerHa : null;
     if (rate == null) defaultedRateItems += 1;
-    const plannedQuantity = Number((effectiveArea * (rate ?? 1)).toFixed(4));
+    const plannedQuantity =
+      materialHint.plannedQuantity && materialHint.plannedQuantity > 0
+        ? Number(materialHint.plannedQuantity.toFixed(4))
+        : Number((effectiveArea * (rate ?? 1)).toFixed(4));
     if (!(plannedQuantity > 0)) continue;
     resolvedMaterials.push({
       product_id: String(product.id),
       product_name: String(product.name || materialHint.productName || materialHint.productId || "material"),
-      product_category: product.type || null,
-      unit: String(product.unit || "kg"),
+      product_category: getMaterialProductTypeFromProduct(product) || product.type || null,
+      unit: String(materialHint.unit || product.unit || "kg"),
       planned_rate_per_ha: rate,
       planned_quantity: plannedQuantity,
     });

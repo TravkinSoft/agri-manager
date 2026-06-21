@@ -75,6 +75,8 @@ type CreateOperationBody = {
       batch_id?: string | null;
       planned_rate?: number | null;
       actual_rate?: number | null;
+      rate_basis?: string | null;
+      planned_quantity?: number | null;
       unit?: string | null;
       notes?: string | null;
     }>;
@@ -94,7 +96,18 @@ type CreateOperationBody = {
     batch_id?: string | null;
     planned_rate?: number | null;
     actual_rate?: number | null;
+    rate_basis?: string | null;
+    planned_quantity?: number | null;
     unit?: string | null;
+    notes?: string | null;
+  }>;
+  targets?: Array<{
+    field_id?: string | null;
+    crop_structure_id?: string | null;
+    crop_id?: string | null;
+    variety_id?: string | null;
+    reproduction_id?: string | null;
+    planned_area_ha?: number | null;
     notes?: string | null;
   }>;
   date?: string;
@@ -509,11 +522,13 @@ export async function POST(request: NextRequest) {
           (candidate) =>
             String(candidate?.product_id || "") === String(item?.product_id || "") &&
             String(candidate?.component_type || candidate?.material_type || "") === String(item?.component_type || item?.material_type || "") &&
-            String(candidate?.planned_rate ?? "") === String(item?.planned_rate ?? "")
+            String(candidate?.planned_rate ?? "") === String(item?.planned_rate ?? "") &&
+            String(candidate?.rate_basis ?? "") === String(item?.rate_basis ?? "")
         )
     );
     const deferCropStructureReadForFastPath =
       Boolean(cropStructureId && fieldId) &&
+      !Array.isArray(body.targets) &&
       !body.structure_change?.mode &&
       operationComponents.length === 0 &&
       !rowSpacingM &&
@@ -665,7 +680,63 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const effectivePlannedArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
+    const requestedTargets = Array.isArray(body.targets)
+      ? body.targets
+          .map((target) => ({
+            field_id: toNullableUuid(target?.field_id),
+            crop_structure_id: toNullableUuid(target?.crop_structure_id),
+            crop_id: toNullableUuid(target?.crop_id),
+            variety_id: toNullableUuid(target?.variety_id),
+            reproduction_id: toNullableUuid(target?.reproduction_id),
+            planned_area_ha: toNullableNumber(target?.planned_area_ha),
+            notes: toNullableText(target?.notes),
+          }))
+          .filter((target) => target.field_id && target.planned_area_ha != null && target.planned_area_ha > 0)
+      : [];
+    const targetStructureIds = Array.from(
+      new Set(requestedTargets.map((target) => target.crop_structure_id).filter(Boolean) as string[])
+    );
+    const targetStructuresById = new Map<string, any>();
+    if (targetStructureIds.length > 0) {
+      const targetReadStarted = Date.now();
+      const { data: targetStructureRows, error: targetStructureError } = await supabase
+        .from("crop_structure")
+        .select("id,field_id,crop_id,variety_id,reproduction_id,area,season_id,seasons:season_id(year)")
+        .eq("company_id", companyId)
+        .in("id", targetStructureIds);
+      timing.crop_structure_read_ms += Date.now() - targetReadStarted;
+      if (targetStructureError) {
+        return NextResponse.json({ error: targetStructureError.message }, { status: 400 });
+      }
+      (targetStructureRows || []).forEach((row: any) => targetStructuresById.set(String(row.id), row));
+      const missingTargetId = targetStructureIds.find((id) => !targetStructuresById.has(id));
+      if (missingTargetId) {
+        return NextResponse.json({ error: "target crop_structure_id does not belong to this company" }, { status: 400 });
+      }
+    }
+    const mismatchedTarget = requestedTargets.find((target) => {
+      const structure = target.crop_structure_id ? targetStructuresById.get(target.crop_structure_id) : null;
+      return structure?.field_id && target.field_id && String(structure.field_id) !== target.field_id;
+    });
+    if (mismatchedTarget) {
+      return NextResponse.json({ error: "target crop_structure_id must belong to target field_id" }, { status: 400 });
+    }
+    const normalizedTargets = requestedTargets.map((target) => {
+      const structure = target.crop_structure_id ? targetStructuresById.get(target.crop_structure_id) : null;
+      const area = Number(target.planned_area_ha || 0);
+      return {
+        field_id: structure?.field_id ? String(structure.field_id) : target.field_id,
+        crop_structure_id: target.crop_structure_id,
+        crop_id: structure?.crop_id ? toNullableUuid(structure.crop_id) : target.crop_id,
+        variety_id: structure?.variety_id ? toNullableUuid(structure.variety_id) : target.variety_id,
+        reproduction_id: structure?.reproduction_id ? toNullableUuid(structure.reproduction_id) : target.reproduction_id,
+        planned_area_ha: Number(area.toFixed(4)),
+        notes: target.notes || (target.crop_structure_id ? `crop_structure:${target.crop_structure_id}` : null),
+      };
+    });
+    const targetsPlannedArea = normalizedTargets.reduce((sum, target) => sum + Number(target.planned_area_ha || 0), 0);
+    const effectivePlannedArea =
+      targetsPlannedArea > 0 ? Number(targetsPlannedArea.toFixed(4)) : plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
     const isPotatoPlantingTemplate = operationTemplate === "potato_planting";
     const seedRateKgHa = toNullableNumber(body.rate_per_ha);
     if (isPotatoPlantingTemplate && (!resolvedSeedSpacingCm || resolvedSeedSpacingCm <= 0)) {
@@ -729,11 +800,20 @@ export async function POST(request: NextRequest) {
         batch_id: toNullableUuid(item?.batch_id),
         planned_rate: toNullableNumber(item?.planned_rate),
         actual_rate: toNullableNumber(item?.actual_rate),
+        rate_basis: toNullableText(item?.rate_basis) || "per_ha",
+        planned_quantity: toNullableNumber(item?.planned_quantity),
         unit,
         notes: toNullableText(item?.notes),
         product_required: definition.productRequired,
       };
     });
+    const invalidPerWaterUnit = tankMixComponents.find((item) => item.rate_basis === "per_l_water" && item.unit === "pcs");
+    if (invalidPerWaterUnit) {
+      return NextResponse.json(
+        { error: "Для расчёта на литр воды нельзя использовать единицу шт. Выберите л или кг." },
+        { status: 400 }
+      );
+    }
     const calculatedPlantsPerHa =
       resolvedRowSpacingM && resolvedSeedSpacingCm && resolvedRowSpacingM > 0 && resolvedSeedSpacingCm > 0
         ? Math.round(10000 / (resolvedRowSpacingM * (resolvedSeedSpacingCm / 100)))
@@ -788,6 +868,8 @@ export async function POST(request: NextRequest) {
       warehouse_workflow: buildWarehouseWorkflowMetadata(),
       execution_fact_model: buildExecutionFactModelMetadata(),
       planned_area_ha: effectivePlannedArea,
+      targets: normalizedTargets.length > 0 ? normalizedTargets : undefined,
+      target_count: normalizedTargets.length > 0 ? normalizedTargets.length : undefined,
       crop_id: resolvedCropId,
       variety_id: resolvedVarietyId,
       reproduction_id: resolvedReproductionId,
@@ -821,6 +903,7 @@ export async function POST(request: NextRequest) {
 
     const canUseFastPlanCreate =
       Boolean(cropStructureId && fieldId) &&
+      normalizedTargets.length === 0 &&
       !pendingStructureChangeEvent &&
       operationComponents.length === 0 &&
       !resolvedRowSpacingM &&
@@ -972,6 +1055,11 @@ export async function POST(request: NextRequest) {
         const unit = (MATERIAL_UNITS.has(requestedUnit) ? requestedUnit : inferUnitByMaterialType(materialType)) as "kg" | "l" | "pcs";
         const plannedRate = toNullableNumber(item?.planned_rate);
         const actualRate = toNullableNumber(item?.actual_rate);
+        const plannedQuantity = toNullableNumber(item?.planned_quantity);
+        const rateBasis = toNullableText(item?.rate_basis);
+        const materialNotes = [toNullableText(item?.notes), rateBasis ? `rate_basis:${rateBasis}` : null]
+          .filter(Boolean)
+          .join("; ");
         return {
           company_id: companyId,
           operation_id: String(operationRow.id),
@@ -982,7 +1070,8 @@ export async function POST(request: NextRequest) {
           unit,
           planned_rate: plannedRate,
           actual_rate: actualRate,
-          notes: toNullableText(item?.notes) || `component:${componentType}`,
+          planned_quantity: plannedQuantity,
+          notes: materialNotes || `component:${componentType}`,
           created_by_user_id: actor.authUserId,
           updated_by_user_id: actor.authUserId,
         };
@@ -1002,7 +1091,41 @@ export async function POST(request: NextRequest) {
 
     let defaultOperationLine: Record<string, unknown> | null = null;
     let operationLineWarning: string | null = null;
-    if (allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType)) {
+    const createdOperationLines: Record<string, unknown>[] = [];
+    if (normalizedTargets.length > 0 && allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType)) {
+      const lineRows = normalizedTargets.map((target) => ({
+        company_id: companyId,
+        operation_id: String(operationRow.id),
+        field_id: target.field_id,
+        crop_id: target.crop_id,
+        variety_id: target.variety_id,
+        reproduction_id: target.reproduction_id,
+        planned_area_ha: target.planned_area_ha,
+        actual_area_ha: null,
+        row_spacing_m: resolvedRowSpacingM,
+        seed_spacing_cm: resolvedSeedSpacingCm,
+        calculated_plants_per_ha: calculatedPlantsPerHa,
+        calculated_total_plants:
+          calculatedPlantsPerHa && target.planned_area_ha > 0 ? Math.round(calculatedPlantsPerHa * target.planned_area_ha) : null,
+        notes: [target.notes, target.crop_structure_id ? `crop_structure:${target.crop_structure_id}` : null, "Multi-target operation line"]
+          .filter(Boolean)
+          .join("; "),
+        created_by_user_id: actor.authUserId,
+        updated_by_user_id: actor.authUserId,
+      }));
+      const childRowsStarted = Date.now();
+      const { data: lineRowsData, error: lineRowsError } = await supabase
+        .from("operation_lines")
+        .insert(lineRows)
+        .select("*");
+      timing.child_rows_insert_ms += Date.now() - childRowsStarted;
+      if (lineRowsError) {
+        operationLineWarning = lineRowsError.message || "Failed to create operation target lines";
+      } else if (Array.isArray(lineRowsData)) {
+        createdOperationLines.push(...(lineRowsData as Record<string, unknown>[]));
+        defaultOperationLine = createdOperationLines[0] || null;
+      }
+    } else if (allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType)) {
       let effectiveArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
       if (!effectiveArea) {
         const { data: fieldRow } = await supabase
@@ -1043,6 +1166,7 @@ export async function POST(request: NextRequest) {
         operationLineWarning = lineError?.message || "Failed to create default operation line";
       } else {
         defaultOperationLine = lineRow as Record<string, unknown>;
+        createdOperationLines.push(defaultOperationLine);
       }
     }
 
@@ -1086,8 +1210,9 @@ export async function POST(request: NextRequest) {
             planned_area_ha: defaultOperationLine?.planned_area_ha ?? effectivePlannedArea ?? plannedArea,
             crop_id: resolvedCropId,
           },
-          operation_line: defaultOperationLine,
-          operation_line_warning: operationLineWarning,
+              operation_line: defaultOperationLine,
+              operation_lines: createdOperationLines,
+              operation_line_warning: operationLineWarning,
           material_request: materialRequestResult,
         },
         timing,

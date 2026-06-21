@@ -43,7 +43,10 @@ import {
   operationSchema,
   OperationFormData,
   OperationMaterialFormData,
+  OperationMaterialRateBasis,
   OperationMaterialType,
+  OperationMaterialUnit,
+  OperationTargetFormData,
   SpecialistAssignee,
 } from "@/lib/types/operation";
 import { Field } from "@/lib/types/field";
@@ -53,6 +56,10 @@ import { supabase } from "@/lib/supabase/client";
 import { getFieldDisplayName } from "@/lib/fields/display";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import {
+  getMaterialProductTypeFromProduct,
+  getMaterialSubcategoryFromProduct,
+} from "@/lib/materials/classification";
 import {
   OPERATION_SUBTYPE_DEFINITIONS,
   OPERATION_TYPE_DEFINITIONS,
@@ -109,6 +116,11 @@ type ProductOption = {
   id: string;
   name: string;
   type: string | null;
+  product_type?: string | null;
+  category?: string | null;
+  subcategory?: string | null;
+  pesticide_category?: string | null;
+  fertilizer_type?: string | null;
   unit: string | null;
   availableQty: number;
   warehouseNames: string[];
@@ -184,6 +196,10 @@ const ADDITIONAL_COMPONENT_TYPES = new Set<TankMixComponentType>([
 
 type ChemistryMaterialGroup = "pesticides" | "fertilizers" | "additives";
 
+type OperationTargetDraft = OperationTargetFormData & {
+  key: string;
+};
+
 const CHEMISTRY_GROUP_COMPONENTS: Record<ChemistryMaterialGroup, TankMixComponentType> = {
   pesticides: "crop_protection",
   fertilizers: "fertilizer",
@@ -195,6 +211,28 @@ const CHEMISTRY_GROUP_LABELS: Record<ChemistryMaterialGroup, string> = {
   fertilizers: "Удобрения",
   additives: "Добавки",
 };
+
+const RATE_BASIS_LABELS: Record<OperationMaterialRateBasis, string> = {
+  per_ha: "На гектар",
+  per_t_solution: "На тонну раствора",
+  per_1000_l_solution: "На 1000 л раствора",
+  per_l_water: "На литр воды",
+};
+
+const RATE_BASIS_UNITS: Record<OperationMaterialRateBasis, { l: string; kg: string; pcs: string }> = {
+  per_ha: { l: "л/га", kg: "кг/га", pcs: "шт/га" },
+  per_t_solution: { l: "л/т раствора", kg: "кг/т раствора", pcs: "шт/т раствора" },
+  per_1000_l_solution: { l: "л/1000 л", kg: "кг/1000 л", pcs: "шт/1000 л" },
+  per_l_water: { l: "мл/л", kg: "г/л", pcs: "шт/л" },
+};
+
+const UNIT_LABELS: Record<string, string> = {
+  l: "л",
+  kg: "кг",
+  pcs: "шт",
+};
+
+const MATERIAL_UNIT_OPTIONS: OperationMaterialUnit[] = ["kg", "l", "pcs"];
 
 const IMPLIED_PURPOSE_BY_TEMPLATE: Record<string, OperationPurposeSlug> = {
   herbicide_treatment: "weed_control",
@@ -231,15 +269,32 @@ function inferMaterialTypeByProductType(productType: string | null | undefined):
   const normalized = String(productType || "").trim().toLowerCase();
   if (normalized.includes("seed")) return "seed";
   if (normalized.includes("fertil")) return "fertilizer";
+  if (normalized.includes("additive") || normalized.includes("adjuvant")) return "adjuvant";
   if (normalized.includes("pesticide")) return "pesticide";
   if (normalized.includes("fuel")) return "fuel";
   if (normalized.includes("organic")) return "organic";
   return "fertilizer";
 }
 
+function productMetadataText(product: ProductOption | undefined): string {
+  if (!product) return "";
+  return [
+    product.name,
+    product.type,
+    product.product_type,
+    product.category,
+    product.subcategory,
+    product.pesticide_category,
+    product.fertilizer_type,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
 function isPotatoSeedProduct(product: ProductOption | undefined): boolean {
   if (!product) return false;
-  const text = `${product.name || ""} ${product.type || ""}`.toLowerCase();
+  const text = productMetadataText(product);
   return (
     text.includes("картоф") ||
     text.includes("potato") ||
@@ -250,12 +305,15 @@ function isPotatoSeedProduct(product: ProductOption | undefined): boolean {
 
 function productMatchesComponent(product: ProductOption | undefined, componentType: TankMixComponentType): boolean {
   if (!product) return false;
-  const text = `${product.name || ""} ${product.type || ""}`.toLowerCase();
+  const materialGroup = getMaterialProductTypeFromProduct(product);
+  const materialSubcategory = getMaterialSubcategoryFromProduct(product);
+  const text = productMetadataText(product);
   if (componentType === "water") return false;
   if (componentType === "seed") {
     return text.includes("seed") || text.includes("семен") || text.includes("посев") || text.includes("сорт");
   }
   if (componentType === "fertilizer" || componentType === "micro_fertilizer") {
+    if (materialGroup === "fertilizer") return true;
     return (
       text.includes("fertil") ||
       text.includes("удобр") ||
@@ -272,6 +330,7 @@ function productMatchesComponent(product: ProductOption | undefined, componentTy
     );
   }
   if (componentType === "crop_protection") {
+    if (materialGroup === "pesticide") return true;
     return (
       text.includes("crop_protection") ||
       text.includes("pesticide") ||
@@ -293,15 +352,24 @@ function productMatchesComponent(product: ProductOption | undefined, componentTy
     return text.includes("biolog") || text.includes("био");
   }
   if (componentType === "biostimulant") {
+    if (materialGroup === "fertilizer" && materialSubcategory === "biostimulant") return true;
     return text.includes("biostim") || text.includes("биостим") || text.includes("black jack") || text.includes("блек джек") || text.includes("технофит");
   }
   if (componentType === "ph_corrector") {
+    if (materialGroup === "additive" && materialSubcategory === "pH_corrector") return true;
     return text.includes("ph") || text.includes("рн") || text.includes("корректор") || text.includes("кислот");
   }
   if (componentType === "adjuvant") {
+    if (
+      materialGroup === "additive" &&
+      (!materialSubcategory || ["adjuvant", "sticker", "water_conditioner", "anti_salt", "other"].includes(materialSubcategory))
+    ) {
+      return true;
+    }
     return text.includes("adjuvant") || text.includes("пав") || text.includes("прилип") || text.includes("адъювант") || text.includes("anti-salt") || text.includes("антисоль");
   }
   if (componentType === "antifoam") {
+    if (materialGroup === "additive" && materialSubcategory === "antifoam") return true;
     return text.includes("antifoam") || text.includes("пеногас") || text.includes("foam");
   }
   return (
@@ -325,7 +393,11 @@ function chemistryGroupForComponent(componentType: TankMixComponentType): Chemis
 
 function productMatchesChemistryGroup(product: ProductOption | undefined, group: ChemistryMaterialGroup): boolean {
   if (!product) return false;
-  const text = `${product.name || ""} ${product.type || ""}`.toLowerCase();
+  const materialGroup = getMaterialProductTypeFromProduct(product);
+  if (group === "pesticides" && materialGroup === "pesticide") return true;
+  if (group === "fertilizers" && materialGroup === "fertilizer") return true;
+  if (group === "additives" && materialGroup === "additive") return true;
+  const text = productMetadataText(product);
   if (group === "pesticides") {
     return (
       productMatchesComponent(product, "crop_protection") ||
@@ -361,11 +433,32 @@ function productMatchesChemistryGroup(product: ProductOption | undefined, group:
 }
 
 function formatOperationNumber(value: number | null | undefined, digits = 2): string {
-  if (value == null || !Number.isFinite(value)) return "0";
+  if (value == null || !Number.isFinite(value)) return "—";
   return value.toLocaleString("ru-RU", {
     maximumFractionDigits: digits,
     minimumFractionDigits: value % 1 === 0 ? 0 : Math.min(digits, 2),
   });
+}
+
+function formatStorageUnit(unit: string | null | undefined): string {
+  return UNIT_LABELS[String(unit || "").trim()] || String(unit || "");
+}
+
+function formatRateUnit(unit: string | null | undefined, basis: OperationMaterialRateBasis | null | undefined): string {
+  const safeUnit = String(unit || "kg") as "l" | "kg" | "pcs";
+  return RATE_BASIS_UNITS[basis || "per_ha"]?.[safeUnit] || formatStorageUnit(unit);
+}
+
+function unitAllowedForRateBasis(unit: string | null | undefined, basis: OperationMaterialRateBasis | null | undefined) {
+  return !(basis === "per_l_water" && unit === "pcs");
+}
+
+function createTargetKey() {
+  const randomPart =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `operation-target-${randomPart}`;
 }
 
 function requiresCropStructureForType(type: OperationTypeMaster | null): boolean {
@@ -487,6 +580,7 @@ export function OperationFormDialog({
   const [varietyCatalog, setVarietyCatalog] = useState<VarietyCatalogOption[]>([]);
   const [reproductionCatalog, setReproductionCatalog] = useState<ReproductionCatalogOption[]>([]);
   const [materials, setMaterials] = useState<OperationMaterialFormData[]>([]);
+  const [operationTargets, setOperationTargets] = useState<OperationTargetDraft[]>([]);
   const [purposes, setPurposes] = useState<OperationPurposeSlug[]>([]);
   const [tankMixEnabled, setTankMixEnabled] = useState(false);
   const [tankMixWaterRate, setTankMixWaterRate] = useState<number | null>(null);
@@ -523,6 +617,7 @@ export function OperationFormDialog({
       responsible_user_id: null,
       notes: "",
       materials: [],
+      targets: [],
     },
   });
 
@@ -643,6 +738,22 @@ export function OperationFormDialog({
     });
   }, [fields]);
 
+  const cropStructureLabel = (structure: CropStructureWithDetails) =>
+    `${structure.crop_name || "Культура не задана"} / ${structure.variety_name || "Без сорта"} / ${
+      structure.reproduction_name || "Без репродукции"
+    }`;
+
+  const createTargetFromStructure = (structure: CropStructureWithDetails): OperationTargetDraft => ({
+    key: createTargetKey(),
+    field_id: structure.field_id,
+    crop_structure_id: structure.id,
+    crop_id: structure.crop_id || null,
+    variety_id: structure.variety_id || null,
+    reproduction_id: structure.reproduction_id || null,
+    planned_area_ha: Number(structure.area || 0),
+    notes: cropStructureLabel(structure),
+  });
+
   const specialistOptions = useMemo(
     () =>
       specialists.map((specialist) => ({
@@ -661,7 +772,7 @@ export function OperationFormDialog({
       products.map((item) => ({
         id: item.id,
         label: item.name,
-        hint: `${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${item.unit || ""}${
+        hint: `${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${formatStorageUnit(item.unit)}${
           item.warehouseNames.length > 0 ? ` • ${item.warehouseNames.slice(0, 2).join(", ")}` : ""
         }`,
       })),
@@ -708,6 +819,13 @@ export function OperationFormDialog({
   useEffect(() => {
     form.setValue("materials", materials);
   }, [materials, form]);
+
+  useEffect(() => {
+    form.setValue(
+      "targets",
+      operationTargets.map(({ key: _key, ...target }) => target)
+    );
+  }, [operationTargets, form]);
 
   useEffect(() => {
     if (!open) return;
@@ -778,7 +896,7 @@ export function OperationFormDialog({
           const [productMetaRes, warehouseMetaRes] = await Promise.all([
             supabase
               .from("products")
-              .select("id,name,trade_name,type,unit")
+              .select("id,name,trade_name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit")
               .or(`company_id.eq.${profile.company_id},company_id.is.null`)
               .eq("archived", false)
               .eq("is_active", true)
@@ -793,12 +911,17 @@ export function OperationFormDialog({
               : Promise.resolve({ data: [], error: null } as any),
           ]);
 
-          const productMetaById = new Map<string, { name: string; type: string | null; unit: string | null }>(
+          const productMetaById = new Map<string, Pick<ProductOption, "name" | "type" | "product_type" | "category" | "subcategory" | "pesticide_category" | "fertilizer_type" | "unit">>(
             (productMetaRes.data || []).map((row: any) => [
               String(row.id),
               {
                 name: String(row.trade_name || row.name || "-"),
                 type: row.type ? String(row.type) : null,
+                product_type: row.product_type ? String(row.product_type) : null,
+                category: row.category ? String(row.category) : null,
+                subcategory: row.subcategory ? String(row.subcategory) : null,
+                pesticide_category: row.pesticide_category ? String(row.pesticide_category) : null,
+                fertilizer_type: row.fertilizer_type ? String(row.fertilizer_type) : null,
                 unit: row.unit ? String(row.unit) : null,
               },
             ])
@@ -825,6 +948,11 @@ export function OperationFormDialog({
                 id: productId,
                 name: meta.name,
                 type: meta.type,
+                product_type: meta.product_type,
+                category: meta.category,
+                subcategory: meta.subcategory,
+                pesticide_category: meta.pesticide_category,
+                fertilizer_type: meta.fertilizer_type,
                 unit: meta.unit,
                 availableQty: 0,
                 warehouseNames: [],
@@ -862,6 +990,8 @@ export function OperationFormDialog({
             material_type: toStorageMaterialType(component.slug),
             product_id: item.product_id || "",
             unit: item.unit || getDefaultUnitForComponent(component.slug),
+            rate_basis: item.rate_basis || "per_ha",
+            planned_quantity: item.planned_quantity ?? null,
           };
         })
       : [];
@@ -889,6 +1019,7 @@ export function OperationFormDialog({
       purposes: Array.isArray(initial.purposes) ? initial.purposes : [],
       tank_mix: initialTankMix || undefined,
       materials: initialMaterials,
+      targets: Array.isArray(initial.targets) ? initial.targets : [],
     });
 
     setCategorySlug(initialCategory);
@@ -902,6 +1033,20 @@ export function OperationFormDialog({
         : {}
     );
     setMaterials(initialMaterials);
+    setOperationTargets(
+      Array.isArray(initial.targets)
+        ? initial.targets.map((target) => ({
+            key: createTargetKey(),
+            field_id: target.field_id,
+            crop_structure_id: target.crop_structure_id || null,
+            crop_id: target.crop_id || null,
+            variety_id: target.variety_id || null,
+            reproduction_id: target.reproduction_id || null,
+            planned_area_ha: Number(target.planned_area_ha || 0),
+            notes: target.notes || null,
+          }))
+        : []
+    );
     setStructureChangeMode("none");
     setStructureChangeCropId("");
     setStructureChangeVarietyId("none");
@@ -913,6 +1058,25 @@ export function OperationFormDialog({
     form.setValue("field_id", selectedCropStructure.field_id);
     form.setValue("crop_id", selectedCropStructure.crop_id);
     form.setValue("planned_area_ha", Number(selectedCropStructure.area || 0));
+    setOperationTargets((prev) => {
+      const primaryTarget = createTargetFromStructure(selectedCropStructure);
+      if (prev[0]?.crop_structure_id === selectedCropStructure.id) {
+        return [
+          {
+            ...prev[0],
+            field_id: selectedCropStructure.field_id,
+            crop_structure_id: selectedCropStructure.id,
+            crop_id: selectedCropStructure.crop_id || null,
+            variety_id: selectedCropStructure.variety_id || null,
+            reproduction_id: selectedCropStructure.reproduction_id || null,
+            planned_area_ha: Number(prev[0].planned_area_ha || selectedCropStructure.area || 0),
+            notes: cropStructureLabel(selectedCropStructure),
+          },
+          ...prev.slice(1),
+        ];
+      }
+      return [primaryTarget, ...prev.filter((target) => target.crop_structure_id !== selectedCropStructure.id)];
+    });
     const structureRowSpacing = Number((selectedCropStructure as any).row_spacing_m || 0);
     const structureSeedSpacing = Number((selectedCropStructure as any).seed_spacing_cm || 0);
     const nextRowSpacing = structureRowSpacing > 0 ? structureRowSpacing : selectedIsPotato ? 0.75 : null;
@@ -1081,6 +1245,7 @@ export function OperationFormDialog({
   const isIrrigation = canonicalType?.slug === "irrigation";
   const isSpraying = canonicalType?.slug === "spraying";
   const usesChemistryMix = isSpraying || isFertigation;
+  const supportsMultiTarget = usesChemistryMix;
   const isPotatoPlanting = operationIsPotato && typeSlug === "potato_planting";
   const compactAutoPlantingType =
     categorySlug === "planting" &&
@@ -1095,7 +1260,19 @@ export function OperationFormDialog({
   const showTransport = canonicalType?.slug === "harvesting" || canonicalType?.slug === "transport";
   const showField = canonicalType ? canonicalType.requiresCropStructure : true;
   const cropStructureRequired = isWholeFieldScope ? false : canonicalType ? canonicalType.requiresCropStructure : requiresCropStructureForType(selectedType);
-  const maxOperationArea = selectedCropStructureArea ?? (isWholeFieldScope && selectedField ? Number(selectedField.area || 0) : null);
+  const totalTargetArea = operationTargets.reduce((sum, target) => sum + Number(target.planned_area_ha || 0), 0);
+  const targetCount = operationTargets.filter((target) => Number(target.planned_area_ha || 0) > 0).length;
+  const targetFieldCount = new Set(operationTargets.map((target) => target.field_id).filter(Boolean)).size;
+  const maxOperationArea = supportsMultiTarget
+    ? null
+    : selectedCropStructureArea ?? (isWholeFieldScope && selectedField ? Number(selectedField.area || 0) : null);
+
+  useEffect(() => {
+    if (!open || !supportsMultiTarget) return;
+    if (totalTargetArea > 0) {
+      form.setValue("planned_area_ha", Number(totalTargetArea.toFixed(2)));
+    }
+  }, [form, open, supportsMultiTarget, totalTargetArea]);
 
   useEffect(() => {
     if (!open || !isPotatoPlanting) return;
@@ -1187,6 +1364,64 @@ export function OperationFormDialog({
     return String(value);
   };
 
+  const targetOptions = useMemo(
+    () =>
+      cropStructures
+        .filter((item) => !item.archived)
+        .map((item) => ({
+          id: item.id,
+          label: `${fields.find((field) => field.id === item.field_id)?.name || item.field_name || "Поле"} • ${cropStructureLabel(item)} • ${Number(
+            item.area || 0
+          ).toFixed(2)} га`,
+        })),
+    [cropStructures, fields]
+  );
+
+  const addOperationTarget = () => {
+    const used = new Set(operationTargets.map((target) => target.crop_structure_id).filter(Boolean));
+    const nextStructure =
+      cropStructures.find((item) => !item.archived && item.id !== selectedCropStructureId && !used.has(item.id)) ||
+      cropStructures.find((item) => !item.archived && !used.has(item.id));
+    if (!nextStructure) {
+      setSubmitError("Нет доступных участков для добавления.");
+      return;
+    }
+    setSubmitError(null);
+    setOperationTargets((prev) => [...prev, createTargetFromStructure(nextStructure)]);
+  };
+
+  const updateOperationTargetStructure = (key: string, cropStructureId: string) => {
+    const structure = cropStructures.find((item) => item.id === cropStructureId);
+    if (!structure) return;
+    setOperationTargets((prev) =>
+      prev.map((target) =>
+        target.key === key
+          ? {
+              ...createTargetFromStructure(structure),
+              key,
+            }
+          : target
+      )
+    );
+  };
+
+  const updateOperationTargetArea = (key: string, area: number | null) => {
+    setOperationTargets((prev) =>
+      prev.map((target) =>
+        target.key === key
+          ? {
+              ...target,
+              planned_area_ha: Math.max(0, Number(area || 0)),
+            }
+          : target
+      )
+    );
+  };
+
+  const removeOperationTarget = (key: string) => {
+    setOperationTargets((prev) => (prev.length <= 1 ? prev : prev.filter((target) => target.key !== key)));
+  };
+
   const isAdditionalComponent = (componentType: TankMixComponentType) => {
     if (isDripTapeRidge) return false;
     if (usesChemistryMix) {
@@ -1228,6 +1463,8 @@ export function OperationFormDialog({
         batch_id: null,
         planned_rate: null,
         actual_rate: null,
+        rate_basis: "per_ha",
+        planned_quantity: null,
         unit: getDefaultUnitForComponent(componentType),
         notes: null,
       },
@@ -1262,17 +1499,57 @@ export function OperationFormDialog({
     });
   };
 
-  const operationAreaForCalculation = Number(plannedAreaHa || 0);
+  const operationAreaForCalculation = supportsMultiTarget && totalTargetArea > 0 ? totalTargetArea : Number(plannedAreaHa || 0);
   const solutionRateLHa =
     showTankMix && Number(sprayVolumePerHa ?? tankMixWaterRate ?? 0) > 0
       ? Number(sprayVolumePerHa ?? tankMixWaterRate ?? 0)
       : null;
   const totalSolutionL =
     solutionRateLHa && operationAreaForCalculation > 0 ? solutionRateLHa * operationAreaForCalculation : null;
+  const calculateMaterialTotal = (
+    material: OperationMaterialFormData,
+    waterBaseL: number | null = null
+  ): number | null => {
+    const rate = Number(material.planned_rate || 0);
+    if (!(rate > 0)) return null;
+    const basis = material.rate_basis || "per_ha";
+    if (!unitAllowedForRateBasis(material.unit, basis)) return null;
+    if (basis === "per_ha") {
+      return operationAreaForCalculation > 0 ? rate * operationAreaForCalculation : null;
+    }
+    if (basis === "per_t_solution" || basis === "per_1000_l_solution") {
+      return totalSolutionL != null && totalSolutionL > 0 ? (totalSolutionL / 1000) * rate : null;
+    }
+    if (basis === "per_l_water") {
+      const base = waterBaseL != null ? waterBaseL : totalSolutionL;
+      return base != null && base > 0 ? (base * rate) / 1000 : null;
+    }
+    return null;
+  };
+  const preliminaryMaterialRows = materials
+    .map((material, index) => {
+      const total = material.rate_basis === "per_l_water" ? null : calculateMaterialTotal(material);
+      const product = products.find((item) => item.id === material.product_id);
+      const component = getTankMixComponentDefinition(material.component_type || material.material_type);
+      return {
+        index,
+        name: product?.name || "",
+        unit: material.unit || getDefaultUnitForComponent(component.slug),
+        rate: Number(material.planned_rate || 0),
+        rateBasis: material.rate_basis || "per_ha",
+        total,
+      };
+    })
+    .filter((row) => row.total != null && row.total > 0);
+  const preliminaryLiquidProductsTotalL = preliminaryMaterialRows
+    .filter((row) => row.unit === "l")
+    .reduce((sum, row) => sum + Number(row.total || 0), 0);
+  const preliminaryWaterTotalL =
+    totalSolutionL != null ? Math.max(totalSolutionL - preliminaryLiquidProductsTotalL, 0) : null;
   const materialCalculationRows = materials
     .map((material, index) => {
       const rate = Number(material.planned_rate || 0);
-      const total = rate > 0 && operationAreaForCalculation > 0 ? rate * operationAreaForCalculation : null;
+      const total = calculateMaterialTotal(material, preliminaryWaterTotalL);
       const product = products.find((item) => item.id === material.product_id);
       const component = getTankMixComponentDefinition(material.component_type || material.material_type);
       return {
@@ -1280,6 +1557,7 @@ export function OperationFormDialog({
         name: product?.name || "",
         unit: material.unit || getDefaultUnitForComponent(component.slug),
         rate,
+        rateBasis: material.rate_basis || "per_ha",
         total,
       };
     })
@@ -1298,14 +1576,14 @@ export function OperationFormDialog({
 
   const renderMaterialRow = (material: OperationMaterialFormData, index: number) => {
     const component = getTankMixComponentDefinition(material.component_type || material.material_type);
-    const materialTotal =
-      Number(material.planned_rate || 0) > 0 && operationAreaForCalculation > 0
-        ? Number(material.planned_rate || 0) * operationAreaForCalculation
-        : null;
+    const materialTotal = calculateMaterialTotal(material, preliminaryWaterTotalL);
+    const rateBasis = material.rate_basis || "per_ha";
+    const unitOptions = MATERIAL_UNIT_OPTIONS.filter((unit) => unitAllowedForRateBasis(unit, rateBasis));
+    const hasInvalidPerWaterUnit = !unitAllowedForRateBasis(material.unit, rateBasis);
 
     return (
     <div key={`material-${index}`} className="rounded-xl border border-slate-800 bg-slate-950/35 p-2">
-      <div className="grid grid-cols-1 gap-2 md:grid-cols-6">
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-7">
         <div>
           <div className="mb-1 text-xs text-slate-500">{usesChemistryMix ? "Группа" : "Тип"}</div>
           <Select
@@ -1339,7 +1617,9 @@ export function OperationFormDialog({
               value={material.product_id || ""}
               onChange={(productId) => {
                 const product = products.find((item) => item.id === productId);
-                const inferredType = inferMaterialTypeByProductType(product?.type);
+                const inferredType = inferMaterialTypeByProductType(
+                  getMaterialProductTypeFromProduct(product || {}) || product?.product_type || product?.type
+                );
                 const inferredComponent = getTankMixComponentDefinition(material.component_type || inferredType);
                 updateMaterial(index, {
                   product_id: productId,
@@ -1360,19 +1640,48 @@ export function OperationFormDialog({
             </div>
           )}
         </div>
+        {usesChemistryMix ? (
+          <div>
+            <div className="mb-1 text-xs text-slate-500">Тип расчёта</div>
+            <Select
+              value={rateBasis}
+              onValueChange={(value) => {
+                const nextBasis = value as OperationMaterialRateBasis;
+                updateMaterial(index, {
+                  rate_basis: nextBasis,
+                  unit: unitAllowedForRateBasis(material.unit, nextBasis) ? material.unit : "kg",
+                });
+              }}
+            >
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(RATE_BASIS_LABELS) as OperationMaterialRateBasis[]).map((basis) => (
+                  <SelectItem key={basis} value={basis}>
+                    {RATE_BASIS_LABELS[basis]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {hasInvalidPerWaterUnit ? (
+              <div className="mt-1 text-[11px] text-red-300">Для расчёта на литр воды выберите л или кг.</div>
+            ) : null}
+          </div>
+        ) : null}
         <div>
-          <div className="mb-1 text-xs text-slate-500">Норма на га</div>
+          <div className="mb-1 text-xs text-slate-500">Норма</div>
           <Input
             className="h-8 text-xs"
             value={material.planned_rate ?? ""}
             onChange={(event) => updateMaterial(index, { planned_rate: normalizeNumber(event.target.value) })}
-            placeholder={`${material.unit || getDefaultUnitForComponent(component.slug)}/га`}
+            placeholder={formatRateUnit(material.unit || getDefaultUnitForComponent(component.slug), rateBasis)}
           />
         </div>
         <div>
           <div className="mb-1 text-xs text-slate-500">Итого</div>
           <div className="flex h-8 items-center rounded-md border border-slate-800 bg-slate-900/70 px-3 text-xs font-semibold text-slate-100">
-            {materialTotal != null ? `${formatOperationNumber(materialTotal)} ${material.unit}` : "—"}
+            {materialTotal != null ? `${formatOperationNumber(materialTotal)} ${formatStorageUnit(material.unit)}` : "—"}
           </div>
         </div>
         <div>
@@ -1390,9 +1699,11 @@ export function OperationFormDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="kg">кг</SelectItem>
-                <SelectItem value="l">л</SelectItem>
-                <SelectItem value="pcs">шт</SelectItem>
+                {unitOptions.map((unit) => (
+                  <SelectItem key={unit} value={unit}>
+                    {formatStorageUnit(unit)}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button
@@ -1496,6 +1807,20 @@ export function OperationFormDialog({
       setSubmitError(message);
       return;
     }
+    const targetsForSubmit =
+      supportsMultiTarget && operationTargets.length > 0
+        ? operationTargets
+            .map(({ key: _key, ...target }) => ({
+              ...target,
+              planned_area_ha: Number(target.planned_area_ha || 0),
+            }))
+            .filter((target) => target.field_id && target.planned_area_ha > 0)
+        : [];
+    if (supportsMultiTarget && targetsForSubmit.length === 0) {
+      const message = "Добавьте хотя бы один участок обработки.";
+      setSubmitError(message);
+      return;
+    }
     if (isPotatoPlanting && (!data.seed_spacing_cm || data.seed_spacing_cm <= 0)) {
       const message = "Укажите межклубневое расстояние для посадки картофеля.";
       form.setError("seed_spacing_cm", { message });
@@ -1513,8 +1838,19 @@ export function OperationFormDialog({
       setSubmitError(message);
       return;
     }
-    const normalizedMaterials = materials.map((item) => {
+    const invalidPerWaterMaterialIndex = materials.findIndex((item) => (item.rate_basis || "per_ha") === "per_l_water" && item.unit === "pcs");
+    if (invalidPerWaterMaterialIndex >= 0) {
+      const message = "Для расчёта на литр воды нельзя использовать единицу шт. Выберите л или кг.";
+      setSubmitError(message);
+      return;
+    }
+    const materialTotalsByIndex = new Map(materialCalculationRows.map((row) => [row.index, row.total]));
+    const normalizedMaterials = materials.map((item, index) => {
       const component = getTankMixComponentDefinition(item.component_type || item.material_type);
+      const rateBasis = item.rate_basis || "per_ha";
+      const plannedQuantity = materialTotalsByIndex.get(index) ?? item.planned_quantity ?? null;
+      const rateLabel = formatRateUnit(item.unit || getDefaultUnitForComponent(component.slug), rateBasis);
+      const existingNotes = String(item.notes || "").trim();
       return {
         component_type: component.slug,
         material_type: toStorageMaterialType(component.slug),
@@ -1522,8 +1858,17 @@ export function OperationFormDialog({
         batch_id: item.batch_id || null,
         planned_rate: item.planned_rate ?? null,
         actual_rate: item.actual_rate ?? null,
+        rate_basis: rateBasis,
+        planned_quantity: plannedQuantity,
         unit: item.unit || getDefaultUnitForComponent(component.slug),
-        notes: item.notes || null,
+        notes: [
+          existingNotes || null,
+          usesChemistryMix ? `rate_basis:${rateBasis}` : null,
+          usesChemistryMix ? `rate_unit:${rateLabel}` : null,
+          plannedQuantity != null ? `planned_quantity:${formatOperationNumber(plannedQuantity)} ${formatStorageUnit(item.unit)}` : null,
+        ]
+          .filter(Boolean)
+          .join("; ") || null,
       };
     });
     const materialsForSubmit = normalizedMaterials.filter((item) => {
@@ -1568,6 +1913,18 @@ export function OperationFormDialog({
           }
         : undefined,
       tape_is_consumable_material: isDripTapeRidge || isDripTapeCollection ? true : undefined,
+      targets: supportsMultiTarget ? targetsForSubmit : undefined,
+      target_count: supportsMultiTarget ? targetsForSubmit.length : undefined,
+      tank_mix_calculation: showTankMix
+        ? {
+            area_ha: operationAreaForCalculation,
+            spray_volume_l_ha: solutionRateLHa,
+            total_solution_l: totalSolutionL,
+            liquid_products_l: liquidProductsTotalL,
+            water_l: calculatedWaterTotalL,
+            concentration_percent: solutionConcentration,
+          }
+        : undefined,
     };
     let structureChangePayload: OperationFormData["structure_change"] | undefined;
     if (isSeeding && structureChangeActive && structureChangeMode === "none") {
@@ -1632,6 +1989,8 @@ export function OperationFormDialog({
               }
             : undefined,
           materials: materialsForSubmit,
+          targets: supportsMultiTarget ? targetsForSubmit : undefined,
+          planned_area_ha: supportsMultiTarget && totalTargetArea > 0 ? Number(totalTargetArea.toFixed(2)) : data.planned_area_ha,
           structure_change: structureChangePayload,
           notes: String(data.notes || "").trim(),
         },
@@ -1753,6 +2112,83 @@ export function OperationFormDialog({
                 <div className="mt-1 text-xs text-slate-400">
                   Доступны только уборка, логистика, сервис и послеуборочные работы.
                 </div>
+              </div>
+            ) : null}
+
+            {supportsMultiTarget && operationTargets.length > 0 ? (
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-emerald-100">Участки обработки</div>
+                    <div className="mt-1 text-xs text-emerald-100/70">
+                      Одна операция, один раствор, несколько полей или участков.
+                    </div>
+                  </div>
+                  <div className="shrink-0 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-right text-xs font-semibold text-emerald-100">
+                    <div>Полей: {targetFieldCount || 1}</div>
+                    <div>Участков: {targetCount}</div>
+                    <div>{formatOperationNumber(totalTargetArea)} га</div>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {operationTargets.map((target, index) => {
+                    const structure = cropStructures.find((item) => item.id === target.crop_structure_id);
+                    const maxArea = Number(structure?.area || 0);
+                    return (
+                      <div key={target.key} className="rounded-xl border border-slate-800 bg-slate-950/35 p-2">
+                        <div className="mb-2 flex items-center justify-between gap-2 text-xs text-slate-400">
+                          <span>Участок {index + 1}</span>
+                          {operationTargets.length > 1 ? (
+                            <button
+                              type="button"
+                              className="text-red-300 hover:text-red-200"
+                              onClick={() => removeOperationTarget(target.key)}
+                            >
+                              удалить
+                            </button>
+                          ) : null}
+                        </div>
+                        <SearchableSelect
+                          value={target.crop_structure_id || ""}
+                          onChange={(value) => updateOperationTargetStructure(target.key, value)}
+                          options={targetOptions}
+                          placeholder="Выберите участок"
+                          emptyLabel="Участки не найдены"
+                          disabled={lockedContext && index === 0}
+                        />
+                        <div className="mt-2 grid grid-cols-[1fr_auto] items-end gap-2">
+                          <div>
+                            <div className="mb-1 text-xs text-slate-500">Площадь, га</div>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={target.planned_area_ha || ""}
+                              onChange={(event) =>
+                                updateOperationTargetArea(
+                                  target.key,
+                                  clampArea(normalizeNumber(event.target.value), maxArea > 0 ? maxArea : null)
+                                )
+                              }
+                            />
+                          </div>
+                          <div className="pb-2 text-xs text-slate-500">
+                            max {maxArea > 0 ? formatOperationNumber(maxArea) : "—"}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="mt-3 w-full border-emerald-400/30 bg-emerald-400/10 text-emerald-100 hover:bg-emerald-400/15"
+                  onClick={addOperationTarget}
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  Добавить участок
+                </Button>
               </div>
             ) : null}
 
@@ -1964,13 +2400,19 @@ export function OperationFormDialog({
                         type="number"
                         step="0.01"
                         max={maxOperationArea ?? undefined}
+                        readOnly={supportsMultiTarget}
                         value={field.value ?? ""}
                         onChange={(event) =>
                           field.onChange(clampArea(normalizeNumber(event.target.value), maxOperationArea))
                         }
+                        className={cn(supportsMultiTarget ? "bg-slate-950/60 text-slate-300" : "")}
                       />
                     </FormControl>
-                    {maxOperationArea != null && maxOperationArea > 0 ? (
+                    {supportsMultiTarget ? (
+                      <div className="text-xs text-muted-foreground">
+                        Считается суммой участков обработки.
+                      </div>
+                    ) : maxOperationArea != null && maxOperationArea > 0 ? (
                       <div className="text-xs text-muted-foreground">
                         Максимум: {maxOperationArea.toFixed(2)} га
                       </div>
@@ -2283,7 +2725,7 @@ export function OperationFormDialog({
                   <div className="text-sm font-semibold">{usesChemistryMix ? "Баковая смесь" : "Основные материалы"}</div>
                   {usesChemistryMix ? (
                     <div className="mt-1 text-xs text-slate-500">
-                      Один проход опрыскивателя. Препараты, удобрения и добавки считаются по норме на гектар.
+                      Один проход опрыскивателя. Нормы можно считать на гектар, раствор, 1000 л или литр воды.
                     </div>
                   ) : null}
                 </div>
@@ -2374,7 +2816,7 @@ export function OperationFormDialog({
                           <div key={`material-total-${row.index}`} className="flex items-center justify-between gap-3 text-slate-300">
                             <span className="truncate">{row.name || "Материал"}</span>
                             <span className="shrink-0 font-semibold text-slate-100">
-                              {formatOperationNumber(row.total)} {row.unit}
+                              {formatOperationNumber(row.total)} {formatStorageUnit(row.unit)}
                             </span>
                           </div>
                         ))}

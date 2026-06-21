@@ -5,6 +5,7 @@ import {
   OperationMaterial,
   OperationLine,
   OperationLineFormData,
+  OperationMaterialRateBasis,
   OperationFormData,
   PotatoMaterialConsumptionRow,
   OperationWithDetails,
@@ -33,6 +34,13 @@ const DB_OPERATION_MATERIAL_TYPES = new Set([
   "other",
 ]);
 
+const OPERATION_MATERIAL_RATE_BASIS = new Set<OperationMaterialRateBasis>([
+  "per_ha",
+  "per_t_solution",
+  "per_1000_l_solution",
+  "per_l_water",
+]);
+
 function extractDraftValueFromNotes(notes: string | null | undefined, label: string): string | undefined {
   if (!notes) return undefined;
   const pattern = new RegExp(`(?:^|\\n)-\\s*${label}:\\s*(.+)`, "i");
@@ -56,10 +64,40 @@ function parseOperationDraftDetails(notes: string | null | undefined) {
   };
 }
 
+function parseMaterialRateBasisFromNotes(notes: string | null | undefined): OperationMaterialRateBasis {
+  const matched = String(notes || "").match(/(?:^|[;\n]\s*)rate_basis\s*:\s*([a-z0-9_]+)/i);
+  const value = matched?.[1]?.trim() as OperationMaterialRateBasis | undefined;
+  return value && OPERATION_MATERIAL_RATE_BASIS.has(value) ? value : "per_ha";
+}
+
+function serializeMaterialNotes(input: {
+  notes?: string | null;
+  componentType?: string | null;
+  rateBasis?: string | null;
+}) {
+  const notes = String(input.notes || "").trim();
+  const parts = notes ? notes.split(";").map((part) => part.trim()).filter(Boolean) : [];
+  const hasComponent = parts.some((part) => /^component\s*:/i.test(part));
+  const hasRateBasis = parts.some((part) => /^rate_basis\s*:/i.test(part));
+  const rateBasis = OPERATION_MATERIAL_RATE_BASIS.has(input.rateBasis as OperationMaterialRateBasis)
+    ? (input.rateBasis as OperationMaterialRateBasis)
+    : null;
+
+  if (!hasComponent && input.componentType) {
+    parts.push(`component:${input.componentType}`);
+  }
+  if (!hasRateBasis && rateBasis) {
+    parts.push(`rate_basis:${rateBasis}`);
+  }
+
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
 function normalizeOperationMaterials(rows: any[] | null | undefined): OperationMaterial[] {
   if (!Array.isArray(rows)) return [];
   return rows.map((row) => ({
     ...row,
+    rate_basis: parseMaterialRateBasisFromNotes(row?.notes),
     product_name: row?.products?.trade_name || row?.products?.name || null,
   })) as OperationMaterial[];
 }
@@ -499,7 +537,12 @@ export async function updateOperation(
           unit,
           planned_rate: item?.planned_rate ?? null,
           actual_rate: item?.actual_rate ?? null,
-          notes: item?.notes || (item?.component_type ? `component:${item.component_type}` : null),
+          planned_quantity: item?.planned_quantity ?? null,
+          notes: serializeMaterialNotes({
+            notes: item?.notes,
+            componentType: item?.component_type,
+            rateBasis: item?.rate_basis,
+          }),
         };
       })
       .filter(Boolean);
