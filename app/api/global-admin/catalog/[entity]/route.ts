@@ -48,7 +48,31 @@ function translateAgriculturalMachineCategory(value: any): string {
   if (key === "self_propelled_spreader") return "Самоходный разбрасыватель";
   if (key === "self_propelled_windrower") return "Самоходная жатка";
   if (key === "self_propelled_mower") return "Самоходная косилка";
+  if (key === "trailed_sprayer") return "Прицепной опрыскиватель";
+  if (key === "mounted_sprayer") return "Навесной опрыскиватель";
+  if (key === "potato_planter") return "Картофелесажалка";
+  if (key === "potato_harvester") return "Картофелеуборочная техника";
+  if (key === "planter") return "Сажалка";
+  if (key === "seeder") return "Сеялка";
+  if (key === "cultivator") return "Культиватор";
+  if (key === "plow") return "Плуг";
+  if (key === "disc_harrow") return "Дисковая борона";
+  if (key === "fertilizer_spreader") return "Разбрасыватель удобрений";
+  if (key === "loader") return "Погрузчик";
+  if (key === "telehandler") return "Телескопический погрузчик";
+  if (key === "trailer") return "Прицеп";
   if (key === "tractor") return "Трактор";
+  if (key === "other") return "Прочее";
+  return String(value);
+}
+
+function translateMachineryAssetGroup(value: any): string {
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return "-";
+  if (key === "self_propelled_machine") return "Самоходная техника";
+  if (key === "implement") return "Агрегат";
+  if (key === "trailer") return "Прицеп";
+  if (key === "truck") return "Транспорт";
   return String(value);
 }
 
@@ -316,15 +340,26 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
   agricultural_machine_models: {
     table: "agricultural_machine_models",
     select:
-      "id,category,brand,series,model,full_name,power_hp,engine,tank_volume_l,grain_tank_l,working_width_m,power_class,dealer_name,presence_in_kz,source_url,source_type,is_active,notes,archived,updated_at,created_at",
+      "id,asset_group,category,brand,series,model,full_name,power_hp,engine,transmission,weight_kg,fuel_tank_l,tank_volume_l,tank_capacity_l,grain_tank_l,working_width_m,rows_count,capacity,required_power_hp,power_class,dealer_name,presence_in_kz,source_url,source_type,is_active,notes,archived,updated_at,created_at",
     defaultOrder: "full_name",
     scopeWhere: (query) => query,
-    searchColumns: ["full_name", "brand", "series", "model", "dealer_name", "engine", "power_class"],
-    filters: ["category", "brand", "series", "is_active"],
+    searchColumns: ["full_name", "brand", "series", "model", "dealer_name", "engine", "transmission", "power_class", "capacity", "notes"],
+    filters: ["asset_group", "category", "brand", "series", "is_active"],
     normalizeRow: (row) => ({
       ...row,
+      asset_group: translateMachineryAssetGroup(row.asset_group),
       category: translateAgriculturalMachineCategory(row.category),
       source_type: translateAgriculturalMachineSourceType(row.source_type),
+    }),
+    beforeCreate: (payload) => ({
+      ...payload,
+      asset_group: payload.asset_group || "self_propelled_machine",
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      ...(Object.prototype.hasOwnProperty.call(payload, "asset_group")
+        ? { asset_group: payload.asset_group || "self_propelled_machine" }
+        : {}),
     }),
   },
   machinery: {
