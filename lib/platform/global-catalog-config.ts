@@ -1,7 +1,9 @@
 export type GlobalCatalogEntity =
   | "crops"
   | "varieties"
+  | "seed_originators"
   | "seed_reproductions"
+  | "seeds"
   | "pesticides"
   | "fertilizers"
   | "additives"
@@ -58,6 +60,12 @@ const activeFilterOptions: FilterOption[] = [
   { label: "Все", value: "all" },
   { label: "Активные", value: "true" },
   { label: "Неактивные", value: "false" },
+];
+
+const seedUnitOptions: FilterOption[] = [
+  { label: "кг", value: "kg" },
+  { label: "т", value: "t" },
+  { label: "шт", value: "pcs" },
 ];
 
 const agriculturalMachineCategoryOptions: FilterOption[] = [
@@ -254,19 +262,23 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
   varieties: {
     entity: "varieties",
     title: "Глобальный каталог сортов",
-    description: "Сорта с обязательной связью к культуре.",
+    description: "Сорта с привязкой к культуре и оригинатору.",
     createLabel: "Добавить сорт",
-    searchPlaceholder: "Поиск по сорту, культуре, стране...",
+    searchPlaceholder: "Поиск по сорту, культуре, оригинатору, назначению...",
     columns: [
       { key: "name", label: "Сорт" },
       { key: "crop_name", label: "Культура" },
-      { key: "origin_country", label: "Страна / оригинатор" },
+      { key: "originator_name", label: "Оригинатор" },
+      { key: "origin_country", label: "Страна" },
       { key: "variety_type", label: "Тип" },
+      { key: "maturity_group", label: "Группа спелости" },
+      { key: "purpose", label: "Назначение" },
       { key: "is_common_in_kz", label: "Распространена в РК" },
       { key: "is_active", label: "Активность" },
     ],
     filters: [
       { key: "crop_id", label: "Культура", options: [{ label: "Все", value: "all" }] },
+      { key: "originator_id", label: "Оригинатор", options: [{ label: "Все", value: "all" }], optionsEntity: "seed_originators" },
       { key: "origin_country", label: "Страна", options: [{ label: "Все", value: "all" }] },
       { key: "is_common_in_kz", label: "Распространена в РК", options: [{ label: "Все", value: "all" }, { label: "Да", value: "true" }, { label: "Нет", value: "false" }] },
       { key: "is_active", label: "Активность", options: activeFilterOptions },
@@ -274,9 +286,42 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
     formFields: [
       { key: "name", label: "Сорт", type: "text", required: true },
       { key: "crop_id", label: "Культура", type: "select", required: true, optionsEntity: "crops" },
-      { key: "origin_country", label: "Страна / оригинатор", type: "text" },
+      { key: "originator_id", label: "Оригинатор", type: "select", optionsEntity: "seed_originators" },
+      { key: "origin_country", label: "Страна", type: "text" },
       { key: "variety_type", label: "Тип", type: "text" },
+      { key: "maturity_group", label: "Группа спелости", type: "text" },
+      { key: "purpose", label: "Назначение", type: "text" },
+      { key: "skin_color", label: "Цвет кожуры", type: "text" },
+      { key: "flesh_color", label: "Цвет мякоти", type: "text" },
+      { key: "storage_quality", label: "Лёжкость", type: "text" },
+      { key: "source_url", label: "Источник", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
       { key: "is_common_in_kz", label: "Распространена в РК", type: "checkbox" },
+      { key: "is_active", label: "Активен", type: "checkbox" },
+    ],
+  },
+  seed_originators: {
+    entity: "seed_originators",
+    title: "Глобальный каталог оригинаторов",
+    description: "Оригинаторы и селекционные компании сортов. Это не поставщики семян.",
+    createLabel: "Добавить оригинатора",
+    searchPlaceholder: "Поиск по названию, стране, сайту...",
+    columns: [
+      { key: "name", label: "Оригинатор" },
+      { key: "country", label: "Страна" },
+      { key: "website", label: "Сайт" },
+      { key: "notes", label: "Заметки" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "country", label: "Страна", options: [{ label: "Все", value: "all" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name", label: "Оригинатор", type: "text", required: true },
+      { key: "country", label: "Страна", type: "text" },
+      { key: "website", label: "Сайт", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
       { key: "is_active", label: "Активен", type: "checkbox" },
     ],
   },
@@ -298,6 +343,39 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
       { key: "level_order", label: "Порядок уровня", type: "number", required: true },
       { key: "description", label: "Описание", type: "text" },
       { key: "is_active", label: "Активна", type: "checkbox" },
+    ],
+  },
+  seeds: {
+    entity: "seeds",
+    title: "Глобальный каталог семян",
+    description: "Каталог семенных товаров без локальных складских остатков.",
+    createLabel: "Добавить семена",
+    searchPlaceholder: "Поиск по названию, культуре, сорту, репродукции...",
+    columns: [
+      { key: "name", label: "Товар" },
+      { key: "crop_name", label: "Культура" },
+      { key: "variety_name", label: "Сорт" },
+      { key: "originator_name", label: "Оригинатор" },
+      { key: "reproduction_name", label: "Репродукция" },
+      { key: "unit", label: "Ед. учета" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "crop_id", label: "Культура", options: [{ label: "Все", value: "all" }], optionsEntity: "crops" },
+      { key: "variety_id", label: "Сорт", options: [{ label: "Все", value: "all" }], optionsEntity: "varieties" },
+      { key: "seed_reproduction_id", label: "Репродукция", options: [{ label: "Все", value: "all" }], optionsEntity: "seed_reproductions" },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name", label: "Название семян", type: "text", required: true },
+      { key: "crop_id", label: "Культура", type: "select", required: true, optionsEntity: "crops" },
+      { key: "variety_id", label: "Сорт", type: "select", optionsEntity: "varieties" },
+      { key: "seed_reproduction_id", label: "Репродукция", type: "select", optionsEntity: "seed_reproductions" },
+      { key: "unit", label: "Ед. учета", type: "select", options: seedUnitOptions },
+      { key: "base_uom", label: "Базовая ед.", type: "select", options: seedUnitOptions },
+      { key: "manufacturer", label: "Бренд / производитель", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_active", label: "Активны", type: "checkbox" },
     ],
   },
   pesticides: {

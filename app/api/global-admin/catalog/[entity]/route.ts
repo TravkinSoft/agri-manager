@@ -87,6 +87,27 @@ function translateAgriculturalMachineSourceType(value: any): string {
   return String(value);
 }
 
+function normalizeCatalogName(value: unknown): string | null {
+  const normalized = String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[«»"'`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized || null;
+}
+
+function nullifyEmptyFields(payload: Record<string, any>, keys: string[]) {
+  const next = { ...payload };
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(next, key) && String(next[key] ?? "").trim() === "") {
+      next[key] = null;
+    }
+  }
+  return next;
+}
+
 const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
   crops: {
     table: "crops",
@@ -118,14 +139,34 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
   varieties: {
     table: "varieties",
     select:
-      "id,name,crop_id,origin_country,variety_type,is_common_in_kz,is_active,archived,updated_at,created_at",
+      "id,name,crop_id,originator_id,origin_country,variety_type,maturity_group,purpose,skin_color,flesh_color,storage_quality,source_url,notes,is_common_in_kz,is_active,archived,updated_at,created_at",
     defaultOrder: "name",
     scopeWhere: (query) => query.is("company_id", null),
-    searchColumns: ["name", "origin_country", "variety_type"],
-    filters: ["crop_id", "origin_country", "is_common_in_kz", "is_active"],
+    searchColumns: ["name", "origin_country", "variety_type", "maturity_group", "purpose", "skin_color", "flesh_color", "notes"],
+    filters: ["crop_id", "originator_id", "origin_country", "is_common_in_kz", "is_active"],
     normalizeRow: (row) => ({
       ...row,
       crop_name: row.crop_name || "-",
+      originator_name: row.originator_name || row.breeder_or_originator || "-",
+    }),
+    beforeCreate: (payload) => nullifyEmptyFields(payload, ["originator_id"]),
+    beforeUpdate: (payload) => nullifyEmptyFields(payload, ["originator_id"]),
+  },
+  seed_originators: {
+    table: "seed_originators",
+    select: "id,name,normalized_name,country,website,notes,is_active,archived,updated_at,created_at",
+    defaultOrder: "name",
+    scopeWhere: (query) => query.is("company_id", null),
+    searchColumns: ["name", "normalized_name", "country", "website", "notes"],
+    filters: ["country", "is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      company_id: null,
+      normalized_name: payload.normalized_name || normalizeCatalogName(payload.name),
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      normalized_name: payload.normalized_name || normalizeCatalogName(payload.name),
     }),
   },
   seed_reproductions: {
@@ -135,6 +176,51 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     scopeWhere: (query) => query.is("company_id", null),
     searchColumns: ["name", "description"],
     filters: ["is_active"],
+  },
+  seeds: {
+    table: "products",
+    select:
+      "id,name,trade_name,crop_id,variety_id,seed_reproduction_id,unit,base_uom,manufacturer,notes,type,category,is_seed_material,is_active,archived,updated_at,created_at",
+    defaultOrder: "name",
+    scopeWhere: (query) =>
+      query
+        .is("company_id", null)
+        .or("type.eq.seed,category.eq.seed,is_seed_material.eq.true"),
+    searchColumns: ["name", "trade_name", "manufacturer", "notes"],
+    filters: ["crop_id", "variety_id", "seed_reproduction_id", "is_active"],
+    normalizeRow: (row) => ({
+      ...row,
+      crop_name: row.crop_name || "-",
+      variety_name: row.variety_name || "-",
+      originator_name: row.originator_name || "-",
+      reproduction_name: row.reproduction_name || "-",
+      unit: row.unit || row.base_uom || "-",
+    }),
+    beforeCreate: (payload) => {
+      const normalized = nullifyEmptyFields(payload, ["variety_id", "seed_reproduction_id"]);
+      return {
+        ...normalized,
+        trade_name: normalized.trade_name || normalized.name,
+        type: "seed",
+        category: "seed",
+        is_seed_material: true,
+        company_id: null,
+        unit: normalized.unit || normalized.base_uom || "kg",
+        base_uom: normalized.base_uom || normalized.unit || "kg",
+      };
+    },
+    beforeUpdate: (payload) => {
+      const normalized = nullifyEmptyFields(payload, ["variety_id", "seed_reproduction_id"]);
+      return {
+        ...normalized,
+        trade_name: normalized.trade_name || normalized.name,
+        type: "seed",
+        category: "seed",
+        is_seed_material: true,
+        unit: normalized.unit || normalized.base_uom || "kg",
+        base_uom: normalized.base_uom || normalized.unit || "kg",
+      };
+    },
   },
   pesticides: {
     table: "products",
@@ -530,26 +616,97 @@ async function attachCropNamesToVarieties(supabase: any, rows: any[]) {
   if (!rows.length) return rows;
 
   const cropIds = Array.from(new Set(rows.map((row) => row.crop_id).filter(Boolean)));
-  if (!cropIds.length) return rows.map((row) => ({ ...row, crop_name: "-" }));
+  const originatorIds = Array.from(new Set(rows.map((row) => row.originator_id).filter(Boolean)));
 
-  const { data: crops, error } = await supabase
-    .from("crops")
-    .select("id,name,name_ru,name_kz,name_en,slug")
-    .in("id", cropIds);
-
-  if (error || !crops) {
-    return rows.map((row) => ({ ...row, crop_name: "-" }));
-  }
+  const [cropsResult, originatorsResult] = await Promise.all([
+    cropIds.length
+      ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", cropIds)
+      : Promise.resolve({ data: [], error: null }),
+    originatorIds.length
+      ? supabase.from("seed_originators").select("id,name").in("id", originatorIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
   const cropMap = new Map<string, string>();
-  for (const crop of crops) {
+  for (const crop of cropsResult.data || []) {
     cropMap.set(crop.id, localizedName(crop, "ru") || "-");
+  }
+
+  const originatorMap = new Map<string, string>();
+  for (const originator of originatorsResult.data || []) {
+    originatorMap.set(originator.id, originator.name || "-");
   }
 
   return rows.map((row) => ({
     ...row,
     crop_name: cropMap.get(row.crop_id) || "-",
+    originator_name: originatorMap.get(row.originator_id) || row.breeder_or_originator || "-",
   }));
+}
+
+async function attachSeedProductNames(supabase: any, rows: any[]) {
+  if (!rows.length) return rows;
+
+  const cropIds = Array.from(new Set(rows.map((row) => row.crop_id).filter(Boolean)));
+  const varietyIds = Array.from(new Set(rows.map((row) => row.variety_id).filter(Boolean)));
+  const reproductionIds = Array.from(new Set(rows.map((row) => row.seed_reproduction_id).filter(Boolean)));
+
+  const [cropsResult, varietiesResult, reproductionsResult] = await Promise.all([
+    cropIds.length
+      ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", cropIds)
+      : Promise.resolve({ data: [], error: null }),
+    varietyIds.length
+      ? supabase
+          .from("varieties")
+          .select("id,name,originator_id,breeder_or_originator")
+          .in("id", varietyIds)
+      : Promise.resolve({ data: [], error: null }),
+    reproductionIds.length
+      ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", reproductionIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  const originatorIds = Array.from(
+    new Set((varietiesResult.data || []).map((row: any) => row.originator_id).filter(Boolean))
+  );
+
+  const { data: originators } = originatorIds.length
+    ? await supabase.from("seed_originators").select("id,name").in("id", originatorIds)
+    : { data: [] };
+
+  const cropMap = new Map<string, string>();
+  for (const crop of cropsResult.data || []) {
+    cropMap.set(crop.id, localizedName(crop, "ru") || "-");
+  }
+
+  const originatorMap = new Map<string, string>();
+  for (const originator of originators || []) {
+    originatorMap.set(originator.id, originator.name || "-");
+  }
+
+  const varietyMap = new Map<string, any>();
+  for (const variety of varietiesResult.data || []) {
+    varietyMap.set(variety.id, variety);
+  }
+
+  const reproductionMap = new Map<string, string>();
+  for (const reproduction of reproductionsResult.data || []) {
+    reproductionMap.set(reproduction.id, localizedName(reproduction, "ru") || reproduction.code || "-");
+  }
+
+  return rows.map((row) => {
+    const variety = varietyMap.get(row.variety_id);
+    return {
+      ...row,
+      crop_name: cropMap.get(row.crop_id) || "-",
+      variety_name: variety?.name || "-",
+      originator_name:
+        (variety?.originator_id ? originatorMap.get(variety.originator_id) : null) ||
+        variety?.breeder_or_originator ||
+        "-",
+      reproduction_name: reproductionMap.get(row.seed_reproduction_id) || "-",
+    };
+  });
 }
 
 async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
@@ -786,6 +943,8 @@ export async function GET(
     let hydratedRows = rawRows;
     if (entity === "varieties") {
       hydratedRows = await attachCropNamesToVarieties(supabase, rawRows);
+    } else if (entity === "seeds") {
+      hydratedRows = await attachSeedProductNames(supabase, rawRows);
     } else if (entity === "pesticides" || entity === "fertilizers") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
     } else if (entity === "growth_regulators") {
@@ -876,6 +1035,8 @@ export async function POST(
     let hydratedRows = [data];
     if (entity === "varieties") {
       hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
+    } else if (entity === "seeds") {
+      hydratedRows = await attachSeedProductNames(supabase, [data]);
     } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
     }
@@ -955,6 +1116,8 @@ export async function PATCH(
     let hydratedRows = [data];
     if (entity === "varieties") {
       hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
+    } else if (entity === "seeds") {
+      hydratedRows = await attachSeedProductNames(supabase, [data]);
     } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
     }
