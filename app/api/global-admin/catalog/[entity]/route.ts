@@ -222,6 +222,43 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
       };
     },
   },
+  diseases: {
+    table: "diseases",
+    select:
+      "id,name_ru,name_en,latin_name,normalized_name,disease_type,pathogen_type,symptoms,development_conditions,risk_stage,source_url,confidence,notes,image_url,is_active,archived,updated_at,created_at",
+    defaultOrder: "name_ru",
+    scopeWhere: (query) => query.is("company_id", null),
+    searchColumns: [
+      "name_ru",
+      "name_en",
+      "latin_name",
+      "normalized_name",
+      "symptoms",
+      "development_conditions",
+      "risk_stage",
+      "notes",
+    ],
+    filters: ["disease_type", "pathogen_type", "confidence", "is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      company_id: null,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      disease_type: payload.disease_type || "unknown",
+      pathogen_type: payload.pathogen_type || "unknown",
+      confidence: payload.confidence || "medium",
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      disease_type: payload.disease_type || "unknown",
+      pathogen_type: payload.pathogen_type || "unknown",
+      confidence: payload.confidence || "medium",
+    }),
+  },
   pesticides: {
     table: "products",
     select: "*",

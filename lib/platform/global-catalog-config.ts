@@ -4,6 +4,7 @@ export type GlobalCatalogEntity =
   | "seed_originators"
   | "seed_reproductions"
   | "seeds"
+  | "diseases"
   | "pesticides"
   | "fertilizers"
   | "additives"
@@ -66,6 +67,47 @@ const seedUnitOptions: FilterOption[] = [
   { label: "кг", value: "kg" },
   { label: "т", value: "t" },
   { label: "шт", value: "pcs" },
+];
+
+const diseaseTypeOptions: FilterOption[] = [
+  { label: "Листовая", value: "foliar" },
+  { label: "Почвенная", value: "soil_borne" },
+  { label: "Клубневая / хранение", value: "tuber_storage" },
+  { label: "Сосудистая", value: "vascular" },
+  { label: "Вирусная", value: "viral" },
+  { label: "Физиологическая", value: "physiological" },
+  { label: "Другое", value: "other" },
+  { label: "Неизвестно", value: "unknown" },
+];
+
+const diseaseTypeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...diseaseTypeOptions,
+];
+
+const pathogenTypeOptions: FilterOption[] = [
+  { label: "Гриб", value: "fungus" },
+  { label: "Бактерия", value: "bacteria" },
+  { label: "Вирус", value: "virus" },
+  { label: "Оомицет", value: "oomycete" },
+  { label: "Физиология", value: "physiological" },
+  { label: "Неизвестно", value: "unknown" },
+];
+
+const pathogenTypeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...pathogenTypeOptions,
+];
+
+const confidenceOptions: FilterOption[] = [
+  { label: "Низкая", value: "low" },
+  { label: "Средняя", value: "medium" },
+  { label: "Высокая", value: "high" },
+];
+
+const confidenceFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...confidenceOptions,
 ];
 
 const agriculturalMachineCategoryOptions: FilterOption[] = [
@@ -376,6 +418,44 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
       { key: "manufacturer", label: "Бренд / производитель", type: "text" },
       { key: "notes", label: "Заметки", type: "text" },
       { key: "is_active", label: "Активны", type: "checkbox" },
+    ],
+  },
+  diseases: {
+    entity: "diseases",
+    title: "Глобальный каталог болезней",
+    description: "Справочник болезней культур. Вредители, сорняки и связи с препаратами ведутся отдельно.",
+    createLabel: "Добавить болезнь",
+    searchPlaceholder: "Поиск по названию, латинскому названию, симптомам...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "name_en", label: "Название EN" },
+      { key: "latin_name", label: "Латинское название" },
+      { key: "disease_type", label: "Тип болезни" },
+      { key: "pathogen_type", label: "Тип патогена" },
+      { key: "risk_stage", label: "Фаза риска" },
+      { key: "confidence", label: "Достоверность" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "disease_type", label: "Тип болезни", options: diseaseTypeFilterOptions },
+      { key: "pathogen_type", label: "Тип патогена", options: pathogenTypeFilterOptions },
+      { key: "confidence", label: "Достоверность", options: confidenceFilterOptions },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name_ru", label: "Название RU", type: "text", required: true },
+      { key: "name_en", label: "Название EN", type: "text" },
+      { key: "latin_name", label: "Латинское название", type: "text" },
+      { key: "disease_type", label: "Тип болезни", type: "select", required: true, options: diseaseTypeOptions },
+      { key: "pathogen_type", label: "Тип патогена", type: "select", required: true, options: pathogenTypeOptions },
+      { key: "symptoms", label: "Симптомы", type: "text" },
+      { key: "development_conditions", label: "Условия развития", type: "text" },
+      { key: "risk_stage", label: "Фаза риска", type: "text" },
+      { key: "source_url", label: "Источник", type: "text" },
+      { key: "confidence", label: "Достоверность", type: "select", options: confidenceOptions },
+      { key: "image_url", label: "Основное изображение", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_active", label: "Активна", type: "checkbox" },
     ],
   },
   pesticides: {
