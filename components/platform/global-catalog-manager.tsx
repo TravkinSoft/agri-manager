@@ -70,12 +70,107 @@ const UNIT_KEYS = new Set([
   "rate_unit",
   "application_unit",
 ]);
+const CODE_KEYS = new Set([
+  "status",
+  "type",
+  "product_type",
+  "category",
+  "subcategory",
+  "pesticide_category",
+  "fertilizer_type",
+  "formulation",
+  "disease_type",
+  "pathogen_type",
+  "target_type",
+  "asset_group",
+]);
+const CODE_LABELS: Record<string, string> = {
+  unknown: "не указано",
+  other: "другое",
+  master: "общий каталог",
+  active: "активно",
+  inactive: "неактивно",
+  pesticide: "пестицид",
+  fertilizer: "удобрение",
+  additive: "добавка",
+  adjuvant: "адъювант",
+  surfactant: "ПАВ",
+  sticker: "прилипатель",
+  antifoam: "пеногаситель",
+  anti_foam: "пеногаситель",
+  water_conditioner: "кондиционер воды",
+  anti_salt: "антисоль",
+  ph_corrector: "корректор pH",
+  ph_regulator: "регулятор pH",
+  biostimulant: "биостимулянт",
+  growth_regulator: "регулятор роста",
+  herbicide: "гербицид",
+  fungicide: "фунгицид",
+  insecticide: "инсектицид",
+  acaricide: "акарицид",
+  desiccant: "десикант",
+  seed_treatment: "протравитель",
+  safener: "сафенер",
+  nitrogen: "азотное",
+  phosphorus: "фосфорное",
+  potassium: "калийное",
+  npk: "NPK",
+  micronutrient: "микроэлементное",
+  foliar: "листовое",
+  macro: "макро",
+  micro: "микро",
+  water_soluble: "водорастворимое",
+  organic: "органическое",
+  organomineral: "органоминеральное",
+  liquid: "жидкий",
+  solid: "твёрдый",
+  self_propelled_machine: "самоходная техника",
+  implement: "агрегат",
+  trailer: "прицеп",
+  truck: "транспорт",
+  fungus: "гриб",
+  bacteria: "бактерия",
+  virus: "вирус",
+  oomycete: "оомицет",
+  physiological: "физиологическое",
+};
+
+function formatCodeToken(token: string): string {
+  const trimmed = token.trim();
+  const normalized = trimmed.toLowerCase();
+  const exact = CODE_LABELS[normalized];
+  if (exact) return exact;
+
+  const parenthetical = normalized.match(/^([a-z_]+)\s*\(([^)]+)\)$/);
+  if (parenthetical) {
+    const base = CODE_LABELS[parenthetical[1]] || trimmed.replace(/\s*\([^)]+\)$/, "");
+    const note = CODE_LABELS[parenthetical[2]] || parenthetical[2];
+    return `${base} (${note})`;
+  }
+
+  return trimmed;
+}
+
+function formatCodeValue(value: any): string {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "-") return raw || "-";
+  return raw
+    .split(/(\s*\/\s*|\s*,\s*)/)
+    .map((part) => {
+      if (!part.trim()) return "";
+      if (part.includes("/")) return " / ";
+      if (part.includes(",")) return ", ";
+      return formatCodeToken(part);
+    })
+    .join("");
+}
 
 function formatCellValue(value: any, key?: string): string {
   if (typeof value === "boolean") return value ? "Да" : "Нет";
-  if (Array.isArray(value)) return value.join(", ");
+  if (Array.isArray(value)) return key && CODE_KEYS.has(key) ? value.map(formatCodeToken).join(", ") : value.join(", ");
   if (value == null || value === "") return "-";
   if (key && UNIT_KEYS.has(key)) return localizeUnit(value, "ru") || "-";
+  if (key && CODE_KEYS.has(key)) return formatCodeValue(value);
   return String(value);
 }
 
