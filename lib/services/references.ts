@@ -49,6 +49,16 @@ async function assertCurrentUserIsGlobalAdmin(): Promise<void> {
   }
 }
 
+function normalizeReferenceDisplayKey(value: unknown): string {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/\u0451/g, "\u0435")
+    .replace(/\u0401/g, "\u0435")
+    .replace(/\s+/g, " ");
+}
+
 export async function getCrops(
   companyId: string,
   includeArchived = false,
@@ -77,7 +87,7 @@ export async function getCrops(
 
   const map = new Map<string, Crop & { company_id?: string | null }>();
   rows.forEach((row: any) => {
-    const key = String(row.slug || row.name || "").trim().toLowerCase();
+    const key = normalizeReferenceDisplayKey(row.name || localizedName(row, language) || row.slug);
     if (!key) return;
     const existing = map.get(key);
     if (!existing || (existing.company_id == null && row.company_id != null)) {
