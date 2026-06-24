@@ -5,6 +5,8 @@ export type GlobalCatalogEntity =
   | "seed_reproductions"
   | "seeds"
   | "diseases"
+  | "pests"
+  | "weeds"
   | "pesticides"
   | "fertilizers"
   | "additives"
@@ -108,6 +110,38 @@ const confidenceOptions: FilterOption[] = [
 const confidenceFilterOptions: FilterOption[] = [
   { label: "Все", value: "all" },
   ...confidenceOptions,
+];
+
+const pestTypeOptions: FilterOption[] = [
+  { label: "Насекомое", value: "insect" },
+  { label: "Клещ", value: "mite" },
+  { label: "Нематода", value: "nematode" },
+  { label: "Моллюск", value: "mollusk" },
+  { label: "Млекопитающее", value: "mammal" },
+  { label: "Птица", value: "bird" },
+  { label: "Другое", value: "other" },
+  { label: "Неизвестно", value: "unknown" },
+];
+
+const pestTypeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...pestTypeOptions,
+];
+
+const weedTypeOptions: FilterOption[] = [
+  { label: "Однолетний", value: "annual" },
+  { label: "Многолетний", value: "perennial" },
+  { label: "Злаковый", value: "grass" },
+  { label: "Двудольный", value: "broadleaf" },
+  { label: "Осоковый", value: "sedge" },
+  { label: "Паразитный", value: "parasitic" },
+  { label: "Другое", value: "other" },
+  { label: "Неизвестно", value: "unknown" },
+];
+
+const weedTypeFilterOptions: FilterOption[] = [
+  { label: "Все", value: "all" },
+  ...weedTypeOptions,
 ];
 
 const agriculturalMachineCategoryOptions: FilterOption[] = [
@@ -456,6 +490,81 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
       { key: "image_url", label: "Основное изображение", type: "text" },
       { key: "notes", label: "Заметки", type: "text" },
       { key: "is_active", label: "Активна", type: "checkbox" },
+    ],
+  },
+  pests: {
+    entity: "pests",
+    title: "Глобальный каталог вредителей",
+    description: "Справочник вредителей культур. Связи с препаратами и ДВ ведутся отдельно.",
+    createLabel: "Добавить вредителя",
+    searchPlaceholder: "Поиск по названию, латинскому названию, симптомам повреждений...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "name_en", label: "Название EN" },
+      { key: "latin_name", label: "Латинское название" },
+      { key: "pest_type", label: "Тип вредителя" },
+      { key: "risk_stage", label: "Фаза риска" },
+      { key: "confidence", label: "Достоверность" },
+      { key: "is_sensitive", label: "Чувствительный" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "pest_type", label: "Тип вредителя", options: pestTypeFilterOptions },
+      { key: "confidence", label: "Достоверность", options: confidenceFilterOptions },
+      { key: "is_sensitive", label: "Чувствительный", options: [{ label: "Все", value: "all" }, { label: "Да", value: "true" }, { label: "Нет", value: "false" }] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name_ru", label: "Название RU", type: "text", required: true },
+      { key: "name_en", label: "Название EN", type: "text" },
+      { key: "latin_name", label: "Латинское название", type: "text" },
+      { key: "pest_type", label: "Тип вредителя", type: "select", required: true, options: pestTypeOptions },
+      { key: "life_cycle", label: "Жизненный цикл", type: "text" },
+      { key: "damage_symptoms", label: "Симптомы повреждений", type: "text" },
+      { key: "development_conditions", label: "Условия развития", type: "text" },
+      { key: "risk_stage", label: "Фаза риска", type: "text" },
+      { key: "source_url", label: "Источник", type: "text" },
+      { key: "confidence", label: "Достоверность", type: "select", options: confidenceOptions },
+      { key: "image_url", label: "Основное изображение", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_sensitive", label: "Чувствительный", type: "checkbox" },
+      { key: "is_active", label: "Активен", type: "checkbox" },
+    ],
+  },
+  weeds: {
+    entity: "weeds",
+    title: "Глобальный каталог сорняков",
+    description: "Справочник сорных растений культур. Связи с гербицидами ведутся отдельно.",
+    createLabel: "Добавить сорняк",
+    searchPlaceholder: "Поиск по названию, латинскому названию, морфологии...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "name_en", label: "Название EN" },
+      { key: "latin_name", label: "Латинское название" },
+      { key: "weed_type", label: "Тип сорняка" },
+      { key: "life_cycle", label: "Жизненный цикл" },
+      { key: "confidence", label: "Достоверность" },
+      { key: "is_active", label: "Активность" },
+    ],
+    filters: [
+      { key: "weed_type", label: "Тип сорняка", options: weedTypeFilterOptions },
+      { key: "confidence", label: "Достоверность", options: confidenceFilterOptions },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
+    ],
+    formFields: [
+      { key: "name_ru", label: "Название RU", type: "text", required: true },
+      { key: "name_en", label: "Название EN", type: "text" },
+      { key: "latin_name", label: "Латинское название", type: "text" },
+      { key: "weed_type", label: "Тип сорняка", type: "select", required: true, options: weedTypeOptions },
+      { key: "life_cycle", label: "Жизненный цикл", type: "text" },
+      { key: "morphology", label: "Морфология", type: "text" },
+      { key: "harmfulness", label: "Вредоносность", type: "text" },
+      { key: "development_conditions", label: "Условия развития", type: "text" },
+      { key: "source_url", label: "Источник", type: "text" },
+      { key: "confidence", label: "Достоверность", type: "select", options: confidenceOptions },
+      { key: "image_url", label: "Основное изображение", type: "text" },
+      { key: "notes", label: "Заметки", type: "text" },
+      { key: "is_active", label: "Активен", type: "checkbox" },
     ],
   },
   pesticides: {

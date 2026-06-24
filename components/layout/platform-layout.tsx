@@ -52,6 +52,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/platform/catalogs/agronomy/seed-reproductions", labelKey: "seed_reproductions" },
       { href: "/platform/catalogs/agronomy/seeds", labelKey: "seeds" },
       { href: "/platform/catalogs/agronomy/diseases", labelKey: "diseases" },
+      { href: "/platform/catalogs/agronomy/pests", labelKey: "pests" },
+      { href: "/platform/catalogs/agronomy/weeds", labelKey: "weeds" },
     ],
   },
   {

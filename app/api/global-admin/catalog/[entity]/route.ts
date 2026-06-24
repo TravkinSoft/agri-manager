@@ -259,6 +259,80 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
       confidence: payload.confidence || "medium",
     }),
   },
+  pests: {
+    table: "pests",
+    select:
+      "id,name_ru,name_en,latin_name,normalized_name,pest_type,life_cycle,damage_symptoms,development_conditions,risk_stage,source_url,confidence,notes,image_url,is_sensitive,is_active,archived,updated_at,created_at",
+    defaultOrder: "name_ru",
+    scopeWhere: (query) => query.is("company_id", null),
+    searchColumns: [
+      "name_ru",
+      "name_en",
+      "latin_name",
+      "normalized_name",
+      "life_cycle",
+      "damage_symptoms",
+      "development_conditions",
+      "risk_stage",
+      "notes",
+    ],
+    filters: ["pest_type", "confidence", "is_sensitive", "is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      company_id: null,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      pest_type: payload.pest_type || "unknown",
+      confidence: payload.confidence || "medium",
+      is_sensitive: payload.is_sensitive === true || payload.is_sensitive === "true",
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      pest_type: payload.pest_type || "unknown",
+      confidence: payload.confidence || "medium",
+      is_sensitive: payload.is_sensitive === true || payload.is_sensitive === "true",
+    }),
+  },
+  weeds: {
+    table: "weeds",
+    select:
+      "id,name_ru,name_en,latin_name,normalized_name,weed_type,life_cycle,morphology,harmfulness,development_conditions,source_url,confidence,notes,image_url,is_active,archived,updated_at,created_at",
+    defaultOrder: "name_ru",
+    scopeWhere: (query) => query.is("company_id", null),
+    searchColumns: [
+      "name_ru",
+      "name_en",
+      "latin_name",
+      "normalized_name",
+      "life_cycle",
+      "morphology",
+      "harmfulness",
+      "development_conditions",
+      "notes",
+    ],
+    filters: ["weed_type", "confidence", "is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      company_id: null,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      weed_type: payload.weed_type || "unknown",
+      confidence: payload.confidence || "medium",
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      weed_type: payload.weed_type || "unknown",
+      confidence: payload.confidence || "medium",
+    }),
+  },
   pesticides: {
     table: "products",
     select: "*",
