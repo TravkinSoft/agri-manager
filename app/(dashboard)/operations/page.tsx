@@ -68,6 +68,7 @@ import {
 import { Field } from "@/lib/types/field";
 import { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import { useLanguage } from "@/lib/contexts/language-context";
+import { localizeUnit } from "@/lib/i18n/helpers";
 import {
   getPurposeDefinitionsForOperation,
   getTankMixComponentDefinition,
@@ -549,11 +550,13 @@ export default function OperationsPage() {
     });
     return Array.from(grouped.values()).sort((a, b) => b.issued - a.issued || a.material.localeCompare(b.material, "ru"));
   }, [filteredOperations]);
-  const formatQuantity = (value: number, unit: string) => `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${unit}`;
+  const displayUnit = (unit: string | null | undefined) => localizeUnit(unit || "", language) || String(unit || "");
+  const displayRateUnit = (unit: string | null | undefined) => localizeUnit(`${unit || ""}/ha`, language) || `${displayUnit(unit)}/га`;
+  const formatQuantity = (value: number, unit: string) => `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} ${displayUnit(unit)}`;
   const renderMaterialsText = (operation: OperationWithDetails) =>
     (operation.materials || []).length > 0
       ? (operation.materials || [])
-          .map((item) => `${item.product_name || item.product_id} (${item.material_type}, ${item.unit})`)
+          .map((item) => `${item.product_name || item.product_id} (${item.material_type}, ${displayUnit(item.unit)})`)
           .join("; ")
       : "—";
 
@@ -572,7 +575,7 @@ export default function OperationsPage() {
           const rowCropContext = isRowCrop(operation.crop_name);
           const identityOptions = getOperationLineIdentityOptions(operation);
           const materialsText = (operation.materials || [])
-            .map((item) => `${item.product_name || item.product_id} (${item.material_type}, ${item.unit})`)
+            .map((item) => `${item.product_name || item.product_id} (${item.material_type}, ${displayUnit(item.unit)})`)
             .join("; ");
 
           return (
@@ -1254,8 +1257,8 @@ export default function OperationsPage() {
                             <TableRow key={material.id}>
                               <TableCell className="font-medium">{material.product_name || material.product_id}</TableCell>
                               <TableCell>{getMaterialComponentLabel(material)}</TableCell>
-                              <TableCell>{material.planned_rate ?? "—"} {material.unit}/га</TableCell>
-                              <TableCell>{material.actual_rate ?? "—"} {material.unit}/га</TableCell>
+                              <TableCell>{material.planned_rate ?? "—"} {displayRateUnit(material.unit)}</TableCell>
+                              <TableCell>{material.actual_rate ?? "—"} {displayRateUnit(material.unit)}</TableCell>
                               <TableCell>{formatQuantity(issued, material.unit)}</TableCell>
                               <TableCell>{formatQuantity(consumed, material.unit)}</TableCell>
                               <TableCell>{formatQuantity(returned, material.unit)}</TableCell>

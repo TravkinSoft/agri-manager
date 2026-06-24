@@ -1,24 +1,44 @@
 import { Language } from "@/lib/i18n/translations";
 
-export type UnitCode = "kg" | "l" | "ha" | "pcs" | "t";
+export type UnitCode = "kg" | "g" | "l" | "ml" | "ha" | "pcs" | "t" | "m" | "roll" | "pack";
 
 const unitByLocale: Record<Language, Record<UnitCode, string>> = {
-  ru: { kg: "кг", l: "л", ha: "га", pcs: "шт", t: "т" },
-  kz: { kg: "кг", l: "л", ha: "га", pcs: "дана", t: "т" },
-  en: { kg: "kg", l: "l", ha: "ha", pcs: "pcs", t: "t" },
+  ru: { kg: "кг", g: "г", l: "л", ml: "мл", ha: "га", pcs: "шт", t: "т", m: "м", roll: "бухта", pack: "уп." },
+  kz: { kg: "кг", g: "г", l: "л", ml: "мл", ha: "га", pcs: "дана", t: "т", m: "м", roll: "орама", pack: "қапт." },
+  en: { kg: "kg", g: "g", l: "l", ml: "ml", ha: "ha", pcs: "pcs", t: "t", m: "m", roll: "roll", pack: "pack" },
 };
 
 const unitAliases: Record<string, UnitCode> = {
   kg: "kg",
   кг: "kg",
+  "кг.": "kg",
   kilogram: "kg",
   kilograms: "kg",
+  g: "g",
+  gr: "g",
+  gram: "g",
+  grams: "g",
+  г: "g",
+  гр: "g",
+  "г.": "g",
   l: "l",
+  lt: "l",
+  litre: "l",
+  litres: "l",
   л: "l",
+  "л.": "l",
   liter: "l",
   liters: "l",
+  ml: "ml",
+  milliliter: "ml",
+  milliliters: "ml",
+  millilitre: "ml",
+  millilitres: "ml",
+  мл: "ml",
+  "мл.": "ml",
   ha: "ha",
   га: "ha",
+  "га.": "ha",
   hectare: "ha",
   hectares: "ha",
   pcs: "pcs",
@@ -29,9 +49,55 @@ const unitAliases: Record<string, UnitCode> = {
   pieces: "pcs",
   t: "t",
   т: "t",
+  "т.": "t",
   ton: "t",
   tons: "t",
+  tonne: "t",
+  tonnes: "t",
+  m: "m",
+  meter: "m",
+  meters: "m",
+  metre: "m",
+  metres: "m",
+  м: "m",
+  "м.": "m",
+  roll: "roll",
+  rolls: "roll",
+  бухта: "roll",
+  бухты: "roll",
+  pack: "pack",
+  package: "pack",
+  packages: "pack",
+  уп: "pack",
+  "уп.": "pack",
+  упаковка: "pack",
 };
+
+const unknownUnitByLocale: Record<Language, string> = {
+  ru: "не указано",
+  kz: "көрсетілмеген",
+  en: "unknown",
+};
+
+function normalizeUnitKey(unit: unknown): string {
+  return String(unit || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\\/g, "/")
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/\s+/g, " ")
+    .replace(/[.]+$/g, "");
+}
+
+function localizeUnitPart(part: string, language: Language): string {
+  const normalized = normalizeUnitKey(part);
+  const countMatch = normalized.match(/^(\d+(?:[,.]\d+)?)\s*(.+)$/);
+  if (countMatch) {
+    return `${countMatch[1]} ${localizeUnit(countMatch[2], language)}`;
+  }
+  const code = unitAliases[normalized];
+  return code ? unitByLocale[language][code] : part.trim();
+}
 
 const fallbackNameTranslations: Record<
   string,
@@ -93,11 +159,20 @@ function fallbackTranslateName(value: string, language: Language): string {
 }
 
 export function localizeUnit(unit: unknown, language: Language): string {
-  const normalized = String(unit || "")
-    .trim()
-    .toLowerCase();
+  const raw = String(unit || "").trim();
+  const normalized = normalizeUnitKey(raw);
+  if (!normalized) return "";
+  if (["unknown", "неизвестно", "не указано", "n/a"].includes(normalized)) {
+    return unknownUnitByLocale[language];
+  }
+  if (normalized.includes("/")) {
+    return normalized
+      .split("/")
+      .map((part) => localizeUnitPart(part, language))
+      .join("/");
+  }
   const code = unitAliases[normalized];
-  if (!code) return String(unit || "");
+  if (!code) return raw;
   return unitByLocale[language][code];
 }
 

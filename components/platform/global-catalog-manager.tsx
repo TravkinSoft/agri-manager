@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
-import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { brandName, localizedName, localizeUnit } from "@/lib/i18n/helpers";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import {
   type CatalogFilter,
@@ -59,11 +59,23 @@ function optionLabel(entity: GlobalCatalogEntity, row: RowRecord): string {
 }
 
 const BOOL_KEYS = new Set(["is_active", "is_common_in_kz"]);
+const UNIT_KEYS = new Set([
+  "unit",
+  "uom",
+  "base_uom",
+  "default_unit",
+  "storage_unit",
+  "issue_unit",
+  "default_rate_unit",
+  "rate_unit",
+  "application_unit",
+]);
 
-function formatCellValue(value: any): string {
+function formatCellValue(value: any, key?: string): string {
   if (typeof value === "boolean") return value ? "Да" : "Нет";
   if (Array.isArray(value)) return value.join(", ");
   if (value == null || value === "") return "-";
+  if (key && UNIT_KEYS.has(key)) return localizeUnit(value, "ru") || "-";
   return String(value);
 }
 
@@ -540,7 +552,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 {!loading && rows.map((row) => (
                   <TableRow key={row.id}>
                     {config.columns.map((column) => (
-                      <TableCell key={`${row.id}-${column.key}`}>{formatCellValue(row[column.key])}</TableCell>
+                      <TableCell key={`${row.id}-${column.key}`}>{formatCellValue(row[column.key], column.key)}</TableCell>
                     ))}
                     <TableCell>
                       <div className="flex items-center justify-end gap-2">

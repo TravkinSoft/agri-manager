@@ -39,6 +39,7 @@ import type {
 } from "@/lib/assistant/draft-cards";
 import { resolveRouteEntryByPath } from "@/lib/assistant/route-registry";
 import { buildAssistantChatExport } from "@/lib/assistant/export/chat-export";
+import { localizeUnit } from "@/lib/i18n/helpers";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 type AssistantChatMessage = {
@@ -596,8 +597,9 @@ function formatDraftNumber(value: number | null | undefined): string {
 }
 
 function formatDraftQuantity(value: number | null | undefined, unit: string | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return unit || "";
-  return `${formatDraftNumber(value)}${unit ? ` ${unit}` : ""}`;
+  const displayUnit = localizeUnit(unit || "", "ru") || unit || "";
+  if (value == null || !Number.isFinite(value)) return displayUnit;
+  return `${formatDraftNumber(value)}${displayUnit ? ` ${displayUnit}` : ""}`;
 }
 
 function recalculateDraftLines<T extends AssistantDraftMaterialLine | AssistantDraftTankLine>(
@@ -613,7 +615,7 @@ function recalculateDraftLines<T extends AssistantDraftMaterialLine | AssistantD
         requiredQty: nextQty,
         calculation:
           areaHa != null && row.ratePerHa != null && row.unit
-            ? `${formatDraftNumber(row.ratePerHa)} × ${formatDraftNumber(areaHa)} = ${formatDraftNumber(nextQty)} ${row.unit}`
+            ? `${formatDraftNumber(row.ratePerHa)} × ${formatDraftNumber(areaHa)} = ${formatDraftNumber(nextQty)} ${localizeUnit(row.unit, "ru")}`
             : row.calculation,
       };
     }
@@ -2512,7 +2514,7 @@ export function AssistantChatPane({
                   <div key={material.id} className="flex items-center justify-between gap-2">
                     <span className="truncate text-[#E5E7EB]">{material.name}</span>
                     <span className="shrink-0 text-[#CBD5E1]">
-                      {material.ratePerHa != null ? `${formatDraftNumber(material.ratePerHa)}${material.unit ? ` ${material.unit}` : ""}/га` : ""}
+                      {material.ratePerHa != null ? `${formatDraftNumber(material.ratePerHa)}${material.unit ? ` ${localizeUnit(`${material.unit}/ha`, "ru")}` : ""}` : ""}
                     </span>
                   </div>
                 ))}
