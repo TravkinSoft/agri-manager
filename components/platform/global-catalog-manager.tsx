@@ -169,6 +169,7 @@ function formatCellValue(value: any, key?: string): string {
   if (typeof value === "boolean") return value ? "Да" : "Нет";
   if (Array.isArray(value)) return key && CODE_KEYS.has(key) ? value.map(formatCodeToken).join(", ") : value.join(", ");
   if (value == null || value === "") return "-";
+  if (typeof value === "string" && value.trim().toLowerCase() === "unknown") return "не указано";
   if (key && UNIT_KEYS.has(key)) return localizeUnit(value, "ru") || "-";
   if (key && CODE_KEYS.has(key)) return formatCodeValue(value);
   return String(value);
