@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 import { localizedName } from "@/lib/i18n/helpers";
+import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
 import type { GlobalCatalogEntity } from "@/lib/platform/global-catalog-config";
 
 type EntityConfig = {
@@ -19,6 +20,8 @@ type EntityConfig = {
 const PLATFORM_GLOBAL_COMPANY_ID = "10000000-0000-0000-0000-000000000001";
 
 const PRODUCT_SEARCH_ALIASES = [
+  ["phomazin", "swissgrow phomazin", "\u0444\u043e\u043c\u0430\u0437\u0438\u043d"],
+  ["curamin foliar", "curamin", "\u043a\u0443\u0440\u0430\u043c\u0438\u043d \u0444\u043e\u043b\u0438\u0430\u0440", "\u043a\u0443\u0440\u0430\u043c\u0438\u043d"],
   ["revus top", "revus top sc", "ревус топ"],
   ["celest top", "celest top fs", "селест топ"],
   ["black jack", "blackjack", "блек джек"],
@@ -105,6 +108,43 @@ function nullifyEmptyFields(payload: Record<string, any>, keys: string[]) {
       next[key] = null;
     }
   }
+  return next;
+}
+
+function nullableCatalogText(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  if (!text || text === "unknown") return null;
+  return text;
+}
+
+function catalogBool(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  const text = String(value ?? "").trim().toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "да";
+}
+
+function normalizeProductMetadataPayload(payload: Record<string, any>, fallbackStockUnit: string) {
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(payload, key);
+  const stockUnit =
+    nullableCatalogText(payload.stock_unit) ||
+    nullableCatalogText(payload.default_unit) ||
+    nullableCatalogText(payload.unit) ||
+    nullableCatalogText(payload.base_uom) ||
+    fallbackStockUnit;
+  const defaultRateType = normalizeMaterialRateBasis(payload.default_rate_type || payload.default_dosing_type || "per_ha");
+
+  const next: Record<string, any> = {
+    ...payload,
+    stock_unit: stockUnit,
+    default_unit: payload.default_unit || stockUnit,
+    unit: payload.unit || stockUnit,
+    base_uom: payload.base_uom || stockUnit,
+    default_rate_type: defaultRateType,
+    default_rate_unit: nullableCatalogText(payload.default_rate_unit) || nullableCatalogText(payload.application_unit),
+  };
+  if (has("metadata_source_url")) next.metadata_source_url = nullableCatalogText(payload.metadata_source_url);
+  if (has("metadata_confidence")) next.metadata_confidence = nullableCatalogText(payload.metadata_confidence);
+  if (has("metadata_review_required")) next.metadata_review_required = catalogBool(payload.metadata_review_required);
   return next;
 }
 
@@ -348,15 +388,18 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
       manufacturer: row.manufacturer_name || row.manufacturer || "-",
+      stock_unit: row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
+      default_rate_type: row.default_rate_type || "-",
+      default_rate_unit: row.default_rate_unit || row.application_unit || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeProductMetadataPayload(payload, "l"),
       type: "pesticide",
       product_type: "pesticide",
       company_id: null,
-      unit: payload.default_unit || "l",
     }),
+    beforeUpdate: (payload) => normalizeProductMetadataPayload(payload, "l"),
   },
   fertilizers: {
     table: "products",
@@ -373,15 +416,18 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
       manufacturer: row.manufacturer_name || row.manufacturer || "-",
+      stock_unit: row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
+      default_rate_type: row.default_rate_type || "-",
+      default_rate_unit: row.default_rate_unit || row.application_unit || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeProductMetadataPayload(payload, "kg"),
       type: "fertilizer",
       product_type: "fertilizer",
       company_id: null,
-      unit: payload.default_unit || "kg",
     }),
+    beforeUpdate: (payload) => normalizeProductMetadataPayload(payload, "kg"),
   },
   additives: {
     table: "products",
@@ -401,28 +447,27 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
       subcategory: row.subcategory || row.pesticide_category || row.category || "-",
       formulation: row.formulation_name || row.formulation || "-",
       manufacturer: row.manufacturer_name || row.manufacturer || "-",
-      default_unit: row.default_unit || row.unit || row.base_uom || "-",
+      stock_unit: row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
+      default_unit: row.default_unit || row.stock_unit || row.unit || row.base_uom || "-",
+      default_rate_type: row.default_rate_type || "-",
+      default_rate_unit: row.default_rate_unit || row.application_unit || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeProductMetadataPayload(payload, "l"),
       type: "pesticide",
       product_type: "additive",
       category: "additive",
       pesticide_category: null,
       fertilizer_type: null,
       company_id: null,
-      unit: payload.default_unit || "l",
-      base_uom: payload.default_unit || "l",
     }),
     beforeUpdate: (payload) => ({
-      ...payload,
+      ...normalizeProductMetadataPayload(payload, "l"),
       product_type: "additive",
       category: "additive",
       pesticide_category: null,
       fertilizer_type: null,
-      unit: payload.default_unit || payload.unit || "l",
-      base_uom: payload.default_unit || payload.base_uom || "l",
     }),
   },
   growth_regulators: {
@@ -440,15 +485,18 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
       manufacturer: row.manufacturer_name || row.manufacturer || "-",
+      stock_unit: row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
+      default_rate_type: row.default_rate_type || "-",
+      default_rate_unit: row.default_rate_unit || row.application_unit || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeProductMetadataPayload(payload, "l"),
       type: "pesticide",
       product_type: "growth_regulator",
       company_id: null,
-      unit: payload.default_unit || "l",
     }),
+    beforeUpdate: (payload) => normalizeProductMetadataPayload(payload, "l"),
   },
   pesticide_categories: {
     table: "pesticide_categories",

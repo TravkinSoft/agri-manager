@@ -56,10 +56,21 @@ import { supabase } from "@/lib/supabase/client";
 import { getFieldDisplayName } from "@/lib/fields/display";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { buildProductDisplayLabel, stripManufacturerPrefixCandidate } from "@/lib/catalog/catalog-identity";
 import {
   getMaterialProductTypeFromProduct,
   getMaterialSubcategoryFromProduct,
 } from "@/lib/materials/classification";
+import {
+  MATERIAL_RATE_BASIS,
+  MATERIAL_RATE_BASIS_LABELS_RU,
+  formatMaterialRateUnitRu,
+  formatMaterialUnitRu,
+  inferMaterialDefaultRateBasis,
+  inferMaterialStockUnit,
+  isUnitAllowedForMaterialRateBasis,
+  normalizeMaterialRateBasis,
+} from "@/lib/materials/metadata";
 import {
   OPERATION_SUBTYPE_DEFINITIONS,
   OPERATION_TYPE_DEFINITIONS,
@@ -115,6 +126,10 @@ type RefOption = { id: string; name: string };
 type ProductOption = {
   id: string;
   name: string;
+  trade_name?: string | null;
+  normalized_name?: string | null;
+  manufacturer?: string | null;
+  notes?: string | null;
   type: string | null;
   product_type?: string | null;
   category?: string | null;
@@ -122,6 +137,13 @@ type ProductOption = {
   pesticide_category?: string | null;
   fertilizer_type?: string | null;
   unit: string | null;
+  stock_unit?: string | null;
+  default_unit?: string | null;
+  base_uom?: string | null;
+  application_unit?: string | null;
+  default_rate_type?: string | null;
+  default_dosing_type?: string | null;
+  default_rate_unit?: string | null;
   availableQty: number;
   warehouseNames: string[];
 };
@@ -212,27 +234,18 @@ const CHEMISTRY_GROUP_LABELS: Record<ChemistryMaterialGroup, string> = {
   additives: "Добавки",
 };
 
-const RATE_BASIS_LABELS: Record<OperationMaterialRateBasis, string> = {
-  per_ha: "На гектар",
-  per_t_solution: "На тонну раствора",
-  per_1000_l_solution: "На 1000 л раствора",
-  per_l_water: "На литр воды",
-};
-
-const RATE_BASIS_UNITS: Record<OperationMaterialRateBasis, { l: string; kg: string; pcs: string }> = {
-  per_ha: { l: "л/га", kg: "кг/га", pcs: "шт/га" },
-  per_t_solution: { l: "л/т раствора", kg: "кг/т раствора", pcs: "шт/т раствора" },
-  per_1000_l_solution: { l: "л/1000 л", kg: "кг/1000 л", pcs: "шт/1000 л" },
-  per_l_water: { l: "мл/л", kg: "г/л", pcs: "шт/л" },
-};
+const RATE_BASIS_LABELS: Record<OperationMaterialRateBasis, string> = MATERIAL_RATE_BASIS_LABELS_RU;
+const CHEMISTRY_MATERIAL_RATE_BASIS: OperationMaterialRateBasis[] = ["per_ha", "per_1000_l_solution", "per_l_water"];
 
 const UNIT_LABELS: Record<string, string> = {
   l: "л",
+  ml: "мл",
   kg: "кг",
+  g: "г",
   pcs: "шт",
 };
 
-const MATERIAL_UNIT_OPTIONS: OperationMaterialUnit[] = ["kg", "l", "pcs"];
+const MATERIAL_UNIT_OPTIONS: OperationMaterialUnit[] = ["kg", "l", "ml", "g", "pcs"];
 
 const IMPLIED_PURPOSE_BY_TEMPLATE: Record<string, OperationPurposeSlug> = {
   herbicide_treatment: "weed_control",
@@ -441,16 +454,82 @@ function formatOperationNumber(value: number | null | undefined, digits = 2): st
 }
 
 function formatStorageUnit(unit: string | null | undefined): string {
-  return UNIT_LABELS[String(unit || "").trim()] || String(unit || "");
+  return UNIT_LABELS[String(unit || "").trim()] || formatMaterialUnitRu(unit);
+}
+
+function operationProductTradeName(product: ProductOption | null | undefined): string {
+  if (!product) return "";
+  return buildProductDisplayLabel(product) || product.trade_name || product.name || product.normalized_name || "";
+}
+
+function operationProductManufacturer(product: ProductOption | null | undefined): string {
+  if (!product) return "";
+  return stripManufacturerPrefixCandidate(product).manufacturer || product.manufacturer || "";
+}
+
+function normalizeRateBasisForOperationMaterial(
+  basis: OperationMaterialRateBasis | null | undefined,
+  usesChemistryMix: boolean
+): OperationMaterialRateBasis {
+  const normalized = normalizeMaterialRateBasis(basis);
+  return usesChemistryMix && !CHEMISTRY_MATERIAL_RATE_BASIS.includes(normalized) ? "per_ha" : normalized;
 }
 
 function formatRateUnit(unit: string | null | undefined, basis: OperationMaterialRateBasis | null | undefined): string {
-  const safeUnit = String(unit || "kg") as "l" | "kg" | "pcs";
-  return RATE_BASIS_UNITS[basis || "per_ha"]?.[safeUnit] || formatStorageUnit(unit);
+  return formatMaterialRateUnitRu(unit || "kg", basis || "per_ha");
 }
 
 function unitAllowedForRateBasis(unit: string | null | undefined, basis: OperationMaterialRateBasis | null | undefined) {
-  return !(basis === "per_l_water" && unit === "pcs");
+  return isUnitAllowedForMaterialRateBasis(unit, basis || "per_ha");
+}
+
+function normalizeOperationMaterialUnit(value: string | null | undefined): OperationMaterialUnit | null {
+  const unit = String(value || "").trim().toLowerCase();
+  if (["l", "lt", "liter", "litre", "л", "л."].includes(unit)) return "l";
+  if (["ml", "мл", "мл."].includes(unit)) return "ml";
+  if (["kg", "кг", "кг."].includes(unit)) return "kg";
+  if (["g", "gr", "г", "г.", "гр"].includes(unit)) return "g";
+  if (["pcs", "pc", "piece", "pieces", "шт", "шт."].includes(unit)) return "pcs";
+  return null;
+}
+
+function inferRateBasisFromProductUnit(value: string | null | undefined): OperationMaterialRateBasis | null {
+  const source = String(value || "").toLowerCase();
+  if (!source || source === "unknown") return null;
+  if (source.includes("1000") && (source.includes("l") || source.includes("л"))) return "per_1000_l_solution";
+  if (source.includes("/l") || source.includes("/ l") || source.includes("/л")) return "per_l_water";
+  if (source.includes("100kg") || source.includes("100 kg") || source.includes("100 кг")) return "per_100kg_seed";
+  if (source.includes("1000 seeds") || source.includes("1000 сем")) return "per_1000_seeds";
+  if (source.includes("/t") || source.includes("/т")) return "per_t_seed";
+  if (source.includes("/ha") || source.includes("/га")) return "per_ha";
+  return null;
+}
+
+function getProductDefaultRateBasis(product: ProductOption | undefined, fallback: OperationMaterialRateBasis | null | undefined): OperationMaterialRateBasis {
+  const fallbackBasis = normalizeMaterialRateBasis(
+    inferRateBasisFromProductUnit(product?.default_rate_unit || product?.application_unit) || fallback || "per_ha"
+  );
+  return inferMaterialDefaultRateBasis(product, fallbackBasis);
+}
+
+function getProductDefaultUnit(product: ProductOption | undefined, componentType: string, basis: OperationMaterialRateBasis): OperationMaterialUnit {
+  const inferredUnit = normalizeOperationMaterialUnit(inferMaterialStockUnit(product, product?.unit || product?.default_unit || "kg"));
+  if (inferredUnit && unitAllowedForRateBasis(inferredUnit, basis)) return inferredUnit;
+
+  const candidates = [
+    product?.stock_unit,
+    product?.unit,
+    product?.default_unit,
+    product?.base_uom,
+    product?.default_rate_unit,
+    product?.application_unit,
+  ];
+  for (const candidate of candidates) {
+    const unit = normalizeOperationMaterialUnit(candidate);
+    if (unit && unitAllowedForRateBasis(unit, basis)) return unit;
+  }
+  const fallback = getDefaultUnitForComponent(componentType);
+  return unitAllowedForRateBasis(fallback, basis) ? fallback : "kg";
 }
 
 function createTargetKey() {
@@ -771,8 +850,8 @@ export function OperationFormDialog({
     () =>
       products.map((item) => ({
         id: item.id,
-        label: item.name,
-        hint: `${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${formatStorageUnit(item.unit)}${
+        label: operationProductTradeName(item) || item.name,
+        hint: `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} - ` : ""}${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${formatStorageUnit(item.unit)}${
           item.warehouseNames.length > 0 ? ` • ${item.warehouseNames.slice(0, 2).join(", ")}` : ""
         }`,
       })),
@@ -896,7 +975,7 @@ export function OperationFormDialog({
           const [productMetaRes, warehouseMetaRes] = await Promise.all([
             supabase
               .from("products")
-              .select("id,name,trade_name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit")
+              .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_dosing_type,default_rate_unit")
               .or(`company_id.eq.${profile.company_id},company_id.is.null`)
               .eq("archived", false)
               .eq("is_active", true)
@@ -911,11 +990,51 @@ export function OperationFormDialog({
               : Promise.resolve({ data: [], error: null } as any),
           ]);
 
-          const productMetaById = new Map<string, Pick<ProductOption, "name" | "type" | "product_type" | "category" | "subcategory" | "pesticide_category" | "fertilizer_type" | "unit">>(
+          const productMetaById = new Map<
+            string,
+            Pick<
+              ProductOption,
+              | "name"
+              | "trade_name"
+              | "normalized_name"
+              | "manufacturer"
+              | "notes"
+              | "type"
+              | "product_type"
+              | "category"
+              | "subcategory"
+              | "pesticide_category"
+              | "fertilizer_type"
+              | "unit"
+              | "stock_unit"
+              | "default_unit"
+              | "base_uom"
+              | "application_unit"
+              | "default_rate_type"
+              | "default_dosing_type"
+              | "default_rate_unit"
+            >
+          >(
             (productMetaRes.data || []).map((row: any) => [
               String(row.id),
               {
-                name: String(row.trade_name || row.name || "-"),
+                name:
+                  stripManufacturerPrefixCandidate({
+                    id: String(row.id),
+                    name: String(row.trade_name || row.name || "-"),
+                    trade_name: row.trade_name ? String(row.trade_name) : null,
+                    normalized_name: row.normalized_name ? String(row.normalized_name) : null,
+                    manufacturer: row.manufacturer ? String(row.manufacturer) : null,
+                    notes: row.notes ? String(row.notes) : null,
+                    product_type: row.product_type ? String(row.product_type) : null,
+                    type: row.type ? String(row.type) : null,
+                    category: row.category ? String(row.category) : null,
+                    subcategory: row.subcategory ? String(row.subcategory) : null,
+                  }).proposedTradeName || String(row.trade_name || row.name || "-"),
+                trade_name: row.trade_name ? String(row.trade_name) : null,
+                normalized_name: row.normalized_name ? String(row.normalized_name) : null,
+                manufacturer: row.manufacturer ? String(row.manufacturer) : null,
+                notes: row.notes ? String(row.notes) : null,
                 type: row.type ? String(row.type) : null,
                 product_type: row.product_type ? String(row.product_type) : null,
                 category: row.category ? String(row.category) : null,
@@ -923,6 +1042,13 @@ export function OperationFormDialog({
                 pesticide_category: row.pesticide_category ? String(row.pesticide_category) : null,
                 fertilizer_type: row.fertilizer_type ? String(row.fertilizer_type) : null,
                 unit: row.unit ? String(row.unit) : null,
+                stock_unit: row.stock_unit ? String(row.stock_unit) : null,
+                default_unit: row.default_unit ? String(row.default_unit) : null,
+                base_uom: row.base_uom ? String(row.base_uom) : null,
+                application_unit: row.application_unit ? String(row.application_unit) : null,
+                default_rate_type: row.default_rate_type ? String(row.default_rate_type) : null,
+                default_dosing_type: row.default_dosing_type ? String(row.default_dosing_type) : null,
+                default_rate_unit: row.default_rate_unit ? String(row.default_rate_unit) : null,
               },
             ])
           );
@@ -947,6 +1073,10 @@ export function OperationFormDialog({
               ({
                 id: productId,
                 name: meta.name,
+                trade_name: meta.trade_name,
+                normalized_name: meta.normalized_name,
+                manufacturer: meta.manufacturer,
+                notes: meta.notes,
                 type: meta.type,
                 product_type: meta.product_type,
                 category: meta.category,
@@ -954,6 +1084,13 @@ export function OperationFormDialog({
                 pesticide_category: meta.pesticide_category,
                 fertilizer_type: meta.fertilizer_type,
                 unit: meta.unit,
+                stock_unit: meta.stock_unit,
+                default_unit: meta.default_unit,
+                base_uom: meta.base_uom,
+                application_unit: meta.application_unit,
+                default_rate_type: meta.default_rate_type,
+                default_dosing_type: meta.default_dosing_type,
+                default_rate_unit: meta.default_rate_unit,
                 availableQty: 0,
                 warehouseNames: [],
               } satisfies ProductOption);
@@ -990,7 +1127,7 @@ export function OperationFormDialog({
             material_type: toStorageMaterialType(component.slug),
             product_id: item.product_id || "",
             unit: item.unit || getDefaultUnitForComponent(component.slug),
-            rate_basis: item.rate_basis || "per_ha",
+            rate_basis: normalizeMaterialRateBasis(item.rate_basis),
             planned_quantity: item.planned_quantity ?? null,
           };
         })
@@ -1286,6 +1423,41 @@ export function OperationFormDialog({
     });
   }, [isPotatoPlanting, open, products]);
 
+  useEffect(() => {
+    if (!open || products.length === 0 || materials.length === 0) return;
+    setMaterials((prev) => {
+      let changed = false;
+      const next = prev.map((material) => {
+        if (!material.product_id) return material;
+        const product = products.find((item) => item.id === material.product_id);
+        if (!product) return material;
+
+        const component = getTankMixComponentDefinition(material.component_type || material.material_type);
+        const currentBasis = normalizeRateBasisForOperationMaterial(material.rate_basis, usesChemistryMix);
+        const productBasis = getProductDefaultRateBasis(product, currentBasis);
+        const nextBasis = material.rate_basis
+          ? normalizeRateBasisForOperationMaterial(material.rate_basis, usesChemistryMix)
+          : normalizeRateBasisForOperationMaterial(productBasis, usesChemistryMix);
+        const productUnit = getProductDefaultUnit(product, component.slug, nextBasis);
+        const nextUnit =
+          !material.unit ||
+          !unitAllowedForRateBasis(material.unit, nextBasis) ||
+          (usesChemistryMix && material.unit === "kg" && productUnit === "l")
+            ? productUnit
+            : material.unit;
+
+        if (nextBasis === material.rate_basis && nextUnit === material.unit) return material;
+        changed = true;
+        return {
+          ...material,
+          rate_basis: nextBasis,
+          unit: nextUnit,
+        };
+      });
+      return changed ? next : prev;
+    });
+  }, [materials.length, open, products, usesChemistryMix]);
+
   const componentOptions = useMemo(() => {
     if (usesChemistryMix) {
       const groups: ChemistryMaterialGroup[] = isFertigation
@@ -1512,23 +1684,33 @@ export function OperationFormDialog({
   ): number | null => {
     const rate = Number(material.planned_rate || 0);
     if (!(rate > 0)) return null;
-    const basis = material.rate_basis || "per_ha";
+    const basis = normalizeRateBasisForOperationMaterial(material.rate_basis, usesChemistryMix);
     if (!unitAllowedForRateBasis(material.unit, basis)) return null;
     if (basis === "per_ha") {
       return operationAreaForCalculation > 0 ? rate * operationAreaForCalculation : null;
     }
-    if (basis === "per_t_solution" || basis === "per_1000_l_solution") {
+    if (basis === "per_1000_l_solution") {
       return totalSolutionL != null && totalSolutionL > 0 ? (totalSolutionL / 1000) * rate : null;
     }
     if (basis === "per_l_water") {
       const base = waterBaseL != null ? waterBaseL : totalSolutionL;
       return base != null && base > 0 ? (base * rate) / 1000 : null;
     }
+    if (basis === "per_t_seed") {
+      return totalSeedKg != null && totalSeedKg > 0 ? (totalSeedKg / 1000) * rate : null;
+    }
+    if (basis === "per_100kg_seed") {
+      return totalSeedKg != null && totalSeedKg > 0 ? (totalSeedKg / 100) * rate : null;
+    }
+    if (basis === "per_1000_seeds") {
+      return totalPlants != null && totalPlants > 0 ? (totalPlants / 1000) * rate : null;
+    }
     return null;
   };
   const preliminaryMaterialRows = materials
     .map((material, index) => {
-      const total = material.rate_basis === "per_l_water" ? null : calculateMaterialTotal(material);
+      const normalizedRateBasis = normalizeRateBasisForOperationMaterial(material.rate_basis, usesChemistryMix);
+      const total = normalizedRateBasis === "per_l_water" || normalizedRateBasis === "manual" ? null : calculateMaterialTotal(material);
       const product = products.find((item) => item.id === material.product_id);
       const component = getTankMixComponentDefinition(material.component_type || material.material_type);
       return {
@@ -1536,7 +1718,7 @@ export function OperationFormDialog({
         name: product?.name || "",
         unit: material.unit || getDefaultUnitForComponent(component.slug),
         rate: Number(material.planned_rate || 0),
-        rateBasis: material.rate_basis || "per_ha",
+        rateBasis: normalizedRateBasis,
         total,
       };
     })
@@ -1557,7 +1739,7 @@ export function OperationFormDialog({
         name: product?.name || "",
         unit: material.unit || getDefaultUnitForComponent(component.slug),
         rate,
-        rateBasis: material.rate_basis || "per_ha",
+        rateBasis: normalizeRateBasisForOperationMaterial(material.rate_basis, usesChemistryMix),
         total,
       };
     })
@@ -1577,7 +1759,8 @@ export function OperationFormDialog({
   const renderMaterialRow = (material: OperationMaterialFormData, index: number) => {
     const component = getTankMixComponentDefinition(material.component_type || material.material_type);
     const materialTotal = calculateMaterialTotal(material, preliminaryWaterTotalL);
-    const rateBasis = material.rate_basis || "per_ha";
+    const rateBasis = normalizeRateBasisForOperationMaterial(material.rate_basis, usesChemistryMix);
+    const rateBasisOptions = usesChemistryMix ? CHEMISTRY_MATERIAL_RATE_BASIS : MATERIAL_RATE_BASIS;
     const unitOptions = MATERIAL_UNIT_OPTIONS.filter((unit) => unitAllowedForRateBasis(unit, rateBasis));
     const hasInvalidPerWaterUnit = !unitAllowedForRateBasis(material.unit, rateBasis);
 
@@ -1621,13 +1804,15 @@ export function OperationFormDialog({
                   getMaterialProductTypeFromProduct(product || {}) || product?.product_type || product?.type
                 );
                 const inferredComponent = getTankMixComponentDefinition(material.component_type || inferredType);
+                const inferredRateBasis = getProductDefaultRateBasis(product, normalizeRateBasisForOperationMaterial(material.rate_basis, usesChemistryMix));
+                const nextRateBasis = normalizeRateBasisForOperationMaterial(inferredRateBasis, usesChemistryMix);
+                const nextUnit = getProductDefaultUnit(product, inferredComponent.slug, nextRateBasis);
                 updateMaterial(index, {
                   product_id: productId,
                   component_type: inferredComponent.slug,
                   material_type: toStorageMaterialType(inferredComponent.slug),
-                  unit: (product?.unit === "kg" || product?.unit === "l" || product?.unit === "pcs")
-                    ? (product.unit as "kg" | "l" | "pcs")
-                    : getDefaultUnitForComponent(inferredComponent.slug),
+                  rate_basis: nextRateBasis,
+                  unit: nextUnit,
                 });
               }}
               options={productOptionsForMaterial(material)}
@@ -1649,7 +1834,7 @@ export function OperationFormDialog({
                 const nextBasis = value as OperationMaterialRateBasis;
                 updateMaterial(index, {
                   rate_basis: nextBasis,
-                  unit: unitAllowedForRateBasis(material.unit, nextBasis) ? material.unit : "kg",
+                  unit: unitAllowedForRateBasis(material.unit, nextBasis) ? material.unit : nextBasis === "per_l_water" ? "ml" : "kg",
                 });
               }}
             >
@@ -1657,7 +1842,7 @@ export function OperationFormDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(RATE_BASIS_LABELS) as OperationMaterialRateBasis[]).map((basis) => (
+                {rateBasisOptions.map((basis) => (
                   <SelectItem key={basis} value={basis}>
                     {RATE_BASIS_LABELS[basis]}
                   </SelectItem>
@@ -1665,7 +1850,7 @@ export function OperationFormDialog({
               </SelectContent>
             </Select>
             {hasInvalidPerWaterUnit ? (
-              <div className="mt-1 text-[11px] text-red-300">Для расчёта на литр воды выберите л или кг.</div>
+              <div className="mt-1 text-[11px] text-red-300">Для расчёта на литр воды выберите л, мл, кг или г.</div>
             ) : null}
           </div>
         ) : null}
@@ -1691,7 +1876,7 @@ export function OperationFormDialog({
               value={material.unit}
               onValueChange={(value) =>
                 updateMaterial(index, {
-                  unit: (value as "kg" | "l" | "pcs"),
+                  unit: value as OperationMaterialUnit,
                 })
               }
             >
@@ -1838,16 +2023,18 @@ export function OperationFormDialog({
       setSubmitError(message);
       return;
     }
-    const invalidPerWaterMaterialIndex = materials.findIndex((item) => (item.rate_basis || "per_ha") === "per_l_water" && item.unit === "pcs");
+    const invalidPerWaterMaterialIndex = materials.findIndex((item) =>
+      !unitAllowedForRateBasis(item.unit, normalizeRateBasisForOperationMaterial(item.rate_basis, usesChemistryMix))
+    );
     if (invalidPerWaterMaterialIndex >= 0) {
-      const message = "Для расчёта на литр воды нельзя использовать единицу шт. Выберите л или кг.";
+      const message = "Для расчёта на литр воды нельзя использовать единицу шт. Выберите л, мл, кг или г.";
       setSubmitError(message);
       return;
     }
     const materialTotalsByIndex = new Map(materialCalculationRows.map((row) => [row.index, row.total]));
     const normalizedMaterials = materials.map((item, index) => {
       const component = getTankMixComponentDefinition(item.component_type || item.material_type);
-      const rateBasis = item.rate_basis || "per_ha";
+      const rateBasis = normalizeRateBasisForOperationMaterial(item.rate_basis, usesChemistryMix);
       const plannedQuantity = materialTotalsByIndex.get(index) ?? item.planned_quantity ?? null;
       const rateLabel = formatRateUnit(item.unit || getDefaultUnitForComponent(component.slug), rateBasis);
       const existingNotes = String(item.notes || "").trim();

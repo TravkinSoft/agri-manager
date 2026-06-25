@@ -1,14 +1,16 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import {
   calculateMaterialPlannedQuantity,
   calculateTankMix,
   normalizeMixUnit,
 } from "@/lib/materials/mix-calculations";
+import { inferMaterialStockUnit, normalizeMaterialRateBasis, type MaterialRateBasis } from "@/lib/materials/metadata";
 
 export type CropCareSchemeStatus = "draft" | "active" | "paused" | "completed" | "archived";
 export type CropCareSchemeType = "protection" | "nutrition" | "fertigation" | "combined" | "other";
-export type CropCareRateBasis = "per_ha" | "per_t_solution" | "per_1000_l_solution" | "per_l_water";
+export type CropCareRateBasis = MaterialRateBasis;
 export type CropCareTargetType = "disease" | "pest" | "weed" | "nutrition" | "stress" | "general";
 
 export type CropCareSeason = {
@@ -45,7 +47,11 @@ export type CropCareProduct = {
   base_uom: string | null;
   default_unit: string | null;
   application_unit: string | null;
+  stock_unit: string | null;
+  default_rate_type: string | null;
+  default_rate_unit: string | null;
   default_dosing_type: string | null;
+  notes: string | null;
 };
 
 export type CropCareResponsible = {
@@ -172,7 +178,6 @@ export type CropCareStepInput = {
   materials?: CropCareMaterialInput[];
 };
 
-const VALID_RATE_BASIS = new Set<CropCareRateBasis>(["per_ha", "per_t_solution", "per_1000_l_solution", "per_l_water"]);
 const VALID_TARGET_TYPES = new Set<CropCareTargetType>(["disease", "pest", "weed", "nutrition", "stress", "general"]);
 
 export class CropCareLifecycleError extends Error {
@@ -220,12 +225,30 @@ function displayName(row: any): string {
 }
 
 function productDisplayName(row: any): string {
-  return brandName(row) || text(row?.trade_name) || text(row?.name) || "-";
+  return buildProductDisplayLabel({
+    id: String(row?.id || ""),
+    name: nullableText(row?.name),
+    trade_name: nullableText(row?.trade_name),
+    normalized_name: nullableText(row?.normalized_name),
+    company_id: nullableText(row?.company_id),
+    manufacturer: nullableText(row?.manufacturer),
+    product_type: nullableText(row?.product_type),
+    type: nullableText(row?.type),
+    category: nullableText(row?.category),
+    subcategory: nullableText(row?.subcategory),
+    pesticide_category: nullableText(row?.pesticide_category),
+    fertilizer_type: nullableText(row?.fertilizer_type),
+    unit: nullableText(row?.unit),
+    stock_unit: nullableText(row?.stock_unit),
+    base_uom: nullableText(row?.base_uom),
+    default_unit: nullableText(row?.default_unit),
+    application_unit: nullableText(row?.application_unit),
+    notes: nullableText(row?.notes),
+  }) || brandName(row) || text(row?.trade_name) || text(row?.name) || "-";
 }
 
 function normalizeRateBasis(value: unknown): CropCareRateBasis {
-  const next = text(value) as CropCareRateBasis;
-  return VALID_RATE_BASIS.has(next) ? next : "per_ha";
+  return normalizeMaterialRateBasis(String(value ?? ""));
 }
 
 function normalizeTargetType(value: unknown): CropCareTargetType {
@@ -238,7 +261,8 @@ function normalizeUnit(value: unknown): string {
 }
 
 function productUnit(row: any): string | null {
-  return nullableText(row?.unit) || nullableText(row?.base_uom) || nullableText(row?.default_unit);
+  const explicitStockUnit = nullableText(row?.stock_unit);
+  return inferMaterialStockUnit(row, explicitStockUnit || nullableText(row?.unit) || nullableText(row?.base_uom) || nullableText(row?.default_unit) || "kg");
 }
 
 export function inferOperationMaterialType(input: {
@@ -703,6 +727,7 @@ export async function updateCropCareScheme(params: {
     if (allowed.status === "active") allowed.activated_at = new Date().toISOString();
     if (allowed.status === "paused") allowed.paused_at = new Date().toISOString();
     if (allowed.status === "completed") allowed.completed_at = new Date().toISOString();
+    if (allowed.status === "archived") allowed.archived_at = new Date().toISOString();
     const { data: current } = await supabase
       .from("crop_care_schemes")
       .select("revision_no")
@@ -751,7 +776,7 @@ async function loadProductMap(supabase: SupabaseClient, companyId: string, produ
   if (!productIds.length) return new Map();
   const { data, error } = await supabase
     .from("products")
-    .select("id,company_id,name,trade_name,normalized_name,manufacturer,product_type,type,category,subcategory,pesticide_category,fertilizer_type,unit,base_uom,default_unit,application_unit")
+    .select("*")
     .in("id", productIds)
     .or(`company_id.eq.${companyId},company_id.is.null`);
   if (error) throw new Error(error.message);
@@ -974,7 +999,7 @@ export async function loadCropCareBootstrap(supabase: SupabaseClient, companyId:
       .order("name", { ascending: true }),
     supabase
       .from("products")
-      .select("id,company_id,name,trade_name,normalized_name,manufacturer,product_type,type,category,subcategory,pesticide_category,fertilizer_type,unit,base_uom,default_unit,application_unit")
+      .select("*")
       .eq("archived", false)
       .or(`company_id.eq.${companyId},company_id.is.null`)
       .order("name", { ascending: true })
@@ -1017,7 +1042,11 @@ export async function loadCropCareBootstrap(supabase: SupabaseClient, companyId:
       base_uom: nullableText(row.base_uom),
       default_unit: nullableText(row.default_unit),
       application_unit: nullableText(row.application_unit),
-      default_dosing_type: null,
+      stock_unit: nullableText(row.stock_unit),
+      default_rate_type: nullableText(row.default_rate_type),
+      default_rate_unit: nullableText(row.default_rate_unit),
+      default_dosing_type: nullableText(row.default_rate_type) || nullableText(row.default_dosing_type),
+      notes: nullableText(row.notes),
     })),
     responsible_users: (responsibleRes.data || []).map((row: any) => ({
       id: String(row.id),
@@ -1062,6 +1091,11 @@ export async function loadCropCareSchemes(
   if (materialsRes.error) throw new Error(materialsRes.error.message);
   if (linksRes.error) throw new Error(linksRes.error.message);
 
+  const materialProductIds = Array.from(
+    new Set((materialsRes.data || []).map((row: any) => text(row.product_id)).filter(Boolean))
+  );
+  const materialProductMap = await loadProductMap(supabase, companyId, materialProductIds);
+
   const fieldsByScheme = new Map<string, CropCareSchemeField[]>();
   (fieldsRes.data || []).forEach((row: any) => {
     const item: CropCareSchemeField = {
@@ -1086,10 +1120,11 @@ export async function loadCropCareSchemes(
 
   const materialsByStep = new Map<string, CropCareStepMaterial[]>();
   (materialsRes.data || []).forEach((row: any) => {
+    const product = materialProductMap.get(String(row.product_id));
     const item: CropCareStepMaterial = {
       id: String(row.id),
       product_id: String(row.product_id),
-      product_name: text(row.product_name_snapshot) || "-",
+      product_name: product ? productDisplayName(product) : text(row.product_name_snapshot) || "-",
       product_type: nullableText(row.product_type),
       rate: numeric(row.rate),
       rate_unit: normalizeUnit(row.rate_unit),

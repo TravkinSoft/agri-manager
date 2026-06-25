@@ -12,9 +12,12 @@ export type CatalogProductLike = {
   pesticide_category?: string | null;
   fertilizer_type?: string | null;
   unit?: string | null;
+  stock_unit?: string | null;
   base_uom?: string | null;
   default_unit?: string | null;
   application_unit?: string | null;
+  default_rate_type?: string | null;
+  default_rate_unit?: string | null;
   source_name?: string | null;
   notes?: string | null;
 };
@@ -90,6 +93,37 @@ const MANUFACTURER_DISPLAY: Record<string, string> = {
   dupont: "DuPont",
   icl: "ICL",
 };
+
+type VerifiedProductIdentity = {
+  canonicalTradeName: string;
+  displayManufacturer?: string;
+  stockUnit?: string;
+  aliases: string[];
+};
+
+const VERIFIED_PRODUCT_IDENTITIES: VerifiedProductIdentity[] = [
+  {
+    canonicalTradeName: "Phomazin",
+    displayManufacturer: "SG",
+    stockUnit: "l",
+    aliases: [
+      "phomazin",
+      "swissgrow phomazin",
+      "\u0444\u043e\u043c\u0430\u0437\u0438\u043d",
+      "swissgrow \u0444\u043e\u043c\u0430\u0437\u0438\u043d",
+    ],
+  },
+  {
+    canonicalTradeName: "Curamin Foliar",
+    stockUnit: "l",
+    aliases: [
+      "curamin foliar",
+      "curamin",
+      "\u043a\u0443\u0440\u0430\u043c\u0438\u043d \u0444\u043e\u043b\u0438\u0430\u0440",
+      "\u043a\u0443\u0440\u0430\u043c\u0438\u043d",
+    ],
+  },
+];
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -173,6 +207,21 @@ function canonicalAliasName(name: string | null | undefined) {
   return pair ? normalizeCatalogName(pair.canonical) : normalized;
 }
 
+function verifiedIdentityForName(name: string | null | undefined): VerifiedProductIdentity | null {
+  const normalized = canonicalAliasName(name);
+  return (
+    VERIFIED_PRODUCT_IDENTITIES.find((identity) => {
+      const candidates = [identity.canonicalTradeName, ...identity.aliases].map((alias) => canonicalAliasName(alias));
+      return candidates.includes(normalized);
+    }) || null
+  );
+}
+
+export function getVerifiedProductIdentity(productOrName: CatalogProductLike | string | null | undefined): VerifiedProductIdentity | null {
+  const stripped = stripManufacturerPrefixCandidate(productOrName);
+  return verifiedIdentityForName(stripped.proposedTradeName || stripped.originalName);
+}
+
 export function stripManufacturerPrefixCandidate(productOrName: CatalogProductLike | string | null | undefined) {
   const name = typeof productOrName === "string" || productOrName == null ? String(productOrName || "") : productName(productOrName);
   const manufacturer = typeof productOrName === "string" || productOrName == null ? "" : productOrName.manufacturer || "";
@@ -216,14 +265,24 @@ export function detectRuEnAliasCandidate(left: CatalogProductLike | string | nul
 
 export function buildCatalogIdentityKey(product: CatalogProductLike, options: { includeManufacturer?: boolean } = {}) {
   const stripped = stripManufacturerPrefixCandidate(product);
-  const canonicalName = canonicalAliasName(stripped.proposedTradeName || productName(product));
+  const verifiedIdentity = verifiedIdentityForName(stripped.proposedTradeName || productName(product));
+  const canonicalName = verifiedIdentity
+    ? normalizeCatalogName(verifiedIdentity.canonicalTradeName)
+    : canonicalAliasName(stripped.proposedTradeName || productName(product));
   const group = normalizeCatalogName(productGroup(product));
+  if (verifiedIdentity) return `${canonicalName}|${group}`;
   if (options.includeManufacturer === false) return `${canonicalName}|${group}`;
   return `${canonicalName}|${normalizeManufacturer(product.manufacturer)}|${group}`;
 }
 
 export function buildProductDisplayLabel(product: CatalogProductLike) {
   const stripped = stripManufacturerPrefixCandidate(product);
+  const verifiedIdentity = verifiedIdentityForName(stripped.proposedTradeName || productName(product));
+  if (verifiedIdentity) {
+    return verifiedIdentity.displayManufacturer
+      ? `${verifiedIdentity.canonicalTradeName} \u2014 ${verifiedIdentity.displayManufacturer}`
+      : verifiedIdentity.canonicalTradeName;
+  }
   const tradeName = stripped.proposedTradeName || productName(product);
   const manufacturer = manufacturerDisplay(product.manufacturer || stripped.manufacturer);
   if (manufacturer && normalizeCatalogName(tradeName) !== normalizeCatalogName(manufacturer)) {
@@ -232,11 +291,19 @@ export function buildProductDisplayLabel(product: CatalogProductLike) {
   return tradeName;
 }
 
+export function getVerifiedProductStockUnit(product: CatalogProductLike | string | null | undefined): string | null {
+  return getVerifiedProductIdentity(product)?.stockUnit || null;
+}
+
 export function matchCatalogSearch(product: CatalogProductLike, query: string) {
   const normalizedQuery = normalizeCatalogName(query);
   if (!normalizedQuery) return true;
   const stripped = stripManufacturerPrefixCandidate(product);
-  const aliasTexts = aliasesForName(stripped.proposedTradeName || productName(product));
+  const verifiedIdentity = verifiedIdentityForName(stripped.proposedTradeName || productName(product));
+  const aliasTexts = [
+    ...aliasesForName(stripped.proposedTradeName || productName(product)),
+    ...(verifiedIdentity ? [verifiedIdentity.canonicalTradeName, ...verifiedIdentity.aliases] : []),
+  ];
   const haystack = [
     product.name,
     product.trade_name,
@@ -325,7 +392,11 @@ export function dedupeProductsForSelect<T extends CatalogProductLike>(products: 
 
 export function buildProductSearchText(product: CatalogProductLike) {
   const stripped = stripManufacturerPrefixCandidate(product);
-  const aliases = aliasesForName(stripped.proposedTradeName || productName(product));
+  const verifiedIdentity = verifiedIdentityForName(stripped.proposedTradeName || productName(product));
+  const aliases = [
+    ...aliasesForName(stripped.proposedTradeName || productName(product)),
+    ...(verifiedIdentity ? [verifiedIdentity.canonicalTradeName, ...verifiedIdentity.aliases] : []),
+  ];
   return [
     product.name,
     product.trade_name,

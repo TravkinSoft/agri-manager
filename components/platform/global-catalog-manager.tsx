@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
 import { brandName, localizedName, localizeUnit } from "@/lib/i18n/helpers";
+import { inferMaterialStockUnit } from "@/lib/materials/metadata";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import {
   type CatalogFilter,
@@ -53,6 +55,9 @@ type Option = { label: string; value: string };
 
 function optionLabel(entity: GlobalCatalogEntity, row: RowRecord): string {
   if (entity === "varieties" || entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
+    if (entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
+      return buildProductDisplayLabel(row as any) || row.full_name || row.code || row.slug || row.id;
+    }
     return brandName(row) || row.full_name || row.code || row.slug || row.id;
   }
   return localizedName(row, "ru") || row.full_name || brandName(row, ["name", "trade_name"]) || row.code || row.slug || row.id;
@@ -64,12 +69,14 @@ const UNIT_KEYS = new Set([
   "uom",
   "base_uom",
   "default_unit",
+  "stock_unit",
   "storage_unit",
   "issue_unit",
   "default_rate_unit",
   "rate_unit",
   "application_unit",
 ]);
+const STOCK_UNIT_KEYS = new Set(["unit", "uom", "base_uom", "default_unit", "stock_unit", "storage_unit", "issue_unit"]);
 const CODE_KEYS = new Set([
   "status",
   "type",
@@ -78,6 +85,8 @@ const CODE_KEYS = new Set([
   "subcategory",
   "pesticide_category",
   "fertilizer_type",
+  "default_rate_type",
+  "rate_basis",
   "formulation",
   "disease_type",
   "pathogen_type",
@@ -122,6 +131,13 @@ const CODE_LABELS: Record<string, string> = {
   water_soluble: "водорастворимое",
   organic: "органическое",
   organomineral: "органоминеральное",
+  per_ha: "на гектар",
+  per_1000_l_solution: "на 1000 л раствора",
+  per_l_water: "на литр воды",
+  per_t_seed: "на тонну семян",
+  per_100kg_seed: "на 100 кг семян",
+  per_1000_seeds: "на 1000 семян",
+  manual: "вручную",
   liquid: "жидкий",
   solid: "твёрдый",
   self_propelled_machine: "самоходная техника",
@@ -165,7 +181,15 @@ function formatCodeValue(value: any): string {
     .join("");
 }
 
-function formatCellValue(value: any, key?: string): string {
+function isProductEntity(entity: GlobalCatalogEntity): boolean {
+  return entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators";
+}
+
+function formatCellValue(value: any, key?: string, row?: RowRecord, entity?: GlobalCatalogEntity): string {
+  if (row && entity && isProductEntity(entity) && key === "trade_name") return buildProductDisplayLabel(row as any) || "-";
+  if (row && entity && isProductEntity(entity) && key && STOCK_UNIT_KEYS.has(key)) {
+    return localizeUnit(inferMaterialStockUnit(row, value), "ru") || "-";
+  }
   if (typeof value === "boolean") return value ? "Да" : "Нет";
   if (Array.isArray(value)) return key && CODE_KEYS.has(key) ? value.map(formatCodeToken).join(", ") : value.join(", ");
   if (value == null || value === "") return "-";
@@ -648,7 +672,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 {!loading && rows.map((row) => (
                   <TableRow key={row.id}>
                     {config.columns.map((column) => (
-                      <TableCell key={`${row.id}-${column.key}`}>{formatCellValue(row[column.key], column.key)}</TableCell>
+                      <TableCell key={`${row.id}-${column.key}`}>{formatCellValue(row[column.key], column.key, row, config.entity)}</TableCell>
                     ))}
                     <TableCell>
                       <div className="flex items-center justify-end gap-2">
