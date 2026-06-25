@@ -9,7 +9,12 @@ import {
   type ServerActorTiming,
 } from "@/lib/auth/server-session";
 import { ensureMaterialRequestForOperation } from "@/app/api/operations/_material-request-helper";
-import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import {
+  isUnitAllowedForMaterialRateBasis,
+  normalizeMaterialRateBasis,
+} from "@/lib/materials/metadata";
+import { calculateMaterialPlannedQuantity } from "@/lib/materials/mix-calculations";
+import { SeasonGuardError, assertSeasonWritableForMutation } from "@/lib/seasons/season-guard";
 import {
   buildExecutionFactModelMetadata,
   buildWarehouseWorkflowMetadata,
@@ -316,9 +321,12 @@ const MATERIAL_TYPES = new Set([
   "other",
 ]);
 
-const MATERIAL_UNITS = new Set(["kg", "l", "pcs"]);
+const MATERIAL_UNITS = new Set(["kg", "l", "ml", "g", "pcs"]);
 
-function inferUnitByMaterialType(materialType: string): "kg" | "l" | "pcs" {
+type OperationMaterialUnitValue = "kg" | "l" | "ml" | "g" | "pcs";
+type OperationMaterialStorageUnitValue = "kg" | "l" | "pcs";
+
+function inferUnitByMaterialType(materialType: string): OperationMaterialUnitValue {
   if (
     materialType === "pesticide" ||
     materialType === "adjuvant" ||
@@ -332,6 +340,37 @@ function inferUnitByMaterialType(materialType: string): "kg" | "l" | "pcs" {
     return "kg";
   }
   return "kg";
+}
+
+function normalizeOperationMaterialStorage(
+  quantity: number | null,
+  unit: OperationMaterialUnitValue
+): {
+  quantity: number | null;
+  unit: OperationMaterialStorageUnitValue;
+  rateUnit: OperationMaterialUnitValue | null;
+} {
+  if (unit === "ml") {
+    return {
+      quantity: quantity !== null && quantity > 0 ? Number((quantity / 1000).toFixed(4)) : quantity,
+      unit: "l",
+      rateUnit: "ml",
+    };
+  }
+
+  if (unit === "g") {
+    return {
+      quantity: quantity !== null && quantity > 0 ? Number((quantity / 1000).toFixed(4)) : quantity,
+      unit: "kg",
+      rateUnit: "g",
+    };
+  }
+
+  return {
+    quantity,
+    unit,
+    rateUnit: null,
+  };
 }
 
 function allowsDefaultOperationLine(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
@@ -745,72 +784,60 @@ export async function POST(request: NextRequest) {
     if (isPotatoPlantingTemplate && (!seedRateKgHa || seedRateKgHa <= 0)) {
       return NextResponse.json({ error: "seed planting rate kg/ha is required for potato planting" }, { status: 400 });
     }
-    const productIds = Array.from(
-      new Set(operationComponents.map((item) => toNullableUuid(item?.product_id)).filter(Boolean) as string[])
-    );
-    if (productIds.length > 0 && !isPotatoPlantingTemplate) {
-      const { data: warehouseRows, error: warehouseError } = await supabase
-        .from("warehouses")
-        .select("id,name,warehouse_type,description,archived,is_archived")
-        .eq("company_id", companyId)
-        .eq("archived", false)
-        .eq("is_archived", false);
-      if (warehouseError) {
-        return NextResponse.json({ error: warehouseError.message }, { status: 400 });
-      }
-      const productionWarehouseIds = (warehouseRows || [])
-        .filter((row: any) => !hasQaDataMarker(`${row.name || ""} ${row.warehouse_type || ""} ${row.description || ""}`))
-        .map((row: any) => String(row.id || ""))
-        .filter(Boolean);
-      if (productionWarehouseIds.length === 0) {
-        return NextResponse.json(
-          { error: "Нет остатка на складе для выбранного материала" },
-          { status: 400 }
-        );
-      }
-      const { data: stockRows, error: stockError } = await supabase
-        .from("v_stock_balance_identity")
-        .select("warehouse_id,product_id,quantity")
-        .eq("company_id", companyId)
-        .in("warehouse_id", productionWarehouseIds)
-        .in("product_id", productIds)
-        .gt("quantity", 0);
-      if (stockError) {
-        return NextResponse.json({ error: stockError.message }, { status: 400 });
-      }
-      const availableProducts = new Set((stockRows || []).map((row: any) => String(row.product_id || "")));
-      const missingProductId = productIds.find((productId) => !availableProducts.has(productId));
-      if (missingProductId) {
-        return NextResponse.json(
-          { error: "Нет остатка на складе для выбранного материала", product_id: missingProductId },
-          { status: 400 }
-        );
-      }
-    }
-
+    const solutionRateLHa = toNullableNumber(body.tank_mix?.total_solution_l_ha ?? body.spray_volume_per_ha);
     const tankMixComponents = operationComponents.map((item) => {
       const componentType = String(item?.component_type || item?.material_type || "other").trim().toLowerCase();
       const definition = getTankMixComponentDefinition(componentType);
       const requestedUnit = String(item?.unit || "").trim().toLowerCase();
-      const unit = (MATERIAL_UNITS.has(requestedUnit) ? requestedUnit : definition.defaultUnit) as "kg" | "l" | "pcs";
+      const unit = (MATERIAL_UNITS.has(requestedUnit) ? requestedUnit : definition.defaultUnit) as OperationMaterialUnitValue;
+      const plannedRate = toNullableNumber(item?.planned_rate);
+      const rateBasis = normalizeMaterialRateBasis(toNullableText(item?.rate_basis));
+      const requestedPlannedQuantity = toNullableNumber(item?.planned_quantity);
+      const calculatedPlannedQuantity =
+        requestedPlannedQuantity && requestedPlannedQuantity > 0
+          ? requestedPlannedQuantity
+          : plannedRate && plannedRate > 0 && effectivePlannedArea && effectivePlannedArea > 0
+            ? calculateMaterialPlannedQuantity({
+                rate: plannedRate,
+                rateUnit: unit,
+                rateBasis,
+                areaHa: effectivePlannedArea,
+                solutionRateLHa,
+              }).plannedQuantity
+            : null;
       return {
         component_type: definition.slug,
         storage_material_type: definition.storageMaterialType,
         product_id: toNullableUuid(item?.product_id),
         batch_id: toNullableUuid(item?.batch_id),
-        planned_rate: toNullableNumber(item?.planned_rate),
+        planned_rate: plannedRate,
         actual_rate: toNullableNumber(item?.actual_rate),
-        rate_basis: toNullableText(item?.rate_basis) || "per_ha",
-        planned_quantity: toNullableNumber(item?.planned_quantity),
+        rate_basis: rateBasis,
+        planned_quantity: calculatedPlannedQuantity && calculatedPlannedQuantity > 0 ? calculatedPlannedQuantity : null,
         unit,
         notes: toNullableText(item?.notes),
         product_required: definition.productRequired,
       };
     });
-    const invalidPerWaterUnit = tankMixComponents.find((item) => item.rate_basis === "per_l_water" && item.unit === "pcs");
+    const invalidPerWaterUnit = tankMixComponents.find((item) => !isUnitAllowedForMaterialRateBasis(item.unit, item.rate_basis));
     if (invalidPerWaterUnit) {
       return NextResponse.json(
-        { error: "Для расчёта на литр воды нельзя использовать единицу шт. Выберите л или кг." },
+        { error: "Selected unit is not allowed for this material rate basis." },
+        { status: 400 }
+      );
+    }
+    const missingSafePlannedQuantity = tankMixComponents.find(
+      (item) => item.product_id && (!item.planned_quantity || item.planned_quantity <= 0)
+    );
+    if (missingSafePlannedQuantity) {
+      await rollbackStructureChange({ supabase, companyId, event: pendingStructureChangeEvent });
+      return NextResponse.json(
+        {
+          error:
+            "Cannot safely calculate material requirement. Check rate, rate basis, area and solution rate.",
+          product_id: missingSafePlannedQuantity.product_id,
+          rate_basis: missingSafePlannedQuantity.rate_basis,
+        },
         { status: 400 }
       );
     }
@@ -862,7 +889,7 @@ export async function POST(request: NextRequest) {
       tank_mix: {
         enabled: Boolean(body.tank_mix?.enabled || canonicalType?.supportsTankMix),
         water_rate_l_ha: toNullableNumber(body.tank_mix?.water_rate_l_ha),
-        total_solution_l_ha: toNullableNumber(body.tank_mix?.total_solution_l_ha ?? body.spray_volume_per_ha),
+        total_solution_l_ha: solutionRateLHa,
         components: tankMixComponents,
       },
       warehouse_workflow: buildWarehouseWorkflowMetadata(),
@@ -900,6 +927,12 @@ export async function POST(request: NextRequest) {
       ...(idempotencyKey ? { idempotency_key: idempotencyKey } : {}),
       ...(requestFingerprint ? { request_fingerprint: requestFingerprint } : {}),
     };
+
+    await assertSeasonWritableForMutation(supabase, {
+      companyId,
+      seasonId: resolvedSeasonId,
+      actionLabel: "Создание операции",
+    });
 
     const canUseFastPlanCreate =
       Boolean(cropStructureId && fieldId) &&
@@ -1045,19 +1078,18 @@ export async function POST(request: NextRequest) {
       timing.child_rows_insert_ms += Date.now() - childRowsStarted;
     }
 
-    const materialRows = operationComponents
+    const materialRows = tankMixComponents
       .map((item) => {
-        const componentType = String(item?.component_type || item?.material_type || "other").trim().toLowerCase();
-        const materialType = toStorageMaterialType(componentType);
-        const productId = toNullableUuid(item?.product_id);
+        const componentType = String(item.component_type || "other").trim().toLowerCase();
+        const materialType = toStorageMaterialType(item.storage_material_type || componentType);
+        const productId = item.product_id;
         if (!MATERIAL_TYPES.has(materialType) || !productId) return null;
-        const requestedUnit = String(item?.unit || "").trim().toLowerCase();
-        const unit = (MATERIAL_UNITS.has(requestedUnit) ? requestedUnit : inferUnitByMaterialType(materialType)) as "kg" | "l" | "pcs";
-        const plannedRate = toNullableNumber(item?.planned_rate);
-        const actualRate = toNullableNumber(item?.actual_rate);
-        const plannedQuantity = toNullableNumber(item?.planned_quantity);
-        const rateBasis = toNullableText(item?.rate_basis);
-        const materialNotes = [toNullableText(item?.notes), rateBasis ? `rate_basis:${rateBasis}` : null]
+        const storage = normalizeOperationMaterialStorage(item.planned_quantity, item.unit);
+        const materialNotes = [
+          item.notes,
+          item.rate_basis ? `rate_basis:${item.rate_basis}` : null,
+          storage.rateUnit ? `rate_unit:${storage.rateUnit}` : null,
+        ]
           .filter(Boolean)
           .join("; ");
         return {
@@ -1065,12 +1097,12 @@ export async function POST(request: NextRequest) {
           operation_id: String(operationRow.id),
           operation_line_id: null,
           product_id: productId,
-          batch_id: toNullableUuid(item?.batch_id),
+          batch_id: item.batch_id,
           material_type: materialType,
-          unit,
-          planned_rate: plannedRate,
-          actual_rate: actualRate,
-          planned_quantity: plannedQuantity,
+          unit: storage.unit,
+          planned_rate: item.planned_rate,
+          actual_rate: item.actual_rate,
+          planned_quantity: storage.quantity,
           notes: materialNotes || `component:${componentType}`,
           created_by_user_id: actor.authUserId,
           updated_by_user_id: actor.authUserId,
@@ -1222,6 +1254,9 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof SeasonGuardError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json(

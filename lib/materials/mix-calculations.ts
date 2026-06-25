@@ -1,4 +1,10 @@
-export type MixRateBasis = "per_ha" | "per_t_solution" | "per_1000_l_solution" | "per_l_water";
+import {
+  isUnitAllowedForMaterialRateBasis,
+  normalizeMaterialRateBasis,
+  type MaterialRateBasis,
+} from "@/lib/materials/metadata";
+
+export type MixRateBasis = MaterialRateBasis;
 
 export type MixUnit = "l" | "ml" | "kg" | "g" | "pcs";
 
@@ -25,7 +31,6 @@ export type TankMixResult = {
   materials: PlannedMaterialResult[];
 };
 
-const VALID_RATE_BASIS = new Set<MixRateBasis>(["per_ha", "per_t_solution", "per_1000_l_solution", "per_l_water"]);
 const PER_L_WATER_ALLOWED_UNITS = new Set<MixUnit>(["l", "ml", "kg", "g"]);
 
 export function toFixedNumber(value: number | null | undefined, precision = 4): number | null {
@@ -39,8 +44,7 @@ export function numeric(value: unknown, fallback = 0): number {
 }
 
 export function normalizeRateBasis(value: unknown): MixRateBasis {
-  const next = String(value || "").trim() as MixRateBasis;
-  return VALID_RATE_BASIS.has(next) ? next : "per_ha";
+  return normalizeMaterialRateBasis(String(value ?? ""));
 }
 
 export function normalizeMixUnit(value: unknown): MixUnit {
@@ -72,19 +76,23 @@ export function calculateMaterialPlannedQuantity(input: {
   rateBasis: string;
   areaHa: number;
   solutionRateLHa?: number | null;
+  seedMassKg?: number | null;
+  seedCount?: number | null;
 }): PlannedMaterialResult {
   const rate = numeric(input.rate);
   const rateUnit = normalizeMixUnit(input.rateUnit);
   const rateBasis = normalizeRateBasis(input.rateBasis);
   const areaHa = numeric(input.areaHa);
   const solutionRateLHa = input.solutionRateLHa === null || input.solutionRateLHa === undefined ? null : numeric(input.solutionRateLHa);
+  const seedMassKg = input.seedMassKg === null || input.seedMassKg === undefined ? null : numeric(input.seedMassKg);
+  const seedCount = input.seedCount === null || input.seedCount === undefined ? null : numeric(input.seedCount);
   const totalSolutionL = solutionRateLHa && areaHa > 0 ? solutionRateLHa * areaHa : null;
 
   if (rate < 0) {
     return { plannedQuantity: null, plannedUnit: rateUnit, error: "Норма не может быть отрицательной." };
   }
 
-  if (rateBasis === "per_l_water" && !PER_L_WATER_ALLOWED_UNITS.has(rateUnit)) {
+  if (!isUnitAllowedForMaterialRateBasis(rateUnit, rateBasis) || (rateBasis === "per_l_water" && !PER_L_WATER_ALLOWED_UNITS.has(rateUnit))) {
     return { plannedQuantity: null, plannedUnit: rateUnit, error: "Для нормы на литр воды нельзя использовать единицу шт." };
   }
 
@@ -93,11 +101,30 @@ export function calculateMaterialPlannedQuantity(input: {
     return { plannedQuantity: toFixedNumber(rate * areaHa), plannedUnit: rateUnit, error: null };
   }
 
+  if (rateBasis === "per_t_seed") {
+    if (!seedMassKg || seedMassKg <= 0) return { plannedQuantity: null, plannedUnit: rateUnit, error: "Укажите массу семян для расчёта нормы на тонну." };
+    return { plannedQuantity: toFixedNumber((rate * seedMassKg) / 1000), plannedUnit: rateUnit, error: null };
+  }
+
+  if (rateBasis === "per_100kg_seed") {
+    if (!seedMassKg || seedMassKg <= 0) return { plannedQuantity: null, plannedUnit: rateUnit, error: "Укажите массу семян для расчёта нормы на 100 кг." };
+    return { plannedQuantity: toFixedNumber((rate * seedMassKg) / 100), plannedUnit: rateUnit, error: null };
+  }
+
+  if (rateBasis === "per_1000_seeds") {
+    if (!seedCount || seedCount <= 0) return { plannedQuantity: null, plannedUnit: rateUnit, error: "Укажите количество семян для расчёта нормы на 1000 семян." };
+    return { plannedQuantity: toFixedNumber((rate * seedCount) / 1000), plannedUnit: rateUnit, error: null };
+  }
+
+  if (rateBasis === "manual") {
+    return { plannedQuantity: null, plannedUnit: rateUnit, error: null };
+  }
+
   if (!totalSolutionL || totalSolutionL <= 0) {
     return { plannedQuantity: null, plannedUnit: rateUnit, error: "Укажите норму рабочего раствора л/га." };
   }
 
-  if (rateBasis === "per_1000_l_solution" || rateBasis === "per_t_solution") {
+  if (rateBasis === "per_1000_l_solution") {
     return { plannedQuantity: toFixedNumber((rate * totalSolutionL) / 1000), plannedUnit: rateUnit, error: null };
   }
 
@@ -111,6 +138,8 @@ export function calculateMaterialPlannedQuantity(input: {
 export function calculateTankMix(input: {
   areaHa: number;
   solutionRateLHa?: number | null;
+  seedMassKg?: number | null;
+  seedCount?: number | null;
   materials: MixMaterialInput[];
 }): TankMixResult {
   const areaHa = numeric(input.areaHa);
@@ -123,6 +152,8 @@ export function calculateTankMix(input: {
       rateBasis: material.rateBasis,
       areaHa,
       solutionRateLHa,
+      seedMassKg: input.seedMassKg,
+      seedCount: input.seedCount,
     })
   );
   const firstError = materials.find((material) => material.error)?.error || null;
@@ -148,4 +179,3 @@ export function calculateTankMix(input: {
     materials,
   };
 }
-
