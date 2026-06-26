@@ -214,12 +214,54 @@ const additiveSubtypeOptions: FilterOption[] = [
   { label: "Другое", value: "other" },
 ];
 
+const materialStockUnitOptions: FilterOption[] = [
+  { label: "л", value: "l" },
+  { label: "мл", value: "ml" },
+  { label: "кг", value: "kg" },
+  { label: "г", value: "g" },
+  { label: "шт", value: "pcs" },
+  { label: "не указано", value: "unknown" },
+];
+
+const materialRateTypeOptions: FilterOption[] = [
+  { label: "На гектар", value: "per_ha" },
+  { label: "На 1000 л раствора", value: "per_1000_l_solution" },
+  { label: "На литр воды", value: "per_l_water" },
+  { label: "На тонну семян", value: "per_t_seed" },
+  { label: "На 100 кг семян", value: "per_100kg_seed" },
+  { label: "На 1000 семян", value: "per_1000_seeds" },
+  { label: "Вручную", value: "manual" },
+];
+
+const materialRateUnitOptions: FilterOption[] = [
+  { label: "л/га", value: "l/ha" },
+  { label: "мл/га", value: "ml/ha" },
+  { label: "кг/га", value: "kg/ha" },
+  { label: "г/га", value: "g/ha" },
+  { label: "л/1000 л", value: "l/1000 l" },
+  { label: "мл/1000 л", value: "ml/1000 l" },
+  { label: "кг/1000 л", value: "kg/1000 l" },
+  { label: "г/1000 л", value: "g/1000 l" },
+  { label: "мл/л", value: "ml/l" },
+  { label: "г/л", value: "g/l" },
+  { label: "л/т семян", value: "l/t seed" },
+  { label: "мл/т семян", value: "ml/t seed" },
+  { label: "кг/т семян", value: "kg/t seed" },
+  { label: "г/т семян", value: "g/t seed" },
+  { label: "кг/100 кг семян", value: "kg/100kg seed" },
+  { label: "г/100 кг семян", value: "g/100kg seed" },
+  { label: "вручную", value: "manual" },
+  { label: "не указано", value: "unknown" },
+];
+
 const additiveColumns: CatalogColumn[] = [
   { key: "trade_name", label: "Торговое название" },
   { key: "subcategory", label: "Подтип" },
   { key: "formulation", label: "Формуляция" },
   { key: "manufacturer", label: "Производитель" },
-  { key: "default_unit", label: "Ед. учета" },
+  { key: "stock_unit", label: "Ед. склада" },
+  { key: "default_rate_type", label: "Тип нормы" },
+  { key: "default_rate_unit", label: "Ед. нормы" },
   { key: "status", label: "Статус" },
   { key: "is_active", label: "Активность" },
 ];
@@ -238,16 +280,13 @@ const additiveFormFields: CatalogFormField[] = [
   { key: "formulation_id", label: "Формуляция", type: "select", optionsEntity: "agrochem_formulations" },
   { key: "manufacturer_id", label: "Производитель", type: "select", optionsEntity: "agrochem_manufacturers" },
   {
-    key: "default_unit",
-    label: "Ед. учета",
+    key: "stock_unit",
+    label: "Ед. склада",
     type: "select",
-    options: [
-      { label: "л", value: "l" },
-      { label: "кг", value: "kg" },
-      { label: "г", value: "g" },
-      { label: "мл", value: "ml" },
-    ],
+    options: materialStockUnitOptions,
   },
+  { key: "default_rate_type", label: "Тип нормы", type: "select", options: materialRateTypeOptions },
+  { key: "default_rate_unit", label: "Ед. нормы", type: "select", options: materialRateUnitOptions },
   { key: "notes", label: "Заметки", type: "text" },
   { key: "is_active", label: "Активен", type: "checkbox" },
 ];
@@ -265,6 +304,9 @@ const defaultAgrochemColumns: CatalogColumn[] = [
   { key: "mode_of_action_type", label: "Тип действия" },
   { key: "formulation", label: "Формуляция" },
   { key: "manufacturer", label: "Производитель" },
+  { key: "stock_unit", label: "Ед. склада" },
+  { key: "default_rate_type", label: "Тип нормы" },
+  { key: "default_rate_unit", label: "Ед. нормы" },
   { key: "status", label: "Статус" },
   { key: "is_active", label: "Активность" },
 ];
@@ -288,16 +330,13 @@ const defaultAgrochemFormFields: CatalogFormField[] = [
   { key: "mode_of_action_type_id", label: "Тип действия", type: "select", optionsEntity: "agrochem_mode_of_actions" },
   { key: "manufacturer_id", label: "Производитель", type: "select", optionsEntity: "agrochem_manufacturers" },
   {
-    key: "default_unit",
-    label: "Ед. учета",
+    key: "stock_unit",
+    label: "Ед. склада",
     type: "select",
-    options: [
-      { label: "л", value: "l" },
-      { label: "кг", value: "kg" },
-      { label: "г", value: "g" },
-      { label: "т", value: "t" },
-    ],
+    options: materialStockUnitOptions,
   },
+  { key: "default_rate_type", label: "Тип нормы", type: "select", options: materialRateTypeOptions },
+  { key: "default_rate_unit", label: "Ед. нормы", type: "select", options: materialRateUnitOptions },
   { key: "notes", label: "Заметки", type: "text" },
   { key: "is_active", label: "Активен", type: "checkbox" },
 ];

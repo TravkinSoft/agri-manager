@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MATERIAL_RATE_BASIS, type MaterialRateBasis } from "@/lib/materials/metadata";
 import type { TankMixComponentType } from "@/lib/operations/operation-engine";
 
 export interface Operation {
@@ -71,8 +72,8 @@ export type OperationMaterialType =
   | "water"
   | "other";
 
-export type OperationMaterialUnit = "kg" | "l" | "pcs";
-export type OperationMaterialRateBasis = "per_ha" | "per_t_solution" | "per_1000_l_solution" | "per_l_water";
+export type OperationMaterialUnit = "kg" | "l" | "ml" | "g" | "pcs";
+export type OperationMaterialRateBasis = MaterialRateBasis;
 
 export interface OperationMaterial {
   id: string;
@@ -217,11 +218,11 @@ export const operationSchema = z.object({
         planned_rate: z.number().min(0).nullable().optional(),
         actual_rate: z.number().min(0).nullable().optional(),
         rate_basis: z
-          .enum(["per_ha", "per_t_solution", "per_1000_l_solution", "per_l_water"])
+          .enum(MATERIAL_RATE_BASIS)
           .nullable()
           .optional(),
         planned_quantity: z.number().min(0).nullable().optional(),
-        unit: z.enum(["kg", "l", "pcs"]),
+        unit: z.enum(["kg", "l", "ml", "g", "pcs"]),
         notes: z.string().nullable().optional(),
       })
     )

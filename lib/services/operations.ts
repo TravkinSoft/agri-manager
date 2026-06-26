@@ -12,6 +12,8 @@ import {
   SpecialistAssignee,
 } from "@/lib/types/operation";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
+import { buildProductPassport } from "@/lib/products/product-passport";
 import {
   buildExecutionFactModelMetadata,
   buildWarehouseWorkflowMetadata,
@@ -32,13 +34,6 @@ const DB_OPERATION_MATERIAL_TYPES = new Set([
   "organic",
   "water",
   "other",
-]);
-
-const OPERATION_MATERIAL_RATE_BASIS = new Set<OperationMaterialRateBasis>([
-  "per_ha",
-  "per_t_solution",
-  "per_1000_l_solution",
-  "per_l_water",
 ]);
 
 function extractDraftValueFromNotes(notes: string | null | undefined, label: string): string | undefined {
@@ -66,8 +61,7 @@ function parseOperationDraftDetails(notes: string | null | undefined) {
 
 function parseMaterialRateBasisFromNotes(notes: string | null | undefined): OperationMaterialRateBasis {
   const matched = String(notes || "").match(/(?:^|[;\n]\s*)rate_basis\s*:\s*([a-z0-9_]+)/i);
-  const value = matched?.[1]?.trim() as OperationMaterialRateBasis | undefined;
-  return value && OPERATION_MATERIAL_RATE_BASIS.has(value) ? value : "per_ha";
+  return normalizeMaterialRateBasis(matched?.[1]?.trim());
 }
 
 function serializeMaterialNotes(input: {
@@ -79,9 +73,7 @@ function serializeMaterialNotes(input: {
   const parts = notes ? notes.split(";").map((part) => part.trim()).filter(Boolean) : [];
   const hasComponent = parts.some((part) => /^component\s*:/i.test(part));
   const hasRateBasis = parts.some((part) => /^rate_basis\s*:/i.test(part));
-  const rateBasis = OPERATION_MATERIAL_RATE_BASIS.has(input.rateBasis as OperationMaterialRateBasis)
-    ? (input.rateBasis as OperationMaterialRateBasis)
-    : null;
+  const rateBasis = input.rateBasis ? normalizeMaterialRateBasis(input.rateBasis) : null;
 
   if (!hasComponent && input.componentType) {
     parts.push(`component:${input.componentType}`);
@@ -98,7 +90,9 @@ function normalizeOperationMaterials(rows: any[] | null | undefined): OperationM
   return rows.map((row) => ({
     ...row,
     rate_basis: parseMaterialRateBasisFromNotes(row?.notes),
-    product_name: row?.products?.trade_name || row?.products?.name || null,
+    product_name: row?.products
+      ? buildProductPassport({ ...row.products, id: String(row.product_id || row.products.id || "") }).displayName
+      : null,
   })) as OperationMaterial[];
 }
 

@@ -3,6 +3,7 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 import { localizedName } from "@/lib/i18n/helpers";
 import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
+import { buildProductPassport } from "@/lib/products/product-passport";
 import type { GlobalCatalogEntity } from "@/lib/platform/global-catalog-config";
 
 type EntityConfig = {
@@ -146,6 +147,21 @@ function normalizeProductMetadataPayload(payload: Record<string, any>, fallbackS
   if (has("metadata_confidence")) next.metadata_confidence = nullableCatalogText(payload.metadata_confidence);
   if (has("metadata_review_required")) next.metadata_review_required = catalogBool(payload.metadata_review_required);
   return next;
+}
+
+function normalizeProductCatalogRow(row: any) {
+  const passport = buildProductPassport({ ...(row || {}), id: String(row?.id || "") });
+  return {
+    ...row,
+    trade_name: passport.tradeName || row.trade_name || row.name || "-",
+    display_name: passport.displayName || row.trade_name || row.name || "-",
+    manufacturer: passport.manufacturer.name || row.manufacturer_name || row.manufacturer || "-",
+    stock_unit: passport.units.stockUnit !== "unknown" ? passport.units.stockUnit : row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
+    default_rate_type: passport.units.defaultRateType || "-",
+    default_rate_unit: passport.units.defaultRateUnit || row.application_unit || "-",
+    physical_state: passport.classification.physicalState,
+    metadata_review_required: passport.review.metadataReviewRequired,
+  };
 }
 
 const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
@@ -381,16 +397,11 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     searchColumns: ["name", "trade_name"],
     filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "is_active"],
     normalizeRow: (row) => ({
-      ...row,
-      trade_name: row.trade_name || row.name || "-",
+      ...normalizeProductCatalogRow(row),
       active_ingredients: row.active_ingredients || row.active_ingredient || "-",
       pesticide_category: row.pesticide_category || "-",
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
-      manufacturer: row.manufacturer_name || row.manufacturer || "-",
-      stock_unit: row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
-      default_rate_type: row.default_rate_type || "-",
-      default_rate_unit: row.default_rate_unit || row.application_unit || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
@@ -409,16 +420,11 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     searchColumns: ["name", "trade_name"],
     filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "fertilizer_type", "is_active"],
     normalizeRow: (row) => ({
-      ...row,
-      trade_name: row.trade_name || row.name || "-",
+      ...normalizeProductCatalogRow(row),
       active_ingredients: row.active_ingredients || row.active_ingredient || "-",
       pesticide_category: row.pesticide_category || "-",
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
-      manufacturer: row.manufacturer_name || row.manufacturer || "-",
-      stock_unit: row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
-      default_rate_type: row.default_rate_type || "-",
-      default_rate_unit: row.default_rate_unit || row.application_unit || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
@@ -442,15 +448,10 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     searchColumns: ["name", "trade_name", "subcategory", "category", "manufacturer", "formulation"],
     filters: ["subcategory", "manufacturer_id", "formulation_id", "is_active"],
     normalizeRow: (row) => ({
-      ...row,
-      trade_name: row.trade_name || row.name || "-",
+      ...normalizeProductCatalogRow(row),
       subcategory: row.subcategory || row.pesticide_category || row.category || "-",
       formulation: row.formulation_name || row.formulation || "-",
-      manufacturer: row.manufacturer_name || row.manufacturer || "-",
-      stock_unit: row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
       default_unit: row.default_unit || row.stock_unit || row.unit || row.base_uom || "-",
-      default_rate_type: row.default_rate_type || "-",
-      default_rate_unit: row.default_rate_unit || row.application_unit || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
@@ -478,16 +479,11 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     searchColumns: ["name", "trade_name"],
     filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "is_active"],
     normalizeRow: (row) => ({
-      ...row,
-      trade_name: row.trade_name || row.name || "-",
+      ...normalizeProductCatalogRow(row),
       active_ingredients: row.active_ingredients || row.active_ingredient || "-",
       pesticide_category: row.pesticide_category || "-",
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
-      manufacturer: row.manufacturer_name || row.manufacturer || "-",
-      stock_unit: row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
-      default_rate_type: row.default_rate_type || "-",
-      default_rate_unit: row.default_rate_unit || row.application_unit || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({

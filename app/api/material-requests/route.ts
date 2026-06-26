@@ -7,6 +7,7 @@ import {
   toWorkflowStatus,
 } from "@/app/api/material-requests/_helpers";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { buildProductPassport } from "@/lib/products/product-passport";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 function toNumber(value: unknown): number {
@@ -115,15 +116,21 @@ export async function GET(request: NextRequest) {
         const issuedQty = toNumber(item.issued_quantity);
         const consumedQty = item.consumed_quantity == null ? null : toNumber(item.consumed_quantity);
         const returnedQty = item.returned_quantity == null ? null : toNumber(item.returned_quantity);
+        const passport = item.products
+          ? buildProductPassport({ ...item.products, id: String(item.product_id || item.products.id || "") })
+          : null;
         return {
           ...item,
           planned_quantity: plannedQty,
           issued_quantity: issuedQty,
           consumed_quantity: consumedQty,
           returned_quantity: returnedQty,
-          product_name: brandName(item.products) || "-",
+          product_name: passport?.displayName || brandName(item.products) || "-",
           product_type: item.products?.type || item.product_category || "-",
-          product_unit: item.products?.unit || item.unit || "kg",
+          product_unit:
+            passport?.units.stockUnit && passport.units.stockUnit !== "unknown"
+              ? passport.units.stockUnit
+              : item.products?.unit || item.unit || "kg",
         };
       });
 

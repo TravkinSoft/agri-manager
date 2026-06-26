@@ -79,6 +79,22 @@ const unknownUnitByLocale: Record<Language, string> = {
   en: "unknown",
 };
 
+const unitPhraseAliases: Record<
+  string,
+  {
+    ru: string;
+    kz: string;
+    en: string;
+  }
+> = {
+  "t seed": { ru: "т семян", kz: "т тұқым", en: "t seed" },
+  "ton seed": { ru: "т семян", kz: "т тұқым", en: "t seed" },
+  "tonne seed": { ru: "т семян", kz: "т тұқым", en: "t seed" },
+  "100kg seed": { ru: "100 кг семян", kz: "100 кг тұқым", en: "100 kg seed" },
+  "100 kg seed": { ru: "100 кг семян", kz: "100 кг тұқым", en: "100 kg seed" },
+  "1000 seeds": { ru: "1000 семян", kz: "1000 тұқым", en: "1000 seeds" },
+};
+
 function normalizeUnitKey(unit: unknown): string {
   return String(unit || "")
     .trim()
@@ -91,6 +107,8 @@ function normalizeUnitKey(unit: unknown): string {
 
 function localizeUnitPart(part: string, language: Language): string {
   const normalized = normalizeUnitKey(part);
+  const phrase = unitPhraseAliases[normalized];
+  if (phrase) return phrase[language] || phrase.en;
   const countMatch = normalized.match(/^(\d+(?:[,.]\d+)?)\s*(.+)$/);
   if (countMatch) {
     return `${countMatch[1]} ${localizeUnit(countMatch[2], language)}`;

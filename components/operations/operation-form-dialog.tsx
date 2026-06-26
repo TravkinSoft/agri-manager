@@ -56,7 +56,8 @@ import { supabase } from "@/lib/supabase/client";
 import { getFieldDisplayName } from "@/lib/fields/display";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
-import { buildProductDisplayLabel, stripManufacturerPrefixCandidate } from "@/lib/catalog/catalog-identity";
+import { stripManufacturerPrefixCandidate } from "@/lib/catalog/catalog-identity";
+import { buildProductPassport } from "@/lib/products/product-passport";
 import {
   getMaterialProductTypeFromProduct,
   getMaterialSubcategoryFromProduct,
@@ -459,12 +460,12 @@ function formatStorageUnit(unit: string | null | undefined): string {
 
 function operationProductTradeName(product: ProductOption | null | undefined): string {
   if (!product) return "";
-  return buildProductDisplayLabel(product) || product.trade_name || product.name || product.normalized_name || "";
+  return buildProductPassport(product).displayName || product.trade_name || product.name || product.normalized_name || "";
 }
 
 function operationProductManufacturer(product: ProductOption | null | undefined): string {
   if (!product) return "";
-  return stripManufacturerPrefixCandidate(product).manufacturer || product.manufacturer || "";
+  return buildProductPassport(product).manufacturer.name || stripManufacturerPrefixCandidate(product).manufacturer || product.manufacturer || "";
 }
 
 function normalizeRateBasisForOperationMaterial(
@@ -506,13 +507,22 @@ function inferRateBasisFromProductUnit(value: string | null | undefined): Operat
 }
 
 function getProductDefaultRateBasis(product: ProductOption | undefined, fallback: OperationMaterialRateBasis | null | undefined): OperationMaterialRateBasis {
-  const fallbackBasis = normalizeMaterialRateBasis(
-    inferRateBasisFromProductUnit(product?.default_rate_unit || product?.application_unit) || fallback || "per_ha"
-  );
-  return inferMaterialDefaultRateBasis(product, fallbackBasis);
+  if (!product) return normalizeMaterialRateBasis(fallback || "per_ha");
+  const passport = buildProductPassport(product);
+  if (passport.review.reasons.includes("missing_default_rate_type")) {
+    const fallbackBasis = normalizeMaterialRateBasis(
+      inferRateBasisFromProductUnit(product.default_rate_unit || product.application_unit) || fallback || "per_ha"
+    );
+    return inferMaterialDefaultRateBasis(product, fallbackBasis);
+  }
+  return passport.units.defaultRateType;
 }
 
 function getProductDefaultUnit(product: ProductOption | undefined, componentType: string, basis: OperationMaterialRateBasis): OperationMaterialUnit {
+  const passport = product ? buildProductPassport(product) : null;
+  const passportUnit = normalizeOperationMaterialUnit(passport?.units.stockUnit);
+  if (passportUnit && unitAllowedForRateBasis(passportUnit, basis)) return passportUnit;
+
   const inferredUnit = normalizeOperationMaterialUnit(inferMaterialStockUnit(product, product?.unit || product?.default_unit || "kg"));
   if (inferredUnit && unitAllowedForRateBasis(inferredUnit, basis)) return inferredUnit;
 

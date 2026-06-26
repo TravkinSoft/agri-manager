@@ -7,6 +7,7 @@ import {
   normalizeMixUnit,
 } from "@/lib/materials/mix-calculations";
 import { inferMaterialStockUnit, normalizeMaterialRateBasis, type MaterialRateBasis } from "@/lib/materials/metadata";
+import { buildProductPassport, normalizeProductPassportStockUnit } from "@/lib/products/product-passport";
 
 export type CropCareSchemeStatus = "draft" | "active" | "paused" | "completed" | "archived";
 export type CropCareSchemeType = "protection" | "nutrition" | "fertigation" | "combined" | "other";
@@ -225,7 +226,7 @@ function displayName(row: any): string {
 }
 
 function productDisplayName(row: any): string {
-  return buildProductDisplayLabel({
+  return buildProductPassport({
     id: String(row?.id || ""),
     name: nullableText(row?.name),
     trade_name: nullableText(row?.trade_name),
@@ -244,7 +245,7 @@ function productDisplayName(row: any): string {
     default_unit: nullableText(row?.default_unit),
     application_unit: nullableText(row?.application_unit),
     notes: nullableText(row?.notes),
-  }) || brandName(row) || text(row?.trade_name) || text(row?.name) || "-";
+  }).displayName || buildProductDisplayLabel(row) || brandName(row) || text(row?.trade_name) || text(row?.name) || "-";
 }
 
 function normalizeRateBasis(value: unknown): CropCareRateBasis {
@@ -261,6 +262,8 @@ function normalizeUnit(value: unknown): string {
 }
 
 function productUnit(row: any): string | null {
+  const passportStockUnit = normalizeProductPassportStockUnit(buildProductPassport({ ...(row || {}), id: String(row?.id || "") }).units.stockUnit);
+  if (passportStockUnit && passportStockUnit !== "unknown") return passportStockUnit;
   const explicitStockUnit = nullableText(row?.stock_unit);
   return inferMaterialStockUnit(row, explicitStockUnit || nullableText(row?.unit) || nullableText(row?.base_uom) || nullableText(row?.default_unit) || "kg");
 }
