@@ -93,12 +93,14 @@ const ALIAS_GROUPS: AliasGroup[] = [
     id: "celest-top",
     aliases: [
       "celest top",
+      "celes top",
       "celest top ks",
       "celest top sc",
       "celest top fs",
       "\u0421\u0435\u043b\u0435\u0441\u0442 \u0422\u043e\u043f",
       "\u0421\u0435\u043b\u0435\u0441\u0442 \u0422\u043e\u043f \u041a\u0421",
       "\u0421\u0435\u043b\u0435\u0441\u0442 \u0422\u043e\u043f, \u041a\u0421",
+      "\u0421\u0435\u043b\u0435\u0441\u0442\u043e\u043f",
     ],
   },
   {
@@ -271,6 +273,55 @@ function toKnowledgeMatch(candidate: CandidateMatch): KnowledgeProductMatch {
   };
 }
 
+function isTruthy(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  const next = text(value).toLowerCase();
+  return next === "true" || next === "1" || next === "yes" || next === "\u0434\u0430";
+}
+
+function isKnownText(value: unknown): boolean {
+  const next = text(value).toLowerCase();
+  return Boolean(next && !["unknown", "\u043d\u0435\u0438\u0437\u0432\u0435\u0441\u0442\u043d\u043e", "\u043d\u0435 \u0443\u043a\u0430\u0437\u0430\u043d\u043e", "-"].includes(next));
+}
+
+function hasKnownManufacturer(product: ProductRow): boolean {
+  return isKnownText(product.manufacturer);
+}
+
+function hasKnownStockUnit(product: ProductRow): boolean {
+  return [product.stock_unit, product.unit, product.base_uom, product.default_unit, product.application_unit].some(isKnownText);
+}
+
+function hasSpecificRateType(product: ProductRow): boolean {
+  const rateType = text(product.default_rate_type);
+  return Boolean(rateType && rateType !== "manual");
+}
+
+function candidateSortScores(candidate: CandidateMatch, input: KnowledgeIntakeMatchInput): number[] {
+  const inputGroup = aliasGroupFor(input.inputValue);
+  const candidateGroup = productAliasGroup(candidate.product);
+  const isKnownIdentityGroup = Boolean(inputGroup && candidateGroup && inputGroup === candidateGroup);
+  const isExactOrAlias = ["exact", "alias", "manufacturer_prefix"].includes(candidate.match_type);
+  return [
+    isKnownIdentityGroup || isExactOrAlias ? 1 : 0,
+    candidate.match_type === "exact" ? 1 : 0,
+    hasKnownManufacturer(candidate.product) ? 1 : 0,
+    isTruthy(candidate.product.metadata_review_required) ? 0 : 1,
+    hasKnownStockUnit(candidate.product) ? 1 : 0,
+    hasSpecificRateType(candidate.product) ? 1 : 0,
+    candidate.confidence,
+  ];
+}
+
+function compareCandidates(left: CandidateMatch, right: CandidateMatch, input: KnowledgeIntakeMatchInput): number {
+  const leftScores = candidateSortScores(left, input);
+  const rightScores = candidateSortScores(right, input);
+  for (let index = 0; index < leftScores.length; index += 1) {
+    if (rightScores[index] !== leftScores[index]) return rightScores[index] - leftScores[index];
+  }
+  return buildProductDisplayLabel(left.product).localeCompare(buildProductDisplayLabel(right.product), "ru");
+}
+
 export function buildKnowledgeRecommendation(matches: KnowledgeProductMatch[]): KnowledgeRecommendation {
   if (!matches.length) return "POSSIBLE_NEW_PRODUCT";
   const highConfidence = matches.filter((match) => match.confidence >= 0.85);
@@ -329,10 +380,7 @@ export async function matchProductsForIntake(
   const visibleCandidates = highConfidenceCandidates.length ? highConfidenceCandidates : candidates;
 
   const matches = visibleCandidates
-    .sort((left, right) => {
-      if (right.confidence !== left.confidence) return right.confidence - left.confidence;
-      return buildProductDisplayLabel(left.product).localeCompare(buildProductDisplayLabel(right.product), "ru");
-    })
+    .sort((left, right) => compareCandidates(left, right, input))
     .slice(0, 20)
     .map(toKnowledgeMatch);
 

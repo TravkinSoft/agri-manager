@@ -46,6 +46,19 @@ const FORMULATION_EQUIVALENTS: Record<string, string> = {
 const RU_EN_ALIAS_PAIRS: AliasPair[] = [
   { canonical: "curamin foliar", aliases: ["curamin foliar", "курамин фолиар", "курамин"] },
   { canonical: "phomazin", aliases: ["phomazin", "фомазин", "swissgrow phomazin", "swissgrow фомазин"] },
+  {
+    canonical: "celest top",
+    aliases: [
+      "celest top",
+      "celes top",
+      "celest top ks",
+      "celest top sc",
+      "селест топ",
+      "селест топ кс",
+      "селест топ, кс",
+      "селестоп",
+    ],
+  },
   { canonical: "revus top", aliases: ["revus top", "ревус топ"] },
   { canonical: "ridomil gold", aliases: ["ridomil gold", "ридомил голд"] },
   { canonical: "tilt", aliases: ["tilt", "тилт"] },
@@ -121,6 +134,21 @@ const VERIFIED_PRODUCT_IDENTITIES: VerifiedProductIdentity[] = [
       "curamin",
       "\u043a\u0443\u0440\u0430\u043c\u0438\u043d \u0444\u043e\u043b\u0438\u0430\u0440",
       "\u043a\u0443\u0440\u0430\u043c\u0438\u043d",
+    ],
+  },
+  {
+    canonicalTradeName: "Celest Top",
+    displayManufacturer: "Syngenta",
+    stockUnit: "l",
+    aliases: [
+      "celest top",
+      "celes top",
+      "celest top ks",
+      "celest top sc",
+      "\u0421\u0435\u043b\u0435\u0441\u0442 \u0422\u043e\u043f",
+      "\u0421\u0435\u043b\u0435\u0441\u0442 \u0422\u043e\u043f \u041a\u0421",
+      "\u0421\u0435\u043b\u0435\u0441\u0442 \u0422\u043e\u043f, \u041a\u0421",
+      "\u0421\u0435\u043b\u0435\u0441\u0442\u043e\u043f",
     ],
   },
 ];

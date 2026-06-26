@@ -15,11 +15,17 @@ import {
 
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { useAuth } from "@/lib/contexts/auth-context";
-import { localizeUnit } from "@/lib/i18n/helpers";
 import {
-  MATERIAL_RATE_BASIS_LABELS_RU,
-  normalizeMaterialRateBasis,
-} from "@/lib/materials/metadata";
+  KNOWLEDGE_RECOMMENDATION_COPY,
+  formatKnowledgeMatchReason,
+  formatKnowledgeMatchType,
+  formatKnowledgeProductType,
+  formatKnowledgeRateType,
+  formatKnowledgeRateUnit,
+  formatKnowledgeRunStatus,
+  formatKnowledgeStockUnit,
+  formatKnowledgeSubcategory,
+} from "@/lib/knowledge/display-labels";
 import type { KnowledgeRecommendation } from "@/lib/knowledge/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -88,49 +94,6 @@ type IntakeResult = {
   recommendation: KnowledgeRecommendation;
 };
 
-const RECOMMENDATION_COPY: Record<
-  KnowledgeRecommendation,
-  {
-    label: string;
-    message: string;
-    tone: "success" | "warning" | "accent";
-  }
-> = {
-  UPDATE_EXISTING_PRODUCT: {
-    label: "Обновить существующий паспорт",
-    message: "Похоже, препарат уже есть в базе. Лучше обновить существующий паспорт.",
-    tone: "success",
-  },
-  REVIEW_POSSIBLE_DUPLICATES: {
-    label: "Проверить возможные дубли",
-    message: "Найдены похожие препараты. Нужно проверить дубли перед созданием нового.",
-    tone: "warning",
-  },
-  POSSIBLE_NEW_PRODUCT: {
-    label: "Возможный новый препарат",
-    message: "Точного совпадения не найдено. Можно подготовить черновик нового препарата, но не создавать автоматически.",
-    tone: "accent",
-  },
-};
-
-const MATCH_TYPE_LABELS: Record<string, string> = {
-  exact: "Точное совпадение",
-  alias: "Алиас",
-  transliteration: "Транслитерация",
-  manufacturer_prefix: "Префикс производителя",
-  fuzzy: "Похожее название",
-  possible_duplicate: "Возможный дубль",
-};
-
-const PRODUCT_TYPE_LABELS: Record<string, string> = {
-  pesticide: "Пестицид",
-  fertilizer: "Удобрение",
-  additive: "Добавка",
-  adjuvant: "Адъювант",
-  seed: "Семена",
-  other: "Другое",
-};
-
 const SOURCE_TYPE_OPTIONS: Array<{ value: SourceType; label: string; requiresUrl: boolean }> = [
   { value: "manufacturer_page", label: "Страница производителя", requiresUrl: true },
   { value: "manufacturer_pdf", label: "PDF / инструкция производителя", requiresUrl: true },
@@ -154,50 +117,15 @@ function safeText(value: unknown, fallback = "—") {
   return next || fallback;
 }
 
-function formatStatus(value: unknown) {
-  const status = String(value || "").trim();
-  if (!status) return "—";
-  return status.replace(/_/g, " ");
-}
-
 function formatConfidence(value: unknown) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "—";
   return `${Math.round(number * 100)}%`;
 }
 
-function formatUnit(value: unknown) {
-  return localizeUnit(value, "ru") || "—";
-}
-
-function formatRateType(value: unknown) {
-  const raw = String(value || "").trim();
-  if (!raw) return "—";
-  const normalized = normalizeMaterialRateBasis(raw, "manual");
-  return MATERIAL_RATE_BASIS_LABELS_RU[normalized] || raw;
-}
-
-function formatRateUnit(unit: unknown) {
-  const raw = String(unit || "").trim();
-  if (!raw) return "—";
-  const [baseUnit, basis] = raw.split("/");
-  const basisLabels: Record<string, string> = {
-    ha: "га",
-    t_seed: "т семян",
-    "100kg_seed": "100 кг семян",
-    "1000_seeds": "1000 семян",
-    "1000_l_solution": "1000 л раствора",
-    l_water: "л воды",
-  };
-  if (baseUnit && basis && basisLabels[basis]) {
-    return `${formatUnit(baseUnit)}/${basisLabels[basis]}`;
-  }
-  return localizeUnit(raw, "ru") || raw;
-}
-
 function getRecommendationTone(recommendation: KnowledgeRecommendation | null) {
   if (!recommendation) return "neutral" as const;
-  return RECOMMENDATION_COPY[recommendation]?.tone || "neutral";
+  return KNOWLEDGE_RECOMMENDATION_COPY[recommendation]?.tone || "neutral";
 }
 
 function normalizeMatches(matches: unknown): IntakeMatch[] {
@@ -249,7 +177,7 @@ export default function KnowledgeIntakePage() {
   const [sourceSuccess, setSourceSuccess] = useState<string | null>(null);
 
   const recommendation = result?.recommendation || null;
-  const recommendationCopy = recommendation ? RECOMMENDATION_COPY[recommendation] : null;
+  const recommendationCopy = recommendation ? KNOWLEDGE_RECOMMENDATION_COPY[recommendation] : null;
   const matches = result?.matches || [];
   const sources = result?.sources || [];
   const isManualSource = sourceType === "manual";
@@ -516,7 +444,7 @@ export default function KnowledgeIntakePage() {
                     </span>
                   }
                 />
-                <CompactStat label="Status" value={formatStatus(result.run?.status)} />
+                <CompactStat label="Status" value={formatKnowledgeRunStatus(result.run?.status)} />
                 <CompactStat
                   label="Matches"
                   value={<span data-testid="knowledge-intake-match-count">{matches.length}</span>}
@@ -529,7 +457,7 @@ export default function KnowledgeIntakePage() {
                   <div className="flex gap-3">
                     <CheckCircle2 className="mt-0.5 h-5 w-5 flex-none text-[#FDE68A]" />
                     <div>
-                      <div className="font-semibold text-[#FDE68A]">{recommendation}</div>
+                      <div className="font-semibold text-[#FDE68A]">{recommendationCopy.label}</div>
                       <p className="mt-1 text-sm leading-6 text-slate-200">{recommendationCopy.message}</p>
                     </div>
                   </div>
@@ -727,20 +655,20 @@ export default function KnowledgeIntakePage() {
                       <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-4">
                         <CompactStat
                           label="Тип"
-                          value={PRODUCT_TYPE_LABELS[String(match.product_type || "")] || safeText(match.product_type)}
+                          value={formatKnowledgeProductType(match.product_type)}
                         />
-                        <CompactStat label="Подтип" value={safeText(match.subcategory)} />
-                        <CompactStat label="Ед. хранения" value={formatUnit(match.stock_unit)} />
-                        <CompactStat label="Тип нормы" value={formatRateType(match.default_rate_type)} />
-                        <CompactStat label="Ед. нормы" value={formatRateUnit(match.default_rate_unit)} />
+                        <CompactStat label="Подтип" value={formatKnowledgeSubcategory(match.subcategory)} />
+                        <CompactStat label="Единица измерения" value={formatKnowledgeStockUnit(match.stock_unit)} />
+                        <CompactStat label="Расчёт нормы" value={formatKnowledgeRateType(match.default_rate_type)} />
+                        <CompactStat label="Норма расхода" value={formatKnowledgeRateUnit(match.default_rate_unit)} />
                         <CompactStat
                           label="Match"
-                          value={MATCH_TYPE_LABELS[match.match_type] || safeText(match.match_type)}
+                          value={formatKnowledgeMatchType(match.match_type)}
                         />
                       </div>
 
                       <div className="mt-3 rounded-lg bg-black/20 px-3 py-2 text-xs leading-5 text-slate-300">
-                        {match.reason || "Причина совпадения не указана."}
+                        {formatKnowledgeMatchReason(match.reason)}
                       </div>
                     </GlassCard>
                   ))
