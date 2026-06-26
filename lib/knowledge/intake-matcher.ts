@@ -44,6 +44,9 @@ const PRODUCT_SELECT = [
   "archived",
 ].join(",");
 
+const PRODUCT_PAGE_SIZE = 500;
+const PRODUCT_SCAN_MAX_ROWS = 10000;
+
 type ProductRow = CatalogProductLike & {
   physical_state?: string | null;
   metadata_review_required?: boolean | string | null;
@@ -278,6 +281,31 @@ export function buildKnowledgeRecommendation(matches: KnowledgeProductMatch[]): 
   return "REVIEW_POSSIBLE_DUPLICATES";
 }
 
+async function loadProductsForIntake(supabase: SupabaseClient): Promise<ProductRow[]> {
+  const rows: ProductRow[] = [];
+
+  for (let from = 0; from < PRODUCT_SCAN_MAX_ROWS; from += PRODUCT_PAGE_SIZE) {
+    const to = from + PRODUCT_PAGE_SIZE - 1;
+    const { data, error } = await supabase
+      .from("products")
+      .select(PRODUCT_SELECT)
+      .or("archived.is.false,archived.is.null")
+      .order("id", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(`Failed to load products for intake matcher: ${error.message}`);
+    }
+
+    const page = ((data || []) as unknown as ProductRow[]).filter((product) => Boolean(product?.id));
+    rows.push(...page);
+
+    if (page.length < PRODUCT_PAGE_SIZE) return rows;
+  }
+
+  throw new Error(`Knowledge intake product scan exceeded ${PRODUCT_SCAN_MAX_ROWS} rows`);
+}
+
 export async function matchProductsForIntake(
   supabase: SupabaseClient,
   input: KnowledgeIntakeMatchInput
@@ -285,18 +313,10 @@ export async function matchProductsForIntake(
   const inputValue = text(input.inputValue);
   if (!inputValue) return { matches: [], recommendation: "POSSIBLE_NEW_PRODUCT" };
 
-  const { data, error } = await supabase
-    .from("products")
-    .select(PRODUCT_SELECT)
-    .or("archived.is.false,archived.is.null")
-    .limit(2000);
-
-  if (error) {
-    throw new Error(`Failed to load products for intake matcher: ${error.message}`);
-  }
+  const products = await loadProductsForIntake(supabase);
 
   const byProductId = new Map<string, CandidateMatch>();
-  for (const product of ((data || []) as unknown as ProductRow[])) {
+  for (const product of products) {
     if (!product?.id) continue;
     const candidate = pickBestMatch(product, input);
     if (!candidate) continue;
