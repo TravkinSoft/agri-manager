@@ -22,7 +22,8 @@ import { Badge } from "@/components/ui/badge";
 
 type NavItem = {
   href: string;
-  labelKey: TranslationKey;
+  labelKey?: TranslationKey;
+  label?: string;
 };
 
 type NavGroup = {
@@ -40,7 +41,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     titleKey: "copilot",
     icon: Brain,
-    items: [{ href: "/platform/assistant/settings", labelKey: "assistant_settings" }],
+    items: [
+      { href: "/platform/assistant/settings", labelKey: "assistant_settings" },
+      { href: "/platform/knowledge/intake", label: "Проверка препарата" },
+    ],
   },
   {
     titleKey: "agronomy",
@@ -142,7 +146,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
                           active ? "bg-purple-100 font-medium text-purple-900" : "text-slate-700 hover:bg-slate-100",
                         )}
                       >
-                        {t(item.labelKey)}
+                        {item.labelKey ? t(item.labelKey) : item.label}
                       </Link>
                     );
                   })}
