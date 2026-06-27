@@ -614,15 +614,15 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   };
 
   return (
-    <div className="space-y-4 w-full">
-      <Card className="w-full">
-        <CardHeader className="gap-3">
+    <div className="w-full space-y-3 text-[#111827]">
+      <Card className="w-full rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <CardHeader className="gap-3 border-b border-[#9aa8ba] bg-[#d7dde6]">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <CardTitle>{config.title}</CardTitle>
-              <CardDescription>{config.description}</CardDescription>
+              <CardTitle className="font-mono text-[15px] uppercase tracking-[0.12em] text-[#16324f]">{config.title}</CardTitle>
+              <CardDescription className="text-[12px] text-[#536276]">{config.description}</CardDescription>
             </div>
-            <Button onClick={openCreate}>
+            <Button onClick={openCreate} className="h-8 rounded-none bg-[#15395f] px-3 text-[12px] text-white hover:bg-[#0f2946]">
               <Plus className="mr-2 h-4 w-4" />
               {config.createLabel}
             </Button>
@@ -630,7 +630,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
             <div className="space-y-2 md:col-span-2 xl:col-span-2">
-              <Label>Поиск</Label>
+              <Label className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">Поиск</Label>
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <Input
@@ -646,11 +646,11 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         </CardHeader>
       </Card>
 
-      <Card className="w-full">
-        <CardContent className="pt-4">
+      <Card className="w-full rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <CardContent className="p-0">
           <div className="w-full overflow-x-auto">
             <Table className="min-w-[1200px]">
-              <TableHeader>
+              <TableHeader className="bg-[#eef1f5]">
                 <TableRow>
                   {config.columns.map((column) => (
                     <TableHead key={column.key}>{column.label}</TableHead>

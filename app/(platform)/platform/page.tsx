@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRightCircle, Building2, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowRightCircle, Building2, FileText, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
@@ -22,6 +22,49 @@ type CompanyItem = {
   id: string;
   name: string;
 };
+
+function ConsolePanel({
+  title,
+  code,
+  children,
+  className = "",
+}: {
+  title: string;
+  code: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <section className={`border border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset] ${className}`}>
+      <div className="flex items-center justify-between border-b border-[#9aa8ba] bg-[#d7dde6] px-2 py-1.5">
+        <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[#16324f]">{title}</h2>
+        <span className="border border-[#9aa8ba] bg-[#eef1f5] px-1.5 py-0.5 font-mono text-[10px] uppercase text-[#42566f]">
+          {code}
+        </span>
+      </div>
+      <div className="p-3">{children}</div>
+    </section>
+  );
+}
+
+function ConsoleRow({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "ok" | "warn" }) {
+  return (
+    <div className="grid grid-cols-[minmax(120px,0.9fr)_minmax(0,1fr)] border-b border-[#d5dbe5] py-1 text-[12px] last:border-b-0">
+      <span className="text-[#536276]">{label}</span>
+      <span
+        className={
+          tone === "ok"
+            ? "font-mono font-semibold text-[#155e3b]"
+            : tone === "warn"
+              ? "font-mono font-semibold text-[#8a2f2f]"
+              : "font-mono text-[#1f2937]"
+        }
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
 
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
   const { data, error } = await supabase.auth.getSession();
@@ -198,12 +241,87 @@ export default function PlatformCompaniesPage() {
   };
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between gap-4">
+    <div className="space-y-3">
+      <div className="border border-[#6e7f95] bg-[#0f2946] px-3 py-2 text-slate-100">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <CardTitle>Компании платформы</CardTitle>
-            <CardDescription>
+            <div className="font-mono text-[11px] uppercase tracking-[0.18em] text-slate-300">
+              ГЛОБАЛЬНАЯ КОНСОЛЬ / ВНУТРЕННИЙ ДОСТУП
+            </div>
+            <h1 className="mt-1 text-xl font-semibold tracking-tight">TravkinFlow: глобальная консоль</h1>
+          </div>
+          <div className="grid grid-cols-2 gap-1 font-mono text-[10px] uppercase text-slate-300 sm:flex sm:flex-wrap">
+            <span className="border border-slate-400/25 px-2 py-1">kno:v0</span>
+            <span className="border border-slate-400/25 px-2 py-1">pp:v1</span>
+            <span className="border border-slate-400/25 px-2 py-1">rls:draft</span>
+            <span className="border border-slate-400/25 px-2 py-1">branch:master</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="grid gap-3 lg:grid-cols-2">
+          <ConsolePanel title="Движок знаний" code="KNO">
+            <ConsoleRow label="Проверки препаратов" value="включено" tone="ok" />
+            <ConsoleRow label="Источники" value="ручной текст / URL" tone="ok" />
+            <ConsoleRow label="Черновики" value="без применения в каталог" tone="ok" />
+            <ConsoleRow label="Следующий слой" value="черновик OpenAI" tone="warn" />
+            <Button
+              variant="outline"
+              className="mt-3 h-8 rounded-none border-[#9aa8ba] bg-[#eef1f5] text-[12px]"
+              onClick={() => (window.location.href = "/platform/knowledge/intake")}
+            >
+              <FileText className="mr-2 h-3.5 w-3.5" />
+              Открыть проверку препаратов
+            </Button>
+          </ConsolePanel>
+
+          <ConsolePanel title="Состояние каталога" code="CAT">
+            <ConsoleRow label="Продукты" value="1254" tone="ok" />
+            <ConsoleRow label="Пестициды / удобрения / добавки" value="активно" tone="ok" />
+            <ConsoleRow label="Семена / болезни / вредители / сорняки" value="включено" tone="ok" />
+            <ConsoleRow label="Техника" value="schema v1" tone="ok" />
+          </ConsolePanel>
+
+          <ConsolePanel title="Качество данных" code="DQ">
+            <ConsoleRow label="Identity-группы" value="локальный аудит ожидает" tone="warn" />
+            <ConsoleRow label="Возможные дубли" value="очередь проверки" tone="warn" />
+            <ConsoleRow label="Проверка metadata" value="обязательна для спорных строк" tone="warn" />
+            <ConsoleRow label="data/**" value="не коммитить" tone="ok" />
+          </ConsolePanel>
+
+          <ConsolePanel title="Безопасность операций" code="OPS">
+            <ConsoleRow label="per_t_solution" value="запрещён для новых записей" tone="ok" />
+            <ConsoleRow label="Вода" value="не материал" tone="ok" />
+            <ConsoleRow label="Season guard" value="активен" tone="ok" />
+            <ConsoleRow label="Заявки на материалы" value="planned_quantity защищён" tone="ok" />
+          </ConsolePanel>
+        </div>
+
+        <ConsolePanel title="Системные заметки" code="SYS" className="h-fit">
+          <div className="space-y-2 text-[12px]">
+            <div className="border border-[#c3ccd8] bg-[#f6f7f9] p-2">
+              <div className="flex items-center gap-2 font-semibold text-[#16324f]">
+                <ShieldCheck className="h-4 w-4" />
+                Боевой контур
+              </div>
+              <p className="mt-1 leading-5 text-[#536276]">Бизнес-логика изолирована от этого изменения консоли.</p>
+            </div>
+            <div className="border border-[#c3ccd8] bg-[#f6f7f9] p-2 font-mono text-[11px] leading-5">
+              Текущий сезон: 2026<br />
+              Движок знаний: V0<br />
+              Паспорт продукта: V1<br />
+              Пароль БД: проверить вручную
+            </div>
+          </div>
+        </ConsolePanel>
+      </div>
+
+      <Card className="rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-[#9aa8ba] bg-[#d7dde6] text-[#111827]">
+          <div>
+            <CardTitle className="text-[#111827]">Компании платформы</CardTitle>
+            <CardDescription className="text-[#5a6677]">
               Создание компаний и вход в контекст выбранной компании без изменения глобального профиля.
             </CardDescription>
           </div>
@@ -212,11 +330,11 @@ export default function PlatformCompaniesPage() {
             Создать компанию
           </Button>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-2 text-[#111827]">
           {loading ? <p className="text-sm text-slate-500">Загрузка...</p> : null}
           {!loading && companies.length === 0 ? <p className="text-sm text-slate-500">Компаний пока нет.</p> : null}
           {companies.map((company) => (
-            <div key={company.id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+            <div key={company.id} className="flex items-center justify-between gap-3 border border-[#9aa8ba] bg-white px-3 py-2 text-[#111827]">
               <div className="flex items-center gap-2">
                 <Building2 className="h-4 w-4 text-slate-500" />
                 <span className="font-medium">{company.name}</span>
