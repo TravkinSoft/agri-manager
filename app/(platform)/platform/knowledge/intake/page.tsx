@@ -17,14 +17,17 @@ import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { useAuth } from "@/lib/contexts/auth-context";
 import {
   KNOWLEDGE_RECOMMENDATION_COPY,
+  formatKnowledgeConfidence,
   formatKnowledgeConsumptionType,
   formatKnowledgeMatchReason,
   formatKnowledgeMatchType,
+  formatKnowledgePhysicalState,
   formatKnowledgeProductType,
   formatKnowledgeRunStatus,
   formatKnowledgeStockUnit,
   formatKnowledgeSubcategory,
 } from "@/lib/knowledge/display-labels";
+import type { KnowledgeExtractionDraft } from "@/lib/knowledge/extraction";
 import type { KnowledgeRecommendation } from "@/lib/knowledge/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,11 +88,27 @@ type IntakeSource = {
   created_at: string;
 };
 
+type MetadataSuggestion = {
+  id: string;
+  run_id: string;
+  product_id: string | null;
+  field_name: string;
+  current_value: unknown;
+  suggested_value: unknown;
+  confidence: "low" | "medium" | "high" | string;
+  action_class: string;
+  source_id: string | null;
+  reason: string | null;
+  status: string;
+  created_at: string;
+};
+
 type IntakeResult = {
   run: IntakeRun;
   matches: IntakeMatch[];
   sources?: IntakeSource[];
-  suggestions?: unknown[];
+  suggestions?: MetadataSuggestion[];
+  extraction?: KnowledgeExtractionDraft | null;
   recommendation: KnowledgeRecommendation;
 };
 
@@ -135,6 +154,66 @@ function normalizeSources(sources: unknown): IntakeSource[] {
   return Array.isArray(sources) ? (sources as IntakeSource[]) : [];
 }
 
+function normalizeSuggestions(suggestions: unknown): MetadataSuggestion[] {
+  return Array.isArray(suggestions) ? (suggestions as MetadataSuggestion[]) : [];
+}
+
+function valueRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function suggestionValue(suggestion: MetadataSuggestion): unknown {
+  const record = valueRecord(suggestion.suggested_value);
+  return Object.prototype.hasOwnProperty.call(record, "value") ? record.value : suggestion.suggested_value;
+}
+
+function buildExtractionDraftFromSuggestions(suggestions: MetadataSuggestion[]): KnowledgeExtractionDraft | null {
+  const draftRecord = suggestions
+    .filter((suggestion) => suggestion.status === "draft")
+    .map((suggestion) => valueRecord(suggestion.suggested_value))
+    .find((record) => record.extraction_draft && typeof record.extraction_draft === "object");
+
+  if (draftRecord?.extraction_draft && typeof draftRecord.extraction_draft === "object") {
+    return draftRecord.extraction_draft as KnowledgeExtractionDraft;
+  }
+
+  if (!suggestions.length) return null;
+
+  const draft: KnowledgeExtractionDraft = {
+    trade_name: null,
+    manufacturer: null,
+    product_type: null,
+    subcategory: null,
+    physical_state: null,
+    stock_unit: null,
+    default_rate_type: null,
+    default_rate_unit: null,
+    active_ingredients: [],
+    crops: [],
+    targets: [],
+    restrictions: [],
+    confidence: "low",
+    notes: [],
+  };
+
+  for (const suggestion of suggestions) {
+    const value = suggestionValue(suggestion);
+    if (suggestion.field_name === "trade_name") draft.trade_name = String(value || "").trim() || null;
+    if (suggestion.field_name === "manufacturer") draft.manufacturer = String(value || "").trim() || null;
+    if (suggestion.field_name === "product_type") draft.product_type = (String(value || "").trim() || null) as KnowledgeExtractionDraft["product_type"];
+    if (suggestion.field_name === "subcategory") draft.subcategory = String(value || "").trim() || null;
+    if (suggestion.field_name === "physical_state") draft.physical_state = (String(value || "").trim() || null) as KnowledgeExtractionDraft["physical_state"];
+    if (suggestion.field_name === "stock_unit") draft.stock_unit = (String(value || "").trim() || null) as KnowledgeExtractionDraft["stock_unit"];
+    if (suggestion.field_name === "default_rate_type") draft.default_rate_type = (String(value || "").trim() || null) as KnowledgeExtractionDraft["default_rate_type"];
+    if (suggestion.field_name === "default_rate_unit") draft.default_rate_unit = String(value || "").trim() || null;
+    if (suggestion.field_name === "metadata_confidence") {
+      draft.confidence = (String(value || "").trim() || "low") as KnowledgeExtractionDraft["confidence"];
+    }
+  }
+
+  return draft;
+}
+
 function formatSourceType(value: unknown) {
   const key = String(value || "").trim();
   return SOURCE_TYPE_LABELS[key] || key || "—";
@@ -159,6 +238,15 @@ function formatDateTime(value: unknown) {
   }).format(date);
 }
 
+function formatDraftList(values: string[] | null | undefined) {
+  return values?.length ? values.join(", ") : "—";
+}
+
+function formatActiveIngredients(values: KnowledgeExtractionDraft["active_ingredients"]) {
+  if (!values.length) return "—";
+  return values.map((item) => (item.concentration ? `${item.name} (${item.concentration})` : item.name)).join(", ");
+}
+
 export default function KnowledgeIntakePage() {
   const { profile, loading: authLoading } = useAuth();
   const [inputType, setInputType] = useState<IntakeInputType>("text");
@@ -174,11 +262,19 @@ export default function KnowledgeIntakePage() {
   const [sourceSubmitting, setSourceSubmitting] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [sourceSuccess, setSourceSuccess] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const [extractSuccess, setExtractSuccess] = useState<string | null>(null);
 
   const recommendation = result?.recommendation || null;
   const recommendationCopy = recommendation ? KNOWLEDGE_RECOMMENDATION_COPY[recommendation] : null;
   const matches = result?.matches || [];
   const sources = result?.sources || [];
+  const suggestions = result?.suggestions || [];
+  const extractionDraft = useMemo(
+    () => result?.extraction || buildExtractionDraftFromSuggestions(suggestions),
+    [result?.extraction, suggestions]
+  );
   const isManualSource = sourceType === "manual";
 
   const canSubmit = useMemo(() => inputValue.trim().length > 0 && !submitting, [inputValue, submitting]);
@@ -187,6 +283,10 @@ export default function KnowledgeIntakePage() {
     if (isManualSource) return manualText.trim().length > 0;
     return sourceUrl.trim().length > 0;
   }, [isManualSource, manualText, result?.run?.id, sourceSubmitting, sourceUrl]);
+  const canExtract = useMemo(
+    () => Boolean(result?.run?.id && sources.length > 0 && !extracting),
+    [extracting, result?.run?.id, sources.length]
+  );
 
   const loadRun = async (runId: string, fallback: IntakeResult): Promise<IntakeResult> => {
     const headers = await buildClientAuthHeaders();
@@ -202,6 +302,8 @@ export default function KnowledgeIntakePage() {
       ...payload,
       matches: normalizeMatches(payload?.matches),
       sources: normalizeSources(payload?.sources),
+      suggestions: normalizeSuggestions(payload?.suggestions),
+      extraction: fallback.extraction || null,
       recommendation: fallback.recommendation,
     };
   };
@@ -213,6 +315,8 @@ export default function KnowledgeIntakePage() {
     setSubmitting(true);
     setError(null);
     setResult(null);
+    setExtractError(null);
+    setExtractSuccess(null);
 
     try {
       const headers = await buildClientAuthHeaders("json");
@@ -235,6 +339,7 @@ export default function KnowledgeIntakePage() {
         run: payload.run,
         matches: normalizeMatches(payload.matches),
         sources: [],
+        suggestions: [],
         recommendation: payload.recommendation,
       };
 
@@ -261,6 +366,8 @@ export default function KnowledgeIntakePage() {
     setSourceSubmitting(true);
     setSourceError(null);
     setSourceSuccess(null);
+    setExtractError(null);
+    setExtractSuccess(null);
 
     try {
       const headers = await buildClientAuthHeaders("json");
@@ -292,6 +399,40 @@ export default function KnowledgeIntakePage() {
     }
   };
 
+  const handleExtractSubmit = async () => {
+    if (!result?.run?.id || !canExtract) return;
+
+    setExtracting(true);
+    setExtractError(null);
+    setExtractSuccess(null);
+
+    try {
+      const headers = await buildClientAuthHeaders("json");
+      const response = await fetch(`/api/knowledge/intake-runs/${result.run.id}/extract`, {
+        method: "POST",
+        headers,
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || "Не удалось извлечь данные из источников.");
+      }
+
+      const fallback: IntakeResult = {
+        ...result,
+        run: payload?.run || result.run,
+        suggestions: normalizeSuggestions(payload?.suggestions),
+        extraction: (payload?.extraction || null) as KnowledgeExtractionDraft | null,
+      };
+      setResult(await loadRun(result.run.id, fallback));
+      setExtractSuccess("Черновик паспорта создан. Препарат в каталоге не изменён.");
+    } catch (submitError) {
+      setExtractError(submitError instanceof Error ? submitError.message : "Не удалось извлечь данные из источников.");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
   if (authLoading) {
     return (
       <GlassPanel className="flex min-h-[420px] items-center justify-center bg-[#0F172A] text-slate-200">
@@ -312,20 +453,20 @@ export default function KnowledgeIntakePage() {
   }
 
   return (
-    <div className="space-y-4 text-slate-100">
-      <GlassToolbar className="bg-[#0F172A] px-5 py-5">
+    <div className="space-y-3 text-[#111827] [&_.text-slate-100]:!text-[#111827] [&_.text-slate-200]:!text-[#1f2937] [&_.text-slate-300]:!text-[#374151] [&_.text-slate-400]:!text-[#536276] [&_.text-slate-500]:!text-[#69788d] [&_input]:!rounded-none [&_input]:!border-[#9aa8ba] [&_input]:!bg-white [&_input]:!text-[#111827] [&_select]:!rounded-none [&_select]:!border-[#9aa8ba] [&_select]:!bg-white [&_select]:!text-[#111827] [&_textarea]:!rounded-none [&_textarea]:!border-[#9aa8ba] [&_textarea]:!bg-white [&_textarea]:!text-[#111827]">
+      <GlassToolbar className="rounded-none border-[#6e7f95] bg-[#0f2946] px-4 py-3 shadow-[1px_1px_0_rgba(255,255,255,0.12)_inset]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-2xl font-semibold tracking-tight">Проверка препарата</h1>
-              <StatusPill tone="accent">V0 — без записи в каталог</StatusPill>
+              <h1 className="font-mono text-xl font-semibold uppercase tracking-[0.12em]">Knowledge Intake Console</h1>
+              <StatusPill tone="accent" className="rounded-none">V0 — без записи в каталог</StatusPill>
             </div>
-            <p className="max-w-3xl text-sm leading-6 text-slate-300">
+            <p className="max-w-3xl text-[12px] leading-5 text-slate-300">
               Введите название препарата, ссылку или будущий источник. Сейчас V0 проверяет только название и ищет
               совпадения в глобальном каталоге.
             </p>
           </div>
-          <StatusPill tone="success" className="w-fit gap-2">
+          <StatusPill tone="success" className="w-fit gap-2 rounded-none">
             <ShieldCheck className="h-3.5 w-3.5" />
             Только проверка
           </StatusPill>
@@ -333,10 +474,10 @@ export default function KnowledgeIntakePage() {
       </GlassToolbar>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.4fr)]">
-        <GlassPanel className="bg-[#0F172A] p-5">
+        <GlassPanel className="rounded-none border-[#9aa8ba] bg-white p-3 text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="space-y-2">
-              <Label htmlFor="intake-input-type" className="text-slate-200">
+              <Label htmlFor="intake-input-type" className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">
                 Тип входа
               </Label>
               <select
@@ -351,7 +492,7 @@ export default function KnowledgeIntakePage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="knowledge-intake-input" className="text-slate-200">
+              <Label htmlFor="knowledge-intake-input" className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">
                 Название или источник
               </Label>
               <Input
@@ -365,7 +506,7 @@ export default function KnowledgeIntakePage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="knowledge-intake-manufacturer" className="text-slate-200">
+              <Label htmlFor="knowledge-intake-manufacturer" className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">
                 Производитель, если известен
               </Label>
               <Input
@@ -387,14 +528,14 @@ export default function KnowledgeIntakePage() {
               type="submit"
               data-testid="knowledge-intake-submit"
               disabled={!canSubmit}
-              className="w-full gap-2 bg-[#E0B100] text-slate-950 hover:bg-[#F2C300]"
+              className="h-8 w-full gap-2 rounded-none bg-[#15395f] text-[12px] text-white hover:bg-[#0f2946]"
             >
               {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               Проверить препарат
             </Button>
           </form>
 
-          <div className="mt-5 rounded-lg border border-amber-300/20 bg-amber-400/10 p-4 text-sm text-amber-100">
+          <div className="mt-4 border border-[#9f8f55] bg-[#fff8d8] p-3 text-[12px] text-[#4f3d00]">
             <div className="flex items-center gap-2 font-semibold">
               <AlertTriangle className="h-4 w-4" />
               Safety Notice
@@ -406,7 +547,7 @@ export default function KnowledgeIntakePage() {
           </div>
         </GlassPanel>
 
-        <GlassPanel className="bg-[#0F172A] p-5">
+        <GlassPanel className="rounded-none border-[#9aa8ba] bg-white p-3 text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
           {!result ? (
             <EmptyState className="flex min-h-[360px] flex-col items-center justify-center text-center">
               <Sparkles className="mb-3 h-8 w-8 text-[#E0B100]" />
@@ -612,10 +753,102 @@ export default function KnowledgeIntakePage() {
                 </div>
 
                 <div className="mt-4 rounded-lg border border-sky-300/15 bg-sky-400/10 px-3 py-3 text-sm leading-6 text-sky-100">
-                  <div className="font-semibold">Извлечение данных — следующий этап</div>
-                  <p className="mt-1">
-                    Извлечение данных через OpenAI будет добавлено позже. Сейчас источник только сохраняется и не меняет каталог.
-                  </p>
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="font-semibold">Извлечение данных</div>
+                      <p className="mt-1">
+                        OpenAI извлекает только черновик паспорта из сохранённых источников. Препарат в каталоге не меняется.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      data-testid="knowledge-extract-submit"
+                      disabled={!canExtract}
+                      onClick={handleExtractSubmit}
+                      className="w-fit gap-2 bg-sky-300 text-slate-950 hover:bg-sky-200"
+                    >
+                      {extracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                      Извлечь данные
+                    </Button>
+                  </div>
+
+                  {!sources.length ? (
+                    <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-sky-100">
+                      Сначала добавьте источник: ручной текст, ссылку на страницу или PDF.
+                    </div>
+                  ) : null}
+                  {extractError ? (
+                    <div className="mt-3 rounded-lg border border-red-300/25 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                      {extractError}
+                    </div>
+                  ) : null}
+                  {extractSuccess ? (
+                    <div className="mt-3 rounded-lg border border-emerald-300/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+                      {extractSuccess}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                    Это черновик. Данные не записаны в препарат до подтверждения администратором.
+                  </div>
+
+                  {extractionDraft ? (
+                    <div className="mt-4 rounded-lg border border-white/10 bg-[#020617]/60 p-4" data-testid="knowledge-extraction-draft">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <div className="text-base font-semibold text-slate-50">Черновик паспорта</div>
+                          <p className="mt-1 text-xs text-slate-400">Field-level suggestions сохранены в product_metadata_suggestions.</p>
+                        </div>
+                        <StatusPill tone="warning">Требует проверки</StatusPill>
+                      </div>
+
+                      <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        <CompactStat label="Название" value={safeText(extractionDraft.trade_name)} />
+                        <CompactStat label="Производитель" value={safeText(extractionDraft.manufacturer)} />
+                        <CompactStat label="Тип" value={formatKnowledgeProductType(extractionDraft.product_type)} />
+                        <CompactStat label="Подтип" value={formatKnowledgeSubcategory(extractionDraft.subcategory)} />
+                        <CompactStat label="Физическое состояние" value={formatKnowledgePhysicalState(extractionDraft.physical_state)} />
+                        <CompactStat label="Единица измерения" value={formatKnowledgeStockUnit(extractionDraft.stock_unit)} />
+                        <CompactStat
+                          label="Тип расхода"
+                          value={formatKnowledgeConsumptionType(
+                            extractionDraft.default_rate_unit,
+                            extractionDraft.default_rate_type,
+                            extractionDraft.stock_unit,
+                            `${extractionDraft.trade_name || ""} ${extractionDraft.manufacturer || ""}`
+                          )}
+                        />
+                        <CompactStat label="Уверенность" value={formatKnowledgeConfidence(extractionDraft.confidence)} />
+                      </div>
+
+                      <div className="mt-4 grid gap-3">
+                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Действующие вещества</div>
+                          <div className="mt-1 text-sm text-slate-100">{formatActiveIngredients(extractionDraft.active_ingredients)}</div>
+                        </div>
+                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Культуры</div>
+                          <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.crops)}</div>
+                        </div>
+                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Объекты применения / цели</div>
+                          <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.targets)}</div>
+                        </div>
+                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Ограничения</div>
+                          <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.restrictions)}</div>
+                        </div>
+                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Заметки</div>
+                          <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.notes)}</div>
+                        </div>
+                      </div>
+
+                      <Button disabled variant="outline" className="mt-4 border-white/10 bg-white/5 text-slate-300">
+                        Применить в паспорт — следующий этап
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
               </GlassCard>
 
