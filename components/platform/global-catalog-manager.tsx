@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
-import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
+import { brandName, localizedName, localizeUnit } from "@/lib/i18n/helpers";
+import { inferMaterialStockUnit } from "@/lib/materials/metadata";
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import {
   type CatalogFilter,
   type CatalogFormField,
@@ -51,18 +54,148 @@ type RowRecord = Record<string, any>;
 type Option = { label: string; value: string };
 
 function optionLabel(entity: GlobalCatalogEntity, row: RowRecord): string {
-  if (entity === "varieties" || entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+  if (entity === "varieties" || entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
+    if (entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
+      return buildProductDisplayLabel(row as any) || row.full_name || row.code || row.slug || row.id;
+    }
     return brandName(row) || row.full_name || row.code || row.slug || row.id;
   }
   return localizedName(row, "ru") || row.full_name || brandName(row, ["name", "trade_name"]) || row.code || row.slug || row.id;
 }
 
 const BOOL_KEYS = new Set(["is_active", "is_common_in_kz"]);
+const UNIT_KEYS = new Set([
+  "unit",
+  "uom",
+  "base_uom",
+  "default_unit",
+  "stock_unit",
+  "storage_unit",
+  "issue_unit",
+  "default_rate_unit",
+  "rate_unit",
+  "application_unit",
+]);
+const STOCK_UNIT_KEYS = new Set(["unit", "uom", "base_uom", "default_unit", "stock_unit", "storage_unit", "issue_unit"]);
+const CODE_KEYS = new Set([
+  "status",
+  "type",
+  "product_type",
+  "category",
+  "subcategory",
+  "pesticide_category",
+  "fertilizer_type",
+  "default_rate_type",
+  "rate_basis",
+  "formulation",
+  "disease_type",
+  "pathogen_type",
+  "target_type",
+  "asset_group",
+]);
+const CODE_LABELS: Record<string, string> = {
+  unknown: "не указано",
+  other: "другое",
+  master: "общий каталог",
+  active: "активно",
+  inactive: "неактивно",
+  pesticide: "пестицид",
+  fertilizer: "удобрение",
+  additive: "добавка",
+  adjuvant: "адъювант",
+  surfactant: "ПАВ",
+  sticker: "прилипатель",
+  antifoam: "пеногаситель",
+  anti_foam: "пеногаситель",
+  water_conditioner: "кондиционер воды",
+  anti_salt: "антисоль",
+  ph_corrector: "корректор pH",
+  ph_regulator: "регулятор pH",
+  biostimulant: "биостимулянт",
+  growth_regulator: "регулятор роста",
+  herbicide: "гербицид",
+  fungicide: "фунгицид",
+  insecticide: "инсектицид",
+  acaricide: "акарицид",
+  desiccant: "десикант",
+  seed_treatment: "протравитель",
+  safener: "сафенер",
+  nitrogen: "азотное",
+  phosphorus: "фосфорное",
+  potassium: "калийное",
+  npk: "NPK",
+  micronutrient: "микроэлементное",
+  foliar: "листовое",
+  macro: "макро",
+  micro: "микро",
+  water_soluble: "водорастворимое",
+  organic: "органическое",
+  organomineral: "органоминеральное",
+  per_ha: "на гектар",
+  per_1000_l_solution: "на 1000 л раствора",
+  per_l_water: "на литр воды",
+  per_t_seed: "на тонну семян",
+  per_100kg_seed: "на 100 кг семян",
+  per_1000_seeds: "на 1000 семян",
+  manual: "вручную",
+  liquid: "жидкий",
+  solid: "твёрдый",
+  self_propelled_machine: "самоходная техника",
+  implement: "агрегат",
+  trailer: "прицеп",
+  truck: "транспорт",
+  fungus: "гриб",
+  bacteria: "бактерия",
+  virus: "вирус",
+  oomycete: "оомицет",
+  physiological: "физиологическое",
+};
 
-function formatCellValue(value: any): string {
+function formatCodeToken(token: string): string {
+  const trimmed = token.trim();
+  const normalized = trimmed.toLowerCase();
+  const exact = CODE_LABELS[normalized];
+  if (exact) return exact;
+
+  const parenthetical = normalized.match(/^([a-z_]+)\s*\(([^)]+)\)$/);
+  if (parenthetical) {
+    const base = CODE_LABELS[parenthetical[1]] || trimmed.replace(/\s*\([^)]+\)$/, "");
+    const note = CODE_LABELS[parenthetical[2]] || parenthetical[2];
+    return `${base} (${note})`;
+  }
+
+  return trimmed;
+}
+
+function formatCodeValue(value: any): string {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "-") return raw || "-";
+  return raw
+    .split(/(\s*\/\s*|\s*,\s*)/)
+    .map((part) => {
+      if (!part.trim()) return "";
+      if (part.includes("/")) return " / ";
+      if (part.includes(",")) return ", ";
+      return formatCodeToken(part);
+    })
+    .join("");
+}
+
+function isProductEntity(entity: GlobalCatalogEntity): boolean {
+  return entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators";
+}
+
+function formatCellValue(value: any, key?: string, row?: RowRecord, entity?: GlobalCatalogEntity): string {
+  if (row && entity && isProductEntity(entity) && key === "trade_name") return buildProductDisplayLabel(row as any) || "-";
+  if (row && entity && isProductEntity(entity) && key && STOCK_UNIT_KEYS.has(key)) {
+    return localizeUnit(inferMaterialStockUnit(row, value), "ru") || "-";
+  }
   if (typeof value === "boolean") return value ? "Да" : "Нет";
-  if (Array.isArray(value)) return value.join(", ");
+  if (Array.isArray(value)) return key && CODE_KEYS.has(key) ? value.map(formatCodeToken).join(", ") : value.join(", ");
   if (value == null || value === "") return "-";
+  if (typeof value === "string" && value.trim().toLowerCase() === "unknown") return "не указано";
+  if (key && UNIT_KEYS.has(key)) return localizeUnit(value, "ru") || "-";
+  if (key && CODE_KEYS.has(key)) return formatCodeValue(value);
   return String(value);
 }
 
@@ -164,7 +297,11 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         if (value && value !== "all") params.set(key, value);
       });
 
-      const response = await fetch(`/api/global-admin/catalog/${config.entity}?${params.toString()}`);
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/global-admin/catalog/${config.entity}?${params.toString()}`, {
+        headers,
+        cache: "no-store",
+      });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить каталог");
       setRows(Array.isArray(payload?.rows) ? payload.rows : []);
@@ -187,11 +324,20 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     const targets = [...fieldTargets, ...filterTargets];
     if (!targets.length) return;
 
+    const headers = await buildClientAuthHeaders().catch(() => null);
+    if (!headers) {
+      setRemoteOptions({});
+      return;
+    }
+
     const entries = await Promise.all(
       targets.map(async (target) => {
         try {
           const params = new URLSearchParams({ userId: user.id });
-          const response = await fetch(`/api/global-admin/catalog/${target.entity}?${params.toString()}`);
+          const response = await fetch(`/api/global-admin/catalog/${target.entity}?${params.toString()}`, {
+            headers,
+            cache: "no-store",
+          });
           const payload = await response.json().catch(() => ({}));
           if (!response.ok) return [target.targetKey, []] as const;
 
@@ -249,9 +395,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     if (!user?.id || !canSubmit || saving) return;
     setSaving(true);
     try {
+      const headers = await buildClientAuthHeaders("json");
       const response = await fetch(`/api/global-admin/catalog/${config.entity}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ userId: user.id, payload: formState }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -271,9 +418,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     if (!user?.id || !editingRow?.id || saving) return;
     setSaving(true);
     try {
+      const headers = await buildClientAuthHeaders("json");
       const response = await fetch(`/api/global-admin/catalog/${config.entity}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ userId: user.id, id: editingRow.id, payload: formState }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -294,9 +442,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     if (!user?.id || saving) return;
     setSaving(true);
     try {
+      const headers = await buildClientAuthHeaders("json");
       const response = await fetch(`/api/global-admin/catalog/${config.entity}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ userId: user.id, id: rowId }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -523,7 +672,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 {!loading && rows.map((row) => (
                   <TableRow key={row.id}>
                     {config.columns.map((column) => (
-                      <TableCell key={`${row.id}-${column.key}`}>{formatCellValue(row[column.key])}</TableCell>
+                      <TableCell key={`${row.id}-${column.key}`}>{formatCellValue(row[column.key], column.key, row, config.entity)}</TableCell>
                     ))}
                     <TableCell>
                       <div className="flex items-center justify-end gap-2">

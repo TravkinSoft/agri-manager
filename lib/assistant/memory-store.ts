@@ -98,6 +98,46 @@ export function extractAssistantMemorySignals(message: string): AssistantMemoryS
   const lower = raw.toLowerCase();
   const signals: AssistantMemorySignal[] = [];
 
+  if (/(?:пиши|отвечай|говори|формулируй|общайся).{0,60}(?:коротко|кратко|без воды|сжато)/i.test(lower)) {
+    pushSignal(signals, {
+      category: "communication_preference",
+      memoryKey: "response_length",
+      value: "Пользователь предпочитает короткие, сжатые ответы без лишней воды.",
+      confidence: 0.92,
+      source: "explicit_user_message",
+    });
+  }
+
+  if (/(?:пиши|отвечай|говори|объясняй|формулируй).{0,60}(?:подробно|развернуто|детально|полностью)/i.test(lower)) {
+    pushSignal(signals, {
+      category: "communication_preference",
+      memoryKey: "response_length",
+      value: "Пользователь предпочитает подробные ответы с деталями и объяснениями.",
+      confidence: 0.9,
+      source: "explicit_user_message",
+    });
+  }
+
+  if (/(?:говори|общайся|пиши|отвечай|обращайся).{0,80}на\s+ты|можно\s+на\s+ты/i.test(lower)) {
+    pushSignal(signals, {
+      category: "communication_preference",
+      memoryKey: "address_style",
+      value: "Пользователь предпочитает обращение на ты.",
+      confidence: 0.98,
+      source: "explicit_user_message",
+    });
+  }
+
+  if (/(?:говори|общайся|пиши|отвечай|обращайся).{0,80}на\s+вы|обращайся\s+на\s+вы/i.test(lower)) {
+    pushSignal(signals, {
+      category: "communication_preference",
+      memoryKey: "address_style",
+      value: "Пользователь предпочитает обращение на вы.",
+      confidence: 0.98,
+      source: "explicit_user_message",
+    });
+  }
+
   if (/(говори|общайся|пиши|отвечай).{0,40}на\s+ты|можно\s+на\s+ты/.test(lower)) {
     pushSignal(signals, {
       category: "communication_preference",

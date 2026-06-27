@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
-import { localizedName } from "@/lib/i18n/helpers";
+import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { Language } from "@/lib/i18n/translations";
 import { hasQaDataMarker, rowHasQaDataMarker } from "@/lib/utils/qa-data";
 
@@ -187,7 +187,7 @@ export async function getInventorySnapshot(
       ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").in("id", warehouseIds)
       : Promise.resolve({ data: [], error: null } as any),
     productIds.length
-      ? supabase.from("products").select("id,name,name_ru,name_kz,name_en,type,product_type").in("id", productIds)
+      ? supabase.from("products").select("id,name,trade_name,normalized_name,type,product_type").in("id", productIds)
       : Promise.resolve({ data: [], error: null } as any),
   ]);
 
@@ -198,7 +198,7 @@ export async function getInventorySnapshot(
 
   return (balances || [])
     .map((row: any) => ({
-      productName: localizedName(productById.get(String(row.product_id)), language) || "Unknown",
+      productName: brandName(productById.get(String(row.product_id))) || "Unknown",
       productType: productById.get(String(row.product_id))?.product_type || productById.get(String(row.product_id))?.type || "unknown",
       quantity: Number(row.quantity || 0),
       warehouseName: localizedName(warehouseById.get(String(row.warehouse_id)), language) || "Unknown",

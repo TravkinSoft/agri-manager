@@ -143,12 +143,13 @@ export default function FieldsPage() {
   const [fields, setFields] = useState<Field[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingField, setEditingField] = useState<Field | null>(null);
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
   const [fieldToArchive, setFieldToArchive] = useState<Field | null>(null);
   const { toast } = useToast();
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const { language } = useLanguage();
   const text = pageText[language];
 
@@ -178,19 +179,24 @@ export default function FieldsPage() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
     if (profile?.company_id) {
       loadFields();
+    } else {
+      setLoading(false);
     }
-  }, [profile?.company_id]);
+  }, [authLoading, profile?.company_id]);
 
   const loadFields = async () => {
     if (!profile?.company_id) return;
 
     try {
       setLoading(true);
+      setLoadError(null);
       const data = await getFields(profile.company_id);
       setFields(data);
     } catch (error) {
+      setLoadError(text.loadError);
       toast({
         title: text.error,
         description: text.loadError,
@@ -291,6 +297,12 @@ export default function FieldsPage() {
           onClick: () => setIsFormOpen(true),
         }}
       />
+
+      {loadError ? (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {loadError}
+        </div>
+      ) : null}
 
       <Card>
         <CardContent className="p-0">

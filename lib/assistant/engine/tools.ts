@@ -1696,8 +1696,14 @@ const getFieldsTool: AssistantToolDefinition = {
   domains: ["fields"],
   run: async (context) => {
     const searchQuery = parseFieldQueryFromContextV2(context);
+    const rawQuery = normalizeSearchText(parseSearchQuery(context) || searchQuery || "");
+    const hasExplicitFieldNumber = /\b\d{1,3}(?:-\d{1,3}){0,2}\b/.test(rawQuery);
+    const asksLargestField =
+      /(?:сам\w*\s+больш|наибольш|крупн|макс|больше\s+всего|largest|biggest|max(?:imum)?|СЃР°Рј\w*\s+Р±РѕР»СЊС€|РЅР°РёР±РѕР»СЊС€|РєСЂСѓРїРЅ|РјР°РєСЃ|Р±РѕР»СЊС€Рµ\s+РІСЃРµРіРѕ)/i.test(
+        rawQuery
+      );
     const outputType = cleanString(context.intent.parameters.output_type);
-    const shouldApplySearchFilter = outputType === "list" || outputType === "filtered_summary";
+    const shouldApplySearchFilter = outputType === "filtered_summary" || (outputType === "list" && hasExplicitFieldNumber);
     const res = await context.supabase
       .from("fields")
       .select("id,name,notes,area,archived")
@@ -1718,7 +1724,12 @@ const getFieldsTool: AssistantToolDefinition = {
       shouldApplySearchFilter ? searchQuery : null
     );
     const rows = filterQaRows(context, fieldRowsWithNotes, ["field_name", "field_notes"])
-      .map(({ field_notes: _fieldNotes, ...row }) => row)
+      .sort((a, b) => (asksLargestField ? Number((b as any).area_ha || 0) - Number((a as any).area_ha || 0) : 0))
+      .map(({ field_notes: _fieldNotes, ...row }, index) =>
+        asksLargestField && index === 0
+          ? { ...row, assistant_focus: "field", assistant_focus_reason: "largest_field_by_area" }
+          : row
+      )
       .slice(0, 120);
 
     return {
@@ -2627,10 +2638,15 @@ function getDraftRequiredFields(kind: string): DraftRequiredField[] {
   switch (kind) {
     case "create_weighbridge_ticket_draft":
       return [
-        { label: "водитель", signals: [/водител|driver/i] },
-        { label: "машина", signals: [/машин|vehicle|truck|номер/i] },
-        { label: "поле", signals: [/поле|field/i] },
-        { label: "операция", signals: [/операц|operation|уборк|приход|вывоз/i] },
+        { label: "тип движения", signals: [/постав|приход|отгруз|перемещ|выдач|списан|урожай|receipt|shipment|transfer/i] },
+        { label: "склад", signals: [/склад|овощ|семен|зерно|картоф|универс|warehouse/i] },
+        {
+          label: "строки товаров",
+          signals: [
+            /товар|продукт|материал|номенклатур|product|material|line/i,
+            /селитр|ревус|актар|диаммофоск|аммофоск|ph\s*power|смерч|agriful|ammonium|nitrate/i,
+          ],
+        },
       ];
     case "create_operation_draft":
       return [
@@ -2664,8 +2680,32 @@ function getDraftRequiredFields(kind: string): DraftRequiredField[] {
 
 function createDraftRows(kind: string, context: AssistantToolContext): Array<Record<string, unknown>> {
   const requestText = cleanString(context.intent.parameters.query) || cleanString(context.intent.parameters.entityQuery) || "";
+  const hasFieldContext = Boolean(
+    cleanString(context.runtimeContext.selectedFieldId) ||
+      cleanString(context.runtimeContext.selectedFieldLabel) ||
+      cleanString(context.sessionState.lastFieldId) ||
+      cleanString(context.sessionState.lastFieldLabel)
+  );
+  const hasWarehouseContext = Boolean(
+    cleanString(context.runtimeContext.selectedWarehouseId) ||
+      cleanString(context.runtimeContext.selectedWarehouseLabel) ||
+      cleanString(context.sessionState.lastWarehouseId) ||
+      cleanString(context.sessionState.lastWarehouseLabel)
+  );
+  const hasOperationContext = Boolean(
+    cleanString(context.runtimeContext.selectedOperationId) ||
+      cleanString(context.runtimeContext.selectedOperationLabel) ||
+      cleanString(context.sessionState.lastOperationId) ||
+      cleanString(context.sessionState.lastOperationLabel)
+  );
+  const contextSignals = [
+    requestText,
+    hasFieldContext ? " field " : "",
+    hasWarehouseContext ? " warehouse " : "",
+    hasOperationContext ? " operation " : "",
+  ].join(" ");
   const missingFields = getDraftRequiredFields(kind)
-    .filter((field) => !field.signals.some((signal) => signal.test(requestText)))
+    .filter((field) => !field.signals.some((signal) => signal.test(contextSignals)))
     .map((field) => field.label);
   const draftStatus = missingFields.length ? "needs_clarification" : "draft_ready";
   const draftPreview = missingFields.length
@@ -3034,10 +3074,21 @@ const searchFieldsToolAlias: AssistantToolDefinition = {
   run: async (context) => {
     const query = parseFieldQueryFromContextV2(context);
     const rawQuery = normalizeSearchText(parseSearchQuery(context) || "");
+    const outputType = cleanString(context.intent.parameters.output_type);
+    const hasExplicitFieldNumber = /\b\d{1,3}(?:-\d{1,3}){0,2}\b/.test(rawQuery);
+    const mentionsFieldList =
+      /(поля|поле|fields?|field|РїРѕР»СЏ|РїРѕР»Рµ)/i.test(rawQuery);
+    const asksGenericFieldList =
+      /(какие|сколько|список|все|назови|покажи|list|all|count|РєР°РєРёРµ|СЃРєРѕР»СЊРєРѕ|СЃРїРёСЃРѕРє|РІСЃРµ|РЅР°Р·РѕРІРё|РїРѕРєР°Р¶Рё)/i.test(
+        rawQuery
+      );
+    const asksLargestField =
+      /(?:сам\w*\s+больш|наибольш|крупн|макс|больше\s+всего|largest|biggest|max(?:imum)?|СЃР°Рј\w*\s+Р±РѕР»СЊС€|РЅР°РёР±РѕР»СЊС€|РєСЂСѓРїРЅ|РјР°РєСЃ|Р±РѕР»СЊС€Рµ\s+РІСЃРµРіРѕ)/i.test(
+        rawQuery
+      );
     const genericListQuery =
-      !/\b\d{1,3}(?:-\d{1,3}){0,2}\b/.test(rawQuery) &&
-      /(какие|сколько|список|все|назови|покажи|list|all|count)/i.test(rawQuery) &&
-      /(поля|поле|fields?|field)/i.test(rawQuery);
+      !hasExplicitFieldNumber &&
+      (outputType === "list" || ((asksGenericFieldList || asksLargestField) && mentionsFieldList));
     const effectiveQuery = genericListQuery ? null : query;
     logToolEvent(context, "search_fields", "start", {
       input_args: context.intent.parameters,
@@ -3048,7 +3099,14 @@ const searchFieldsToolAlias: AssistantToolDefinition = {
     });
     try {
       const output = await getFieldsTool.run(context);
-      const rows = applyTextFilter(output.rows || [], effectiveQuery).slice(0, 80);
+      const rows = applyTextFilter(output.rows || [], effectiveQuery)
+        .sort((a, b) => (effectiveQuery ? 0 : Number((b as any).area_ha || 0) - Number((a as any).area_ha || 0)))
+        .map((row, index) =>
+          !effectiveQuery && outputType === "list" && index === 0
+            ? { ...row, assistant_focus: "field", assistant_focus_reason: "largest_field_by_area" }
+            : row
+        )
+        .slice(0, 80);
       logToolEvent(context, "search_fields", "success", {
         input_args: context.intent.parameters,
         resolved_season: cleanString(context.runtimeContext.season),
@@ -4511,6 +4569,59 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
   },
 };
 
+async function buildFieldOperationTimelineRowsForFieldRefs(
+  context: AssistantToolContext,
+  fieldRefs: Array<{ id: string; name: string; displayName?: string | null }>
+): Promise<Array<Record<string, unknown>>> {
+  const fieldIds = uniqueStrings(fieldRefs.map((field) => field.id));
+  if (!fieldIds.length) return [];
+  const fieldRefsById = new Map(fieldRefs.map((field) => [field.id, field]));
+  const res = await context.supabase
+    .from("operations")
+    .select(
+      "id,date,operation_type,operation_type_slug,operation_category_slug,status,work_status,field_id,responsible_user_id,notes,operation_config," +
+        "fields:field_id(name)," +
+        "responsible:responsible_user_id(full_name,email,role)," +
+        "operation_materials:operation_materials(id,product_id,unit,planned_rate,actual_rate,planned_quantity,issued_quantity,consumed_quantity,returned_quantity,material_type,notes,products:product_id(name,trade_name))," +
+        "operation_lines:operation_lines(id,field_id,planned_area_ha,actual_area_ha,fields:field_id(name))"
+    )
+    .eq("company_id", context.companyId)
+    .eq("archived", false)
+    .order("date", { ascending: false })
+    .limit(600);
+  if (res.error) throw new Error(res.error.message);
+
+  const rows: Array<Record<string, unknown>> = [];
+  (res.data || []).forEach((row: any) => {
+    const operationRow = row as Record<string, unknown>;
+    const operationFieldIds = uniqueStrings([cleanString(row.field_id), ...getOperationLineFieldIds(operationRow)]);
+    const scopedOperationFieldIds = operationFieldIds.filter((id) => fieldIds.includes(id));
+    if (!scopedOperationFieldIds.length) return;
+    const materials = normalizeOperationMaterials(row);
+    rows.push({
+      event_type: "operation_fact",
+      date: cleanString(row.date),
+      title: cleanString(row.operation_type),
+      operation_type: cleanString(row.operation_type),
+      operation_type_slug: cleanString(row.operation_type_slug),
+      operation_category_slug: cleanString(row.operation_category_slug),
+      status: cleanString(row.status),
+      work_status: normalizeOperationWorkStatus(row),
+      field_id: scopedOperationFieldIds.join(","),
+      field_name: getOperationFieldNamesForScope(operationRow, fieldRefsById as any) || operationFieldLabel(row),
+      area_ha: calculateOperationAreaHa(row),
+      executor: operationExecutorLabel(row),
+      materials_count: materials.length,
+      materials,
+      materials_text: materials
+        .map((item) => `${cleanString(item.product_name)} ${cleanString(item.quantity)} ${cleanString(item.unit)}`.trim())
+        .join("; "),
+      ref_id: cleanString(row.id),
+    });
+  });
+  return rows;
+}
+
 const getFieldTimelineToolAlias: AssistantToolDefinition = {
   name: "get_field_timeline",
   description: "Field timeline",
@@ -4546,6 +4657,24 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
     }
     const allowTestData = isDebugOrTestDataAllowed(context);
     const selection = await resolveFieldSelection(context, query, 10);
+    if (!selection.selected && selection.ambiguityReason && selection.candidates.length > 1) {
+      const fieldRefs = selection.candidates.slice(0, 12).map((item) => ({
+        id: item.id,
+        name: item.name,
+        displayName: item.displayName,
+      }));
+      const rows = await buildFieldOperationTimelineRowsForFieldRefs(context, fieldRefs);
+      return {
+        title: "Field timeline",
+        rows,
+        source: {
+          module: "fields",
+          tableOrView: "operations + operation_lines (field_timeline segmented scope)",
+          season: seasonLabel,
+          fetchedAt: nowIso(),
+        },
+      };
+    }
     if (!selection.selected && selection.ambiguityReason && selection.candidates.length > 1) {
       return {
         title: "Материалы поля",
@@ -4588,11 +4717,17 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
     const [opsRes, ticketsRes] = await Promise.all([
       context.supabase
         .from("operations")
-        .select("id,date,operation_type,status")
+        .select(
+          "id,date,operation_type,operation_type_slug,operation_category_slug,status,work_status,field_id,responsible_user_id,notes,operation_config," +
+            "fields:field_id(name)," +
+            "responsible:responsible_user_id(full_name,email,role)," +
+            "operation_materials:operation_materials(id,product_id,unit,planned_rate,actual_rate,planned_quantity,issued_quantity,consumed_quantity,returned_quantity,material_type,notes,products:product_id(name,trade_name))," +
+            "operation_lines:operation_lines(id,field_id,planned_area_ha,actual_area_ha,fields:field_id(name))"
+        )
         .eq("company_id", context.companyId)
         .eq("archived", false)
-        .eq("field_id", fieldId)
-        .limit(200),
+        .order("date", { ascending: false })
+        .limit(600),
       context.supabase
         .from("tickets")
         .select("id,ticket_no,created_at,op_type,status,net_weight_kg")
@@ -4611,15 +4746,32 @@ const getFieldTimelineToolAlias: AssistantToolDefinition = {
 
     const rows: Array<Record<string, unknown>> = [];
     if (!opsRes.error) {
-      (opsRes.data || []).forEach((row: any) =>
+      (opsRes.data || []).forEach((row: any) => {
+        const operationRow = row as Record<string, unknown>;
+        const operationFieldIds = uniqueStrings([cleanString(row.field_id), ...getOperationLineFieldIds(operationRow)]);
+        if (!operationFieldIds.includes(fieldId)) return;
+        const materials = normalizeOperationMaterials(row);
         rows.push({
           event_type: "operation_fact",
           date: cleanString(row.date),
           title: cleanString(row.operation_type),
+          operation_type: cleanString(row.operation_type),
+          operation_type_slug: cleanString(row.operation_type_slug),
+          operation_category_slug: cleanString(row.operation_category_slug),
           status: cleanString(row.status),
+          work_status: normalizeOperationWorkStatus(row),
+          field_id: operationFieldIds.filter((id) => id === fieldId).join(",") || fieldId,
+          field_name: operationFieldLabel(row) || matchedField.name,
+          area_ha: calculateOperationAreaHa(row),
+          executor: operationExecutorLabel(row),
+          materials_count: materials.length,
+          materials,
+          materials_text: materials
+            .map((item) => `${cleanString(item.product_name)} ${cleanString(item.quantity)} ${cleanString(item.unit)}`.trim())
+            .join("; "),
           ref_id: cleanString(row.id),
-        })
-      );
+        });
+      });
     }
     const consumptionRows = consumptionsRes.data || [];
     const lookup = await buildLookupMaps(context, {

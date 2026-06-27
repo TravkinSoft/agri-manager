@@ -3,7 +3,30 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { Crosshair, Download, Eye, FileUp, Filter, LocateFixed, MapPinned, Ruler, Search, Route, RotateCcw, Save, Trash2 } from "lucide-react";
+import {
+  Crosshair,
+  Download,
+  Droplets,
+  Eye,
+  FileUp,
+  Filter,
+  Layers,
+  LocateFixed,
+  MapPinned,
+  MapPin,
+  MousePointer2,
+  Navigation,
+  Pencil,
+  Plus,
+  Ruler,
+  Search,
+  Route,
+  RotateCcw,
+  Save,
+  Trash2,
+  Wrench,
+  X,
+} from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,14 +44,19 @@ import { parseKmlToGeoJson } from "@/lib/fields-map/kml";
 import {
   FieldsMapApiError,
   confirmFieldMapImport,
+  createFieldEngineeringObject,
   deleteFieldMapImport,
+  deleteFieldEngineeringObject,
   downloadFieldMapImportKml,
   getFieldsMapBootstrap,
   listFieldMapImports,
   previewFieldMapImport,
+  updateFieldEngineeringObject,
   updateFieldMapImportAction,
 } from "@/lib/services/fields-map";
 import type {
+  FieldEngineeringObject,
+  FieldEngineeringObjectType,
   FieldMapFieldCard,
   FieldMapPreviewDiagnostics,
   FieldMapImportSummary,
@@ -78,6 +106,7 @@ type OverlayFeatureProperties = {
   match_status: "matched" | "ambiguous" | "not_found" | null;
   fill_color: string;
   line_color: string;
+  fill_opacity: number | null;
 };
 
 type OverlayFeature = {
@@ -99,12 +128,58 @@ type FitBoundsReason = "initial_load" | "import_success" | "show_all_fields" | "
 type GeolocationStatus = "idle" | "requesting" | "granted" | "denied" | "unsupported" | "error";
 type PreviewApiStatus = "idle" | "pending" | "success" | "error";
 type MeasurementMode = "none" | "distance" | "area";
+type MapWorkMode = "agro" | "engineering";
+type EngineeringDrawMode = "none" | "point" | "line" | "polygon";
+type EngineeringLayerFilter =
+  | "all"
+  | "pipes"
+  | "layflat"
+  | "hydrants"
+  | "tapes"
+  | "zones"
+  | "ponds"
+  | "pumps"
+  | "flags";
 
 type MeasurementPoint = {
   id: string;
   lng: number;
   lat: number;
   source: "manual" | "follow";
+};
+
+type LocationPoint = {
+  lng: number;
+  lat: number;
+  heading: number | null;
+};
+
+type EngineeringObjectDefinition = {
+  type: FieldEngineeringObjectType;
+  label: string;
+  geometry: "Point" | "LineString" | "Polygon";
+  group: EngineeringLayerFilter;
+  color: string;
+};
+
+type EngineeringFeature = {
+  type: "Feature";
+  geometry: GeoJsonGeometry;
+  properties: {
+    overlay_mode: "engineering";
+    object_id: string;
+    object_type: FieldEngineeringObjectType;
+    geometry_type: "Point" | "LineString" | "Polygon";
+    name: string;
+    field_id: string | null;
+    group: EngineeringLayerFilter;
+    color: string;
+  };
+};
+
+type EngineeringFeatureCollection = {
+  type: "FeatureCollection";
+  features: EngineeringFeature[];
 };
 
 type MapRuntimeDebugState = {
@@ -152,6 +227,16 @@ const MAP_MEASURE_LINE_LAYER_ID = "travkin-measure-line";
 const MAP_MEASURE_AREA_FILL_LAYER_ID = "travkin-measure-area-fill";
 const MAP_MEASURE_AREA_LINE_LAYER_ID = "travkin-measure-area-line";
 const MAP_MEASURE_POINT_LAYER_ID = "travkin-measure-point";
+const MAP_ENGINEERING_SOURCE_ID = "travkin-engineering-source";
+const MAP_ENGINEERING_POLYGON_FILL_LAYER_ID = "travkin-engineering-polygon-fill";
+const MAP_ENGINEERING_POLYGON_LINE_LAYER_ID = "travkin-engineering-polygon-line";
+const MAP_ENGINEERING_LINE_LAYER_ID = "travkin-engineering-line";
+const MAP_ENGINEERING_POINT_LAYER_ID = "travkin-engineering-point";
+const MAP_ENGINEERING_DRAFT_SOURCE_ID = "travkin-engineering-draft-source";
+const MAP_ENGINEERING_DRAFT_LINE_LAYER_ID = "travkin-engineering-draft-line";
+const MAP_ENGINEERING_DRAFT_AREA_FILL_LAYER_ID = "travkin-engineering-draft-area-fill";
+const MAP_ENGINEERING_DRAFT_AREA_LINE_LAYER_ID = "travkin-engineering-draft-area-line";
+const MAP_ENGINEERING_DRAFT_POINT_LAYER_ID = "travkin-engineering-draft-point";
 const DEFAULT_MAP_CENTER: [number, number] = [69.2, 54.9];
 const DEFAULT_MAP_ZOOM = 6.2;
 const BASE_LAYER_MAX_ZOOM: Record<BaseLayerMode, number> = {
@@ -162,6 +247,37 @@ const BASE_LAYER_MAX_ZOOM: Record<BaseLayerMode, number> = {
 const MAP_DEFAULT_MAX_ZOOM = Math.max(...Object.values(BASE_LAYER_MAX_ZOOM));
 const EMPTY_FIELDS: FieldMapFieldCard[] = [];
 const EMPTY_PREVIEW_ROWS: FieldMapPreviewMatch[] = [];
+const EMPTY_ENGINEERING_OBJECTS: FieldEngineeringObject[] = [];
+
+const ENGINEERING_OBJECT_DEFINITIONS: EngineeringObjectDefinition[] = [
+  { type: "pond", label: "Котлован / водоём", geometry: "Polygon", group: "ponds", color: "#38bdf8" },
+  { type: "pump_station", label: "Насосная", geometry: "Point", group: "pumps", color: "#f97316" },
+  { type: "main_pipe", label: "Магистральная труба", geometry: "LineString", group: "pipes", color: "#60a5fa" },
+  { type: "layflat_hose", label: "Лейфлет", geometry: "LineString", group: "layflat", color: "#22c55e" },
+  { type: "hydrant", label: "Гидрант", geometry: "Point", group: "hydrants", color: "#a7f3d0" },
+  { type: "drip_tape", label: "Капельная лента", geometry: "LineString", group: "tapes", color: "#c084fc" },
+  { type: "irrigation_zone", label: "Зона полива", geometry: "Polygon", group: "zones", color: "#14b8a6" },
+  { type: "mixing_tank", label: "Бак смеси", geometry: "Point", group: "pumps", color: "#facc15" },
+  { type: "fertigation_point", label: "Точка фертигации", geometry: "Point", group: "pumps", color: "#fb7185" },
+  { type: "well", label: "Скважина", geometry: "Point", group: "pumps", color: "#67e8f9" },
+  { type: "connection_point", label: "Точка подключения", geometry: "Point", group: "hydrants", color: "#bef264" },
+  { type: "technical_boundary", label: "Техническая линия / межа", geometry: "LineString", group: "pipes", color: "#94a3b8" },
+  { type: "technical_zone", label: "Техническая зона", geometry: "Polygon", group: "zones", color: "#64748b" },
+  { type: "flag", label: "Флажок / отметка", geometry: "Point", group: "flags", color: "#f43f5e" },
+  { type: "other", label: "Другое", geometry: "Point", group: "flags", color: "#e2e8f0" },
+];
+
+const ENGINEERING_LAYER_FILTERS: Array<{ key: EngineeringLayerFilter; label: string }> = [
+  { key: "all", label: "Все" },
+  { key: "pipes", label: "Трубы" },
+  { key: "layflat", label: "Лейфлеты" },
+  { key: "hydrants", label: "Гидранты" },
+  { key: "tapes", label: "Ленты" },
+  { key: "zones", label: "Зоны" },
+  { key: "ponds", label: "Котлованы" },
+  { key: "pumps", label: "Насосные" },
+  { key: "flags", label: "Флажки" },
+];
 
 function isSameDebugValue(left: unknown, right: unknown): boolean {
   if (Array.isArray(left) && Array.isArray(right)) {
@@ -213,6 +329,11 @@ function safeRemoveMapResource(resource: any, label: string) {
 function formatHa(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "-";
   return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
+}
+
+function formatKg(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} кг`;
 }
 
 function formatDate(value: string | null | undefined): string {
@@ -299,6 +420,17 @@ function haversineMeters(a: [number, number], b: [number, number]): number {
   return 6371008.8 * c;
 }
 
+function bearingDegrees(a: [number, number], b: [number, number]): number {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const toDeg = (value: number) => (value * 180) / Math.PI;
+  const lat1 = toRad(a[1]);
+  const lat2 = toRad(b[1]);
+  const dLng = toRad(b[0] - a[0]);
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
 function computeDistanceMeters(points: MeasurementPoint[]): number {
   if (points.length < 2) return 0;
   let total = 0;
@@ -342,6 +474,100 @@ function formatSquare(valueSquareMeters: number): string {
   return `${valueSquareMeters.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} м² / ${hectares.toLocaleString("ru-RU", {
     maximumFractionDigits: 4,
   })} га`;
+}
+
+function getEngineeringDefinition(type: FieldEngineeringObjectType | string | null | undefined) {
+  return ENGINEERING_OBJECT_DEFINITIONS.find((item) => item.type === type) || ENGINEERING_OBJECT_DEFINITIONS[ENGINEERING_OBJECT_DEFINITIONS.length - 1];
+}
+
+function closeRing(points: MeasurementPoint[]): MeasurementPoint[] {
+  if (points.length < 3) return points;
+  const first = points[0];
+  const last = points[points.length - 1];
+  if (first.lng === last.lng && first.lat === last.lat) return points;
+  return [...points, { ...first, id: `${first.id}-closed` }];
+}
+
+function geometryLengthMeters(geometry: GeoJsonGeometry | null | undefined): number {
+  if (!geometry || geometry.type !== "LineString") return 0;
+  const points = geometry.coordinates.map((point, index) => ({
+    id: `line-${index}`,
+    lng: point[0],
+    lat: point[1],
+    source: "manual" as const,
+  }));
+  return computeDistanceMeters(points);
+}
+
+function geometryAreaSqMeters(geometry: GeoJsonGeometry | null | undefined): number {
+  if (!geometry || geometry.type !== "Polygon") return 0;
+  const outer = geometry.coordinates[0] || [];
+  const points = outer.map((point, index) => ({
+    id: `poly-${index}`,
+    lng: point[0],
+    lat: point[1],
+    source: "manual" as const,
+  }));
+  return computeAreaSqMeters(points);
+}
+
+function buildGeometryFromDraft(mode: EngineeringDrawMode, points: MeasurementPoint[]): GeoJsonGeometry | null {
+  if (mode === "point" && points.length >= 1) {
+    return { type: "Point", coordinates: [points[0].lng, points[0].lat] };
+  }
+  if (mode === "line" && points.length >= 2) {
+    return { type: "LineString", coordinates: points.map((point) => [point.lng, point.lat]) };
+  }
+  if (mode === "polygon" && points.length >= 3) {
+    const ring = closeRing(points).map((point) => [point.lng, point.lat] as [number, number]);
+    return { type: "Polygon", coordinates: [ring] };
+  }
+  return null;
+}
+
+function buildEngineeringDraftFeatureCollection(mode: EngineeringDrawMode, points: MeasurementPoint[]) {
+  const features: Array<{ type: "Feature"; geometry: any; properties: Record<string, unknown> }> = [];
+  points.forEach((point, index) => {
+    features.push({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [point.lng, point.lat] },
+      properties: { point: true, mode, pointIndex: index },
+    });
+  });
+  const geometry = buildGeometryFromDraft(mode, points);
+  if (geometry) {
+    features.push({
+      type: "Feature",
+      geometry,
+      properties: { point: false, mode },
+    });
+  }
+  return { type: "FeatureCollection" as const, features };
+}
+
+function createLocationMarkerElement(heading: number | null | undefined) {
+  const root = document.createElement("div");
+  root.className = "travkin-location-arrow";
+  root.style.width = "38px";
+  root.style.height = "38px";
+  root.style.borderRadius = "999px";
+  root.style.background = "rgba(15, 23, 42, 0.82)";
+  root.style.border = "1px solid rgba(224, 177, 0, 0.7)";
+  root.style.boxShadow = "0 14px 34px rgba(0,0,0,.36), 0 0 0 5px rgba(224,177,0,.12)";
+  root.style.display = "grid";
+  root.style.placeItems = "center";
+
+  const arrow = document.createElement("div");
+  arrow.style.width = "0";
+  arrow.style.height = "0";
+  arrow.style.borderLeft = "8px solid transparent";
+  arrow.style.borderRight = "8px solid transparent";
+  arrow.style.borderBottom = "23px solid #facc15";
+  arrow.style.filter = "drop-shadow(0 1px 4px rgba(0,0,0,.45))";
+  arrow.style.transformOrigin = "50% 65%";
+  arrow.style.transform = `rotate(${Number.isFinite(Number(heading)) ? Number(heading) : 0}deg)`;
+  root.appendChild(arrow);
+  return root;
 }
 
 function buildPopupHtml(feature: OverlayFeatureProperties, field: FieldMapFieldCard | null): string {
@@ -405,12 +631,7 @@ function ensureOverlayLayers(map: any): boolean {
       source: MAP_SOURCE_ID,
       paint: {
         "fill-color": ["coalesce", ["get", "fill_color"], "#3b82f6"],
-        "fill-opacity": [
-          "case",
-          ["==", ["get", "overlay_mode"], "preview"],
-          0.32,
-          0.5,
-        ],
+        "fill-opacity": ["coalesce", ["get", "fill_opacity"], 0.5],
       },
     });
   }
@@ -510,6 +731,138 @@ function ensureMeasurementLayers(map: any): boolean {
   );
 }
 
+function ensureEngineeringLayers(map: any): boolean {
+  if (!map || typeof map.getStyle !== "function" || !map.getStyle()) return false;
+
+  if (!map.getSource(MAP_ENGINEERING_SOURCE_ID)) {
+    map.addSource(MAP_ENGINEERING_SOURCE_ID, {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+  }
+
+  if (!map.getLayer(MAP_ENGINEERING_POLYGON_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_ENGINEERING_POLYGON_FILL_LAYER_ID,
+      type: "fill",
+      source: MAP_ENGINEERING_SOURCE_ID,
+      filter: ["==", ["geometry-type"], "Polygon"],
+      paint: {
+        "fill-color": ["coalesce", ["get", "color"], "#14b8a6"],
+        "fill-opacity": 0.28,
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_ENGINEERING_POLYGON_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_ENGINEERING_POLYGON_LINE_LAYER_ID,
+      type: "line",
+      source: MAP_ENGINEERING_SOURCE_ID,
+      filter: ["==", ["geometry-type"], "Polygon"],
+      paint: {
+        "line-color": ["coalesce", ["get", "color"], "#14b8a6"],
+        "line-width": 2.4,
+        "line-opacity": 0.95,
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_ENGINEERING_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_ENGINEERING_LINE_LAYER_ID,
+      type: "line",
+      source: MAP_ENGINEERING_SOURCE_ID,
+      filter: ["==", ["geometry-type"], "LineString"],
+      paint: {
+        "line-color": ["coalesce", ["get", "color"], "#60a5fa"],
+        "line-width": 3.4,
+        "line-opacity": 0.96,
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_ENGINEERING_POINT_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_ENGINEERING_POINT_LAYER_ID,
+      type: "circle",
+      source: MAP_ENGINEERING_SOURCE_ID,
+      filter: ["==", ["geometry-type"], "Point"],
+      paint: {
+        "circle-radius": 8,
+        "circle-color": ["coalesce", ["get", "color"], "#facc15"],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#020617",
+      },
+    });
+  }
+
+  if (!map.getSource(MAP_ENGINEERING_DRAFT_SOURCE_ID)) {
+    map.addSource(MAP_ENGINEERING_DRAFT_SOURCE_ID, {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+    });
+  }
+
+  if (!map.getLayer(MAP_ENGINEERING_DRAFT_AREA_FILL_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_ENGINEERING_DRAFT_AREA_FILL_LAYER_ID,
+      type: "fill",
+      source: MAP_ENGINEERING_DRAFT_SOURCE_ID,
+      filter: ["==", ["get", "mode"], "polygon"],
+      paint: {
+        "fill-color": "#facc15",
+        "fill-opacity": 0.2,
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_ENGINEERING_DRAFT_AREA_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_ENGINEERING_DRAFT_AREA_LINE_LAYER_ID,
+      type: "line",
+      source: MAP_ENGINEERING_DRAFT_SOURCE_ID,
+      filter: ["==", ["get", "mode"], "polygon"],
+      paint: {
+        "line-color": "#facc15",
+        "line-width": 2.4,
+        "line-dasharray": [2, 1],
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_ENGINEERING_DRAFT_LINE_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_ENGINEERING_DRAFT_LINE_LAYER_ID,
+      type: "line",
+      source: MAP_ENGINEERING_DRAFT_SOURCE_ID,
+      filter: ["==", ["get", "mode"], "line"],
+      paint: {
+        "line-color": "#facc15",
+        "line-width": 2.8,
+        "line-dasharray": [2, 1],
+      },
+    });
+  }
+
+  if (!map.getLayer(MAP_ENGINEERING_DRAFT_POINT_LAYER_ID)) {
+    map.addLayer({
+      id: MAP_ENGINEERING_DRAFT_POINT_LAYER_ID,
+      type: "circle",
+      source: MAP_ENGINEERING_DRAFT_SOURCE_ID,
+      filter: ["==", ["get", "point"], true],
+      paint: {
+        "circle-radius": 6,
+        "circle-color": "#facc15",
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#020617",
+      },
+    });
+  }
+
+  return Boolean(map.getSource(MAP_ENGINEERING_SOURCE_ID) && map.getSource(MAP_ENGINEERING_DRAFT_SOURCE_ID));
+}
+
 function buildMeasurementFeatureCollection(mode: MeasurementMode, points: MeasurementPoint[]) {
   const features: Array<{ type: "Feature"; geometry: any; properties: Record<string, unknown> }> = [];
   points.forEach((point, index) => {
@@ -554,6 +907,8 @@ export function FieldsMapPage() {
   const mapRef = useRef<any>(null);
   const maplibreRef = useRef<MapLibreModule | null>(null);
   const geoMarkerRef = useRef<any>(null);
+  const locationWatchIdRef = useRef<number | null>(null);
+  const lastLocationRef = useRef<LocationPoint | null>(null);
   const geolocationWatchIdRef = useRef<number | null>(null);
   const popupRef = useRef<any>(null);
   const fieldLookupRef = useRef<Map<string, FieldMapFieldCard>>(new Map());
@@ -562,6 +917,8 @@ export function FieldsMapPage() {
   const selectedBaseLayerRef = useRef<BaseLayerMode>("satellite");
   const layerFallbackLockedRef = useRef(false);
   const measurementModeRef = useRef<MeasurementMode>("none");
+  const mapWorkModeRef = useRef<MapWorkMode>("agro");
+  const engineeringDrawModeRef = useRef<EngineeringDrawMode>("none");
   const measurementDraggingIndexRef = useRef<number | null>(null);
   const bindMapContainerRef = useCallback((node: HTMLDivElement | null) => {
     mapContainerRef.current = node;
@@ -573,6 +930,17 @@ export function FieldsMapPage() {
   const [imports, setImports] = useState<FieldMapImportSummary[]>([]);
   const [selectedSeasonId, setSelectedSeasonId] = useState<string>("");
   const [selectedCrop, setSelectedCrop] = useState<string>("all");
+  const [mapWorkMode, setMapWorkMode] = useState<MapWorkMode>("agro");
+  const [engineeringLayerFilter, setEngineeringLayerFilter] = useState<EngineeringLayerFilter>("all");
+  const [engineeringDrawMode, setEngineeringDrawMode] = useState<EngineeringDrawMode>("none");
+  const [engineeringDraftPoints, setEngineeringDraftPoints] = useState<MeasurementPoint[]>([]);
+  const [engineeringObjectType, setEngineeringObjectType] = useState<FieldEngineeringObjectType>("hydrant");
+  const [engineeringName, setEngineeringName] = useState("");
+  const [engineeringFieldId, setEngineeringFieldId] = useState<string>("none");
+  const [engineeringDescription, setEngineeringDescription] = useState("");
+  const [engineeringBusy, setEngineeringBusy] = useState(false);
+  const [editingEngineeringObjectId, setEditingEngineeringObjectId] = useState<string | null>(null);
+  const [selectedEngineeringObjectId, setSelectedEngineeringObjectId] = useState<string | null>(null);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [showFieldListMobile, setShowFieldListMobile] = useState(false);
 
@@ -626,6 +994,11 @@ export function FieldsMapPage() {
   }, []);
 
   const fields = bootstrap?.fields || EMPTY_FIELDS;
+  const engineeringObjects = bootstrap?.engineering_objects || EMPTY_ENGINEERING_OBJECTS;
+  const selectedEngineeringDefinition = getEngineeringDefinition(engineeringObjectType);
+  const selectedEngineeringObject = selectedEngineeringObjectId
+    ? engineeringObjects.find((item) => item.id === selectedEngineeringObjectId) || null
+    : null;
 
   const cropOptions = useMemo(() => {
     const set = new Set<string>();
@@ -640,6 +1013,7 @@ export function FieldsMapPage() {
     () => fields.filter((field) => includeByCrop(field.crop_plan?.crop_name, selectedCrop)),
     [fields, selectedCrop]
   );
+  const filteredFieldsCountLabel = loading ? "..." : String(filteredFields.length);
 
   const mappedFields = useMemo(() => filteredFields.filter((field) => !!field.geometry), [filteredFields]);
 
@@ -718,6 +1092,7 @@ export function FieldsMapPage() {
               match_status: row.matchStatus,
               fill_color: color,
               line_color: color,
+              fill_opacity: 0.32,
             },
           };
         }),
@@ -730,9 +1105,11 @@ export function FieldsMapPage() {
         .filter((field): field is FieldMapFieldCard & { geometry: GeoJsonGeometry } => !!field.geometry)
         .map((field) => {
           const color =
-            colorMode === "work_status"
-              ? resolveWorkStatusColor(field.work_status)
-              : resolveCropColor(field.crop_plan?.crop_name || "");
+            mapWorkMode === "engineering"
+              ? "#64748b"
+              : colorMode === "work_status"
+                ? resolveWorkStatusColor(field.work_status)
+                : resolveCropColor(field.crop_plan?.crop_name || "");
           return {
             type: "Feature",
             geometry: field.geometry,
@@ -747,11 +1124,56 @@ export function FieldsMapPage() {
               match_status: null,
               fill_color: color,
               line_color: color,
+              fill_opacity: mapWorkMode === "engineering" ? 0.08 : 0.5,
             },
           };
         }),
     };
-  }, [colorMode, mappedFields, previewMapFeatures]);
+  }, [colorMode, mappedFields, mapWorkMode, previewMapFeatures]);
+
+  const filteredEngineeringObjects = useMemo(() => {
+    if (mapWorkMode !== "engineering") return EMPTY_ENGINEERING_OBJECTS;
+    return engineeringObjects.filter((item) => {
+      if (engineeringLayerFilter === "all") return true;
+      return getEngineeringDefinition(item.object_type).group === engineeringLayerFilter;
+    });
+  }, [engineeringLayerFilter, engineeringObjects, mapWorkMode]);
+
+  const engineeringCollection = useMemo<EngineeringFeatureCollection>(() => ({
+    type: "FeatureCollection",
+    features: filteredEngineeringObjects.map((item) => {
+      const definition = getEngineeringDefinition(item.object_type);
+      return {
+        type: "Feature",
+        geometry: item.geometry,
+        properties: {
+          overlay_mode: "engineering",
+          object_id: item.id,
+          object_type: item.object_type,
+          geometry_type: item.geometry_type,
+          name: item.name,
+          field_id: item.field_id,
+          group: definition.group,
+          color: definition.color,
+        },
+      };
+    }),
+  }), [filteredEngineeringObjects]);
+
+  const engineeringDraftGeometry = useMemo(
+    () => buildGeometryFromDraft(engineeringDrawMode, engineeringDraftPoints),
+    [engineeringDrawMode, engineeringDraftPoints]
+  );
+
+  const engineeringDraftDistanceMeters = useMemo(
+    () => geometryLengthMeters(engineeringDraftGeometry),
+    [engineeringDraftGeometry]
+  );
+
+  const engineeringDraftAreaSqMeters = useMemo(
+    () => geometryAreaSqMeters(engineeringDraftGeometry),
+    [engineeringDraftGeometry]
+  );
 
   const measurementDistanceMeters = useMemo(
     () => (measurementMode === "distance" ? computeDistanceMeters(measurementPoints) : 0),
@@ -1019,6 +1441,7 @@ export function FieldsMapPage() {
           try {
             ensureOverlayLayers(map);
             ensureMeasurementLayers(map);
+            ensureEngineeringLayers(map);
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             setRuntimeError(`Map overlay init error (${strategy}): ${message}`);
@@ -1171,6 +1594,7 @@ export function FieldsMapPage() {
                     : null,
             fill_color: toNullableString(properties.fill_color) || "#3b82f6",
             line_color: toNullableString(properties.line_color) || "#3b82f6",
+            fill_opacity: toNullableNumber(properties.fill_opacity),
           };
           const relatedField = parsedProperties.field_id ? fieldLookupRef.current.get(parsedProperties.field_id) || null : null;
 
@@ -1199,6 +1623,44 @@ export function FieldsMapPage() {
                 };
                 return [...prev, point];
               });
+            }
+            return;
+          }
+          const activeWorkMode = mapWorkModeRef.current;
+          const activeEngineeringDrawMode = engineeringDrawModeRef.current;
+          if (activeWorkMode === "engineering" && activeEngineeringDrawMode !== "none") {
+            const lng = Number(event?.lngLat?.lng);
+            const lat = Number(event?.lngLat?.lat);
+            if (Number.isFinite(lng) && Number.isFinite(lat)) {
+              setEngineeringDraftPoints((prev) => {
+                const point: MeasurementPoint = {
+                  id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                  lng,
+                  lat,
+                  source: "manual",
+                };
+                if (activeEngineeringDrawMode === "point") return [point];
+                if (activeEngineeringDrawMode === "polygon" && prev.length >= 100) return prev;
+                return [...prev, point];
+              });
+            }
+            return;
+          }
+          if (activeWorkMode === "engineering") {
+            const engineeringLayers = [
+              MAP_ENGINEERING_POINT_LAYER_ID,
+              MAP_ENGINEERING_LINE_LAYER_ID,
+              MAP_ENGINEERING_POLYGON_FILL_LAYER_ID,
+              MAP_ENGINEERING_POLYGON_LINE_LAYER_ID,
+            ].filter((layerId) => map.getLayer(layerId));
+            if (engineeringLayers.length) {
+              const features = map.queryRenderedFeatures(event.point, { layers: engineeringLayers });
+              const objectId = toNullableString(features[0]?.properties?.object_id);
+              if (objectId) {
+                setSelectedEngineeringObjectId(objectId);
+                setSelectedFieldId(null);
+                return;
+              }
             }
             return;
           }
@@ -1259,6 +1721,11 @@ export function FieldsMapPage() {
         navigator.geolocation.clearWatch(geolocationWatchIdRef.current);
         geolocationWatchIdRef.current = null;
       }
+      if (locationWatchIdRef.current != null && navigator.geolocation) {
+        navigator.geolocation.clearWatch(locationWatchIdRef.current);
+        locationWatchIdRef.current = null;
+      }
+      lastLocationRef.current = null;
       safeRemoveMapResource(popupRef.current, "popup");
       popupRef.current = null;
       safeRemoveMapResource(geoMarkerRef.current, "geolocation marker");
@@ -1320,6 +1787,14 @@ export function FieldsMapPage() {
   }, [measurementMode, measurementPoints.length, updateMapDebug]);
 
   useEffect(() => {
+    mapWorkModeRef.current = mapWorkMode;
+  }, [mapWorkMode]);
+
+  useEffect(() => {
+    engineeringDrawModeRef.current = engineeringDrawMode;
+  }, [engineeringDrawMode]);
+
+  useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     const map = mapRef.current;
     applyBaseLayerVisibility(map, selectedBaseLayer);
@@ -1337,15 +1812,24 @@ export function FieldsMapPage() {
     const map = mapRef.current;
     ensureOverlayLayers(map);
     ensureMeasurementLayers(map);
+    ensureEngineeringLayers(map);
 
     const source = map.getSource(MAP_SOURCE_ID) as { setData: (data: OverlayFeatureCollection) => void } | undefined;
     const measureSource = map.getSource(MAP_MEASURE_SOURCE_ID) as
       | { setData: (data: { type: "FeatureCollection"; features: any[] }) => void }
       | undefined;
-    if (!source || !measureSource) return;
+    const engineeringSource = map.getSource(MAP_ENGINEERING_SOURCE_ID) as
+      | { setData: (data: EngineeringFeatureCollection) => void }
+      | undefined;
+    const engineeringDraftSource = map.getSource(MAP_ENGINEERING_DRAFT_SOURCE_ID) as
+      | { setData: (data: { type: "FeatureCollection"; features: any[] }) => void }
+      | undefined;
+    if (!source || !measureSource || !engineeringSource || !engineeringDraftSource) return;
 
     source.setData(mapCollection);
     measureSource.setData(buildMeasurementFeatureCollection(measurementMode, measurementPoints));
+    engineeringSource.setData(engineeringCollection);
+    engineeringDraftSource.setData(buildEngineeringDraftFeatureCollection(engineeringDrawMode, engineeringDraftPoints));
 
     const fitReason = fitRequestReasonRef.current;
     if (!fitReason || fitReason === "none") {
@@ -1354,7 +1838,17 @@ export function FieldsMapPage() {
     const maplibre = maplibreRef.current;
     fitMapForReason(map, maplibre, fitReason);
     fitRequestReasonRef.current = null;
-  }, [fitMapForReason, fitRequestNonce, mapCollection, mapReady, measurementMode, measurementPoints]);
+  }, [
+    engineeringCollection,
+    engineeringDrawMode,
+    engineeringDraftPoints,
+    fitMapForReason,
+    fitRequestNonce,
+    mapCollection,
+    mapReady,
+    measurementMode,
+    measurementPoints,
+  ]);
 
   const handleSelectField = useCallback(
     (fieldId: string) => {
@@ -1385,18 +1879,37 @@ export function FieldsMapPage() {
       toast({ title: "Геолокация недоступна", description: "Браузер не поддерживает geolocation.", variant: "destructive" });
       return;
     }
+    if (locationWatchIdRef.current != null) {
+      navigator.geolocation.clearWatch(locationWatchIdRef.current);
+      locationWatchIdRef.current = null;
+    }
 
     setGeolocationStatus("requesting");
     updateMapDebug((prev) => ({ ...prev, geolocationStatus: "requesting" }));
-    navigator.geolocation.getCurrentPosition(
+    const watchId = navigator.geolocation.watchPosition(
       (position) => {
         const map = mapRef.current;
         const maplibre = maplibreRef.current;
         if (!map || !maplibre) return;
-        const lngLat: [number, number] = [position.coords.longitude, position.coords.latitude];
+        const lng = Number(position.coords.longitude);
+        const lat = Number(position.coords.latitude);
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) return;
+        const lngLat: [number, number] = [lng, lat];
+        const rawHeading = Number(position.coords.heading);
+        const previousLocation = lastLocationRef.current;
+        const heading =
+          Number.isFinite(rawHeading) && rawHeading >= 0
+            ? rawHeading
+            : previousLocation && haversineMeters([previousLocation.lng, previousLocation.lat], lngLat) > 2
+              ? bearingDegrees([previousLocation.lng, previousLocation.lat], lngLat)
+              : previousLocation?.heading ?? null;
+        lastLocationRef.current = { lng, lat, heading };
 
         geoMarkerRef.current?.remove?.();
-        geoMarkerRef.current = new maplibre.Marker({ color: "#22c55e" }).setLngLat(lngLat).addTo(map);
+        geoMarkerRef.current = new maplibre.Marker({
+          element: createLocationMarkerElement(heading),
+          anchor: "center",
+        }).setLngLat(lngLat).addTo(map);
         map.easeTo({ center: lngLat, zoom: Math.max(13, map.getZoom()), duration: 700 });
         setGeolocationStatus("granted");
         updateMapDebug((prev) => ({
@@ -1423,6 +1936,7 @@ export function FieldsMapPage() {
       },
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
     );
+    locationWatchIdRef.current = watchId;
   }, [mapReady, toast, updateMapDebug]);
 
   const clearMeasurement = useCallback(() => {
@@ -1467,6 +1981,168 @@ export function FieldsMapPage() {
     localStorage.setItem("travkin_fields_map_measurement_draft", JSON.stringify(payload));
     toast({ title: "Черновик сохранён", description: "Замер сохранён локально в браузере." });
   }, [bootstrap?.company?.id, measurementMode, measurementPoints, selectedSeasonId, toast]);
+
+  const clearEngineeringDraft = useCallback(() => {
+    setEngineeringDraftPoints([]);
+    setEngineeringDrawMode("none");
+    setEditingEngineeringObjectId(null);
+  }, []);
+
+  const startEngineeringDraw = useCallback((mode: EngineeringDrawMode) => {
+    setMapWorkMode("engineering");
+    setMeasurementMode("none");
+    setMeasurementPoints([]);
+    setEngineeringDrawMode(mode);
+    setEngineeringDraftPoints([]);
+    setSelectedEngineeringObjectId(null);
+  }, []);
+
+  const placeEngineeringDraftAtMapCenter = useCallback(() => {
+    const map = mapRef.current;
+    if (!mapReady || !map) {
+      toast({ title: "Карта ещё не готова", description: "Подождите загрузку карты и попробуйте снова.", variant: "destructive" });
+      return;
+    }
+    const center = map.getCenter();
+    const lng = Number(center.lng);
+    const lat = Number(center.lat);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+      toast({ title: "Не удалось поставить точку", description: "Карта не вернула текущий центр.", variant: "destructive" });
+      return;
+    }
+    const bounds = map.getBounds();
+    const lngSpan = Math.abs(Number(bounds.getEast()) - Number(bounds.getWest()));
+    const latSpan = Math.abs(Number(bounds.getNorth()) - Number(bounds.getSouth()));
+    const dx = Math.max((Number.isFinite(lngSpan) ? lngSpan : 0.01) * 0.04, 0.0003);
+    const dy = Math.max((Number.isFinite(latSpan) ? latSpan : 0.01) * 0.04, 0.0003);
+    const createPoint = (pointLng: number, pointLat: number): MeasurementPoint => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      lng: pointLng,
+      lat: pointLat,
+      source: "manual",
+    });
+    const geometryType = selectedEngineeringDefinition.geometry;
+    const draftPoints =
+      geometryType === "LineString"
+        ? [createPoint(lng - dx, lat), createPoint(lng + dx, lat)]
+        : geometryType === "Polygon"
+          ? [
+              createPoint(lng - dx, lat - dy),
+              createPoint(lng + dx, lat - dy),
+              createPoint(lng + dx, lat + dy),
+              createPoint(lng - dx, lat + dy),
+            ]
+          : [createPoint(lng, lat)];
+    setMapWorkMode("engineering");
+    setMeasurementMode("none");
+    setMeasurementPoints([]);
+    setEngineeringDrawMode(geometryType === "Point" ? "point" : geometryType === "LineString" ? "line" : "polygon");
+    setEngineeringDraftPoints(draftPoints);
+    setSelectedEngineeringObjectId(null);
+  }, [mapReady, selectedEngineeringDefinition.geometry, toast]);
+
+  const handleEngineeringTypeChange = useCallback((value: FieldEngineeringObjectType) => {
+    const definition = getEngineeringDefinition(value);
+    setEngineeringObjectType(value);
+    setEngineeringDrawMode(definition.geometry === "Point" ? "point" : definition.geometry === "LineString" ? "line" : "polygon");
+    setEngineeringDraftPoints([]);
+  }, []);
+
+  const handleEditEngineeringObject = useCallback((object: FieldEngineeringObject) => {
+    setMapWorkMode("engineering");
+    setEditingEngineeringObjectId(object.id);
+    setSelectedEngineeringObjectId(object.id);
+    setEngineeringObjectType(object.object_type);
+    setEngineeringName(object.name);
+    setEngineeringFieldId(object.field_id || "none");
+    setEngineeringDescription(object.description || "");
+    setEngineeringDrawMode("none");
+    setEngineeringDraftPoints([]);
+  }, []);
+
+  const handleSaveEngineeringObject = useCallback(async () => {
+    const definition = getEngineeringDefinition(engineeringObjectType);
+    const existingObject = editingEngineeringObjectId
+      ? engineeringObjects.find((item) => item.id === editingEngineeringObjectId) || null
+      : null;
+    const geometry = engineeringDraftGeometry || existingObject?.geometry || null;
+    if (!geometry) {
+      toast({
+        title: "Нарисуйте объект",
+        description: "Поставьте точку, проведите линию или нарисуйте зону прямо на карте.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const name = engineeringName.trim() || definition.label;
+    setEngineeringBusy(true);
+    try {
+      const input = {
+        season_id: selectedSeasonId || null,
+        field_id: engineeringFieldId === "none" ? null : engineeringFieldId,
+        crop_structure_id: null,
+        object_type: engineeringObjectType,
+        name,
+        description: engineeringDescription.trim() || null,
+        geometry,
+        properties: {
+          group: definition.group,
+          length_m: geometry.type === "LineString" ? Number(geometryLengthMeters(geometry).toFixed(2)) : null,
+          area_ha: geometry.type === "Polygon" ? Number((geometryAreaSqMeters(geometry) / 10000).toFixed(4)) : null,
+        },
+      };
+      const saved = editingEngineeringObjectId
+        ? await updateFieldEngineeringObject(editingEngineeringObjectId, input)
+        : await createFieldEngineeringObject(input);
+      await loadBootstrap(selectedSeasonId || undefined);
+      setSelectedEngineeringObjectId(saved.id);
+      setEditingEngineeringObjectId(null);
+      setEngineeringDraftPoints([]);
+      setEngineeringDrawMode("none");
+      setEngineeringName("");
+      setEngineeringDescription("");
+      toast({ title: "Объект сохранён", description: `${definition.label}: ${saved.name}` });
+    } catch (error) {
+      toast({
+        title: "Ошибка сохранения",
+        description: error instanceof Error ? error.message : "Не удалось сохранить инженерный объект",
+        variant: "destructive",
+      });
+    } finally {
+      setEngineeringBusy(false);
+    }
+  }, [
+    editingEngineeringObjectId,
+    engineeringDescription,
+    engineeringDraftGeometry,
+    engineeringFieldId,
+    engineeringName,
+    engineeringObjectType,
+    engineeringObjects,
+    selectedSeasonId,
+    toast,
+  ]);
+
+  const handleDeleteEngineeringObject = useCallback(async (objectId: string) => {
+    const confirmed = window.confirm("Удалить инженерный объект с карты?");
+    if (!confirmed) return;
+    setEngineeringBusy(true);
+    try {
+      await deleteFieldEngineeringObject(objectId);
+      await loadBootstrap(selectedSeasonId || undefined);
+      setSelectedEngineeringObjectId(null);
+      setEditingEngineeringObjectId(null);
+      toast({ title: "Удалено", description: "Объект скрыт с карты." });
+    } catch (error) {
+      toast({
+        title: "Ошибка удаления",
+        description: error instanceof Error ? error.message : "Не удалось удалить инженерный объект",
+        variant: "destructive",
+      });
+    } finally {
+      setEngineeringBusy(false);
+    }
+  }, [selectedSeasonId, toast]);
 
   const handleToggleFollowMeasure = useCallback(() => {
     if (!navigator.geolocation) {
@@ -1748,6 +2424,221 @@ export function FieldsMapPage() {
     return <PageHeader title="Карта полей" description="Загрузка..." />;
   }
 
+  const selectedFieldStructures = selectedField?.crop_structure || [];
+  const selectedFieldOperations = selectedField?.recent_operations || [];
+  const selectedFieldMaterials = selectedField?.material_summary || [];
+  const selectedFieldHarvests = selectedField?.harvest_summary || [];
+  const selectedObjectDefinition = selectedEngineeringObject ? getEngineeringDefinition(selectedEngineeringObject.object_type) : null;
+  const selectedObjectField = selectedEngineeringObject?.field_id
+    ? fields.find((field) => field.field_id === selectedEngineeringObject.field_id) || null
+    : null;
+  const selectedObjectMetric =
+    selectedEngineeringObject?.geometry_type === "LineString"
+      ? formatDistance(geometryLengthMeters(selectedEngineeringObject.geometry))
+      : selectedEngineeringObject?.geometry_type === "Polygon"
+        ? formatSquare(geometryAreaSqMeters(selectedEngineeringObject.geometry))
+        : null;
+
+  return (
+    <div className="-m-2 space-y-3 md:-m-4">
+      <input ref={fileInputRef} type="file" accept=".kml" className="hidden" onChange={handleKmlSelect} />
+      {mapError ? <div className="mx-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 md:mx-4">{mapError}</div> : null}
+
+      <section className="relative h-[calc(100vh-86px)] min-h-[720px] overflow-hidden rounded-xl border border-[#202B3D] bg-[#070B12] shadow-2xl">
+        <div ref={bindMapContainerRef} className="absolute inset-0" />
+
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-3 p-3">
+          <div className="pointer-events-auto max-w-[760px] rounded-xl border border-white/10 bg-[#0B111D]/90 p-2 shadow-xl backdrop-blur">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Режим</div>
+              <Button size="sm" variant={mapWorkMode === "agro" ? "default" : "outline"} onClick={() => { setMapWorkMode("agro"); setEngineeringDrawMode("none"); setSelectedEngineeringObjectId(null); }}>
+                <Layers className="mr-2 h-4 w-4" /> Агро
+              </Button>
+              <Button size="sm" variant={mapWorkMode === "engineering" ? "default" : "outline"} onClick={() => { setMapWorkMode("engineering"); setSelectedFieldId(null); }}>
+                <Wrench className="mr-2 h-4 w-4" /> Инженерия
+              </Button>
+              <div className="h-6 w-px bg-white/10" />
+              <Select value={selectedSeasonId || ""} onValueChange={(value) => void handleSeasonChange(value)}>
+                <SelectTrigger className="h-9 w-[112px] bg-[#0A101B]"><SelectValue placeholder="Сезон" /></SelectTrigger>
+                <SelectContent>{(bootstrap?.seasons || []).map((season) => <SelectItem key={season.id} value={season.id}>{season.year}</SelectItem>)}</SelectContent>
+              </Select>
+              {mapWorkMode === "agro" ? (
+                <>
+                  <Select value={selectedCrop} onValueChange={setSelectedCrop}>
+                    <SelectTrigger className="h-9 w-[190px] bg-[#0A101B]"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Все культуры</SelectItem>
+                      {cropOptions.map((crop) => <SelectItem key={crop} value={crop}>{crop}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  <div className="h-6 w-px bg-white/10" />
+                  <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">Цвет</div>
+                  <Button size="sm" variant={colorMode === "crop" ? "default" : "outline"} onClick={() => setColorMode("crop")}>
+                    Культура
+                  </Button>
+                  <Button size="sm" variant={colorMode === "work_status" ? "default" : "outline"} onClick={() => setColorMode("work_status")}>
+                    Работы
+                  </Button>
+                </>
+              ) : (
+                <div className="flex max-w-[540px] flex-wrap gap-1">
+                  {ENGINEERING_LAYER_FILTERS.map((item) => (
+                    <Button key={item.key} size="sm" variant={engineeringLayerFilter === item.key ? "default" : "outline"} className="h-8 px-2 text-xs" onClick={() => setEngineeringLayerFilter(item.key)}>
+                      {item.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="pointer-events-auto flex flex-wrap justify-end gap-2 rounded-xl border border-white/10 bg-[#0B111D]/90 p-2 shadow-xl backdrop-blur">
+            <Button size="sm" variant={selectedBaseLayer === "map" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("map")}>Карта</Button>
+            <Button size="sm" variant={selectedBaseLayer === "satellite" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("satellite")}>Спутник</Button>
+            <Button size="sm" variant={selectedBaseLayer === "hybrid" ? "default" : "outline"} onClick={() => setSelectedBaseLayer("hybrid")}>Гибрид</Button>
+            <Button size="sm" variant="outline" onClick={handleLocateMe}><Navigation className="mr-2 h-4 w-4" />Моё место</Button>
+            <Button size="sm" variant="outline" onClick={handleShowAllFields}>Показать все</Button>
+            <Button size="sm" variant="outline" onClick={() => fileInputRef.current?.click()}><FileUp className="mr-2 h-4 w-4" />KML</Button>
+          </div>
+        </div>
+
+        <div className="pointer-events-none absolute left-3 top-[88px] z-10 w-[min(360px,calc(100%-24px))] space-y-2">
+          <div className="pointer-events-auto rounded-xl border border-white/10 bg-[#0B111D]/90 p-3 shadow-xl backdrop-blur">
+            <div className="flex items-center gap-2">
+              <input value={fieldSearch} onChange={(event) => setFieldSearch(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); runFieldSearch(); } }} placeholder="Найти поле..." className="h-9 min-w-0 flex-1 rounded-md border border-[#2B3448] bg-[#080D16] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100]" />
+              <Button size="sm" variant="outline" onClick={runFieldSearch}><Search className="h-4 w-4" /></Button>
+              <Button size="sm" variant="outline" onClick={() => setShowFieldListMobile((prev) => !prev)}>{filteredFields.length}</Button>
+            </div>
+            {(showFieldListMobile || searchResults.length > 0) ? (
+              <div className="travkin-scrollbar mt-2 max-h-[42vh] space-y-1 overflow-y-auto pr-1">
+                {(searchResults.length ? searchResults : filteredFields.slice(0, 18)).map((field) => (
+                  <button key={`map-rail-${field.field_id}`} type="button" onClick={() => handleSelectField(field.field_id)} className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${selectedFieldId === field.field_id ? "border-[#E0B100] bg-[#1D2433] text-white" : "border-white/10 bg-[#101827] text-slate-200 hover:bg-[#172033]"}`}>
+                    <div className="flex items-center justify-between gap-2"><span className="font-semibold">Поле {field.field_display_name}</span><span className="text-xs text-slate-400">{formatHa(field.field_area_ha)}</span></div>
+                    <div className="mt-0.5 truncate text-xs text-slate-400">{field.crop_structure.slice(0, 2).map((row) => row.crop_name || "Культура не задана").join(", ") || "Структура не задана"}</div>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="pointer-events-none absolute bottom-4 left-1/2 z-10 w-[min(980px,calc(100%-24px))] -translate-x-1/2">
+          <div className="pointer-events-auto rounded-2xl border border-white/10 bg-[#0B111D]/92 p-2 shadow-2xl backdrop-blur">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <Button size="sm" variant={measurementMode === "distance" ? "default" : "outline"} onClick={() => handleMeasurementMode("distance")}><Route className="mr-2 h-4 w-4" />Расстояние</Button>
+              <Button size="sm" variant={measurementMode === "area" ? "default" : "outline"} onClick={() => handleMeasurementMode("area")}><Ruler className="mr-2 h-4 w-4" />Площадь</Button>
+              <Button size="sm" variant={followMeasureActive ? "default" : "outline"} onClick={handleToggleFollowMeasure}><Crosshair className="mr-2 h-4 w-4" />Follow</Button>
+              <Button size="sm" variant="outline" onClick={clearMeasurement}><Trash2 className="mr-2 h-4 w-4" />Очистить</Button>
+              {mapWorkMode === "engineering" ? (
+                <>
+                  <div className="mx-1 hidden h-7 w-px bg-white/10 md:block" />
+                  <Button size="sm" variant={engineeringDrawMode === "point" ? "default" : "outline"} onClick={() => startEngineeringDraw("point")}><MapPin className="mr-2 h-4 w-4" />Точка</Button>
+                  <Button size="sm" variant={engineeringDrawMode === "line" ? "default" : "outline"} onClick={() => startEngineeringDraw("line")}><Route className="mr-2 h-4 w-4" />Линия</Button>
+                  <Button size="sm" variant={engineeringDrawMode === "polygon" ? "default" : "outline"} onClick={() => startEngineeringDraw("polygon")}><Droplets className="mr-2 h-4 w-4" />Зона</Button>
+                </>
+              ) : null}
+            </div>
+            {measurementMode !== "none" ? <div className="mt-2 text-center text-xs text-slate-300">Точек: {measurementPoints.length}{measurementMode === "distance" ? ` • длина ${formatDistance(measurementDistanceMeters)}` : ""}{measurementMode === "area" ? ` • площадь ${formatSquare(measurementAreaSqMeters)}` : ""}</div> : null}
+          </div>
+        </div>
+
+        {mapWorkMode === "agro" && selectedField ? (
+          <aside className="travkin-scrollbar pointer-events-auto absolute right-3 top-[88px] z-10 max-h-[calc(100vh-126px)] w-[min(430px,calc(100%-24px))] overflow-y-auto rounded-2xl border border-white/10 bg-[#0B111D]/94 p-4 shadow-2xl backdrop-blur">
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <div><div className="text-xs uppercase tracking-[0.24em] text-emerald-300">Структура посевов</div><h2 className="mt-1 text-2xl font-bold text-slate-50">Поле {selectedField.field_display_name}</h2><div className="text-sm text-slate-400">{formatHa(selectedField.field_area_ha)} • участков {selectedFieldStructures.length}</div></div>
+              <Button size="sm" variant="ghost" onClick={() => setSelectedFieldId(null)}><X className="h-4 w-4" /></Button>
+            </div>
+            <div className="grid gap-2">
+              {selectedFieldStructures.slice(0, 7).map((row) => (
+                <div key={row.id} className="rounded-lg border border-white/10 bg-[#111A29] px-3 py-2">
+                  <div className="flex items-center justify-between gap-2"><div className="min-w-0 text-sm font-semibold text-slate-100">{row.crop_name || "Культура не задана"}{row.variety_name ? <span className="text-slate-400"> / {row.variety_name}</span> : null}</div><Badge variant="outline">{formatHa(row.area_ha)}</Badge></div>
+                  {row.reproduction_name ? <div className="mt-0.5 text-xs text-slate-400">{row.reproduction_name}</div> : null}
+                </div>
+              ))}
+              {selectedFieldStructures.length > 7 ? <div className="text-xs text-slate-400">+ ещё {selectedFieldStructures.length - 7} участков</div> : null}
+            </div>
+            <div className="mt-4 border-t border-white/10 pt-3">
+              <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Операции</div>
+              <div className="space-y-2">
+                {selectedFieldOperations.slice(0, 4).map((operation) => <div key={operation.id} className="rounded-lg bg-[#101827] px-3 py-2 text-sm"><div className="font-medium text-slate-100">{operation.operation_subtype || operation.operation_template || operation.operation_type || "Операция"}</div><div className="text-xs text-slate-400">{operation.date || "Дата не указана"} • {operation.status || "статус не указан"}</div></div>)}
+                {!selectedFieldOperations.length ? <div className="text-sm text-slate-400">Операций по полю пока нет.</div> : null}
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 border-t border-white/10 pt-3 md:grid-cols-2">
+              <div>
+                <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Материалы</div>
+                <div className="space-y-2">
+                  {selectedFieldMaterials.slice(0, 4).map((item) => (
+                    <div key={item.id} className="rounded-lg bg-[#101827] px-3 py-2 text-sm">
+                      <div className="truncate font-medium text-slate-100">{item.product_name || "Материал"}</div>
+                      <div className="text-xs text-slate-400">{formatKg(item.quantity_kg)}{item.operation_type ? ` • ${item.operation_type}` : ""}</div>
+                    </div>
+                  ))}
+                  {!selectedFieldMaterials.length ? <div className="text-sm text-slate-400">Фактических выдач пока нет.</div> : null}
+                </div>
+              </div>
+              <div>
+                <div className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Урожай</div>
+                <div className="space-y-2">
+                  {selectedFieldHarvests.slice(0, 4).map((item) => (
+                    <div key={item.id} className="rounded-lg bg-[#101827] px-3 py-2 text-sm">
+                      <div className="truncate font-medium text-slate-100">{item.product_name || item.ticket_no || "Талон урожая"}</div>
+                      <div className="text-xs text-slate-400">{item.quantity != null ? `${item.quantity.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} ${item.unit || ""}` : formatKg(item.net_weight_kg)}{item.status ? ` • ${item.status}` : ""}</div>
+                    </div>
+                  ))}
+                  {!selectedFieldHarvests.length ? <div className="text-sm text-slate-400">Урожай по весовой пока не найден.</div> : null}
+                </div>
+              </div>
+            </div>
+          </aside>
+        ) : null}
+
+        {mapWorkMode === "engineering" ? (
+          <aside className="pointer-events-auto absolute right-3 top-[88px] z-10 w-[min(420px,calc(100%-24px))] rounded-2xl border border-white/10 bg-[#0B111D]/94 p-4 shadow-2xl backdrop-blur">
+            <div className="mb-3 flex items-start justify-between gap-3"><div><div className="text-xs uppercase tracking-[0.24em] text-cyan-300">Инженерия капельного</div><h2 className="mt-1 text-xl font-bold text-slate-50">{editingEngineeringObjectId ? "Редактировать объект" : "Добавить объект"}</h2></div><Button size="sm" variant="ghost" onClick={() => setSelectedEngineeringObjectId(null)}><X className="h-4 w-4" /></Button></div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-[1fr_118px] gap-2">
+                <Select value={engineeringObjectType} onValueChange={(value) => handleEngineeringTypeChange(value as FieldEngineeringObjectType)}>
+                  <SelectTrigger className="bg-[#080D16]"><SelectValue /></SelectTrigger>
+                  <SelectContent>{ENGINEERING_OBJECT_DEFINITIONS.map((item) => <SelectItem key={item.type} value={item.type}>{item.label}</SelectItem>)}</SelectContent>
+                </Select>
+                <Button variant="outline" onClick={() => startEngineeringDraw(selectedEngineeringDefinition.geometry === "Point" ? "point" : selectedEngineeringDefinition.geometry === "LineString" ? "line" : "polygon")}><MousePointer2 className="mr-2 h-4 w-4" />Рисовать</Button>
+              </div>
+              <input value={engineeringName} onChange={(event) => setEngineeringName(event.target.value)} placeholder={selectedEngineeringDefinition.label} className="h-10 w-full rounded-md border border-[#2B3448] bg-[#080D16] px-3 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100]" />
+              <Select value={engineeringFieldId} onValueChange={setEngineeringFieldId}>
+                <SelectTrigger className="bg-[#080D16]"><SelectValue placeholder="Поле необязательно" /></SelectTrigger>
+                <SelectContent><SelectItem value="none">Без привязки к полю</SelectItem>{fields.map((field) => <SelectItem key={`eng-field-${field.field_id}`} value={field.field_id}>Поле {field.field_display_name}</SelectItem>)}</SelectContent>
+              </Select>
+              <textarea value={engineeringDescription} onChange={(event) => setEngineeringDescription(event.target.value)} placeholder="Заметка инженера..." rows={3} className="w-full resize-none rounded-md border border-[#2B3448] bg-[#080D16] px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-[#E0B100]" />
+              <div className="rounded-lg border border-white/10 bg-[#111A29] p-3 text-sm text-slate-300">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <div className="font-medium text-slate-100">Чертёж</div>
+                    <div className="mt-1 text-xs text-slate-400">Режим: {engineeringDrawMode === "point" ? "точка" : engineeringDrawMode === "line" ? "линия" : engineeringDrawMode === "polygon" ? "зона" : "не выбран"} • точек: {engineeringDraftPoints.length}</div>
+                  </div>
+                  <>
+                    <Button size="sm" variant="outline" className="h-8 shrink-0 px-2 text-xs" onClick={placeEngineeringDraftAtMapCenter}>
+                      В центр
+                    </Button>
+                  </>
+                </div>
+                {engineeringDraftGeometry?.type === "LineString" ? <div className="mt-2">Длина: {formatDistance(engineeringDraftDistanceMeters)}</div> : null}
+                {engineeringDraftGeometry?.type === "Polygon" ? <div className="mt-2">Площадь: {formatSquare(engineeringDraftAreaSqMeters)}</div> : null}
+              </div>
+              <div className="flex gap-2"><Button className="flex-1" disabled={engineeringBusy} onClick={() => void handleSaveEngineeringObject()}><Save className="mr-2 h-4 w-4" />{engineeringBusy ? "Сохранение..." : "Сохранить"}</Button><Button variant="outline" onClick={clearEngineeringDraft}>Очистить</Button></div>
+            </div>
+            {selectedEngineeringObject ? <div className="mt-4 rounded-xl border border-cyan-400/25 bg-cyan-400/10 p-3"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-50">{selectedEngineeringObject.name}</div><div className="text-xs text-slate-400">{selectedObjectDefinition?.label || selectedEngineeringObject.object_type}{selectedObjectField ? ` • Поле ${selectedObjectField.field_display_name}` : ""}</div></div><Badge variant="outline">{selectedObjectMetric || "точка"}</Badge></div>{selectedEngineeringObject.description ? <div className="mt-2 text-sm text-slate-300">{selectedEngineeringObject.description}</div> : null}<div className="mt-3 flex gap-2"><Button size="sm" variant="outline" onClick={() => handleEditEngineeringObject(selectedEngineeringObject)}><Pencil className="mr-2 h-4 w-4" />Редактировать</Button><Button size="sm" variant="destructive" onClick={() => void handleDeleteEngineeringObject(selectedEngineeringObject.id)}><Trash2 className="mr-2 h-4 w-4" />Удалить</Button></div></div> : null}
+          </aside>
+        ) : null}
+
+        {!mapReady ? <div className="absolute inset-0 z-20 grid place-items-center bg-[#070B12]/70 text-sm text-slate-300 backdrop-blur-sm">Инициализация карты...</div> : null}
+      </section>
+
+      {uploadState || previewState ? <div className="rounded-xl border border-[#2B3448] bg-[#111827] p-3"><div className="flex flex-wrap items-center gap-2 text-sm text-slate-300">{uploadState ? <span>Файл: {uploadState.fileName} • полигонов {uploadState.polygons.length}</span> : null}{previewState ? <span>Совпало {previewState.stats.matched_polygons} / {previewState.stats.total_polygons}</span> : null}<div className="ml-auto flex flex-wrap gap-2"><Button size="sm" variant="outline" disabled={!uploadState || busy} onClick={() => void runPreview()}>Проверить совпадения</Button><Button size="sm" disabled={!previewState || busy} onClick={() => void confirmImport()}>Подтвердить импорт</Button><Button size="sm" variant="ghost" onClick={cancelImport}>Отмена</Button></div></div></div> : null}
+    </div>
+  );
+
+  /*
   return (
     <div className="space-y-4">
       <PageHeader
@@ -1832,7 +2723,7 @@ export function FieldsMapPage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[340px_1fr]">
         <Card className={`${showFieldListMobile ? "block" : "hidden"} order-2 md:block xl:order-1`}>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Поля ({filteredFields.length})</CardTitle>
+            <CardTitle className="text-base">Поля ({filteredFieldsCountLabel})</CardTitle>
           </CardHeader>
           <CardContent className="travkin-scrollbar max-h-[700px] space-y-2 overflow-y-auto">
             <div className="mb-2 space-y-2 rounded-lg border border-[#2B3448] bg-[#151C28] p-2">
@@ -1903,7 +2794,7 @@ export function FieldsMapPage() {
                 </button>
               );
             })}
-            {filteredFields.length === 0 ? <div className="text-sm text-slate-400">Поля по фильтру не найдены.</div> : null}
+            {!loading && filteredFields.length === 0 ? <div className="text-sm text-slate-400">Поля по фильтру не найдены.</div> : null}
           </CardContent>
         </Card>
 
@@ -2060,18 +2951,24 @@ export function FieldsMapPage() {
             {selectedField ? (
               <div className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <div className="text-sm font-semibold text-slate-100">Поле {selectedField.field_display_name}</div>
-                  <Button size="sm" variant="outline" onClick={() => router.push(`/fields/${selectedField.field_id}`)}>
+                  <div className="text-sm font-semibold text-slate-100">Поле {selectedField?.field_display_name || "-"}</div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (selectedField?.field_id) router.push(`/fields/${selectedField.field_id}`);
+                    }}
+                  >
                     <MapPinned className="mr-2 h-4 w-4" />
                     Открыть карточку поля
                   </Button>
                 </div>
                 <div className="grid gap-1 text-sm text-slate-300">
-                  <div>Площадь: {formatHa(selectedField.field_area_ha)}</div>
-                  <div>План: {selectedField.crop_plan?.crop_name || "Не указано"}</div>
-                  <div>Сорт: {selectedField.crop_plan?.variety_name || "—"}</div>
-                  <div>Репродукция: {selectedField.crop_plan?.reproduction_name || "—"}</div>
-                  <div>Последние операции: {selectedField.recent_operations.length || 0}</div>
+                  <div>Площадь: {formatHa(selectedField?.field_area_ha || 0)}</div>
+                  <div>План: {selectedField?.crop_plan?.crop_name || "Не указано"}</div>
+                  <div>Сорт: {selectedField?.crop_plan?.variety_name || "—"}</div>
+                  <div>Репродукция: {selectedField?.crop_plan?.reproduction_name || "—"}</div>
+                  <div>Последние операции: {selectedField?.recent_operations?.length || 0}</div>
                 </div>
               </div>
             ) : (
@@ -2113,9 +3010,9 @@ export function FieldsMapPage() {
 
           {uploadState ? (
             <div className="rounded-xl border border-[#2B3448] bg-[#151C28] p-3 text-sm text-slate-300">
-              Файл: <span className="font-medium">{uploadState.fileName}</span> · Полигонов: {uploadState.polygons.length}
-              {uploadState.errors.length > 0 ? (
-                <div className="mt-2 text-xs text-amber-300">Предупреждения: {uploadState.errors.join("; ")}</div>
+              Файл: <span className="font-medium">{uploadState?.fileName || "-"}</span> · Полигонов: {uploadState?.polygons?.length || 0}
+              {(uploadState?.errors?.length || 0) > 0 ? (
+                <div className="mt-2 text-xs text-amber-300">Предупреждения: {uploadState?.errors?.join("; ")}</div>
               ) : null}
             </div>
           ) : (
@@ -2127,10 +3024,10 @@ export function FieldsMapPage() {
           {previewState ? (
             <div className="space-y-3 rounded-xl border border-[#2B3448] bg-[#151C28] p-3">
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                <Badge variant="outline">Всего: {previewState.stats.total_polygons}</Badge>
-                <Badge className="bg-emerald-600 text-white">Совпало: {previewState.stats.matched_polygons}</Badge>
-                <Badge className="bg-amber-500 text-black">Несопоставлено: {previewState.stats.unmatched_polygons}</Badge>
-                <Badge className="bg-rose-600 text-white">Ошибок: {previewState.stats.error_count}</Badge>
+                <Badge variant="outline">Всего: {previewState?.stats?.total_polygons || 0}</Badge>
+                <Badge className="bg-emerald-600 text-white">Совпало: {previewState?.stats?.matched_polygons || 0}</Badge>
+                <Badge className="bg-amber-500 text-black">Несопоставлено: {previewState?.stats?.unmatched_polygons || 0}</Badge>
+                <Badge className="bg-rose-600 text-white">Ошибок: {previewState?.stats?.error_count || 0}</Badge>
               </div>
 
               {unresolvedRows.length > 0 ? (
@@ -2184,12 +3081,12 @@ export function FieldsMapPage() {
 
               {previewDiagnostics ? (
                 <div className="rounded-lg border border-[#2B3448] bg-[#0f1624] p-2 text-xs text-slate-300">
-                  <div>request_id: {previewDiagnostics.request_id}</div>
-                  <div>preview_status: {previewDiagnostics.preview_status}</div>
-                  <div>season_id: {previewDiagnostics.season_id || "—"}</div>
-                  <div>polygons received/valid: {previewDiagnostics.polygons_received}/{previewDiagnostics.polygons_valid}</div>
-                  <div>error stage: {previewDiagnostics.error_stage || "—"}</div>
-                  <div>error message: {previewDiagnostics.error_message || "—"}</div>
+                  <div>request_id: {previewDiagnostics?.request_id || "—"}</div>
+                  <div>preview_status: {previewDiagnostics?.preview_status || "—"}</div>
+                  <div>season_id: {previewDiagnostics?.season_id || "—"}</div>
+                  <div>polygons received/valid: {previewDiagnostics?.polygons_received || 0}/{previewDiagnostics?.polygons_valid || 0}</div>
+                  <div>error stage: {previewDiagnostics?.error_stage || "—"}</div>
+                  <div>error message: {previewDiagnostics?.error_message || "—"}</div>
                 </div>
               ) : null}
 
@@ -2352,9 +3249,10 @@ export function FieldsMapPage() {
               </tbody>
             </table>
           </div>
-          {imports.length === 0 ? <div className="py-4 text-sm text-slate-400">История импортов пока пустая.</div> : null}
+          {!loading && imports.length === 0 ? <div className="py-4 text-sm text-slate-400">История импортов пока пустая.</div> : null}
         </CardContent>
       </Card>
     </div>
   );
+  */
 }

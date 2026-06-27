@@ -87,9 +87,9 @@ type AssistantServerContextPayload = {
 };
 
 const DEFAULT_ASSISTANT_SEASON = "2026";
-const DEFAULT_ASSISTANT_PANEL_WIDTH = 520;
+const DEFAULT_ASSISTANT_PANEL_WIDTH = 620;
 const MIN_ASSISTANT_PANEL_WIDTH = 360;
-const MAX_ASSISTANT_PANEL_WIDTH = 920;
+const MAX_ASSISTANT_PANEL_WIDTH = 1280;
 
 function clampAssistantPanelWidth(width: unknown): number {
   const parsed = typeof width === "number" ? width : Number(width);
@@ -208,7 +208,7 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
 
-  const enabled = canUseAssistantShell(profile?.role) && !profile?.role_is_legacy_alias;
+  const enabled = canUseAssistantShell(profile?.role);
   const debugMonitorEnabled = isDebugEnabledForRole(profile?.role);
   const [isOpen, setIsOpen] = useState(false);
   const [debugMonitorOpen, setDebugMonitorOpen] = useState(false);

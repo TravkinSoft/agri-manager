@@ -28,11 +28,13 @@ import {
 } from "lucide-react";
 import { useSidebar } from "@/lib/contexts/sidebar-context";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { useLanguage } from "@/lib/contexts/language-context";
+import type { TranslationKey } from "@/lib/i18n/translations";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TravkinLogo } from "@/components/layout/travkin-logo";
 
 interface NavItem {
-  label: string;
+  labelKey: TranslationKey;
   href: string;
   icon: any;
 }
@@ -50,107 +52,107 @@ function handleHardNavigation(event: MouseEvent<HTMLAnchorElement>, href: string
 }
 
 const ADMIN_NAV: NavItem[] = [
-  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Поля", href: "/fields", icon: MapPin },
-  { label: "Карта полей", href: "/fields-map", icon: Map },
-  { label: "Кадастр и право", href: "/land-legal", icon: ScrollText },
-  { label: "Структура посевов", href: "/crop-structure", icon: Sprout },
-  { label: "Системы защиты и ухода", href: "/care-systems", icon: ShieldCheck },
-  { label: "История полей", href: "/field-history", icon: History },
-  { label: "Операции", href: "/operations", icon: Tractor },
-  { label: "Склады", href: "/warehouses", icon: Package },
-  { label: "Питание / Термосы", href: "/meal-thermoses", icon: UtensilsCrossed },
-  { label: "Весовая", href: "/weighbridge", icon: Scale },
-  { label: "Машины", href: "/machines", icon: PackageSearch },
-  { label: "Техника", href: "/technique", icon: Tractor },
-  { label: "АЗС / ГСМ", href: "/fuel", icon: Droplets },
-  { label: "Аналитика", href: "/analytics", icon: BarChart3 },
-  { label: "Справочники", href: "/references", icon: BookOpen },
-  { label: "Пользователи", href: "/users", icon: Users },
-  { label: "Настройки", href: "/settings", icon: Settings },
-  { label: "Импорт", href: "/import", icon: Upload },
+  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "fields", href: "/fields", icon: MapPin },
+  { labelKey: "field_map", href: "/fields-map", icon: Map },
+  { labelKey: "land_legal", href: "/land-legal", icon: ScrollText },
+  { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
+  { labelKey: "care_systems", href: "/care-systems", icon: ShieldCheck },
+  { labelKey: "field_history", href: "/field-history", icon: History },
+  { labelKey: "operations", href: "/operations", icon: Tractor },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "meal_thermoses", href: "/meal-thermoses", icon: UtensilsCrossed },
+  { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
+  { labelKey: "machines", href: "/machines", icon: PackageSearch },
+  { labelKey: "technique", href: "/technique", icon: Tractor },
+  { labelKey: "fuel", href: "/fuel", icon: Droplets },
+  { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
+  { labelKey: "references", href: "/references", icon: BookOpen },
+  { labelKey: "users", href: "/users", icon: Users },
+  { labelKey: "settings", href: "/settings", icon: Settings },
+  { labelKey: "import", href: "/import", icon: Upload },
 ];
 
 const AGRONOMIST_NAV: NavItem[] = [
-  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Поля", href: "/fields", icon: MapPin },
-  { label: "Карта полей", href: "/fields-map", icon: Map },
-  { label: "Структура посевов", href: "/crop-structure", icon: Sprout },
-  { label: "Системы защиты и ухода", href: "/care-systems", icon: ShieldCheck },
-  { label: "История полей", href: "/field-history", icon: History },
-  { label: "Операции", href: "/operations", icon: Tractor },
-  { label: "Склады", href: "/warehouses", icon: Package },
-  { label: "Техника", href: "/technique", icon: Tractor },
-  { label: "Аналитика", href: "/analytics", icon: BarChart3 },
-  { label: "Справочники", href: "/references", icon: BookOpen },
+  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "fields", href: "/fields", icon: MapPin },
+  { labelKey: "field_map", href: "/fields-map", icon: Map },
+  { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
+  { labelKey: "care_systems", href: "/care-systems", icon: ShieldCheck },
+  { labelKey: "field_history", href: "/field-history", icon: History },
+  { labelKey: "operations", href: "/operations", icon: Tractor },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "technique", href: "/technique", icon: Tractor },
+  { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
+  { labelKey: "references", href: "/references", icon: BookOpen },
 ];
 
 const DIRECTOR_NAV: NavItem[] = [
-  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Поля", href: "/fields", icon: MapPin },
-  { label: "Карта полей", href: "/fields-map", icon: Map },
-  { label: "Структура посевов", href: "/crop-structure", icon: Sprout },
-  { label: "Системы защиты и ухода", href: "/care-systems", icon: ShieldCheck },
-  { label: "История полей", href: "/field-history", icon: History },
-  { label: "Операции", href: "/operations", icon: Tractor },
-  { label: "Склады", href: "/warehouses", icon: Package },
-  { label: "Кадастр и право", href: "/land-legal", icon: ScrollText },
-  { label: "Техника", href: "/technique", icon: Tractor },
-  { label: "Аналитика", href: "/analytics", icon: BarChart3 },
-  { label: "Справочники", href: "/references", icon: BookOpen },
+  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "fields", href: "/fields", icon: MapPin },
+  { labelKey: "field_map", href: "/fields-map", icon: Map },
+  { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
+  { labelKey: "care_systems", href: "/care-systems", icon: ShieldCheck },
+  { labelKey: "field_history", href: "/field-history", icon: History },
+  { labelKey: "operations", href: "/operations", icon: Tractor },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "land_legal", href: "/land-legal", icon: ScrollText },
+  { labelKey: "technique", href: "/technique", icon: Tractor },
+  { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
+  { labelKey: "references", href: "/references", icon: BookOpen },
 ];
 
 const WAREHOUSE_NAV: NavItem[] = [
-  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Склады", href: "/warehouses", icon: Package },
-  { label: "Инвентарь", href: "/inventory", icon: Package },
-  { label: "Движение запасов", href: "/warehouses/transactions", icon: History },
-  { label: "Заявки на выдачу", href: "/warehouses/requests", icon: CheckSquare },
-  { label: "Складские справочники", href: "/warehouses/manage", icon: BookOpen },
-  { label: "Питание / Термосы", href: "/meal-thermoses", icon: UtensilsCrossed },
+  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "inventory_nav", href: "/inventory", icon: Package },
+  { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History },
+  { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare },
+  { labelKey: "warehouse_catalogs", href: "/warehouses/manage", icon: BookOpen },
+  { labelKey: "meal_thermoses", href: "/meal-thermoses", icon: UtensilsCrossed },
 ];
 
 const WAREHOUSE_OPERATOR_NAV: NavItem[] = [
-  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Весовая", href: "/weighbridge", icon: Scale },
-  { label: "Склады", href: "/warehouses", icon: Package },
-  { label: "Инвентарь", href: "/inventory", icon: Package },
-  { label: "Движение запасов", href: "/warehouses/transactions", icon: History },
-  { label: "Заявки на выдачу", href: "/warehouses/requests", icon: CheckSquare },
-  { label: "Питание / Термосы", href: "/meal-thermoses", icon: UtensilsCrossed },
+  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "inventory_nav", href: "/inventory", icon: Package },
+  { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History },
+  { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare },
+  { labelKey: "meal_thermoses", href: "/meal-thermoses", icon: UtensilsCrossed },
 ];
 
 const WEIGHMAN_NAV: NavItem[] = [
-  { label: "Весовая", href: "/weighbridge", icon: Scale },
-  { label: "Машины", href: "/machines", icon: PackageSearch },
-  { label: "Склады", href: "/warehouses", icon: Package },
-  { label: "Переработка", href: "/processing", icon: FlaskConical },
-  { label: "Тара", href: "/containers", icon: PackageSearch },
-  { label: "Журнал проводок", href: "/ledger", icon: ScrollText },
+  { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
+  { labelKey: "machines", href: "/machines", icon: PackageSearch },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "processing", href: "/processing", icon: FlaskConical },
+  { labelKey: "containers", href: "/containers", icon: PackageSearch },
+  { labelKey: "ledger", href: "/ledger", icon: ScrollText },
 ];
 
 const SPECIALIST_NAV: NavItem[] = [
-  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Мои задачи", href: "/tasks", icon: CheckSquare },
+  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "my_tasks", href: "/tasks", icon: CheckSquare },
 ];
 
 const BRIGADIER_NAV: NavItem[] = [
-  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Операции", href: "/operations", icon: Tractor },
-  { label: "Поля", href: "/fields", icon: MapPin },
-  { label: "Карта полей", href: "/fields-map", icon: Map },
-  { label: "Питание / Термосы", href: "/meal-thermoses", icon: UtensilsCrossed },
+  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "operations", href: "/operations", icon: Tractor },
+  { labelKey: "fields", href: "/fields", icon: MapPin },
+  { labelKey: "field_map", href: "/fields-map", icon: Map },
+  { labelKey: "meal_thermoses", href: "/meal-thermoses", icon: UtensilsCrossed },
 ];
 
 const LEGAL_OPERATOR_NAV: NavItem[] = [
-  { label: "Панель", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Кадастр и право", href: "/land-legal", icon: ScrollText },
-  { label: "Поля", href: "/fields", icon: MapPin },
-  { label: "Карта полей", href: "/fields-map", icon: Map },
-  { label: "Аналитика", href: "/analytics", icon: BarChart3 },
+  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "land_legal", href: "/land-legal", icon: ScrollText },
+  { labelKey: "fields", href: "/fields", icon: MapPin },
+  { labelKey: "field_map", href: "/fields-map", icon: Map },
+  { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
 ];
 
-const FUEL_OPERATOR_NAV: NavItem[] = [{ label: "АЗС / ГСМ", href: "/fuel", icon: Droplets }];
+const FUEL_OPERATOR_NAV: NavItem[] = [{ labelKey: "fuel", href: "/fuel", icon: Droplets }];
 
 function getNavigationByRole(role?: string | null): NavItem[] {
   if (role === "global_admin" || role === "company_admin") return ADMIN_NAV;
@@ -170,6 +172,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { isCollapsed } = useSidebar();
   const { profile } = useAuth();
+  const { t } = useLanguage();
   const navigation = getNavigationByRole(profile?.role);
 
   return (
@@ -193,10 +196,10 @@ export function Sidebar() {
           {navigation.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
-            const label = item.label;
+            const label = t(item.labelKey);
             const linkContent = (
               <Link
-                key={`${item.href}-${label}`}
+                key={`${item.href}-${item.labelKey}`}
                 href={item.href}
                 onClick={(event) => handleHardNavigation(event, item.href)}
                 className={cn(
@@ -221,7 +224,7 @@ export function Sidebar() {
 
             if (isCollapsed) {
               return (
-                <Tooltip key={`${item.href}-${label}`}>
+                <Tooltip key={`${item.href}-${item.labelKey}`}>
                   <TooltipTrigger asChild>{linkContent}</TooltipTrigger>
                   <TooltipContent side="right" className="font-medium">
                     {label}

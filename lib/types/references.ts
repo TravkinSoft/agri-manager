@@ -1,4 +1,12 @@
 import { z } from "zod";
+import {
+  ADDITIVE_SUBCATEGORIES,
+  FERTILIZER_SUBCATEGORIES,
+  MATERIAL_PRODUCT_TYPES,
+  PESTICIDE_SUBCATEGORIES,
+  type MaterialProductType,
+  type MaterialSubcategory,
+} from "@/lib/materials/classification";
 
 export const cropSchema = z.object({
   name: z.string().min(1, "Crop name is required").max(100, "Crop name is too long"),
@@ -116,6 +124,11 @@ export const fertilizerTypeValues = [
   "organic",
 ] as const;
 
+export const materialProductTypeValues = MATERIAL_PRODUCT_TYPES;
+export const pesticideSubcategoryValues = PESTICIDE_SUBCATEGORIES;
+export const fertilizerSubcategoryValues = FERTILIZER_SUBCATEGORIES;
+export const additiveSubcategoryValues = ADDITIVE_SUBCATEGORIES;
+
 export const agrochemicalBaseSchema = z.object({
   name: z.string().min(1, "Name is required").max(150, "Name is too long"),
   active_ingredient: z.string().min(1, "Active ingredient is required").max(200, "Active ingredient is too long"),
@@ -151,6 +164,7 @@ export type PesticideFormData = z.input<typeof pesticideSchema>;
 export type FertilizerFormData = z.input<typeof fertilizerSchema>;
 export type PesticideCategory = (typeof pesticideCategoryValues)[number];
 export type FertilizerType = (typeof fertilizerTypeValues)[number];
+export type { MaterialProductType, MaterialSubcategory };
 
 export interface Crop {
   id: string;
@@ -289,7 +303,10 @@ export interface AgrochemicalReference {
   id: string;
   name: string;
   trade_name: string | null;
-  type: "pesticide" | "fertilizer";
+  type: "pesticide" | "fertilizer" | "additive" | string;
+  product_type?: MaterialProductType | "growth_regulator" | "adjuvant" | string | null;
+  category?: string | null;
+  subcategory?: MaterialSubcategory | string | null;
   pesticide_category: PesticideCategory | null;
   pesticide_subcategories: string[] | null;
   fertilizer_type: FertilizerType | null;

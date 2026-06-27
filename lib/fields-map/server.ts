@@ -41,7 +41,9 @@ export async function resolveFieldsMapContext(
 function isMissingRelationError(message: string): boolean {
   const normalized = String(message || "").toLowerCase();
   const referencesFieldMapTables =
-    normalized.includes("field_geometries") || normalized.includes("field_map_imports");
+    normalized.includes("field_geometries") ||
+    normalized.includes("field_map_imports") ||
+    normalized.includes("field_engineering_objects");
   const isMissingTable =
     (normalized.includes("relation") && normalized.includes("does not exist")) ||
     normalized.includes("could not find the table") ||

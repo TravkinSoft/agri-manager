@@ -3,6 +3,7 @@ import type {
   AssistantNavigationAction,
   AssistantPendingActionType,
   AssistantSessionState,
+  AssistantUiContext,
 } from "@/lib/assistant/engine/types";
 
 export type AssistantActionPlan = {
@@ -90,6 +91,13 @@ function safeJson(payload: Record<string, unknown>): string {
   }
 }
 
+function isOperationDraftText(value: string): boolean {
+  return (
+    /(operation|spray|spraying|herbicid|fungicid|insecticid|fertiliz|planting|sowing|harvest|soil|material|rate|l\/ha|kg\/ha|отработ|обработ|заплан|созда[йт]|сдела[йт])/i.test(value) ||
+    /(?:операц|обработ|гербицид|фунгицид|инсектицид|сзр|удобрен|посев|посадк|уборк|дисков|культивац|вспаш|борон|почво|материал|норма|л\/га|кг\/га)/i.test(value)
+  );
+}
+
 function summarizeNavigation(action: AssistantNavigationAction): string {
   if (action.type === "open_entity") {
     return `open ${action.entityType}${action.entityId ? ` ${action.entityId}` : ""}`;
@@ -103,6 +111,7 @@ function summarizeNavigation(action: AssistantNavigationAction): string {
 function inferDraftKind(intent: AssistantIntent): AssistantDraftKind {
   const tool = cleanString(intent.parameters.tool) || cleanString(intent.parameters.draft_type);
   if (tool) {
+    if (tool.includes("operation")) return "operation";
     if (tool.includes("weighbridge")) return "weighbridge_ticket";
     if (tool.includes("meal")) return "meal_order";
     if (tool.includes("transfer")) return "transfer";
@@ -114,11 +123,69 @@ function inferDraftKind(intent: AssistantIntent): AssistantDraftKind {
     return "operation";
   }
   const raw = JSON.stringify(intent.parameters || {}).toLowerCase();
-  if (raw.includes("weighbridge") || raw.includes("ticket")) return "weighbridge_ticket";
-  if (raw.includes("warehouse") || raw.includes("stock")) return "warehouse";
-  if (raw.includes("field")) return "field";
-  if (raw.includes("meal") || raw.includes("thermos")) return "meal_order";
+  if (/(weighbridge|ticket|талон|весов)/i.test(raw)) return "weighbridge_ticket";
+  if (/(meal|thermos|питан|термос)/i.test(raw)) return "meal_order";
+  if (/(transfer|перемещ)/i.test(raw)) return "transfer";
+  if (/(fuel|гсм|топлив|азс)/i.test(raw)) return "fuel_issue";
+  if (/(warehouse|stock|склад)/i.test(raw)) return "warehouse";
+  if (/(field|поле)/i.test(raw) && !isOperationDraftText(raw)) return "field";
+  if (isOperationDraftText(raw)) return "operation";
   return "operation";
+}
+
+function parseOperationDateFromText(value: string): string | null {
+  const lower = value.toLowerCase();
+  const date = new Date();
+  if (/(сегодня|today)/i.test(lower)) return date.toISOString().slice(0, 10);
+  if (/(завтра|tomorrow)/i.test(lower)) {
+    date.setDate(date.getDate() + 1);
+    return date.toISOString().slice(0, 10);
+  }
+  const match = value.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
+  if (!match) return null;
+  const day = match[1].padStart(2, "0");
+  const month = match[2].padStart(2, "0");
+  const year = match[3] ? (match[3].length === 2 ? `20${match[3]}` : match[3]) : String(new Date().getFullYear());
+  return `${year}-${month}-${day}`;
+}
+
+function applyOperationDraftTextFields(output: Record<string, unknown>, query: string): void {
+  if (!isOperationDraftText(query)) return;
+  const fieldMatch = query.match(/(?:поле|field)\s*№?\s*([0-9]{1,3}(?:-[0-9]{1,3}){0,2}[а-яa-z]?)/i);
+  const areaMatch = query.match(/(?:^|[^\d])(\d+(?:[,.]\d+)?)\s*(?:га|ha)(?=\s|[.,;:]|$)/i);
+  const date = parseOperationDateFromText(query);
+
+  if (fieldMatch && output.field == null) output.field = fieldMatch[1];
+  if (areaMatch && output.area_ha == null) output.area_ha = Number(areaMatch[1].replace(",", "."));
+  if (date && output.date == null) output.date = date;
+  if (output.operation_type == null) {
+    if (/(гербицид|herbicid)/i.test(query)) output.operation_type = "herbicide_spraying";
+    else if (/(фунгицид|fungicid)/i.test(query)) output.operation_type = "fungicide_spraying";
+    else if (/(инсектицид|insecticid)/i.test(query)) output.operation_type = "insecticide_spraying";
+    else if (/(spray|обработ)/i.test(query)) output.operation_type = "spraying";
+    else if (/(удобрен|fertiliz)/i.test(query)) output.operation_type = "fertilizer_application";
+    else if (/(посев|посадк|planting|sowing)/i.test(query)) output.operation_type = "planting";
+    else if (/(уборк|harvest)/i.test(query)) output.operation_type = "harvesting";
+    else if (/(почво|soil|диск|культивац|вспаш|борон)/i.test(query)) output.operation_type = "soil_operation";
+  }
+}
+
+function applyWeighbridgeDraftTextFields(output: Record<string, unknown>, query: string): void {
+  const text = query.toLowerCase();
+  if (!/(талон|весов|weighbridge|ticket)/i.test(text)) return;
+  if (output.movement_type == null) {
+    if (/(постав|приход|receipt)/i.test(text)) output.movement_type = "поставка/приход";
+    else if (/(отгруз|shipment)/i.test(text)) output.movement_type = "отгрузка";
+    else if (/(перемещ|transfer)/i.test(text)) output.movement_type = "перемещение";
+    else if (/(урожай|harvest)/i.test(text)) output.movement_type = "урожай с поля";
+  }
+  if (output.product_lines == null) {
+    const productMatch = query.match(
+      /(?:поставк[ауи]?|приход|отгрузк[ауи]?|товар(?:ы)?|материал(?:ы)?)\s+(.+?)(?:\s+(?:на|в)\s+склад|\s+со\s+склада|\s+от\s+|$)/i
+    );
+    const product = cleanString(productMatch?.[1]);
+    if (product) output.product_lines = product;
+  }
 }
 
 function collectDraftFields(intent: AssistantIntent): Record<string, unknown> {
@@ -161,6 +228,86 @@ function collectDraftFields(intent: AssistantIntent): Record<string, unknown> {
     }
   });
 
+  const query = cleanString(params.query);
+  if (query) {
+    applyWeighbridgeDraftTextFields(output, query);
+    applyOperationDraftTextFields(output, query);
+  }
+
+  return output;
+}
+
+function setIfMissing(output: Record<string, unknown>, key: string, value: unknown): void {
+  const current = output[key];
+  const hasCurrent = Array.isArray(current)
+    ? current.length > 0
+    : current !== null && current !== undefined && String(current).trim().length > 0;
+  const hasNext = Array.isArray(value)
+    ? value.length > 0
+    : value !== null && value !== undefined && String(value).trim().length > 0;
+  if (!hasCurrent && hasNext) output[key] = value;
+}
+
+function enrichDraftFieldsFromContext(params: {
+  draftKind: AssistantDraftKind;
+  collected: Record<string, unknown>;
+  sessionState?: AssistantSessionState | null;
+  runtimeContext?: AssistantUiContext | null;
+}): Record<string, unknown> {
+  const output = { ...params.collected };
+  const state = params.sessionState || null;
+  const runtime = params.runtimeContext || null;
+
+  if (params.draftKind === "operation" || params.draftKind === "field_task" || params.draftKind === "material_issue") {
+    const fieldId =
+      cleanString(runtime?.selectedFieldId) ||
+      cleanString(state?.lastFieldId) ||
+      (state?.focusEntityType === "field" ? cleanString(state.focusEntityId) : null);
+    const fieldLabel =
+      cleanString(runtime?.selectedFieldLabel) ||
+      cleanString(state?.lastFieldLabel) ||
+      cleanString(state?.lastField) ||
+      (state?.focusEntityType === "field" ? cleanString(state.focusEntityLabel) : null);
+    const sectionId =
+      cleanString(runtime?.selectedCropStructureSectionId) ||
+      cleanString(state?.lastCropStructureSectionId) ||
+      (state?.focusEntityType === "crop_structure_line" ? cleanString(state.focusEntityId) : null);
+    const sectionLabel =
+      cleanString(runtime?.selectedCropStructureSectionLabel) ||
+      cleanString(state?.lastCropStructureSectionLabel) ||
+      cleanString(state?.lastCropStructureSection) ||
+      (state?.focusEntityType === "crop_structure_line" ? cleanString(state.focusEntityLabel) : null);
+    const crop = cleanString(runtime?.selectedCrop) || cleanString(state?.lastCrop);
+
+    setIfMissing(output, "field_id", fieldId);
+    setIfMissing(output, "field_label", fieldLabel);
+    setIfMissing(output, "field", fieldLabel || fieldId);
+    setIfMissing(output, "crop_structure_id", sectionId);
+    setIfMissing(output, "crop_structure_label", sectionLabel);
+    setIfMissing(output, "crop_structure", sectionLabel || sectionId);
+    setIfMissing(output, "crop", crop);
+  }
+
+  if (
+    params.draftKind === "weighbridge_ticket" ||
+    params.draftKind === "warehouse" ||
+    params.draftKind === "transfer" ||
+    params.draftKind === "material_issue"
+  ) {
+    const warehouseId =
+      cleanString(runtime?.selectedWarehouseId) ||
+      cleanString(state?.lastWarehouseId) ||
+      (state?.focusEntityType === "warehouse" ? cleanString(state.focusEntityId) : null);
+    const warehouseLabel =
+      cleanString(runtime?.selectedWarehouseLabel) ||
+      cleanString(state?.lastWarehouseLabel) ||
+      cleanString(state?.lastWarehouse) ||
+      (state?.focusEntityType === "warehouse" ? cleanString(state.focusEntityLabel) : null);
+
+    setIfMissing(output, "warehouse_id", warehouseId);
+    setIfMissing(output, "warehouse", warehouseLabel || warehouseId);
+  }
+
   return output;
 }
 
@@ -188,6 +335,8 @@ export function buildAssistantActionPlan(params: {
   intent: AssistantIntent;
   navigationActions: AssistantNavigationAction[];
   requestMessage: string;
+  sessionState?: AssistantSessionState | null;
+  runtimeContext?: AssistantUiContext | null;
 }): AssistantActionPlan | null {
   const firstNavigation = params.navigationActions[0] || null;
   if (firstNavigation) {
@@ -207,7 +356,12 @@ export function buildAssistantActionPlan(params: {
 
   if (params.intent.name === "create_draft") {
     const draftKind = inferDraftKind(params.intent);
-    const collectedFields = collectDraftFields(params.intent);
+    const collectedFields = enrichDraftFieldsFromContext({
+      draftKind,
+      collected: collectDraftFields(params.intent),
+      sessionState: params.sessionState,
+      runtimeContext: params.runtimeContext,
+    });
     const missingFields = findMissingRequiredFields(draftKind, collectedFields);
     return {
       type: "create_draft",

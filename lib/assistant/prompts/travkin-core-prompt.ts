@@ -69,6 +69,12 @@ function buildCorePrompt(params: {
   const internetPolicy = params.settings.knowledgePolicy?.allowPublicInternetLookup
     ? "Public internet lookup policy: allowed only through explicit approved tools and with source separation."
     : "Public internet lookup policy: do not rely on the public internet by default. If internal library and ERP are insufficient, say what is missing instead of inventing.";
+  const librarySourceHintPolicy = params.settings.knowledgePolicy?.requireLibrarySourceHints
+    ? "Knowledge source hint policy: when an answer uses internal library context, mention that it is based on the company knowledge library without exposing internal IDs."
+    : "Knowledge source hint policy: source hints are optional unless the user asks for sources.";
+  const modelFallbackPolicy = params.settings.knowledgePolicy?.fallbackToModelKnowledge
+    ? "Model knowledge fallback policy: if ERP and internal library do not cover a general educational question, you may answer from general model knowledge and say it is a general explanation."
+    : "Model knowledge fallback policy: if ERP and internal library do not cover the question, say the data/document is missing instead of answering from generic model knowledge.";
   const memoryPolicy = params.settings.memoryPolicy?.isolateMemoryPerUser
     ? "User memory policy: durable preferences are scoped to the current company and current user only; never apply one user's style preference to another user."
     : "User memory policy: use durable preferences cautiously and do not treat them as ERP facts.";
@@ -89,6 +95,8 @@ function buildCorePrompt(params: {
     "Source-of-truth priority: ERP data tools are the source for live facts, quantities, balances, statuses, tickets, operations and areas. Internal knowledge library is the source for manuals, agronomy, machinery and methods. Generic model knowledge is only fallback for general explanation.",
     internalLibraryPolicy,
     internetPolicy,
+    librarySourceHintPolicy,
+    modelFallbackPolicy,
     memoryPolicy,
     companyPolicy,
     "Active season priority: если выбран сезон в UI-контексте, используй его. Если не выбран — используй 2026. Если 2026 недоступен — используй последний доступный сезон компании. Историю используй только когда пользователь явно просит историю.",

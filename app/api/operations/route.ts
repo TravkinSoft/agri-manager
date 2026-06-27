@@ -9,7 +9,12 @@ import {
   type ServerActorTiming,
 } from "@/lib/auth/server-session";
 import { ensureMaterialRequestForOperation } from "@/app/api/operations/_material-request-helper";
-import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import {
+  isUnitAllowedForMaterialRateBasis,
+  normalizeMaterialRateBasis,
+} from "@/lib/materials/metadata";
+import { calculateMaterialPlannedQuantity } from "@/lib/materials/mix-calculations";
+import { SeasonGuardError, assertSeasonWritableForMutation } from "@/lib/seasons/season-guard";
 import {
   buildExecutionFactModelMetadata,
   buildWarehouseWorkflowMetadata,
@@ -75,6 +80,8 @@ type CreateOperationBody = {
       batch_id?: string | null;
       planned_rate?: number | null;
       actual_rate?: number | null;
+      rate_basis?: string | null;
+      planned_quantity?: number | null;
       unit?: string | null;
       notes?: string | null;
     }>;
@@ -94,7 +101,18 @@ type CreateOperationBody = {
     batch_id?: string | null;
     planned_rate?: number | null;
     actual_rate?: number | null;
+    rate_basis?: string | null;
+    planned_quantity?: number | null;
     unit?: string | null;
+    notes?: string | null;
+  }>;
+  targets?: Array<{
+    field_id?: string | null;
+    crop_structure_id?: string | null;
+    crop_id?: string | null;
+    variety_id?: string | null;
+    reproduction_id?: string | null;
+    planned_area_ha?: number | null;
     notes?: string | null;
   }>;
   date?: string;
@@ -303,9 +321,12 @@ const MATERIAL_TYPES = new Set([
   "other",
 ]);
 
-const MATERIAL_UNITS = new Set(["kg", "l", "pcs"]);
+const MATERIAL_UNITS = new Set(["kg", "l", "ml", "g", "pcs"]);
 
-function inferUnitByMaterialType(materialType: string): "kg" | "l" | "pcs" {
+type OperationMaterialUnitValue = "kg" | "l" | "ml" | "g" | "pcs";
+type OperationMaterialStorageUnitValue = "kg" | "l" | "pcs";
+
+function inferUnitByMaterialType(materialType: string): OperationMaterialUnitValue {
   if (
     materialType === "pesticide" ||
     materialType === "adjuvant" ||
@@ -319,6 +340,37 @@ function inferUnitByMaterialType(materialType: string): "kg" | "l" | "pcs" {
     return "kg";
   }
   return "kg";
+}
+
+function normalizeOperationMaterialStorage(
+  quantity: number | null,
+  unit: OperationMaterialUnitValue
+): {
+  quantity: number | null;
+  unit: OperationMaterialStorageUnitValue;
+  rateUnit: OperationMaterialUnitValue | null;
+} {
+  if (unit === "ml") {
+    return {
+      quantity: quantity !== null && quantity > 0 ? Number((quantity / 1000).toFixed(4)) : quantity,
+      unit: "l",
+      rateUnit: "ml",
+    };
+  }
+
+  if (unit === "g") {
+    return {
+      quantity: quantity !== null && quantity > 0 ? Number((quantity / 1000).toFixed(4)) : quantity,
+      unit: "kg",
+      rateUnit: "g",
+    };
+  }
+
+  return {
+    quantity,
+    unit,
+    rateUnit: null,
+  };
 }
 
 function allowsDefaultOperationLine(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
@@ -445,6 +497,9 @@ export async function POST(request: NextRequest) {
 
     let cropStructureId = toNullableUuid(body.crop_structure_id);
     const responsibleUserId = toNullableUuid(body.responsible_user_id);
+    if (!responsibleUserId) {
+      return NextResponse.json({ error: "responsible_user_id is required" }, { status: 400 });
+    }
 
     const operationCategorySlug = toNullableText(body.operation_category_slug);
     const requestedTypeSlug = toNullableText(body.operation_type_slug);
@@ -506,11 +561,13 @@ export async function POST(request: NextRequest) {
           (candidate) =>
             String(candidate?.product_id || "") === String(item?.product_id || "") &&
             String(candidate?.component_type || candidate?.material_type || "") === String(item?.component_type || item?.material_type || "") &&
-            String(candidate?.planned_rate ?? "") === String(item?.planned_rate ?? "")
+            String(candidate?.planned_rate ?? "") === String(item?.planned_rate ?? "") &&
+            String(candidate?.rate_basis ?? "") === String(item?.rate_basis ?? "")
         )
     );
     const deferCropStructureReadForFastPath =
       Boolean(cropStructureId && fieldId) &&
+      !Array.isArray(body.targets) &&
       !body.structure_change?.mode &&
       operationComponents.length === 0 &&
       !rowSpacingM &&
@@ -662,7 +719,63 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const effectivePlannedArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
+    const requestedTargets = Array.isArray(body.targets)
+      ? body.targets
+          .map((target) => ({
+            field_id: toNullableUuid(target?.field_id),
+            crop_structure_id: toNullableUuid(target?.crop_structure_id),
+            crop_id: toNullableUuid(target?.crop_id),
+            variety_id: toNullableUuid(target?.variety_id),
+            reproduction_id: toNullableUuid(target?.reproduction_id),
+            planned_area_ha: toNullableNumber(target?.planned_area_ha),
+            notes: toNullableText(target?.notes),
+          }))
+          .filter((target) => target.field_id && target.planned_area_ha != null && target.planned_area_ha > 0)
+      : [];
+    const targetStructureIds = Array.from(
+      new Set(requestedTargets.map((target) => target.crop_structure_id).filter(Boolean) as string[])
+    );
+    const targetStructuresById = new Map<string, any>();
+    if (targetStructureIds.length > 0) {
+      const targetReadStarted = Date.now();
+      const { data: targetStructureRows, error: targetStructureError } = await supabase
+        .from("crop_structure")
+        .select("id,field_id,crop_id,variety_id,reproduction_id,area,season_id,seasons:season_id(year)")
+        .eq("company_id", companyId)
+        .in("id", targetStructureIds);
+      timing.crop_structure_read_ms += Date.now() - targetReadStarted;
+      if (targetStructureError) {
+        return NextResponse.json({ error: targetStructureError.message }, { status: 400 });
+      }
+      (targetStructureRows || []).forEach((row: any) => targetStructuresById.set(String(row.id), row));
+      const missingTargetId = targetStructureIds.find((id) => !targetStructuresById.has(id));
+      if (missingTargetId) {
+        return NextResponse.json({ error: "target crop_structure_id does not belong to this company" }, { status: 400 });
+      }
+    }
+    const mismatchedTarget = requestedTargets.find((target) => {
+      const structure = target.crop_structure_id ? targetStructuresById.get(target.crop_structure_id) : null;
+      return structure?.field_id && target.field_id && String(structure.field_id) !== target.field_id;
+    });
+    if (mismatchedTarget) {
+      return NextResponse.json({ error: "target crop_structure_id must belong to target field_id" }, { status: 400 });
+    }
+    const normalizedTargets = requestedTargets.map((target) => {
+      const structure = target.crop_structure_id ? targetStructuresById.get(target.crop_structure_id) : null;
+      const area = Number(target.planned_area_ha || 0);
+      return {
+        field_id: structure?.field_id ? String(structure.field_id) : target.field_id,
+        crop_structure_id: target.crop_structure_id,
+        crop_id: structure?.crop_id ? toNullableUuid(structure.crop_id) : target.crop_id,
+        variety_id: structure?.variety_id ? toNullableUuid(structure.variety_id) : target.variety_id,
+        reproduction_id: structure?.reproduction_id ? toNullableUuid(structure.reproduction_id) : target.reproduction_id,
+        planned_area_ha: Number(area.toFixed(4)),
+        notes: target.notes || (target.crop_structure_id ? `crop_structure:${target.crop_structure_id}` : null),
+      };
+    });
+    const targetsPlannedArea = normalizedTargets.reduce((sum, target) => sum + Number(target.planned_area_ha || 0), 0);
+    const effectivePlannedArea =
+      targetsPlannedArea > 0 ? Number(targetsPlannedArea.toFixed(4)) : plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
     const isPotatoPlantingTemplate = operationTemplate === "potato_planting";
     const seedRateKgHa = toNullableNumber(body.rate_per_ha);
     if (isPotatoPlantingTemplate && (!resolvedSeedSpacingCm || resolvedSeedSpacingCm <= 0)) {
@@ -671,66 +784,63 @@ export async function POST(request: NextRequest) {
     if (isPotatoPlantingTemplate && (!seedRateKgHa || seedRateKgHa <= 0)) {
       return NextResponse.json({ error: "seed planting rate kg/ha is required for potato planting" }, { status: 400 });
     }
-    const productIds = Array.from(
-      new Set(operationComponents.map((item) => toNullableUuid(item?.product_id)).filter(Boolean) as string[])
-    );
-    if (productIds.length > 0 && !isPotatoPlantingTemplate) {
-      const { data: warehouseRows, error: warehouseError } = await supabase
-        .from("warehouses")
-        .select("id,name,warehouse_type,description,archived,is_archived")
-        .eq("company_id", companyId)
-        .eq("archived", false)
-        .eq("is_archived", false);
-      if (warehouseError) {
-        return NextResponse.json({ error: warehouseError.message }, { status: 400 });
-      }
-      const productionWarehouseIds = (warehouseRows || [])
-        .filter((row: any) => !hasQaDataMarker(`${row.name || ""} ${row.warehouse_type || ""} ${row.description || ""}`))
-        .map((row: any) => String(row.id || ""))
-        .filter(Boolean);
-      if (productionWarehouseIds.length === 0) {
-        return NextResponse.json(
-          { error: "Нет остатка на складе для выбранного материала" },
-          { status: 400 }
-        );
-      }
-      const { data: stockRows, error: stockError } = await supabase
-        .from("v_stock_balance_identity")
-        .select("warehouse_id,product_id,quantity")
-        .eq("company_id", companyId)
-        .in("warehouse_id", productionWarehouseIds)
-        .in("product_id", productIds)
-        .gt("quantity", 0);
-      if (stockError) {
-        return NextResponse.json({ error: stockError.message }, { status: 400 });
-      }
-      const availableProducts = new Set((stockRows || []).map((row: any) => String(row.product_id || "")));
-      const missingProductId = productIds.find((productId) => !availableProducts.has(productId));
-      if (missingProductId) {
-        return NextResponse.json(
-          { error: "Нет остатка на складе для выбранного материала", product_id: missingProductId },
-          { status: 400 }
-        );
-      }
-    }
-
+    const solutionRateLHa = toNullableNumber(body.tank_mix?.total_solution_l_ha ?? body.spray_volume_per_ha);
     const tankMixComponents = operationComponents.map((item) => {
       const componentType = String(item?.component_type || item?.material_type || "other").trim().toLowerCase();
       const definition = getTankMixComponentDefinition(componentType);
       const requestedUnit = String(item?.unit || "").trim().toLowerCase();
-      const unit = (MATERIAL_UNITS.has(requestedUnit) ? requestedUnit : definition.defaultUnit) as "kg" | "l" | "pcs";
+      const unit = (MATERIAL_UNITS.has(requestedUnit) ? requestedUnit : definition.defaultUnit) as OperationMaterialUnitValue;
+      const plannedRate = toNullableNumber(item?.planned_rate);
+      const rateBasis = normalizeMaterialRateBasis(toNullableText(item?.rate_basis));
+      const requestedPlannedQuantity = toNullableNumber(item?.planned_quantity);
+      const calculatedPlannedQuantity =
+        requestedPlannedQuantity && requestedPlannedQuantity > 0
+          ? requestedPlannedQuantity
+          : plannedRate && plannedRate > 0 && effectivePlannedArea && effectivePlannedArea > 0
+            ? calculateMaterialPlannedQuantity({
+                rate: plannedRate,
+                rateUnit: unit,
+                rateBasis,
+                areaHa: effectivePlannedArea,
+                solutionRateLHa,
+              }).plannedQuantity
+            : null;
       return {
         component_type: definition.slug,
         storage_material_type: definition.storageMaterialType,
         product_id: toNullableUuid(item?.product_id),
         batch_id: toNullableUuid(item?.batch_id),
-        planned_rate: toNullableNumber(item?.planned_rate),
+        planned_rate: plannedRate,
         actual_rate: toNullableNumber(item?.actual_rate),
+        rate_basis: rateBasis,
+        planned_quantity: calculatedPlannedQuantity && calculatedPlannedQuantity > 0 ? calculatedPlannedQuantity : null,
         unit,
         notes: toNullableText(item?.notes),
         product_required: definition.productRequired,
       };
     });
+    const invalidPerWaterUnit = tankMixComponents.find((item) => !isUnitAllowedForMaterialRateBasis(item.unit, item.rate_basis));
+    if (invalidPerWaterUnit) {
+      return NextResponse.json(
+        { error: "Selected unit is not allowed for this material rate basis." },
+        { status: 400 }
+      );
+    }
+    const missingSafePlannedQuantity = tankMixComponents.find(
+      (item) => item.product_id && (!item.planned_quantity || item.planned_quantity <= 0)
+    );
+    if (missingSafePlannedQuantity) {
+      await rollbackStructureChange({ supabase, companyId, event: pendingStructureChangeEvent });
+      return NextResponse.json(
+        {
+          error:
+            "Cannot safely calculate material requirement. Check rate, rate basis, area and solution rate.",
+          product_id: missingSafePlannedQuantity.product_id,
+          rate_basis: missingSafePlannedQuantity.rate_basis,
+        },
+        { status: 400 }
+      );
+    }
     const calculatedPlantsPerHa =
       resolvedRowSpacingM && resolvedSeedSpacingCm && resolvedRowSpacingM > 0 && resolvedSeedSpacingCm > 0
         ? Math.round(10000 / (resolvedRowSpacingM * (resolvedSeedSpacingCm / 100)))
@@ -779,12 +889,14 @@ export async function POST(request: NextRequest) {
       tank_mix: {
         enabled: Boolean(body.tank_mix?.enabled || canonicalType?.supportsTankMix),
         water_rate_l_ha: toNullableNumber(body.tank_mix?.water_rate_l_ha),
-        total_solution_l_ha: toNullableNumber(body.tank_mix?.total_solution_l_ha ?? body.spray_volume_per_ha),
+        total_solution_l_ha: solutionRateLHa,
         components: tankMixComponents,
       },
       warehouse_workflow: buildWarehouseWorkflowMetadata(),
       execution_fact_model: buildExecutionFactModelMetadata(),
       planned_area_ha: effectivePlannedArea,
+      targets: normalizedTargets.length > 0 ? normalizedTargets : undefined,
+      target_count: normalizedTargets.length > 0 ? normalizedTargets.length : undefined,
       crop_id: resolvedCropId,
       variety_id: resolvedVarietyId,
       reproduction_id: resolvedReproductionId,
@@ -816,8 +928,15 @@ export async function POST(request: NextRequest) {
       ...(requestFingerprint ? { request_fingerprint: requestFingerprint } : {}),
     };
 
+    await assertSeasonWritableForMutation(supabase, {
+      companyId,
+      seasonId: resolvedSeasonId,
+      actionLabel: "Создание операции",
+    });
+
     const canUseFastPlanCreate =
       Boolean(cropStructureId && fieldId) &&
+      normalizedTargets.length === 0 &&
       !pendingStructureChangeEvent &&
       operationComponents.length === 0 &&
       !resolvedRowSpacingM &&
@@ -959,27 +1078,32 @@ export async function POST(request: NextRequest) {
       timing.child_rows_insert_ms += Date.now() - childRowsStarted;
     }
 
-    const materialRows = operationComponents
+    const materialRows = tankMixComponents
       .map((item) => {
-        const componentType = String(item?.component_type || item?.material_type || "other").trim().toLowerCase();
-        const materialType = toStorageMaterialType(componentType);
-        const productId = toNullableUuid(item?.product_id);
+        const componentType = String(item.component_type || "other").trim().toLowerCase();
+        const materialType = toStorageMaterialType(item.storage_material_type || componentType);
+        const productId = item.product_id;
         if (!MATERIAL_TYPES.has(materialType) || !productId) return null;
-        const requestedUnit = String(item?.unit || "").trim().toLowerCase();
-        const unit = (MATERIAL_UNITS.has(requestedUnit) ? requestedUnit : inferUnitByMaterialType(materialType)) as "kg" | "l" | "pcs";
-        const plannedRate = toNullableNumber(item?.planned_rate);
-        const actualRate = toNullableNumber(item?.actual_rate);
+        const storage = normalizeOperationMaterialStorage(item.planned_quantity, item.unit);
+        const materialNotes = [
+          item.notes,
+          item.rate_basis ? `rate_basis:${item.rate_basis}` : null,
+          storage.rateUnit ? `rate_unit:${storage.rateUnit}` : null,
+        ]
+          .filter(Boolean)
+          .join("; ");
         return {
           company_id: companyId,
           operation_id: String(operationRow.id),
           operation_line_id: null,
           product_id: productId,
-          batch_id: toNullableUuid(item?.batch_id),
+          batch_id: item.batch_id,
           material_type: materialType,
-          unit,
-          planned_rate: plannedRate,
-          actual_rate: actualRate,
-          notes: toNullableText(item?.notes) || `component:${componentType}`,
+          unit: storage.unit,
+          planned_rate: item.planned_rate,
+          actual_rate: item.actual_rate,
+          planned_quantity: storage.quantity,
+          notes: materialNotes || `component:${componentType}`,
           created_by_user_id: actor.authUserId,
           updated_by_user_id: actor.authUserId,
         };
@@ -999,7 +1123,41 @@ export async function POST(request: NextRequest) {
 
     let defaultOperationLine: Record<string, unknown> | null = null;
     let operationLineWarning: string | null = null;
-    if (allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType)) {
+    const createdOperationLines: Record<string, unknown>[] = [];
+    if (normalizedTargets.length > 0 && allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType)) {
+      const lineRows = normalizedTargets.map((target) => ({
+        company_id: companyId,
+        operation_id: String(operationRow.id),
+        field_id: target.field_id,
+        crop_id: target.crop_id,
+        variety_id: target.variety_id,
+        reproduction_id: target.reproduction_id,
+        planned_area_ha: target.planned_area_ha,
+        actual_area_ha: null,
+        row_spacing_m: resolvedRowSpacingM,
+        seed_spacing_cm: resolvedSeedSpacingCm,
+        calculated_plants_per_ha: calculatedPlantsPerHa,
+        calculated_total_plants:
+          calculatedPlantsPerHa && target.planned_area_ha > 0 ? Math.round(calculatedPlantsPerHa * target.planned_area_ha) : null,
+        notes: [target.notes, target.crop_structure_id ? `crop_structure:${target.crop_structure_id}` : null, "Multi-target operation line"]
+          .filter(Boolean)
+          .join("; "),
+        created_by_user_id: actor.authUserId,
+        updated_by_user_id: actor.authUserId,
+      }));
+      const childRowsStarted = Date.now();
+      const { data: lineRowsData, error: lineRowsError } = await supabase
+        .from("operation_lines")
+        .insert(lineRows)
+        .select("*");
+      timing.child_rows_insert_ms += Date.now() - childRowsStarted;
+      if (lineRowsError) {
+        operationLineWarning = lineRowsError.message || "Failed to create operation target lines";
+      } else if (Array.isArray(lineRowsData)) {
+        createdOperationLines.push(...(lineRowsData as Record<string, unknown>[]));
+        defaultOperationLine = createdOperationLines[0] || null;
+      }
+    } else if (allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType)) {
       let effectiveArea = plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
       if (!effectiveArea) {
         const { data: fieldRow } = await supabase
@@ -1040,6 +1198,7 @@ export async function POST(request: NextRequest) {
         operationLineWarning = lineError?.message || "Failed to create default operation line";
       } else {
         defaultOperationLine = lineRow as Record<string, unknown>;
+        createdOperationLines.push(defaultOperationLine);
       }
     }
 
@@ -1083,8 +1242,9 @@ export async function POST(request: NextRequest) {
             planned_area_ha: defaultOperationLine?.planned_area_ha ?? effectivePlannedArea ?? plannedArea,
             crop_id: resolvedCropId,
           },
-          operation_line: defaultOperationLine,
-          operation_line_warning: operationLineWarning,
+              operation_line: defaultOperationLine,
+              operation_lines: createdOperationLines,
+              operation_line_warning: operationLineWarning,
           material_request: materialRequestResult,
         },
         timing,
@@ -1094,6 +1254,9 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof SeasonGuardError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json(

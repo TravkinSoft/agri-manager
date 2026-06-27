@@ -1,7 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { brandName, localizedName, localizeUnit } from "@/lib/i18n/helpers";
+import { getMaterialProductTypeFromProduct, type MaterialProductType } from "@/lib/materials/classification";
+import { buildProductPassport } from "@/lib/products/product-passport";
 
-type ProductType = "pesticide" | "fertilizer" | "growth_regulator" | "adjuvant";
+type ProductType = MaterialProductType | "growth_regulator" | "adjuvant";
 
 export type ProductLookupFilters = {
   companyId?: string;
@@ -23,6 +25,10 @@ export type AssistantProductRow = {
   company_id: string | null;
   product_type: string | null;
   type: string | null;
+  category: string | null;
+  subcategory: string | null;
+  pesticide_category: string | null;
+  fertilizer_type: string | null;
   trade_name: string | null;
   name: string | null;
   category_id: string | null;
@@ -35,6 +41,8 @@ export type AssistantProductRow = {
   is_active: boolean;
   stock_quantity?: number;
   stock_unit?: string;
+  default_rate_type?: string | null;
+  default_rate_unit?: string | null;
   active_ingredients: string[];
 };
 
@@ -133,20 +141,27 @@ async function fetchProductsBase(
   companyId: string | undefined,
   includeGlobal: boolean
 ): Promise<AssistantProductRow[]> {
-  const queryBase = (q: any) =>
-    q
-      .select(
-        "id,company_id,product_type,type,trade_name,name,category_id,manufacturer,formulation,mode_of_action_type,target_crops,is_active,archived"
-      )
-      .eq("archived", false);
+  const passportSelect =
+    "id,company_id,product_type,type,category,subcategory,pesticide_category,fertilizer_type,trade_name,name,normalized_name,category_id,manufacturer,formulation,mode_of_action_type,target_crops,is_active,archived,stock_unit,default_unit,unit,base_uom,default_rate_type,default_rate_unit,application_unit,physical_state,metadata_source_url,metadata_confidence,metadata_review_required";
+  const legacySelect =
+    "id,company_id,product_type,type,category,subcategory,pesticide_category,fertilizer_type,trade_name,name,normalized_name,category_id,manufacturer,formulation,mode_of_action_type,target_crops,is_active,archived,default_unit,unit,base_uom,application_unit";
+  const isMissingPassportColumn = (error: any) =>
+    /stock_unit|default_rate_type|default_rate_unit|physical_state|metadata_/i.test(String(error?.message || ""));
+  const runQuery = async (scope: "company" | "global") => {
+    const build = (select: string) => {
+      let query = supabase.from("products").select(select).eq("archived", false);
+      if (scope === "company") query = query.eq("company_id", companyId);
+      else query = query.is("company_id", null);
+      return query;
+    };
+    const first = await build(passportSelect);
+    if (first.error && isMissingPassportColumn(first.error)) return build(legacySelect);
+    return first;
+  };
 
   const settled = await Promise.allSettled([
-    companyId
-      ? queryBase(supabase.from("products")).eq("company_id", companyId)
-      : Promise.resolve({ data: [], error: null } as any),
-    includeGlobal
-      ? queryBase(supabase.from("products")).is("company_id", null)
-      : Promise.resolve({ data: [], error: null } as any),
+    companyId ? runQuery("company") : Promise.resolve({ data: [], error: null } as any),
+    includeGlobal ? runQuery("global") : Promise.resolve({ data: [], error: null } as any),
   ]);
 
   const rows: any[] = [];
@@ -157,23 +172,37 @@ async function fetchProductsBase(
   }
 
   return dedupeBy(
-    rows.map((row) => ({
-      id: String(row.id),
-      company_id: row.company_id || null,
-      product_type: row.product_type || null,
-      type: row.type || null,
-      trade_name: row.trade_name || null,
-      name: row.name || null,
-      category_id: row.category_id || null,
-      category_name: null,
-      category_slug: null,
-      manufacturer: row.manufacturer || null,
-      formulation: row.formulation || null,
-      mode_of_action_type: row.mode_of_action_type || null,
-      target_crops: row.target_crops || null,
-      is_active: Boolean(row.is_active ?? true),
-      active_ingredients: [],
-    })),
+    rows.map((row) => {
+      const passport = buildProductPassport({
+        ...row,
+        id: String(row.id || ""),
+        active_ingredients: [],
+      });
+      return {
+        id: String(row.id),
+        company_id: row.company_id || null,
+        product_type: row.product_type || null,
+        type: row.type || null,
+        category: row.category || null,
+        subcategory: row.subcategory || null,
+        pesticide_category: row.pesticide_category || null,
+        fertilizer_type: row.fertilizer_type || null,
+        trade_name: passport.tradeName || row.trade_name || null,
+        name: row.name || null,
+        category_id: row.category_id || null,
+        category_name: null,
+        category_slug: null,
+        manufacturer: passport.manufacturer.name || row.manufacturer || null,
+        formulation: row.formulation || null,
+        mode_of_action_type: row.mode_of_action_type || null,
+        target_crops: row.target_crops || null,
+        is_active: Boolean(row.is_active ?? true),
+        stock_unit: passport.units.stockUnit,
+        default_rate_type: passport.units.defaultRateType,
+        default_rate_unit: passport.units.defaultRateUnit || row.application_unit || null,
+        active_ingredients: [],
+      };
+    }),
     (row) => row.id
   );
 }
@@ -250,7 +279,7 @@ async function hydrateProductsRelations(
 }
 
 function rowTradeName(row: AssistantProductRow): string {
-  return brandName(row);
+  return buildProductPassport(row).displayName || brandName(row);
 }
 
 export async function getProducts(
@@ -266,7 +295,11 @@ export async function getProducts(
   }
 
   if (filters.productType) {
-    rows = rows.filter((row) => normalize(String(row.product_type || row.type || "")) === filters.productType);
+    rows = rows.filter((row) => {
+      const canonical = getMaterialProductTypeFromProduct(row);
+      if (canonical === filters.productType) return true;
+      return normalize(String(row.product_type || row.type || "")) === filters.productType;
+    });
   }
 
   if (filters.categorySlug) {
@@ -395,7 +428,10 @@ async function getInventoryBalancesRaw(
       ? supabase.from("warehouses").select("id,name").in("id", warehouseIds)
       : Promise.resolve({ data: [], error: null } as any),
     productIds.length
-      ? supabase.from("products").select("id,name,trade_name,type,product_type,unit,base_uom").in("id", productIds)
+      ? supabase
+          .from("products")
+          .select("id,name,trade_name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,base_uom")
+          .in("id", productIds)
       : Promise.resolve({ data: [], error: null } as any),
   ]);
 
@@ -418,7 +454,7 @@ async function getInventoryBalancesRaw(
         warehouseName: warehouseNameById.get(String(row.warehouse_id)) || "РЎРєР»Р°Рґ",
         productId: String(row.product_id),
         productName: brandName(product) || "-",
-        productType: String(product?.product_type || product?.type || "-"),
+        productType: String(getMaterialProductTypeFromProduct(product || {}) || product?.product_type || product?.type || "-"),
         unit: String(row.uom || product?.base_uom || product?.unit || "kg"),
         quantity: qty,
       } as WarehouseStockRow;
@@ -460,7 +496,7 @@ async function getInventoryBalancesRaw(
     const productId = String(row.product_id || "");
     if (!productId) return;
     const productName = brandName(row.products) || "-";
-    const productType = row.products?.product_type || row.products?.type || "-";
+    const productType = getMaterialProductTypeFromProduct(row.products || {}) || row.products?.product_type || row.products?.type || "-";
     const unit = row.products?.unit || "kg";
     const movementType = movementTypeOf(row);
 
@@ -831,13 +867,17 @@ export async function getProductCandidatesByDiseaseOrGoal(
 }
 
 function formatProductLine(product: AssistantProductRow): string {
-  const tradeName = brandName(product) || "-";
+  const passport = buildProductPassport(product);
+  const tradeName = passport.displayName || brandName(product) || "-";
   const ai = product.active_ingredients.length ? product.active_ingredients.join(", ") : "-";
   const category = product.category_name || "-";
-  const manufacturer = product.manufacturer || "-";
+  const manufacturer = passport.manufacturer.name || product.manufacturer || "-";
   const formulation = product.formulation || "-";
   const moa = formatModeOfAction(product.mode_of_action_type);
-  return `- ${tradeName} | Категория: ${category} | ДВ: ${ai} | Производитель: ${manufacturer} | Формуляция: ${formulation} | Тип действия: ${moa}`;
+  const stockUnit = passport.units.stockUnit !== "unknown" ? localizeUnit(passport.units.stockUnit, "ru") : "-";
+  const rateUnit = passport.units.defaultRateUnit ? localizeUnit(passport.units.defaultRateUnit, "ru") : "-";
+  const rateType = passport.units.defaultRateType || "-";
+  return `- ${tradeName} | Категория: ${category} | ДВ: ${ai} | Производитель: ${manufacturer} | Формуляция: ${formulation} | Тип действия: ${moa} | Ед. склада: ${stockUnit} | Норма: ${rateType} ${rateUnit}`;
 }
 
 function buildProductsResponse(title: string, rows: AssistantProductRow[]): string {
@@ -980,7 +1020,7 @@ export async function answerGroundedAssistantQuery(params: {
   if (/какие.*препарат.*на склад|что есть на склад.*препарат/.test(message)) {
     const rows = await searchInventory(supabase, companyId, "");
     const onlyAgro = rows.filter((row) =>
-      ["pesticide", "fertilizer", "growth_regulator", "adjuvant"].includes(normalize(row.productType))
+      ["pesticide", "fertilizer", "additive", "growth_regulator", "adjuvant"].includes(normalize(row.productType))
     );
     return { source: "grounded_db", response: buildStockResponse("Препараты на складе:", onlyAgro) };
   }

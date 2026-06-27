@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 import { localizedName } from "@/lib/i18n/helpers";
+import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
+import { buildProductPassport } from "@/lib/products/product-passport";
 import type { GlobalCatalogEntity } from "@/lib/platform/global-catalog-config";
 
 type EntityConfig = {
@@ -19,6 +21,8 @@ type EntityConfig = {
 const PLATFORM_GLOBAL_COMPANY_ID = "10000000-0000-0000-0000-000000000001";
 
 const PRODUCT_SEARCH_ALIASES = [
+  ["phomazin", "swissgrow phomazin", "\u0444\u043e\u043c\u0430\u0437\u0438\u043d"],
+  ["curamin foliar", "curamin", "\u043a\u0443\u0440\u0430\u043c\u0438\u043d \u0444\u043e\u043b\u0438\u0430\u0440", "\u043a\u0443\u0440\u0430\u043c\u0438\u043d"],
   ["revus top", "revus top sc", "ревус топ"],
   ["celest top", "celest top fs", "селест топ"],
   ["black jack", "blackjack", "блек джек"],
@@ -48,7 +52,31 @@ function translateAgriculturalMachineCategory(value: any): string {
   if (key === "self_propelled_spreader") return "Самоходный разбрасыватель";
   if (key === "self_propelled_windrower") return "Самоходная жатка";
   if (key === "self_propelled_mower") return "Самоходная косилка";
+  if (key === "trailed_sprayer") return "Прицепной опрыскиватель";
+  if (key === "mounted_sprayer") return "Навесной опрыскиватель";
+  if (key === "potato_planter") return "Картофелесажалка";
+  if (key === "potato_harvester") return "Картофелеуборочная техника";
+  if (key === "planter") return "Сажалка";
+  if (key === "seeder") return "Сеялка";
+  if (key === "cultivator") return "Культиватор";
+  if (key === "plow") return "Плуг";
+  if (key === "disc_harrow") return "Дисковая борона";
+  if (key === "fertilizer_spreader") return "Разбрасыватель удобрений";
+  if (key === "loader") return "Погрузчик";
+  if (key === "telehandler") return "Телескопический погрузчик";
+  if (key === "trailer") return "Прицеп";
   if (key === "tractor") return "Трактор";
+  if (key === "other") return "Прочее";
+  return String(value);
+}
+
+function translateMachineryAssetGroup(value: any): string {
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return "-";
+  if (key === "self_propelled_machine") return "Самоходная техника";
+  if (key === "implement") return "Агрегат";
+  if (key === "trailer") return "Прицеп";
+  if (key === "truck") return "Транспорт";
   return String(value);
 }
 
@@ -61,6 +89,79 @@ function translateAgriculturalMachineSourceType(value: any): string {
   if (key === "import_feed") return "Импорт данных";
   if (key === "manual") return "Ручной ввод";
   return String(value);
+}
+
+function normalizeCatalogName(value: unknown): string | null {
+  const normalized = String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[«»"'`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return normalized || null;
+}
+
+function nullifyEmptyFields(payload: Record<string, any>, keys: string[]) {
+  const next = { ...payload };
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(next, key) && String(next[key] ?? "").trim() === "") {
+      next[key] = null;
+    }
+  }
+  return next;
+}
+
+function nullableCatalogText(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  if (!text || text === "unknown") return null;
+  return text;
+}
+
+function catalogBool(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  const text = String(value ?? "").trim().toLowerCase();
+  return text === "true" || text === "1" || text === "yes" || text === "да";
+}
+
+function normalizeProductMetadataPayload(payload: Record<string, any>, fallbackStockUnit: string) {
+  const has = (key: string) => Object.prototype.hasOwnProperty.call(payload, key);
+  const stockUnit =
+    nullableCatalogText(payload.stock_unit) ||
+    nullableCatalogText(payload.default_unit) ||
+    nullableCatalogText(payload.unit) ||
+    nullableCatalogText(payload.base_uom) ||
+    fallbackStockUnit;
+  const defaultRateType = normalizeMaterialRateBasis(payload.default_rate_type || payload.default_dosing_type || "per_ha");
+
+  const next: Record<string, any> = {
+    ...payload,
+    stock_unit: stockUnit,
+    default_unit: payload.default_unit || stockUnit,
+    unit: payload.unit || stockUnit,
+    base_uom: payload.base_uom || stockUnit,
+    default_rate_type: defaultRateType,
+    default_rate_unit: nullableCatalogText(payload.default_rate_unit) || nullableCatalogText(payload.application_unit),
+  };
+  if (has("metadata_source_url")) next.metadata_source_url = nullableCatalogText(payload.metadata_source_url);
+  if (has("metadata_confidence")) next.metadata_confidence = nullableCatalogText(payload.metadata_confidence);
+  if (has("metadata_review_required")) next.metadata_review_required = catalogBool(payload.metadata_review_required);
+  return next;
+}
+
+function normalizeProductCatalogRow(row: any) {
+  const passport = buildProductPassport({ ...(row || {}), id: String(row?.id || "") });
+  return {
+    ...row,
+    trade_name: passport.tradeName || row.trade_name || row.name || "-",
+    display_name: passport.displayName || row.trade_name || row.name || "-",
+    manufacturer: passport.manufacturer.name || row.manufacturer_name || row.manufacturer || "-",
+    stock_unit: passport.units.stockUnit !== "unknown" ? passport.units.stockUnit : row.stock_unit || row.default_unit || row.unit || row.base_uom || "-",
+    default_rate_type: passport.units.defaultRateType || "-",
+    default_rate_unit: passport.units.defaultRateUnit || row.application_unit || "-",
+    physical_state: passport.classification.physicalState,
+    metadata_review_required: passport.review.metadataReviewRequired,
+  };
 }
 
 const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
@@ -94,14 +195,34 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
   varieties: {
     table: "varieties",
     select:
-      "id,name,crop_id,origin_country,variety_type,is_common_in_kz,is_active,archived,updated_at,created_at",
+      "id,name,crop_id,originator_id,origin_country,variety_type,maturity_group,purpose,skin_color,flesh_color,storage_quality,source_url,notes,is_common_in_kz,is_active,archived,updated_at,created_at",
     defaultOrder: "name",
     scopeWhere: (query) => query.is("company_id", null),
-    searchColumns: ["name", "origin_country", "variety_type"],
-    filters: ["crop_id", "origin_country", "is_common_in_kz", "is_active"],
+    searchColumns: ["name", "origin_country", "variety_type", "maturity_group", "purpose", "skin_color", "flesh_color", "notes"],
+    filters: ["crop_id", "originator_id", "origin_country", "is_common_in_kz", "is_active"],
     normalizeRow: (row) => ({
       ...row,
       crop_name: row.crop_name || "-",
+      originator_name: row.originator_name || row.breeder_or_originator || "-",
+    }),
+    beforeCreate: (payload) => nullifyEmptyFields(payload, ["originator_id"]),
+    beforeUpdate: (payload) => nullifyEmptyFields(payload, ["originator_id"]),
+  },
+  seed_originators: {
+    table: "seed_originators",
+    select: "id,name,normalized_name,country,website,notes,is_active,archived,updated_at,created_at",
+    defaultOrder: "name",
+    scopeWhere: (query) => query.is("company_id", null),
+    searchColumns: ["name", "normalized_name", "country", "website", "notes"],
+    filters: ["country", "is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      company_id: null,
+      normalized_name: payload.normalized_name || normalizeCatalogName(payload.name),
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      normalized_name: payload.normalized_name || normalizeCatalogName(payload.name),
     }),
   },
   seed_reproductions: {
@@ -112,6 +233,162 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     searchColumns: ["name", "description"],
     filters: ["is_active"],
   },
+  seeds: {
+    table: "products",
+    select:
+      "id,name,trade_name,crop_id,variety_id,seed_reproduction_id,unit,base_uom,manufacturer,notes,type,category,is_seed_material,is_active,archived,updated_at,created_at",
+    defaultOrder: "name",
+    scopeWhere: (query) =>
+      query
+        .is("company_id", null)
+        .or("type.eq.seed,category.eq.seed,is_seed_material.eq.true"),
+    searchColumns: ["name", "trade_name", "manufacturer", "notes"],
+    filters: ["crop_id", "variety_id", "seed_reproduction_id", "is_active"],
+    normalizeRow: (row) => ({
+      ...row,
+      crop_name: row.crop_name || "-",
+      variety_name: row.variety_name || "-",
+      originator_name: row.originator_name || "-",
+      reproduction_name: row.reproduction_name || "-",
+      unit: row.unit || row.base_uom || "-",
+    }),
+    beforeCreate: (payload) => {
+      const normalized = nullifyEmptyFields(payload, ["variety_id", "seed_reproduction_id"]);
+      return {
+        ...normalized,
+        trade_name: normalized.trade_name || normalized.name,
+        type: "seed",
+        category: "seed",
+        is_seed_material: true,
+        company_id: null,
+        unit: normalized.unit || normalized.base_uom || "kg",
+        base_uom: normalized.base_uom || normalized.unit || "kg",
+      };
+    },
+    beforeUpdate: (payload) => {
+      const normalized = nullifyEmptyFields(payload, ["variety_id", "seed_reproduction_id"]);
+      return {
+        ...normalized,
+        trade_name: normalized.trade_name || normalized.name,
+        type: "seed",
+        category: "seed",
+        is_seed_material: true,
+        unit: normalized.unit || normalized.base_uom || "kg",
+        base_uom: normalized.base_uom || normalized.unit || "kg",
+      };
+    },
+  },
+  diseases: {
+    table: "diseases",
+    select:
+      "id,name_ru,name_en,latin_name,normalized_name,disease_type,pathogen_type,symptoms,development_conditions,risk_stage,source_url,confidence,notes,image_url,is_active,archived,updated_at,created_at",
+    defaultOrder: "name_ru",
+    scopeWhere: (query) => query.is("company_id", null),
+    searchColumns: [
+      "name_ru",
+      "name_en",
+      "latin_name",
+      "normalized_name",
+      "symptoms",
+      "development_conditions",
+      "risk_stage",
+      "notes",
+    ],
+    filters: ["disease_type", "pathogen_type", "confidence", "is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      company_id: null,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      disease_type: payload.disease_type || "unknown",
+      pathogen_type: payload.pathogen_type || "unknown",
+      confidence: payload.confidence || "medium",
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      disease_type: payload.disease_type || "unknown",
+      pathogen_type: payload.pathogen_type || "unknown",
+      confidence: payload.confidence || "medium",
+    }),
+  },
+  pests: {
+    table: "pests",
+    select:
+      "id,name_ru,name_en,latin_name,normalized_name,pest_type,life_cycle,damage_symptoms,development_conditions,risk_stage,source_url,confidence,notes,image_url,is_sensitive,is_active,archived,updated_at,created_at",
+    defaultOrder: "name_ru",
+    scopeWhere: (query) => query.is("company_id", null),
+    searchColumns: [
+      "name_ru",
+      "name_en",
+      "latin_name",
+      "normalized_name",
+      "life_cycle",
+      "damage_symptoms",
+      "development_conditions",
+      "risk_stage",
+      "notes",
+    ],
+    filters: ["pest_type", "confidence", "is_sensitive", "is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      company_id: null,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      pest_type: payload.pest_type || "unknown",
+      confidence: payload.confidence || "medium",
+      is_sensitive: payload.is_sensitive === true || payload.is_sensitive === "true",
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      pest_type: payload.pest_type || "unknown",
+      confidence: payload.confidence || "medium",
+      is_sensitive: payload.is_sensitive === true || payload.is_sensitive === "true",
+    }),
+  },
+  weeds: {
+    table: "weeds",
+    select:
+      "id,name_ru,name_en,latin_name,normalized_name,weed_type,life_cycle,morphology,harmfulness,development_conditions,source_url,confidence,notes,image_url,is_active,archived,updated_at,created_at",
+    defaultOrder: "name_ru",
+    scopeWhere: (query) => query.is("company_id", null),
+    searchColumns: [
+      "name_ru",
+      "name_en",
+      "latin_name",
+      "normalized_name",
+      "life_cycle",
+      "morphology",
+      "harmfulness",
+      "development_conditions",
+      "notes",
+    ],
+    filters: ["weed_type", "confidence", "is_active"],
+    beforeCreate: (payload) => ({
+      ...payload,
+      company_id: null,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      weed_type: payload.weed_type || "unknown",
+      confidence: payload.confidence || "medium",
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      normalized_name:
+        payload.normalized_name ||
+        normalizeCatalogName(payload.name_ru || payload.name_en || payload.latin_name),
+      weed_type: payload.weed_type || "unknown",
+      confidence: payload.confidence || "medium",
+    }),
+  },
   pesticides: {
     table: "products",
     select: "*",
@@ -120,22 +397,20 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     searchColumns: ["name", "trade_name"],
     filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "is_active"],
     normalizeRow: (row) => ({
-      ...row,
-      trade_name: row.trade_name || row.name || "-",
+      ...normalizeProductCatalogRow(row),
       active_ingredients: row.active_ingredients || row.active_ingredient || "-",
       pesticide_category: row.pesticide_category || "-",
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
-      manufacturer: row.manufacturer_name || row.manufacturer || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeProductMetadataPayload(payload, "l"),
       type: "pesticide",
       product_type: "pesticide",
       company_id: null,
-      unit: payload.default_unit || "l",
     }),
+    beforeUpdate: (payload) => normalizeProductMetadataPayload(payload, "l"),
   },
   fertilizers: {
     table: "products",
@@ -145,21 +420,55 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     searchColumns: ["name", "trade_name"],
     filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "fertilizer_type", "is_active"],
     normalizeRow: (row) => ({
-      ...row,
-      trade_name: row.trade_name || row.name || "-",
+      ...normalizeProductCatalogRow(row),
       active_ingredients: row.active_ingredients || row.active_ingredient || "-",
       pesticide_category: row.pesticide_category || "-",
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
-      manufacturer: row.manufacturer_name || row.manufacturer || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeProductMetadataPayload(payload, "kg"),
       type: "fertilizer",
       product_type: "fertilizer",
       company_id: null,
-      unit: payload.default_unit || "kg",
+    }),
+    beforeUpdate: (payload) => normalizeProductMetadataPayload(payload, "kg"),
+  },
+  additives: {
+    table: "products",
+    select: "*",
+    defaultOrder: "name",
+    scopeWhere: (query) =>
+      query
+        .is("company_id", null)
+        .or(
+          "product_type.eq.additive,product_type.eq.adjuvant,category.eq.additive,category.eq.adjuvant,pesticide_category.in.(adjuvant,surfactant,water_conditioner,pH_regulator,drift_reduction_agent,anti_foam)"
+        ),
+    searchColumns: ["name", "trade_name", "subcategory", "category", "manufacturer", "formulation"],
+    filters: ["subcategory", "manufacturer_id", "formulation_id", "is_active"],
+    normalizeRow: (row) => ({
+      ...normalizeProductCatalogRow(row),
+      subcategory: row.subcategory || row.pesticide_category || row.category || "-",
+      formulation: row.formulation_name || row.formulation || "-",
+      default_unit: row.default_unit || row.stock_unit || row.unit || row.base_uom || "-",
+      status: "master",
+    }),
+    beforeCreate: (payload) => ({
+      ...normalizeProductMetadataPayload(payload, "l"),
+      type: "pesticide",
+      product_type: "additive",
+      category: "additive",
+      pesticide_category: null,
+      fertilizer_type: null,
+      company_id: null,
+    }),
+    beforeUpdate: (payload) => ({
+      ...normalizeProductMetadataPayload(payload, "l"),
+      product_type: "additive",
+      category: "additive",
+      pesticide_category: null,
+      fertilizer_type: null,
     }),
   },
   growth_regulators: {
@@ -170,22 +479,20 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     searchColumns: ["name", "trade_name"],
     filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "is_active"],
     normalizeRow: (row) => ({
-      ...row,
-      trade_name: row.trade_name || row.name || "-",
+      ...normalizeProductCatalogRow(row),
       active_ingredients: row.active_ingredients || row.active_ingredient || "-",
       pesticide_category: row.pesticide_category || "-",
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
-      manufacturer: row.manufacturer_name || row.manufacturer || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeProductMetadataPayload(payload, "l"),
       type: "pesticide",
       product_type: "growth_regulator",
       company_id: null,
-      unit: payload.default_unit || "l",
     }),
+    beforeUpdate: (payload) => normalizeProductMetadataPayload(payload, "l"),
   },
   pesticide_categories: {
     table: "pesticide_categories",
@@ -274,15 +581,26 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
   agricultural_machine_models: {
     table: "agricultural_machine_models",
     select:
-      "id,category,brand,series,model,full_name,power_hp,engine,tank_volume_l,grain_tank_l,working_width_m,power_class,dealer_name,presence_in_kz,source_url,source_type,is_active,notes,archived,updated_at,created_at",
+      "id,asset_group,category,brand,series,model,full_name,power_hp,engine,transmission,weight_kg,fuel_tank_l,tank_volume_l,tank_capacity_l,grain_tank_l,working_width_m,rows_count,capacity,required_power_hp,power_class,dealer_name,presence_in_kz,source_url,source_type,is_active,notes,archived,updated_at,created_at",
     defaultOrder: "full_name",
     scopeWhere: (query) => query,
-    searchColumns: ["full_name", "brand", "series", "model", "dealer_name", "engine", "power_class"],
-    filters: ["category", "brand", "series", "is_active"],
+    searchColumns: ["full_name", "brand", "series", "model", "dealer_name", "engine", "transmission", "power_class", "capacity", "notes"],
+    filters: ["asset_group", "category", "brand", "series", "is_active"],
     normalizeRow: (row) => ({
       ...row,
+      asset_group: translateMachineryAssetGroup(row.asset_group),
       category: translateAgriculturalMachineCategory(row.category),
       source_type: translateAgriculturalMachineSourceType(row.source_type),
+    }),
+    beforeCreate: (payload) => ({
+      ...payload,
+      asset_group: payload.asset_group || "self_propelled_machine",
+    }),
+    beforeUpdate: (payload) => ({
+      ...payload,
+      ...(Object.prototype.hasOwnProperty.call(payload, "asset_group")
+        ? { asset_group: payload.asset_group || "self_propelled_machine" }
+        : {}),
     }),
   },
   machinery: {
@@ -453,26 +771,97 @@ async function attachCropNamesToVarieties(supabase: any, rows: any[]) {
   if (!rows.length) return rows;
 
   const cropIds = Array.from(new Set(rows.map((row) => row.crop_id).filter(Boolean)));
-  if (!cropIds.length) return rows.map((row) => ({ ...row, crop_name: "-" }));
+  const originatorIds = Array.from(new Set(rows.map((row) => row.originator_id).filter(Boolean)));
 
-  const { data: crops, error } = await supabase
-    .from("crops")
-    .select("id,name,name_ru,name_kz,name_en,slug")
-    .in("id", cropIds);
-
-  if (error || !crops) {
-    return rows.map((row) => ({ ...row, crop_name: "-" }));
-  }
+  const [cropsResult, originatorsResult] = await Promise.all([
+    cropIds.length
+      ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", cropIds)
+      : Promise.resolve({ data: [], error: null }),
+    originatorIds.length
+      ? supabase.from("seed_originators").select("id,name").in("id", originatorIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
   const cropMap = new Map<string, string>();
-  for (const crop of crops) {
+  for (const crop of cropsResult.data || []) {
     cropMap.set(crop.id, localizedName(crop, "ru") || "-");
+  }
+
+  const originatorMap = new Map<string, string>();
+  for (const originator of originatorsResult.data || []) {
+    originatorMap.set(originator.id, originator.name || "-");
   }
 
   return rows.map((row) => ({
     ...row,
     crop_name: cropMap.get(row.crop_id) || "-",
+    originator_name: originatorMap.get(row.originator_id) || row.breeder_or_originator || "-",
   }));
+}
+
+async function attachSeedProductNames(supabase: any, rows: any[]) {
+  if (!rows.length) return rows;
+
+  const cropIds = Array.from(new Set(rows.map((row) => row.crop_id).filter(Boolean)));
+  const varietyIds = Array.from(new Set(rows.map((row) => row.variety_id).filter(Boolean)));
+  const reproductionIds = Array.from(new Set(rows.map((row) => row.seed_reproduction_id).filter(Boolean)));
+
+  const [cropsResult, varietiesResult, reproductionsResult] = await Promise.all([
+    cropIds.length
+      ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", cropIds)
+      : Promise.resolve({ data: [], error: null }),
+    varietyIds.length
+      ? supabase
+          .from("varieties")
+          .select("id,name,originator_id,breeder_or_originator")
+          .in("id", varietyIds)
+      : Promise.resolve({ data: [], error: null }),
+    reproductionIds.length
+      ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", reproductionIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  const originatorIds = Array.from(
+    new Set((varietiesResult.data || []).map((row: any) => row.originator_id).filter(Boolean))
+  );
+
+  const { data: originators } = originatorIds.length
+    ? await supabase.from("seed_originators").select("id,name").in("id", originatorIds)
+    : { data: [] };
+
+  const cropMap = new Map<string, string>();
+  for (const crop of cropsResult.data || []) {
+    cropMap.set(crop.id, localizedName(crop, "ru") || "-");
+  }
+
+  const originatorMap = new Map<string, string>();
+  for (const originator of originators || []) {
+    originatorMap.set(originator.id, originator.name || "-");
+  }
+
+  const varietyMap = new Map<string, any>();
+  for (const variety of varietiesResult.data || []) {
+    varietyMap.set(variety.id, variety);
+  }
+
+  const reproductionMap = new Map<string, string>();
+  for (const reproduction of reproductionsResult.data || []) {
+    reproductionMap.set(reproduction.id, localizedName(reproduction, "ru") || reproduction.code || "-");
+  }
+
+  return rows.map((row) => {
+    const variety = varietyMap.get(row.variety_id);
+    return {
+      ...row,
+      crop_name: cropMap.get(row.crop_id) || "-",
+      variety_name: variety?.name || "-",
+      originator_name:
+        (variety?.originator_id ? originatorMap.get(variety.originator_id) : null) ||
+        variety?.breeder_or_originator ||
+        "-",
+      reproduction_name: reproductionMap.get(row.seed_reproduction_id) || "-",
+    };
+  });
 }
 
 async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
@@ -633,7 +1022,7 @@ export async function GET(
     const search = String(request.nextUrl.searchParams.get("search") || "").trim();
     if (search) {
       const searchTerms =
-        entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators"
+        entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators"
           ? expandProductSearchTerms(search)
           : [search];
       const orParts = searchTerms.flatMap((term) => config.searchColumns.map((column) => `${column}.ilike.%${term}%`));
@@ -709,13 +1098,15 @@ export async function GET(
     let hydratedRows = rawRows;
     if (entity === "varieties") {
       hydratedRows = await attachCropNamesToVarieties(supabase, rawRows);
+    } else if (entity === "seeds") {
+      hydratedRows = await attachSeedProductNames(supabase, rawRows);
     } else if (entity === "pesticides" || entity === "fertilizers") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
     } else if (entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
     }
 
-    if (search && (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators")) {
+    if (search && (entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators")) {
       hydratedRows = hydratedRows.filter((row: any) => productSearchMatches(row, search));
     }
 
@@ -799,6 +1190,8 @@ export async function POST(
     let hydratedRows = [data];
     if (entity === "varieties") {
       hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
+    } else if (entity === "seeds") {
+      hydratedRows = await attachSeedProductNames(supabase, [data]);
     } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
     }
@@ -878,6 +1271,8 @@ export async function PATCH(
     let hydratedRows = [data];
     if (entity === "varieties") {
       hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
+    } else if (entity === "seeds") {
+      hydratedRows = await attachSeedProductNames(supabase, [data]);
     } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
     }

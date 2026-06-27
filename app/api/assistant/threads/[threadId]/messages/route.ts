@@ -9,6 +9,7 @@ import { getServiceClient } from "@/lib/supabase/service";
 import {
   appendAssistantThreadMessage,
   listAssistantThreadMessages,
+  updateAssistantThreadMessageMetadata,
   type AssistantThreadMessageRole,
 } from "@/lib/assistant/threads-store";
 
@@ -129,6 +130,60 @@ export async function POST(
       {
         error: error instanceof Error ? error.message : "Failed to append assistant message",
         code: "ASSISTANT_THREAD_MESSAGE_APPEND_FAILED",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ threadId: string }> }
+) {
+  try {
+    const { threadId } = await context.params;
+    const actor = await getServerActorFromSession(request);
+    ensureAssistantRole(actor);
+    const payload = await request.json().catch(() => ({}));
+    const companyId = resolveCompanyForActor(actor, asText(payload?.companyId));
+    const messageId = asText(payload?.messageId);
+    if (!messageId) {
+      return NextResponse.json({ error: "Message id is required" }, { status: 400 });
+    }
+
+    const metadata =
+      payload?.metadata && typeof payload.metadata === "object"
+        ? (payload.metadata as Record<string, unknown>)
+        : null;
+    if (!metadata) {
+      return NextResponse.json({ error: "Metadata is required" }, { status: 400 });
+    }
+
+    const supabase = getServiceClient();
+    const message = await updateAssistantThreadMessageMetadata({
+      supabase,
+      companyId,
+      userId: actor.id,
+      threadId,
+      messageId,
+      metadata,
+    });
+
+    return NextResponse.json({ message });
+  } catch (error) {
+    if (error instanceof SessionAuthError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: mapSessionErrorCode(error),
+        },
+        { status: error.status }
+      );
+    }
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to update assistant message metadata",
+        code: "ASSISTANT_THREAD_MESSAGE_UPDATE_FAILED",
       },
       { status: 500 }
     );

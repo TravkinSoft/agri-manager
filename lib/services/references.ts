@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Language } from "@/lib/i18n/translations";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { getMaterialProductTypeFromProduct, type MaterialProductType } from "@/lib/materials/classification";
 import {
   Crop,
   CropFormData,
@@ -48,6 +49,16 @@ async function assertCurrentUserIsGlobalAdmin(): Promise<void> {
   }
 }
 
+function normalizeReferenceDisplayKey(value: unknown): string {
+  return String(value || "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/\u0451/g, "\u0435")
+    .replace(/\u0401/g, "\u0435")
+    .replace(/\s+/g, " ");
+}
+
 export async function getCrops(
   companyId: string,
   includeArchived = false,
@@ -76,7 +87,7 @@ export async function getCrops(
 
   const map = new Map<string, Crop & { company_id?: string | null }>();
   rows.forEach((row: any) => {
-    const key = String(row.slug || row.name || "").trim().toLowerCase();
+    const key = normalizeReferenceDisplayKey(row.name || localizedName(row, language) || row.slug);
     if (!key) return;
     const existing = map.get(key);
     if (!existing || (existing.company_id == null && row.company_id != null)) {
@@ -1043,6 +1054,9 @@ function mapAgrochemicalRow(row: any, language: Language): AgrochemicalReference
     ...row,
     name: brandName(row) || row.name,
     trade_name: row.trade_name || null,
+    product_type: row.product_type || null,
+    category: row.category || null,
+    subcategory: row.subcategory || null,
     pesticide_category: row.pesticide_category || null,
     pesticide_subcategories: row.pesticide_subcategories || null,
     fertilizer_type: row.fertilizer_type || null,
@@ -1065,12 +1079,13 @@ export async function getPesticides(
     .from("products")
     .select("*")
     .eq("company_id", companyId)
-    .eq("type", "pesticide")
     .order("name", { ascending: true });
   if (!includeArchived) query = query.eq("archived", false);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return (data || []).map((row: any) => mapAgrochemicalRow(row, language));
+  return (data || [])
+    .filter((row: any) => getMaterialProductTypeFromProduct(row) === "pesticide")
+    .map((row: any) => mapAgrochemicalRow(row, language));
 }
 
 export async function getFertilizers(
@@ -1082,17 +1097,36 @@ export async function getFertilizers(
     .from("products")
     .select("*")
     .eq("company_id", companyId)
-    .eq("type", "fertilizer")
     .order("name", { ascending: true });
   if (!includeArchived) query = query.eq("archived", false);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return (data || []).map((row: any) => mapAgrochemicalRow(row, language));
+  return (data || [])
+    .filter((row: any) => getMaterialProductTypeFromProduct(row) === "fertilizer")
+    .map((row: any) => mapAgrochemicalRow(row, language));
+}
+
+export async function getAdditives(
+  companyId: string,
+  includeArchived = false,
+  language: Language = "ru"
+): Promise<AgrochemicalReference[]> {
+  let query = supabase
+    .from("products")
+    .select("*")
+    .eq("company_id", companyId)
+    .order("name", { ascending: true });
+  if (!includeArchived) query = query.eq("archived", false);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  return (data || [])
+    .filter((row: any) => getMaterialProductTypeFromProduct(row) === "additive")
+    .map((row: any) => mapAgrochemicalRow(row, language));
 }
 
 export async function searchAgrochemicalMaster(
   companyId: string,
-  type: "pesticide" | "fertilizer",
+  type: MaterialProductType,
   queryText = "",
   language: Language = "ru"
 ): Promise<AgrochemicalReference[]> {
@@ -1102,7 +1136,6 @@ export async function searchAgrochemicalMaster(
     .from("products")
     .select("*")
     .eq("company_id", companyId)
-    .eq("type", type)
     .eq("archived", false)
     .order("name", { ascending: true });
 
@@ -1110,7 +1143,6 @@ export async function searchAgrochemicalMaster(
     .from("products")
     .select("*")
     .is("company_id", null)
-    .eq("type", type)
     .eq("archived", false)
     .order("name", { ascending: true });
 
@@ -1122,14 +1154,18 @@ export async function searchAgrochemicalMaster(
   if (companyError) throw new Error(companyError.message);
   if (globalError) throw new Error(globalError.message);
 
-  const companyRows = (companyData || []).map((row: any) => ({
-    ...mapAgrochemicalRow(row, language),
-    source_scope: "company" as const,
-  }));
-  const globalRows = (globalData || []).map((row: any) => ({
-    ...mapAgrochemicalRow(row, language),
-    source_scope: "global" as const,
-  }));
+  const companyRows = (companyData || [])
+    .filter((row: any) => getMaterialProductTypeFromProduct(row) === type)
+    .map((row: any) => ({
+      ...mapAgrochemicalRow(row, language),
+      source_scope: "company" as const,
+    }));
+  const globalRows = (globalData || [])
+    .filter((row: any) => getMaterialProductTypeFromProduct(row) === type)
+    .map((row: any) => ({
+      ...mapAgrochemicalRow(row, language),
+      source_scope: "global" as const,
+    }));
 
   const all = [...companyRows, ...globalRows];
   if (!text) return all;
@@ -1183,6 +1219,9 @@ export async function addGlobalAgrochemicalToCompany(
   const insertPayload = {
     name: master.name,
     type: master.type,
+    product_type: master.product_type || getMaterialProductTypeFromProduct(master) || null,
+    category: master.category || null,
+    subcategory: master.subcategory || null,
     trade_name: master.trade_name || null,
     pesticide_category: master.pesticide_category || null,
     pesticide_subcategories: master.pesticide_subcategories || null,
@@ -1226,6 +1265,7 @@ export async function createPesticide(
   const insertPayload = {
     name: payload.name,
     type: "pesticide",
+    product_type: "pesticide",
     trade_name: payload.trade_name || null,
     pesticide_category: payload.category,
     pesticide_subcategories:
@@ -1294,6 +1334,7 @@ export async function createFertilizer(
   const insertPayload = {
     name: payload.name,
     type: "fertilizer",
+    product_type: "fertilizer",
     trade_name: payload.trade_name || null,
     pesticide_category: null,
     fertilizer_type: payload.type,

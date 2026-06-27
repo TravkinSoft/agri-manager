@@ -70,9 +70,12 @@ type Allocation = {
 };
 type Consumption = {
   id: string;
+  operation_id: string | null;
   field_id: string;
   crop_structure_row_id: string | null;
   operation_type: string;
+  material_type?: string | null;
+  unit?: string | null;
   product_id: string | null;
   product_name: string;
   variety_name: string | null;
@@ -86,6 +89,34 @@ type Consumption = {
   responsible_name: string | null;
   vehicle_name: string | null;
   notes: string | null;
+};
+
+type StructureOperationMaterialFact = {
+  product_id: string | null;
+  product_name: string;
+  material_type: string | null;
+  unit: string | null;
+  planned_quantity: number | null;
+  issued_quantity: number;
+  consumed_quantity: number | null;
+  returned_quantity: number | null;
+  actual_rate: number | null;
+};
+
+type StructureOperationFact = {
+  id: string;
+  field_id: string;
+  crop_structure_row_id: string | null;
+  operation_type: string;
+  operation_type_slug: string | null;
+  operation_category_slug: string | null;
+  date: string | null;
+  status: string | null;
+  work_status: string | null;
+  completed_at: string | null;
+  planned_area_ha: number | null;
+  actual_area_ha: number | null;
+  materials: StructureOperationMaterialFact[];
 };
 
 type FieldLegalLink = {
@@ -165,8 +196,30 @@ const fmtDate = (value?: string | null) => {
 
 const stageForOperation = (operation: string): StageKey => {
   const key = String(operation || "").toLowerCase();
-  return stageDefs.find((stage) => stage.operations.includes(key))?.key || "care";
+  const exact = stageDefs.find((stage) => stage.operations.includes(key))?.key;
+  if (exact) return exact;
+  if (key.includes("harvest") || key.includes("уборк") || key.includes("комбайн")) return "harvest";
+  if (key.includes("plant") || key.includes("seed") || key.includes("посев") || key.includes("посад")) return "seeding";
+  if (
+    key.includes("soil") ||
+    key.includes("tillage") ||
+    key.includes("cultiv") ||
+    key.includes("диск") ||
+    key.includes("культива") ||
+    key.includes("почво") ||
+    key.includes("греб") ||
+    key.includes("вспаш")
+  ) return "prep";
+  return "care";
 };
+
+const numberOrNull = (value: unknown): number | null => {
+  if (value == null || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const oneRelation = (value: unknown): any => (Array.isArray(value) ? value[0] : value);
 
 const batchClassLabel = (value?: string | null) => {
   if (value === "seed") return "Семенной";
@@ -179,7 +232,21 @@ const batchClassLabel = (value?: string | null) => {
 
 const materialCategory = (item: Consumption): MaterialCategory => {
   const op = String(item.operation_type || "").toLowerCase();
+  const materialType = norm(item.material_type);
   const name = norm(item.product_name);
+  if (materialType.includes("seed")) return "seed";
+  if (materialType.includes("fertilizer") || materialType.includes("micro_fertilizer")) return "fertilizer";
+  if (
+    materialType.includes("pesticide") ||
+    materialType.includes("crop_protection") ||
+    materialType.includes("adjuvant") ||
+    materialType.includes("ph_corrector") ||
+    materialType.includes("biological") ||
+    materialType.includes("biostimulant") ||
+    materialType.includes("defoamer")
+  ) return "chemical";
+  if (materialType.includes("water")) return "irrigation";
+  if (materialType.includes("fuel")) return "fuel";
   if (op === "seeding" || op === "planting" || item.batch_class === "seed") return "seed";
   if (name.includes("навоз") || name.includes("помет") || name.includes("помёт") || name.includes("компост") || name.includes("органик") || name.includes("биомасс")) return "organic";
   if (op === "fertilizing" || op === "top_dressing" || name.includes("селитр") || name.includes("аммофос") || name.includes("карбамид") || name.includes("npk") || name.includes("кас") || name.includes("удобр")) return "fertilizer";
@@ -207,6 +274,8 @@ export default function CropStructurePage() {
   const [allocByField, setAllocByField] = useState<Map<string, Allocation[]>>(new Map());
   const [initialByField, setInitialByField] = useState<Map<string, Allocation[]>>(new Map());
   const [consumptions, setConsumptions] = useState<Consumption[]>([]);
+  const [operationFacts, setOperationFacts] = useState<StructureOperationFact[]>([]);
+  const [operationConsumptions, setOperationConsumptions] = useState<Consumption[]>([]);
   const [search, setSearch] = useState("");
   const [cropFilter, setCropFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | FieldState>("all");
@@ -214,6 +283,8 @@ export default function CropStructurePage() {
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [draftRows, setDraftRows] = useState<Allocation[]>([]);
   const [fieldDialogTab, setFieldDialogTab] = useState<"dossier" | "editor" | "legal">("dossier");
+  const [selectedDossierAllocationKey, setSelectedDossierAllocationKey] = useState<string | null>(null);
+  const [dossierDetailTab, setDossierDetailTab] = useState<"overview" | "operations" | "materials">("overview");
   const [legalLinksByField, setLegalLinksByField] = useState<Map<string, FieldLegalLink[]>>(new Map());
   const [operationDialogOpen, setOperationDialogOpen] = useState(false);
   const [operationDefaults, setOperationDefaults] = useState<Partial<OperationFormData> | undefined>();
@@ -244,12 +315,35 @@ export default function CropStructurePage() {
     return map;
   }, [globalVarieties]);
 
+  useEffect(() => {
+    if (!selectedField) {
+      setSelectedDossierAllocationKey(null);
+      setDossierDetailTab("overview");
+      return;
+    }
+
+    const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
+    if (!rows.length) {
+      setSelectedDossierAllocationKey(null);
+      setDossierDetailTab("overview");
+      return;
+    }
+
+    const keys = rows.map((row, index) => allocationKey(row, index));
+    if (!selectedDossierAllocationKey || !keys.includes(selectedDossierAllocationKey)) {
+      setSelectedDossierAllocationKey(keys[0]);
+      setDossierDetailTab("overview");
+    }
+  }, [allocByField, draftRows, selectedDossierAllocationKey, selectedField]);
+
   const cropName = (id?: string | null) => (id && cropMap.get(id) ? cropLabel(cropMap.get(id) as Crop) : "-");
   const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "-" : "-");
   const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? localizedName(reproductionMap.get(id) as never, language, ["name", "code"]) || "-" : "-");
   const isPotatoAllocation = (row: Pick<Allocation, "crop_id" | "variety_id">) =>
     isPotatoCropContext(cropName(row.crop_id), varietyName(row.variety_id));
   const sumArea = (rows: Allocation[]) => rows.reduce((sum, row) => sum + Number(row.area || 0), 0);
+  const allocationKey = (row: Allocation, index = 0) =>
+    row.id || `${row.field_id || "field"}-${row.crop_id || "crop"}-${row.variety_id || "variety"}-${row.reproduction_id || "repro"}-${Number(row.area || 0)}-${index}`;
 
   const cropIcon = (name: string) => {
     const value = name.toLowerCase();
@@ -286,22 +380,66 @@ export default function CropStructurePage() {
   const allocationTitle = (allocation: Allocation) =>
     `${cropName(allocation.crop_id)} / ${varietyName(allocation.variety_id)} / ${reproductionName(allocation.reproduction_id)} — ${fmtHa(Number(allocation.area || 0))}`;
 
+  const cropStructureRowIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          Array.from(allocByField.values())
+            .flat()
+            .map((row) => row.id)
+            .filter((id): id is string => Boolean(id))
+        )
+      ),
+    [allocByField]
+  );
+
+  const consumptionIdentityKey = (
+    item: Pick<Consumption, "operation_id" | "crop_structure_row_id" | "product_id">
+  ) => {
+    if (!item.operation_id || !item.crop_structure_row_id || !item.product_id) return "";
+    return [item.operation_id, item.crop_structure_row_id, item.product_id].join("|");
+  };
+
+  const allConsumptions = useMemo(() => {
+    const materialFacts = new Set(consumptions.map(consumptionIdentityKey).filter(Boolean));
+    const derivedRows = operationConsumptions.filter((item) => {
+      const key = consumptionIdentityKey(item);
+      return !key || !materialFacts.has(key);
+    });
+    return [...consumptions, ...derivedRows];
+  }, [consumptions, operationConsumptions]);
+
   const consumptionsByAllocation = useMemo(() => {
     const map = new Map<string, Consumption[]>();
-    for (const item of consumptions) {
+    for (const item of allConsumptions) {
       if (!item.crop_structure_row_id) continue;
       map.set(item.crop_structure_row_id, [...(map.get(item.crop_structure_row_id) || []), item]);
     }
     return map;
-  }, [consumptions]);
+  }, [allConsumptions]);
 
   const consumptionsByField = useMemo(() => {
     const map = new Map<string, Consumption[]>();
-    for (const item of consumptions) {
+    for (const item of allConsumptions) {
       map.set(item.field_id, [...(map.get(item.field_id) || []), item]);
     }
     return map;
-  }, [consumptions]);
+  }, [allConsumptions]);
+
+  const operationFactsByAllocation = useMemo(() => {
+    const map = new Map<string, StructureOperationFact[]>();
+    for (const item of operationFacts) {
+      if (!item.crop_structure_row_id) continue;
+      map.set(item.crop_structure_row_id, [...(map.get(item.crop_structure_row_id) || []), item]);
+    }
+    for (const [key, rows] of Array.from(map.entries())) {
+      map.set(
+        key,
+        rows.sort((a: StructureOperationFact, b: StructureOperationFact) => new Date(b.completed_at || b.date || 0).getTime() - new Date(a.completed_at || a.date || 0).getTime())
+      );
+    }
+    return map;
+  }, [operationFacts]);
 
   useEffect(() => {
     try {
@@ -475,7 +613,7 @@ export default function CropStructurePage() {
       try {
         const res = await supabase
           .from("field_material_consumptions")
-          .select("id,field_id,crop_structure_row_id,operation_type,product_id,variety_id,reproduction_id,batch_class,quantity_kg,area_ha,norm_per_ha,consumed_at,ticket_id,responsible_personnel_id,vehicle_id,notes")
+          .select("id,operation_id,field_id,crop_structure_row_id,operation_type,product_id,variety_id,reproduction_id,batch_class,quantity_kg,area_ha,norm_per_ha,consumed_at,ticket_id,responsible_personnel_id,vehicle_id,notes")
           .eq("company_id", profile.company_id)
           .eq("season_id", seasonId)
           .order("consumed_at", { ascending: false });
@@ -503,9 +641,12 @@ export default function CropStructurePage() {
         const vehicleNames = new Map<string, string>((vehiclesRes.data || []).map((row: any) => [String(row.id), [row.name, row.plate_number].filter(Boolean).join(" ") || "Техника"]));
         setConsumptions(rows.map((row: any) => ({
           id: String(row.id),
+          operation_id: row.operation_id ? String(row.operation_id) : null,
           field_id: String(row.field_id),
           crop_structure_row_id: row.crop_structure_row_id ? String(row.crop_structure_row_id) : null,
           operation_type: String(row.operation_type || "other"),
+          material_type: null,
+          unit: null,
           product_id: row.product_id ? String(row.product_id) : null,
           product_name: productNames.get(String(row.product_id || "")) || "Материал",
           variety_name: row.variety_id ? brandName(varietyMap.get(String(row.variety_id)) as never) || null : null,
@@ -528,6 +669,149 @@ export default function CropStructurePage() {
       }
     })();
   }, [profile?.company_id, seasonId, varietyMap, reproductionMap]);
+
+  useEffect(() => {
+    if (!profile?.company_id || !seasonId || cropStructureRowIds.length === 0) {
+      setOperationFacts([]);
+      setOperationConsumptions([]);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await supabase
+          .from("operations")
+          .select(`
+            id,
+            field_id,
+            crop_structure_id,
+            operation_type,
+            operation_type_slug,
+            operation_category_slug,
+            date,
+            status,
+            work_status,
+            completed_at,
+            planned_area_ha,
+            operation_materials:operation_materials (
+              id,
+              product_id,
+              material_type,
+              unit,
+              planned_quantity,
+              issued_quantity,
+              consumed_quantity,
+              returned_quantity,
+              actual_rate,
+              products:product_id (name,trade_name,normalized_name)
+            ),
+            operation_lines:operation_lines (
+              id,
+              field_id,
+              planned_area_ha,
+              actual_area_ha
+            )
+          `)
+          .eq("company_id", profile.company_id)
+          .eq("archived", false)
+          .in("crop_structure_id", cropStructureRowIds)
+          .order("date", { ascending: false });
+
+        if (res.error) throw res.error;
+
+        const facts: StructureOperationFact[] = ((res.data || []) as any[]).map((row) => {
+          const lineRows = Array.isArray(row.operation_lines) ? row.operation_lines : [];
+          const plannedFromLines = lineRows.reduce((sum: number, line: any) => sum + Number(line.planned_area_ha || 0), 0);
+          const actualLineValues = lineRows
+            .map((line: any) => numberOrNull(line.actual_area_ha))
+            .filter((value: number | null): value is number => value != null);
+          const actualFromLines = actualLineValues.length
+            ? actualLineValues.reduce((sum: number, value: number) => sum + value, 0)
+            : null;
+          const materials: StructureOperationMaterialFact[] = (Array.isArray(row.operation_materials) ? row.operation_materials : []).map((material: any) => {
+            const product = oneRelation(material.products);
+            return {
+              product_id: material.product_id ? String(material.product_id) : null,
+              product_name: brandName(product) || String(product?.name || "Материал"),
+              material_type: material.material_type ? String(material.material_type) : null,
+              unit: material.unit ? String(material.unit) : null,
+              planned_quantity: numberOrNull(material.planned_quantity),
+              issued_quantity: Number(material.issued_quantity || 0),
+              consumed_quantity: numberOrNull(material.consumed_quantity),
+              returned_quantity: numberOrNull(material.returned_quantity),
+              actual_rate: numberOrNull(material.actual_rate),
+            };
+          });
+
+          return {
+            id: String(row.id),
+            field_id: String(row.field_id || ""),
+            crop_structure_row_id: row.crop_structure_id ? String(row.crop_structure_id) : null,
+            operation_type: String(row.operation_type || "Операция"),
+            operation_type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
+            operation_category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
+            date: row.date || null,
+            status: row.status ? String(row.status) : null,
+            work_status: row.work_status ? String(row.work_status) : null,
+            completed_at: row.completed_at || null,
+            planned_area_ha: plannedFromLines > 0 ? plannedFromLines : numberOrNull(row.planned_area_ha),
+            actual_area_ha: actualFromLines,
+            materials,
+          };
+        });
+
+        const derivedConsumptions: Consumption[] = facts.flatMap((fact) => {
+          if (!fact.crop_structure_row_id) return [];
+          const area = fact.actual_area_ha ?? fact.planned_area_ha ?? null;
+          const operationKey = fact.operation_type_slug || fact.operation_category_slug || fact.operation_type;
+          return fact.materials.flatMap((material) => {
+            const quantity = material.consumed_quantity ?? (material.issued_quantity > 0 ? material.issued_quantity : null);
+            if (!material.product_id || quantity == null || quantity <= 0) return [];
+            return [{
+              id: `operation-${fact.id}-${material.product_id}`,
+              operation_id: fact.id,
+              field_id: fact.field_id,
+              crop_structure_row_id: fact.crop_structure_row_id,
+              operation_type: operationKey,
+              material_type: material.material_type,
+              unit: material.unit,
+              product_id: material.product_id,
+              product_name: material.product_name,
+              variety_name: null,
+              reproduction_name: null,
+              batch_class: null,
+              quantity_kg: quantity,
+              area_ha: area,
+              norm_per_ha: material.actual_rate ?? (area && area > 0 ? quantity / area : null),
+              consumed_at: fact.completed_at || fact.date,
+              ticket_id: fact.id,
+              responsible_name: null,
+              vehicle_name: null,
+              notes: "operation_materials",
+            }];
+          });
+        });
+
+        if (cancelled) return;
+        setOperationFacts(facts);
+        setOperationConsumptions(derivedConsumptions);
+      } catch (error) {
+        if (cancelled) return;
+        setOperationFacts([]);
+        setOperationConsumptions([]);
+        toast({
+          title: "Ошибка",
+          description: error instanceof Error ? error.message : "Не удалось загрузить операции по участкам",
+          variant: "destructive",
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.company_id, seasonId, cropStructureRowIds, toast]);
 
   useEffect(() => {
     if (!profile?.company_id || !seasonId) {
@@ -938,9 +1222,16 @@ export default function CropStructurePage() {
       throw new Error(message);
     }
     try {
-      await createOperation(profile.company_id, data, options);
+      const created = await createOperation(profile.company_id, data, options);
       setOperationDialogOpen(false);
       setOperationDefaults(undefined);
+      if ((created as any)?.offline_queued) {
+        toast({
+          title: "Сохранено оффлайн",
+          description: "План добавлен в очередь и отправится автоматически, когда появится интернет.",
+        });
+        return;
+      }
       toast({ title: "План создан", description: "Работа добавлена в журнал операций." });
     } catch (error: any) {
       toast({ title: "Ошибка", description: error?.message || "Не удалось создать план работы", variant: "destructive" });
@@ -981,39 +1272,41 @@ export default function CropStructurePage() {
     return (
       <Card
         key={field.id}
-        className="h-[188px] cursor-pointer overflow-hidden border-slate-200 transition hover:border-emerald-300 hover:shadow-sm"
+        className="h-[202px] cursor-pointer overflow-hidden border-slate-200 transition hover:border-emerald-300 hover:shadow-sm"
         onClick={() => openField(field.id)}
       >
-        <CardContent className="flex h-full flex-col p-3">
-          <div className="min-w-0">
-            <div className="truncate text-[20px] font-bold leading-tight text-[#facc15]">
-              Поле {field.name} — {fmtHa(field.area)}
+        <CardContent className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-3">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0 truncate text-[20px] font-bold leading-tight text-[#facc15]">
+              Поле {field.name}
+            </div>
+            <div className="shrink-0 rounded-md border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-100">
+              {fmtHa(field.area)}
             </div>
           </div>
 
-          <div className="mt-3 min-h-0 flex-1 space-y-1.5">
+          <div className="min-h-0 space-y-1 overflow-hidden">
             {visibleCrops.length ? visibleCrops.map((item) => (
-              <div key={`${field.id}-${item.cropId || item.name}`} className="flex min-w-0 items-center gap-1.5 text-[13px] leading-5 text-slate-800">
+              <div key={`${field.id}-${item.cropId || item.name}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-0 text-[12px] leading-[18px] text-slate-100">
                 <span className="shrink-0 text-base leading-none">{cropIcon(item.name)}</span>
-                <span className="min-w-0 flex-1 truncate font-medium">{item.name}</span>
-                <span className="shrink-0 text-slate-500">—</span>
-                <span className="shrink-0 font-semibold text-slate-900">{fmtHa(item.area)}</span>
+                <span className="min-w-0 truncate font-medium">{item.name}</span>
+                <span className="shrink-0 rounded-md bg-slate-800/80 px-1.5 py-0 text-[10px] font-semibold tabular-nums text-slate-100">{fmtHa(item.area)}</span>
               </div>
             )) : (
               <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2 py-3 text-center text-xs text-slate-500">
                 Культура не задана
               </div>
             )}
-            {hiddenCrops > 0 ? <div className="truncate text-xs font-medium text-slate-500">* ещё {hiddenCrops}</div> : null}
+            {hiddenCrops > 0 ? <div className="truncate px-1 text-[12px] font-medium leading-[18px] text-slate-400">+ ещё {hiddenCrops}</div> : null}
           </div>
 
           <Button
             type="button"
-            className="mt-3 h-9 w-full"
+            className="h-8 w-full text-[12px]"
             onClick={(event) => openPrimaryOperationPlan(field, event)}
             disabled={!FIELD_FIRST_CREATE_ENABLED}
           >
-            <Plus className="mr-2 h-4 w-4" />Операция
+            <Plus className="mr-1.5 h-3.5 w-3.5" />Операция
           </Button>
         </CardContent>
       </Card>
@@ -1043,13 +1336,15 @@ export default function CropStructurePage() {
                     <td className="px-3 py-2 font-semibold text-[#facc15]">Поле {field.name}</td>
                     <td className="px-3 py-2 text-slate-700">
                       {visibleCrops.length ? (
-                        <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-1">
+                        <div className="flex min-w-0 flex-wrap gap-2">
                           {visibleCrops.map((item) => (
-                            <span key={`${field.id}-table-${item.cropId || item.name}`} className="max-w-[220px] truncate">
-                              {cropIcon(item.name)} {item.name} — {fmtHa(item.area)}
+                            <span key={`${field.id}-table-${item.cropId || item.name}`} className="inline-flex max-w-[240px] items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1">
+                              <span className="shrink-0">{cropIcon(item.name)}</span>
+                              <span className="min-w-0 truncate">{item.name}</span>
+                              <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">{fmtHa(item.area)}</span>
                             </span>
                           ))}
-                          {hiddenCrops > 0 ? <span className="text-slate-500">* ещё {hiddenCrops}</span> : null}
+                          {hiddenCrops > 0 ? <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-slate-500">+ ещё {hiddenCrops}</span> : null}
                         </div>
                       ) : (
                         <span className="text-slate-400">Культура не задана</span>
@@ -1184,111 +1479,518 @@ export default function CropStructurePage() {
       });
   };
 
-  const renderFieldDossier = () => {
+  const operationKindLabel = (operation: StructureOperationFact) => {
+    const value = [
+      operation.operation_type,
+      operation.operation_type_slug,
+      operation.operation_category_slug,
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    if (value.includes("herbicide") || value.includes("гербиц")) return "Гербицидная";
+    if (value.includes("fungicide") || value.includes("фунгиц")) return "Фунгицидная";
+    if (value.includes("insecticide") || value.includes("инсектиц")) return "Инсектицидная";
+    if (value.includes("desiccation") || value.includes("десика")) return "Десикация";
+    if (value.includes("fertigation") || value.includes("фертиг")) return "Фертигация";
+    if (value.includes("fertilizer") || value.includes("удобр") || value.includes("разбрасыв")) return "Удобрение";
+    if (value.includes("spraying") || value.includes("опрыск") || value.includes("сзр")) return "СЗР";
+    if (value.includes("soil") || value.includes("tillage") || value.includes("почво") || value.includes("диск") || value.includes("греб")) return "Почвообработка";
+    if (value.includes("planting") || value.includes("seeding") || value.includes("посев") || value.includes("посад")) return "Посев / посадка";
+    if (value.includes("harvest") || value.includes("уборк")) return "Уборка";
+    return "Операция";
+  };
+
+  const operationStatusLabel = (operation: StructureOperationFact) => {
+    const value = String(operation.work_status || operation.status || "").toLowerCase();
+    if (value === "completed" || value === "done" || operation.completed_at) return "Закрыта";
+    if (value === "in_progress") return "В работе";
+    if (value === "accepted") return "Принята";
+    if (value === "active" || value === "planned") return "Запланирована";
+    return value || "Статус не указан";
+  };
+
+  const operationStatusClass = (operation: StructureOperationFact) => {
+    const label = operationStatusLabel(operation);
+    if (label === "Закрыта") return "border-emerald-400/30 bg-emerald-400/10 text-emerald-200 hover:bg-emerald-400/10";
+    if (label === "В работе") return "border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/10";
+    return "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-800";
+  };
+
+  const operationAreaLabel = (operation: StructureOperationFact) => {
+    const value = operation.actual_area_ha ?? operation.planned_area_ha;
+    return value == null ? "площадь не указана" : fmtHa(value);
+  };
+
+  const operationMaterialsPreview = (operation: StructureOperationFact) => {
+    const actualMaterials = operation.materials.filter((material) => {
+      const quantity = material.consumed_quantity ?? material.issued_quantity;
+      return quantity != null && quantity > 0;
+    });
+    if (!actualMaterials.length) return "без фактических материалов";
+    const names = actualMaterials.slice(0, 3).map((material) => material.product_name);
+    const extra = actualMaterials.length > 3 ? ` + ещё ${actualMaterials.length - 3}` : "";
+    return `${names.join(", ")}${extra}`;
+  };
+
+  const buildOperationSummary = (operations: StructureOperationFact[]) => {
+    const grouped = new Map<string, number>();
+    for (const operation of operations) {
+      const label = operationKindLabel(operation);
+      grouped.set(label, (grouped.get(label) || 0) + 1);
+    }
+    return Array.from(grouped.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ru"));
+  };
+
+  const renderFieldDossierLegacy = () => {
     if (!selectedField) return null;
     const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
     const planned = sumArea(rows);
     const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
     return (
-      <div className="space-y-4">
-        <div className="rounded-2xl border bg-[#f8faf7] p-4">
+      <div className="space-y-3 text-slate-100">
+        <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">Что поле фактически получило за сезон</div>
-              <div className="mt-1 text-2xl font-semibold text-slate-950">Поле {selectedField.name}</div>
-              <div className="mt-1 text-sm text-slate-600">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Сезонный контур поля</div>
+              <div className="mt-1 text-2xl font-semibold text-white">Поле {selectedField.name}</div>
+              <div className="mt-1 text-sm text-slate-400">
                 Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
               </div>
             </div>
             <Badge className={stateClass(fieldState(selectedField.id))}>{stateText(fieldState(selectedField.id))}</Badge>
           </div>
-          <div className="mt-3 grid gap-2 md:grid-cols-2">
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {rows.length ? rows.map((allocation) => (
-              <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl bg-white px-3 py-2 text-sm">
-                <div className="font-semibold text-slate-900">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
-                <div className="text-xs text-slate-500">{fmtHa(Number(allocation.area || 0))}</div>
+              <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2 text-sm">
+                <div className="truncate font-semibold text-slate-100">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                <div className="text-xs text-slate-400">{fmtHa(Number(allocation.area || 0))}</div>
               </div>
             )) : (
-              <div className="rounded-xl border border-dashed bg-white px-3 py-3 text-sm text-slate-500">Посевные строки ещё не заданы.</div>
+              <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/55 px-3 py-3 text-sm text-slate-400">Посевные строки ещё не заданы.</div>
             )}
           </div>
         </div>
 
-        {rows.length ? rows.map((allocation) => {
-          const facts = allocationFacts(allocation);
-          const plannedArea = Number(allocation.area || 0);
-          const field = fieldMap.get(allocation.field_id);
-          const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
-          const rateArea = actualCompletedArea || plannedArea;
-          const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади посевной строки";
-          const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
-          const hasMaterials = materialRows.length > 0;
+        {rows.length ? (
+          <div className="grid gap-3 xl:grid-cols-2">
+            {rows.map((allocation) => {
+              const facts = allocationFacts(allocation);
+              const operationsForAllocation = allocation.id ? operationFactsByAllocation.get(allocation.id) || [] : [];
+              const operationSummary = buildOperationSummary(operationsForAllocation);
+              const plannedArea = Number(allocation.area || 0);
+              const field = fieldMap.get(allocation.field_id);
+              const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
+              const rateArea = actualCompletedArea || plannedArea;
+              const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади участка";
+              const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
+              const hasMaterials = materialRows.length > 0;
 
-          return (
-            <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="text-xl font-semibold text-slate-950">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
-                  <div className="mt-1 text-sm text-slate-600">
-                    {fmtHa(plannedArea)} · фактических выдач {facts.rows.length}
+              return (
+                <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border border-slate-800 bg-[#111827] p-3 shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-semibold text-white">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                      <div className="mt-1 text-xs text-slate-400">
+                        {fmtHa(plannedArea)} · операций {operationsForAllocation.length} · материалов {facts.rows.length}
+                      </div>
+                    </div>
+                    {FIELD_FIRST_CREATE_ENABLED && field ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 bg-yellow-400 px-3 text-xs font-semibold text-slate-950 hover:bg-yellow-300"
+                        onClick={(event) => openOperationPlan(field, allocation, event)}
+                      >
+                        Запланировать
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-100">Материалы</div>
+                          <div className="text-[11px] text-slate-500">Факт: {rateBasis}</div>
+                        </div>
+                        <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-300">{materialRows.length}</span>
+                      </div>
+
+                      {hasMaterials ? (
+                        <div className="mt-2 max-h-48 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                          <table className="w-full text-left text-xs">
+                            <tbody>
+                              {materialRows.map((item) => (
+                                <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-slate-800 first:border-t-0">
+                                  <td className="py-2 pr-2">
+                                    <div className="font-medium text-slate-100">{item.identity}</div>
+                                    <div className="text-[11px] text-slate-500">{item.categoryLabel} · {item.batchClass}</div>
+                                  </td>
+                                  <td className="py-2 text-right">
+                                    <div className="font-semibold text-slate-100">{item.total}</div>
+                                    <div className="text-[11px] text-slate-500">{item.perHa}</div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-950/60 px-3 py-3 text-xs text-slate-500">
+                          Фактических выдач пока нет.
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold text-slate-100">Операции</div>
+                          <div className="text-[11px] text-slate-500">План и факт по участку</div>
+                        </div>
+                        <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] font-semibold text-slate-300">{operationsForAllocation.length}</span>
+                      </div>
+
+                      {operationSummary.length ? (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {operationSummary.slice(0, 4).map((item) => (
+                            <span key={item.label} className="rounded-full border border-slate-700 bg-slate-900 px-2 py-0.5 text-[11px] text-slate-300">
+                              {item.label}: {item.count}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+
+                      {operationsForAllocation.length ? (
+                        <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                          {operationsForAllocation.map((operation) => (
+                            <div key={operation.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
+                                  <div className="mt-0.5 text-[11px] text-slate-500">
+                                    {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
+                                  </div>
+                                </div>
+                                <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
+                              </div>
+                              <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-950/60 px-3 py-3 text-xs text-slate-500">
+                          Операций по этому участку пока нет.
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {FIELD_FIRST_CREATE_ENABLED && field ? (
+              );
+            })}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-700 bg-[#111827] p-5 text-sm text-slate-400">Посевные строки ещё не заданы.</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderFieldDossier = () => {
+    if (!selectedField) return null;
+    const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
+    const planned = sumArea(rows);
+    const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
+    const rowItems = rows.map((allocation, index) => {
+      const facts = allocationFacts(allocation);
+      const operationsForAllocation = allocation.id ? operationFactsByAllocation.get(allocation.id) || [] : [];
+      const operationSummary = buildOperationSummary(operationsForAllocation);
+      const plannedArea = Number(allocation.area || 0);
+      const actualCompletedArea = facts.stageCompleted.get("seeding") || facts.stageCompleted.get("care") || facts.stageCompleted.get("prep") || 0;
+      const rateArea = actualCompletedArea || plannedArea;
+      const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади участка";
+      const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
+      const title = `${cropName(allocation.crop_id)} / ${varietyName(allocation.variety_id)} / ${reproductionName(allocation.reproduction_id)}`;
+      return {
+        allocation,
+        facts,
+        key: allocationKey(allocation, index),
+        materialRows,
+        operationSummary,
+        operationsForAllocation,
+        plannedArea,
+        rateBasis,
+        title,
+      };
+    });
+    const selectedItem = rowItems.find((item) => item.key === selectedDossierAllocationKey) || rowItems[0] || null;
+    const selectedItemField = selectedItem ? fieldMap.get(selectedItem.allocation.field_id) || selectedField : selectedField;
+    const totalOperations = rowItems.reduce((sum, item) => sum + item.operationsForAllocation.length, 0);
+    const totalMaterials = rowItems.reduce((sum, item) => sum + item.materialRows.length, 0);
+
+    return (
+      <div className="space-y-3 text-slate-100">
+        <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Сезонный контур поля</div>
+              <div className="mt-1 text-2xl font-semibold text-white">Поле {selectedField.name}</div>
+              <div className="mt-1 text-sm text-slate-400">
+                Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
+              </div>
+            </div>
+            <Badge className={stateClass(fieldState(selectedField.id))}>{stateText(fieldState(selectedField.id))}</Badge>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-4">
+            <div className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-slate-500">Участков</div>
+              <div className="mt-1 text-lg font-semibold text-white">{rows.length}</div>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-slate-500">Операций</div>
+              <div className="mt-1 text-lg font-semibold text-white">{totalOperations}</div>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-slate-500">Материалов</div>
+              <div className="mt-1 text-lg font-semibold text-white">{totalMaterials}</div>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-slate-500">Площадь</div>
+              <div className="mt-1 text-lg font-semibold text-white">{fmtHa(planned)}</div>
+            </div>
+          </div>
+        </div>
+
+        {selectedItem ? (
+          <div className="grid gap-3 lg:h-[600px] lg:grid-cols-[360px_minmax(0,1fr)]">
+            <aside className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-[#111827]">
+              <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+                <div>
+                  <div className="text-sm font-semibold text-white">Участки</div>
+                  <div className="text-xs text-slate-500">Выберите объект операции</div>
+                </div>
+                <Badge className="border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-900">{rowItems.length}</Badge>
+              </div>
+              <div className="min-h-0 overflow-y-auto p-2 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                {rowItems.map((item) => {
+                  const isSelected = item.key === selectedItem.key;
+                  return (
+                    <button
+                      key={item.key}
+                      type="button"
+                      className={`mb-2 flex h-[72px] w-full items-center justify-between gap-3 rounded-xl border px-3 text-left transition ${
+                        isSelected
+                          ? "border-yellow-400/70 bg-yellow-400/10 shadow-[inset_3px_0_0_rgba(250,204,21,1)]"
+                          : "border-slate-800 bg-slate-950/45 hover:border-slate-600"
+                      }`}
+                      onClick={() => {
+                        setSelectedDossierAllocationKey(item.key);
+                        setDossierDetailTab("overview");
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-slate-100">{item.title}</div>
+                        <div className="mt-1 text-xs text-slate-500">{fmtHa(item.plannedArea)}</div>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">{item.operationsForAllocation.length} оп.</span>
+                        <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">{item.materialRows.length} мат.</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </aside>
+
+            <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-800 bg-[#111827]">
+              <div className="border-b border-slate-800 px-4 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-lg font-semibold text-white">{selectedItem.title}</div>
+                    <div className="mt-1 text-sm text-slate-400">
+                      {fmtHa(selectedItem.plannedArea)} · операций {selectedItem.operationsForAllocation.length} · материалов {selectedItem.materialRows.length}
+                    </div>
+                  </div>
+                  {FIELD_FIRST_CREATE_ENABLED && selectedItemField ? (
                     <Button
                       type="button"
                       size="sm"
-                      onClick={(event) => openOperationPlan(field, allocation, event)}
+                      className="h-9 bg-yellow-400 px-4 text-sm font-semibold text-slate-950 hover:bg-yellow-300"
+                      onClick={(event) => openOperationPlan(selectedItemField, selectedItem.allocation, event)}
                     >
-                      Запланировать работу
+                      Запланировать
                     </Button>
                   ) : null}
-                  <Badge className="bg-slate-900 text-white hover:bg-slate-900">Материалы сезона</Badge>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {[
+                    { key: "overview", label: "Обзор" },
+                    { key: "operations", label: "Операции" },
+                    { key: "materials", label: "Материалы" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                        dossierDetailTab === tab.key
+                          ? "border-yellow-400 bg-yellow-400 text-slate-950"
+                          : "border-slate-700 bg-slate-950/40 text-slate-300 hover:border-slate-500"
+                      }`}
+                      onClick={() => setDossierDetailTab(tab.key as "overview" | "operations" | "materials")}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              {hasMaterials ? (
-                <div className="mt-4 overflow-hidden rounded-xl border bg-white">
-                  <div className="flex items-center justify-end border-b bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-                    Расчёт факта: {rateBasis}
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
+                {dossierDetailTab === "overview" ? (
+                  <div className="space-y-4">
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Площадь участка</div>
+                        <div className="mt-2 text-xl font-semibold text-white">{fmtHa(selectedItem.plannedArea)}</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Операций</div>
+                        <div className="mt-2 text-xl font-semibold text-white">{selectedItem.operationsForAllocation.length}</div>
+                      </div>
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                        <div className="text-[11px] uppercase tracking-wide text-slate-500">Материалов</div>
+                        <div className="mt-2 text-xl font-semibold text-white">{selectedItem.materialRows.length}</div>
+                      </div>
+                    </div>
+
+                    {selectedItem.operationSummary.length ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                        <div className="text-sm font-semibold text-slate-100">Сводка операций</div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {selectedItem.operationSummary.map((item) => (
+                            <span key={item.label} className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
+                              {item.label}: {item.count}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/45 p-4 text-sm text-slate-500">
+                        По участку пока нет операций.
+                      </div>
+                    )}
+
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                        <div className="text-sm font-semibold text-slate-100">Последние операции</div>
+                        <div className="mt-3 space-y-2">
+                          {selectedItem.operationsForAllocation.slice(0, 4).map((operation) => (
+                            <div key={operation.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
+                                  <div className="mt-0.5 text-[11px] text-slate-500">
+                                    {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
+                                  </div>
+                                </div>
+                                <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
+                              </div>
+                              <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
+                            </div>
+                          ))}
+                          {!selectedItem.operationsForAllocation.length ? <div className="text-xs text-slate-500">Операций нет.</div> : null}
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                        <div className="text-sm font-semibold text-slate-100">Основные материалы</div>
+                        <div className="mt-3 space-y-2">
+                          {selectedItem.materialRows.slice(0, 4).map((item) => (
+                            <div key={`${item.category}-${item.identity}-${item.batchClass}`} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2 text-xs">
+                              <div className="min-w-0">
+                                <div className="truncate font-semibold text-slate-100">{item.identity}</div>
+                                <div className="text-[11px] text-slate-500">{item.categoryLabel}</div>
+                              </div>
+                              <div className="shrink-0 text-right font-semibold text-slate-100">{item.total}</div>
+                            </div>
+                          ))}
+                          {!selectedItem.materialRows.length ? <div className="text-xs text-slate-500">Материалов нет.</div> : null}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="overflow-x-auto">
+                ) : null}
+
+                {dossierDetailTab === "operations" ? (
+                  <div className="overflow-hidden rounded-xl border border-slate-800">
                     <table className="w-full text-left text-xs">
-                      <thead className="bg-white text-[11px] uppercase tracking-wide text-slate-400">
+                      <thead className="bg-slate-950/70 text-[11px] uppercase tracking-wide text-slate-500">
                         <tr>
-                          <th className="px-3 py-2 font-medium">Группа</th>
-                          <th className="px-3 py-2 font-medium">Продукт</th>
-                          <th className="px-3 py-2 font-medium">Партия/класс</th>
-                          <th className="px-3 py-2 text-right font-medium">Итого</th>
-                          <th className="px-3 py-2 text-right font-medium">На га</th>
                           <th className="px-3 py-2 font-medium">Дата</th>
+                          <th className="px-3 py-2 font-medium">Тип</th>
+                          <th className="px-3 py-2 font-medium">Работа</th>
+                          <th className="px-3 py-2 text-right font-medium">Площадь</th>
+                          <th className="px-3 py-2 text-right font-medium">Статус</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {materialRows.map((item) => (
-                          <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-slate-100">
-                            <td className="px-3 py-2 text-slate-700">{item.categoryLabel}</td>
-                            <td className="px-3 py-2 font-medium text-slate-900">{item.identity}</td>
-                            <td className="px-3 py-2 text-slate-500">{item.batchClass}</td>
-                            <td className="px-3 py-2 text-right font-semibold text-slate-900">{item.total}</td>
-                            <td className="px-3 py-2 text-right text-slate-700">{item.perHa}</td>
-                            <td className="px-3 py-2 text-slate-500">{item.date}</td>
+                        {selectedItem.operationsForAllocation.map((operation) => (
+                          <tr key={operation.id} className="border-t border-slate-800">
+                            <td className="px-3 py-2 text-slate-400">{fmtDate(operation.completed_at || operation.date)}</td>
+                            <td className="px-3 py-2 text-slate-300">{operationKindLabel(operation)}</td>
+                            <td className="px-3 py-2 font-medium text-slate-100">{operation.operation_type}</td>
+                            <td className="px-3 py-2 text-right text-slate-300">{operationAreaLabel(operation)}</td>
+                            <td className="px-3 py-2 text-right"><Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
+                    {!selectedItem.operationsForAllocation.length ? (
+                      <div className="border-t border-slate-800 px-4 py-8 text-center text-sm text-slate-500">Операций по этому участку пока нет.</div>
+                    ) : null}
                   </div>
-                </div>
-              ) : (
-                <div className="mt-4 rounded-xl border border-dashed bg-slate-50 p-4 text-sm text-slate-500">
-                  Фактических выдач материалов на эту посевную строку пока нет.
-                </div>
-              )}
+                ) : null}
 
-            </div>
-          );
-        }) : (
-          <div className="rounded-xl border border-dashed bg-white p-5 text-sm text-slate-500">Посевные строки ещё не заданы.</div>
+                {dossierDetailTab === "materials" ? (
+                  <div className="space-y-3">
+                    <div className="text-xs text-slate-500">Расчёт факта: {selectedItem.rateBasis}</div>
+                    <div className="overflow-hidden rounded-xl border border-slate-800">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-950/70 text-[11px] uppercase tracking-wide text-slate-500">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">Группа</th>
+                            <th className="px-3 py-2 font-medium">Материал</th>
+                            <th className="px-3 py-2 font-medium">Партия/класс</th>
+                            <th className="px-3 py-2 text-right font-medium">Итого</th>
+                            <th className="px-3 py-2 text-right font-medium">На га</th>
+                            <th className="px-3 py-2 font-medium">Дата</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedItem.materialRows.map((item) => (
+                            <tr key={`${item.category}-${item.identity}-${item.batchClass}`} className="border-t border-slate-800">
+                              <td className="px-3 py-2 text-slate-400">{item.categoryLabel}</td>
+                              <td className="px-3 py-2 font-medium text-slate-100">{item.identity}</td>
+                              <td className="px-3 py-2 text-slate-500">{item.batchClass}</td>
+                              <td className="px-3 py-2 text-right font-semibold text-slate-100">{item.total}</td>
+                              <td className="px-3 py-2 text-right text-slate-300">{item.perHa}</td>
+                              <td className="px-3 py-2 text-slate-500">{item.date}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {!selectedItem.materialRows.length ? (
+                        <div className="border-t border-slate-800 px-4 py-8 text-center text-sm text-slate-500">Фактических выдач по этому участку пока нет.</div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-700 bg-[#111827] p-5 text-sm text-slate-400">Посевные строки ещё не заданы.</div>
         )}
       </div>
     );
@@ -1568,7 +2270,7 @@ export default function CropStructurePage() {
       ) : null}
 
       <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && closeField()}>
-        <DialogContent className="max-h-[92vh] max-w-6xl overflow-y-auto">
+        <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1180px] [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent">
           <DialogHeader>
             <div className="flex items-center justify-between gap-2">
               <DialogTitle>{selectedField ? `Поле ${selectedField.name} — ${fmtHa(selectedField.area)}` : "Поле"}</DialogTitle>

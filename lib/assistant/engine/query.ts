@@ -73,6 +73,23 @@ type LlmDiagnostics = {
   missingEnv: string[];
 };
 
+type GptFirstRequestType = "CHAT" | "QUESTION" | "DATA" | "ACTION";
+
+type GptFirstDecision = {
+  ok: boolean;
+  requestType: GptFirstRequestType | null;
+  answer: string | null;
+  toolHint: string | null;
+  toolParams: Record<string, unknown>;
+  confidence: number;
+  actualModel: string | null;
+  configuredModel: string | null;
+  settingsSource: "db" | "env" | "default";
+  usage: UsageStats;
+  llm: LlmDiagnostics;
+  durationMs: number;
+};
+
 function llmNotCalled(): LlmDiagnostics {
   return {
     status: "not_called",
@@ -86,6 +103,141 @@ function llmNotCalled(): LlmDiagnostics {
 function cleanString(value: unknown): string | null {
   const text = String(value || "").trim();
   return text.length ? text : null;
+}
+
+function combineUsageStats(...items: UsageStats[]): UsageStats {
+  const add = (key: keyof UsageStats): number | null => {
+    let saw = false;
+    const total = items.reduce((sum, item) => {
+      const value = item[key];
+      if (typeof value === "number") {
+        saw = true;
+        return sum + value;
+      }
+      return sum;
+    }, 0);
+    return saw ? total : null;
+  };
+  return {
+    promptTokens: add("promptTokens"),
+    completionTokens: add("completionTokens"),
+    totalTokens: add("totalTokens"),
+  };
+}
+
+function normalizeProductAliasForFastData(value: string | null): string | null {
+  const text = cleanString(value);
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (/(\u0441\u0435\u043b\u0438\u0442\u0440|\u0430\u043c\u043c\u0438\u0430\u0447|ammonium\s+nitrate)/i.test(normalized)) {
+    return "Ammonium Nitrate";
+  }
+  return text;
+}
+
+function hasShortAnswerPreference(memoryContext: string | null | undefined): boolean {
+  const text = String(memoryContext || "").toLowerCase();
+  return /(\u043a\u043e\u0440\u043e\u0442\u043a|\u043a\u0440\u0430\u0442\u043a|\u0431\u0435\u0437\s+\u0432\u043e\u0434|\u0441\u0436\u0430\u0442)/i.test(text);
+}
+
+function compactAnswerForShortPreference(answer: string): string {
+  const text = String(answer || "").trim();
+  if (text.length <= 380) return text;
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^(если нужно|могу дальше|хочешь|следующий шаг)/i.test(line));
+  if (lines.length >= 3) {
+    return lines.slice(0, 5).join("\n");
+  }
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+  return sentences.slice(0, 4).join(" ").trim();
+}
+
+function editDistanceWithinTwo(a: string, b: string): boolean {
+  if (Math.abs(a.length - b.length) > 2) return false;
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    let prevDiagonal = previous[0];
+    previous[0] = i;
+    let rowMin = previous[0];
+    for (let j = 1; j <= b.length; j += 1) {
+      const beforeUpdate = previous[j];
+      previous[j] =
+        a[i - 1] === b[j - 1]
+          ? prevDiagonal
+          : Math.min(previous[j - 1] + 1, previous[j] + 1, prevDiagonal + 1);
+      prevDiagonal = beforeUpdate;
+      rowMin = Math.min(rowMin, previous[j]);
+    }
+    if (rowMin > 2) return false;
+  }
+  return previous[b.length] <= 2;
+}
+
+function isSimpleGreetingLikeChat(message: string): boolean {
+  const raw = (cleanString(message) || "").toLowerCase();
+  if (!raw || raw.length > 40) return false;
+  if (/(остат|склад|движ|операц|поле|талон|созд|откро|покаж|скольк|материал|верни|выда)/i.test(raw)) {
+    return false;
+  }
+  if (/(добрый\s+(день|вечер|утро)|салам|здравств|hello|hi\b|hey\b|privet)/i.test(raw)) return true;
+  const tokens = raw
+    .replace(/[^\p{L}\p{N}\s-]+/gu, " ")
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+  if (tokens.length > 2) return false;
+  return tokens.some((token) => token === "привет" || editDistanceWithinTwo(token, "привет"));
+}
+
+function normalizeChatAnswerForSmallTalk(message: string, answer: string): string {
+  if (!isSimpleGreetingLikeChat(message)) return answer;
+  return "Привет! Я на месте. Чем займёмся?";
+}
+
+function draftKindHumanLabel(kind: string | null | undefined): string {
+  switch (cleanString(kind)) {
+    case "weighbridge_ticket":
+      return "талона весовой";
+    case "warehouse":
+      return "склада";
+    case "field":
+      return "поля";
+    case "meal_order":
+      return "заявки питания";
+    case "transfer":
+      return "перемещения";
+    case "fuel_issue":
+      return "выдачи ГСМ";
+    case "field_task":
+      return "полевого задания";
+    case "material_issue":
+      return "выдачи материалов";
+    default:
+      return "операции";
+  }
+}
+
+function missingDraftFieldLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (item && typeof item === "object") return cleanString((item as Record<string, unknown>).label);
+      return cleanString(item);
+    })
+    .filter((item): item is string => Boolean(item));
+}
+
+function buildFastDraftAnswer(payload: Record<string, unknown>): string {
+  const kind = cleanString(payload.draftKind);
+  const missing = missingDraftFieldLabels(payload.missingFields);
+  const label = draftKindHumanLabel(kind);
+  if (missing.length) {
+    return `Подготовил черновик ${label}. Нужно уточнить: ${missing.join(", ")}. Данные ещё не записаны в систему.`;
+  }
+  return `Подготовил черновик ${label}. Проверь карточку и подтверди вручную. Данные ещё не записаны в систему.`;
 }
 
 function combineMemoryContext(...parts: Array<string | null | undefined>): string | null {
@@ -663,7 +815,80 @@ function isPureKnowledgeQuestion(message: string): boolean {
   );
 }
 
+function buildFastKnowledgeAnswer(message: string): string | null {
+  const text = String(message || "").toLowerCase();
+  if (/(\u0432\u0435\u0441\u043e\u0432|\u0432\u0437\u0432\u0435\u0448|weighbridge|scale)/i.test(text)) {
+    return [
+      "Весовая работает через талон рейса.",
+      "",
+      "- Создаётся талон: машина, водитель, тип движения, поле или склад.",
+      "- Фиксируется первое взвешивание: обычно брутто.",
+      "- После загрузки или разгрузки фиксируется второе взвешивание: обычно тара.",
+      "- Система считает нетто: брутто минус тара.",
+      "- После закрытия талона движение попадает в склад, операцию, историю поля или ledger.",
+      "",
+      "Следующий шаг: можно проверить активные талоны или последние закрытые рейсы.",
+    ].join("\n");
+  }
+
+  if (/(\u0441\u043a\u043b\u0430\u0434|\u043e\u0441\u0442\u0430\u0442|\u043f\u0430\u0440\u0442|warehouse|stock|batch|ledger)/i.test(text)) {
+    return [
+      "Склад в ERP должен считаться от движений, а не от карточки вручную.",
+      "",
+      "- Приход увеличивает остаток.",
+      "- Выдача, списание и отгрузка уменьшают остаток.",
+      "- Перемещение уменьшает остаток на складе-источнике и увеличивает на складе-получателе.",
+      "- Партии нужны, чтобы понимать происхождение, дату и качество товара.",
+      "- Ledger должен быть source of truth для проверки спорных остатков.",
+      "",
+      "Следующий шаг: можно проверить остатки или последние движения по конкретному складу.",
+    ].join("\n");
+  }
+
+  if (/(\u0444\u0438\u0442\u043e\u0444\u0442\u043e\u0440|phytophthora|late\s+blight)/i.test(text)) {
+    return [
+      "Фитофтора — опасное грибоподобное заболевание, особенно критичное для картофеля и томатов.",
+      "",
+      "- Быстро развивается при влажной погоде и умеренной температуре.",
+      "- Поражает листья, стебли и клубни.",
+      "- Риск выше при густой ботве, росе, туманах и слабой вентиляции.",
+      "- Защита строится на профилактике, мониторинге и своевременных фунгицидных обработках.",
+      "- Важно чередовать действующие вещества, чтобы не загнать резистентность.",
+      "",
+      "Следующий шаг: можно проверить поля картофеля и риск по погоде/операциям.",
+    ].join("\n");
+  }
+
+  if (/(\u0440\u0435\u043f\u0440\u043e\u0434\u0443\u043a\u0446|\u044d\u043b\u0438\u0442|super\s*elite|elite|seed\s+class)/i.test(text)) {
+    return [
+      "Репродукция семян показывает поколение и качество семенного материала.",
+      "",
+      "- Чем выше класс, тем чище сорт и ниже риск вырождения.",
+      "- Элита обычно используется как качественный исходный материал.",
+      "- Последующие репродукции дешевле, но требуют внимательнее смотреть здоровье и сортовую чистоту.",
+      "- Для картофеля репродукция особенно важна из-за накопления вирусов и болезней.",
+      "",
+      "Следующий шаг: можно проверить структуру посевов по сорту и репродукции.",
+    ].join("\n");
+  }
+
+  return null;
+}
+
 function buildPlannerSeedIntent(message: string): AssistantIntent {
+  if (isLargestFieldQuestionText(message)) {
+    return {
+      name: "fields_overview",
+      confidence: 0.95,
+      needsData: true,
+      parameters: {
+        query: cleanString(message) || "",
+        output_type: "list",
+        source_of_truth: "fields",
+      },
+    };
+  }
+
   return {
     name: "general_question",
     confidence: 1,
@@ -724,9 +949,9 @@ function buildContradictionExplanation(state: AssistantSessionState): string | n
 }
 
 function resolveAssistantEngineMode(): AssistantEngineMode {
-  const raw = String(process.env.ASSISTANT_ENGINE_MODE || "hybrid").trim().toLowerCase();
+  const raw = String(process.env.ASSISTANT_ENGINE_MODE || "model_first").trim().toLowerCase();
   if (raw === "tool_first" || raw === "model_first" || raw === "hybrid") return raw;
-  return "hybrid";
+  return "model_first";
 }
 
 function resolveHybridDomains(): Set<string> {
@@ -893,6 +1118,16 @@ function extractExplicitFieldReference(text: string): string | null {
   return null;
 }
 
+function extractExplicitTicketReference(text: string): string | null {
+  const match = String(text || "").match(/\bWR-\d{4}-\d{5,}\b/i);
+  return cleanString(match?.[0]);
+}
+
+function extractExplicitUuidReference(text: string): string | null {
+  const match = String(text || "").match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i);
+  return cleanString(match?.[0]);
+}
+
 function applyUserTextFocusToSessionState(state: AssistantSessionState, message: string): AssistantSessionState {
   const fieldRef = extractExplicitFieldReference(message);
   if (fieldRef) {
@@ -907,12 +1142,39 @@ function applyUserTextFocusToSessionState(state: AssistantSessionState, message:
       focusUpdatedAt: new Date().toISOString(),
     };
   }
+  const ticketRef = extractExplicitTicketReference(message);
+  if (ticketRef) {
+    return {
+      ...state,
+      lastTicket: ticketRef,
+      lastTicketLabel: ticketRef,
+      focusEntityType: "ticket",
+      focusEntityId: null,
+      focusEntityLabel: ticketRef,
+      focusSource: "user_text",
+      focusUpdatedAt: new Date().toISOString(),
+    };
+  }
+  const uuidRef = extractExplicitUuidReference(message);
+  if (uuidRef && /(\u043e\u043f\u0435\u0440\u0430\u0446|operation|task|\u0437\u0430\u0434\u0430\u0447)/i.test(message)) {
+    return {
+      ...state,
+      lastOperation: uuidRef,
+      lastOperationId: uuidRef,
+      focusEntityType: "operation",
+      focusEntityId: uuidRef,
+      focusEntityLabel: uuidRef,
+      focusSource: "user_text",
+      focusUpdatedAt: new Date().toISOString(),
+    };
+  }
   return state;
 }
 
 function hasDeicticReference(text: string): boolean {
   return hasAnyRoutingPattern(text, [
     /(\u044d\u0442|\u0442\u0430\u043c|\u0442\u0443\u0442|\u043d\u0435\u043c\u0443|\u043d\u0435\u0439|\u043d\u0435\u043c|\u043d\u0438\u043c|\u0434\u0430\u043d\u043d|\u0442\u0435\u043a\u0443\u0449|\u0432\u044b\u0431\u0440\u0430\u043d)/i,
+    /(\u0442\u043e\u0433\u0434\u0430|\u0434\u0430\u043b\u044c\u0448\u0435|\u043f\u043e\s+\u043d\u0435\u043c\u0443|\u0441\s+\u043d\u0438\u043c|\u0435\u0433\u043e|\u0435\u0435|\u0435\u0451)/i,
     /\b(this|that|there|it|current|selected|same)\b/i,
   ]);
 }
@@ -972,6 +1234,34 @@ function resolveRoutingMessageWithMemory(params: {
     (focusType === "warehouse" ? focusRef : null) ||
     cleanString(params.runtimeContext.selectedWarehouseLabel) ||
     cleanString(params.runtimeContext.selectedWarehouseId);
+  const operationRef =
+    cleanString(params.state.lastOperationLabel) ||
+    cleanString(params.state.lastOperation) ||
+    cleanString(params.state.lastOperationId) ||
+    (focusType === "operation" ? focusRef : null) ||
+    cleanString(params.runtimeContext.selectedOperationLabel) ||
+    cleanString(params.runtimeContext.selectedOperationId);
+  const ticketRef =
+    cleanString(params.state.lastTicketLabel) ||
+    cleanString(params.state.lastTicket) ||
+    cleanString(params.state.lastTicketId) ||
+    (focusType === "ticket" ? focusRef : null) ||
+    cleanString(params.runtimeContext.selectedTicketLabel) ||
+    cleanString(params.runtimeContext.selectedTicketId);
+  const sectionRef =
+    cleanString(params.state.lastCropStructureSectionLabel) ||
+    cleanString(params.state.lastCropStructureSection) ||
+    cleanString(params.state.lastCropStructureSectionId) ||
+    (focusType === "crop_structure_line" ? focusRef : null) ||
+    cleanString(params.runtimeContext.selectedCropStructureSectionLabel) ||
+    cleanString(params.runtimeContext.selectedCropStructureSectionId);
+  const batchRef =
+    cleanString(params.state.lastBatchLabel) ||
+    cleanString(params.state.lastBatch) ||
+    cleanString(params.state.lastBatchId) ||
+    (focusType === "batch" ? focusRef : null) ||
+    cleanString(params.runtimeContext.selectedBatchLabel) ||
+    cleanString(params.runtimeContext.selectedBatchId);
   const cropRef =
     cleanString(params.state.lastVariety) ||
     cleanString(params.state.lastCrop) ||
@@ -1033,6 +1323,100 @@ function resolveRoutingMessageWithMemory(params: {
       used: false,
       keysUsed: [],
       resolvedEntitySource: "explicit_user_text",
+    };
+  }
+
+  const mentionsOperationFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u043e\u043f\u0435\u0440\u0430\u0446|\u0437\u0430\u0434\u0430\u0447|\u0441\u0442\u0430\u0442\u0443\u0441|\u0438\u0441\u043f\u043e\u043b\u043d|\u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b|\u0432\u044b\u0434\u0430\u0447|\u043f\u0440\u0438\u043d\u044f\u0442|\u0437\u0430\u043a\u0440\u044b|operation|task|status|performer|material|issue|accept|complete)/i,
+  ]);
+  const mentionsTicketFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u0442\u0430\u043b\u043e\u043d|\u0432\u0435\u0441\u043e\u0432|\u0431\u0440\u0443\u0442\u0442\u043e|\u0442\u0430\u0440\u0430|\u043d\u0435\u0442\u0442\u043e|pdf|ticket|weighbridge|gross|tare|net)/i,
+  ]);
+  const mentionsSectionFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u0443\u0447\u0430\u0441\u0442|\u0441\u0442\u0440\u0443\u043a\u0442\u0443\u0440|\u043b\u0438\u043d\u0438|section|crop\s+structure|line)/i,
+  ]);
+  const mentionsBatchFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u043f\u0430\u0440\u0442|\u043b\u043e\u0442|batch|lot)/i,
+  ]);
+  const operationSpecificFollowup = hasAnyRoutingPattern(normalized, [
+    /(\u0441\u0442\u0430\u0442\u0443\u0441|\u0438\u0441\u043f\u043e\u043b\u043d|\u0432\u044b\u0434\u0430\u0447|\u043f\u0440\u0438\u043d\u044f\u0442|\u0437\u0430\u043a\u0440\u044b|\u0444\u0430\u043a\u0442|status|performer|issue|accept|complete|fact)/i,
+  ]);
+
+  if ((mentionsMaterialsV2 || mentionsHarvestV2 || (mentionsOperationsV2 && !operationSpecificFollowup)) && fieldRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `field ${fieldRef}`),
+      used: true,
+      keysUsed: ["lastFieldLabel", "lastField", "lastFieldId"],
+      resolvedEntitySource: cleanString(params.state.lastFieldLabel) || cleanString(params.state.lastField) || cleanString(params.state.lastFieldId)
+        ? "session_memory"
+        : "page_context",
+    };
+  }
+
+  if ((deicticFollowUp || mentionsOperationFollowup) && operationRef && (focusType === "operation" || !fieldRef)) {
+    return {
+      routingMessage: appendMemoryContext(raw, `operation ${operationRef}`),
+      used: true,
+      keysUsed: ["lastOperationLabel", "lastOperation", "lastOperationId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastOperationLabel) ||
+        cleanString(params.state.lastOperation) ||
+        cleanString(params.state.lastOperationId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  if ((deicticFollowUp || mentionsTicketFollowup) && ticketRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `ticket ${ticketRef}`),
+      used: true,
+      keysUsed: ["lastTicketLabel", "lastTicket", "lastTicketId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastTicketLabel) ||
+        cleanString(params.state.lastTicket) ||
+        cleanString(params.state.lastTicketId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  if ((deicticFollowUp || mentionsSectionFollowup) && sectionRef && (focusType === "crop_structure_line" || !fieldRef)) {
+    return {
+      routingMessage: appendMemoryContext(raw, `crop structure line ${sectionRef}`),
+      used: true,
+      keysUsed: ["lastCropStructureSectionLabel", "lastCropStructureSection", "lastCropStructureSectionId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastCropStructureSectionLabel) ||
+        cleanString(params.state.lastCropStructureSection) ||
+        cleanString(params.state.lastCropStructureSectionId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  if ((deicticFollowUp || mentionsBatchFollowup) && batchRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `batch ${batchRef}`),
+      used: true,
+      keysUsed: ["lastBatchLabel", "lastBatch", "lastBatchId"],
+      resolvedEntitySource:
+        cleanString(params.state.lastBatchLabel) ||
+        cleanString(params.state.lastBatch) ||
+        cleanString(params.state.lastBatchId)
+          ? "session_memory"
+          : "page_context",
+    };
+  }
+
+  if (deicticFollowUp && (mentionsMaterialsV2 || mentionsOperationsV2 || mentionsHarvestV2) && fieldRef) {
+    return {
+      routingMessage: appendMemoryContext(raw, `field ${fieldRef}`),
+      used: true,
+      keysUsed: ["lastFieldLabel", "lastField", "lastFieldId"],
+      resolvedEntitySource: cleanString(params.state.lastFieldLabel) || cleanString(params.state.lastField) || cleanString(params.state.lastFieldId)
+        ? "session_memory"
+        : "page_context",
     };
   }
 
@@ -1139,8 +1523,22 @@ function formatInventoryRows(
   intentParams?: AssistantIntent["parameters"]
 ): string {
   const warehouseAlias = cleanString(intentParams?.warehouse_alias) || cleanString(intentParams?.warehouse);
+  const productAlias =
+    cleanString(intentParams?.product) ||
+    cleanString(intentParams?.crop) ||
+    cleanString(intentParams?.crop_alias) ||
+    cleanString(intentParams?.query);
   const resolvedScopeLabel = warehouseAlias ? `По складу «${warehouseAlias}»` : "По всем активным складам";
-  if (!rows.length) return `${resolvedScopeLabel.toLowerCase()} по текущему фильтру остатки не найдены.`;
+  if (!rows.length) {
+    if (productAlias) {
+      return [
+        `По «${productAlias}» остатка на активных складах не найдено.`,
+        warehouseAlias ? `Проверенный склад: ${warehouseAlias}.` : "Проверены все активные склады.",
+        "Следующий шаг: можно проверить последние движения/выдачи по этому материалу.",
+      ].join("\n");
+    }
+    return `${resolvedScopeLabel.toLowerCase()} по текущему фильтру остатки не найдены.`;
+  }
   const byProduct = new Map<string, number>();
   const byWarehouse = new Map<string, number>();
   let total = 0;
@@ -1361,11 +1759,22 @@ function formatOperationsRows(
   rows: Array<Record<string, unknown>>,
   intentParams?: AssistantIntent["parameters"]
 ): string {
+  if (!rows.length) {
+    const emptyStatus = cleanString(intentParams?.status)?.toLowerCase();
+    const emptyTitle =
+      emptyStatus === "active"
+        ? "Активные операции"
+        : emptyStatus === "waiting_materials"
+          ? "Операции в ожидании материалов"
+          : "Операции";
+    const fieldContext = fieldContextFromIntent(intentParams);
+    return fieldContext ? `${emptyTitle} ${fieldContext} не найдены.` : `${emptyTitle} не найдены.`;
+  }
   const status = cleanString(intentParams?.status)?.toLowerCase();
   const activeOnly =
     status === "active" ||
     (rows.length > 0 && rows.every((row) => String((row as any).work_status || "").toLowerCase() === "active"));
-  const title =
+  let title =
     activeOnly
       ? "Активные операции"
       : status === "waiting_materials"
@@ -1373,6 +1782,10 @@ function formatOperationsRows(
         : "Операции";
 
   if (!rows.length) return `${title} не найдены.`;
+  if (!rows.length) {
+    const fieldContext = fieldContextFromIntent(intentParams);
+    return fieldContext ? `${title} ${fieldContext} не найдены.` : `${title} не найдены.`;
+  }
   const shown = rows.slice(0, 12);
   const lines = shown.map((row) => {
     const area = asNumber((row as any).area_ha);
@@ -1488,8 +1901,48 @@ function formatWarehouseMovementsRowsV2(rows: Array<Record<string, unknown>>): s
   return [`Последние движения:`, ...lines, tail].filter(Boolean).join("\n");
 }
 
-function formatFieldsRowsV2(rows: Array<Record<string, unknown>>): string {
+function isLargestFieldQuestionText(value: unknown): boolean {
+  const text = normalizeRoutingText(String(value || ""));
+  if (!text) return false;
+  const mentionsField = /(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field|fields|РїРѕР»Рµ|РїРѕР»СЏ)/i.test(text);
+  const asksLargest =
+    /(?:\u0441\u0430\u043c\w*\s+\u0431\u043e\u043b\u044c\u0448|\u043d\u0430\u0438\u0431\u043e\u043b\u044c\u0448|\u043a\u0440\u0443\u043f\u043d|\u043c\u0430\u043a\u0441|\u0431\u043e\u043b\u044c\u0448\u0435\s+\u0432\u0441\u0435\u0433\u043e|largest|biggest|max(?:imum)?|СЃР°Рј\w*\s+Р±РѕР»СЊС€|РЅР°РёР±РѕР»СЊС€|РєСЂСѓРїРЅ|РјР°РєСЃ|Р±РѕР»СЊС€Рµ\s+РІСЃРµРіРѕ)/i.test(
+      text
+    );
+  return mentionsField && asksLargest;
+}
+
+function pickLargestFieldRow(rows: Array<Record<string, unknown>>): Record<string, unknown> | null {
+  let best: Record<string, unknown> | null = null;
+  let bestArea = Number.NEGATIVE_INFINITY;
+  rows.forEach((row) => {
+    const area = asNumber((row as any).area_ha ?? (row as any).area);
+    const field = cleanString((row as any).field_name) || cleanString((row as any).field_label) || cleanString((row as any).name);
+    if (!field && !cleanString((row as any).field_id)) return;
+    if (area > bestArea) {
+      best = row;
+      bestArea = area;
+    }
+  });
+  return best;
+}
+
+function formatFieldsRowsV2(rows: Array<Record<string, unknown>>, intentParams?: AssistantIntent["parameters"]): string {
   if (!rows.length) return "Поля по текущему фильтру не найдены.";
+  const query = cleanString(intentParams?.query) || cleanString(intentParams?.entityQuery) || cleanString(intentParams?.field);
+  const largestField = isLargestFieldQuestionText(query) ? pickLargestFieldRow(rows) : null;
+  if (largestField) {
+    const fieldName =
+      cleanString((largestField as any).field_name) ||
+      cleanString((largestField as any).field_label) ||
+      cleanString((largestField as any).name) ||
+      cleanString((largestField as any).field_id) ||
+      "-";
+    return `Самое большое поле: ${fieldName} — ${formatNumber(
+      asNumber((largestField as any).area_ha ?? (largestField as any).area),
+      2
+    )} га.`;
+  }
   const shown = rows.slice(0, 5);
   const lines = shown.map((row) => `• ${safeText(row.field_name)} — ${formatNumber(asNumber(row.area_ha), 2)} га`);
   const tail = rows.length > shown.length ? `Показываю ${shown.length} из ${rows.length}.` : "";
@@ -1521,7 +1974,69 @@ function formatFieldLandBankSummaryRows(rows: Array<Record<string, unknown>>): s
   ].join("\n");
 }
 
-function formatFieldTimelineRowsV2(rows: Array<Record<string, unknown>>): string {
+function fieldContextFromIntent(intentParams?: AssistantIntent["parameters"]): string | null {
+  const queryField = (
+    cleanString(intentParams?.query) ||
+    cleanString(intentParams?.resolved_query) ||
+    cleanString(intentParams?.message)
+  )?.match(/\bfield\s+([0-9]{1,3}(?:-[0-9]{1,3}){0,2})\b/i)?.[1];
+  const field =
+    cleanString(intentParams?.field) ||
+    cleanString(intentParams?.field_alias) ||
+    cleanString(intentParams?.field_number) ||
+    cleanString(intentParams?.field_label) ||
+    queryField ||
+    cleanString(intentParams?.field_id);
+  return field ? `по полю ${field}` : null;
+}
+
+function formatFieldTimelineRowsV2(
+  rows: Array<Record<string, unknown>>,
+  intentParams?: AssistantIntent["parameters"]
+): string {
+  const queryText = [
+    cleanString(intentParams?.query),
+    cleanString(intentParams?.resolved_query),
+    cleanString(intentParams?.message),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const wantsOperations = /(\u043e\u043f\u0435\u0440\u0430\u0446|\u0440\u0430\u0431\u043e\u0442|operation|task)/i.test(queryText);
+  const fieldContext = fieldContextFromIntent(intentParams) || "по полю";
+
+  if (!rows.length) {
+    return wantsOperations ? `Операции ${fieldContext} не найдены.` : `История ${fieldContext} не найдена.`;
+  }
+
+  if (wantsOperations) {
+    const operationRows = rows.filter((row) => {
+      const eventType = cleanString(row.event_type)?.toLowerCase();
+      return eventType === "operation_fact" || Boolean(cleanString((row as any).operation_type));
+    });
+    if (!operationRows.length) return `Операции ${fieldContext} не найдены.`;
+    const shown = operationRows.slice(0, 10);
+    const lines = shown.map((row) => {
+      const type = cleanString((row as any).operation_type) || cleanString(row.title) || "Операция";
+      const status = cleanString((row as any).work_status) || cleanString(row.status);
+      const area = asNumber((row as any).area_ha);
+      const executor = cleanString((row as any).executor);
+      const materials = cleanString((row as any).materials_text);
+      return [
+        `- ${formatShortDate(row.date)}: ${type}`,
+        status ? `статус ${status}` : null,
+        area > 0 ? `${formatNumber(area, 2)} га` : null,
+        executor ? `исполнитель ${executor}` : null,
+        materials ? `материалы: ${materials}` : "материалы не указаны",
+      ]
+        .filter(Boolean)
+        .join(", ");
+    });
+    const tail = operationRows.length > shown.length ? `Показываю ${shown.length} из ${operationRows.length}.` : "";
+    return [`Операции ${fieldContext}: ${operationRows.length}.`, ...lines, tail].filter(Boolean).join("\n");
+  }
+
+  if (!rows.length) return `История ${fieldContextFromIntent(intentParams) || "по полю"} не найдена.`;
   if (!rows.length) return "История поля не найдена.";
   const labelByType: Record<string, string> = {
     issue: "выдача материалов",
@@ -1545,7 +2060,11 @@ function formatFieldTimelineRowsV2(rows: Array<Record<string, unknown>>): string
   return [`Последние события по полю:`, ...lines, tail].filter(Boolean).join("\n");
 }
 
-function formatFieldMaterialsRowsV2(rows: Array<Record<string, unknown>>): string {
+function formatFieldMaterialsRowsV2(
+  rows: Array<Record<string, unknown>>,
+  intentParams?: AssistantIntent["parameters"]
+): string {
+  if (!rows.length) return `Материалы ${fieldContextFromIntent(intentParams) || "по полю"} не найдены.`;
   if (!rows.length) return "Материалы по полю не найдены.";
   const shown = rows.slice(0, 12);
   const lines = shown.map((row) => {
@@ -1662,13 +2181,13 @@ function formatGroundedToolOutput(params: {
     intentName === "fields_overview" &&
     (toolName === "search_fields" || toolName === "get_fields" || toolName === "find_field")
   ) {
-    return outputType === "summary_total" ? formatFieldsSummaryRowsV2(rows) : formatFieldsRowsV2(rows);
+    return outputType === "summary_total" ? formatFieldsSummaryRowsV2(rows) : formatFieldsRowsV2(rows, intentParams);
   }
   if (intentName === "rotation_history" || toolName === "get_field_timeline") {
-    return formatFieldTimelineRowsV2(rows);
+    return formatFieldTimelineRowsV2(rows, intentParams);
   }
   if (toolName === "get_field_materials") {
-    return formatFieldMaterialsRowsV2(rows);
+    return formatFieldMaterialsRowsV2(rows, intentParams);
   }
   if (toolName === "get_field_card") {
     return formatFieldCardRowsV2(rows);
@@ -1731,17 +2250,77 @@ function buildMandatoryToolDataAnswer(params: {
   outputs: AssistantToolOutput[];
   toolCalls: AssistantToolCallLog[];
 }): string | null {
+  if (params.intent.name === "fields_overview" && isLargestFieldQuestionText(params.intent.parameters.query)) {
+    const rowsById = new Map<string, Record<string, unknown>>();
+    params.outputs.forEach((output) => {
+      (output.rows || []).forEach((row) => {
+        const fieldLabel =
+          cleanString((row as any).field_name) ||
+          cleanString((row as any).field_label) ||
+          cleanString((row as any).name) ||
+          cleanString((row as any).field_id);
+        const areaHa = asNumber((row as any).area_ha ?? (row as any).area);
+        if (!fieldLabel || areaHa <= 0) return;
+        const key = cleanString((row as any).field_id) || fieldLabel;
+        rowsById.set(key, row);
+      });
+    });
+    const rows = Array.from(rowsById.values()).sort(
+      (a, b) => asNumber((b as any).area_ha ?? (b as any).area) - asNumber((a as any).area_ha ?? (a as any).area)
+    );
+    const largest = rows[0];
+    if (largest) {
+      const largestLabel =
+        cleanString((largest as any).field_name) ||
+        cleanString((largest as any).field_label) ||
+        cleanString((largest as any).name) ||
+        cleanString((largest as any).field_id) ||
+        "-";
+      const topRows = rows.slice(1, 4).map((row, index) => {
+        const label =
+          cleanString((row as any).field_name) ||
+          cleanString((row as any).field_label) ||
+          cleanString((row as any).name) ||
+          cleanString((row as any).field_id) ||
+          "-";
+        return `${index + 2}. Поле ${label} — ${formatNumber(asNumber((row as any).area_ha ?? (row as any).area), 2)} га`;
+      });
+      return [
+        `Самое большое поле — ${largestLabel}, площадь ${formatNumber(
+          asNumber((largest as any).area_ha ?? (largest as any).area),
+          2
+        )} га.`,
+        topRows.length ? "" : null,
+        topRows.length ? "Ближайшие по площади:" : null,
+        ...topRows,
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+  }
+
   const mandatoryTools = new Set<AssistantToolName>([
     "get_active_operations",
     "get_active_operations_summary",
     "get_operations",
     "search_operations",
+    "get_warehouse_stock",
+    "get_warehouse_balances",
+    "get_inventory",
+    "get_warehouse_movements",
+    "get_field_timeline",
+    "get_field_materials",
+  ]);
+  const allowEmptyRowsForTools = new Set<AssistantToolName>([
+    "get_warehouse_stock",
+    "get_warehouse_balances",
+    "get_inventory",
+    "get_warehouse_movements",
     "get_field_materials",
   ]);
   const blocks: string[] = [];
 
   params.outputs.forEach((output, index) => {
-    if (!output.rows.length) return;
     const loggedTool = params.toolCalls[index]?.tool;
     const toolName =
       loggedTool ||
@@ -1751,6 +2330,7 @@ function buildMandatoryToolDataAnswer(params: {
           ? "get_operations"
           : null);
     if (!toolName || !mandatoryTools.has(toolName as AssistantToolName)) return;
+    if (!output.rows.length && !allowEmptyRowsForTools.has(toolName as AssistantToolName)) return;
     const formatted = formatGroundedToolOutput({
       toolName: toolName as AssistantToolName,
       intentName: params.intent.name,
@@ -1948,20 +2528,30 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
 
   if (intent.name === "create_draft") {
-    if (/(питан|термос|обед|ужин|завтрак|meal|thermos|lunch|dinner|breakfast)/.test(queryText)) {
+    const requestedTool = cleanString(intent.parameters.tool)?.toLowerCase() || "";
+    const operationDraftRequested =
+      /(operation|spray|spraying|herbicid|fungicid|insecticid|fertiliz|planting|sowing|harvest|soil|rate)/i.test(queryText) ||
+      /(?:операц|обработ|гербицид|фунгицид|инсектицид|сзр|удобрен|посев|посадк|уборк|дисков|культивац|вспаш|борон|почво|норма|л\/га|кг\/га)/i.test(queryText);
+    if (requestedTool && getAssistantTool(requestedTool as AssistantToolName)) {
+      tools[0] = requestedTool as AssistantToolName;
+    } else if (/(питан|термос|обед|ужин|завтрак|meal|thermos|lunch|dinner|breakfast)/.test(queryText)) {
       tools[0] = "create_meal_order_draft";
     } else if (/(талон|весов|ticket|weighbridge)/.test(queryText)) {
       tools[0] = "create_weighbridge_ticket_draft";
+    } else if (/(перемещ|перенес|transfer|from warehouse|to warehouse)/.test(queryText)) {
+      tools[0] = "create_transfer_draft";
+    } else if (/(гсм|топлив|дизел|бензин|азс|fuel)/.test(queryText)) {
+      tools[0] = "create_fuel_issue_draft";
+    } else if (/(выдач|выдать|отпуст|заявк).*(материал|сзр|удобрен|семен|product|material)|material issue/.test(queryText)) {
+      tools[0] = "create_material_issue_draft";
     } else if (/(создай|создать|нов(ый|ое)|create|new).*(склад|warehouse)|^(склад|warehouse)/.test(queryText)) {
       tools[0] = "create_warehouse_draft";
     } else if (/(создай|создать|нов(ый|ое)|create|new).*(поле|field)/.test(queryText)) {
       tools[0] = "create_field_draft";
-    } else if (/(гсм|топлив|дизел|бензин|азс|fuel)/.test(queryText)) {
-      tools[0] = "create_fuel_issue_draft";
-    } else if (/(перемещ|transfer)/.test(queryText)) {
-      tools[0] = "create_transfer_draft";
     } else if (/(поле|задач|task)/.test(queryText)) {
       tools[0] = "create_field_task_draft";
+    } else if (operationDraftRequested) {
+      tools[0] = "create_operation_draft";
     }
   }
 
@@ -2021,12 +2611,13 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
   }
 
   if (intent.name === "operations_recent" && queryText) {
-    tools.unshift("search_operations");
-    if (/(\bop[-_\s]?\d+\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.test(queryText)) {
-      tools.unshift("get_operation_details");
-    }
     if (mentionsFieldRef) {
-      tools.unshift(mentionsFieldMaterials ? "get_field_materials" : "get_field_timeline");
+      tools.splice(0, tools.length, mentionsFieldMaterials ? "get_field_materials" : "get_field_timeline");
+    } else {
+      tools.unshift("search_operations");
+      if (/(\bop[-_\s]?\d+\b|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i.test(queryText)) {
+        tools.unshift("get_operation_details");
+      }
     }
   }
 
@@ -2116,13 +2707,10 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
 
   if (intent.name === "create_draft") {
     const selectedDraftTool = tools[0];
-    if (
-      selectedDraftTool &&
-      getAssistantTool(selectedDraftTool) &&
-      (allowByNamespaceFallback(selectedDraftTool) || allowedTools.has("create_operation_draft"))
-    ) {
+    if (selectedDraftTool && getAssistantTool(selectedDraftTool)) {
       return [selectedDraftTool];
     }
+    return ["create_operation_draft"];
   }
 
   const filtered = Array.from(new Set(tools)).filter((toolName) => allowByNamespaceFallback(toolName));
@@ -2146,7 +2734,7 @@ function getToolNamesForIntent(intent: AssistantIntent, settings: AssistantPlatf
     entity_resolution: [],
     company_context: ["get_company_context"],
     navigation_help: ["navigate_to_page"],
-    create_draft: ["create_operation_draft", "create_weighbridge_ticket_draft", "create_field_draft", "create_meal_order_draft", "create_warehouse_draft"],
+    create_draft: ["create_operation_draft"],
     clarification_required: [],
     general_question: [],
   };
@@ -2232,6 +2820,26 @@ function buildNavigationAnswer(actions: AssistantNavigationAction[]): string {
   return buildNavigationAnswerV2(actions);
 }
 
+function humanNavigationPageName(page: string | null | undefined): string {
+  const key = cleanString(page) || "";
+  const labels: Record<string, string> = {
+    dashboard: "панель",
+    fields: "поля",
+    "fields-map": "карту полей",
+    "crop-structure": "структуру посевов",
+    operations: "операции",
+    warehouses: "склады",
+    weighbridge: "весовую",
+    "weighbridge-history": "историю талонов",
+    "meal-thermoses": "питание и термосы",
+    tasks: "задачи",
+    users: "пользователей",
+    settings: "настройки",
+    analytics: "аналитику",
+  };
+  return labels[key] || key || "страницу";
+}
+
 function buildNavigationAnswerV2(actions: AssistantNavigationAction[], intent?: AssistantIntent): string {
   if (!actions.length) {
     const action = cleanString(intent?.parameters?.action);
@@ -2242,20 +2850,44 @@ function buildNavigationAnswerV2(actions: AssistantNavigationAction[], intent?: 
     return "Не удалось выполнить переход: route не найден.";
   }
   const first = actions[0];
+  const pageLabel = humanNavigationPageName(first.page);
   if (first.type === "open_entity") {
     const label = first.entityQuery || first.entityId || first.page;
     return `Подготовил переход к объекту: ${label}.`;
   }
   if (first.type === "open_page_with_filter" || first.type === "apply_filter") {
-    return `Подготовил переход на страницу ${first.page} с фильтром.`;
+    return `Подготовил переход: ${pageLabel} с фильтром.`;
   }
-  return `Подготовил переход на страницу ${first.page}.`;
+  return `Подготовил переход: ${pageLabel}.`;
 }
 
-function unavailableAssistantMessage(locale: "ru" | "en" | "kz"): string {
-  if (locale === "en") return "AI Assistant is temporarily unavailable. Please try again later.";
-  if (locale === "kz") return "AI Assistant уақытша қолжетімсіз. Кейінірек қайталап көріңіз.";
-  return "AI Assistant временно недоступен. Попробуйте позже.";
+function degradedAssistantMessage(
+  locale: "ru" | "en" | "kz",
+  reason: Pick<LlmDiagnostics, "status" | "httpStatus" | "errorCode">,
+): string {
+  const code = (reason.errorCode || "").toLowerCase();
+  const isRateLimited =
+    reason.httpStatus === 429 || code.includes("rate") || code.includes("quota") || code.includes("limit");
+
+  if (locale === "en") {
+    if (isRateLimited) {
+      return "The model provider is rate-limited right now, so I switched to safe mode. I can still navigate, prepare drafts, and check ERP data through tools; for open-ended reasoning, try again a bit later.";
+    }
+    return "The model did not answer, so I switched to safe mode. I can still navigate, prepare drafts, and check ERP data through tools; please retry the free-form question in a moment.";
+  }
+
+  if (locale === "kz") {
+    if (isRateLimited) {
+      return "Модель провайдері қазір лимитке тірелді, сондықтан қауіпсіз режимге өттім. Навигация, черновиктер және ERP деректерін tools арқылы тексеру жұмыс істей береді; еркін сұрақты сәл кейін қайталап көріңіз.";
+    }
+    return "Модель жауап бермеді, сондықтан қауіпсіз режимге өттім. Навигация, черновиктер және ERP деректерін tools арқылы тексеру жұмыс істей береді; еркін сұрақты сәл кейін қайталаңыз.";
+  }
+
+  if (isRateLimited) {
+    return "Модель сейчас уперлась в лимит OpenAI, поэтому я перешел в безопасный режим. Навигацию, черновики и проверку ERP-данных через tools я всё равно могу делать; свободный вопрос лучше повторить чуть позже.";
+  }
+
+  return "Модель сейчас не ответила, поэтому я перешел в безопасный режим. Навигацию, черновики и проверку ERP-данных через tools я всё равно могу делать; свободный вопрос лучше повторить через минуту.";
 }
 
 async function generateGeneralAnswer(params: {
@@ -2279,7 +2911,12 @@ async function generateGeneralAnswer(params: {
 
   if (!process.env.OPENAI_API_KEY) {
     return {
-      answer: unavailableAssistantMessage(locale),
+      answer:
+        locale === "en"
+          ? "The assistant model is not configured: OPENAI_API_KEY is missing."
+          : locale === "kz"
+            ? "Ассистент моделі бапталмаған: OPENAI_API_KEY жоқ."
+            : "Модель ассистента не настроена: отсутствует OPENAI_API_KEY.",
       actualModel: null,
       usage: emptyUsage,
       llm: {
@@ -2342,17 +2979,18 @@ async function generateGeneralAnswer(params: {
   }
 
   if (!response) {
+    const llm: LlmDiagnostics = {
+      status: "network_error",
+      httpStatus: null,
+      errorCode: "OPENAI_NETWORK_ERROR",
+      errorMessage: "Network request to OpenAI failed",
+      missingEnv: [],
+    };
     return {
-      answer: unavailableAssistantMessage(locale),
+      answer: degradedAssistantMessage(locale, llm),
       actualModel: usedModel,
       usage: emptyUsage,
-      llm: {
-        status: "network_error",
-        httpStatus: null,
-        errorCode: "OPENAI_NETWORK_ERROR",
-        errorMessage: "Network request to OpenAI failed",
-        missingEnv: [],
-      },
+      llm,
       promptMeta,
     };
   }
@@ -2368,17 +3006,18 @@ async function generateGeneralAnswer(params: {
   if (!response.ok) {
     const errCode = cleanString(data?.error?.code);
     const errMessage = cleanString(data?.error?.message) || cleanString(data?.error?.type);
+    const llm: LlmDiagnostics = {
+      status: "http_error",
+      httpStatus: response.status,
+      errorCode: errCode,
+      errorMessage: errMessage,
+      missingEnv: [],
+    };
     return {
-      answer: unavailableAssistantMessage(locale),
+      answer: degradedAssistantMessage(locale, llm),
       actualModel: usedModel,
       usage,
-      llm: {
-        status: "http_error",
-        httpStatus: response.status,
-        errorCode: errCode,
-        errorMessage: errMessage,
-        missingEnv: [],
-      },
+      llm,
       promptMeta,
     };
   }
@@ -2400,19 +3039,401 @@ async function generateGeneralAnswer(params: {
     };
   }
 
+  const llm: LlmDiagnostics = {
+    status: "invalid_response",
+    httpStatus: response.status,
+    errorCode: "OPENAI_EMPTY_RESPONSE",
+    errorMessage: "OpenAI response did not contain assistant message content",
+    missingEnv: [],
+  };
   return {
-    answer: unavailableAssistantMessage(locale),
+    answer: degradedAssistantMessage(locale, llm),
     actualModel: usedModel,
     usage,
-    llm: {
-      status: "invalid_response",
-      httpStatus: response.status,
-      errorCode: "OPENAI_EMPTY_RESPONSE",
-      errorMessage: "OpenAI response did not contain assistant message content",
-      missingEnv: [],
-    },
+    llm,
     promptMeta,
   };
+}
+
+function parseGptFirstDecisionPayload(value: unknown): {
+  requestType: GptFirstRequestType | null;
+  answer: string | null;
+  toolHint: string | null;
+  toolParams: Record<string, unknown>;
+  confidence: number;
+} | null {
+  const raw = cleanString(value);
+  if (!raw) return null;
+  const jsonText = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  try {
+    const parsed = JSON.parse(jsonText) as Record<string, unknown>;
+    const rawType = String(parsed.request_type || parsed.type || "").trim().toUpperCase();
+    const requestType = rawType === "CHAT" || rawType === "QUESTION" || rawType === "DATA" || rawType === "ACTION" ? rawType : null;
+    if (!requestType) return null;
+    const confidenceRaw = Number(parsed.confidence);
+    return {
+      requestType,
+      answer: cleanString(parsed.final_answer) || cleanString(parsed.answer),
+      toolHint: cleanString(parsed.tool_hint),
+      toolParams:
+        parsed.params && typeof parsed.params === "object" && !Array.isArray(parsed.params)
+          ? (parsed.params as Record<string, unknown>)
+          : {},
+      confidence: Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : 0.7,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function runGptFirstRequestDecision(params: {
+  message: string;
+  locale: "ru" | "en" | "kz";
+  settings: AssistantPlatformSettings;
+  runtimeContext: AssistantUiContext;
+  sessionState: AssistantSessionState;
+  longTermMemoryContext?: string | null;
+}): Promise<GptFirstDecision> {
+  const startedAt = Date.now();
+  const modelConfig = resolveAssistantModelConfig(params.settings, {
+    intentName: "general_question",
+    message: params.message,
+    forceFastModel: true,
+  });
+  const emptyUsage: UsageStats = { promptTokens: null, completionTokens: null, totalTokens: null };
+  const fail = (llm: LlmDiagnostics): GptFirstDecision => ({
+    ok: false,
+    requestType: null,
+    answer: null,
+    toolHint: null,
+    toolParams: {},
+    confidence: 0,
+    actualModel: null,
+    configuredModel: modelConfig.configuredModel,
+    settingsSource: modelConfig.settingsSource,
+    usage: emptyUsage,
+    llm,
+    durationMs: Date.now() - startedAt,
+  });
+
+  if (!process.env.OPENAI_API_KEY) {
+    return fail({
+      status: "missing_api_key",
+      httpStatus: null,
+      errorCode: "OPENAI_API_KEY_MISSING",
+      errorMessage: "OPENAI_API_KEY is not configured",
+      missingEnv: ["OPENAI_API_KEY"],
+    });
+  }
+
+  const context = {
+    page: params.runtimeContext.currentPage || null,
+    route: params.runtimeContext.currentRoute || null,
+    module: params.runtimeContext.currentModule || null,
+    company: params.runtimeContext.companyName || null,
+    season: params.runtimeContext.season || params.runtimeContext.defaultSeason || null,
+    focus_type: params.sessionState.focusEntityType || null,
+    focus_label: params.sessionState.focusEntityLabel || null,
+    last_intent: params.sessionState.lastIntent || null,
+    last_field: params.sessionState.lastFieldLabel || params.sessionState.lastField || null,
+    last_warehouse: params.sessionState.lastWarehouseLabel || params.sessionState.lastWarehouse || null,
+    pending_action: params.sessionState.pendingActionSummary || params.sessionState.pendingActionType || null,
+    durable_memory: cleanString(params.longTermMemoryContext)?.slice(0, 1200) || null,
+  };
+  const candidateModels = buildAssistantModelCandidateList(modelConfig.actualModel);
+  let usedModel = modelConfig.actualModel;
+  let usage = emptyUsage;
+  let lastLlm: LlmDiagnostics = {
+    status: "not_called",
+    httpStatus: null,
+    errorCode: null,
+    errorMessage: null,
+    missingEnv: [],
+  };
+
+  for (const candidateModel of candidateModels) {
+    usedModel = candidateModel;
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(
+        buildOpenAiChatCompletionBody({
+          model: candidateModel,
+          temperature: 0,
+          maxCompletionTokens: 320,
+          messages: [
+            {
+              role: "system",
+              content: [
+                "You are the first GPT decision layer for TravkinFlow Copilot.",
+                "Return JSON only. Schema: {\"request_type\":\"CHAT|QUESTION|DATA|ACTION\",\"confidence\":0..1,\"final_answer\":string|null,\"tool_hint\":string|null,\"params\":object}.",
+                "CHAT: greeting, thanks, small talk, typo greeting, 'what can you do'. No tools/DB.",
+                "QUESTION: knowledge/explanation/process/agronomy question answerable without live ERP data. No tools/DB.",
+                "DATA: user asks for factual live company data: fields, hectares, stock, movements, tickets, operations, returns.",
+                "Questions like 'сколько X осталось', 'остаток X', 'наличие X', 'X на складе' are DATA with tool_hint warehouse_stock and params.product = X.",
+                "ACTION: user asks to open/navigate/create/prepare/update/issue/close/register.",
+                "Ambiguous short words like 'привент', 'превет', 'селетра', 'Ревус топп' without explicit data/action words are CHAT with a short clarification, not DATA.",
+                "For CHAT final_answer must be a friendly short answer in the user's language.",
+                "For greeting or typo-greeting CHAT, answer like a normal person. Do not mention stock, movements, operations, tools, or ERP checks unless the user explicitly asked.",
+                "For ambiguous product-like CHAT final_answer should ask what to check, e.g. stock, movements, use, operation.",
+                "For QUESTION final_answer may answer briefly if confident; otherwise set null.",
+                "For DATA or ACTION final_answer must be null.",
+                "For simple DATA choose one tool_hint when obvious: field_land_bank, crop_structure, warehouse_stock, warehouse_movements, active_operations, weighbridge_tickets, warehouse_count.",
+                "For tool_hint params include product, warehouse, crop, field, status, limit, season when the user provided them. If unsure, tool_hint null.",
+                "For ACTION navigation params may include page and route if obvious.",
+              ].join("\n"),
+            },
+            { role: "system", content: `Runtime/session context: ${JSON.stringify(context)}` },
+            { role: "user", content: params.message },
+          ],
+        })
+      ),
+    }).catch(() => null);
+
+    if (!response) {
+      lastLlm = {
+        status: "network_error",
+        httpStatus: null,
+        errorCode: "OPENAI_NETWORK_ERROR",
+        errorMessage: "Network request to OpenAI failed",
+        missingEnv: [],
+      };
+      continue;
+    }
+
+    const data = await response.json().catch(() => ({}));
+    usage = {
+      promptTokens: Number.isFinite(Number(data?.usage?.prompt_tokens)) ? Number(data.usage.prompt_tokens) : null,
+      completionTokens: Number.isFinite(Number(data?.usage?.completion_tokens)) ? Number(data.usage.completion_tokens) : null,
+      totalTokens: Number.isFinite(Number(data?.usage?.total_tokens)) ? Number(data.usage.total_tokens) : null,
+    };
+
+    if (!response.ok) {
+      const errCode = cleanString(data?.error?.code);
+      const errMessage = cleanString(data?.error?.message) || cleanString(data?.error?.type);
+      lastLlm = {
+        status: "http_error",
+        httpStatus: response.status,
+        errorCode: errCode,
+        errorMessage: errMessage,
+        missingEnv: [],
+      };
+      const lower = String(errMessage || "").toLowerCase();
+      const modelUnavailable =
+        errCode === "model_not_found" ||
+        lower.includes("does not exist") ||
+        lower.includes("not available") ||
+        lower.includes("do not have access") ||
+        lower.includes("not have access") ||
+        lower.includes("model not found");
+      if (modelUnavailable) continue;
+      break;
+    }
+
+    const content = cleanString(data?.choices?.[0]?.message?.content);
+    const parsed = parseGptFirstDecisionPayload(content);
+    if (parsed) {
+      return {
+        ok: true,
+        requestType: parsed.requestType,
+        answer: parsed.answer,
+        toolHint: parsed.toolHint,
+        toolParams: parsed.toolParams,
+        confidence: parsed.confidence,
+        actualModel: usedModel,
+        configuredModel: modelConfig.configuredModel,
+        settingsSource: modelConfig.settingsSource,
+        usage,
+        llm: {
+          status: "ok",
+          httpStatus: response.status,
+          errorCode: null,
+          errorMessage: null,
+          missingEnv: [],
+        },
+        durationMs: Date.now() - startedAt,
+      };
+    }
+
+    lastLlm = {
+      status: "invalid_response",
+      httpStatus: response.status,
+      errorCode: "GPT_FIRST_DECISION_PARSE_FAILED",
+      errorMessage: "Decision response was not valid JSON",
+      missingEnv: [],
+    };
+    break;
+  }
+
+  return {
+    ok: false,
+    requestType: null,
+    answer: null,
+    toolHint: null,
+    toolParams: {},
+    confidence: 0,
+    actualModel: usedModel,
+    configuredModel: modelConfig.configuredModel,
+    settingsSource: modelConfig.settingsSource,
+    usage,
+    llm: lastLlm,
+    durationMs: Date.now() - startedAt,
+  };
+}
+
+function buildFastReadOnlyDataIntent(params: {
+  decision: GptFirstDecision;
+  message: string;
+  runtimeContext: AssistantUiContext;
+}): { intent: AssistantIntent; toolName: AssistantToolName } | null {
+  if (!params.decision.ok || params.decision.requestType !== "DATA") return null;
+  const hint = cleanString(params.decision.toolHint)?.toLowerCase();
+  if (!hint) return null;
+  const toolParams = params.decision.toolParams || {};
+  const query = cleanString(toolParams.query) || params.message;
+  const product = normalizeProductAliasForFastData(cleanString(toolParams.product));
+  const warehouse = cleanString(toolParams.warehouse);
+  const crop = cleanString(toolParams.crop);
+  const cropGroup = cleanString(toolParams.crop_group);
+  const field = cleanString(toolParams.field);
+  const status = cleanString(toolParams.status);
+  const limitRaw = Number(toolParams.limit);
+  const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(50, Math.trunc(limitRaw))) : null;
+  const season = cleanString(toolParams.season) || params.runtimeContext.season || params.runtimeContext.defaultSeason || "2026";
+
+  if (hint === "field_land_bank") {
+    return {
+      toolName: "get_field_land_bank_summary",
+      intent: {
+        name: "field_total_area",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          output_type: "summary_total",
+          source_of_truth: "fields",
+        },
+      },
+    };
+  }
+
+  if (hint === "warehouse_count") {
+    return {
+      toolName: "get_warehouse_count",
+      intent: {
+        name: "warehouse_count",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          output_type: "summary_total",
+        },
+      },
+    };
+  }
+
+  if (hint === "crop_structure") {
+    return {
+      toolName: "get_crop_structure_summary",
+      intent: {
+        name: "crop_structure_area",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          crop_alias: crop,
+          crop_group: cropGroup,
+          season,
+          output_type: crop || cropGroup ? "filtered_summary" : "summary_total",
+          source_of_truth: "crop_structure",
+        },
+      },
+    };
+  }
+
+  if (hint === "warehouse_stock") {
+    return {
+      toolName: "get_warehouse_stock",
+      intent: {
+        name: "inventory_balance",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          product,
+          warehouse_alias: warehouse,
+          allWarehouses: warehouse ? false : true,
+          intent_group: "inventory",
+          output_type: "balance",
+        },
+      },
+    };
+  }
+
+  if (hint === "warehouse_movements") {
+    return {
+      toolName: "get_warehouse_movements",
+      intent: {
+        name: "warehouse_movements",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          product,
+          warehouse_alias: warehouse,
+          limit: limit || 10,
+          intent_group: "inventory",
+          output_type: "movements",
+        },
+      },
+    };
+  }
+
+  if (hint === "active_operations") {
+    return {
+      toolName: "get_active_operations_summary",
+      intent: {
+        name: "operations_recent",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          field,
+          status: status || "active",
+          limit: limit || 20,
+          intent_group: "operations",
+          output_type: "list",
+        },
+      },
+    };
+  }
+
+  if (hint === "weighbridge_tickets") {
+    const active = /active|open|актив|открыт/i.test(status || query);
+    return {
+      toolName: active ? "get_active_tickets" : "get_recent_tickets",
+      intent: {
+        name: "weighbridge_tickets",
+        confidence: params.decision.confidence || 0.9,
+        needsData: true,
+        parameters: {
+          query,
+          status: active ? "active" : null,
+          limit: limit || 10,
+          intent_group: "weighbridge",
+          output_type: "filtered_summary",
+        },
+      },
+    };
+  }
+
+  return null;
 }
 
 export async function runAssistantEngine(params: {
@@ -2617,7 +3638,461 @@ export async function runAssistantEngine(params: {
     };
   }
 
-  if (isPureKnowledgeQuestion(message)) {
+  const gptDecision = await runGptFirstRequestDecision({
+    message: memoryRouting.routingMessage,
+    locale: runtimeContext.locale || "ru",
+    settings,
+    runtimeContext,
+    sessionState: initialSessionState,
+    longTermMemoryContext,
+  });
+  const gptDecisionDurationMs = gptDecision.ok ? gptDecision.durationMs : 0;
+
+  if (gptDecision.ok && gptDecision.requestType === "CHAT" && gptDecision.answer) {
+    const chatAnswer = normalizeChatAnswerForSmallTalk(messageForRouting, gptDecision.answer);
+    decisionSource = "model";
+    routerMs = 0;
+    plannerMs = gptDecision.durationMs;
+    toolMs = 0;
+    validatorMs = 0;
+    modelMs = gptDecision.durationMs;
+    return {
+      answer: chatAnswer,
+      sessionState: {
+        ...initialSessionState,
+        lastIntent: "general_question",
+        lastAnswerType: "chat",
+      },
+      intent: {
+        name: "general_question",
+        confidence: gptDecision.confidence || 0.9,
+        needsData: false,
+        parameters: {
+          query: message,
+          request_type: "CHAT",
+          output_type: "filtered_summary",
+        },
+      },
+      outputType: "filtered_summary",
+      mode: "agro_knowledge",
+      toolCalls: [],
+      toolActivity: [],
+      navigationActions: [],
+      sourceHints: [],
+      answerSource: "llm_fallback",
+      grounded: false,
+      decisionSource,
+      explicitNavigationRequested: false,
+      navigationPolicy,
+      model: {
+        configuredModel: gptDecision.configuredModel,
+        actualModel: gptDecision.actualModel,
+        settingsSource: gptDecision.settingsSource,
+        promptVersion: promptMeta.promptVersion,
+        promptSource: promptMeta.promptSource,
+        promptUpdatedAt: promptMeta.promptUpdatedAt,
+        requestMode: engineMode,
+        llm: gptDecision.llm,
+      },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType: "filtered_summary",
+        selectedSource: "gpt_first_chat",
+        selectedTool: null,
+      }),
+      performance: buildPerformance({
+        promptTokens: gptDecision.usage.promptTokens,
+        completionTokens: gptDecision.usage.completionTokens,
+        totalTokens: gptDecision.usage.totalTokens,
+        routerMs,
+        plannerMs,
+        toolMs,
+        validatorMs,
+        modelMs,
+        responseRenderMs,
+      }),
+    };
+  }
+
+  if (gptDecision.ok && gptDecision.requestType === "QUESTION") {
+    decisionSource = "model";
+    routerMs = 0;
+    plannerMs = gptDecision.durationMs;
+    toolMs = 0;
+    validatorMs = 0;
+    const questionIntent: AssistantIntent = {
+      name: "general_question",
+      confidence: gptDecision.confidence || 0.85,
+      needsData: false,
+      parameters: {
+        query: message,
+        request_type: "QUESTION",
+        output_type: "filtered_summary",
+      },
+    };
+    const preparedKnowledgePrompt = settings.knowledgePolicy?.internalLibraryFirst
+      ? await buildKnowledgePromptBundle({
+          intentName: questionIntent.name,
+          mode: "agro_knowledge",
+          includeCompanyLibrary: true,
+        })
+      : null;
+    const hasLibraryContext = Boolean(
+      preparedKnowledgePrompt?.promptBundle.text.includes("Company knowledge library context:")
+    );
+    let answer: string | null = null;
+    let actualModel = gptDecision.actualModel;
+    let llm = gptDecision.llm;
+    let usage = gptDecision.usage;
+    let answerPromptMeta = promptMeta;
+    const knowledgePrompt =
+      preparedKnowledgePrompt ||
+      (await buildKnowledgePromptBundle({
+        intentName: questionIntent.name,
+        mode: "agro_knowledge",
+        includeCompanyLibrary: true,
+      }));
+    const modelStartedAt = Date.now();
+    const shortPreferenceInstruction = hasShortAnswerPreference(longTermMemoryContext)
+      ? "\n\nDurable user memory says the user wants short answers. Hard limit: 3-5 short lines, no long explanations, no numbered menu unless the user asks."
+      : "";
+    const fallback = await generateGeneralAnswer({
+      message,
+      locale: runtimeContext.locale || "ru",
+      settings,
+      intentName: questionIntent.name,
+      systemPrompt: `${knowledgePrompt.promptBundle.text}\n\nОтвечай как специалист хозяйства и соблюдай durable user memory, особенно стиль ответа и обращение. Не вызывай ERP tools для этого вопроса. Если вопрос требует живых данных компании, скажи, что нужно уточнить запрос как DATA.${shortPreferenceInstruction}`,
+      promptMeta: knowledgePrompt.promptMeta,
+      forceFastModel: true,
+    });
+    modelMs = gptDecision.durationMs + (Date.now() - modelStartedAt);
+    answer = fallback.answer;
+    if (hasShortAnswerPreference(longTermMemoryContext)) {
+      answer = compactAnswerForShortPreference(answer);
+    }
+    actualModel = fallback.actualModel;
+    llm = fallback.llm;
+    usage = combineUsageStats(gptDecision.usage, fallback.usage);
+    answerPromptMeta = fallback.promptMeta;
+    return {
+      answer: answer || "Данных недостаточно, чтобы уверенно ответить.",
+      sessionState: {
+        ...initialSessionState,
+        lastIntent: questionIntent.name,
+        lastAnswerType: "knowledge",
+      },
+      intent: questionIntent,
+      outputType: "filtered_summary",
+      mode: "agro_knowledge",
+      toolCalls: [],
+      toolActivity: [],
+      navigationActions: [],
+      sourceHints: hasLibraryContext ? ["Источник знаний: внутренняя библиотека компании"] : [],
+      answerSource: "llm_fallback",
+      grounded: false,
+      decisionSource,
+      explicitNavigationRequested: false,
+      navigationPolicy,
+      model: {
+        configuredModel: gptDecision.configuredModel,
+        actualModel,
+        settingsSource: gptDecision.settingsSource,
+        promptVersion: answerPromptMeta.promptVersion,
+        promptSource: answerPromptMeta.promptSource,
+        promptUpdatedAt: answerPromptMeta.promptUpdatedAt,
+        requestMode: engineMode,
+        llm,
+      },
+      diagnostics: buildDiagnostics({
+        expectedAnswerType: "filtered_summary",
+        selectedSource: hasLibraryContext ? "company_knowledge" : "gpt_first_question",
+        selectedTool: null,
+      }),
+      performance: buildPerformance({
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens,
+        routerMs,
+        plannerMs,
+        toolMs,
+        validatorMs,
+        modelMs,
+        responseRenderMs,
+      }),
+    };
+  }
+
+  if (gptDecision.ok && gptDecision.requestType === "ACTION" && hasExplicitNavigationRequest(messageForRouting)) {
+    decisionSource = "model";
+    routerMs = 0;
+    plannerMs = gptDecision.durationMs;
+    toolMs = 0;
+    validatorMs = 0;
+    modelMs = gptDecision.durationMs;
+    const intent = await classifyAssistantIntent({
+      message: memoryRouting.routingMessage,
+      runtimeContext,
+      sessionState: initialSessionState,
+      settings,
+    });
+    if (intent.name === "navigation_help") {
+      const resolvedOutputType = resolveOutputType(intent);
+      const navigationResult = applyNavigationPolicy({
+        message: messageForRouting,
+        actions: getNavigationActions({ intent, outputs: [] }),
+        strict: strictNavigationPolicy,
+      });
+      explicitNavigationRequested = navigationResult.explicitNavigationRequested;
+      navigationPolicy = navigationResult.policy;
+      const actionPlan = buildAssistantActionPlan({
+        intent,
+        navigationActions: navigationResult.actions,
+        requestMessage: messageForRouting,
+        sessionState: initialSessionState,
+        runtimeContext,
+      });
+      const updatedState = applyAssistantActionPlanToSessionState(
+        {
+          ...initialSessionState,
+          lastIntent: intent.name,
+          lastAnswerType: "navigation",
+        },
+        actionPlan
+      );
+      return {
+        answer: buildNavigationAnswerV2(navigationResult.actions, intent),
+        sessionState: updatedState,
+        intent,
+        outputType: resolvedOutputType,
+        mode: "navigation",
+        toolCalls: [],
+        toolActivity: [],
+        navigationActions: navigationResult.actions,
+        sourceHints: [],
+        answerSource: "model_grounded",
+        grounded: false,
+        decisionSource,
+        explicitNavigationRequested,
+        navigationPolicy,
+        model: {
+          configuredModel: gptDecision.configuredModel,
+          actualModel: gptDecision.actualModel,
+          settingsSource: gptDecision.settingsSource,
+          promptVersion: promptMeta.promptVersion,
+          promptSource: promptMeta.promptSource,
+          promptUpdatedAt: promptMeta.promptUpdatedAt,
+          requestMode: engineMode,
+          llm: gptDecision.llm,
+        },
+        diagnostics: buildDiagnostics({
+          expectedAnswerType: resolvedOutputType,
+          selectedSource: "navigation_executor",
+          selectedTool: null,
+        }),
+        performance: buildPerformance({
+          promptTokens: gptDecision.usage.promptTokens,
+          completionTokens: gptDecision.usage.completionTokens,
+          totalTokens: gptDecision.usage.totalTokens,
+          routerMs,
+          plannerMs,
+          toolMs,
+          validatorMs,
+          modelMs,
+          responseRenderMs,
+        }),
+      };
+    }
+  }
+
+  if (gptDecision.ok && gptDecision.requestType === "ACTION") {
+    decisionSource = "model";
+    const routerStartedAt = Date.now();
+    const intent = await classifyAssistantIntent({
+      message: memoryRouting.routingMessage,
+      runtimeContext,
+      sessionState: initialSessionState,
+      settings,
+    });
+    routerMs = Date.now() - routerStartedAt;
+
+    if (intent.name === "create_draft") {
+      const actionPlan = buildAssistantActionPlan({
+        intent,
+        navigationActions: [],
+        requestMessage: messageForRouting,
+        sessionState: initialSessionState,
+        runtimeContext,
+      });
+      if (actionPlan?.requiresConfirmation) {
+        const updatedState = applyAssistantActionPlanToSessionState(
+          {
+            ...initialSessionState,
+            lastIntent: intent.name,
+            lastAnswerType: "action_draft",
+          },
+          actionPlan
+        );
+        plannerMs = gptDecision.durationMs;
+        toolMs = 0;
+        validatorMs = 0;
+        modelMs = gptDecision.durationMs;
+        const outputType = resolveOutputType(intent);
+        return {
+          answer: buildFastDraftAnswer(actionPlan.payload),
+          sessionState: updatedState,
+          intent,
+          outputType,
+          mode: "mixed",
+          toolCalls: [],
+          toolActivity: [],
+          navigationActions: [],
+          sourceHints: [],
+          answerSource: "model_grounded",
+          grounded: false,
+          decisionSource,
+          explicitNavigationRequested: false,
+          navigationPolicy,
+          model: {
+            configuredModel: gptDecision.configuredModel,
+            actualModel: gptDecision.actualModel,
+            settingsSource: gptDecision.settingsSource,
+            promptVersion: promptMeta.promptVersion,
+            promptSource: promptMeta.promptSource,
+            promptUpdatedAt: promptMeta.promptUpdatedAt,
+            requestMode: engineMode,
+            llm: gptDecision.llm,
+          },
+          diagnostics: buildDiagnostics({
+            expectedAnswerType: outputType,
+            selectedSource: "action_draft",
+            selectedTool: null,
+            consistencyCheck: "skipped",
+          }),
+          performance: buildPerformance({
+            promptTokens: gptDecision.usage.promptTokens,
+            completionTokens: gptDecision.usage.completionTokens,
+            totalTokens: gptDecision.usage.totalTokens,
+            routerMs,
+            plannerMs,
+            toolMs,
+            validatorMs,
+            modelMs,
+            responseRenderMs,
+          }),
+        };
+      }
+    }
+  }
+
+  const fastReadOnlyData = buildFastReadOnlyDataIntent({
+    decision: gptDecision,
+    message: messageForRouting,
+    runtimeContext,
+  });
+  if (fastReadOnlyData) {
+    const tool = getAssistantTool(fastReadOnlyData.toolName);
+    if (tool) {
+      const outputType = resolveOutputType(fastReadOnlyData.intent);
+      const toolStartedAt = Date.now();
+      try {
+        const output = await tool.run({
+          supabase,
+          actor,
+          companyId,
+          settings,
+          runtimeContext,
+          sessionState: initialSessionState,
+          intent: fastReadOnlyData.intent,
+        });
+        const fastToolMs = Date.now() - toolStartedAt;
+        const toolCall: AssistantToolCallLog = {
+          tool: fastReadOnlyData.toolName,
+          params: fastReadOnlyData.intent.parameters || {},
+          ok: true,
+          rows: output.rows.length,
+          durationMs: fastToolMs,
+        };
+        const answer =
+          buildMandatoryToolDataAnswer({
+            intent: fastReadOnlyData.intent,
+            outputType,
+            outputs: [output],
+            toolCalls: [toolCall],
+          }) ||
+          formatGroundedToolOutput({
+            toolName: fastReadOnlyData.toolName,
+            intentName: fastReadOnlyData.intent.name,
+            outputType,
+            intentParams: fastReadOnlyData.intent.parameters,
+            output,
+          }) ||
+          noDataGroundedMessage();
+        const nextSessionState = updateSessionStateFromToolOutput({
+          previous: initialSessionState,
+          intent: fastReadOnlyData.intent,
+          output,
+          seasonFromContext: runtimeContext.season,
+        });
+        decisionSource = "model";
+        routerMs = 0;
+        plannerMs = gptDecisionDurationMs;
+        toolMs = fastToolMs;
+        validatorMs = 0;
+        modelMs = gptDecisionDurationMs;
+        return {
+          answer,
+          sessionState: {
+            ...nextSessionState,
+            lastIntent: fastReadOnlyData.intent.name,
+          },
+          intent: fastReadOnlyData.intent,
+          outputType,
+          mode: fastReadOnlyData.intent.name === "navigation_help" ? "navigation" : "erp_data",
+          toolCalls: [toolCall],
+          toolActivity: buildToolActivityLogs([toolCall]),
+          navigationActions: [],
+          sourceHints: [
+            `${output.source.module} • ${output.source.tableOrView} • ${output.source.season || "-"} • ${output.source.fetchedAt}`,
+          ],
+          answerSource: "tools",
+          grounded: true,
+          decisionSource,
+          explicitNavigationRequested: false,
+          navigationPolicy,
+          model: {
+            configuredModel: gptDecision.configuredModel,
+            actualModel: gptDecision.actualModel,
+            settingsSource: gptDecision.settingsSource,
+            promptVersion: promptMeta.promptVersion,
+            promptSource: promptMeta.promptSource,
+            promptUpdatedAt: promptMeta.promptUpdatedAt,
+            requestMode: engineMode,
+            llm: gptDecision.llm,
+          },
+          diagnostics: buildDiagnostics({
+            expectedAnswerType: getExpectedAnswerType(fastReadOnlyData.intent.name),
+            selectedSource: getSelectedSource(fastReadOnlyData.intent.name),
+            selectedTool: fastReadOnlyData.toolName,
+            consistencyCheck: "skipped",
+          }),
+          performance: buildPerformance({
+            promptTokens: gptDecision.usage.promptTokens,
+            completionTokens: gptDecision.usage.completionTokens,
+            totalTokens: gptDecision.usage.totalTokens,
+            routerMs,
+            plannerMs,
+            toolMs,
+            validatorMs,
+            modelMs,
+            responseRenderMs,
+          }),
+        };
+      } catch {
+        // Fall through to the full planner path. The shortcut is read-only and safe to abandon.
+      }
+    }
+  }
+
+  if (String(process.env.ASSISTANT_LEGACY_KNOWLEDGE_FAST_PATH || "0") === "1" && isPureKnowledgeQuestion(message)) {
     decisionSource = "model";
     routerMs = 0;
     plannerMs = 0;
@@ -2633,23 +4108,85 @@ export async function runAssistantEngine(params: {
         request_type: "knowledge",
       },
     };
+    const preparedKnowledgePrompt = settings.knowledgePolicy?.internalLibraryFirst
+      ? await buildKnowledgePromptBundle({
+          intentName: knowledgeIntent.name,
+          mode: "agro_knowledge",
+          includeCompanyLibrary: true,
+        })
+      : null;
+    const hasLibraryContext = Boolean(
+      preparedKnowledgePrompt?.promptBundle.text.includes("Company knowledge library context:")
+    );
+    const fastKnowledgeAnswer = buildFastKnowledgeAnswer(message);
+    if (fastKnowledgeAnswer && !hasLibraryContext) {
+      validatorMs = 0;
+      modelMs = 0;
+      responseRenderMs = 0;
+      return {
+        answer: fastKnowledgeAnswer,
+        sessionState: {
+          ...initialSessionState,
+          lastIntent: knowledgeIntent.name,
+          lastAnswerType: "knowledge",
+        },
+        intent: knowledgeIntent,
+        outputType: "filtered_summary",
+        mode: "agro_knowledge",
+        toolCalls: [],
+        toolActivity: [],
+        navigationActions: [],
+        sourceHints: [],
+        answerSource: "fast_path_template",
+        grounded: false,
+        decisionSource,
+        explicitNavigationRequested,
+        navigationPolicy,
+        model: {
+          configuredModel: modelConfig.configuredModel,
+          actualModel: null,
+          settingsSource: modelConfig.settingsSource,
+          promptVersion: promptMeta.promptVersion,
+          promptSource: promptMeta.promptSource,
+          promptUpdatedAt: promptMeta.promptUpdatedAt,
+          requestMode: engineMode,
+          llm: modelLlmNotCalled,
+        },
+        diagnostics: buildDiagnostics({
+          expectedAnswerType: "filtered_summary",
+          selectedSource: "model_knowledge",
+          selectedTool: null,
+          consistencyCheck: "skipped",
+        }),
+        performance: buildPerformance({
+          routerMs,
+          plannerMs,
+          toolMs,
+          validatorMs,
+          modelMs,
+          responseRenderMs,
+        }),
+      };
+    }
     const knowledgeModelConfig = resolveAssistantModelConfig(settings, {
       intentName: knowledgeIntent.name,
       message,
       forceFastModel: true,
     });
-    const knowledgePrompt = await buildKnowledgePromptBundle({
-      intentName: knowledgeIntent.name,
-      mode: "agro_knowledge",
-      includeCompanyLibrary: true,
-    });
+    const knowledgePrompt =
+      preparedKnowledgePrompt ||
+      (await buildKnowledgePromptBundle({
+        intentName: knowledgeIntent.name,
+        mode: "agro_knowledge",
+        includeCompanyLibrary: true,
+      }));
     const modelStartedAt = Date.now();
     const fallback = await generateGeneralAnswer({
       message,
       locale,
       settings,
       intentName: knowledgeIntent.name,
-      systemPrompt: knowledgePrompt.promptBundle.text,
+      systemPrompt: `${knowledgePrompt.promptBundle.text}\n\nДля общих объяснений не используй текущий выбранный объект интерфейса, поле, склад или прошлый фокус, если пользователь явно не просит данные по нему в этом сообщении.`,
       promptMeta: knowledgePrompt.promptMeta,
       forceFastModel: true,
     });
@@ -2668,7 +4205,7 @@ export async function runAssistantEngine(params: {
       toolCalls: [],
       toolActivity: [],
       navigationActions: [],
-      sourceHints: [],
+      sourceHints: hasLibraryContext ? ["Источник знаний: внутренняя библиотека компании"] : [],
       answerSource: "llm_fallback",
       grounded: false,
       decisionSource,
@@ -2686,7 +4223,7 @@ export async function runAssistantEngine(params: {
       },
       diagnostics: buildDiagnostics({
         expectedAnswerType: "filtered_summary",
-        selectedSource: "model_knowledge",
+        selectedSource: hasLibraryContext ? "company_knowledge" : "model_knowledge",
         selectedTool: null,
         consistencyCheck: "skipped",
       }),
@@ -2702,8 +4239,8 @@ export async function runAssistantEngine(params: {
     };
   }
 
-  const explicitNavigationCommand = hasExplicitNavigationRequest(messageForRouting);
-  const plannerFirstEnabled = String(process.env.ASSISTANT_PLANNER_FIRST ?? "1") !== "0" && !explicitNavigationCommand;
+  const plannerFirstEnabled =
+    String(process.env.ASSISTANT_PLANNER_FIRST ?? "1") !== "0";
   if (plannerFirstEnabled) {
     plannerAttempted = true;
     decisionSource = "model";
@@ -2732,9 +4269,9 @@ export async function runAssistantEngine(params: {
       forceHeavyModel: true,
     });
     modelMs = Date.now() - modelStartedAt;
-    plannerMs = planner.performance.plannerMs ?? modelMs;
+    plannerMs = gptDecisionDurationMs + (planner.performance.plannerMs ?? modelMs);
     toolMs = planner.performance.toolMs ?? toolMs;
-    modelMs = planner.performance.modelMs ?? modelMs;
+    modelMs = gptDecisionDurationMs + (planner.performance.modelMs ?? modelMs);
 
     if (planner.ok) {
       plannerSucceeded = true;
@@ -2801,9 +4338,6 @@ export async function runAssistantEngine(params: {
       if (plannerUsedTools && consistency.inconsistencyText) {
         answer = `${answer}\n\n${consistency.inconsistencyText}`.trim();
       }
-      if (plannerUsedTools && consistency.advisoryText) {
-        answer = `${answer}\n\n${consistency.advisoryText}`.trim();
-      }
       if (
         navigationResult.policy === "blocked" &&
         /(открыл|открываю|перехожу|показываю страницу|i opened|opening)/i.test(String(answer).toLowerCase())
@@ -2814,6 +4348,8 @@ export async function runAssistantEngine(params: {
         intent: plannerIntent,
         navigationActions: navigationResult.actions,
         requestMessage: messageForRouting,
+        sessionState: planner.sessionState,
+        runtimeContext,
       });
       const plannerUpdatedState: AssistantSessionState = applyAssistantActionPlanToSessionState(
         {
@@ -2940,9 +4476,9 @@ export async function runAssistantEngine(params: {
       companyId,
     });
     modelMs = Date.now() - modelStartedAt;
-    plannerMs = planner.performance.plannerMs ?? modelMs;
+    plannerMs = gptDecisionDurationMs + (planner.performance.plannerMs ?? modelMs);
     toolMs = planner.performance.toolMs ?? toolMs;
-    modelMs = planner.performance.modelMs ?? modelMs;
+    modelMs = gptDecisionDurationMs + (planner.performance.modelMs ?? modelMs);
 
     if (planner.ok) {
       plannerSucceeded = true;
@@ -2998,9 +4534,6 @@ export async function runAssistantEngine(params: {
       if (plannerUsedTools && consistency.inconsistencyText) {
         answer = `${answer}\n\n${consistency.inconsistencyText}`.trim();
       }
-      if (plannerUsedTools && consistency.advisoryText) {
-        answer = `${answer}\n\n${consistency.advisoryText}`.trim();
-      }
       if (
         navigationResult.policy === "blocked" &&
         /(открыл|открываю|перехожу|показываю страницу|i opened|opening)/i.test(String(answer).toLowerCase())
@@ -3011,6 +4544,8 @@ export async function runAssistantEngine(params: {
         intent,
         navigationActions: navigationResult.actions,
         requestMessage: messageForRouting,
+        sessionState: planner.sessionState,
+        runtimeContext,
       });
       const plannerUpdatedState: AssistantSessionState = applyAssistantActionPlanToSessionState(
         {
@@ -3304,14 +4839,12 @@ export async function runAssistantEngine(params: {
     if (consistency.inconsistencyText) {
       answerParts.push(consistency.inconsistencyText);
     }
-    if (consistency.advisoryText) {
-      answerParts.push(consistency.advisoryText);
-    }
-
     const actionPlan = buildAssistantActionPlan({
       intent,
       navigationActions: allowedNavigationActions,
       requestMessage: messageForRouting,
+      sessionState: nextSessionState,
+      runtimeContext,
     });
     const updatedState: AssistantSessionState = applyAssistantActionPlanToSessionState(
       {

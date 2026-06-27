@@ -92,6 +92,7 @@ export interface WarehouseIssueRequest {
   reproduction_name?: string | null;
   operation_type?: string;
   operation_date?: string;
+  operation_notes?: string | null;
   operation_work_status?: string | null;
   recipient_email?: string;
   recipient_name?: string;

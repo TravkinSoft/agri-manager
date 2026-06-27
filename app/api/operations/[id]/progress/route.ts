@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import {
+  SeasonGuardError,
+  assertSeasonWritableForMutation,
+  resolveOperationSeasonIdForGuard,
+} from "@/lib/seasons/season-guard";
 
 const PROGRESS_ALLOWED_ROLES = [
   "global_admin",
@@ -180,7 +185,7 @@ export async function POST(
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("id,company_id,responsible_user_id,assigned_to,work_status,status")
+      .select("id,company_id,responsible_user_id,assigned_to,work_status,status,crop_structure_id")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -198,6 +203,16 @@ export async function POST(
     if (operation.work_status === "completed" || operation.status === "completed") {
       return NextResponse.json({ error: "Completed operation cannot receive progress reports" }, { status: 409 });
     }
+
+    const guardedSeasonId = await resolveOperationSeasonIdForGuard(supabase, {
+      companyId,
+      cropStructureId: (operation as any).crop_structure_id,
+    });
+    await assertSeasonWritableForMutation(supabase, {
+      companyId,
+      seasonId: guardedSeasonId,
+      actionLabel: "Operation progress",
+    });
 
     const { data: lines, error: linesError } = await supabase
       .from("operation_lines")
@@ -292,6 +307,9 @@ export async function POST(
     });
   } catch (error) {
     if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof SeasonGuardError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json(

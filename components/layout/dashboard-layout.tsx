@@ -14,11 +14,13 @@ import { AssistantDebugMonitor } from "@/components/assistant/assistant-debug-mo
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase/client";
+import { useLanguage } from "@/lib/contexts/language-context";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { profile, loading } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const { t } = useLanguage();
   const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
 
   useEffect(() => {
@@ -74,8 +76,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             {profile?.is_impersonating ? (
               <div className="flex items-center justify-between gap-2 border-b border-amber-700/50 bg-amber-900/40 px-4 py-2 text-xs text-amber-100 md:px-6">
                 <div className="truncate">
-                  Вы вошли как <span className="font-semibold">{profile.full_name || profile.email || profile.id}</span> (
-                  {profile.role}). Все действия логируются.
+                  {t("impersonation_as")} <span className="font-semibold">{profile.full_name || profile.email || profile.id}</span> (
+                  {profile.role}). {t("impersonation_logged")}
                 </div>
                 <Button
                   type="button"
@@ -85,13 +87,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                   onClick={() => void stopImpersonation()}
                   disabled={stoppingImpersonation}
                 >
-                  {stoppingImpersonation ? "Возврат..." : "Вернуться в global_admin"}
+                  {stoppingImpersonation ? t("returning") : t("return_to_global_admin")}
                 </Button>
               </div>
             ) : null}
-            <main className="travkin-scrollbar flex-1 overflow-x-hidden overflow-y-auto bg-transparent p-3 pb-[calc(env(safe-area-inset-bottom)+6rem)] sm:p-4 md:p-6 md:pb-6">
+            <main className="travkin-scrollbar flex-1 overflow-x-hidden overflow-y-auto bg-transparent p-3 pb-[calc(env(safe-area-inset-bottom)+6.25rem)] sm:p-4 sm:pb-[calc(env(safe-area-inset-bottom)+6.25rem)] md:p-6 md:pb-6">
               {children}
-              <footer className="mt-8 border-t border-[#262D3D] pt-3 text-center text-xs text-[#7F8A9B]">
+              <footer className="mt-8 hidden border-t border-[#262D3D] pt-3 text-center text-xs text-[#7F8A9B] md:block">
                 Copyright © Сунгатов Айымбек
               </footer>
             </main>

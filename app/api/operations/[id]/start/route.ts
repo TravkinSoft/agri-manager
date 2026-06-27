@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import {
+  SeasonGuardError,
+  assertSeasonWritableForMutation,
+  resolveOperationSeasonIdForGuard,
+} from "@/lib/seasons/season-guard";
 
 const START_ALLOWED_ROLES = [
   "global_admin",
@@ -42,7 +47,7 @@ export async function POST(
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("id,company_id,responsible_user_id,work_status,status,accepted_at")
+      .select("id,company_id,responsible_user_id,work_status,status,accepted_at,crop_structure_id")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -60,6 +65,16 @@ export async function POST(
     if (!isAdmin && responsibleId && responsibleId !== actor.id) {
       return NextResponse.json({ error: "Operation is assigned to another specialist" }, { status: 403 });
     }
+
+    const guardedSeasonId = await resolveOperationSeasonIdForGuard(supabase, {
+      companyId,
+      cropStructureId: (operation as any).crop_structure_id,
+    });
+    await assertSeasonWritableForMutation(supabase, {
+      companyId,
+      seasonId: guardedSeasonId,
+      actionLabel: "Operation start",
+    });
 
     const { data: requests, error: reqError } = await supabase
       .from("warehouse_issue_requests")
@@ -131,6 +146,9 @@ export async function POST(
     return NextResponse.json({ operation: updateResult.data });
   } catch (error) {
     if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof SeasonGuardError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json(

@@ -1,10 +1,34 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getMaterialProductTypeFromProduct } from "@/lib/materials/classification";
+import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
+import { calculateMaterialPlannedQuantity } from "@/lib/materials/mix-calculations";
 
 type ParsedMaterialLine = {
   productName: string | null;
   productId: string | null;
   ratePerHa: number | null;
+  rateBasis?: string | null;
+  plannedQuantity?: number | null;
+  unit?: string | null;
 };
+
+function extractRateBasisFromNotes(notes: string | null | undefined): string | null {
+  const text = String(notes || "");
+  const matched = text.match(/(?:^|[;\n]\s*)rate_basis\s*:\s*([a-zA-Z0-9_]+)/i);
+  return matched?.[1] ? normalizeMaterialRateBasis(matched[1]) : null;
+}
+
+function toPositiveNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const next = Number(value);
+  return Number.isFinite(next) && next > 0 ? next : null;
+}
+
+function readOperationSolutionRate(operationConfig: unknown): number | null {
+  const config = operationConfig && typeof operationConfig === "object" ? (operationConfig as Record<string, unknown>) : null;
+  const tankMix = config?.tank_mix && typeof config.tank_mix === "object" ? (config.tank_mix as Record<string, unknown>) : null;
+  return toPositiveNumber(tankMix?.total_solution_l_ha ?? tankMix?.water_rate_l_ha);
+}
 
 function extractDraftValueFromNotes(notes: string | null | undefined, label: string): string | null {
   const text = String(notes || "");
@@ -55,16 +79,16 @@ async function resolveProductById(
   supabase: SupabaseClient,
   companyId: string,
   productId: string
-): Promise<{ id: string; name: string; type: string | null; unit: string | null } | null> {
+): Promise<{ id: string; name: string; type: string | null; product_type?: string | null; category?: string | null; subcategory?: string | null; pesticide_category?: string | null; fertilizer_type?: string | null; unit: string | null } | null> {
   const normalizedId = String(productId || "").trim();
   if (!normalizedId) return null;
 
   const { data } = await supabase
     .from("products")
-    .select("id,name,type,unit")
-    .eq("company_id", companyId)
+    .select("id,name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit")
     .eq("archived", false)
     .eq("id", normalizedId)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
     .maybeSingle();
 
   return data ? (data as any) : null;
@@ -74,34 +98,34 @@ async function resolveProductByName(
   supabase: SupabaseClient,
   companyId: string,
   productName: string
-): Promise<{ id: string; name: string; type: string | null; unit: string | null } | null> {
+): Promise<{ id: string; name: string; type: string | null; product_type?: string | null; category?: string | null; subcategory?: string | null; pesticide_category?: string | null; fertilizer_type?: string | null; unit: string | null } | null> {
   const normalizedName = String(productName || "").trim();
   if (!normalizedName) return null;
 
   const { data: exactRows } = await supabase
     .from("products")
-    .select("id,name,type,unit")
-    .eq("company_id", companyId)
+    .select("id,name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit")
     .eq("archived", false)
     .ilike("name", normalizedName)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
     .limit(1);
   if (exactRows && exactRows.length > 0) return exactRows[0] as any;
 
   const { data: tradeExactRows } = await supabase
     .from("products")
-    .select("id,name,type,unit,trade_name")
-    .eq("company_id", companyId)
+    .select("id,name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,trade_name")
     .eq("archived", false)
     .ilike("trade_name", normalizedName)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
     .limit(1);
   if (tradeExactRows && tradeExactRows.length > 0) return tradeExactRows[0] as any;
 
   const { data: fuzzyRows } = await supabase
     .from("products")
-    .select("id,name,type,unit,trade_name")
-    .eq("company_id", companyId)
+    .select("id,name,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,trade_name")
     .eq("archived", false)
     .or(`name.ilike.%${normalizedName}%,trade_name.ilike.%${normalizedName}%`)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
     .limit(1);
   if (fuzzyRows && fuzzyRows.length > 0) return fuzzyRows[0] as any;
 
@@ -140,9 +164,18 @@ export async function ensureMaterialRequestForOperation(params: {
   }
 
   const materialHints: ParsedMaterialLine[] = [];
+  const { data: operationContext } = await supabase
+    .from("operations")
+    .select("operation_config,spray_volume_per_ha,rate_per_ha")
+    .eq("company_id", companyId)
+    .eq("id", operationId)
+    .maybeSingle();
+  const solutionRateLHa =
+    readOperationSolutionRate((operationContext as any)?.operation_config) ||
+    toPositiveNumber((operationContext as any)?.spray_volume_per_ha);
   const { data: structuredMaterials } = await supabase
     .from("operation_materials")
-    .select("product_id,planned_rate")
+    .select("product_id,planned_rate,planned_quantity,unit,notes")
     .eq("company_id", companyId)
     .eq("operation_id", operationId)
     .order("created_at", { ascending: true });
@@ -155,6 +188,9 @@ export async function ensureMaterialRequestForOperation(params: {
         productName: null,
         productId,
         ratePerHa: parseRate(String(item?.planned_rate || "")),
+        rateBasis: extractRateBasisFromNotes(item?.notes),
+        plannedQuantity: parseRate(String(item?.planned_quantity || "")),
+        unit: item?.unit ? String(item.unit) : null,
       });
     });
   }
@@ -246,6 +282,7 @@ export async function ensureMaterialRequestForOperation(params: {
     planned_quantity: number;
   }> = [];
   let defaultedRateItems = 0;
+  const blockedItems: string[] = [];
 
   for (const materialHint of materialHints) {
     const product =
@@ -258,20 +295,49 @@ export async function ensureMaterialRequestForOperation(params: {
     if (!product?.id) continue;
 
     const rate = materialHint.ratePerHa && materialHint.ratePerHa > 0 ? materialHint.ratePerHa : null;
-    if (rate == null) defaultedRateItems += 1;
-    const plannedQuantity = Number((effectiveArea * (rate ?? 1)).toFixed(4));
+    const rateBasis = normalizeMaterialRateBasis(materialHint.rateBasis || "per_ha");
+    const plannedQuantity = (() => {
+      if (materialHint.plannedQuantity && materialHint.plannedQuantity > 0) {
+        return Number(materialHint.plannedQuantity.toFixed(4));
+      }
+      if (rate == null) return null;
+      const calculated = calculateMaterialPlannedQuantity({
+        rate,
+        rateUnit: materialHint.unit || product.unit || "kg",
+        rateBasis,
+        areaHa: effectiveArea || 0,
+        solutionRateLHa,
+      });
+      return calculated.plannedQuantity && calculated.plannedQuantity > 0
+        ? Number(calculated.plannedQuantity.toFixed(4))
+        : null;
+    })();
+    if (materialHint.plannedQuantity == null && rate == null) defaultedRateItems += 1;
+    if (!plannedQuantity) {
+      blockedItems.push(String(product.name || materialHint.productName || materialHint.productId || "material"));
+      continue;
+    }
     if (!(plannedQuantity > 0)) continue;
     resolvedMaterials.push({
       product_id: String(product.id),
       product_name: String(product.name || materialHint.productName || materialHint.productId || "material"),
-      product_category: product.type || null,
-      unit: String(product.unit || "kg"),
+      product_category: getMaterialProductTypeFromProduct(product) || product.type || null,
+      unit: String(materialHint.unit || product.unit || "kg"),
       planned_rate_per_ha: rate,
       planned_quantity: plannedQuantity,
     });
   }
 
   if (resolvedMaterials.length === 0) {
+    if (blockedItems.length > 0) {
+      return {
+        created: false,
+        skipped_reason: "missing_safe_planned_quantity" as const,
+        error:
+          "Material request was not created: planned quantity is missing and cannot be calculated safely. Check rate, rate basis, area and solution rate.",
+        blocked_products: blockedItems,
+      };
+    }
     return { created: false, skipped_reason: "products_not_resolved" as const };
   }
 
@@ -289,7 +355,7 @@ export async function ensureMaterialRequestForOperation(params: {
       assigned_specialist_id: responsibleUserId,
       planned_datetime: `${operationDate}T08:00:00.000Z`,
       comment: "Auto-created from operation",
-      status: "active",
+      status: "new",
     })
     .select("id,request_number,status")
     .single();

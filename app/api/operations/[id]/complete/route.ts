@@ -3,6 +3,11 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { resolveCanonicalOperationType } from "@/lib/operations/operation-engine";
+import {
+  SeasonGuardError,
+  assertSeasonWritableForMutation,
+  resolveOperationSeasonIdForGuard,
+} from "@/lib/seasons/season-guard";
 
 const COMPLETE_ALLOWED_ROLES = [
   "global_admin",
@@ -115,6 +120,16 @@ export async function POST(
       return NextResponse.json({ error: "Operation is assigned to another specialist" }, { status: 403 });
     }
 
+    const guardedSeasonId = await resolveOperationSeasonIdForGuard(supabase, {
+      companyId,
+      cropStructureId: (operation as any).crop_structure_id,
+    });
+    await assertSeasonWritableForMutation(supabase, {
+      companyId,
+      seasonId: guardedSeasonId,
+      actionLabel: "Operation completion",
+    });
+
     const isProductionOperation = requiresCropStructure(
       String(operation.operation_category_slug || ""),
       String(operation.operation_type_slug || ""),
@@ -191,6 +206,27 @@ export async function POST(
       const hasActualArea = (normalizedLines || []).some((line: any) => hasPositiveNumber(line.actual_area_ha));
       if (!hasActualArea) {
         return NextResponse.json({ error: "Actual area is required before completion" }, { status: 400 });
+      }
+
+      const plannedAreaForCompletion = (normalizedLines || []).reduce(
+        (sum: number, line: any) => sum + Number(line.planned_area_ha || 0),
+        0
+      );
+      const actualAreaForCompletion = (normalizedLines || []).reduce(
+        (sum: number, line: any) => sum + Number(line.actual_area_ha || 0),
+        0
+      );
+      if (plannedAreaForCompletion > 0 && actualAreaForCompletion + 0.000001 < plannedAreaForCompletion) {
+        return NextResponse.json(
+          {
+            error:
+              "Operation cannot be completed while actual area is below planned area. Submit progress instead.",
+            planned_area_ha: Number(plannedAreaForCompletion.toFixed(4)),
+            actual_area_ha: Number(actualAreaForCompletion.toFixed(4)),
+            remaining_area_ha: Number((plannedAreaForCompletion - actualAreaForCompletion).toFixed(4)),
+          },
+          { status: 409 }
+        );
       }
 
       const { data: materials, error: materialsError } = await supabase
@@ -459,6 +495,9 @@ export async function POST(
     return NextResponse.json({ operation: updateResult.data });
   } catch (error) {
     if (error instanceof SessionAuthError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof SeasonGuardError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json(

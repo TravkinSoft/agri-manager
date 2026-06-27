@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MATERIAL_RATE_BASIS, type MaterialRateBasis } from "@/lib/materials/metadata";
 import type { TankMixComponentType } from "@/lib/operations/operation-engine";
 
 export interface Operation {
@@ -71,7 +72,8 @@ export type OperationMaterialType =
   | "water"
   | "other";
 
-export type OperationMaterialUnit = "kg" | "l" | "pcs";
+export type OperationMaterialUnit = "kg" | "l" | "ml" | "g" | "pcs";
+export type OperationMaterialRateBasis = MaterialRateBasis;
 
 export interface OperationMaterial {
   id: string;
@@ -84,6 +86,7 @@ export interface OperationMaterial {
   unit: OperationMaterialUnit;
   planned_rate: number | null;
   actual_rate: number | null;
+  rate_basis?: OperationMaterialRateBasis | null;
   planned_quantity: number | null;
   issued_quantity: number;
   consumed_quantity: number | null;
@@ -126,6 +129,8 @@ export interface OperationMaterialFormData {
   batch_id?: string | null;
   planned_rate?: number | null;
   actual_rate?: number | null;
+  rate_basis?: OperationMaterialRateBasis | null;
+  planned_quantity?: number | null;
   unit: OperationMaterialUnit;
   notes?: string | null;
 }
@@ -152,6 +157,18 @@ export const operationLineSchema = z.object({
 
 export type OperationLineFormData = z.infer<typeof operationLineSchema>;
 
+export const operationTargetSchema = z.object({
+  field_id: z.string().uuid(),
+  crop_structure_id: z.string().uuid().nullable().optional(),
+  crop_id: z.string().uuid().nullable().optional(),
+  variety_id: z.string().uuid().nullable().optional(),
+  reproduction_id: z.string().uuid().nullable().optional(),
+  planned_area_ha: z.number().min(0, "planned_area_ha must be >= 0"),
+  notes: z.string().nullable().optional(),
+});
+
+export type OperationTargetFormData = z.infer<typeof operationTargetSchema>;
+
 export const operationSchema = z.object({
   field_id: z.string().optional(),
   crop_structure_id: z.string().uuid("Please select a crop structure").nullable().optional(),
@@ -170,6 +187,7 @@ export const operationSchema = z.object({
   seed_spacing_cm: z.number().positive("seed_spacing_cm must be > 0").nullable().optional(),
   operation_params: z.record(z.unknown()).nullable().optional(),
   purposes: z.array(z.string()).optional(),
+  targets: z.array(operationTargetSchema).optional(),
   tank_mix: z
     .object({
       enabled: z.boolean().optional(),
@@ -199,7 +217,12 @@ export const operationSchema = z.object({
         batch_id: z.string().uuid().nullable().optional(),
         planned_rate: z.number().min(0).nullable().optional(),
         actual_rate: z.number().min(0).nullable().optional(),
-        unit: z.enum(["kg", "l", "pcs"]),
+        rate_basis: z
+          .enum(MATERIAL_RATE_BASIS)
+          .nullable()
+          .optional(),
+        planned_quantity: z.number().min(0).nullable().optional(),
+        unit: z.enum(["kg", "l", "ml", "g", "pcs"]),
         notes: z.string().nullable().optional(),
       })
     )
@@ -215,7 +238,12 @@ export const operationSchema = z.object({
     })
     .optional(),
   date: z.string().min(1, "Date is required"),
-  responsible_user_id: z.string().uuid("Please select specialist").nullable().optional(),
+  responsible_user_id: z
+    .string()
+    .uuid("Выберите ответственного специалиста")
+    .nullable()
+    .optional()
+    .refine((value) => Boolean(value), "Выберите ответственного специалиста"),
   notes: z.string().optional(),
 });
 

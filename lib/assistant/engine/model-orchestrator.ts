@@ -70,6 +70,16 @@ function clean(value: unknown): string | null {
   return text.length ? text : null;
 }
 
+function isLargestFieldQuestion(message: string): boolean {
+  const text = String(message || "").toLowerCase();
+  const mentionsField = /(\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field|fields|РїРѕР»Рµ|РїРѕР»СЏ)/i.test(text);
+  const asksLargest =
+    /(\u0441\u0430\u043c\w*\s+\u0431\u043e\u043b\u044c\u0448|\u043d\u0430\u0438\u0431\u043e\u043b\u044c\u0448|\u043a\u0440\u0443\u043f\u043d|\u043c\u0430\u043a\u0441|\u0431\u043e\u043b\u044c\u0448\u0435\s+\u0432\u0441\u0435\u0433\u043e|largest|biggest|max(?:imum)?|СЃР°Рј\w*\s+Р±РѕР»СЊС€|РЅР°РёР±РѕР»СЊС€|РєСЂСѓРїРЅ|РјР°РєСЃ|Р±РѕР»СЊС€Рµ\s+РІСЃРµРіРѕ)/i.test(
+      text
+    );
+  return mentionsField && asksLargest;
+}
+
 function isFieldLandBankAggregateQuery(value: unknown): boolean {
   const text = String(value || "").toLowerCase();
   const landBankTerms =
@@ -91,12 +101,129 @@ function isInventorySpecificQuery(value: unknown): boolean {
   return /(\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u0441\u043a\u043b\u0430\u0434|\u043f\u0430\u0440\u0442|\u0434\u0432\u0438\u0436\u0435\u043d|\u0436\u0443\u0440\u043d\u0430\u043b|ledger|inventory|warehouse|stock|balance|batch)/i.test(text);
 }
 
+function hasExplicitDataOrActionSignal(value: unknown): boolean {
+  const text = String(value || "").toLowerCase();
+  return /(\u043e\u0441\u0442\u0430\u0442|\u043d\u0430\u043b\u0438\u0447|\u0441\u043a\u043b\u0430\u0434|\u043f\u0430\u0440\u0442|\u0434\u0432\u0438\u0436\u0435\u043d|\u0436\u0443\u0440\u043d\u0430\u043b|\u0441\u043a\u043e\u043b\u044c\u043a\u043e|\u043f\u043e\u043a\u0430\u0436|\u043d\u0430\u0437\u043e\u0432|\u0441\u043f\u0438\u0441\u043e\u043a|\u043a\u0430\u043a\u0438\u0435|\u043a\u0430\u043a\u043e\u0439|\u043e\u0442\u043a\u0440\u043e\u0439|\u043f\u0435\u0440\u0435\u0439\u0434|\u0441\u043e\u0437\u0434\u0430|\u0434\u043e\u0431\u0430\u0432|\u0438\u0437\u043c\u0435\u043d|\u0443\u0434\u0430\u043b|\u0432\u044b\u0434\u0430|\u043f\u0440\u0438\u043d\u044f\u0442|\u0437\u0430\u043a\u0440\u043e|\u0437\u0430\u0440\u0435\u0433|\u043f\u043e\u043b\u0435|\u0433\u0435\u043a\u0442|\u0433\u0430\b|\u043c\u0430\u0442\u0435\u0440\u0438\u0430\u043b|\u043e\u043f\u0435\u0440\u0430\u0446|\u0442\u0430\u043b\u043e\u043d|\u0432\u0435\u0441\u043e\u0432|\u0443\u0440\u043e\u0436|\u0432\u043e\u0437\u0432\u0440\u0430\u0442|ledger|inventory|warehouse|stock|balance|batch|how\s+many|show|open|create|add|delete|update|ticket|field|operation)/i.test(
+    text
+  );
+}
+
+function isAmbiguousBareUserText(value: unknown): boolean {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  const normalized = raw
+    .toLowerCase()
+    .replace(/[.,!?;:()"'`]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length < 1 || tokens.length > 3) return false;
+  if (raw.length < 3 || raw.length > 80) return false;
+  if (!/^[\p{L}\p{N}\s+_.-]+$/u.test(raw)) return false;
+  if (/\b\d{1,3}(?:-\d{1,3}){0,2}\b/.test(normalized)) return false;
+  return !hasExplicitDataOrActionSignal(normalized);
+}
+
+function isLikelyGreetingTypo(value: unknown): boolean {
+  const text = String(value || "")
+    .trim()
+    .toLowerCase();
+  return /^(?:\u043f\u0440[ие][вб]\w{1,5}|\u0437\u0434\u0440\u0430\w*|\u0441\u0430\u043b\u0430\u043c|hello|hi|hey)$/.test(text);
+}
+
+function buildAmbiguousBareQueryAnswer(message: string): string {
+  const label = clean(message) || "это";
+  if (isLikelyGreetingTypo(label)) {
+    return `Привет! Я на связи. Если вы имели в виду «${label}» как продукт или объект системы, напишите, что именно проверить: остаток, применение, поле или операцию.`;
+  }
+  return [
+    `Уточните, что вы имели в виду: «${label}» как обычное сообщение или как название продукта/объекта в системе?`,
+    "",
+    `Если нужен склад, напишите: «остаток ${label}».`,
+    `Если нужна справка, напишите: «что такое ${label}».`,
+  ].join("\n");
+}
+
+const ERP_TOOL_NAMES = new Set<AssistantToolName>([
+  "get_current_context",
+  "get_company_context",
+  "get_current_season",
+  "get_field_land_bank_summary",
+  "search_fields",
+  "get_field_card",
+  "get_field_timeline",
+  "get_field_materials",
+  "find_field",
+  "search_warehouses",
+  "get_warehouse_count",
+  "get_warehouse_stock",
+  "find_warehouse",
+  "search_operations",
+  "get_operation_details",
+  "find_operation",
+  "get_active_operations",
+  "get_active_operations_summary",
+  "get_active_tickets",
+  "get_recent_tickets",
+  "get_ticket_details",
+  "get_potato_material_report",
+  "get_crop_structure_summary",
+  "search_crops_by_group",
+  "get_warehouse_summary",
+  "get_fields",
+  "get_crop_structure",
+  "get_inventory",
+  "get_batches",
+  "get_warehouse_balances",
+  "get_warehouse_movements",
+  "get_weighbridge_tickets",
+  "get_operations",
+  "get_fuel_sources",
+  "get_fuel_balances",
+  "get_fuel_movements",
+  "resolve_warehouse_by_name",
+  "resolve_field_by_number",
+  "resolve_fuel_source_by_name",
+  "resolve_entity",
+  "resolve_page_or_module",
+  "resolve_crop_variety",
+  "resolve_vehicle_or_equipment",
+  "resolve_operation_type",
+  "get_quick_insights",
+  "get_morning_report",
+  "get_operation_insights",
+  "get_warehouse_insights",
+  "get_weighbridge_insights",
+]);
+
 function isActiveOperationsQuery(value: unknown): boolean {
   const text = String(value || "").toLowerCase();
   return (
     /(active|current|in\s+work|operations?\s+in\s+work)/i.test(text) ||
     /(\u0430\u043a\u0442\u0438\u0432|\u0441\u0435\u0439\u0447\u0430\u0441|\u0442\u0435\u043a\u0443\u0449|\u0432\s+\u0440\u0430\u0431\u043e\u0442\u0435)/i.test(text)
   ) && /(operation|\u043e\u043f\u0435\u0440\u0430\u0446|\u0440\u0430\u0431\u043e\u0442)/i.test(text);
+}
+
+function extractFieldReferenceFromPlannerArgs(args: Record<string, unknown>, message: string): string | null {
+  const joined = [clean(args.field), clean(args.field_alias), clean(args.query), clean(args.entity), message]
+    .filter(Boolean)
+    .join(" ");
+  const afterLabel = joined.match(/(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)\s*([0-9]{1,3}(?:-[0-9]{1,3}){0,2})/i);
+  if (afterLabel?.[1]) return afterLabel[1];
+  const beforeLabel = joined.match(/([0-9]{1,3}(?:-[0-9]{1,3}){0,2})\s*(?:\u043f\u043e\u043b\u0435|\u043f\u043e\u043b\u044f|field)/i);
+  if (beforeLabel?.[1]) return beforeLabel[1];
+  const fieldArg = clean(args.field) || clean(args.field_alias);
+  if (fieldArg && /^[0-9]{1,3}(?:-[0-9]{1,3}){0,2}$/.test(fieldArg)) return fieldArg;
+  return null;
+}
+
+function isFieldScopedOperationsQuery(args: Record<string, unknown>, message: string): boolean {
+  const fieldRef = extractFieldReferenceFromPlannerArgs(args, message);
+  if (!fieldRef) return false;
+  const text = [clean(args.query), clean(args.intent), clean(args.topic), message].filter(Boolean).join(" ").toLowerCase();
+  return /(\u043e\u043f\u0435\u0440\u0430\u0446|\u0440\u0430\u0431\u043e\u0442|\u0438\u0441\u0442\u043e\u0440|\u0443\u0440\u043e\u0436|\u0443\u0431\u043e\u0440\u043a|operation|task|timeline|history|harvest)/i.test(
+    text
+  );
 }
 
 function hasOutputSource(outputs: AssistantToolOutput[], marker: string): boolean {
@@ -110,6 +237,14 @@ function coerceToolForSourceOfTruth(params: {
   message: string;
 }): AssistantToolName {
   const query = clean(params.args.query) || params.message;
+  if (
+    (params.requestedTool === "get_operations" ||
+      params.requestedTool === "search_operations" ||
+      params.requestedTool === "get_active_operations_summary") &&
+    isFieldScopedOperationsQuery(params.args, params.message)
+  ) {
+    return "get_field_timeline";
+  }
   if (
     (params.requestedTool === "search_fields" || params.requestedTool === "get_fields") &&
     isFieldLandBankAggregateQuery(query)
@@ -255,6 +390,18 @@ function toSessionSummary(sessionState: AssistantSessionState): string {
       last_warehouse: sessionState.lastWarehouse || null,
       last_warehouse_id: sessionState.lastWarehouseId || null,
       last_warehouse_label: sessionState.lastWarehouseLabel || null,
+      last_operation: sessionState.lastOperation || null,
+      last_operation_id: sessionState.lastOperationId || null,
+      last_operation_label: sessionState.lastOperationLabel || null,
+      last_ticket: sessionState.lastTicket || null,
+      last_ticket_id: sessionState.lastTicketId || null,
+      last_ticket_label: sessionState.lastTicketLabel || null,
+      last_crop_structure_section: sessionState.lastCropStructureSection || null,
+      last_crop_structure_section_id: sessionState.lastCropStructureSectionId || null,
+      last_crop_structure_section_label: sessionState.lastCropStructureSectionLabel || null,
+      last_batch: sessionState.lastBatch || null,
+      last_batch_id: sessionState.lastBatchId || null,
+      last_batch_label: sessionState.lastBatchLabel || null,
       last_entity: sessionState.lastEntity || null,
       last_module: sessionState.lastModule || null,
       last_tool_source: sessionState.lastToolSource || null,
@@ -340,7 +487,7 @@ export async function runModelOrchestrator(params: {
   if (!process.env.OPENAI_API_KEY) {
     return {
       ok: false,
-      answer: "AI Assistant временно недоступен. Попробуйте позже.",
+      answer: "Модель ассистента не настроена: отсутствует OPENAI_API_KEY. Локальные tools и навигационный fallback могут продолжить работу.",
       intent: plannerIntentForResult,
       toolCalls,
       outputs,
@@ -382,13 +529,16 @@ export async function runModelOrchestrator(params: {
         role: "system",
         content: [
           "Вы — planner Travkin Copilot.",
-          "Вы первый уровень принятия решений: сначала определите тип запроса, затем решите, нужны ли tools.",
-          "TYPE 1 Knowledge: определения, процессы, консультации и вопросы 'как работает/объясни/что такое'. Tools не вызывайте, отвечайте сами.",
-          "TYPE 2 Data Retrieval: фактические данные компании, поля, склада, талонов, операций. Выберите нужные tools.",
-          "TYPE 3 Analysis: получите ERP-данные через tools, затем дайте анализ и риски.",
-          "TYPE 4 Navigation: вызывайте навигационные tools только по явной команде открыть/перейти/показать страницу.",
+          "Вы первый уровень принятия решений. Сначала мысленно выберите ровно один тип запроса: CHAT, QUESTION, DATA, ACTION.",
+          "CHAT: приветствие, благодарность, small talk, вопрос 'что умеешь'. Tools запрещены.",
+          "QUESTION: знания, определения, процессы, консультации и вопросы 'как работает/объясни/что такое'. Tools запрещены, отвечайте сами.",
+          "DATA: фактические данные компании, поля, склада, талонов, операций. Только для DATA можно выбрать read-only tools.",
+          "ACTION: пользователь просит открыть страницу или подготовить создание/изменение. Только для ACTION можно выбрать navigation/draft tools.",
+          "Никогда не вызывайте tools для CHAT или QUESTION.",
           "Примеры Knowledge без tools: 'Что такое фитофтора?', 'Как работает весовая?', 'Объясни процесс на весовой', 'Как организовать выдачу термосов?'.",
           "Примеры Data Retrieval с tools: 'Что на поле 28?', 'А материалы?', 'А операции?', 'А урожай?', 'Остатки по овощному складу', 'А последние движения?'.",
+          "Неоднозначные короткие сообщения без явного запроса данных/action НЕ являются DATA. Примеры: 'привент', 'превет', 'селетра', 'Ревус топп'. Сначала поймите как человек: это может быть опечатка, приветствие или название продукта. Tools не вызывайте; задайте один короткий уточняющий вопрос.",
+          "Голое название продукта без слов 'остаток', 'наличие', 'сколько осталось', 'на складе', 'движения', 'выдать' — не повод искать ERP. Уточните, что именно проверить.",
           "Для 'Остатки по овощному/семенному/зерновому складу' передайте склад в аргумент warehouse.",
           "Follow-up 'А последние движения?' после складов/остатков означает складской ledger, используйте get_warehouse_movements, а не операции.",
           "ERP-данные и цифры берите только из tools.",
@@ -490,6 +640,44 @@ export async function runModelOrchestrator(params: {
       const toolCallsRaw = Array.isArray(choice?.tool_calls) ? choice.tool_calls : [];
       const answerChunk = clean(choice?.content);
 
+      if (toolCallsRaw.length && isAmbiguousBareUserText(params.message)) {
+        const attemptedErpTool = toolCallsRaw.some((call: any) => {
+          const fnName = clean(call?.function?.name) || "";
+          const args = safeJsonParse(call?.function?.arguments);
+          const mapping = resolvePlannerToolCall(fnName);
+          if (!mapping) return false;
+          const executionToolName = coerceToolForSourceOfTruth({
+            requestedTool: mapping.assistantTool,
+            args,
+            message: params.message,
+          });
+          return ERP_TOOL_NAMES.has(executionToolName);
+        });
+
+        if (attemptedErpTool) {
+          finalAnswer = buildAmbiguousBareQueryAnswer(params.message);
+          plannerIntentForResult = {
+            name: "clarification_required",
+            confidence: 0.99,
+            needsData: false,
+            parameters: {
+              query: params.message,
+              focus: params.message,
+              request_type: "CHAT",
+              output_type: "filtered_summary",
+            },
+          };
+          llm = {
+            status: "ok",
+            httpStatus: completionRes.status,
+            errorCode: null,
+            errorMessage: null,
+            missingEnv: [],
+          };
+          break;
+        }
+      }
+
       if (!toolCallsRaw.length) {
         const requiresLandBankSummary = isFieldLandBankAggregateQuery(params.message);
         const requiresCropSummary = isCropStructureAggregateQuery(params.message) && !isInventorySpecificQuery(params.message);
@@ -578,7 +766,7 @@ export async function runModelOrchestrator(params: {
           message: params.message,
           runtimeContext: params.runtimeContext,
         });
-        const plannerIntent =
+        const plannerIntentBase =
           executionToolName === "get_field_land_bank_summary"
             ? {
                 ...plannerIntentRaw,
@@ -616,6 +804,21 @@ export async function runModelOrchestrator(params: {
                   },
                 }
             : plannerIntentRaw;
+        const plannerIntent =
+          isLargestFieldQuestion(params.message) && (executionToolName === "get_fields" || executionToolName === "search_fields")
+            ? {
+                ...plannerIntentBase,
+                name: "fields_overview" as const,
+                confidence: Math.max(plannerIntentBase.confidence, 0.99),
+                needsData: true,
+                parameters: {
+                  ...plannerIntentBase.parameters,
+                  query: clean(plannerIntentBase.parameters.query) || params.message,
+                  output_type: "list",
+                  source_of_truth: "fields",
+                },
+              }
+            : plannerIntentBase;
         plannerIntentForResult = plannerIntent;
 
         const toolStartedAt = Date.now();

@@ -5,18 +5,22 @@ import {
   OperationMaterial,
   OperationLine,
   OperationLineFormData,
+  OperationMaterialRateBasis,
   OperationFormData,
   PotatoMaterialConsumptionRow,
   OperationWithDetails,
   SpecialistAssignee,
 } from "@/lib/types/operation";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
+import { buildProductPassport } from "@/lib/products/product-passport";
 import {
   buildExecutionFactModelMetadata,
   buildWarehouseWorkflowMetadata,
   resolveCanonicalOperationType,
   toStorageMaterialType,
 } from "@/lib/operations/operation-engine";
+import { enqueueOfflineRequest } from "@/lib/offline/offline-queue";
 
 const DB_OPERATION_MATERIAL_TYPES = new Set([
   "seed",
@@ -55,11 +59,40 @@ function parseOperationDraftDetails(notes: string | null | undefined) {
   };
 }
 
+function parseMaterialRateBasisFromNotes(notes: string | null | undefined): OperationMaterialRateBasis {
+  const matched = String(notes || "").match(/(?:^|[;\n]\s*)rate_basis\s*:\s*([a-z0-9_]+)/i);
+  return normalizeMaterialRateBasis(matched?.[1]?.trim());
+}
+
+function serializeMaterialNotes(input: {
+  notes?: string | null;
+  componentType?: string | null;
+  rateBasis?: string | null;
+}) {
+  const notes = String(input.notes || "").trim();
+  const parts = notes ? notes.split(";").map((part) => part.trim()).filter(Boolean) : [];
+  const hasComponent = parts.some((part) => /^component\s*:/i.test(part));
+  const hasRateBasis = parts.some((part) => /^rate_basis\s*:/i.test(part));
+  const rateBasis = input.rateBasis ? normalizeMaterialRateBasis(input.rateBasis) : null;
+
+  if (!hasComponent && input.componentType) {
+    parts.push(`component:${input.componentType}`);
+  }
+  if (!hasRateBasis && rateBasis) {
+    parts.push(`rate_basis:${rateBasis}`);
+  }
+
+  return parts.length > 0 ? parts.join("; ") : null;
+}
+
 function normalizeOperationMaterials(rows: any[] | null | undefined): OperationMaterial[] {
   if (!Array.isArray(rows)) return [];
   return rows.map((row) => ({
     ...row,
-    product_name: row?.products?.trade_name || row?.products?.name || null,
+    rate_basis: parseMaterialRateBasisFromNotes(row?.notes),
+    product_name: row?.products
+      ? buildProductPassport({ ...row.products, id: String(row.product_id || row.products.id || "") }).displayName
+      : null,
   })) as OperationMaterial[];
 }
 
@@ -313,24 +346,81 @@ export async function createOperation(
   companyId: string,
   operationData: OperationFormData,
   options?: { idempotencyKey?: string }
-): Promise<Operation & { material_request?: Record<string, unknown> }> {
+): Promise<Operation & { material_request?: Record<string, unknown>; offline_queued?: boolean; offline_queue_id?: string }> {
   const headers = await buildAuthHeaders("json");
   if (options?.idempotencyKey) {
     headers["Idempotency-Key"] = options.idempotencyKey;
   }
-  const response = await fetch("/api/operations", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      companyId,
-      ...operationData,
-      idempotency_key: options?.idempotencyKey,
-      responsible_user_id:
-        operationData.responsible_user_id && operationData.responsible_user_id !== "none"
-          ? operationData.responsible_user_id
-          : null,
-    }),
-  });
+  const body = {
+    companyId,
+    ...operationData,
+    idempotency_key: options?.idempotencyKey,
+    responsible_user_id:
+      operationData.responsible_user_id && operationData.responsible_user_id !== "none"
+        ? operationData.responsible_user_id
+        : null,
+  };
+  const queueable = Boolean(options?.idempotencyKey);
+  const queueHeaders = { ...headers };
+  delete queueHeaders.Authorization;
+
+  let response: Response;
+  try {
+    if (typeof navigator !== "undefined" && !navigator.onLine && queueable) {
+      throw new TypeError("offline");
+    }
+    response = await fetch("/api/operations", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (!queueable) throw error;
+    const item = enqueueOfflineRequest({
+      description: `Создание операции: ${operationData.operation_type || "план работы"}`,
+      url: "/api/operations",
+      method: "POST",
+      headers: queueHeaders,
+      body,
+      authRequired: true,
+      idempotencyKey: options?.idempotencyKey,
+    });
+    return {
+      id: item.id,
+      company_id: companyId,
+      field_id: operationData.field_id || null,
+      crop_structure_id: operationData.crop_structure_id || null,
+      operation_type: operationData.operation_type,
+      operation_category_slug: operationData.operation_category_slug || null,
+      operation_type_slug: operationData.operation_type_slug || null,
+      planned_area_ha: operationData.planned_area_ha ?? null,
+      crop_id: operationData.crop_id || null,
+      status: "queued",
+      date: operationData.date,
+      machine_id: operationData.machine_id || null,
+      equipment_id: operationData.equipment_id || null,
+      transport_id: operationData.transport_id || null,
+      operation_target: operationData.operation_target || null,
+      rate_per_ha: operationData.rate_per_ha ?? null,
+      spray_volume_per_ha: operationData.spray_volume_per_ha ?? null,
+      row_spacing_m: operationData.row_spacing_m ?? null,
+      seed_spacing_cm: operationData.seed_spacing_cm ?? null,
+      operation_params: operationData.operation_params || null,
+      operation_config: null,
+      notes: operationData.notes || null,
+      responsible_user_id: body.responsible_user_id,
+      work_status: "active",
+      accepted_at: null,
+      completed_at: null,
+      specialist_comment: null,
+      created_at: item.createdAt,
+      updated_at: item.updatedAt,
+      archived: false,
+      user_id: "",
+      offline_queued: true,
+      offline_queue_id: item.id,
+    } as Operation & { offline_queued: true; offline_queue_id: string };
+  }
   const payload = await parseApiResponse(response);
   return {
     ...(payload.operation as Operation),
@@ -441,7 +531,12 @@ export async function updateOperation(
           unit,
           planned_rate: item?.planned_rate ?? null,
           actual_rate: item?.actual_rate ?? null,
-          notes: item?.notes || (item?.component_type ? `component:${item.component_type}` : null),
+          planned_quantity: item?.planned_quantity ?? null,
+          notes: serializeMaterialNotes({
+            notes: item?.notes,
+            componentType: item?.component_type,
+            rateBasis: item?.rate_basis,
+          }),
         };
       })
       .filter(Boolean);

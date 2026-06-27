@@ -23,7 +23,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { getInventoryBalances, getInventoryTransactions, getWarehouses } from "@/lib/services/warehouses";
 
 export default function DashboardPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const { t, language } = useLanguage();
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     totalFields: 0,
@@ -39,11 +39,20 @@ export default function DashboardPage() {
   const [stockRows, setStockRows] = useState(0);
   const [recentMovements, setRecentMovements] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const currentYear = new Date().getFullYear();
 
   useEffect(() => {
     async function loadDashboardData() {
+      if (authLoading) return;
+      if (!profile?.company_id) {
+        setErrorMessage("Не выбран контекст компании.");
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
+      setErrorMessage(null);
       try {
         if (profile?.role === "warehouse" && profile.company_id) {
           const [warehouses, balances, movements] = await Promise.all([
@@ -65,19 +74,6 @@ export default function DashboardPage() {
             }))
           );
         } else {
-          if (!profile?.company_id) {
-            setMetrics({
-              totalFields: 0,
-              totalArea: 0,
-              activeCrops: 0,
-              totalWarehouses: 0,
-            });
-            setCropDistribution([]);
-            setRecentOperations([]);
-            setInventory([]);
-            return;
-          }
-
           const [metricsData, cropData, operationsData, inventoryData] = await Promise.all([
             getDashboardMetrics(profile.company_id),
             getCropDistribution(profile.company_id, currentYear, language),
@@ -91,20 +87,32 @@ export default function DashboardPage() {
         }
       } catch (error) {
         console.error("Error loading dashboard data:", error);
+        setErrorMessage("Не удалось загрузить данные панели.");
       } finally {
         setLoading(false);
       }
     }
 
     loadDashboardData();
-  }, [currentYear, profile?.role, profile?.company_id, language]);
+  }, [authLoading, currentYear, profile?.role, profile?.company_id, language]);
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div>
         <PageHeader title={t("dashboard_title")} description={t("dashboard_desc")} />
         <div className="text-center py-12">
           <p className="text-slate-500">{t("dashboard_loading")}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (errorMessage) {
+    return (
+      <div>
+        <PageHeader title={t("dashboard_title")} description={t("dashboard_desc")} />
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {errorMessage}
         </div>
       </div>
     );

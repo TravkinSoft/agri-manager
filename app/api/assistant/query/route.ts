@@ -47,8 +47,31 @@ function filterProductionChatHistory(history: unknown): Array<{ role?: string; c
     }));
 }
 
+const INTERNAL_ANSWER_LINE_PATTERNS = [
+  /PLAN\/FACT control/i,
+  /Source of Truth contract/i,
+  /Source of Truth mismatch/i,
+  /Working Memory rule/i,
+  /Router fallback/i,
+  /crop_structure is PLAN/i,
+  /Do not merge them without labels/i,
+  /Do not choose one conflicting figure silently/i,
+  /Detected area mismatch/i,
+];
+
+function stripInternalAssistantLines(content: string): string {
+  const cleaned = String(content || "")
+    .split(/\r?\n/)
+    .filter((line) => !INTERNAL_ANSWER_LINE_PATTERNS.some((pattern) => pattern.test(line)))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  return cleaned || "Данных недостаточно, чтобы подтвердить ответ.";
+}
+
 function sanitizeAssistantAnswer(content: string): string {
-  if (!hasQaDataMarker(content)) return content;
+  const cleaned = stripInternalAssistantLines(content);
+  if (!hasQaDataMarker(cleaned)) return cleaned;
   return "Ответ скрыт: в истории или источнике обнаружены тестовые QA-данные. Повторите запрос, и я проверю только производственные данные.";
 }
 
@@ -126,6 +149,9 @@ function buildDebugTrustScore(params: {
       result.sessionState.lastIntent ||
         result.sessionState.lastField ||
         result.sessionState.lastWarehouse ||
+        result.sessionState.lastOperation ||
+        result.sessionState.lastTicket ||
+        result.sessionState.lastCropStructureSection ||
         result.sessionState.focusEntityLabel
     );
   const isAnalytics = /(risk|risks|analysis|analytics|analyze|concern|problem|подозр|риск|анализ|опасен|вопрос)/i.test(
@@ -341,6 +367,25 @@ function routeForDraftKind(kind: string | null): string | null {
     default:
       return null;
   }
+}
+
+function shouldAttachPendingDraftUi(params: {
+  requestMessage: string;
+  result: AssistantEngineResult;
+  previousSessionState?: Partial<AssistantEngineResult["sessionState"]> | null;
+}): boolean {
+  const pendingType = asString(params.result.sessionState.pendingActionType);
+  if (pendingType !== "create_draft") return false;
+  if (params.result.intent.name === "create_draft") return true;
+
+  const requestText = params.requestMessage.toLowerCase();
+  if (/(\u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a|draft|continue|resume|\u043f\u0440\u043e\u0434\u043e\u043b\u0436)/i.test(requestText)) {
+    return true;
+  }
+
+  const previousUpdatedAt = asString(params.previousSessionState?.pendingActionUpdatedAt);
+  const currentUpdatedAt = asString(params.result.sessionState.pendingActionUpdatedAt);
+  return Boolean(currentUpdatedAt && currentUpdatedAt !== previousUpdatedAt);
 }
 
 function buildActionButtons(params: {
@@ -605,6 +650,10 @@ function buildDebugMetadata(params: {
       lastVariety: asString(result.sessionState.lastVariety),
       lastWarehouse: asString(result.sessionState.lastWarehouse),
       lastField: asString(result.sessionState.lastField),
+      lastOperation: asString(result.sessionState.lastOperation),
+      lastTicket: asString(result.sessionState.lastTicket),
+      lastCropStructureSection: asString(result.sessionState.lastCropStructureSection),
+      lastBatch: asString(result.sessionState.lastBatch),
       lastIntent: asString(result.sessionState.lastIntent),
       focusEntityType: asString(result.sessionState.focusEntityType),
       focusEntityId: asString(result.sessionState.focusEntityId),
@@ -623,7 +672,15 @@ function buildDebugMetadata(params: {
       memorySavedCount: memoryWrite.savedCount,
       memoryWriteSkippedReason: asString(memoryWrite.skippedReason),
       memoryWriteWarning: asString(memoryWrite.warning),
-      followUpActive: Boolean(result.sessionState.lastResultContext || result.sessionState.lastEntity || result.sessionState.focusEntityLabel),
+      followUpActive: Boolean(
+        result.sessionState.lastResultContext ||
+          result.sessionState.lastEntity ||
+          result.sessionState.focusEntityLabel ||
+          result.sessionState.lastOperation ||
+          result.sessionState.lastTicket ||
+          result.sessionState.lastCropStructureSection ||
+          result.sessionState.lastBatch
+      ),
     },
     performance: {
       score: buildDebugPerformanceScore(result, latencyMs),
@@ -674,6 +731,7 @@ export async function POST(request: NextRequest) {
   let requestMessage: string | null = null;
   let shouldWriteAuditLog = true;
   let threadPersistenceError: string | null = null;
+  let persistedAssistantMessageId: string | null = null;
   const startedAt = Date.now();
 
   try {
@@ -791,18 +849,25 @@ export async function POST(request: NextRequest) {
           message: requestMessage,
         }).catch(() => undefined);
     }
+    const attachPendingDraftUi = shouldAttachPendingDraftUi({
+      requestMessage: requestMessage || "",
+      result,
+      previousSessionState: payload?.sessionState || null,
+    });
     const responseActions = filterProductionActions(
       buildActionButtons({
         intentName: result.intent?.name || null,
         requestMessage: requestMessage || "",
         navigationActions: result.navigationActions || [],
-        sessionState: result.sessionState,
+        sessionState: attachPendingDraftUi ? result.sessionState : null,
       })
     );
-    const responseDraftCards = buildAssistantDraftCards({
-      pendingActionType: result.sessionState.pendingActionType,
-      pendingActionPayloadJson: result.sessionState.pendingActionPayloadJson,
-    });
+    const responseDraftCards = attachPendingDraftUi
+      ? buildAssistantDraftCards({
+          pendingActionType: result.sessionState.pendingActionType,
+          pendingActionPayloadJson: result.sessionState.pendingActionPayloadJson,
+        })
+      : [];
 
     if (threadId) {
       try {
@@ -827,7 +892,7 @@ export async function POST(request: NextRequest) {
               assistant_panel: true,
             },
           });
-          await appendAssistantThreadMessage({
+          const assistantThreadMessage = await appendAssistantThreadMessage({
             supabase,
             companyId,
             userId: actor.id,
@@ -854,6 +919,7 @@ export async function POST(request: NextRequest) {
               assistant_panel: true,
             },
           });
+          persistedAssistantMessageId = assistantThreadMessage.id;
           if ((thread.title || "").trim() === "Новый чат") {
             await updateAssistantThreadTitle({
               supabase,
@@ -926,6 +992,9 @@ export async function POST(request: NextRequest) {
       response: safeAnswer,
       sessionState: result.sessionState,
       threadId,
+      messageIds: {
+        assistant: persistedAssistantMessageId,
+      },
       navigationActions: result.navigationActions || [],
       actions: responseActions,
       draftCards: responseDraftCards,

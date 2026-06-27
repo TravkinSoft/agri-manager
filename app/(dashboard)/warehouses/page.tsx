@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
@@ -9,8 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { InventoryTransactionFormDialog } from "@/components/warehouses/inventory-transaction-form-dialog";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
@@ -32,9 +35,6 @@ import type {
 } from "@/lib/types/warehouse";
 import { localizeUnit } from "@/lib/i18n/helpers";
 import {
-  CircleAlert,
-  CircleCheck,
-  CircleX,
   Filter,
   History,
   Package,
@@ -132,8 +132,14 @@ function formatStorageAmount(value: number, unit: string, language: Lang): strin
   return `${number} ${localizeUnit(normalizedUnit, language)}`;
 }
 
+function formatBatchLabel(batchId?: string | null): string {
+  const value = String(batchId || "").trim();
+  if (!value) return "—";
+  return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value) ? `#${value.slice(0, 8)}` : value;
+}
+
 export default function WarehousesPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const { language } = useLanguage();
   const searchParams = useSearchParams();
@@ -142,6 +148,7 @@ export default function WarehousesPage() {
     language === "ru" ? ru : language === "kz" ? kz : en;
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isMovementDialogOpen, setIsMovementDialogOpen] = useState(false);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
   const [searchValue, setSearchValue] = useState("");
@@ -176,6 +183,7 @@ export default function WarehousesPage() {
   const reloadData = async () => {
     if (!profile?.company_id) return;
     setLoading(true);
+    setLoadError(null);
 
     try {
       const [warehouseRows, productRows, balanceRows, txRows] = await Promise.all([
@@ -190,6 +198,7 @@ export default function WarehousesPage() {
       setBalances(balanceRows);
       setTransactions(txRows);
     } catch (error: any) {
+      setLoadError(error?.message || t("Не удалось загрузить склады", "Қойма деректерін жүктеу мүмкін болмады", "Failed to load warehouses"));
       toast({
         title: t("Ошибка", "Қате", "Error"),
         description: error?.message || t("Не удалось загрузить склады", "Қойма деректерін жүктеу мүмкін болмады", "Failed to load warehouses"),
@@ -340,7 +349,9 @@ export default function WarehousesPage() {
   const totalWarehouses = overviewData.length;
   const totalVolumeKg = overviewData.reduce((sum, item) => sum + item.currentKg, 0);
   const uniqueProductsCount = new Set(balances.map((row) => row.product_id)).size;
-  const riskWarehousesCount = overviewData.filter((item) => item.status === "warning" || item.status === "critical").length;
+  const activeStockRowsCount = balances.filter((row) => Number(row.quantity || 0) > 0).length;
+  const statValue = (value: ReactNode) =>
+    loading ? <Skeleton className="mt-2 h-7 w-24 bg-slate-200" /> : value;
 
   const handleCreateMovement = async (payload: InventoryTransactionFormData) => {
     if (!profile?.company_id || !canManageMovements) return;
@@ -381,6 +392,17 @@ export default function WarehousesPage() {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="space-y-4">
+        <PageHeader
+          title={t("Склады", "Қоймалар", "Warehouses")}
+          description={t("Загрузка доступа...", "Рұқсат жүктелуде...", "Checking access...")}
+        />
+      </div>
+    );
+  }
+
   if (
     profile?.role !== "company_admin" &&
     profile?.role !== "global_admin" &&
@@ -403,7 +425,7 @@ export default function WarehousesPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <PageHeader
         title={t("Склады", "Қоймалар", "Warehouses")}
         description={
@@ -430,6 +452,12 @@ export default function WarehousesPage() {
         }
       />
 
+      {loadError ? (
+        <Alert variant="destructive">
+          <AlertDescription>{loadError}</AlertDescription>
+        </Alert>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-2">
         {canManageMovements ? (
           <Button asChild variant="outline">
@@ -442,36 +470,36 @@ export default function WarehousesPage() {
         )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card>
-          <CardContent className="pt-5">
-            <div className="text-sm text-slate-500">{t("Всего складов", "Қоймалар саны", "Warehouses")}</div>
-            <div className="mt-1 text-2xl font-bold">{totalWarehouses}</div>
+      <div className="grid gap-2 sm:gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <Card className="border-slate-800 bg-slate-900/70">
+          <CardContent className="p-3 sm:p-4">
+            <div className="text-xs font-medium text-slate-400">{t("Всего складов", "Қоймалар саны", "Warehouses")}</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-50">{statValue(totalWarehouses)}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <div className="text-sm text-slate-500">{t("Общий объем хранения", "Жалпы сақтау көлемі", "Total stored volume")}</div>
-            <div className="mt-1 text-2xl font-bold">{formatStorageAmount(totalVolumeKg, "kg", language as Lang)}</div>
+        <Card className="border-slate-800 bg-slate-900/70">
+          <CardContent className="p-3 sm:p-4">
+            <div className="text-xs font-medium text-slate-400">{t("Общий остаток", "Жалпы қалдық", "Total stock")}</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-50">{statValue(formatStorageAmount(totalVolumeKg, "kg", language as Lang))}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <div className="text-sm text-slate-500">{t("Культур в хранении", "Сақтаудағы дақылдар", "Stored crops")}</div>
-            <div className="mt-1 text-2xl font-bold">{uniqueProductsCount}</div>
+        <Card className="border-slate-800 bg-slate-900/70">
+          <CardContent className="p-3 sm:p-4">
+            <div className="text-xs font-medium text-slate-400">{t("Товаров в наличии", "Қоймадағы тауарлар", "Products in stock")}</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-50">{statValue(uniqueProductsCount)}</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="pt-5">
-            <div className="text-sm text-slate-500">{t("Почти заполнены / переполнены", "Толуға жақын / толған", "Near full / overfilled")}</div>
-            <div className="mt-1 text-2xl font-bold">{riskWarehousesCount}</div>
+        <Card className="border-slate-800 bg-slate-900/70">
+          <CardContent className="p-3 sm:p-4">
+            <div className="text-xs font-medium text-slate-400">{t("Партии / строки", "Партия / жолдар", "Stock rows")}</div>
+            <div className="mt-1 text-2xl font-semibold text-slate-50">{statValue(activeStockRowsCount)}</div>
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+      <Card className="border-slate-800 bg-slate-900/70">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base text-slate-100">
             <Filter className="h-4 w-4" />
             {t("Фильтры", "Сүзгілер", "Filters")}
           </CardTitle>
@@ -505,7 +533,7 @@ export default function WarehousesPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,220px),1fr))] gap-3">
         {loading ? (
           <Card className="sm:col-span-2 xl:col-span-3">
             <CardContent className="py-12 text-center text-slate-500">{t("Загрузка складов...", "Қоймалар жүктелуде...", "Loading warehouses...")}</CardContent>
@@ -520,103 +548,56 @@ export default function WarehousesPage() {
               ? t(TYPE_LABELS[item.warehouseType].ru, TYPE_LABELS[item.warehouseType].kz, TYPE_LABELS[item.warehouseType].en)
               : item.warehouseType;
 
-            const statusMeta =
-              item.status === "critical"
-                ? {
-                    icon: CircleX,
-                    badgeClass: "bg-red-100 text-red-700",
-                    text: t("Заполнен / переполнен", "Толған / артық толған", "Full / overfilled"),
-                    progressClass: "bg-red-500",
-                  }
-                : item.status === "warning"
-                  ? {
-                      icon: CircleAlert,
-                      badgeClass: "bg-amber-100 text-amber-700",
-                      text: t("Почти заполнен", "Толуға жақын", "Nearly full"),
-                      progressClass: "bg-amber-500",
-                    }
-                  : {
-                      icon: CircleCheck,
-                      badgeClass: "bg-emerald-100 text-emerald-700",
-                      text: t("Норм", "Қалыпты", "Normal"),
-                      progressClass: "bg-emerald-500",
-                    };
-
-            const StatusIcon = statusMeta.icon;
-            const fillPercent = item.fillPercent == null ? null : Math.max(0, item.fillPercent);
             const deltaPrefix = item.todayDeltaKg > 0 ? "+" : item.todayDeltaKg < 0 ? "-" : "±";
             const deltaValue = formatStorageAmount(Math.abs(item.todayDeltaKg), "kg", language as Lang);
+            const latestMovement = item.latestMovements[0];
 
             return (
               <button
                 key={item.warehouse.id}
                 type="button"
                 onClick={() => setSelectedWarehouseId(item.warehouse.id)}
-                className="group overflow-hidden rounded-xl border border-slate-200 bg-white text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                className="group min-h-[168px] overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/80 text-left shadow-sm transition hover:border-emerald-500/40 hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
               >
-                <div className="border-b bg-gradient-to-r from-slate-900 to-slate-700 px-3 py-2.5 text-white">
+                <div className="flex h-full flex-col p-3.5">
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-[10px] uppercase tracking-wider text-slate-300">{typeLabel}</div>
-                      <div className="mt-0.5 truncate text-base font-semibold">{item.warehouse.name}</div>
+                    <div className="min-w-0 space-y-1">
+                      <Badge className="h-5 rounded border border-emerald-500/20 bg-emerald-500/10 px-1.5 text-[10px] uppercase tracking-wide text-emerald-200">
+                        {typeLabel}
+                      </Badge>
+                      <div className="truncate text-lg font-semibold leading-tight text-slate-50">{item.warehouse.name}</div>
                     </div>
-                    <WarehouseIcon className="h-3.5 w-3.5 shrink-0 text-emerald-300/90" />
-                  </div>
-                </div>
-
-                <div className="space-y-2.5 p-3">
-                  <div>
-                    <div className="text-xs text-slate-500">{t("Основная культура", "Негізгі дақыл", "Main crop")}</div>
-                      <div className="mt-0.5 text-sm font-medium text-slate-900">
-                        {item.mainCrop?.identity_name || item.mainCrop?.product_name || "-"}
-                      </div>
+                    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-slate-950 text-emerald-300 ring-1 ring-slate-700">
+                      <WarehouseIcon className="h-4 w-4" />
+                    </div>
                   </div>
 
-                  <div>
-                    <div className="text-xs text-slate-500">{t("Изменение за сегодня", "Бүгінгі өзгеріс", "Change today")}</div>
-                    <div className={`mt-0.5 text-sm font-semibold ${item.todayDeltaKg > 0 ? "text-emerald-700" : item.todayDeltaKg < 0 ? "text-red-700" : "text-slate-700"}`}>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <div>
+                      <div className="text-[11px] text-slate-500">{t("Остаток", "Қалдық", "Stock")}</div>
+                      <div className="mt-0.5 text-xl font-semibold text-slate-100">{formatStorageAmount(item.currentKg, "kg", language as Lang)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] text-slate-500">{t("Позиций", "Позициялар", "Items")}</div>
+                      <div className="mt-0.5 text-xl font-semibold text-slate-100">{item.allItems.length}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 min-h-[38px]">
+                    <div className="text-[11px] text-slate-500">{t("Основной товар", "Негізгі тауар", "Main item")}</div>
+                    <div className="mt-0.5 truncate text-sm font-medium text-slate-200">
+                      {item.mainCrop?.identity_name || item.mainCrop?.product_name || t("Нет остатков", "Қалдық жоқ", "No stock")}
+                    </div>
+                  </div>
+
+                  <div className="mt-auto flex items-center justify-between gap-2 pt-3 text-[11px] text-slate-400">
+                    <span className={item.todayDeltaKg > 0 ? "text-emerald-300" : item.todayDeltaKg < 0 ? "text-red-300" : "text-slate-400"}>
                       {deltaPrefix} {deltaValue}
-                    </div>
+                    </span>
+                    <span className="truncate">
+                      {latestMovement ? movementTypeLabel(String(latestMovement.movement_type || ""), t) : t("Движений нет", "Қозғалыс жоқ", "No movement")}
+                    </span>
                   </div>
-                  <div>
-                    <div className="text-xs text-slate-500">{t("Объем хранения", "Сақтау көлемі", "Stored volume")}</div>
-                    <div className="mt-0.5 text-xl font-bold text-slate-900">{formatStorageAmount(item.currentKg, "kg", language as Lang)}</div>
-                  </div>
-
-                  {fillPercent != null ? (
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-slate-600">
-                        <span>{t("Заполненность", "Толуы", "Fill level")}</span>
-                        <span>{fillPercent.toFixed(1)}%</span>
-                      </div>
-                      <div className="h-2 w-full rounded-full bg-slate-200">
-                        <div className={`h-full rounded-full ${statusMeta.progressClass}`} style={{ width: `${Math.min(fillPercent, 100)}%` }} />
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-xs text-slate-500">{t("Вместимость не задана", "Сыйымдылығы көрсетілмеген", "Capacity is not set")}</div>
-                  )}
-
-                  <div className="space-y-1">
-                    <div className="text-xs text-slate-500">{t("Топ-3 культуры", "Топ-3 дақыл", "Top-3 crops")}</div>
-                    {item.topItems.length === 0 ? (
-                      <div className="text-sm text-slate-400">{t("Нет остатков", "Қалдық жоқ", "No stock")}</div>
-                    ) : (
-                      item.topItems.map((stockItem) => (
-                        <div key={`${item.warehouse.id}-${stockItem.product_id}`} className="flex items-center justify-between gap-2 text-sm">
-                          <span className="truncate text-slate-700">
-                            {stockItem.identity_name || stockItem.product_name}
-                          </span>
-                          <span className="shrink-0 font-medium text-slate-900">{formatStorageAmount(stockItem.quantity, stockItem.unit || "kg", language as Lang)}</span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <Badge className={`inline-flex items-center gap-1 ${statusMeta.badgeClass}`}>
-                    <StatusIcon className="h-3.5 w-3.5" />
-                    {statusMeta.text}
-                  </Badge>
                 </div>
               </button>
             );
@@ -624,7 +605,7 @@ export default function WarehousesPage() {
         )}
       </div>
 
-      <Sheet
+      <Dialog
         open={Boolean(selectedOverview)}
         onOpenChange={(open) => {
           if (!open) {
@@ -634,159 +615,155 @@ export default function WarehousesPage() {
           }
         }}
       >
-        <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
+        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-5xl overflow-hidden border-slate-800 bg-slate-950 p-0 text-slate-100 sm:max-h-[88vh]">
           {selectedOverview && (
-            <div className="space-y-5">
-              <SheetHeader>
-                <SheetTitle className="text-2xl">{selectedOverview.warehouse.name}</SheetTitle>
-                <SheetDescription>
-                  {TYPE_LABELS[selectedOverview.warehouseType]
-                    ? t(
-                        TYPE_LABELS[selectedOverview.warehouseType].ru,
-                        TYPE_LABELS[selectedOverview.warehouseType].kz,
-                        TYPE_LABELS[selectedOverview.warehouseType].en
-                      )
-                    : selectedOverview.warehouseType}
-                </SheetDescription>
-              </SheetHeader>
-
-              <div className="grid gap-3 sm:grid-cols-3">
-                <Card>
-                  <CardContent className="pt-5">
-                    <div className="text-xs text-slate-500">{t("Текущий объем", "Ағымдағы көлем", "Current volume")}</div>
-                    <div className="text-lg font-semibold">{formatStorageAmount(selectedOverview.currentKg, "kg", language as Lang)}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-5">
-                    <div className="text-xs text-slate-500">{t("Вместимость", "Сыйымдылық", "Capacity")}</div>
-                    <div className="text-lg font-semibold">
-                      {selectedOverview.capacityKg > 0
-                        ? formatStorageAmount(selectedOverview.capacityKg, "kg", language as Lang)
-                        : t("Не задана", "Көрсетілмеген", "Not set")}
+            <div className="flex max-h-[92dvh] flex-col sm:max-h-[88vh]">
+              <div className="border-b border-slate-800 px-4 py-3 sm:px-5 sm:py-4">
+                <DialogHeader>
+                  <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
+                    <div>
+                      <DialogTitle className="text-2xl text-slate-50">{selectedOverview.warehouse.name}</DialogTitle>
+                      <DialogDescription className="mt-1 text-slate-400">
+                        {TYPE_LABELS[selectedOverview.warehouseType]
+                          ? t(
+                              TYPE_LABELS[selectedOverview.warehouseType].ru,
+                              TYPE_LABELS[selectedOverview.warehouseType].kz,
+                              TYPE_LABELS[selectedOverview.warehouseType].en
+                            )
+                          : selectedOverview.warehouseType}
+                      </DialogDescription>
                     </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-5">
-                    <div className="text-xs text-slate-500">{t("Заполненность", "Толуы", "Fill level")}</div>
-                    <div className="text-lg font-semibold">
-                      {selectedOverview.fillPercent == null ? "-" : `${Math.max(0, selectedOverview.fillPercent).toFixed(1)}%`}
+                    <div className="grid w-full grid-cols-3 gap-2 text-left text-sm sm:w-auto sm:text-right">
+                      <div>
+                        <div className="text-[11px] text-slate-500">{t("Остаток", "Қалдық", "Stock")}</div>
+                        <div className="font-semibold text-slate-100">{formatStorageAmount(selectedOverview.currentKg, "kg", language as Lang)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-slate-500">{t("Позиций", "Позициялар", "Items")}</div>
+                        <div className="font-semibold text-slate-100">{selectedOverview.allItems.length}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] text-slate-500">{t("Сегодня", "Бүгін", "Today")}</div>
+                        <div className={selectedOverview.todayDeltaKg > 0 ? "font-semibold text-emerald-300" : selectedOverview.todayDeltaKg < 0 ? "font-semibold text-red-300" : "font-semibold text-slate-300"}>
+                          {selectedOverview.todayDeltaKg > 0 ? "+" : selectedOverview.todayDeltaKg < 0 ? "-" : "±"} {formatStorageAmount(Math.abs(selectedOverview.todayDeltaKg), "kg", language as Lang)}
+                        </div>
+                      </div>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </DialogHeader>
               </div>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Package className="h-4 w-4" />
-                    {t("Все культуры в наличии", "Қоймадағы барлық дақыл", "All stored crops")}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
+              <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+                <section className="space-y-3">
+                  <div className="flex items-center gap-2 text-base font-semibold text-slate-100">
+                    <Package className="h-4 w-4 text-emerald-300" />
+                    {t("Остатки и партии", "Қалдықтар мен партиялар", "Stock and batches")}
+                  </div>
                   {selectedOverview.allItems.length === 0 ? (
-                    <div className="py-5 text-center text-slate-500">{t("На этом складе нет остатков", "Бұл қоймада қалдық жоқ", "No stock in this warehouse")}</div>
+                    <div className="rounded-lg border border-dashed border-slate-800 py-10 text-center text-sm text-slate-500">
+                      {t("На этом складе нет остатков", "Бұл қоймада қалдық жоқ", "No stock in this warehouse")}
+                    </div>
                   ) : (
-                    selectedOverview.allItems.map((stockItem) => {
-                      const maxQty = Number(selectedOverview.allItems[0]?.quantity || 1);
-                      const width = Math.max(4, Math.min(100, (Number(stockItem.quantity || 0) / maxQty) * 100));
-                      return (
-                      <div
-                        key={`${stockItem.product_id}-${stockItem.variety_id || "no-variety"}-${stockItem.reproduction_id || "no-repro"}-${stockItem.batch_id || "no-batch"}`}
-                        className="rounded-lg border border-slate-200 p-3"
-                      >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="font-medium text-slate-800">
-                              {stockItem.identity_name || stockItem.product_name}
-                            </div>
-                            <div className="text-sm font-semibold text-slate-900">
-                              {formatStorageAmount(stockItem.quantity, stockItem.unit || "kg", language as Lang)}
-                            </div>
-                          </div>
-                          <div className="mt-2 h-2 rounded-full bg-slate-200">
-                            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${width}%` }} />
-                          </div>
-                        </div>
-                      );
-                    })
+                    <div className="overflow-hidden rounded-lg border border-slate-800">
+                      <Table>
+                        <TableHeader className="bg-slate-900">
+                          <TableRow className="border-slate-800 hover:bg-slate-900">
+                            <TableHead className="text-slate-400">{t("Товар", "Тауар", "Product")}</TableHead>
+                            <TableHead className="text-slate-400">{t("Партия", "Партия", "Batch")}</TableHead>
+                            <TableHead className="text-slate-400">{t("Класс", "Класс", "Class")}</TableHead>
+                            <TableHead className="text-right text-slate-400">{t("Остаток", "Қалдық", "Stock")}</TableHead>
+                            <TableHead className="text-slate-400">{t("Обновлено", "Жаңартылды", "Updated")}</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {selectedOverview.allItems.map((stockItem) => (
+                            <TableRow
+                              key={`${stockItem.product_id}-${stockItem.variety_id || "no-variety"}-${stockItem.reproduction_id || "no-repro"}-${stockItem.batch_id || "no-batch"}`}
+                              className="border-slate-800 hover:bg-slate-900/70"
+                            >
+                              <TableCell>
+                                <div className="font-medium text-slate-100">{stockItem.identity_name || stockItem.product_name}</div>
+                                <div className="text-xs text-slate-500">{stockItem.product_type || "-"}</div>
+                              </TableCell>
+                              <TableCell className="font-mono text-xs text-slate-400">{formatBatchLabel(stockItem.batch_id)}</TableCell>
+                              <TableCell className="text-slate-300">{stockItem.batch_class || "-"}</TableCell>
+                              <TableCell className="text-right font-semibold text-slate-100">
+                                {formatStorageAmount(stockItem.quantity, stockItem.unit || "kg", language as Lang)}
+                              </TableCell>
+                              <TableCell className="text-slate-400">{formatDateTime(stockItem.last_updated, language as Lang)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
                   )}
-                </CardContent>
-              </Card>
+                </section>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <History className="h-4 w-4" />
-                    {t("Последние движения", "Соңғы қозғалыстар", "Recent movements")}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Input type="date" value={movementDateFrom} onChange={(e) => setMovementDateFrom(e.target.value)} />
-                    <Input type="date" value={movementDateTo} onChange={(e) => setMovementDateTo(e.target.value)} />
+                <section className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-base font-semibold text-slate-100">
+                      <History className="h-4 w-4 text-emerald-300" />
+                      {t("Последние движения", "Соңғы қозғалыстар", "Recent movements")}
+                    </div>
+                    <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-2">
+                      <Input className="h-8 border-slate-700 bg-slate-950 text-slate-100" type="date" value={movementDateFrom} onChange={(e) => setMovementDateFrom(e.target.value)} />
+                      <Input className="h-8 border-slate-700 bg-slate-950 text-slate-100" type="date" value={movementDateTo} onChange={(e) => setMovementDateTo(e.target.value)} />
+                    </div>
                   </div>
                   {filteredSelectedMovements.length === 0 ? (
-                    <div className="py-5 text-center text-slate-500">{t("Движения пока отсутствуют", "Әзірге қозғалыс жоқ", "No movements yet")}</div>
+                    <div className="rounded-lg border border-dashed border-slate-800 py-8 text-center text-sm text-slate-500">
+                      {t("Движения пока отсутствуют", "Әзірге қозғалыс жоқ", "No movements yet")}
+                    </div>
                   ) : (
-                    filteredSelectedMovements.map((movement) => {
-                      const movementStatus = String(movement.status || "confirmed");
-                      const statusLabel =
-                        movementStatus === "confirmed"
-                          ? t("Подтверждено", "Расталды", "Confirmed")
-                          : movementStatus === "cancelled"
-                            ? t("Отменено", "Болдырылмады", "Cancelled")
-                            : t("Черновик", "Черновик", "Draft");
+                    <div className="space-y-2">
+                      {filteredSelectedMovements.map((movement) => {
+                        const movementStatus = String(movement.status || "confirmed");
+                        const label =
+                          movementStatus === "confirmed"
+                            ? t("Подтверждено", "Расталды", "Confirmed")
+                            : movementStatus === "cancelled"
+                              ? t("Отменено", "Болдырылмады", "Cancelled")
+                              : t("Черновик", "Черновик", "Draft");
 
-                      return (
-                        <div key={movement.id} className="rounded-lg border border-slate-200 p-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="font-medium text-slate-800">{movementTypeLabel(String(movement.movement_type || ""), t)}</div>
-                            <Badge
-                              className={
-                                movementStatus === "confirmed"
-                                  ? "bg-emerald-100 text-emerald-700"
-                                  : movementStatus === "cancelled"
-                                    ? "bg-slate-200 text-slate-700"
-                                    : "bg-amber-100 text-amber-700"
-                              }
-                            >
-                              {statusLabel}
-                            </Badge>
-                          </div>
-
-                          <div className="mt-1 text-sm text-slate-700">{movement.product_name || "-"}</div>
-                          <div className="mt-1 text-sm font-semibold text-slate-900">
-                            {typeof movement.quantity_delta === "number" && movement.quantity_delta < 0 ? "-" : ""}
-                            {formatStorageAmount(Number(movement.quantity || 0), movement.product_unit || "kg", language as Lang)}
-                          </div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {formatDateTime(movement.operation_datetime || movement.date, language as Lang)} •{" "}
-                            {(movement.source_warehouse_name || "-") + " → " + (movement.destination_warehouse_name || "-")}
-                          </div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {movement.movement_source || movement.source_system || "-"}
-                            {movement.document_ref ? ` • ${movement.document_ref}` : ""}
-                          </div>
-                          {movement.notes ? <div className="mt-1 text-xs text-slate-500">{movement.notes}</div> : null}
-
-                          {canManageMovements && movementStatus !== "cancelled" && movement.source_system === "inventory_transactions" ? (
-                            <div className="mt-2">
-                              <Button variant="outline" size="sm" onClick={() => void handleCancelMovement(movement.id)}>
-                                {t("Отменить", "Болдырмау", "Cancel")}
-                              </Button>
+                        return (
+                          <div key={movement.id} className="rounded-lg bg-slate-900/70 px-3 py-2">
+                            <div className="flex flex-wrap items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-medium text-slate-100">{movementTypeLabel(String(movement.movement_type || ""), t)}</span>
+                                  <span className="text-sm font-semibold text-slate-200">
+                                    {typeof movement.quantity_delta === "number" && movement.quantity_delta < 0 ? "-" : ""}
+                                    {formatStorageAmount(Number(movement.quantity || 0), movement.product_unit || "kg", language as Lang)}
+                                  </span>
+                                </div>
+                                <div className="mt-0.5 truncate text-sm text-slate-300">{movement.product_name || "-"}</div>
+                                <div className="mt-0.5 text-xs text-slate-500">
+                                  {formatDateTime(movement.operation_datetime || movement.date, language as Lang)} · {(movement.source_warehouse_name || "-") + " → " + (movement.destination_warehouse_name || "-")}
+                                </div>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <Badge className={movementStatus === "confirmed" ? "bg-emerald-500/10 text-emerald-200" : movementStatus === "cancelled" ? "bg-slate-700 text-slate-200" : "bg-amber-500/10 text-amber-200"}>
+                                  {label}
+                                </Badge>
+                                {canManageMovements && movementStatus !== "cancelled" && movement.source_system === "inventory_transactions" ? (
+                                  <Button variant="outline" size="sm" onClick={() => void handleCancelMovement(movement.id)}>
+                                    {t("Отменить", "Болдырмау", "Cancel")}
+                                  </Button>
+                                ) : null}
+                              </div>
                             </div>
-                          ) : null}
-                        </div>
-                      );
-                    })
+                            {movement.notes ? <div className="mt-1 text-xs text-slate-500">{movement.notes}</div> : null}
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
-                </CardContent>
-              </Card>
+                </section>
+              </div>
             </div>
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       {canManageMovements ? (
         <InventoryTransactionFormDialog
