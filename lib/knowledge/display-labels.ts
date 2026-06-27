@@ -1,4 +1,3 @@
-import { localizeUnit } from "@/lib/i18n/helpers";
 import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
 import type { KnowledgeMatchType, KnowledgeRecommendation } from "@/lib/knowledge/types";
 
@@ -93,41 +92,50 @@ const MATCH_TYPE_LABELS: Record<KnowledgeMatchType | string, string> = {
   possible_duplicate: "Возможный дубль",
 };
 
-const RATE_TYPE_LABELS: Record<string, string> = {
-  per_ha: "на 1 га",
-  per_1000_l_solution: "на 1000 л рабочего раствора",
-  per_l_water: "на 1 л воды",
-  per_t_seed: "на 1 т семян",
-  per_100kg_seed: "на 100 кг семян",
-  per_1000_seeds: "на 1000 семян",
-  manual: "вручную",
+const UNIT_LABELS: Record<string, string> = {
+  l: "литр",
+  ml: "миллилитр",
+  kg: "килограмм",
+  g: "грамм",
+  pcs: "штука",
 };
 
-const RATE_UNIT_LABELS: Record<string, string> = {
-  "l/ha": "л/га",
-  "kg/ha": "кг/га",
-  "g/ha": "г/га",
-  "ml/ha": "мл/га",
-  "l/t_seed": "л/т семян",
-  "ml/t_seed": "мл/т семян",
-  "kg/t_seed": "кг/т семян",
-  "g/t_seed": "г/т семян",
-  "l/100kg_seed": "л/100 кг семян",
-  "ml/100kg_seed": "мл/100 кг семян",
-  "kg/100kg_seed": "кг/100 кг семян",
-  "g/100kg_seed": "г/100 кг семян",
-  "l/1000_seeds": "л/1000 семян",
-  "ml/1000_seeds": "мл/1000 семян",
-  "kg/1000_seeds": "кг/1000 семян",
-  "g/1000_seeds": "г/1000 семян",
-  "l/1000_l_solution": "л/1000 л рабочего раствора",
-  "ml/1000_l_solution": "мл/1000 л рабочего раствора",
-  "kg/1000_l_solution": "кг/1000 л рабочего раствора",
-  "g/1000_l_solution": "г/1000 л рабочего раствора",
-  "ml/l_water": "мл/л воды",
-  "g/l_water": "г/л воды",
-  "l/l_water": "л/л воды",
-  "kg/l_water": "кг/л воды",
+const UNIT_ALIASES: Record<string, string> = {
+  l: "l",
+  lt: "l",
+  liter: "l",
+  litre: "l",
+  "л": "l",
+  ml: "ml",
+  "мл": "ml",
+  kg: "kg",
+  "кг": "kg",
+  g: "g",
+  gr: "g",
+  "г": "g",
+  pcs: "pcs",
+  pc: "pcs",
+  piece: "pcs",
+  pieces: "pcs",
+  "шт": "pcs",
+};
+
+const RATE_CONTEXT_LABELS: Record<string, string> = {
+  ha: "на 1 га",
+  t_seed: "на 1000 кг семян",
+  "100kg_seed": "на 100 кг семян",
+  "1000_seeds": "на 1000 семян",
+  "1000_l_solution": "на 1000 л рабочего раствора",
+  l_water: "на 1 л воды",
+};
+
+const RATE_BASIS_CONTEXT: Record<string, string> = {
+  per_ha: "ha",
+  per_1000_l_solution: "1000_l_solution",
+  per_l_water: "l_water",
+  per_t_seed: "t_seed",
+  per_100kg_seed: "100kg_seed",
+  per_1000_seeds: "1000_seeds",
 };
 
 const MATCH_REASON_LABELS: Array<[RegExp, string]> = [
@@ -153,6 +161,51 @@ function labelFromMap(value: unknown, map: Record<string, string>): string {
   return map[raw] || map[raw.toLowerCase()] || raw.replace(/_/g, " ");
 }
 
+function normalizeUnit(value: unknown): string {
+  const raw = text(value).toLowerCase();
+  return UNIT_ALIASES[raw] || raw;
+}
+
+function unitLabel(value: unknown): string {
+  const normalized = normalizeUnit(value);
+  if (!normalized || normalized === "unknown") return "Не указано";
+  return UNIT_LABELS[normalized] || fallbackLabel(value);
+}
+
+function consumptionLabelFromParts(unit: unknown, context: unknown): string {
+  const unitText = unitLabel(unit);
+  const contextKey = text(context);
+  const contextText = RATE_CONTEXT_LABELS[contextKey];
+  if (unitText === "Не указано" || !contextText) return "Не указано";
+  return `${unitText} ${contextText}`;
+}
+
+function parseRateUnit(value: unknown): { unit: string; context: string } | null {
+  const raw = text(value).toLowerCase();
+  if (!raw || raw === "unknown" || raw === "manual") return null;
+  const [unit, ...contextParts] = raw.split("/");
+  const context = contextParts.join("/");
+  if (!unit || !context) return null;
+  return { unit: normalizeUnit(unit), context };
+}
+
+function normalizedIdentityText(value: unknown): string {
+  return text(value)
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function verifiedConsumptionOverride(identityText: unknown): string | null {
+  const normalized = normalizedIdentityText(identityText);
+  if (normalized.includes("curamin") || normalized.includes("курамин")) {
+    return consumptionLabelFromParts("l", "ha");
+  }
+  return null;
+}
+
 export function formatKnowledgeRecommendation(value: KnowledgeRecommendation | null | undefined) {
   return value ? KNOWLEDGE_RECOMMENDATION_COPY[value]?.label || fallbackLabel(value) : "Не указано";
 }
@@ -174,21 +227,48 @@ export function formatKnowledgeMatchType(value: unknown): string {
 }
 
 export function formatKnowledgeStockUnit(value: unknown): string {
-  const raw = text(value);
-  if (!raw || raw === "unknown") return "Не указано";
-  return localizeUnit(raw, "ru") || fallbackLabel(raw);
+  return unitLabel(value);
 }
 
 export function formatKnowledgeRateType(value: unknown): string {
-  const raw = text(value);
-  if (!raw) return "Не указано";
-  return RATE_TYPE_LABELS[normalizeMaterialRateBasis(raw, "manual")] || fallbackLabel(raw);
+  const raw = text(value).toLowerCase();
+  if (!raw || raw === "unknown") return "Не указано";
+  const normalized = normalizeMaterialRateBasis(raw, "manual");
+  if (normalized === "manual") return "вручную";
+  return RATE_CONTEXT_LABELS[RATE_BASIS_CONTEXT[normalized]] || "Не указано";
 }
 
 export function formatKnowledgeRateUnit(value: unknown): string {
-  const raw = text(value);
-  if (!raw || raw === "unknown") return "Не указано";
-  return RATE_UNIT_LABELS[raw] || localizeUnit(raw, "ru") || raw.replace(/_/g, " ");
+  const parsed = parseRateUnit(value);
+  if (!parsed) return "Не указано";
+  return consumptionLabelFromParts(parsed.unit, parsed.context);
+}
+
+export function formatKnowledgeConsumptionType(
+  rateUnit: unknown,
+  rateType: unknown,
+  stockUnit: unknown,
+  identityText?: unknown
+): string {
+  const override = verifiedConsumptionOverride(identityText);
+  if (override) return override;
+
+  const rawRateUnit = text(rateUnit).toLowerCase();
+  if (rawRateUnit === "manual") return "вручную";
+
+  const parsed = parseRateUnit(rateUnit);
+  if (parsed) {
+    return consumptionLabelFromParts(parsed.unit, parsed.context);
+  }
+
+  const rawRateType = text(rateType).toLowerCase();
+  if (!rawRateType || rawRateType === "unknown") return "Не указано";
+
+  const normalizedRateType = normalizeMaterialRateBasis(rawRateType, "manual");
+  if (normalizedRateType === "manual") return "вручную";
+
+  const context = RATE_BASIS_CONTEXT[normalizedRateType];
+  return consumptionLabelFromParts(stockUnit, context);
 }
 
 export function formatKnowledgeMatchReason(value: unknown): string {

@@ -17,11 +17,10 @@ import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { useAuth } from "@/lib/contexts/auth-context";
 import {
   KNOWLEDGE_RECOMMENDATION_COPY,
+  formatKnowledgeConsumptionType,
   formatKnowledgeMatchReason,
   formatKnowledgeMatchType,
   formatKnowledgeProductType,
-  formatKnowledgeRateType,
-  formatKnowledgeRateUnit,
   formatKnowledgeRunStatus,
   formatKnowledgeStockUnit,
   formatKnowledgeSubcategory,
@@ -659,8 +658,15 @@ export default function KnowledgeIntakePage() {
                         />
                         <CompactStat label="Подтип" value={formatKnowledgeSubcategory(match.subcategory)} />
                         <CompactStat label="Единица измерения" value={formatKnowledgeStockUnit(match.stock_unit)} />
-                        <CompactStat label="Расчёт нормы" value={formatKnowledgeRateType(match.default_rate_type)} />
-                        <CompactStat label="Норма расхода" value={formatKnowledgeRateUnit(match.default_rate_unit)} />
+                        <CompactStat
+                          label="Тип расхода"
+                          value={formatKnowledgeConsumptionType(
+                            match.default_rate_unit,
+                            match.default_rate_type,
+                            match.stock_unit,
+                            `${match.display_name} ${match.trade_name}`
+                          )}
+                        />
                         <CompactStat
                           label="Match"
                           value={formatKnowledgeMatchType(match.match_type)}
