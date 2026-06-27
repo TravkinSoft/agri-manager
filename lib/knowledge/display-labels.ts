@@ -83,6 +83,22 @@ const SUBCATEGORY_LABELS: Record<string, string> = {
   other: "Другое",
 };
 
+const PHYSICAL_STATE_LABELS: Record<string, string> = {
+  liquid: "Жидкость",
+  solid: "Твёрдое",
+  granule: "Гранулы",
+  powder: "Порошок",
+  tablet: "Таблетка",
+  gel: "Гель",
+  unknown: "Не указано",
+};
+
+const CONFIDENCE_LABELS: Record<string, string> = {
+  low: "Низкая",
+  medium: "Средняя",
+  high: "Высокая",
+};
+
 const MATCH_TYPE_LABELS: Record<KnowledgeMatchType | string, string> = {
   exact: "Точное совпадение",
   alias: "Алиас",
@@ -220,6 +236,14 @@ export function formatKnowledgeProductType(value: unknown): string {
 
 export function formatKnowledgeSubcategory(value: unknown): string {
   return labelFromMap(value, SUBCATEGORY_LABELS);
+}
+
+export function formatKnowledgePhysicalState(value: unknown): string {
+  return labelFromMap(value, PHYSICAL_STATE_LABELS);
+}
+
+export function formatKnowledgeConfidence(value: unknown): string {
+  return labelFromMap(value, CONFIDENCE_LABELS);
 }
 
 export function formatKnowledgeMatchType(value: unknown): string {
