@@ -2445,7 +2445,9 @@ export function FieldsMapPage() {
       {mapError ? <div className="mx-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 md:mx-4">{mapError}</div> : null}
 
       <section className="relative h-[calc(100vh-86px)] min-h-[720px] overflow-hidden rounded-xl border border-[#202B3D] bg-[#070B12] shadow-2xl">
-        <div ref={bindMapContainerRef} className="absolute inset-0" />
+        <div className="absolute inset-0">
+          <div ref={bindMapContainerRef} className="h-full w-full" />
+        </div>
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-start justify-between gap-3 p-3">
           <div className="pointer-events-auto max-w-[760px] rounded-xl border border-white/10 bg-[#0B111D]/90 p-2 shadow-xl backdrop-blur">
