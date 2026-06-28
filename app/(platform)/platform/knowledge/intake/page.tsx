@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -192,6 +192,11 @@ function buildExtractionDraftFromSuggestions(suggestions: MetadataSuggestion[]):
     crops: [],
     targets: [],
     restrictions: [],
+    human_description: null,
+    application_rules: [],
+    admin_warnings: [],
+    missing_fields: [],
+    editable_card_title: null,
     confidence: "low",
     notes: [],
   };
@@ -247,6 +252,101 @@ function formatActiveIngredients(values: KnowledgeExtractionDraft["active_ingred
   return values.map((item) => (item.concentration ? `${item.name} (${item.concentration})` : item.name)).join(", ");
 }
 
+function cloneExtractionDraft(draft: KnowledgeExtractionDraft): KnowledgeExtractionDraft {
+  return {
+    ...draft,
+    active_ingredients: draft.active_ingredients.map((item) => ({ ...item })),
+    crops: [...draft.crops],
+    targets: [...draft.targets],
+    restrictions: [...draft.restrictions],
+    application_rules: [...(draft.application_rules || [])],
+    admin_warnings: [...(draft.admin_warnings || [])],
+    missing_fields: [...(draft.missing_fields || [])],
+    notes: [...draft.notes],
+  };
+}
+
+function listToText(values: string[] | null | undefined) {
+  return values?.length ? values.join("\n") : "";
+}
+
+function textToList(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function activeIngredientsToText(values: KnowledgeExtractionDraft["active_ingredients"]) {
+  return values.map((item) => (item.concentration ? `${item.name} | ${item.concentration}` : item.name)).join("\n");
+}
+
+function textToActiveIngredients(value: string): KnowledgeExtractionDraft["active_ingredients"] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => {
+      const raw = line.trim();
+      if (!raw) return null;
+      const [namePart, ...concentrationParts] = raw.split(/\s*\|\s*/);
+      const name = String(namePart || "").trim();
+      if (!name) return null;
+      const concentration = concentrationParts.join(" | ").trim();
+      return { name, concentration: concentration || null };
+    })
+    .filter(Boolean) as KnowledgeExtractionDraft["active_ingredients"];
+}
+
+function selectValue(value: unknown) {
+  return String(value || "");
+}
+
+const PRODUCT_TYPE_OPTIONS = [
+  { value: "", label: "Не указано" },
+  { value: "pesticide", label: "Пестицид" },
+  { value: "fertilizer", label: "Удобрение" },
+  { value: "additive", label: "Добавка" },
+  { value: "seed", label: "Семена" },
+  { value: "unknown", label: "Неизвестно" },
+] as const;
+
+const PHYSICAL_STATE_OPTIONS = [
+  { value: "", label: "Не указано" },
+  { value: "liquid", label: "Жидкость" },
+  { value: "solid", label: "Твёрдое" },
+  { value: "granule", label: "Гранулы" },
+  { value: "powder", label: "Порошок" },
+  { value: "tablet", label: "Таблетка" },
+  { value: "gel", label: "Гель" },
+  { value: "unknown", label: "Неизвестно" },
+] as const;
+
+const STOCK_UNIT_OPTIONS = [
+  { value: "", label: "Не указано" },
+  { value: "l", label: "литр" },
+  { value: "ml", label: "миллилитр" },
+  { value: "kg", label: "килограмм" },
+  { value: "g", label: "грамм" },
+  { value: "pcs", label: "штука" },
+  { value: "unknown", label: "Неизвестно" },
+] as const;
+
+const RATE_TYPE_OPTIONS = [
+  { value: "", label: "Не указано" },
+  { value: "per_ha", label: "на 1 га" },
+  { value: "per_1000_l_solution", label: "на 1000 л рабочего раствора" },
+  { value: "per_l_water", label: "на 1 л воды" },
+  { value: "per_t_seed", label: "на 1000 кг семян" },
+  { value: "per_100kg_seed", label: "на 100 кг семян" },
+  { value: "per_1000_seeds", label: "на 1000 семян" },
+  { value: "manual", label: "вручную" },
+] as const;
+
+const CONFIDENCE_OPTIONS = [
+  { value: "low", label: "Низкая" },
+  { value: "medium", label: "Средняя" },
+  { value: "high", label: "Высокая" },
+] as const;
+
 const consoleNotice = {
   error: "rounded-none border border-[#b95b5b] bg-[#fff1f1] px-3 py-2 text-sm font-medium text-[#7f1d1d]",
   success: "rounded-none border border-[#5e8d74] bg-[#edf8f1] px-3 py-2 text-sm font-medium text-[#064e3b]",
@@ -279,6 +379,7 @@ export default function KnowledgeIntakePage() {
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [extractSuccess, setExtractSuccess] = useState<string | null>(null);
+  const [editableDraft, setEditableDraft] = useState<KnowledgeExtractionDraft | null>(null);
 
   const recommendation = result?.recommendation || null;
   const recommendationCopy = recommendation ? KNOWLEDGE_RECOMMENDATION_COPY[recommendation] : null;
@@ -291,6 +392,10 @@ export default function KnowledgeIntakePage() {
   );
   const isManualSource = sourceType === "manual";
 
+  useEffect(() => {
+    setEditableDraft(extractionDraft ? cloneExtractionDraft(extractionDraft) : null);
+  }, [extractionDraft]);
+
   const canSubmit = useMemo(() => inputValue.trim().length > 0 && !submitting, [inputValue, submitting]);
   const canSubmitSource = useMemo(() => {
     if (!result?.run?.id || sourceSubmitting) return false;
@@ -301,6 +406,10 @@ export default function KnowledgeIntakePage() {
     () => Boolean(result?.run?.id && sources.length > 0 && !extracting),
     [extracting, result?.run?.id, sources.length]
   );
+
+  const patchEditableDraft = (patch: Partial<KnowledgeExtractionDraft>) => {
+    setEditableDraft((current) => (current ? { ...current, ...patch } : current));
+  };
 
   const loadRun = async (runId: string, fallback: IntakeResult): Promise<IntakeResult> => {
     const headers = await buildClientAuthHeaders();
@@ -806,56 +915,283 @@ export default function KnowledgeIntakePage() {
                     Это черновик. Данные не записаны в препарат до подтверждения администратором.
                   </div>
 
-                  {extractionDraft ? (
+                  {editableDraft ? (
                     <div className={consoleNotice.draftPanel} data-testid="knowledge-extraction-draft">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                          <div className="text-base font-semibold text-slate-50">Черновик паспорта</div>
-                          <p className="mt-1 text-xs text-slate-400">Field-level suggestions сохранены в product_metadata_suggestions.</p>
+                          <div className="text-base font-semibold text-slate-50">
+                            {editableDraft.editable_card_title || "Черновик карточки препарата"}
+                          </div>
+                          <p className="mt-1 text-xs text-slate-400">
+                            Паспортные поля сохранены как draft suggestions. Описание и правила сейчас редактируются только в этой карточке.
+                          </p>
                         </div>
                         <StatusPill tone="warning">Требует проверки</StatusPill>
                       </div>
 
                       <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                        <CompactStat label="Название" value={safeText(extractionDraft.trade_name)} />
-                        <CompactStat label="Производитель" value={safeText(extractionDraft.manufacturer)} />
-                        <CompactStat label="Тип" value={formatKnowledgeProductType(extractionDraft.product_type)} />
-                        <CompactStat label="Подтип" value={formatKnowledgeSubcategory(extractionDraft.subcategory)} />
-                        <CompactStat label="Физическое состояние" value={formatKnowledgePhysicalState(extractionDraft.physical_state)} />
-                        <CompactStat label="Единица измерения" value={formatKnowledgeStockUnit(extractionDraft.stock_unit)} />
+                        <CompactStat label="Единица измерения" value={formatKnowledgeStockUnit(editableDraft.stock_unit)} />
                         <CompactStat
                           label="Тип расхода"
                           value={formatKnowledgeConsumptionType(
-                            extractionDraft.default_rate_unit,
-                            extractionDraft.default_rate_type,
-                            extractionDraft.stock_unit,
-                            `${extractionDraft.trade_name || ""} ${extractionDraft.manufacturer || ""}`
+                            editableDraft.default_rate_unit,
+                            editableDraft.default_rate_type,
+                            editableDraft.stock_unit,
+                            `${editableDraft.trade_name || ""} ${editableDraft.manufacturer || ""}`
                           )}
                         />
-                        <CompactStat label="Уверенность" value={formatKnowledgeConfidence(extractionDraft.confidence)} />
+                        <CompactStat label="Уверенность" value={formatKnowledgeConfidence(editableDraft.confidence)} />
                       </div>
 
-                      <div className="mt-4 grid gap-3">
+                      <div className="mt-4 space-y-4">
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Действующие вещества</div>
-                          <div className="mt-1 text-sm text-slate-100">{formatActiveIngredients(extractionDraft.active_ingredients)}</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Паспортные поля</div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-trade-name">Название</Label>
+                              <Input
+                                id="draft-trade-name"
+                                value={editableDraft.trade_name || ""}
+                                onChange={(event) => patchEditableDraft({ trade_name: event.target.value || null })}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-manufacturer">Производитель</Label>
+                              <Input
+                                id="draft-manufacturer"
+                                value={editableDraft.manufacturer || ""}
+                                onChange={(event) => patchEditableDraft({ manufacturer: event.target.value || null })}
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-product-type">Тип</Label>
+                              <select
+                                id="draft-product-type"
+                                value={selectValue(editableDraft.product_type)}
+                                onChange={(event) =>
+                                  patchEditableDraft({
+                                    product_type: (event.target.value || null) as KnowledgeExtractionDraft["product_type"],
+                                  })
+                                }
+                                className="h-10 w-full border px-3 text-sm"
+                              >
+                                {PRODUCT_TYPE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-subcategory">Подтип</Label>
+                              <Input
+                                id="draft-subcategory"
+                                value={editableDraft.subcategory || ""}
+                                onChange={(event) => patchEditableDraft({ subcategory: event.target.value || null })}
+                                placeholder="Например: seed_treatment"
+                              />
+                              <div className="text-xs text-slate-500">{formatKnowledgeSubcategory(editableDraft.subcategory)}</div>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-physical-state">Физическое состояние</Label>
+                              <select
+                                id="draft-physical-state"
+                                value={selectValue(editableDraft.physical_state)}
+                                onChange={(event) =>
+                                  patchEditableDraft({
+                                    physical_state: (event.target.value || null) as KnowledgeExtractionDraft["physical_state"],
+                                  })
+                                }
+                                className="h-10 w-full border px-3 text-sm"
+                              >
+                                {PHYSICAL_STATE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-stock-unit">Единица измерения</Label>
+                              <select
+                                id="draft-stock-unit"
+                                value={selectValue(editableDraft.stock_unit)}
+                                onChange={(event) =>
+                                  patchEditableDraft({
+                                    stock_unit: (event.target.value || null) as KnowledgeExtractionDraft["stock_unit"],
+                                  })
+                                }
+                                className="h-10 w-full border px-3 text-sm"
+                              >
+                                {STOCK_UNIT_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-rate-type">Тип расхода</Label>
+                              <select
+                                id="draft-rate-type"
+                                value={selectValue(editableDraft.default_rate_type)}
+                                onChange={(event) =>
+                                  patchEditableDraft({
+                                    default_rate_type: (event.target.value || null) as KnowledgeExtractionDraft["default_rate_type"],
+                                  })
+                                }
+                                className="h-10 w-full border px-3 text-sm"
+                              >
+                                {RATE_TYPE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-confidence">Уверенность</Label>
+                              <select
+                                id="draft-confidence"
+                                value={editableDraft.confidence}
+                                onChange={(event) =>
+                                  patchEditableDraft({
+                                    confidence: event.target.value as KnowledgeExtractionDraft["confidence"],
+                                  })
+                                }
+                                className="h-10 w-full border px-3 text-sm"
+                              >
+                                {CONFIDENCE_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-active-ingredients">Действующие вещества</Label>
+                              <Textarea
+                                id="draft-active-ingredients"
+                                value={activeIngredientsToText(editableDraft.active_ingredients)}
+                                onChange={(event) =>
+                                  patchEditableDraft({ active_ingredients: textToActiveIngredients(event.target.value) })
+                                }
+                                placeholder="ДВ | концентрация"
+                                className="min-h-[110px]"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-crops">Культуры</Label>
+                              <Textarea
+                                id="draft-crops"
+                                value={listToText(editableDraft.crops)}
+                                onChange={(event) => patchEditableDraft({ crops: textToList(event.target.value) })}
+                                placeholder="Одна культура на строку"
+                                className="min-h-[110px]"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-targets">Объекты применения</Label>
+                              <Textarea
+                                id="draft-targets"
+                                value={listToText(editableDraft.targets)}
+                                onChange={(event) => patchEditableDraft({ targets: textToList(event.target.value) })}
+                                placeholder="Один объект на строку"
+                                className="min-h-[110px]"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-restrictions">Ограничения</Label>
+                              <Textarea
+                                id="draft-restrictions"
+                                value={listToText(editableDraft.restrictions)}
+                                onChange={(event) => patchEditableDraft({ restrictions: textToList(event.target.value) })}
+                                placeholder="Одно ограничение на строку"
+                                className="min-h-[110px]"
+                              />
+                            </div>
+                          </div>
                         </div>
+
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Культуры</div>
-                          <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.crops)}</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Описание препарата</div>
+                          <Textarea
+                            value={editableDraft.human_description || ""}
+                            onChange={(event) => patchEditableDraft({ human_description: event.target.value || null })}
+                            placeholder="Короткое описание только на основе источника"
+                            className="mt-3 min-h-[96px]"
+                          />
                         </div>
+
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Объекты применения / цели</div>
-                          <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.targets)}</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Основные правила применения</div>
+                          <Textarea
+                            value={listToText(editableDraft.application_rules)}
+                            onChange={(event) => patchEditableDraft({ application_rules: textToList(event.target.value) })}
+                            placeholder="Одно правило на строку"
+                            className="mt-3 min-h-[120px]"
+                          />
+                          <div className="mt-2 text-xs leading-5 text-slate-500">
+                            Это не официальная инструкция и не рекомендация TravkinFlow. Проверяйте по подтверждённому источнику.
+                          </div>
                         </div>
+
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Ограничения</div>
-                          <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.restrictions)}</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Что нужно проверить</div>
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-admin-warnings">Предупреждения</Label>
+                              <Textarea
+                                id="draft-admin-warnings"
+                                value={listToText(editableDraft.admin_warnings)}
+                                onChange={(event) => patchEditableDraft({ admin_warnings: textToList(event.target.value) })}
+                                placeholder="Один пункт на строку"
+                                className="min-h-[110px]"
+                              />
+                            </div>
+                            <div className="space-y-1.5">
+                              <Label htmlFor="draft-missing-fields">Не найдено в источнике</Label>
+                              <Textarea
+                                id="draft-missing-fields"
+                                value={listToText(editableDraft.missing_fields)}
+                                onChange={(event) => patchEditableDraft({ missing_fields: textToList(event.target.value) })}
+                                placeholder="Одно поле на строку"
+                                className="min-h-[110px]"
+                              />
+                            </div>
+                          </div>
+                          {editableDraft.notes.length ? (
+                            <div className="mt-3 text-sm leading-6 text-slate-100">
+                              <span className="font-semibold">Заметки extraction:</span> {formatDraftList(editableDraft.notes)}
+                            </div>
+                          ) : null}
                         </div>
+
                         <div className={consoleNotice.draftSubCard}>
-                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Заметки</div>
-                          <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.notes)}</div>
+                          <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Источники</div>
+                          <div className="mt-3 space-y-2">
+                            {sources.length ? (
+                              sources.map((source) => (
+                                <div key={`draft-source-${source.id}`} className="border border-[#d1d8e2] bg-[#f4f7fb] px-3 py-2 text-sm">
+                                  <div className="font-semibold">{source.source_title || source.source_url || "Ручной источник"}</div>
+                                  <div className="mt-1 text-xs text-slate-500">
+                                    {formatSourceType(source.source_type)} · {formatSourceConfidence(source.source_confidence)}
+                                  </div>
+                                  {source.source_url ? <div className="mt-1 truncate text-xs text-slate-500">{source.source_url}</div> : null}
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-sm text-slate-500">Источники не добавлены.</div>
+                            )}
+                          </div>
                         </div>
+                      </div>
+
+                      <div className={consoleNotice.warning}>
+                        Это черновик. Данные не записаны в препарат до подтверждения администратором.
                       </div>
 
                       <Button disabled variant="outline" className={consoleNotice.disabledAction}>

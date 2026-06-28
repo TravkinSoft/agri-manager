@@ -21,6 +21,11 @@ export type KnowledgeExtractionDraft = {
   crops: string[];
   targets: string[];
   restrictions: string[];
+  human_description: string | null;
+  application_rules: string[];
+  admin_warnings: string[];
+  missing_fields: string[];
+  editable_card_title: string | null;
   confidence: KnowledgeExtractionConfidence;
   notes: string[];
 };
@@ -113,6 +118,11 @@ const EXTRACTION_SCHEMA = {
     crops: { type: "array", items: { type: "string" } },
     targets: { type: "array", items: { type: "string" } },
     restrictions: { type: "array", items: { type: "string" } },
+    human_description: { type: ["string", "null"] },
+    application_rules: { type: "array", items: { type: "string" } },
+    admin_warnings: { type: "array", items: { type: "string" } },
+    missing_fields: { type: "array", items: { type: "string" } },
+    editable_card_title: { type: ["string", "null"] },
     confidence: { type: "string", enum: ["low", "medium", "high"] },
     notes: { type: "array", items: { type: "string" } },
   },
@@ -129,6 +139,11 @@ const EXTRACTION_SCHEMA = {
     "crops",
     "targets",
     "restrictions",
+    "human_description",
+    "application_rules",
+    "admin_warnings",
+    "missing_fields",
+    "editable_card_title",
     "confidence",
     "notes",
   ],
@@ -191,6 +206,79 @@ function uniqueTexts(values: Array<string | null | undefined>): string[] {
   return out;
 }
 
+function addUniqueRule(values: string[], value: string) {
+  if (!values.includes(value)) values.push(value);
+}
+
+function sourceTextIncludes(sources: KnowledgeSourceContext[], patterns: RegExp[]) {
+  const sourceText = sources.map((source) => `${source.title || ""}\n${source.text}`).join("\n").toLowerCase();
+  return patterns.some((pattern) => pattern.test(sourceText));
+}
+
+function localizeApplicationRule(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (/^used for seed treatment\.?$/.test(normalized)) return "Применяется для обработки семян.";
+  if (/seed treatment/.test(normalized) && /used|appl/.test(normalized)) return "Применяется для обработки семян.";
+  if (/l\/t seed|tonne of seed|ton of seed/.test(normalized)) return "Расход считается на 1000 кг семян.";
+  if (/do not.*l\/ha|not.*per ha/.test(normalized)) return "Не считать как л/га.";
+  return value.trim();
+}
+
+function enrichKnowledgeExtractionDraft(
+  draft: KnowledgeExtractionDraft,
+  sources: KnowledgeSourceContext[]
+): KnowledgeExtractionDraft {
+  const applicationRules = uniqueTexts(draft.application_rules.map(localizeApplicationRule));
+  const adminWarnings = [...draft.admin_warnings];
+  const missingFields = [...draft.missing_fields];
+  const sourceMentionsSeedTreatment = sourceTextIncludes(sources, [
+    /seed treatment/i,
+    /обработк[аи]\s+семян/i,
+    /протрав/i,
+  ]);
+
+  if (sourceMentionsSeedTreatment) {
+    addUniqueRule(applicationRules, "Применяется для обработки семян.");
+  }
+
+  if (draft.default_rate_type === "per_t_seed" || /\/t_seed$/i.test(draft.default_rate_unit || "")) {
+    addUniqueRule(applicationRules, "Расход считается на 1000 кг семян.");
+    addUniqueRule(applicationRules, "Не считать как л/га.");
+  }
+
+  if (draft.default_rate_type === "per_1000_l_solution" || /\/1000_l_solution$/i.test(draft.default_rate_unit || "")) {
+    addUniqueRule(applicationRules, "Расход считается на 1000 л рабочего раствора.");
+  }
+
+  if (draft.default_rate_type === "per_l_water" || /\/l_water$/i.test(draft.default_rate_unit || "")) {
+    addUniqueRule(applicationRules, "Расход считается на 1 л воды.");
+  }
+
+  if (draft.default_rate_type === "per_ha" || /\/ha$/i.test(draft.default_rate_unit || "")) {
+    addUniqueRule(applicationRules, "Расход считается на 1 га.");
+  }
+
+  addUniqueRule(applicationRules, "Использовать только по подтверждённой инструкции.");
+  addUniqueRule(applicationRules, "Если данных нет в источнике, оставить поле пустым и проверить вручную.");
+
+  if (draft.confidence !== "high") {
+    addUniqueRule(adminWarnings, "Уверенность не высокая: проверьте источник вручную перед применением.");
+  }
+
+  if (!draft.product_type) addUniqueRule(missingFields, "Тип продукта");
+  if (!draft.subcategory) addUniqueRule(missingFields, "Подтип");
+  if (!draft.active_ingredients.length) addUniqueRule(missingFields, "Действующие вещества");
+  if (!draft.crops.length) addUniqueRule(missingFields, "Культуры");
+  if (!draft.targets.length) addUniqueRule(missingFields, "Объекты применения");
+
+  return {
+    ...draft,
+    application_rules: applicationRules,
+    admin_warnings: adminWarnings,
+    missing_fields: missingFields,
+  };
+}
+
 function isModelAccessError(message: string): boolean {
   return /model.*(does not exist|do not have access|not found|invalid)/i.test(message);
 }
@@ -216,6 +304,11 @@ export function sanitizeKnowledgeExtractionDraft(value: unknown): KnowledgeExtra
     crops: stringArray(record.crops),
     targets: stringArray(record.targets),
     restrictions: stringArray(record.restrictions),
+    human_description: nullableText(record.human_description),
+    application_rules: stringArray(record.application_rules),
+    admin_warnings: stringArray(record.admin_warnings),
+    missing_fields: stringArray(record.missing_fields),
+    editable_card_title: nullableText(record.editable_card_title),
     confidence: enumValue<KnowledgeExtractionConfidence>(record.confidence, CONFIDENCE_VALUES, "low") || "low",
     notes: stringArray(record.notes),
   };
@@ -270,6 +363,13 @@ function buildExtractionPrompt(params: {
     "- Map l/ha or л/га to default_rate_type per_ha and default_rate_unit l/ha.",
     "- Map per 1000 l working solution or на 1000 л рабочего раствора to default_rate_type per_1000_l_solution and default_rate_unit l/1000_l_solution unless the unit is different.",
     "- Do not include dosage numbers unless the source text explicitly contains them.",
+    "- human_description must be short, plain, and based only on the source text.",
+    "- application_rules must be simple admin-review notes, not a replacement for the official label.",
+    "- admin_warnings must list low-confidence or risky points that a human must verify.",
+    "- missing_fields must list requested passport fields that are not present in the source.",
+    "- Never claim the product is best, safest, guaranteed, or more effective than others.",
+    "- If a field is not in the source, leave it null/empty and add it to missing_fields instead of guessing.",
+    "- Write human_description, application_rules, admin_warnings, missing_fields, and notes in Russian for the UI. Keep trade names and manufacturer names unchanged.",
     "",
     `Input product: ${params.runInput || "-"}`,
     `Optional manufacturer hint: ${params.runManufacturer || "-"}`,
@@ -329,7 +429,7 @@ export async function extractKnowledgeProductMetadataDraft(params: {
             schema: EXTRACTION_SCHEMA,
           },
         },
-        max_completion_tokens: 1800,
+        max_completion_tokens: 2600,
       }),
     });
 
@@ -355,7 +455,7 @@ export async function extractKnowledgeProductMetadataDraft(params: {
     throw new Error("OpenAI extraction returned invalid JSON");
   }
 
-  return sanitizeKnowledgeExtractionDraft(parsed);
+  return enrichKnowledgeExtractionDraft(sanitizeKnowledgeExtractionDraft(parsed), params.sources);
 }
 
 function currentValue(product: Record<string, unknown> | null, field: string): unknown {
