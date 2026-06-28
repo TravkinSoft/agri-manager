@@ -247,6 +247,20 @@ function formatActiveIngredients(values: KnowledgeExtractionDraft["active_ingred
   return values.map((item) => (item.concentration ? `${item.name} (${item.concentration})` : item.name)).join(", ");
 }
 
+const consoleNotice = {
+  error: "rounded-none border border-[#b95b5b] bg-[#fff1f1] px-3 py-2 text-sm font-medium text-[#7f1d1d]",
+  success: "rounded-none border border-[#5e8d74] bg-[#edf8f1] px-3 py-2 text-sm font-medium text-[#064e3b]",
+  warning: "rounded-none border border-[#9f8f55] bg-[#fff8d8] px-3 py-2 text-xs leading-5 text-[#4f3d00]",
+  danger: "rounded-none border border-[#b95b5b] bg-[#fff1f1] px-3 py-3 text-sm font-semibold text-[#7f1d1d]",
+  info: "rounded-none border border-[#7d96b3] bg-[#eef5ff] px-3 py-3 text-sm leading-6 text-[#10243d]",
+  infoSmall: "mt-3 rounded-none border border-[#9aa8ba] bg-[#f4f7fb] px-3 py-2 text-xs leading-5 text-[#243247]",
+  sourceCard: "rounded-none border border-[#c3ccd8] bg-[#f8fafc] px-3 py-3 text-[#111827]",
+  sourceSummary: "mt-2 rounded-none border border-[#d1d8e2] bg-[#eef1f5] px-3 py-2 text-xs leading-5 text-[#243247]",
+  draftPanel: "mt-4 rounded-none border border-[#9aa8ba] bg-[#f8fafc] p-4 text-[#111827]",
+  draftSubCard: "rounded-none border border-[#c3ccd8] bg-white px-3 py-2 text-[#111827]",
+  disabledAction: "mt-4 rounded-none border-[#9aa8ba] bg-[#eef1f5] text-[#42566f] opacity-100 disabled:opacity-100",
+};
+
 export default function KnowledgeIntakePage() {
   const { profile, loading: authLoading } = useAuth();
   const [inputType, setInputType] = useState<IntakeInputType>("text");
@@ -519,7 +533,7 @@ export default function KnowledgeIntakePage() {
             </div>
 
             {error ? (
-              <div className="rounded-lg border border-red-300/25 bg-red-500/10 px-3 py-3 text-sm text-red-100">
+              <div className={consoleNotice.error}>
                 {error}
               </div>
             ) : null}
@@ -593,12 +607,12 @@ export default function KnowledgeIntakePage() {
               </div>
 
               {recommendationCopy ? (
-                <GlassCard className="border-[#E0B100]/20 bg-[#E0B100]/10 p-4">
+                <GlassCard className="rounded-none border-[#9f8f55] bg-[#fff8d8] p-4 text-[#4f3d00]">
                   <div className="flex gap-3">
-                    <CheckCircle2 className="mt-0.5 h-5 w-5 flex-none text-[#FDE68A]" />
+                    <CheckCircle2 className="mt-0.5 h-5 w-5 flex-none text-[#7a5c00]" />
                     <div>
-                      <div className="font-semibold text-[#FDE68A]">{recommendationCopy.label}</div>
-                      <p className="mt-1 text-sm leading-6 text-slate-200">{recommendationCopy.message}</p>
+                      <div className="font-semibold text-[#4f3d00]">{recommendationCopy.label}</div>
+                      <p className="mt-1 text-sm leading-6 text-[#5c4a16]">{recommendationCopy.message}</p>
                     </div>
                   </div>
                 </GlassCard>
@@ -689,12 +703,12 @@ export default function KnowledgeIntakePage() {
                     </div>
 
                     {sourceError ? (
-                      <div className="rounded-lg border border-red-300/25 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                      <div className={consoleNotice.error}>
                         {sourceError}
                       </div>
                     ) : null}
                     {sourceSuccess ? (
-                      <div className="rounded-lg border border-emerald-300/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+                      <div className={consoleNotice.success}>
                         {sourceSuccess}
                       </div>
                     ) : null}
@@ -716,7 +730,7 @@ export default function KnowledgeIntakePage() {
                     sources.map((source) => (
                       <div
                         key={source.id}
-                        className="rounded-lg border border-white/10 bg-white/[0.035] px-3 py-3"
+                        className={consoleNotice.sourceCard}
                       >
                         <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
                           <div className="min-w-0">
@@ -736,7 +750,7 @@ export default function KnowledgeIntakePage() {
                               </div>
                             ) : null}
                             {source.extracted_text_summary ? (
-                              <div className="mt-2 rounded-lg bg-black/20 px-3 py-2 text-xs leading-5 text-slate-300">
+                              <div className={consoleNotice.sourceSummary}>
                                 {source.extracted_text_summary}
                               </div>
                             ) : null}
@@ -752,7 +766,7 @@ export default function KnowledgeIntakePage() {
                   )}
                 </div>
 
-                <div className="mt-4 rounded-lg border border-sky-300/15 bg-sky-400/10 px-3 py-3 text-sm leading-6 text-sky-100">
+                <div className={consoleNotice.info}>
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="font-semibold">Извлечение данных</div>
@@ -765,7 +779,7 @@ export default function KnowledgeIntakePage() {
                       data-testid="knowledge-extract-submit"
                       disabled={!canExtract}
                       onClick={handleExtractSubmit}
-                      className="w-fit gap-2 bg-sky-300 text-slate-950 hover:bg-sky-200"
+                      className="w-fit gap-2 rounded-none bg-[#15395f] text-white hover:bg-[#0f2946] disabled:bg-[#d7dde6] disabled:text-[#42566f] disabled:opacity-100"
                     >
                       {extracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                       Извлечь данные
@@ -773,27 +787,27 @@ export default function KnowledgeIntakePage() {
                   </div>
 
                   {!sources.length ? (
-                    <div className="mt-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-sky-100">
+                    <div className={consoleNotice.infoSmall}>
                       Сначала добавьте источник: ручной текст, ссылку на страницу или PDF.
                     </div>
                   ) : null}
                   {extractError ? (
-                    <div className="mt-3 rounded-lg border border-red-300/25 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                    <div className={consoleNotice.error}>
                       {extractError}
                     </div>
                   ) : null}
                   {extractSuccess ? (
-                    <div className="mt-3 rounded-lg border border-emerald-300/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100">
+                    <div className={consoleNotice.success}>
                       {extractSuccess}
                     </div>
                   ) : null}
 
-                  <div className="mt-3 rounded-lg border border-amber-300/20 bg-amber-400/10 px-3 py-2 text-xs leading-5 text-amber-100">
+                  <div className={consoleNotice.warning}>
                     Это черновик. Данные не записаны в препарат до подтверждения администратором.
                   </div>
 
                   {extractionDraft ? (
-                    <div className="mt-4 rounded-lg border border-white/10 bg-[#020617]/60 p-4" data-testid="knowledge-extraction-draft">
+                    <div className={consoleNotice.draftPanel} data-testid="knowledge-extraction-draft">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                           <div className="text-base font-semibold text-slate-50">Черновик паспорта</div>
@@ -822,29 +836,29 @@ export default function KnowledgeIntakePage() {
                       </div>
 
                       <div className="mt-4 grid gap-3">
-                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <div className={consoleNotice.draftSubCard}>
                           <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Действующие вещества</div>
                           <div className="mt-1 text-sm text-slate-100">{formatActiveIngredients(extractionDraft.active_ingredients)}</div>
                         </div>
-                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <div className={consoleNotice.draftSubCard}>
                           <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Культуры</div>
                           <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.crops)}</div>
                         </div>
-                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <div className={consoleNotice.draftSubCard}>
                           <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Объекты применения / цели</div>
                           <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.targets)}</div>
                         </div>
-                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <div className={consoleNotice.draftSubCard}>
                           <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Ограничения</div>
                           <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.restrictions)}</div>
                         </div>
-                        <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                        <div className={consoleNotice.draftSubCard}>
                           <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Заметки</div>
                           <div className="mt-1 text-sm text-slate-100">{formatDraftList(extractionDraft.notes)}</div>
                         </div>
                       </div>
 
-                      <Button disabled variant="outline" className="mt-4 border-white/10 bg-white/5 text-slate-300">
+                      <Button disabled variant="outline" className={consoleNotice.disabledAction}>
                         Применить в паспорт — следующий этап
                       </Button>
                     </div>
@@ -860,7 +874,7 @@ export default function KnowledgeIntakePage() {
               </div>
 
               {matches.length ? (
-                <div className="order-2 rounded-lg border border-red-300/25 bg-red-500/10 px-3 py-3 text-sm font-semibold text-red-100">
+                <div className={`order-2 ${consoleNotice.danger}`}>
                   Не создавать новый препарат без проверки.
                 </div>
               ) : null}
@@ -906,7 +920,7 @@ export default function KnowledgeIntakePage() {
                         />
                       </div>
 
-                      <div className="mt-3 rounded-lg bg-black/20 px-3 py-2 text-xs leading-5 text-slate-300">
+                      <div className={consoleNotice.sourceSummary}>
                         {formatKnowledgeMatchReason(match.reason)}
                       </div>
                     </GlassCard>
@@ -917,7 +931,7 @@ export default function KnowledgeIntakePage() {
                     <p className="mt-2 leading-6">
                       Это ещё не значит, что препарата нет. Следующий шаг — поиск источников и ручная проверка.
                     </p>
-                    <Button disabled variant="outline" className="mt-4 border-white/10 bg-white/5 text-slate-300">
+                    <Button disabled variant="outline" className={consoleNotice.disabledAction}>
                       Создать черновик паспорта — скоро
                     </Button>
                   </EmptyState>
