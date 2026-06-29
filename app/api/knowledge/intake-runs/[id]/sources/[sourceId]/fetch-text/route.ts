@@ -12,6 +12,22 @@ const URL_SOURCE_TYPES = new Set([
 
 const MAX_HTML_BYTES = 1_500_000;
 const MAX_EXTRACTED_CHARS = 16_000;
+const MAX_PDF_BYTES = 10 * 1024 * 1024;
+const MAX_PDF_EXTRACTED_CHARS = 40_000;
+const MAX_REDIRECTS = 5;
+
+type SourceKind = "product_leaflet" | "crop_care_program" | "unknown";
+
+type FetchResult = {
+  response: Response;
+  finalUrl: URL;
+};
+
+type ExtractedSourceText = {
+  text: string;
+  sourceKind: SourceKind;
+  finalUrl: string;
+};
 
 const DEFAULT_FETCH_HEADERS = {
   Accept: "text/html,application/xhtml+xml,text/plain;q=0.8,*/*;q=0.1",
@@ -25,6 +41,16 @@ const BROWSER_LIKE_FETCH_HEADERS = {
   Pragma: "no-cache",
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
+};
+
+const PDF_FETCH_HEADERS = {
+  Accept: "application/pdf,text/html;q=0.2,text/plain;q=0.1,*/*;q=0.1",
+  "User-Agent": DEFAULT_FETCH_HEADERS["User-Agent"],
+};
+
+const PDF_BROWSER_LIKE_FETCH_HEADERS = {
+  ...BROWSER_LIKE_FETCH_HEADERS,
+  Accept: "application/pdf,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 };
 
 function text(value: unknown): string {
@@ -89,6 +115,62 @@ function looksLikePdf(parsed: URL, contentType: string) {
   return /application\/pdf/i.test(contentType) || /\.pdf($|\?)/i.test(parsed.pathname);
 }
 
+function normalizeExtractedText(value: string, maxChars: number): string {
+  return value
+    .replace(/\r/g, "\n")
+    .split(/\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter((line) => line.length >= 2)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, maxChars);
+}
+
+function countSignals(value: string, signals: string[]) {
+  return signals.reduce((count, signal) => (value.includes(signal) ? count + 1 : count), 0);
+}
+
+function detectPdfSourceKind(value: string): SourceKind {
+  const normalized = value.toLocaleLowerCase("ru-RU");
+  const productSignals = [
+    "действующее вещество",
+    "норма расхода",
+    "регламент применения",
+    "препаративная форма",
+    "класс опасности",
+    "срок ожидания",
+    "л/га",
+    "г/л",
+    "фунгицид",
+    "гербицид",
+    "инсектицид",
+  ];
+  const programSignals = [
+    "программа защиты",
+    "комплексная программа",
+    "схема защиты",
+    "система защиты",
+    "защита зерновых",
+    "зерновых культур",
+    "вредные объекты",
+    "до посева",
+    "начало вегетации",
+    "середина вегетации",
+    "конец вегетации",
+    "bbch",
+    "фаза развития",
+  ];
+
+  const productScore = countSignals(normalized, productSignals);
+  const programScore = countSignals(normalized, programSignals);
+
+  if (programScore >= 3 && programScore >= productScore) return "crop_care_program";
+  if (productScore >= 2) return "product_leaflet";
+  if (programScore >= 2) return "crop_care_program";
+  return "unknown";
+}
+
 function decodeHtmlEntities(value: string): string {
   return value
     .replace(/&nbsp;/gi, " ")
@@ -114,56 +196,92 @@ function extractReadableText(html: string): string {
     .replace(/<\/(p|div|section|article|li|h[1-6]|tr)>/gi, "\n")
     .replace(/<[^>]+>/g, " ");
 
-  const textOnly = decodeHtmlEntities(cleaned)
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter((line) => line.length >= 3)
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-
-  return textOnly.slice(0, MAX_EXTRACTED_CHARS);
+  return normalizeExtractedText(decodeHtmlEntities(cleaned), MAX_EXTRACTED_CHARS);
 }
 
-async function fetchSourceResponse(parsed: URL, headers: Record<string, string>) {
+async function fetchOnce(parsed: URL, headers: Record<string, string>) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12_000);
   try {
     return await fetch(parsed.toString(), {
       headers,
-      redirect: "follow",
+      redirect: "manual",
       signal: controller.signal,
     });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Источник не ответил за 12 секунд.");
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-async function fetchSourceText(sourceUrl: string) {
-  const parsed = parseHttpUrl(sourceUrl);
-  if (!parsed) throw new Error("source_url must be a valid http(s) URL");
-  assertSafeFetchUrl(parsed);
+async function fetchSourceResponse(parsed: URL, headers: Record<string, string>): Promise<FetchResult> {
+  let currentUrl = parsed;
 
-  const firstResponse = await fetchSourceResponse(parsed, DEFAULT_FETCH_HEADERS);
-  const response =
-    firstResponse.status === 403
-      ? await fetchSourceResponse(parsed, BROWSER_LIKE_FETCH_HEADERS)
-      : firstResponse;
+  for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
+    assertSafeFetchUrl(currentUrl);
+    const response = await fetchOnce(currentUrl, headers);
 
-  if (!response.ok) {
-    if (response.status === 403) {
-      throw new Error("Сайт производителя блокирует автоматическое чтение. Добавьте ручной текст или PDF позже.");
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (!location) return { response, finalUrl: currentUrl };
+      const nextUrl = new URL(location, currentUrl);
+      if (nextUrl.protocol !== "http:" && nextUrl.protocol !== "https:") {
+        throw new Error("Источник перенаправляет на неподдерживаемый URL.");
+      }
+      assertSafeFetchUrl(nextUrl);
+      currentUrl = nextUrl;
+      continue;
     }
-    throw new Error(`Источник вернул HTTP ${response.status}`);
+
+    return { response, finalUrl: currentUrl };
   }
 
+  throw new Error("Источник сделал слишком много перенаправлений.");
+}
+
+async function extractPdfText(response: Response, finalUrl: URL): Promise<ExtractedSourceText> {
+  const contentType = response.headers.get("content-type") || "";
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (!looksLikePdf(finalUrl, contentType)) {
+    throw new Error("PDF-источник должен быть прямой ссылкой на PDF-файл.");
+  }
+  if (contentLength > MAX_PDF_BYTES) {
+    throw new Error("PDF слишком большой для V0 parser. Максимум: 10 MB.");
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  if (arrayBuffer.byteLength > MAX_PDF_BYTES) {
+    throw new Error("PDF слишком большой для V0 parser. Максимум: 10 MB.");
+  }
+
+  const pdfParseModule = await import("pdf-parse");
+  const pdfParse = pdfParseModule.default || pdfParseModule;
+  const parsedPdf = await pdfParse(Buffer.from(arrayBuffer));
+  const extractedText = normalizeExtractedText(parsedPdf.text || "", MAX_PDF_EXTRACTED_CHARS);
+
+  if (extractedText.length < 80) {
+    throw new Error("Текст не найден. Возможно, PDF состоит из изображений. OCR будет позже.");
+  }
+
+  return {
+    text: extractedText,
+    sourceKind: detectPdfSourceKind(extractedText),
+    finalUrl: finalUrl.toString(),
+  };
+}
+
+async function extractHtmlText(response: Response, finalUrl: URL): Promise<ExtractedSourceText> {
   const contentType = response.headers.get("content-type") || "";
   const contentLength = Number(response.headers.get("content-length") || 0);
   if (contentLength > MAX_HTML_BYTES) {
     throw new Error("Источник слишком большой для V0 text fetcher.");
   }
-  if (looksLikePdf(parsed, contentType)) {
-    throw new Error("PDF parser пока не подключён. Добавьте ручной текст или используйте HTML-страницу.");
+  if (looksLikePdf(finalUrl, contentType)) {
+    throw new Error("Это PDF-ссылка. Выберите тип источника «PDF производителя» и повторите извлечение.");
   }
   if (contentType && !/text\/html|application\/xhtml\+xml|text\/plain/i.test(contentType)) {
     throw new Error("Источник не похож на HTML/text страницу. PDF/OCR будут отдельным этапом.");
@@ -174,12 +292,41 @@ async function fetchSourceText(sourceUrl: string) {
     throw new Error("Источник слишком большой для V0 text fetcher.");
   }
 
-  const extractedText = contentType.includes("text/plain") ? raw.trim().slice(0, MAX_EXTRACTED_CHARS) : extractReadableText(raw);
+  const extractedText = contentType.includes("text/plain")
+    ? normalizeExtractedText(raw, MAX_EXTRACTED_CHARS)
+    : extractReadableText(raw);
   if (extractedText.length < 80) {
     throw new Error("Не удалось извлечь достаточно текста со страницы. Добавьте ручной текст источника.");
   }
 
-  return extractedText;
+  return {
+    text: extractedText,
+    sourceKind: "unknown",
+    finalUrl: finalUrl.toString(),
+  };
+}
+
+async function fetchSourceText(sourceUrl: string, sourceType: string): Promise<ExtractedSourceText> {
+  const parsed = parseHttpUrl(sourceUrl);
+  if (!parsed) throw new Error("source_url must be a valid http(s) URL");
+  assertSafeFetchUrl(parsed);
+
+  const isPdfSource = sourceType === "manufacturer_pdf";
+  const firstFetch = await fetchSourceResponse(parsed, isPdfSource ? PDF_FETCH_HEADERS : DEFAULT_FETCH_HEADERS);
+  const fetchResult =
+    firstFetch.response.status === 403
+      ? await fetchSourceResponse(parsed, isPdfSource ? PDF_BROWSER_LIKE_FETCH_HEADERS : BROWSER_LIKE_FETCH_HEADERS)
+      : firstFetch;
+  const { response, finalUrl } = fetchResult;
+
+  if (!response.ok) {
+    if (response.status === 403) {
+      throw new Error("Сайт производителя блокирует автоматическое чтение. Добавьте ручной текст или PDF позже.");
+    }
+    throw new Error(`Источник вернул HTTP ${response.status}`);
+  }
+
+  return isPdfSource ? extractPdfText(response, finalUrl) : extractHtmlText(response, finalUrl);
 }
 
 export async function POST(
@@ -215,11 +362,11 @@ export async function POST(
       return NextResponse.json({ error: "У источника нет URL." }, { status: 400 });
     }
 
-    const extractedText = await fetchSourceText(sourceUrl);
+    const extracted = await fetchSourceText(sourceUrl, sourceType);
 
     const { data: updatedSource, error: updateError } = await supabase
       .from("knowledge_intake_sources")
-      .update({ extracted_text_summary: extractedText })
+      .update({ extracted_text_summary: extracted.text })
       .eq("id", sourceId)
       .eq("run_id", runId)
       .select("*")
@@ -238,7 +385,9 @@ export async function POST(
 
     return NextResponse.json({
       source: updatedSource,
-      extracted_text_length: extractedText.length,
+      extracted_text_length: extracted.text.length,
+      source_kind: extracted.sourceKind,
+      final_url: extracted.finalUrl,
     });
   } catch (error) {
     const authError = jsonAuthError(error);

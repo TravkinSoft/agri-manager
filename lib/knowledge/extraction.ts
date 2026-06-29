@@ -53,7 +53,7 @@ export type ProductMetadataSuggestionRow = {
 };
 
 export const KNOWLEDGE_EXTRACTION_TEXT_REQUIRED_ERROR =
-  "Источник сохранён, но текст ещё не извлечён. Добавьте ручной текст или подключите crawler/PDF parser позже.";
+  "Источник сохранён, но текст ещё не извлечён. Извлеките текст страницы/PDF или добавьте ручной текст.";
 export const KNOWLEDGE_OPENAI_MISSING_ENV_ERROR = "OpenAI extraction недоступен: не настроен ключ/модель";
 
 const PRODUCT_TYPES = new Set(["pesticide", "fertilizer", "additive", "seed", "unknown"]);

@@ -114,9 +114,9 @@ type IntakeResult = {
 
 const SOURCE_TYPE_OPTIONS: Array<{ value: SourceType; label: string; requiresUrl: boolean }> = [
   { value: "manufacturer_page", label: "Страница производителя", requiresUrl: true },
-  { value: "manufacturer_pdf", label: "PDF / инструкция производителя", requiresUrl: true },
-  { value: "registration_database", label: "Регистрационная база", requiresUrl: true },
+  { value: "manufacturer_pdf", label: "PDF производителя", requiresUrl: true },
   { value: "distributor_page", label: "Страница дистрибьютора", requiresUrl: true },
+  { value: "registration_database", label: "Регистрационная база", requiresUrl: true },
   { value: "manual", label: "Ручной текст", requiresUrl: false },
 ];
 
@@ -170,6 +170,61 @@ function sourceTextPreview(value: string | null | undefined) {
   const text = String(value || "").trim();
   if (!text) return "";
   return text.length > 900 ? `${text.slice(0, 900).trim()}...` : text;
+}
+
+function countSignals(value: string, signals: string[]) {
+  return signals.reduce((count, signal) => (value.includes(signal) ? count + 1 : count), 0);
+}
+
+function detectSourceKindFromText(value: string | null | undefined) {
+  const normalized = String(value || "").toLocaleLowerCase("ru-RU");
+  if (!normalized) return "unknown";
+
+  const productSignals = [
+    "действующее вещество",
+    "норма расхода",
+    "регламент применения",
+    "препаративная форма",
+    "класс опасности",
+    "срок ожидания",
+    "л/га",
+    "г/л",
+    "фунгицид",
+    "гербицид",
+    "инсектицид",
+  ];
+  const programSignals = [
+    "программа защиты",
+    "комплексная программа",
+    "схема защиты",
+    "система защиты",
+    "защита зерновых",
+    "зерновых культур",
+    "вредные объекты",
+    "до посева",
+    "начало вегетации",
+    "середина вегетации",
+    "конец вегетации",
+    "bbch",
+    "фаза развития",
+  ];
+
+  const productScore = countSignals(normalized, productSignals);
+  const programScore = countSignals(normalized, programSignals);
+
+  if (programScore >= 3 && programScore >= productScore) return "crop_care_program";
+  if (productScore >= 2) return "product_leaflet";
+  if (programScore >= 2) return "crop_care_program";
+  return "unknown";
+}
+
+function isPdfSource(source: IntakeSource) {
+  return source.source_type === "manufacturer_pdf";
+}
+
+function sourceFetchButtonLabel(source: IntakeSource) {
+  if (isPdfSource(source)) return hasExtractedSourceText(source) ? "Обновить текст PDF" : "Извлечь текст PDF";
+  return hasExtractedSourceText(source) ? "Обновить текст" : "Извлечь текст источника";
 }
 
 function valueRecord(value: unknown): Record<string, unknown> {
@@ -564,7 +619,11 @@ export default function KnowledgeIntakePage() {
       }
 
       setResult(await loadRun(result.run.id, result));
-      setSourceFetchSuccess(`Текст источника извлечён: ${Number(payload?.extracted_text_length || 0)} символов.`);
+      const sourceKindNotice =
+        payload?.source_kind === "crop_care_program"
+          ? " Источник похож на программу защиты; создание схемы будет отдельным этапом."
+          : "";
+      setSourceFetchSuccess(`Текст источника извлечён: ${Number(payload?.extracted_text_length || 0)} символов.${sourceKindNotice}`);
     } catch (fetchError) {
       setSourceFetchError(fetchError instanceof Error ? fetchError.message : "Не удалось извлечь текст источника.");
     } finally {
@@ -896,7 +955,12 @@ export default function KnowledgeIntakePage() {
 
                 <div className="mt-4 space-y-2" data-testid="knowledge-intake-sources">
                   {sources.length ? (
-                    sources.map((source) => (
+                    sources.map((source) => {
+                      const detectedSourceKind = isPdfSource(source)
+                        ? detectSourceKindFromText(source.extracted_text_summary)
+                        : "unknown";
+
+                      return (
                       <div
                         key={source.id}
                         className={consoleNotice.sourceCard}
@@ -923,9 +987,16 @@ export default function KnowledgeIntakePage() {
                                 {sourceTextPreview(source.extracted_text_summary)}
                               </div>
                             ) : null}
+                            {detectedSourceKind === "crop_care_program" ? (
+                              <div className={consoleNotice.warning}>
+                                Источник похож на программу защиты, а не на карточку одного препарата. Создание схемы будет отдельным этапом.
+                              </div>
+                            ) : null}
                             {isUrlSource(source) && !hasExtractedSourceText(source) ? (
                               <div className={consoleNotice.infoSmall}>
-                                Текст страницы ещё не извлечён. Нажмите кнопку справа, чтобы подготовить источник для OpenAI.
+                                {isPdfSource(source)
+                                  ? "Текст PDF ещё не извлечён. Нажмите кнопку справа, чтобы подготовить источник для OpenAI."
+                                  : "Текст страницы ещё не извлечён. Нажмите кнопку справа, чтобы подготовить источник для OpenAI."}
                               </div>
                             ) : null}
                           </div>
@@ -945,13 +1016,14 @@ export default function KnowledgeIntakePage() {
                                 ) : (
                                   <FileText className="h-4 w-4" />
                                 )}
-                                {hasExtractedSourceText(source) ? "Обновить текст" : "Извлечь текст источника"}
+                                {sourceFetchButtonLabel(source)}
                               </Button>
                             ) : null}
                           </div>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <EmptyState className="py-4">
                       Источники ещё не добавлены. Добавьте ссылку или ручной текст, чтобы подготовить будущую extraction.
@@ -986,7 +1058,7 @@ export default function KnowledgeIntakePage() {
                   ) : null}
                   {sources.length && !hasReadySourceText ? (
                     <div className={consoleNotice.infoSmall}>
-                      Для URL-источника сначала извлеките текст страницы. PDF пока не парсим; для PDF добавьте ручной текст.
+                      Для URL-источника сначала извлеките текст страницы или PDF. Если PDF состоит из изображений, добавьте ручной текст; OCR будет позже.
                     </div>
                   ) : null}
                   {extractError ? (
