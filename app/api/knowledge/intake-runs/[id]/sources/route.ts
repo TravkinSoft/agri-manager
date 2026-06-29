@@ -46,6 +46,19 @@ function validateSourceUrl(value: string): boolean {
   }
 }
 
+function normalizeSourceUrl(value: string): string {
+  const parsed = new URL(value);
+  parsed.hash = "";
+  parsed.hostname = parsed.hostname.toLowerCase();
+  if ((parsed.protocol === "https:" && parsed.port === "443") || (parsed.protocol === "http:" && parsed.port === "80")) {
+    parsed.port = "";
+  }
+  if (parsed.pathname.length > 1) {
+    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+  }
+  return parsed.toString();
+}
+
 export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
     await requireGlobalAdmin(request);
@@ -55,7 +68,8 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     const body = await request.json().catch(() => ({}));
     const sourceType = text(body.source_type);
-    const sourceUrl = text(body.source_url);
+    const rawSourceUrl = text(body.source_url);
+    let sourceUrl = rawSourceUrl;
     const sourceTitle = text(body.source_title);
     const manualText = text(body.manual_text);
 
@@ -75,6 +89,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       if (!validateSourceUrl(sourceUrl)) {
         return NextResponse.json({ error: "source_url must be a valid http(s) URL" }, { status: 400 });
       }
+      sourceUrl = normalizeSourceUrl(sourceUrl);
     }
     if (sourceType === MANUAL_SOURCE_TYPE && !manualText) {
       return NextResponse.json({ error: "manual_text is required for manual source" }, { status: 400 });
@@ -89,6 +104,27 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
 
     if (runError) throw new Error(runError.message);
     if (!run) return NextResponse.json({ error: "Knowledge intake run not found" }, { status: 404 });
+
+    if (URL_SOURCE_TYPES.has(sourceType)) {
+      const { data: existingSources, error: existingSourcesError } = await supabase
+        .from("knowledge_intake_sources")
+        .select("id,source_url")
+        .eq("run_id", runId)
+        .not("source_url", "is", null);
+      if (existingSourcesError) throw new Error(existingSourcesError.message);
+
+      const duplicate = (existingSources || []).find((source: any) => {
+        const existingUrl = text(source?.source_url);
+        if (!existingUrl || !validateSourceUrl(existingUrl)) return false;
+        return normalizeSourceUrl(existingUrl) === sourceUrl;
+      });
+      if (duplicate) {
+        return NextResponse.json(
+          { error: "Источник уже добавлен", source_id: duplicate.id },
+          { status: 409 }
+        );
+      }
+    }
 
     const { data: source, error: sourceError } = await supabase
       .from("knowledge_intake_sources")
