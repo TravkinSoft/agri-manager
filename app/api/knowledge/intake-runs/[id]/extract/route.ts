@@ -8,6 +8,7 @@ import {
   buildProductMetadataSuggestionRows,
   extractKnowledgeProductMetadataDraft,
 } from "@/lib/knowledge/extraction";
+import { resolveKnowledgeExtractionDraft } from "@/lib/knowledge/draft-resolver";
 
 function text(value: unknown): string {
   return String(value ?? "").trim();
@@ -79,11 +80,23 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     const primarySource = sourceContexts[0] || null;
     const sourceUrl = sourceContexts.find((source) => source.url)?.url || null;
 
-    const extraction = await extractKnowledgeProductMetadataDraft({
+    const rawExtraction = await extractKnowledgeProductMetadataDraft({
       runInput: text(run.input_value),
       runManufacturer: text(run.input_manufacturer) || null,
       sources: sourceContexts,
     });
+    const resolvedCatalog = await resolveKnowledgeExtractionDraft(supabase, rawExtraction, {
+      sourceText: sourceContexts.map((source) => source.text).join("\n"),
+    });
+    const extraction = {
+      ...rawExtraction,
+      product_type: resolvedCatalog.inferred.product_type || rawExtraction.product_type,
+      subcategory: resolvedCatalog.inferred.subcategory || rawExtraction.subcategory,
+      stock_unit: resolvedCatalog.inferred.stock_unit || rawExtraction.stock_unit,
+      default_rate_type: resolvedCatalog.inferred.default_rate_type || rawExtraction.default_rate_type,
+      default_rate_unit: resolvedCatalog.inferred.default_rate_unit || rawExtraction.default_rate_unit,
+      resolved_catalog: resolvedCatalog,
+    };
 
     const { error: deleteError } = await supabase
       .from("product_metadata_suggestions")

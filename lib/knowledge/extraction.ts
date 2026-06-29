@@ -1,3 +1,5 @@
+import type { KnowledgeDraftCatalogResolution } from "@/lib/knowledge/draft-resolver";
+
 export type KnowledgeExtractionConfidence = "low" | "medium" | "high";
 
 export type KnowledgeExtractionDraft = {
@@ -28,6 +30,7 @@ export type KnowledgeExtractionDraft = {
   editable_card_title: string | null;
   confidence: KnowledgeExtractionConfidence;
   notes: string[];
+  resolved_catalog?: KnowledgeDraftCatalogResolution;
 };
 
 export type KnowledgeSourceContext = {
@@ -311,6 +314,10 @@ export function sanitizeKnowledgeExtractionDraft(value: unknown): KnowledgeExtra
     editable_card_title: nullableText(record.editable_card_title),
     confidence: enumValue<KnowledgeExtractionConfidence>(record.confidence, CONFIDENCE_VALUES, "low") || "low",
     notes: stringArray(record.notes),
+    resolved_catalog:
+      record.resolved_catalog && typeof record.resolved_catalog === "object"
+        ? (record.resolved_catalog as KnowledgeDraftCatalogResolution)
+        : undefined,
   };
 }
 
