@@ -158,6 +158,20 @@ function normalizeSuggestions(suggestions: unknown): MetadataSuggestion[] {
   return Array.isArray(suggestions) ? (suggestions as MetadataSuggestion[]) : [];
 }
 
+function isUrlSource(source: IntakeSource) {
+  return Boolean(source.source_url) && source.source_type !== "manual";
+}
+
+function hasExtractedSourceText(source: IntakeSource) {
+  return String(source.extracted_text_summary || "").trim().length > 0;
+}
+
+function sourceTextPreview(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.length > 900 ? `${text.slice(0, 900).trim()}...` : text;
+}
+
 function valueRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -376,6 +390,9 @@ export default function KnowledgeIntakePage() {
   const [sourceSubmitting, setSourceSubmitting] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [sourceSuccess, setSourceSuccess] = useState<string | null>(null);
+  const [fetchingSourceId, setFetchingSourceId] = useState<string | null>(null);
+  const [sourceFetchError, setSourceFetchError] = useState<string | null>(null);
+  const [sourceFetchSuccess, setSourceFetchSuccess] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [extractSuccess, setExtractSuccess] = useState<string | null>(null);
@@ -385,6 +402,7 @@ export default function KnowledgeIntakePage() {
   const recommendationCopy = recommendation ? KNOWLEDGE_RECOMMENDATION_COPY[recommendation] : null;
   const matches = result?.matches || [];
   const sources = result?.sources || [];
+  const hasReadySourceText = sources.some(hasExtractedSourceText);
   const suggestions = result?.suggestions || [];
   const extractionDraft = useMemo(
     () => result?.extraction || buildExtractionDraftFromSuggestions(suggestions),
@@ -403,8 +421,8 @@ export default function KnowledgeIntakePage() {
     return sourceUrl.trim().length > 0;
   }, [isManualSource, manualText, result?.run?.id, sourceSubmitting, sourceUrl]);
   const canExtract = useMemo(
-    () => Boolean(result?.run?.id && sources.length > 0 && !extracting),
-    [extracting, result?.run?.id, sources.length]
+    () => Boolean(result?.run?.id && hasReadySourceText && !extracting),
+    [extracting, hasReadySourceText, result?.run?.id]
   );
 
   const patchEditableDraft = (patch: Partial<KnowledgeExtractionDraft>) => {
@@ -489,6 +507,8 @@ export default function KnowledgeIntakePage() {
     setSourceSubmitting(true);
     setSourceError(null);
     setSourceSuccess(null);
+    setSourceFetchError(null);
+    setSourceFetchSuccess(null);
     setExtractError(null);
     setExtractSuccess(null);
 
@@ -519,6 +539,36 @@ export default function KnowledgeIntakePage() {
       setSourceError(submitError instanceof Error ? submitError.message : "Не удалось сохранить источник.");
     } finally {
       setSourceSubmitting(false);
+    }
+  };
+
+  const handleFetchSourceText = async (source: IntakeSource) => {
+    if (!result?.run?.id || !source?.id || fetchingSourceId) return;
+
+    setFetchingSourceId(source.id);
+    setSourceFetchError(null);
+    setSourceFetchSuccess(null);
+    setExtractError(null);
+    setExtractSuccess(null);
+
+    try {
+      const headers = await buildClientAuthHeaders("json");
+      const response = await fetch(`/api/knowledge/intake-runs/${result.run.id}/sources/${source.id}/fetch-text`, {
+        method: "POST",
+        headers,
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.error || "Не удалось извлечь текст источника.");
+      }
+
+      setResult(await loadRun(result.run.id, result));
+      setSourceFetchSuccess(`Текст источника извлечён: ${Number(payload?.extracted_text_length || 0)} символов.`);
+    } catch (fetchError) {
+      setSourceFetchError(fetchError instanceof Error ? fetchError.message : "Не удалось извлечь текст источника.");
+    } finally {
+      setFetchingSourceId(null);
     }
   };
 
@@ -821,6 +871,16 @@ export default function KnowledgeIntakePage() {
                         {sourceSuccess}
                       </div>
                     ) : null}
+                    {sourceFetchError ? (
+                      <div className={consoleNotice.error}>
+                        {sourceFetchError}
+                      </div>
+                    ) : null}
+                    {sourceFetchSuccess ? (
+                      <div className={consoleNotice.success}>
+                        {sourceFetchSuccess}
+                      </div>
+                    ) : null}
 
                     <Button
                       type="submit"
@@ -860,11 +920,35 @@ export default function KnowledgeIntakePage() {
                             ) : null}
                             {source.extracted_text_summary ? (
                               <div className={consoleNotice.sourceSummary}>
-                                {source.extracted_text_summary}
+                                {sourceTextPreview(source.extracted_text_summary)}
+                              </div>
+                            ) : null}
+                            {isUrlSource(source) && !hasExtractedSourceText(source) ? (
+                              <div className={consoleNotice.infoSmall}>
+                                Текст страницы ещё не извлечён. Нажмите кнопку справа, чтобы подготовить источник для OpenAI.
                               </div>
                             ) : null}
                           </div>
-                          <div className="text-xs text-slate-500">{formatDateTime(source.created_at)}</div>
+                          <div className="flex flex-col items-start gap-2 lg:items-end">
+                            <div className="text-xs text-slate-500">{formatDateTime(source.created_at)}</div>
+                            {isUrlSource(source) ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                disabled={fetchingSourceId !== null}
+                                onClick={() => handleFetchSourceText(source)}
+                                className="gap-2 rounded-none border-[#9aa8ba] bg-[#eef1f5] text-[#10243d] hover:bg-white disabled:opacity-70"
+                              >
+                                {fetchingSourceId === source.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <FileText className="h-4 w-4" />
+                                )}
+                                {hasExtractedSourceText(source) ? "Обновить текст" : "Извлечь текст источника"}
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     ))
@@ -898,6 +982,11 @@ export default function KnowledgeIntakePage() {
                   {!sources.length ? (
                     <div className={consoleNotice.infoSmall}>
                       Сначала добавьте источник: ручной текст, ссылку на страницу или PDF.
+                    </div>
+                  ) : null}
+                  {sources.length && !hasReadySourceText ? (
+                    <div className={consoleNotice.infoSmall}>
+                      Для URL-источника сначала извлеките текст страницы. PDF пока не парсим; для PDF добавьте ручной текст.
                     </div>
                   ) : null}
                   {extractError ? (
