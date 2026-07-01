@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getRequestOrigin } from "@/lib/utils/app-url";
+import { getInviteSetPasswordRedirectTo } from "@/lib/utils/app-url";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 
@@ -110,8 +110,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const origin = getRequestOrigin(request);
-    const redirectTo = `${origin}/auth/callback?type=invite`;
+    const redirectTo = getInviteSetPasswordRedirectTo();
     let shouldSendRecoveryEmail = false;
 
     let userId: string | null = null;

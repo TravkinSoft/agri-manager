@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getRequestOrigin } from "@/lib/utils/app-url";
+import { getInviteSetPasswordRedirectTo } from "@/lib/utils/app-url";
 import { getServiceClient } from "@/lib/supabase/service";
 import { getServerActorFromSession, SessionAuthError } from "@/lib/auth/server-session";
 import { parseCanonicalRole } from "@/lib/auth/role-contract";
@@ -71,17 +71,15 @@ async function sendInviteEmail(params: {
   profile: ProfileRow;
   supabase: ReturnType<typeof getServiceClient>;
 }) {
-  const { request, profile, supabase } = params;
+  const { profile, supabase } = params;
   const email = normalizeEmail(profile.email);
   if (!email) throw new Error("Target user email is missing");
 
-  const origin = getRequestOrigin(request);
-  const inviteRedirectTo = `${origin}/auth/callback?type=invite`;
-  const recoveryRedirectTo = `${origin}/auth/callback?type=recovery`;
+  const setPasswordRedirectTo = getInviteSetPasswordRedirectTo();
   const role = parseCanonicalRole(profile.role) || "specialist";
 
   const { error: inviteError } = await supabase.auth.admin.inviteUserByEmail(email, {
-    redirectTo: inviteRedirectTo,
+    redirectTo: setPasswordRedirectTo,
     data: {
       role,
       invited_by_company: profile.company_id,
@@ -103,7 +101,7 @@ async function sendInviteEmail(params: {
   }
 
   const { error: recoveryError } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: recoveryRedirectTo,
+    redirectTo: setPasswordRedirectTo,
   });
   if (recoveryError) {
     throw new Error(`Recovery invite email failed: ${errorToText(recoveryError)}`);
@@ -117,11 +115,11 @@ async function generateSetupLink(params: {
   profile: ProfileRow;
   supabase: ReturnType<typeof getServiceClient>;
 }) {
-  const { request, profile, supabase } = params;
+  const { profile, supabase } = params;
   const email = normalizeEmail(profile.email);
   if (!email) throw new Error("Target user email is missing");
 
-  const redirectTo = `${getRequestOrigin(request)}/auth/callback?type=recovery`;
+  const redirectTo = getInviteSetPasswordRedirectTo();
   const { data, error } = await supabase.auth.admin.generateLink({
     type: "recovery",
     email,
