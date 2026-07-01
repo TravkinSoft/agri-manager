@@ -54,6 +54,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Profile was not created" }, { status: 404 });
     }
 
+    const currentStatus = String(profile.status || "pending").trim().toLowerCase();
+    if (currentStatus === "revoked") {
+      return NextResponse.json({ error: "Invitation was revoked by administrator" }, { status: 403 });
+    }
+    if (currentStatus === "inactive" || currentStatus === "disabled") {
+      return NextResponse.json({ error: "Account is disabled by administrator" }, { status: 403 });
+    }
+    if (currentStatus !== "pending" && currentStatus !== "active") {
+      return NextResponse.json({ error: `Account cannot be activated from status: ${currentStatus}` }, { status: 403 });
+    }
+
     const { error: updateError } = await supabase
       .from("profiles")
       .update({ status: "active", updated_at: new Date().toISOString() })
