@@ -53,6 +53,7 @@ type Reproduction = {
   company_id?: string | null;
   archived?: boolean | null;
   is_active?: boolean | null;
+  level_order?: number | null;
 };
 type Allocation = {
   id?: string;
@@ -162,6 +163,31 @@ const parseNum = (value: string): number | null => {
   const num = Number(raw);
   return Number.isFinite(num) ? num : null;
 };
+
+const normalizeReproductionToken = (value: unknown) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/\s+/g, " ");
+
+const standardReproductionLabel = (item: Reproduction | null | undefined) => {
+  if (!item) return "-";
+  const tokens = [item.code, item.name_ru, item.name, item.name_en].map(normalizeReproductionToken);
+  const has = (...values: string[]) => tokens.some((token) => values.includes(token));
+
+  if (has("os", "original", "оригинальные", "оригинальные семена")) return "ОС — оригинальные семена";
+  if (has("sse", "суперсуперэлита", "супер-суперэлита", "super super elite", "super-super-elite")) return "ССЭ — супер-суперэлита";
+  if (has("se", "суперэлита", "супер элита", "super elite", "superelite")) return "СЭ — суперэлита";
+  if (has("es", "e", "elite", "элита", "элитные", "элитные семена")) return "ЭС — элитные семена";
+  if (has("r1", "rs1", "рс1", "1 репродукция", "первая репродукция", "first reproduction")) return "РС1 — 1-я репродукция";
+  if (has("r2", "rs2", "рс2", "2 репродукция", "вторая репродукция", "second reproduction")) return "РС2 — 2-я репродукция";
+  if (has("r3", "rs3", "рс3", "3 репродукция", "третья репродукция", "third reproduction")) return "РС3 — 3-я репродукция";
+  if (has("r4", "rs4", "рс4", "4 репродукция", "четвертая репродукция", "fourth reproduction")) return "РС4 — 4-я репродукция";
+  if (has("f1", "гибрид f1", "hybrid f1")) return "F1 — гибрид 1-го поколения";
+
+  return localizedName(item as never, "ru", ["name", "code"]) || item.name || item.code || "-";
+};
 const CROP_STRUCTURE_BASE_SELECT = "id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
 const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
 const isMissingCropStructureV4Column = (error: unknown) => {
@@ -258,11 +284,12 @@ const materialCategory = (item: Consumption): MaterialCategory => {
 
 export default function CropStructurePage() {
   const { toast } = useToast();
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const { language } = useLanguage();
   const tr = (ru: string, kz: string, en: string) => (language === "kz" ? kz : language === "en" ? en : ru);
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [fields, setFields] = useState<Field[]>([]);
@@ -305,7 +332,13 @@ export default function CropStructurePage() {
     [allCrops, language, profile?.company_id],
   );
   const globalVarieties = useMemo(() => allVarieties.filter(isVisibleCatalogItem), [allVarieties, profile?.company_id]);
-  const globalReproductions = useMemo(() => allReproductions.filter(isVisibleCatalogItem), [allReproductions, profile?.company_id]);
+  const globalReproductions = useMemo(
+    () =>
+      allReproductions
+        .filter(isVisibleCatalogItem)
+        .sort((a, b) => Number(a.level_order || 0) - Number(b.level_order || 0) || standardReproductionLabel(a).localeCompare(standardReproductionLabel(b), "ru")),
+    [allReproductions, profile?.company_id]
+  );
   const cropMap = useMemo(() => new Map(globalCrops.map((crop) => [crop.id, crop])), [globalCrops]);
   const varietyMap = useMemo(() => new Map(globalVarieties.map((item) => [item.id, item])), [globalVarieties]);
   const reproductionMap = useMemo(() => new Map(globalReproductions.map((item) => [item.id, item])), [globalReproductions]);
@@ -338,7 +371,7 @@ export default function CropStructurePage() {
 
   const cropName = (id?: string | null) => (id && cropMap.get(id) ? cropLabel(cropMap.get(id) as Crop) : "-");
   const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "-" : "-");
-  const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? localizedName(reproductionMap.get(id) as never, language, ["name", "code"]) || "-" : "-");
+  const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? standardReproductionLabel(reproductionMap.get(id)) : "-");
   const isPotatoAllocation = (row: Pick<Allocation, "crop_id" | "variety_id">) =>
     isPotatoCropContext(cropName(row.crop_id), varietyName(row.variety_id));
   const sumArea = (rows: Allocation[]) => rows.reduce((sum, row) => sum + Number(row.area || 0), 0);
@@ -537,15 +570,25 @@ export default function CropStructurePage() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      if (!profile?.company_id) return;
+      if (authLoading) return;
+      if (!profile?.company_id) {
+        if (mounted) {
+          setFields([]);
+          setSeasons([]);
+          setLoadError("Компания не выбрана. Выберите компанию и обновите страницу.");
+          setLoading(false);
+        }
+        return;
+      }
       try {
         setLoading(true);
+        setLoadError(null);
         const [fieldsRes, seasonsRes, cropsRes, varietiesRes, reproductionsRes, specialistsRes] = await Promise.all([
           supabase.from("fields").select("id,name,notes,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
           supabase.from("seasons").select("id,year").eq("company_id", profile.company_id).eq("archived", false).order("year", { ascending: false }),
           supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,company_id,archived,is_active"),
           supabase.from("varieties").select("id,name,crop_id,company_id,archived,is_active"),
-          supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code,company_id,archived,is_active").order("level_order"),
+          supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code,company_id,archived,is_active,level_order").order("level_order"),
           getAssignableSpecialists(profile.company_id).catch(() => [] as SpecialistAssignee[]),
         ]);
         if (fieldsRes.error || seasonsRes.error || cropsRes.error || varietiesRes.error || reproductionsRes.error) {
@@ -565,7 +608,9 @@ export default function CropStructurePage() {
         setSpecialists(specialistsRes as SpecialistAssignee[]);
         if (seasonRows.length) setSeasonId((prev) => prev || seasonRows[0].id);
       } catch (error) {
-        toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить структуру посевов", variant: "destructive" });
+        const message = error instanceof Error ? error.message : "Не удалось загрузить структуру посевов";
+        if (mounted) setLoadError(message);
+        toast({ title: "Ошибка", description: message, variant: "destructive" });
       } finally {
         if (mounted) setLoading(false);
       }
@@ -573,7 +618,7 @@ export default function CropStructurePage() {
     return () => {
       mounted = false;
     };
-  }, [profile?.company_id]);
+  }, [authLoading, profile?.company_id]);
 
   useEffect(() => {
     if (!profile?.company_id || !seasonId) return;
@@ -2032,7 +2077,7 @@ export default function CropStructurePage() {
                   <Label>Репродукция *</Label>
                   <Select value={row.reproduction_id || "none"} onValueChange={(value) => patchDraft(index, { reproduction_id: value === "none" ? null : value })}>
                     <SelectTrigger><SelectValue placeholder="Репродукция" /></SelectTrigger>
-                    <SelectContent><SelectItem value="none">—</SelectItem>{globalReproductions.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}</SelectContent>
+                    <SelectContent><SelectItem value="none">—</SelectItem>{globalReproductions.map((item) => <SelectItem key={item.id} value={item.id}>{standardReproductionLabel(item)}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="col-span-6 md:col-span-2">
@@ -2182,6 +2227,7 @@ export default function CropStructurePage() {
     return <PageHeader title="Структура посевов" description="Загрузка..." />;
   }
 
+  const hasFields = fields.length > 0;
   const sectionChoiceRows = sectionChoiceField ? operationAllocationsForField(sectionChoiceField.id) : [];
 
   return (
@@ -2192,7 +2238,7 @@ export default function CropStructurePage() {
         <CardContent className="pt-5">
           <div className="flex flex-wrap items-center gap-2">
             <Select value={seasonId} onValueChange={setSeasonId}>
-              <SelectTrigger className="w-[140px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="w-[140px]"><SelectValue placeholder="Сезон" /></SelectTrigger>
               <SelectContent>{seasons.map((item) => <SelectItem key={item.id} value={item.id}>{item.year}</SelectItem>)}</SelectContent>
             </Select>
             <div className="relative w-[240px]">
@@ -2258,14 +2304,42 @@ export default function CropStructurePage() {
         </CardContent>
       </Card>
 
-      {viewMode === "cards" ? (
+      {loadError ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="text-lg font-semibold text-slate-900">Не удалось загрузить структуру посевов</div>
+            <div className="mt-2 text-sm text-slate-500">{loadError}</div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {!loadError && !hasFields ? (
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="text-lg font-semibold text-slate-900">Поля не найдены</div>
+            <div className="mt-2 text-sm text-slate-500">
+              Создайте поля или импортируйте структуру посевов, чтобы заполнить сезон {season?.year || "2026"}.
+            </div>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <Button type="button" onClick={() => { window.location.href = "/import"; }}>
+                <Plus className="mr-2 h-4 w-4" />Импортировать структуру
+              </Button>
+              <Button type="button" variant="outline" onClick={() => { window.location.href = "/fields-map"; }}>
+                <MapIcon className="mr-2 h-4 w-4" />Открыть карту полей
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {!loadError && hasFields && viewMode === "cards" ? (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
           {filteredFields.map(renderOverviewCard)}
         </div>
       ) : null}
-      {viewMode === "table" ? renderTableView() : null}
-      {viewMode === "map" ? renderMapView() : null}
-      {!filteredFields.length ? (
+      {!loadError && hasFields && viewMode === "table" ? renderTableView() : null}
+      {!loadError && hasFields && viewMode === "map" ? renderMapView() : null}
+      {!loadError && hasFields && !filteredFields.length ? (
         <Card><CardContent className="p-8 text-center text-sm text-slate-500">По заданным фильтрам поля не найдены.</CardContent></Card>
       ) : null}
 
