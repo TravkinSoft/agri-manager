@@ -10,10 +10,26 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader as Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
+import type { User } from '@supabase/supabase-js';
+
+const SESSION_RETRY_DELAYS_MS = [0, 120, 260, 500, 900] as const;
 
 function readAuthHashParams() {
   if (typeof window === 'undefined') return new URLSearchParams();
   return new URLSearchParams(window.location.hash.replace(/^#/, ''));
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForInviteSessionUser(): Promise<User | null> {
+  for (const delay of SESSION_RETRY_DELAYS_MS) {
+    if (delay > 0) await sleep(delay);
+    const { data } = await supabase.auth.getSession();
+    if (data.session?.user) return data.session.user;
+  }
+  return null;
 }
 
 export default function SetPasswordPage() {
@@ -22,15 +38,20 @@ export default function SetPasswordPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionResolving, setSessionResolving] = useState(true);
+  const [resolvedUser, setResolvedUser] = useState<User | null>(null);
   const { updatePassword, activateCurrentProfile, user, profile, loading: authLoading } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const resolvedOnceRef = useRef(false);
+  const effectiveUser = user || resolvedUser;
 
-  const fixedEmail = useMemo(() => user?.email || profile?.email || '', [user?.email, profile?.email]);
+  const fixedEmail = useMemo(
+    () => effectiveUser?.email || profile?.email || '',
+    [effectiveUser?.email, profile?.email]
+  );
   const fixedRole = useMemo(
-    () => profile?.role || String(user?.user_metadata?.role || ''),
-    [profile?.role, user?.user_metadata?.role]
+    () => profile?.role || String(effectiveUser?.user_metadata?.role || ''),
+    [profile?.role, effectiveUser?.user_metadata?.role]
   );
 
   useEffect(() => {
@@ -54,23 +75,29 @@ export default function SetPasswordPage() {
       const refreshToken = hashParams.get('refresh_token');
 
       try {
+        let sessionUser: User | null = null;
         if (accessToken && refreshToken) {
-          const { error } = await supabase.auth.setSession({
+          const { data, error } = await supabase.auth.setSession({
             access_token: accessToken,
             refresh_token: refreshToken,
           });
           if (error) throw error;
+          sessionUser = data.session?.user || null;
           window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
         } else if (code) {
-          const { error } = await supabase.auth.exchangeCodeForSession(code);
+          const { data, error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
+          sessionUser = data.session?.user || null;
         } else if (tokenHash && type && (type === 'invite' || type === 'recovery')) {
-          const { error } = await supabase.auth.verifyOtp({
+          const { data, error } = await supabase.auth.verifyOtp({
             type,
             token_hash: tokenHash,
           });
           if (error) throw error;
+          sessionUser = data.session?.user || null;
         }
+
+        setResolvedUser(sessionUser || (await waitForInviteSessionUser()));
       } catch (err: any) {
         setError(err?.message || 'Failed to resolve invite session');
       } finally {
@@ -85,7 +112,7 @@ export default function SetPasswordPage() {
     e.preventDefault();
     setError('');
 
-    if (!user) {
+    if (!effectiveUser) {
       setError('Invite session is missing or expired. Please open your invite link again.');
       return;
     }
@@ -113,7 +140,7 @@ export default function SetPasswordPage() {
     }
   };
 
-  if (!authLoading && !sessionResolving && !user) {
+  if (!authLoading && !sessionResolving && !effectiveUser) {
     return (
       <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
         <Card className="w-full max-w-md shadow-xl">
@@ -191,7 +218,7 @@ export default function SetPasswordPage() {
             </div>
           </CardContent>
           <CardFooter>
-            <Button type="submit" className="h-12 w-full" disabled={loading || authLoading || sessionResolving || !user}>
+            <Button type="submit" className="h-12 w-full" disabled={loading || authLoading || sessionResolving || !effectiveUser}>
               {(loading || authLoading || sessionResolving) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Сохранить пароль
             </Button>
