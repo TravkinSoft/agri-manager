@@ -52,7 +52,9 @@ function matchRows(runId: string, matches: KnowledgeProductMatch[]) {
 }
 
 export async function POST(request: NextRequest) {
+  const routeStart = Date.now();
   let runId: string | null = null;
+  let dbWriteMatchesMs = 0;
   try {
     const body = await request.json().catch(() => ({}));
     const inputType = normalizeInputType(body.input_type);
@@ -97,7 +99,9 @@ export async function POST(request: NextRequest) {
 
     const matcherResult = await matchProductsForIntake(supabase, { inputValue, manufacturer: manufacturer || null });
     if (matcherResult.matches.length) {
+      const writeStart = Date.now();
       const { error: matchError } = await supabase.from("knowledge_intake_matches").insert(matchRows(createdRunId, matcherResult.matches));
+      dbWriteMatchesMs = Date.now() - writeStart;
       if (matchError) throw new Error(matchError.message);
     }
 
@@ -113,10 +117,24 @@ export async function POST(request: NextRequest) {
       throw new Error(updateError?.message || "Failed to update knowledge intake run status");
     }
 
+    const serverTimings = {
+      total_route_ms: Date.now() - routeStart,
+      db_write_matches_ms: dbWriteMatchesMs,
+    };
+
+    console.info("[knowledge-intake] matcher timings", {
+      matches: matcherResult.matches.length,
+      recommendation: matcherResult.recommendation,
+      matcher: matcherResult.timings,
+      server: serverTimings,
+    });
+
     return NextResponse.json({
       run: normalizeRunForApi(updatedRun),
       matches: matcherResult.matches,
       recommendation: matcherResult.recommendation,
+      matcher_timings: matcherResult.timings,
+      server_timings: serverTimings,
     });
   } catch (error) {
     const authError = jsonAuthError(error);

@@ -10,6 +10,7 @@ import { buildProductPassport } from "@/lib/products/product-passport";
 import type {
   KnowledgeIntakeMatchInput,
   KnowledgeMatchType,
+  KnowledgeMatcherTimings,
   KnowledgeMatcherResult,
   KnowledgeProductMatch,
   KnowledgeRecommendation,
@@ -44,8 +45,8 @@ const PRODUCT_SELECT = [
   "archived",
 ].join(",");
 
-const PRODUCT_PAGE_SIZE = 500;
-const PRODUCT_SCAN_MAX_ROWS = 10000;
+const PRODUCT_CANDIDATE_LIMIT = 250;
+const PRODUCT_CANDIDATE_CACHE_TTL_MS = 5 * 60 * 1000;
 
 type ProductRow = CatalogProductLike & {
   physical_state?: string | null;
@@ -67,6 +68,22 @@ type CandidateMatch = {
   confidence: number;
   reason: string;
 };
+
+type IndexedProduct = {
+  product: ProductRow;
+  names: string[];
+  normalizedNames: Set<string>;
+  aliasGroup: string | null;
+  searchNorm: string;
+};
+
+type CandidateCacheEntry = {
+  expiresAt: number;
+  indexes: IndexedProduct[];
+  dbFetchMs: number;
+};
+
+const candidateCache = new Map<string, CandidateCacheEntry>();
 
 const ALIAS_GROUPS: AliasGroup[] = [
   {
@@ -115,6 +132,10 @@ const ALIAS_GROUPS: AliasGroup[] = [
       "\u0422\u0435\u043a\u043d\u043e\u0444\u0438\u0442 PH",
     ],
   },
+  {
+    id: "tilt",
+    aliases: ["tilt", "\u0422\u0438\u043b\u0442", "\u0422\u0438\u043b\u044c\u0442"],
+  },
 ];
 
 function text(value: unknown): string {
@@ -128,6 +149,39 @@ function nullableText(value: unknown): string | null {
 
 function normalized(value: unknown): string {
   return normalizeCatalogName(text(value));
+}
+
+function nowMs() {
+  return Date.now();
+}
+
+function elapsedMs(start: number) {
+  return Math.max(0, nowMs() - start);
+}
+
+function uniqueNonEmpty(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const next = text(value);
+    if (!next) continue;
+    const key = normalized(next);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(next);
+  }
+  return result;
+}
+
+function aliasGroupById(groupId: string | null): AliasGroup | null {
+  return ALIAS_GROUPS.find((group) => group.id === groupId) || null;
+}
+
+function sanitizePostgrestSearchTerm(value: string): string {
+  return text(value)
+    .replace(/[,%()*]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function productName(product: ProductRow): string {
@@ -164,6 +218,37 @@ function productAliasGroup(product: ProductRow): string | null {
     if (group) return group;
   }
   return null;
+}
+
+function buildSearchNorm(product: ProductRow, names: string[], aliasGroup: string | null): string {
+  const group = aliasGroupById(aliasGroup);
+  return [
+    ...names,
+    product.manufacturer,
+    product.product_type,
+    product.type,
+    product.category,
+    product.subcategory,
+    product.pesticide_category,
+    product.fertilizer_type,
+    product.notes,
+    ...(group?.aliases || []),
+  ]
+    .map(normalized)
+    .filter(Boolean)
+    .join(" ");
+}
+
+function indexProduct(product: ProductRow): IndexedProduct {
+  const names = productTexts(product);
+  const aliasGroup = productAliasGroup(product);
+  return {
+    product,
+    names,
+    normalizedNames: new Set(names.map(normalized).filter(Boolean)),
+    aliasGroup,
+    searchNorm: buildSearchNorm(product, names, aliasGroup),
+  };
 }
 
 function stripShortManufacturerPrefix(value: string): { stripped: string; matched: boolean } {
@@ -332,47 +417,223 @@ export function buildKnowledgeRecommendation(matches: KnowledgeProductMatch[]): 
   return "REVIEW_POSSIBLE_DUPLICATES";
 }
 
-async function loadProductsForIntake(supabase: SupabaseClient): Promise<ProductRow[]> {
-  const rows: ProductRow[] = [];
+function buildInputSearchTerms(input: KnowledgeIntakeMatchInput): string[] {
+  const inputValue = text(input.inputValue);
+  const stripped = stripManufacturerPrefixCandidate(inputValue);
+  const shortPrefix = stripShortManufacturerPrefix(inputValue);
+  const inputGroup = aliasGroupFor(inputValue);
+  const strippedGroup = aliasGroupFor(stripped.proposedTradeName || shortPrefix.stripped);
+  const groups = [inputGroup, strippedGroup].map(aliasGroupById).filter(Boolean) as AliasGroup[];
+  return uniqueNonEmpty([
+    inputValue,
+    stripped.proposedTradeName,
+    shortPrefix.stripped,
+    ...(groups.flatMap((group) => group.aliases)),
+  ])
+    .map(sanitizePostgrestSearchTerm)
+    .filter((term) => term.length >= 2)
+    .slice(0, 18);
+}
 
-  for (let from = 0; from < PRODUCT_SCAN_MAX_ROWS; from += PRODUCT_PAGE_SIZE) {
-    const to = from + PRODUCT_PAGE_SIZE - 1;
-    const { data, error } = await supabase
-      .from("products")
-      .select(PRODUCT_SELECT)
-      .or("archived.is.false,archived.is.null")
-      .order("id", { ascending: true })
-      .range(from, to);
+function buildCandidateFilter(terms: string[]): string {
+  const conditions: string[] = [];
+  for (const term of terms) {
+    conditions.push(`name.ilike.%${term}%`);
+    conditions.push(`trade_name.ilike.%${term}%`);
+    conditions.push(`normalized_name.ilike.%${term}%`);
+    conditions.push(`manufacturer.ilike.%${term}%`);
+  }
+  return conditions.join(",");
+}
 
-    if (error) {
-      throw new Error(`Failed to load products for intake matcher: ${error.message}`);
-    }
+function candidateCacheKey(terms: string[]): string {
+  return terms.map(normalized).filter(Boolean).sort().join("|");
+}
 
-    const page = ((data || []) as unknown as ProductRow[]).filter((product) => Boolean(product?.id));
-    rows.push(...page);
+function isActiveProduct(product: ProductRow): boolean {
+  return !isTruthy(product.archived) && product.is_active !== false;
+}
 
-    if (page.length < PRODUCT_PAGE_SIZE) return rows;
+async function loadProductCandidatesForIntake(
+  supabase: SupabaseClient,
+  input: KnowledgeIntakeMatchInput,
+  timings: KnowledgeMatcherTimings
+): Promise<IndexedProduct[]> {
+  const terms = buildInputSearchTerms(input);
+  if (!terms.length) return [];
+
+  const cacheKey = candidateCacheKey(terms);
+  const cached = candidateCache.get(cacheKey);
+  if (cached && cached.expiresAt > nowMs()) {
+    timings.cache_hit = true;
+    timings.db_products_fetch_ms = 0;
+    timings.db_candidate_count = cached.indexes.length;
+    timings.products_scanned = cached.indexes.length;
+    return cached.indexes;
   }
 
-  throw new Error(`Knowledge intake product scan exceeded ${PRODUCT_SCAN_MAX_ROWS} rows`);
+  const dbStart = nowMs();
+  const { data, error } = await supabase
+    .from("products")
+    .select(PRODUCT_SELECT)
+    .or(buildCandidateFilter(terms))
+    .limit(PRODUCT_CANDIDATE_LIMIT);
+  timings.db_products_fetch_ms = elapsedMs(dbStart);
+
+  if (error) {
+    throw new Error(`Failed to load products for intake matcher: ${error.message}`);
+  }
+
+  const byId = new Map<string, ProductRow>();
+  for (const product of ((data || []) as unknown as ProductRow[])) {
+    if (!product?.id || !isActiveProduct(product)) continue;
+    byId.set(product.id, product);
+  }
+
+  const indexes = Array.from(byId.values()).map(indexProduct);
+  timings.db_candidate_count = indexes.length;
+  timings.products_scanned = indexes.length;
+
+  candidateCache.set(cacheKey, {
+    expiresAt: nowMs() + PRODUCT_CANDIDATE_CACHE_TTL_MS,
+    indexes,
+    dbFetchMs: timings.db_products_fetch_ms,
+  });
+
+  return indexes;
+}
+
+function addCandidate(byProductId: Map<string, CandidateMatch>, candidate: CandidateMatch) {
+  const existing = byProductId.get(candidate.product.id);
+  if (!existing || candidate.confidence > existing.confidence) byProductId.set(candidate.product.id, candidate);
+}
+
+function collectExactMatches(indexes: IndexedProduct[], inputNorm: string): CandidateMatch[] {
+  if (!inputNorm) return [];
+  return indexes
+    .filter((index) => index.normalizedNames.has(inputNorm))
+    .map((index) => ({
+      product: index.product,
+      match_type: "exact" as KnowledgeMatchType,
+      confidence: 0.95,
+      reason: "normalized trade/name exact match",
+    }));
+}
+
+function collectAliasMatches(indexes: IndexedProduct[], inputValue: string): CandidateMatch[] {
+  const inputGroup = aliasGroupFor(inputValue);
+  if (!inputGroup) return [];
+  return indexes
+    .filter((index) => index.aliasGroup === inputGroup)
+    .map((index) => ({
+      product: index.product,
+      match_type: "alias" as KnowledgeMatchType,
+      confidence: 0.9,
+      reason: `known identity alias group: ${inputGroup}`,
+    }));
+}
+
+function collectManufacturerPrefixMatches(indexes: IndexedProduct[], inputValue: string): CandidateMatch[] {
+  const stripped = stripManufacturerPrefixCandidate(inputValue);
+  const shortPrefix = stripShortManufacturerPrefix(inputValue);
+  const strippedInput = stripped.isCandidate ? stripped.proposedTradeName : shortPrefix.stripped;
+  const prefixMatched = stripped.isCandidate || shortPrefix.matched;
+  if (!prefixMatched || !strippedInput) return [];
+
+  const strippedNorm = normalized(strippedInput);
+  const strippedGroup = aliasGroupFor(strippedInput);
+  return indexes
+    .filter((index) => {
+      if (index.normalizedNames.has(strippedNorm)) return true;
+      if (strippedGroup && index.aliasGroup === strippedGroup) return true;
+      return index.searchNorm.includes(strippedNorm);
+    })
+    .map((index) => ({
+      product: index.product,
+      match_type: "manufacturer_prefix" as KnowledgeMatchType,
+      confidence: 0.85,
+      reason: "manufacturer/brand prefix stripped before matching",
+    }));
+}
+
+function collectContainsMatches(indexes: IndexedProduct[], inputNorm: string): CandidateMatch[] {
+  if (!inputNorm) return [];
+  return indexes
+    .filter((index) => index.searchNorm.includes(inputNorm))
+    .map((index) => ({
+      product: index.product,
+      match_type: "transliteration" as KnowledgeMatchType,
+      confidence: 0.75,
+      reason: "catalog search/alias text matched",
+    }));
+}
+
+function collectFuzzyMatches(indexes: IndexedProduct[], inputValue: string): CandidateMatch[] {
+  const inputNorm = normalized(inputValue);
+  if (inputNorm.length < 4) return [];
+  const loosePrefix = inputNorm.slice(0, Math.min(4, inputNorm.length));
+  return indexes
+    .map((index) => {
+      if (loosePrefix && !index.searchNorm.includes(loosePrefix[0])) return null;
+      let bestSimilarity = 0;
+      for (const value of index.names) bestSimilarity = Math.max(bestSimilarity, similarity(inputValue, value));
+      if (bestSimilarity < 0.68) return null;
+      return {
+        product: index.product,
+        match_type: "fuzzy" as KnowledgeMatchType,
+        confidence: Math.max(0.5, Math.min(0.7, Number(bestSimilarity.toFixed(2)))),
+        reason: `normalized fuzzy similarity ${bestSimilarity.toFixed(2)}`,
+      };
+    })
+    .filter(Boolean) as CandidateMatch[];
 }
 
 export async function matchProductsForIntake(
   supabase: SupabaseClient,
   input: KnowledgeIntakeMatchInput
 ): Promise<KnowledgeMatcherResult> {
+  const totalStart = nowMs();
   const inputValue = text(input.inputValue);
-  if (!inputValue) return { matches: [], recommendation: "POSSIBLE_NEW_PRODUCT" };
+  const timings: KnowledgeMatcherTimings = {
+    total_ms: 0,
+    db_products_fetch_ms: 0,
+    exact_match_ms: 0,
+    alias_match_ms: 0,
+    manufacturer_prefix_ms: 0,
+    contains_match_ms: 0,
+    fuzzy_match_ms: 0,
+    products_scanned: 0,
+    db_candidate_count: 0,
+    cache_hit: false,
+  };
+  if (!inputValue) return { matches: [], recommendation: "POSSIBLE_NEW_PRODUCT", timings };
 
-  const products = await loadProductsForIntake(supabase);
+  const indexes = await loadProductCandidatesForIntake(supabase, input, timings);
+  const inputNorm = normalized(inputValue);
 
   const byProductId = new Map<string, CandidateMatch>();
-  for (const product of products) {
-    if (!product?.id) continue;
-    const candidate = pickBestMatch(product, input);
-    if (!candidate) continue;
-    const existing = byProductId.get(product.id);
-    if (!existing || candidate.confidence > existing.confidence) byProductId.set(product.id, candidate);
+
+  let stageStart = nowMs();
+  collectExactMatches(indexes, inputNorm).forEach((candidate) => addCandidate(byProductId, candidate));
+  timings.exact_match_ms = elapsedMs(stageStart);
+
+  stageStart = nowMs();
+  collectAliasMatches(indexes, inputValue).forEach((candidate) => addCandidate(byProductId, candidate));
+  timings.alias_match_ms = elapsedMs(stageStart);
+
+  stageStart = nowMs();
+  collectManufacturerPrefixMatches(indexes, inputValue).forEach((candidate) => addCandidate(byProductId, candidate));
+  timings.manufacturer_prefix_ms = elapsedMs(stageStart);
+
+  stageStart = nowMs();
+  collectContainsMatches(indexes, inputNorm).forEach((candidate) => addCandidate(byProductId, candidate));
+  timings.contains_match_ms = elapsedMs(stageStart);
+
+  const hasHighConfidence = Array.from(byProductId.values()).some((candidate) => candidate.confidence >= 0.85);
+  if (!hasHighConfidence) {
+    stageStart = nowMs();
+    collectFuzzyMatches(indexes, inputValue).forEach((candidate) => addCandidate(byProductId, candidate));
+    timings.fuzzy_match_ms = elapsedMs(stageStart);
   }
 
   const candidates = Array.from(byProductId.values());
@@ -384,5 +645,6 @@ export async function matchProductsForIntake(
     .slice(0, 20)
     .map(toKnowledgeMatch);
 
-  return { matches, recommendation: buildKnowledgeRecommendation(matches) };
+  timings.total_ms = elapsedMs(totalStart);
+  return { matches, recommendation: buildKnowledgeRecommendation(matches), timings };
 }

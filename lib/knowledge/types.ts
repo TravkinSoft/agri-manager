@@ -49,5 +49,18 @@ export type KnowledgeIntakeMatchInput = {
 export type KnowledgeMatcherResult = {
   matches: KnowledgeProductMatch[];
   recommendation: KnowledgeRecommendation;
+  timings?: KnowledgeMatcherTimings;
 };
 
+export type KnowledgeMatcherTimings = {
+  total_ms: number;
+  db_products_fetch_ms: number;
+  exact_match_ms: number;
+  alias_match_ms: number;
+  manufacturer_prefix_ms: number;
+  contains_match_ms: number;
+  fuzzy_match_ms: number;
+  products_scanned: number;
+  db_candidate_count: number;
+  cache_hit: boolean;
+};
