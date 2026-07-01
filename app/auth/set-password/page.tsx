@@ -11,6 +11,11 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader as Loader2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/client';
 
+function readAuthHashParams() {
+  if (typeof window === 'undefined') return new URLSearchParams();
+  return new URLSearchParams(window.location.hash.replace(/^#/, ''));
+}
+
 export default function SetPasswordPage() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -33,8 +38,9 @@ export default function SetPasswordPage() {
     resolvedOnceRef.current = true;
 
     const resolveInviteSession = async () => {
-      const callbackError = searchParams?.get('error');
-      const callbackErrorDescription = searchParams?.get('error_description');
+      const hashParams = readAuthHashParams();
+      const callbackError = searchParams?.get('error') || hashParams.get('error');
+      const callbackErrorDescription = searchParams?.get('error_description') || hashParams.get('error_description');
       if (callbackError) {
         setError(callbackErrorDescription || callbackError);
         setSessionResolving(false);
@@ -43,10 +49,19 @@ export default function SetPasswordPage() {
 
       const code = searchParams?.get('code');
       const tokenHash = searchParams?.get('token_hash');
-      const type = searchParams?.get('type');
+      const type = searchParams?.get('type') || hashParams.get('type');
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
 
       try {
-        if (code) {
+        if (accessToken && refreshToken) {
+          const { error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (error) throw error;
+          window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+        } else if (code) {
           const { error } = await supabase.auth.exchangeCodeForSession(code);
           if (error) throw error;
         } else if (tokenHash && type && (type === 'invite' || type === 'recovery')) {
@@ -89,7 +104,8 @@ export default function SetPasswordPage() {
     try {
       await updatePassword(password);
       await activateCurrentProfile();
-      router.push('/dashboard');
+      await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined);
+      router.push('/auth/login?invite_setup=1');
     } catch (err: any) {
       setError(err.message || 'Failed to set password');
     } finally {
@@ -102,14 +118,14 @@ export default function SetPasswordPage() {
       <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
         <Card className="w-full max-w-md shadow-xl">
           <CardHeader>
-            <CardTitle className="text-2xl font-bold text-center">Invite Link Required</CardTitle>
+            <CardTitle className="text-2xl font-bold text-center">Нужна ссылка приглашения</CardTitle>
             <CardDescription className="text-center">
-              Open this page from your invitation email link.
+              Откройте страницу из письма-приглашения. Если письмо не открывается, попросите администратора переотправить приглашение или скопировать ссылку активации.
             </CardDescription>
           </CardHeader>
           <CardFooter>
             <Button className="h-12 w-full" onClick={() => router.push('/auth/login')}>
-              Go to Login
+              Перейти ко входу
             </Button>
           </CardFooter>
         </Card>
@@ -121,9 +137,9 @@ export default function SetPasswordPage() {
     <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold text-center">Set Password</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">Завершить регистрацию</CardTitle>
           <CardDescription className="text-center">
-            Complete your invited account setup
+            Придумайте пароль для приглашённого аккаунта
           </CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
@@ -135,7 +151,7 @@ export default function SetPasswordPage() {
             )}
             {(authLoading || sessionResolving) && (
               <Alert>
-                <AlertDescription>Preparing invite session...</AlertDescription>
+                <AlertDescription>Подготавливаем ссылку приглашения...</AlertDescription>
               </Alert>
             )}
             <div className="space-y-2">
@@ -143,15 +159,15 @@ export default function SetPasswordPage() {
               <Input value={fixedEmail} readOnly disabled className="h-12" />
             </div>
             <div className="space-y-2">
-              <Label>Role</Label>
+              <Label>Роль</Label>
               <Input value={fixedRole || 'assigned by admin'} readOnly disabled className="h-12" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password">Пароль</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="At least 6 characters"
+                placeholder="Минимум 6 символов"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="h-12"
@@ -161,11 +177,11 @@ export default function SetPasswordPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="confirm-password">Confirm Password</Label>
+              <Label htmlFor="confirm-password">Подтвердите пароль</Label>
               <Input
                 id="confirm-password"
                 type="password"
-                placeholder="Confirm your password"
+                placeholder="Повторите пароль"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="h-12"
@@ -177,7 +193,7 @@ export default function SetPasswordPage() {
           <CardFooter>
             <Button type="submit" className="h-12 w-full" disabled={loading || authLoading || sessionResolving || !user}>
               {(loading || authLoading || sessionResolving) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Set Password
+              Сохранить пароль
             </Button>
           </CardFooter>
         </form>

@@ -14,6 +14,34 @@ function jsonError(message: string, status: number, details?: unknown) {
   );
 }
 
+function normalizeBaseUrl(raw: string | undefined | null): string | null {
+  const value = String(raw || "").trim();
+  if (!value) return null;
+
+  const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+  try {
+    return new URL(withProtocol).toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+function getInviteSetPasswordRedirectTo(): string {
+  const envCandidates = [
+    Deno.env.get("NEXT_PUBLIC_APP_URL"),
+    Deno.env.get("NEXT_PUBLIC_SITE_URL"),
+    Deno.env.get("APP_URL"),
+    Deno.env.get("INVITE_APP_URL"),
+  ];
+
+  for (const candidate of envCandidates) {
+    const normalized = normalizeBaseUrl(candidate);
+    if (normalized) return `${normalized}/auth/set-password`;
+  }
+
+  return "https://agri-manager-eight.vercel.app/auth/set-password";
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 200, headers: corsHeaders });
@@ -50,8 +78,7 @@ Deno.serve(async (req: Request) => {
       auth: { autoRefreshToken: false, persistSession: false },
     });
 
-    const origin = req.headers.get("origin") || supabaseUrl;
-    const redirectTo = `${origin}/auth/callback`;
+    const redirectTo = getInviteSetPasswordRedirectTo();
 
     console.log(`Inviting user: email=${email}, role=${role}, company_id=${company_id}, redirectTo=${redirectTo}`);
 

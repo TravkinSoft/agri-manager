@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { getRequestOrigin } from "@/lib/utils/app-url";
+import { getInviteSetPasswordRedirectTo } from "@/lib/utils/app-url";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 
 function getAdminClient() {
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: companyError?.message || "Failed to create company" }, { status: 400 });
     }
 
-    const redirectTo = `${getRequestOrigin(request)}/auth/callback?type=invite`;
+    const redirectTo = getInviteSetPasswordRedirectTo();
 
     const { data: inviteData, error: inviteError } = await admin.auth.admin.inviteUserByEmail(adminEmail, {
       redirectTo,
