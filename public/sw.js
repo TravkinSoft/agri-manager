@@ -1,4 +1,4 @@
-const CACHE_VERSION = "travkinflow-v2";
+const CACHE_VERSION = "travkinflow-v3";
 const STATIC_CACHE = `${CACHE_VERSION}:static`;
 const PAGE_CACHE = `${CACHE_VERSION}:pages`;
 
@@ -85,15 +85,7 @@ self.addEventListener("fetch", (event) => {
   if (request.method !== "GET" || !isSameOrigin(request) || isApiRequest(request)) return;
 
   if (isNextRuntimeAsset(request)) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy)).catch(() => undefined);
-          return response;
-        })
-        .catch(() => caches.match(request))
-    );
+    event.respondWith(fetch(request));
     return;
   }
 
