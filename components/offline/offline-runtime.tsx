@@ -34,9 +34,26 @@ export function OfflineRuntime() {
     setQueueCount(getOfflineQueueCount());
 
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js").catch((error) => {
-        console.warn("TravkinFlow service worker registration failed", error);
-      });
+      if (process.env.NODE_ENV !== "production") {
+        navigator.serviceWorker
+          .getRegistrations()
+          .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+          .catch((error) => {
+            console.warn("TravkinFlow service worker cleanup failed", error);
+          });
+        if ("caches" in window) {
+          window.caches
+            .keys()
+            .then((keys) => Promise.all(keys.filter((key) => key.startsWith("travkinflow-")).map((key) => window.caches.delete(key))))
+            .catch((error) => {
+              console.warn("TravkinFlow cache cleanup failed", error);
+            });
+        }
+      } else {
+        navigator.serviceWorker.register("/sw.js").catch((error) => {
+          console.warn("TravkinFlow service worker registration failed", error);
+        });
+      }
     }
 
     const refreshQueueState = () => setQueueCount(getOfflineQueueCount());

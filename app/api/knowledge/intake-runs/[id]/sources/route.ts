@@ -103,7 +103,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
       .maybeSingle();
 
     if (runError) throw new Error(runError.message);
-    if (!run) return NextResponse.json({ error: "Knowledge intake run not found" }, { status: 404 });
+    if (!run) {
+      return NextResponse.json(
+        { error: "Проверка устарела или была удалена. Запустите проверку препарата заново." },
+        { status: 404 }
+      );
+    }
 
     if (URL_SOURCE_TYPES.has(sourceType)) {
       const { data: existingSources, error: existingSourcesError } = await supabase

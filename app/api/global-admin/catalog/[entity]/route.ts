@@ -32,6 +32,10 @@ function applyGlobalScope(query: any) {
   return query.or(`company_id.is.null,company_id.eq.${PLATFORM_GLOBAL_COMPANY_ID}`);
 }
 
+function applyStandaloneAgriculturalMachineScope(query: any) {
+  return query.in("asset_group", ["self_propelled_machine", "truck"]);
+}
+
 function translateModeOfAction(value: any): string {
   const key = String(value || "").trim().toLowerCase();
   if (!key) return "-";
@@ -161,6 +165,39 @@ function normalizeProductCatalogRow(row: any) {
     default_rate_unit: passport.units.defaultRateUnit || row.application_unit || "-",
     physical_state: passport.classification.physicalState,
     metadata_review_required: passport.review.metadataReviewRequired,
+  };
+}
+
+function isMachineryCatalogEntity(entity: GlobalCatalogEntity): boolean {
+  return entity === "agricultural_machine_models" || entity === "machinery" || entity === "implements" || entity === "fleet";
+}
+
+function normalizeMachineryBrand(value: any): any {
+  const text = String(value ?? "").trim();
+  if (!text) return value;
+  if (text.toLowerCase() === "grimme") return "GRIMME";
+  return text;
+}
+
+function normalizeMachineryBrandText(value: any): any {
+  if (value == null) return value;
+  return String(value).replace(/^grimme\b/i, "GRIMME");
+}
+
+function normalizeMachineryBrandRow(row: any) {
+  return {
+    ...row,
+    brand: normalizeMachineryBrand(row?.brand),
+    name: normalizeMachineryBrandText(row?.name),
+    full_name: normalizeMachineryBrandText(row?.full_name),
+  };
+}
+
+function normalizeMachineryBrandPayload(payload: Record<string, any>) {
+  if (!Object.prototype.hasOwnProperty.call(payload, "brand")) return payload;
+  return {
+    ...payload,
+    brand: normalizeMachineryBrand(payload.brand),
   };
 }
 
@@ -583,21 +620,27 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     select:
       "id,asset_group,category,brand,series,model,full_name,power_hp,engine,transmission,weight_kg,fuel_tank_l,tank_volume_l,tank_capacity_l,grain_tank_l,working_width_m,rows_count,capacity,required_power_hp,power_class,dealer_name,presence_in_kz,source_url,source_type,is_active,notes,archived,updated_at,created_at",
     defaultOrder: "full_name",
-    scopeWhere: (query) => query,
+    scopeWhere: (query) => applyStandaloneAgriculturalMachineScope(query),
     searchColumns: ["full_name", "brand", "series", "model", "dealer_name", "engine", "transmission", "power_class", "capacity", "notes"],
     filters: ["asset_group", "category", "brand", "series", "is_active"],
     normalizeRow: (row) => ({
       ...row,
+      brand: normalizeMachineryBrand(row.brand),
+      full_name: normalizeMachineryBrandText(row.full_name),
       asset_group: translateMachineryAssetGroup(row.asset_group),
       category: translateAgriculturalMachineCategory(row.category),
       source_type: translateAgriculturalMachineSourceType(row.source_type),
     }),
     beforeCreate: (payload) => ({
       ...payload,
+      brand: normalizeMachineryBrand(payload.brand),
       asset_group: payload.asset_group || "self_propelled_machine",
     }),
     beforeUpdate: (payload) => ({
       ...payload,
+      ...(Object.prototype.hasOwnProperty.call(payload, "brand")
+        ? { brand: normalizeMachineryBrand(payload.brand) }
+        : {}),
       ...(Object.prototype.hasOwnProperty.call(payload, "asset_group")
         ? { asset_group: payload.asset_group || "self_propelled_machine" }
         : {}),
@@ -611,15 +654,16 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     scopeWhere: (query) => applyGlobalScope(query),
     searchColumns: ["name", "full_name", "brand", "series", "model", "machine_type"],
     filters: ["machine_category", "brand", "machine_type", "is_active"],
+    normalizeRow: (row) => normalizeMachineryBrandRow(row),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeMachineryBrandPayload(payload),
       name: payload.name || payload.full_name,
       type: payload.type || "other",
       status: payload.status || "free",
       company_id: null,
     }),
     beforeUpdate: (payload) => ({
-      ...payload,
+      ...normalizeMachineryBrandPayload(payload),
       name: payload.name || payload.full_name,
     }),
   },
@@ -631,14 +675,15 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     scopeWhere: (query) => applyGlobalScope(query),
     searchColumns: ["name", "full_name", "brand", "series", "model", "purpose"],
     filters: ["equipment_category", "brand", "is_active"],
+    normalizeRow: (row) => normalizeMachineryBrandRow(row),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeMachineryBrandPayload(payload),
       name: payload.name || payload.full_name,
       category: payload.equipment_category || payload.category || null,
       company_id: null,
     }),
     beforeUpdate: (payload) => ({
-      ...payload,
+      ...normalizeMachineryBrandPayload(payload),
       name: payload.name || payload.full_name,
       category: payload.equipment_category || payload.category || null,
     }),
@@ -651,12 +696,13 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     scopeWhere: (query) => query,
     searchColumns: ["full_name", "brand", "series", "model", "engine", "dealer_name"],
     filters: ["category", "brand", "is_active"],
+    normalizeRow: (row) => normalizeMachineryBrandRow(row),
     beforeCreate: (payload) => ({
-      ...payload,
+      ...normalizeMachineryBrandPayload(payload),
       category: payload.category || "truck",
     }),
     beforeUpdate: (payload) => ({
-      ...payload,
+      ...normalizeMachineryBrandPayload(payload),
       category: payload.category || "truck",
     }),
   },
@@ -1083,6 +1129,11 @@ export async function GET(
         } else {
           query = query.in("id", productIds);
         }
+        continue;
+      }
+
+      if (filterKey === "brand" && isMachineryCatalogEntity(entity)) {
+        query = query.ilike("brand", value);
         continue;
       }
 

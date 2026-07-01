@@ -169,9 +169,27 @@ const agriculturalMachineCategoryOptions: FilterOption[] = [
   { label: "Прочее", value: "other" },
 ];
 
-const agriculturalMachineCategoryFilterOptions: FilterOption[] = [
+const standaloneAgriculturalMachineCategoryValues = new Set([
+  "combine_harvester",
+  "forage_harvester",
+  "self_propelled_sprayer",
+  "self_propelled_seeder",
+  "self_propelled_spreader",
+  "self_propelled_windrower",
+  "self_propelled_mower",
+  "potato_harvester",
+  "loader",
+  "telehandler",
+  "tractor",
+]);
+
+const standaloneAgriculturalMachineCategoryOptions = agriculturalMachineCategoryOptions.filter((option) =>
+  standaloneAgriculturalMachineCategoryValues.has(option.value)
+);
+
+const standaloneAgriculturalMachineCategoryFilterOptions: FilterOption[] = [
   { label: "Все", value: "all" },
-  ...agriculturalMachineCategoryOptions,
+  ...standaloneAgriculturalMachineCategoryOptions,
 ];
 
 const machineryAssetGroupOptions: FilterOption[] = [
@@ -181,9 +199,13 @@ const machineryAssetGroupOptions: FilterOption[] = [
   { label: "Транспорт", value: "truck" },
 ];
 
-const machineryAssetGroupFilterOptions: FilterOption[] = [
+const standaloneMachineryAssetGroupOptions = machineryAssetGroupOptions.filter((option) =>
+  ["self_propelled_machine", "truck"].includes(option.value)
+);
+
+const standaloneMachineryAssetGroupFilterOptions: FilterOption[] = [
   { label: "Все", value: "all" },
-  ...machineryAssetGroupOptions,
+  ...standaloneMachineryAssetGroupOptions,
 ];
 
 const productTypeFilterOptions: FilterOption[] = [
@@ -760,7 +782,7 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
   agricultural_machine_models: {
     entity: "agricultural_machine_models",
     title: "Глобальный каталог сельхозмашин",
-    description: "Глобальный мастер-каталог самоходной техники, картофельной техники и агрегатов.",
+    description: "Глобальный мастер-каталог самоходной техники и самостоятельных машин хозяйства.",
     createLabel: "Добавить модель",
     searchPlaceholder: "Поиск по полному названию, бренду, серии, модели...",
     columns: [
@@ -788,9 +810,9 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
       {
         key: "category",
         label: "Категория",
-        options: agriculturalMachineCategoryFilterOptions,
+        options: standaloneAgriculturalMachineCategoryFilterOptions,
       },
-      { key: "asset_group", label: "Группа", options: machineryAssetGroupFilterOptions },
+      { key: "asset_group", label: "Группа", options: standaloneMachineryAssetGroupFilterOptions },
       { key: "brand", label: "Бренд", options: [{ label: "Все", value: "all" }] },
       { key: "series", label: "Серия", options: [{ label: "Все", value: "all" }] },
       { key: "is_active", label: "Активность", options: activeFilterOptions },
@@ -801,14 +823,14 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
         label: "Категория",
         type: "select",
         required: true,
-        options: agriculturalMachineCategoryOptions,
+        options: standaloneAgriculturalMachineCategoryOptions,
       },
       {
         key: "asset_group",
         label: "Группа техники",
         type: "select",
         required: true,
-        options: machineryAssetGroupOptions,
+        options: standaloneMachineryAssetGroupOptions,
       },
       { key: "brand", label: "Бренд", type: "text", required: true },
       { key: "series", label: "Серия", type: "text" },

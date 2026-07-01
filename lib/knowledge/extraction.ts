@@ -1,3 +1,5 @@
+import type { KnowledgeDraftCatalogResolution } from "@/lib/knowledge/draft-resolver";
+
 export type KnowledgeExtractionConfidence = "low" | "medium" | "high";
 
 export type KnowledgeExtractionDraft = {
@@ -28,6 +30,7 @@ export type KnowledgeExtractionDraft = {
   editable_card_title: string | null;
   confidence: KnowledgeExtractionConfidence;
   notes: string[];
+  resolved_catalog?: KnowledgeDraftCatalogResolution;
 };
 
 export type KnowledgeSourceContext = {
@@ -53,7 +56,7 @@ export type ProductMetadataSuggestionRow = {
 };
 
 export const KNOWLEDGE_EXTRACTION_TEXT_REQUIRED_ERROR =
-  "Источник сохранён, но текст ещё не извлечён. Добавьте ручной текст или подключите crawler/PDF parser позже.";
+  "Источник сохранён, но текст ещё не извлечён. Извлеките текст страницы/PDF или добавьте ручной текст.";
 export const KNOWLEDGE_OPENAI_MISSING_ENV_ERROR = "OpenAI extraction недоступен: не настроен ключ/модель";
 
 const PRODUCT_TYPES = new Set(["pesticide", "fertilizer", "additive", "seed", "unknown"]);
@@ -311,6 +314,10 @@ export function sanitizeKnowledgeExtractionDraft(value: unknown): KnowledgeExtra
     editable_card_title: nullableText(record.editable_card_title),
     confidence: enumValue<KnowledgeExtractionConfidence>(record.confidence, CONFIDENCE_VALUES, "low") || "low",
     notes: stringArray(record.notes),
+    resolved_catalog:
+      record.resolved_catalog && typeof record.resolved_catalog === "object"
+        ? (record.resolved_catalog as KnowledgeDraftCatalogResolution)
+        : undefined,
   };
 }
 

@@ -53,6 +53,14 @@ import { Badge } from "@/components/ui/badge";
 type RowRecord = Record<string, any>;
 type Option = { label: string; value: string };
 
+const CONSOLE_LABEL_CLASS = "font-mono text-[11px] uppercase tracking-[0.12em] !text-[#42566f]";
+const CONSOLE_CONTROL_CLASS =
+  "rounded-none border-[#9aa8ba] bg-white !text-[#111827] placeholder:!text-[#69788d] focus-visible:ring-[#163d68]";
+const CONSOLE_SELECT_TRIGGER_CLASS =
+  "rounded-none border-[#9aa8ba] bg-white !text-[#111827] data-[placeholder]:!text-[#69788d]";
+const CONSOLE_MENU_CLASS = "rounded-none border-[#9aa8ba] bg-white !text-[#111827]";
+const CONSOLE_TABLE_CELL_CLASS = "border-[#c3ccd8] px-4 py-3 !text-[#1f2937]";
+
 function optionLabel(entity: GlobalCatalogEntity, row: RowRecord): string {
   if (entity === "varieties" || entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
     if (entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators") {
@@ -472,20 +480,21 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
     return (
       <div className="space-y-2">
-        <Label>{label}</Label>
+        <Label className={CONSOLE_LABEL_CLASS}>{label}</Label>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="w-full justify-between font-normal">
+            <Button variant="outline" className="w-full justify-between rounded-none border-[#9aa8ba] bg-white font-normal !text-[#111827] hover:bg-[#eef1f5]">
               <span className="truncate">{triggerLabel}</span>
               <ChevronDown className="h-4 w-4 opacity-70" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-[320px] max-h-72 overflow-y-auto">
+          <DropdownMenuContent align="start" className={`max-h-72 w-[320px] overflow-y-auto ${CONSOLE_MENU_CLASS}`}>
             {options.map((option) => (
               <DropdownMenuCheckboxItem
                 key={`${label}-${option.value}`}
                 checked={selectedSet.has(option.value)}
                 onCheckedChange={() => onToggle(option.value)}
+                className="rounded-none !text-[#111827] focus:bg-[#dfe7f1] focus:!text-[#0c2544]"
               >
                 {option.label}
               </DropdownMenuCheckboxItem>
@@ -495,9 +504,13 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         {selectedLabels.length ? (
           <div className="flex flex-wrap gap-1">
             {selectedLabels.slice(0, 6).map((name) => (
-              <Badge key={name} variant="secondary" className="font-normal">{name}</Badge>
+              <Badge key={name} variant="secondary" className="rounded-none border border-[#9aa8ba] bg-[#eef1f5] font-normal !text-[#16324f]">{name}</Badge>
             ))}
-            {selectedLabels.length > 6 ? <Badge variant="secondary">+{selectedLabels.length - 6}</Badge> : null}
+            {selectedLabels.length > 6 ? (
+              <Badge variant="secondary" className="rounded-none border border-[#9aa8ba] bg-[#eef1f5] !text-[#16324f]">
+                +{selectedLabels.length - 6}
+              </Badge>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -516,7 +529,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
             checked={Boolean(value)}
             onCheckedChange={(checked) => setFormState((prev) => ({ ...prev, [field.key]: Boolean(checked) }))}
           />
-          <Label htmlFor={field.key}>{field.label}</Label>
+          <Label htmlFor={field.key} className="!text-[#1f2937]">{field.label}</Label>
         </div>
       );
     }
@@ -541,17 +554,17 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     if (field.type === "select") {
       return (
         <div className="space-y-2">
-          <Label>{field.label}{field.required ? " *" : ""}</Label>
+          <Label className={CONSOLE_LABEL_CLASS}>{field.label}{field.required ? " *" : ""}</Label>
           <Select
             value={String(value || "")}
             onValueChange={(next) => setFormState((prev) => ({ ...prev, [field.key]: next }))}
           >
-            <SelectTrigger>
+            <SelectTrigger className={CONSOLE_SELECT_TRIGGER_CLASS}>
               <SelectValue placeholder={field.placeholder || "Выберите значение"} />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className={CONSOLE_MENU_CLASS}>
               {options.map((option) => (
-                <SelectItem key={`${field.key}-${option.value}`} value={option.value}>
+                <SelectItem key={`${field.key}-${option.value}`} value={option.value} className="rounded-none !text-[#111827] focus:bg-[#dfe7f1] focus:!text-[#0c2544]">
                   {option.label}
                 </SelectItem>
               ))}
@@ -563,11 +576,12 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
     return (
       <div className="space-y-2">
-        <Label>{field.label}{field.required ? " *" : ""}</Label>
+        <Label className={CONSOLE_LABEL_CLASS}>{field.label}{field.required ? " *" : ""}</Label>
         <Input
           type={field.type === "number" ? "number" : "text"}
           value={value ?? ""}
           placeholder={field.placeholder || ""}
+          className={CONSOLE_CONTROL_CLASS}
           onChange={(event) => setFormState((prev) => ({ ...prev, [field.key]: event.target.value }))}
         />
       </div>
@@ -596,14 +610,14 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     const selected = String(filters[filter.key] || "all");
     return (
       <div className="space-y-2 min-w-[180px]">
-        <Label>{filter.label}</Label>
+        <Label className={CONSOLE_LABEL_CLASS}>{filter.label}</Label>
         <Select value={selected} onValueChange={(value) => setFilters((prev) => ({ ...prev, [filter.key]: value }))}>
-          <SelectTrigger>
+          <SelectTrigger className={CONSOLE_SELECT_TRIGGER_CLASS}>
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className={CONSOLE_MENU_CLASS}>
             {options.map((option) => (
-              <SelectItem key={`${filter.key}-${option.value}`} value={option.value}>
+              <SelectItem key={`${filter.key}-${option.value}`} value={option.value} className="rounded-none !text-[#111827] focus:bg-[#dfe7f1] focus:!text-[#0c2544]">
                 {option.label}
               </SelectItem>
             ))}
@@ -615,7 +629,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
   return (
     <div className="w-full space-y-3 text-[#111827]">
-      <Card className="w-full rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+      <Card className="w-full rounded-none border-[#9aa8ba] bg-white !text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
         <CardHeader className="gap-3 border-b border-[#9aa8ba] bg-[#d7dde6]">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -632,11 +646,11 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
             <div className="space-y-2 md:col-span-2 xl:col-span-2">
               <Label className="font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">Поиск</Label>
               <div className="relative">
-                <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                <Search className="absolute left-3 top-2.5 h-4 w-4 text-[#69788d]" />
                 <Input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  className="pl-9"
+                  className={`${CONSOLE_CONTROL_CLASS} pl-9`}
                   placeholder={config.searchPlaceholder}
                 />
               </div>
@@ -646,40 +660,44 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         </CardHeader>
       </Card>
 
-      <Card className="w-full rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+      <Card className="w-full rounded-none border-[#9aa8ba] bg-white !text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
         <CardContent className="p-0">
-          <div className="w-full overflow-x-auto">
-            <Table className="min-w-[1200px]">
-              <TableHeader className="bg-[#eef1f5]">
-                <TableRow>
+          <div className="max-h-[calc(100vh-330px)] min-h-[320px] w-full overflow-auto">
+            <Table className="min-w-[1200px] !text-[#111827]">
+              <TableHeader className="sticky top-0 z-20 bg-[#eef1f5] shadow-[0_1px_0_#9aa8ba]">
+                <TableRow className="border-[#9aa8ba] hover:bg-[#eef1f5]">
                   {config.columns.map((column) => (
-                    <TableHead key={column.key}>{column.label}</TableHead>
+                    <TableHead key={column.key} className="border-[#c3ccd8] bg-[#eef1f5] px-4 py-2 font-semibold !text-[#536276]">
+                      {column.label}
+                    </TableHead>
                   ))}
-                  <TableHead className="w-[150px] text-right">Действия</TableHead>
+                  <TableHead className="w-[150px] border-[#c3ccd8] px-4 py-2 text-right font-semibold !text-[#536276]">Действия</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={config.columns.length + 1} className="text-center text-slate-500">Загрузка...</TableCell>
+                  <TableRow className="border-[#c3ccd8] hover:bg-[#f6f8fb]">
+                    <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-[#536276]">Загрузка...</TableCell>
                   </TableRow>
                 ) : null}
                 {!loading && rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={config.columns.length + 1} className="text-center text-slate-500">Записей нет.</TableCell>
+                  <TableRow className="border-[#c3ccd8] hover:bg-[#f6f8fb]">
+                    <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-[#536276]">Записей нет.</TableCell>
                   </TableRow>
                 ) : null}
                 {!loading && rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <TableRow key={row.id} className="border-[#c3ccd8] bg-white hover:bg-[#f6f8fb]">
                     {config.columns.map((column) => (
-                      <TableCell key={`${row.id}-${column.key}`}>{formatCellValue(row[column.key], column.key, row, config.entity)}</TableCell>
+                      <TableCell key={`${row.id}-${column.key}`} className={CONSOLE_TABLE_CELL_CLASS}>
+                        {formatCellValue(row[column.key], column.key, row, config.entity)}
+                      </TableCell>
                     ))}
-                    <TableCell>
+                    <TableCell className={CONSOLE_TABLE_CELL_CLASS}>
                       <div className="flex items-center justify-end gap-2">
-                        <Button variant="outline" size="icon" onClick={() => openEdit(row)}>
+                        <Button variant="outline" size="icon" onClick={() => openEdit(row)} className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="outline" size="icon" onClick={() => archiveRow(row.id)} disabled={saving}>
+                        <Button variant="outline" size="icon" onClick={() => archiveRow(row.id)} disabled={saving} className="rounded-none border-[#9aa8ba] bg-white !text-[#9f1239] hover:bg-[#fff1f2]">
                           <Trash2 className="h-4 w-4 text-rose-600" />
                         </Button>
                       </div>

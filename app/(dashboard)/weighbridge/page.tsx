@@ -560,6 +560,7 @@ export default function WeighbridgeOperationsPage() {
   const [activeTicket, setActiveTicket] = useState<WeighbridgeTicket | null>(null);
   const [closingTare, setClosingTare] = useState("");
   const [voidReason, setVoidReason] = useState("");
+  const [shiftHandoverNote, setShiftHandoverNote] = useState("");
   const [historyTypeFilter, setHistoryTypeFilter] = useState("all");
   const [workstationMode, setWorkstationMode] = useState<WorkstationMode>("standard");
   const [activeShift, setActiveShift] = useState<any | null>(null);
@@ -1938,7 +1939,12 @@ export default function WeighbridgeOperationsPage() {
   const handleVoid = async () => {
     if (!activeTicket || !profile?.id || !canVoid || voiding) return;
     if (!voidReason.trim()) return toast({ title: "Ошибка", description: "Укажите причину аннулирования", variant: "destructive" });
-    if (!window.confirm("Аннулировать талон через storno?")) return;
+    const confirmed = await siteConfirm({
+      title: "Аннулировать талон",
+      description: "Талон будет отменен через storno. Действие нельзя выполнить без указанной причины.",
+      actionLabel: "Аннулировать",
+    });
+    if (!confirmed) return;
     setVoiding(true);
     try {
       await voidTicket(activeTicket.id, profile.id, voidReason.trim());
@@ -1959,15 +1965,21 @@ export default function WeighbridgeOperationsPage() {
       archive: "Архивировать зависший талон",
       force_close: "Принудительно закрыть талон",
     };
-    const reason = window.prompt(
-      `${titleMap[action]}\nУкажите причину (обязательно):`,
-      "admin cleanup"
-    );
-    if (!reason || !reason.trim()) return;
-    if (!window.confirm(`${titleMap[action]}?`)) return;
+    const reason = voidReason.trim();
+    if (!reason) {
+      toast({ title: "Ошибка", description: "Укажите причину в поле аннулирования/cleanup", variant: "destructive" });
+      return;
+    }
+    const confirmed = await siteConfirm({
+      title: titleMap[action],
+      description: "Админ-действие будет записано в историю талона. Продолжить?",
+      actionLabel: "Подтвердить",
+    });
+    if (!confirmed) return;
     try {
-      await adminTicketAction(activeTicket.id, profile.id, action, reason.trim());
+      await adminTicketAction(activeTicket.id, profile.id, action, reason);
       toast({ title: "Выполнено", description: "Админ-действие применено успешно" });
+      setVoidReason("");
       setActiveTicket(null);
       await load();
     } catch (e: any) {
@@ -1999,13 +2011,21 @@ export default function WeighbridgeOperationsPage() {
 
   const closeShiftAction = async () => {
     if (!profile?.company_id || !profile?.id || !activeShift) return;
-    const handoverNote = window.prompt("Комментарий к закрытию смены (если есть незакрытые талоны):", "") || "";
+    const confirmed = await siteConfirm({
+      title: "Закрыть смену",
+      description: shiftCounters.activeTickets > 0
+        ? "Есть открытые талоны. Проверьте комментарий передачи смены и подтвердите закрытие."
+        : "Смена будет закрыта для новых операций весовой.",
+      actionLabel: "Закрыть смену",
+    });
+    if (!confirmed) return;
     try {
       await closeShift(profile.company_id, profile.id, {
         closingNote: "manual close from weighbridge page",
-        handoverNote: handoverNote.trim() || undefined,
+        handoverNote: shiftHandoverNote.trim() || undefined,
       });
       toast({ title: "Смена закрыта", description: "Смена успешно закрыта." });
+      setShiftHandoverNote("");
       await load();
     } catch (e: any) {
       toast({
@@ -2115,6 +2135,15 @@ export default function WeighbridgeOperationsPage() {
             ) : (
               <Button className="h-9" onClick={openShiftAction}>Открыть смену</Button>
             )}
+            {activeShift ? (
+              <Textarea
+                value={shiftHandoverNote}
+                onChange={(e) => setShiftHandoverNote(e.target.value)}
+                placeholder="Комментарий к закрытию смены"
+                rows={2}
+                className="col-span-2 min-h-[52px] border-slate-700 bg-slate-950 text-slate-100 placeholder:text-slate-500 sm:w-[360px]"
+              />
+            ) : null}
         </div>
       </div>
 

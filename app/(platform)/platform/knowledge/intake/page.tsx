@@ -1,16 +1,18 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
   FileText,
   Link2,
   Loader2,
+  PencilLine,
   Plus,
   Search,
   ShieldCheck,
   Sparkles,
+  Upload,
 } from "lucide-react";
 
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
@@ -28,6 +30,7 @@ import {
   formatKnowledgeSubcategory,
 } from "@/lib/knowledge/display-labels";
 import type { KnowledgeExtractionDraft } from "@/lib/knowledge/extraction";
+import type { KnowledgeDraftCatalogResolution } from "@/lib/knowledge/draft-resolver";
 import type { KnowledgeRecommendation } from "@/lib/knowledge/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -75,7 +78,10 @@ type SourceType =
   | "manufacturer_pdf"
   | "registration_database"
   | "distributor_page"
+  | "uploaded_file"
   | "manual";
+
+type SourceMode = "link" | "document" | "manual_card";
 
 type IntakeSource = {
   id: string;
@@ -112,17 +118,20 @@ type IntakeResult = {
   recommendation: KnowledgeRecommendation;
 };
 
-const SOURCE_TYPE_OPTIONS: Array<{ value: SourceType; label: string; requiresUrl: boolean }> = [
-  { value: "manufacturer_page", label: "Страница производителя", requiresUrl: true },
-  { value: "manufacturer_pdf", label: "PDF / инструкция производителя", requiresUrl: true },
-  { value: "registration_database", label: "Регистрационная база", requiresUrl: true },
-  { value: "distributor_page", label: "Страница дистрибьютора", requiresUrl: true },
-  { value: "manual", label: "Ручной текст", requiresUrl: false },
+const SOURCE_MODE_OPTIONS: Array<{ value: SourceMode; label: string; description: string }> = [
+  { value: "link", label: "Ссылка", description: "HTML или прямая PDF-ссылка" },
+  { value: "document", label: "Документ", description: "PDF/TXT до 10 MB" },
+  { value: "manual_card", label: "Заполнить вручную", description: "Без OpenAI и загрузки" },
 ];
 
-const SOURCE_TYPE_LABELS: Record<string, string> = Object.fromEntries(
-  SOURCE_TYPE_OPTIONS.map((option) => [option.value, option.label])
-);
+const SOURCE_TYPE_LABELS: Record<string, string> = {
+  manufacturer_page: "Ссылка",
+  manufacturer_pdf: "PDF-ссылка",
+  registration_database: "Ссылка",
+  distributor_page: "Ссылка",
+  uploaded_file: "Документ",
+  manual: "Ручной текст",
+};
 
 const SOURCE_CONFIDENCE_LABELS: Record<string, string> = {
   low: "Низкая",
@@ -170,6 +179,74 @@ function sourceTextPreview(value: string | null | undefined) {
   const text = String(value || "").trim();
   if (!text) return "";
   return text.length > 900 ? `${text.slice(0, 900).trim()}...` : text;
+}
+
+function countSignals(value: string, signals: string[]) {
+  return signals.reduce((count, signal) => (value.includes(signal) ? count + 1 : count), 0);
+}
+
+function detectSourceKindFromText(value: string | null | undefined) {
+  const normalized = String(value || "").toLocaleLowerCase("ru-RU");
+  if (!normalized) return "unknown";
+
+  const productSignals = [
+    "действующее вещество",
+    "норма расхода",
+    "регламент применения",
+    "препаративная форма",
+    "класс опасности",
+    "срок ожидания",
+    "л/га",
+    "г/л",
+    "фунгицид",
+    "гербицид",
+    "инсектицид",
+  ];
+  const programSignals = [
+    "программа защиты",
+    "комплексная программа",
+    "схема защиты",
+    "система защиты",
+    "защита зерновых",
+    "зерновых культур",
+    "вредные объекты",
+    "до посева",
+    "начало вегетации",
+    "середина вегетации",
+    "конец вегетации",
+    "bbch",
+    "фаза развития",
+  ];
+
+  const productScore = countSignals(normalized, productSignals);
+  const programScore = countSignals(normalized, programSignals);
+
+  if (programScore >= 3 && programScore >= productScore) return "crop_care_program";
+  if (productScore >= 2) return "product_leaflet";
+  if (programScore >= 2) return "crop_care_program";
+  return "unknown";
+}
+
+function isPdfSource(source: IntakeSource) {
+  return source.source_type === "manufacturer_pdf";
+}
+
+function isDocumentSource(source: IntakeSource) {
+  return source.source_type === "uploaded_file";
+}
+
+function sourceFetchButtonLabel(source: IntakeSource) {
+  if (isPdfSource(source)) return hasExtractedSourceText(source) ? "Обновить текст PDF" : "Извлечь текст PDF";
+  return hasExtractedSourceText(source) ? "Обновить текст" : "Извлечь текст источника";
+}
+
+function sourceTypeForLink(value: string): SourceType {
+  try {
+    const parsed = new URL(value);
+    return /\.pdf$/i.test(parsed.pathname) ? "manufacturer_pdf" : "manufacturer_page";
+  } catch {
+    return "manufacturer_page";
+  }
 }
 
 function valueRecord(value: unknown): Record<string, unknown> {
@@ -277,6 +354,38 @@ function cloneExtractionDraft(draft: KnowledgeExtractionDraft): KnowledgeExtract
     admin_warnings: [...(draft.admin_warnings || [])],
     missing_fields: [...(draft.missing_fields || [])],
     notes: [...draft.notes],
+    resolved_catalog: cloneCatalogResolution(draft.resolved_catalog),
+  };
+}
+
+function cloneCatalogResolution(
+  value: KnowledgeDraftCatalogResolution | undefined
+): KnowledgeDraftCatalogResolution | undefined {
+  if (!value) return undefined;
+  return JSON.parse(JSON.stringify(value)) as KnowledgeDraftCatalogResolution;
+}
+
+function createBlankManualDraft(): KnowledgeExtractionDraft {
+  return {
+    trade_name: null,
+    manufacturer: null,
+    product_type: null,
+    subcategory: null,
+    physical_state: null,
+    stock_unit: null,
+    default_rate_type: null,
+    default_rate_unit: null,
+    active_ingredients: [],
+    crops: [],
+    targets: [],
+    restrictions: [],
+    human_description: null,
+    application_rules: [],
+    admin_warnings: [],
+    missing_fields: [],
+    editable_card_title: "Черновик карточки препарата",
+    confidence: "low",
+    notes: ["Черновик заполнен вручную. Products не изменены."],
   };
 }
 
@@ -314,24 +423,300 @@ function selectValue(value: unknown) {
   return String(value || "");
 }
 
+function emptyCatalogResolution(
+  options?: KnowledgeDraftCatalogResolution["options"] | null
+): KnowledgeDraftCatalogResolution {
+  return {
+    resolved: { active_ingredients: [], crops: [], targets: [] },
+    unresolved: { active_ingredients: [], crops: [], targets: [] },
+    inferred: {
+      product_type: null,
+      subcategory: null,
+      stock_unit: null,
+      default_rate_type: null,
+      default_rate_unit: null,
+    },
+    options: options || { active_ingredients: [], crops: [], targets: [] },
+  };
+}
+
+function resolutionWithOptions(
+  draft: KnowledgeExtractionDraft,
+  options?: KnowledgeDraftCatalogResolution["options"] | null
+): KnowledgeDraftCatalogResolution {
+  const resolution = cloneCatalogResolution(draft.resolved_catalog) || emptyCatalogResolution(options);
+  if (options) resolution.options = options;
+  return resolution;
+}
+
+function catalogChipClass(tone: "found" | "review" | "missing") {
+  if (tone === "found") return "border-[#5e8d74] bg-[#edf8f1] text-[#064e3b]";
+  if (tone === "review") return "border-[#c4a445] bg-[#fff8d8] text-[#4f3d00]";
+  return "border-[#c3ccd8] bg-[#eef1f5] text-[#42566f]";
+}
+
+function targetTypeLabel(type: string) {
+  if (type === "disease") return "болезнь";
+  if (type === "pest") return "вредитель";
+  if (type === "weed") return "сорняк";
+  return "не определено";
+}
+
+function CatalogChip({
+  children,
+  tone,
+  onRemove,
+}: {
+  children: ReactNode;
+  tone: "found" | "review" | "missing";
+  onRemove?: () => void;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-none border px-2 py-1 text-xs font-medium ${catalogChipClass(tone)}`}>
+      {children}
+      {onRemove ? (
+        <button type="button" className="text-[11px] font-bold" onClick={onRemove} aria-label="Удалить">
+          ×
+        </button>
+      ) : null}
+    </span>
+  );
+}
+
+function CatalogSelect({
+  label,
+  options,
+  onSelect,
+}: {
+  label: string;
+  options: Array<{ id: string; name: string; type?: string }>;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <select
+      value=""
+      onChange={(event) => {
+        if (event.target.value) onSelect(event.target.value);
+      }}
+      className="h-9 w-full border px-2 text-xs"
+    >
+      <option value="">{label}</option>
+      {options.map((option) => (
+        <option key={`${option.type || "ref"}:${option.id}`} value={option.id}>
+          {option.type ? `${option.name} · ${targetTypeLabel(option.type)}` : option.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function CatalogLinkedDraftFields({
+  draft,
+  catalogOptions,
+  onPatch,
+}: {
+  draft: KnowledgeExtractionDraft;
+  catalogOptions?: KnowledgeDraftCatalogResolution["options"] | null;
+  onPatch: (patch: Partial<KnowledgeExtractionDraft>) => void;
+}) {
+  const resolution = resolutionWithOptions(draft, catalogOptions);
+
+  const patchResolution = (
+    nextResolution: KnowledgeDraftCatalogResolution,
+    listPatch: Partial<Pick<KnowledgeExtractionDraft, "active_ingredients" | "crops" | "targets">> = {}
+  ) => {
+    onPatch({ ...listPatch, resolved_catalog: nextResolution });
+  };
+
+  const addIngredient = (id: string) => {
+    const option = resolution.options.active_ingredients.find((item) => item.id === id);
+    if (!option || resolution.resolved.active_ingredients.some((item) => item.id === id)) return;
+    const next = cloneCatalogResolution(resolution) || emptyCatalogResolution(catalogOptions);
+    next.resolved.active_ingredients.push({
+      id: option.id,
+      name: option.name,
+      concentration: null,
+      raw: option.name,
+      confidence: 1,
+    });
+    patchResolution(next, {
+      active_ingredients: [...draft.active_ingredients, { name: option.name, concentration: null }],
+    });
+  };
+
+  const addCrop = (id: string) => {
+    const option = resolution.options.crops.find((item) => item.id === id);
+    if (!option || resolution.resolved.crops.some((item) => item.id === id)) return;
+    const next = cloneCatalogResolution(resolution) || emptyCatalogResolution(catalogOptions);
+    next.resolved.crops.push({ id: option.id, name: option.name, raw: option.name, confidence: 1 });
+    patchResolution(next, { crops: Array.from(new Set([...draft.crops, option.name])) });
+  };
+
+  const addTarget = (id: string) => {
+    const option = resolution.options.targets.find((item) => item.id === id);
+    if (!option || resolution.resolved.targets.some((item) => item.id === id && item.type === option.type)) return;
+    const next = cloneCatalogResolution(resolution) || emptyCatalogResolution(catalogOptions);
+    next.resolved.targets.push({
+      id: option.id,
+      type: option.type,
+      name: option.name,
+      raw: option.name,
+      confidence: 1,
+    });
+    patchResolution(next, { targets: Array.from(new Set([...draft.targets, option.name])) });
+  };
+
+  const removeIngredient = (id: string) => {
+    const next = cloneCatalogResolution(resolution) || emptyCatalogResolution(catalogOptions);
+    const removed = next.resolved.active_ingredients.find((item) => item.id === id);
+    next.resolved.active_ingredients = next.resolved.active_ingredients.filter((item) => item.id !== id);
+    patchResolution(next, {
+      active_ingredients: draft.active_ingredients.filter((item) => item.name !== removed?.name),
+    });
+  };
+
+  const removeCrop = (id: string) => {
+    const next = cloneCatalogResolution(resolution) || emptyCatalogResolution(catalogOptions);
+    const removed = next.resolved.crops.find((item) => item.id === id);
+    next.resolved.crops = next.resolved.crops.filter((item) => item.id !== id);
+    patchResolution(next, { crops: draft.crops.filter((item) => item !== removed?.name) });
+  };
+
+  const removeTarget = (id: string | null, type: string, name: string) => {
+    const next = cloneCatalogResolution(resolution) || emptyCatalogResolution(catalogOptions);
+    next.resolved.targets = next.resolved.targets.filter((item) => !(item.id === id && item.type === type));
+    patchResolution(next, { targets: draft.targets.filter((item) => item !== name) });
+  };
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="text-xs uppercase tracking-[0.14em] text-slate-500">Связанные справочники</div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <div className="rounded-none border border-[#c3ccd8] bg-[#f8fafc] p-3">
+          <div className="mb-2 text-sm font-semibold">Действующие вещества</div>
+          <div className="flex flex-wrap gap-2">
+            {resolution.resolved.active_ingredients.map((item) => (
+              <CatalogChip key={item.id} tone="found" onRemove={() => removeIngredient(item.id)}>
+                {item.name}
+                {item.concentration ? ` — ${item.concentration}` : ""}
+              </CatalogChip>
+            ))}
+            {resolution.unresolved.active_ingredients.map((item) => (
+              <CatalogChip key={item.raw} tone="review">
+                {item.name}
+                {item.concentration ? ` — ${item.concentration}` : ""} · требует проверки
+              </CatalogChip>
+            ))}
+            {!resolution.resolved.active_ingredients.length && !resolution.unresolved.active_ingredients.length ? (
+              <CatalogChip tone="missing">не указано</CatalogChip>
+            ) : null}
+          </div>
+          <div className="mt-3">
+            <CatalogSelect label="Добавить ДВ из справочника" options={resolution.options.active_ingredients} onSelect={addIngredient} />
+          </div>
+        </div>
+
+        <div className="rounded-none border border-[#c3ccd8] bg-[#f8fafc] p-3">
+          <div className="mb-2 text-sm font-semibold">Культуры</div>
+          <div className="flex flex-wrap gap-2">
+            {resolution.resolved.crops.map((item) => (
+              <CatalogChip key={item.id} tone="found" onRemove={() => removeCrop(item.id)}>
+                {item.name}
+              </CatalogChip>
+            ))}
+            {resolution.unresolved.crops.map((item) => (
+              <CatalogChip key={item.raw} tone="review">
+                {item.raw} · требует проверки
+              </CatalogChip>
+            ))}
+            {!resolution.resolved.crops.length && !resolution.unresolved.crops.length ? (
+              <CatalogChip tone="missing">не указано</CatalogChip>
+            ) : null}
+          </div>
+          <div className="mt-3">
+            <CatalogSelect label="Добавить культуру из справочника" options={resolution.options.crops} onSelect={addCrop} />
+          </div>
+        </div>
+
+        <div className="rounded-none border border-[#c3ccd8] bg-[#f8fafc] p-3">
+          <div className="mb-2 text-sm font-semibold">Объекты применения</div>
+          <div className="flex flex-wrap gap-2">
+            {resolution.resolved.targets.map((item) => (
+              <CatalogChip
+                key={`${item.type}:${item.id || item.name}`}
+                tone="found"
+                onRemove={() => removeTarget(item.id, item.type, item.name)}
+              >
+                {item.name} · {targetTypeLabel(item.type)}
+              </CatalogChip>
+            ))}
+            {resolution.unresolved.targets.map((item) => (
+              <CatalogChip key={item.raw} tone="review">
+                {item.raw} · требует проверки
+              </CatalogChip>
+            ))}
+            {!resolution.resolved.targets.length && !resolution.unresolved.targets.length ? (
+              <CatalogChip tone="missing">не указано</CatalogChip>
+            ) : null}
+          </div>
+          <div className="mt-3">
+            <CatalogSelect label="Добавить объект из справочника" options={resolution.options.targets} onSelect={addTarget} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function consumptionSelectValue(draft: KnowledgeExtractionDraft) {
+  const rateType = String(draft.default_rate_type || "");
+  const rateUnit = String(draft.default_rate_unit || "");
+  if (!rateType && !rateUnit) return "";
+  const match = CONSUMPTION_TYPE_OPTIONS.find((option) => option.rateType === rateType && option.rateUnit === rateUnit);
+  return match?.value || "";
+}
+
+function consumptionPatch(value: string): Pick<KnowledgeExtractionDraft, "default_rate_type" | "default_rate_unit"> {
+  const option = CONSUMPTION_TYPE_OPTIONS.find((item) => item.value === value);
+  if (!option) return { default_rate_type: null, default_rate_unit: null };
+  return {
+    default_rate_type: option.rateType as KnowledgeExtractionDraft["default_rate_type"],
+    default_rate_unit: option.rateUnit,
+  };
+}
+
 const PRODUCT_TYPE_OPTIONS = [
   { value: "", label: "Не указано" },
   { value: "pesticide", label: "Пестицид" },
   { value: "fertilizer", label: "Удобрение" },
   { value: "additive", label: "Добавка" },
   { value: "seed", label: "Семена" },
-  { value: "unknown", label: "Неизвестно" },
+  { value: "unknown", label: "Не указано" },
+] as const;
+
+const SUBCATEGORY_OPTIONS = [
+  { value: "", label: "Не указано" },
+  { value: "fungicide", label: "Фунгицид" },
+  { value: "insecticide", label: "Инсектицид" },
+  { value: "herbicide", label: "Гербицид" },
+  { value: "seed_treatment", label: "Протравитель семян" },
+  { value: "ph_corrector", label: "pH-корректор" },
+  { value: "adjuvant", label: "Адъювант" },
+  { value: "microfertilizer", label: "Микроудобрение" },
+  { value: "growth_regulator", label: "Регулятор роста" },
+  { value: "unknown", label: "Не указано" },
 ] as const;
 
 const PHYSICAL_STATE_OPTIONS = [
   { value: "", label: "Не указано" },
   { value: "liquid", label: "Жидкость" },
-  { value: "solid", label: "Твёрдое" },
-  { value: "granule", label: "Гранулы" },
   { value: "powder", label: "Порошок" },
+  { value: "granule", label: "Гранулы" },
   { value: "tablet", label: "Таблетка" },
   { value: "gel", label: "Гель" },
-  { value: "unknown", label: "Неизвестно" },
+  { value: "solid", label: "Твёрдое" },
+  { value: "unknown", label: "Не указано" },
 ] as const;
 
 const STOCK_UNIT_OPTIONS = [
@@ -341,18 +726,30 @@ const STOCK_UNIT_OPTIONS = [
   { value: "kg", label: "килограмм" },
   { value: "g", label: "грамм" },
   { value: "pcs", label: "штука" },
-  { value: "unknown", label: "Неизвестно" },
+  { value: "unknown", label: "не указано" },
 ] as const;
 
-const RATE_TYPE_OPTIONS = [
-  { value: "", label: "Не указано" },
-  { value: "per_ha", label: "на 1 га" },
-  { value: "per_1000_l_solution", label: "на 1000 л рабочего раствора" },
-  { value: "per_l_water", label: "на 1 л воды" },
-  { value: "per_t_seed", label: "на 1000 кг семян" },
-  { value: "per_100kg_seed", label: "на 100 кг семян" },
-  { value: "per_1000_seeds", label: "на 1000 семян" },
-  { value: "manual", label: "вручную" },
+const CONSUMPTION_TYPE_OPTIONS = [
+  { value: "", label: "не указано", rateType: null, rateUnit: null },
+  { value: "l|per_ha|l/ha", label: "литр на 1 га", rateType: "per_ha", rateUnit: "l/ha" },
+  { value: "ml|per_ha|ml/ha", label: "миллилитр на 1 га", rateType: "per_ha", rateUnit: "ml/ha" },
+  { value: "kg|per_ha|kg/ha", label: "килограмм на 1 га", rateType: "per_ha", rateUnit: "kg/ha" },
+  { value: "g|per_ha|g/ha", label: "грамм на 1 га", rateType: "per_ha", rateUnit: "g/ha" },
+  {
+    value: "l|per_1000_l_solution|l/1000_l_solution",
+    label: "литр на 1000 л рабочего раствора",
+    rateType: "per_1000_l_solution",
+    rateUnit: "l/1000_l_solution",
+  },
+  {
+    value: "ml|per_1000_l_solution|ml/1000_l_solution",
+    label: "миллилитр на 1000 л рабочего раствора",
+    rateType: "per_1000_l_solution",
+    rateUnit: "ml/1000_l_solution",
+  },
+  { value: "l|per_t_seed|l/t_seed", label: "литр на 1000 кг семян", rateType: "per_t_seed", rateUnit: "l/t_seed" },
+  { value: "ml|per_t_seed|ml/t_seed", label: "миллилитр на 1000 кг семян", rateType: "per_t_seed", rateUnit: "ml/t_seed" },
+  { value: "manual|manual|manual", label: "вручную", rateType: "manual", rateUnit: "manual" },
 ] as const;
 
 const CONFIDENCE_OPTIONS = [
@@ -375,6 +772,13 @@ const consoleNotice = {
   disabledAction: "mt-4 rounded-none border-[#9aa8ba] bg-[#eef1f5] text-[#42566f] opacity-100 disabled:opacity-100",
 };
 
+const consoleReadableStat =
+  "rounded-none border border-[#c3ccd8] !bg-[#eef1f5] text-[#10243d] shadow-none [&_*]:!text-[#10243d]";
+const consoleReadableCard =
+  "rounded-none border-[#9aa8ba] !bg-white text-[#111827] shadow-none [&_.text-slate-50]:!text-[#111827] [&_.text-slate-100]:!text-[#111827] [&_.text-slate-400]:!text-[#42566f]";
+const consoleReadablePill =
+  "rounded-none border-[#9f8f55] !bg-[#fff8d8] !text-[#4f3d00]";
+
 export default function KnowledgeIntakePage() {
   const { profile, loading: authLoading } = useAuth();
   const [inputType, setInputType] = useState<IntakeInputType>("text");
@@ -383,10 +787,11 @@ export default function KnowledgeIntakePage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<IntakeResult | null>(null);
-  const [sourceType, setSourceType] = useState<SourceType>("manufacturer_page");
+  const [sourceMode, setSourceMode] = useState<SourceMode>("link");
   const [sourceUrl, setSourceUrl] = useState("");
   const [sourceTitle, setSourceTitle] = useState("");
-  const [manualText, setManualText] = useState("");
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [documentTitle, setDocumentTitle] = useState("");
   const [sourceSubmitting, setSourceSubmitting] = useState(false);
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [sourceSuccess, setSourceSuccess] = useState<string | null>(null);
@@ -397,6 +802,7 @@ export default function KnowledgeIntakePage() {
   const [extractError, setExtractError] = useState<string | null>(null);
   const [extractSuccess, setExtractSuccess] = useState<string | null>(null);
   const [editableDraft, setEditableDraft] = useState<KnowledgeExtractionDraft | null>(null);
+  const [catalogOptions, setCatalogOptions] = useState<KnowledgeDraftCatalogResolution["options"] | null>(null);
 
   const recommendation = result?.recommendation || null;
   const recommendationCopy = recommendation ? KNOWLEDGE_RECOMMENDATION_COPY[recommendation] : null;
@@ -408,18 +814,49 @@ export default function KnowledgeIntakePage() {
     () => result?.extraction || buildExtractionDraftFromSuggestions(suggestions),
     [result?.extraction, suggestions]
   );
-  const isManualSource = sourceType === "manual";
+  const isLinkSourceMode = sourceMode === "link";
+  const isDocumentSourceMode = sourceMode === "document";
+  const isManualCardMode = sourceMode === "manual_card";
 
   useEffect(() => {
-    setEditableDraft(extractionDraft ? cloneExtractionDraft(extractionDraft) : null);
-  }, [extractionDraft]);
+    if (extractionDraft) {
+      setEditableDraft(cloneExtractionDraft(extractionDraft));
+      return;
+    }
+    if (sourceMode !== "manual_card") {
+      setEditableDraft(null);
+    }
+  }, [extractionDraft, sourceMode]);
+
+  useEffect(() => {
+    if (profile?.role !== "global_admin" || catalogOptions) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const headers = await buildClientAuthHeaders("json");
+        const response = await fetch("/api/knowledge/catalog-options", {
+          headers,
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload?.options || cancelled) return;
+        setCatalogOptions(payload.options as KnowledgeDraftCatalogResolution["options"]);
+      } catch {
+        // The page can still operate as an extraction review surface without linked pickers.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogOptions, profile?.role]);
 
   const canSubmit = useMemo(() => inputValue.trim().length > 0 && !submitting, [inputValue, submitting]);
   const canSubmitSource = useMemo(() => {
     if (!result?.run?.id || sourceSubmitting) return false;
-    if (isManualSource) return manualText.trim().length > 0;
-    return sourceUrl.trim().length > 0;
-  }, [isManualSource, manualText, result?.run?.id, sourceSubmitting, sourceUrl]);
+    if (isLinkSourceMode) return sourceUrl.trim().length > 0;
+    if (isDocumentSourceMode) return Boolean(documentFile);
+    return false;
+  }, [documentFile, isDocumentSourceMode, isLinkSourceMode, result?.run?.id, sourceSubmitting, sourceUrl]);
   const canExtract = useMemo(
     () => Boolean(result?.run?.id && hasReadySourceText && !extracting),
     [extracting, hasReadySourceText, result?.run?.id]
@@ -427,6 +864,17 @@ export default function KnowledgeIntakePage() {
 
   const patchEditableDraft = (patch: Partial<KnowledgeExtractionDraft>) => {
     setEditableDraft((current) => (current ? { ...current, ...patch } : current));
+  };
+
+  const activateSourceMode = (mode: SourceMode) => {
+    setSourceMode(mode);
+    setSourceError(null);
+    setSourceSuccess(null);
+    setSourceFetchError(null);
+    setSourceFetchSuccess(null);
+    if (mode === "manual_card") {
+      setEditableDraft((current) => current || createBlankManualDraft());
+    }
   };
 
   const loadRun = async (runId: string, fallback: IntakeResult): Promise<IntakeResult> => {
@@ -513,28 +961,51 @@ export default function KnowledgeIntakePage() {
     setExtractSuccess(null);
 
     try {
-      const headers = await buildClientAuthHeaders("json");
-      const response = await fetch(`/api/knowledge/intake-runs/${result.run.id}/sources`, {
-        method: "POST",
-        headers,
-        cache: "no-store",
-        body: JSON.stringify({
-          source_type: sourceType,
-          source_url: isManualSource ? undefined : sourceUrl.trim(),
-          source_title: sourceTitle.trim() || undefined,
-          manual_text: isManualSource ? manualText.trim() : undefined,
-        }),
-      });
+      const headers = await buildClientAuthHeaders(isDocumentSourceMode ? undefined : "json");
+      let response: Response;
+
+      if (isDocumentSourceMode) {
+        if (!documentFile) return;
+        const formData = new FormData();
+        formData.append("file", documentFile);
+        if (documentTitle.trim()) formData.append("source_title", documentTitle.trim());
+        response = await fetch(`/api/knowledge/intake-runs/${result.run.id}/sources/upload`, {
+          method: "POST",
+          headers,
+          cache: "no-store",
+          body: formData,
+        });
+      } else {
+        response = await fetch(`/api/knowledge/intake-runs/${result.run.id}/sources`, {
+          method: "POST",
+          headers,
+          cache: "no-store",
+          body: JSON.stringify({
+            source_type: sourceTypeForLink(sourceUrl.trim()),
+            source_url: sourceUrl.trim(),
+            source_title: sourceTitle.trim() || undefined,
+          }),
+        });
+      }
+
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(payload?.error || "Не удалось сохранить источник.");
       }
 
       setResult(await loadRun(result.run.id, result));
-      setSourceSuccess("Источник сохранён. Изменений в каталоге не сделано.");
+      const uploadNotice = isDocumentSourceMode
+        ? `Документ загружен, текст извлечён: ${Number(payload?.extracted_text_length || 0)} символов.`
+        : "Источник сохранён. Изменений в каталоге не сделано.";
+      const sourceKindNotice =
+        payload?.source_kind === "crop_care_program"
+          ? " Источник похож на программу защиты; создание схемы будет отдельным этапом."
+          : "";
+      setSourceSuccess(`${uploadNotice}${sourceKindNotice}`);
       setSourceUrl("");
       setSourceTitle("");
-      setManualText("");
+      setDocumentTitle("");
+      setDocumentFile(null);
     } catch (submitError) {
       setSourceError(submitError instanceof Error ? submitError.message : "Не удалось сохранить источник.");
     } finally {
@@ -564,7 +1035,11 @@ export default function KnowledgeIntakePage() {
       }
 
       setResult(await loadRun(result.run.id, result));
-      setSourceFetchSuccess(`Текст источника извлечён: ${Number(payload?.extracted_text_length || 0)} символов.`);
+      const sourceKindNotice =
+        payload?.source_kind === "crop_care_program"
+          ? " Источник похож на программу защиты; создание схемы будет отдельным этапом."
+          : "";
+      setSourceFetchSuccess(`Текст источника извлечён: ${Number(payload?.extracted_text_length || 0)} символов.${sourceKindNotice}`);
     } catch (fetchError) {
       setSourceFetchError(fetchError instanceof Error ? fetchError.message : "Не удалось извлечь текст источника.");
     } finally {
@@ -626,8 +1101,8 @@ export default function KnowledgeIntakePage() {
   }
 
   return (
-    <div className="space-y-3 text-[#111827] [&_.text-slate-100]:!text-[#111827] [&_.text-slate-200]:!text-[#1f2937] [&_.text-slate-300]:!text-[#374151] [&_.text-slate-400]:!text-[#536276] [&_.text-slate-500]:!text-[#69788d] [&_input]:!rounded-none [&_input]:!border-[#9aa8ba] [&_input]:!bg-white [&_input]:!text-[#111827] [&_select]:!rounded-none [&_select]:!border-[#9aa8ba] [&_select]:!bg-white [&_select]:!text-[#111827] [&_textarea]:!rounded-none [&_textarea]:!border-[#9aa8ba] [&_textarea]:!bg-white [&_textarea]:!text-[#111827]">
-      <GlassToolbar className="rounded-none border-[#6e7f95] bg-[#0f2946] px-4 py-3 shadow-[1px_1px_0_rgba(255,255,255,0.12)_inset]">
+    <div className="space-y-3 [&_input]:!rounded-none [&_input]:!border-[#9aa8ba] [&_input]:!bg-white [&_input]:!text-[#111827] [&_select]:!rounded-none [&_select]:!border-[#9aa8ba] [&_select]:!bg-white [&_select]:!text-[#111827] [&_textarea]:!rounded-none [&_textarea]:!border-[#9aa8ba] [&_textarea]:!bg-white [&_textarea]:!text-[#111827]">
+      <GlassToolbar className="rounded-none border-[#6e7f95] bg-[#0f2946] px-4 py-3 text-[#F8FAFC] shadow-[1px_1px_0_rgba(255,255,255,0.12)_inset]">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -724,7 +1199,7 @@ export default function KnowledgeIntakePage() {
           {!result ? (
             <EmptyState className="flex min-h-[360px] flex-col items-center justify-center text-center">
               <Sparkles className="mb-3 h-8 w-8 text-[#E0B100]" />
-              <div className="text-base font-semibold text-slate-100">Готов к проверке</div>
+              <div className="text-base font-semibold text-[#111827]">Готов к проверке</div>
               <p className="mt-2 max-w-lg text-sm leading-6 text-slate-400">
                 Введите препарат слева. V0 сверит название с глобальным каталогом и покажет безопасную рекомендацию.
               </p>
@@ -736,13 +1211,17 @@ export default function KnowledgeIntakePage() {
                   <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Карточка проверки</div>
                   <h2 className="mt-1 text-xl font-semibold">Проверка препарата</h2>
                 </div>
-                <StatusPill tone={getRecommendationTone(recommendation)} data-testid="knowledge-intake-recommendation">
+                <StatusPill
+                  tone={getRecommendationTone(recommendation)}
+                  className={consoleReadablePill}
+                  data-testid="knowledge-intake-recommendation"
+                >
                   {recommendationCopy?.label || recommendation || "—"}
                 </StatusPill>
               </div>
 
               <div>
-                <div className="text-sm font-semibold text-slate-100">Результат проверки</div>
+                <div className="text-sm font-semibold text-[#111827]">Результат проверки</div>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
                   Краткий итог intake run: статус, совпадения, источники и рекомендация.
                 </p>
@@ -750,6 +1229,7 @@ export default function KnowledgeIntakePage() {
 
               <div className="grid gap-2 md:grid-cols-4">
                 <CompactStat
+                  className={consoleReadableStat}
                   label="Run ID"
                   value={
                     <span className="block max-w-[180px] truncate" data-testid="knowledge-intake-run-id">
@@ -757,12 +1237,13 @@ export default function KnowledgeIntakePage() {
                     </span>
                   }
                 />
-                <CompactStat label="Status" value={formatKnowledgeRunStatus(result.run?.status)} />
+                <CompactStat className={consoleReadableStat} label="Status" value={formatKnowledgeRunStatus(result.run?.status)} />
                 <CompactStat
+                  className={consoleReadableStat}
                   label="Matches"
                   value={<span data-testid="knowledge-intake-match-count">{matches.length}</span>}
                 />
-                <CompactStat label="Sources" value={Array.isArray(result.sources) ? result.sources.length : 0} />
+                <CompactStat className={consoleReadableStat} label="Sources" value={Array.isArray(result.sources) ? result.sources.length : 0} />
               </div>
 
               {recommendationCopy ? (
@@ -792,32 +1273,34 @@ export default function KnowledgeIntakePage() {
                   <StatusPill tone="accent">Следующий шаг</StatusPill>
                 </div>
 
-                <form className="mt-4 grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)]" onSubmit={handleSourceSubmit}>
-                  <div className="space-y-2">
-                    <Label htmlFor="knowledge-source-type" className="text-slate-200">
-                      Тип источника
-                    </Label>
-                    <select
-                      id="knowledge-source-type"
-                      data-testid="knowledge-source-type"
-                      value={sourceType}
-                      onChange={(event) => {
-                        setSourceType(event.target.value as SourceType);
-                        setSourceError(null);
-                        setSourceSuccess(null);
-                      }}
-                      className="h-10 w-full rounded-lg border border-white/10 bg-[#020617] px-3 text-sm text-slate-100 outline-none transition focus:border-[#E0B100]"
-                    >
-                      {SOURCE_TYPE_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
+                <div className="mt-4 grid gap-2 md:grid-cols-3">
+                  {SOURCE_MODE_OPTIONS.map((option) => {
+                    const active = sourceMode === option.value;
+                    const Icon = option.value === "link" ? Link2 : option.value === "document" ? Upload : PencilLine;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => activateSourceMode(option.value)}
+                        className={`border px-3 py-2 text-left transition ${
+                          active
+                            ? "border-[#15395f] bg-[#eef5ff] text-[#10243d]"
+                            : "border-[#c3ccd8] bg-[#f8fafc] text-[#42566f] hover:bg-white"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 text-sm font-semibold">
+                          <Icon className="h-4 w-4" />
                           {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                        </div>
+                        <div className="mt-1 text-xs leading-5">{option.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
 
-                  <div className="space-y-3">
-                    {!isManualSource ? (
+                <form className="mt-4 space-y-3" onSubmit={handleSourceSubmit}>
+                  {isLinkSourceMode ? (
+                    <div className="grid gap-3 lg:grid-cols-2">
                       <div className="space-y-2">
                         <Label htmlFor="knowledge-source-url" className="text-slate-200">
                           URL источника
@@ -831,35 +1314,60 @@ export default function KnowledgeIntakePage() {
                           className="border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
                         />
                       </div>
-                    ) : (
                       <div className="space-y-2">
-                        <Label htmlFor="knowledge-source-manual-text" className="text-slate-200">
-                          Ручной текст
+                        <Label htmlFor="knowledge-source-title" className="text-slate-200">
+                          Название источника, необязательно
                         </Label>
-                        <Textarea
-                          id="knowledge-source-manual-text"
-                          data-testid="knowledge-source-manual-text"
-                          value={manualText}
-                          onChange={(event) => setManualText(event.target.value)}
-                          placeholder="Текст с этикетки или инструкции..."
-                          className="min-h-[120px] border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
+                        <Input
+                          id="knowledge-source-title"
+                          data-testid="knowledge-source-title"
+                          value={sourceTitle}
+                          onChange={(event) => setSourceTitle(event.target.value)}
+                          placeholder="Например: Tilt leaflet"
+                          className="border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
                         />
                       </div>
-                    )}
-
-                    <div className="space-y-2">
-                      <Label htmlFor="knowledge-source-title" className="text-slate-200">
-                        Заголовок / название источника
-                      </Label>
-                      <Input
-                        id="knowledge-source-title"
-                        data-testid="knowledge-source-title"
-                        value={sourceTitle}
-                        onChange={(event) => setSourceTitle(event.target.value)}
-                        placeholder="Например: TechnoFit pH source"
-                        className="border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
-                      />
                     </div>
+                  ) : null}
+
+                  {isDocumentSourceMode ? (
+                    <div className="grid gap-3 lg:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="knowledge-source-file" className="text-slate-200">
+                          Документ
+                        </Label>
+                        <Input
+                          id="knowledge-source-file"
+                          data-testid="knowledge-source-file"
+                          type="file"
+                          accept=".pdf,.txt,application/pdf,text/plain"
+                          onChange={(event) => setDocumentFile(event.target.files?.[0] || null)}
+                          className="border-white/10 bg-[#020617] text-slate-100 file:mr-3 file:border-0 file:bg-[#E0B100] file:px-3 file:py-1.5 file:text-slate-950 focus-visible:ring-[#E0B100]"
+                        />
+                        <div className="text-xs leading-5 text-slate-500">
+                          V0 поддерживает PDF/TXT до 10 MB. DOCX и OCR будут отдельным этапом.
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="knowledge-document-title" className="text-slate-200">
+                          Название источника, необязательно
+                        </Label>
+                        <Input
+                          id="knowledge-document-title"
+                          value={documentTitle}
+                          onChange={(event) => setDocumentTitle(event.target.value)}
+                          placeholder={documentFile?.name || "Например: Tilt PDF"}
+                          className="border-white/10 bg-[#020617] text-slate-100 placeholder:text-slate-500 focus-visible:ring-[#E0B100]"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {isManualCardMode ? (
+                    <div className={consoleNotice.infoSmall}>
+                      Черновик карточки открыт ниже. Заполните паспортные поля вручную. Данные не записываются в products.
+                    </div>
+                  ) : null}
 
                     {sourceError ? (
                       <div className={consoleNotice.error}>
@@ -882,21 +1390,33 @@ export default function KnowledgeIntakePage() {
                       </div>
                     ) : null}
 
-                    <Button
-                      type="submit"
-                      data-testid="knowledge-source-submit"
-                      disabled={!canSubmitSource}
-                      className="gap-2 bg-[#E0B100] text-slate-950 hover:bg-[#F2C300]"
-                    >
-                      {sourceSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                      Добавить источник
-                    </Button>
-                  </div>
+                    {!isManualCardMode ? (
+                      <Button
+                        type="submit"
+                        data-testid="knowledge-source-submit"
+                        disabled={!canSubmitSource}
+                        className="gap-2 bg-[#E0B100] text-slate-950 hover:bg-[#F2C300]"
+                      >
+                        {sourceSubmitting ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : isDocumentSourceMode ? (
+                          <Upload className="h-4 w-4" />
+                        ) : (
+                          <Plus className="h-4 w-4" />
+                        )}
+                        {isDocumentSourceMode ? "Загрузить документ" : "Добавить ссылку"}
+                      </Button>
+                    ) : null}
                 </form>
 
                 <div className="mt-4 space-y-2" data-testid="knowledge-intake-sources">
                   {sources.length ? (
-                    sources.map((source) => (
+                    sources.map((source) => {
+                      const detectedSourceKind = isPdfSource(source) || isDocumentSource(source)
+                        ? detectSourceKindFromText(source.extracted_text_summary)
+                        : "unknown";
+
+                      return (
                       <div
                         key={source.id}
                         className={consoleNotice.sourceCard}
@@ -909,7 +1429,7 @@ export default function KnowledgeIntakePage() {
                                 {formatSourceConfidence(source.source_confidence)}
                               </StatusPill>
                             </div>
-                            <div className="mt-2 truncate text-sm font-semibold text-slate-100">
+                            <div className="mt-2 truncate text-sm font-semibold text-[#111827]">
                               {source.source_title || source.source_url || "Ручной источник"}
                             </div>
                             {source.source_url ? (
@@ -923,9 +1443,16 @@ export default function KnowledgeIntakePage() {
                                 {sourceTextPreview(source.extracted_text_summary)}
                               </div>
                             ) : null}
+                            {detectedSourceKind === "crop_care_program" ? (
+                              <div className={consoleNotice.warning}>
+                                Источник похож на программу защиты, а не на карточку одного препарата. Создание схемы будет отдельным этапом.
+                              </div>
+                            ) : null}
                             {isUrlSource(source) && !hasExtractedSourceText(source) ? (
                               <div className={consoleNotice.infoSmall}>
-                                Текст страницы ещё не извлечён. Нажмите кнопку справа, чтобы подготовить источник для OpenAI.
+                                {isPdfSource(source)
+                                  ? "Текст PDF ещё не извлечён. Нажмите кнопку справа, чтобы подготовить источник для OpenAI."
+                                  : "Текст страницы ещё не извлечён. Нажмите кнопку справа, чтобы подготовить источник для OpenAI."}
                               </div>
                             ) : null}
                           </div>
@@ -945,13 +1472,14 @@ export default function KnowledgeIntakePage() {
                                 ) : (
                                   <FileText className="h-4 w-4" />
                                 )}
-                                {hasExtractedSourceText(source) ? "Обновить текст" : "Извлечь текст источника"}
+                                {sourceFetchButtonLabel(source)}
                               </Button>
                             ) : null}
                           </div>
                         </div>
                       </div>
-                    ))
+                      );
+                    })
                   ) : (
                     <EmptyState className="py-4">
                       Источники ещё не добавлены. Добавьте ссылку или ручной текст, чтобы подготовить будущую extraction.
@@ -981,12 +1509,12 @@ export default function KnowledgeIntakePage() {
 
                   {!sources.length ? (
                     <div className={consoleNotice.infoSmall}>
-                      Сначала добавьте источник: ручной текст, ссылку на страницу или PDF.
+                      Сначала добавьте ссылку, загрузите документ или заполните карточку вручную.
                     </div>
                   ) : null}
                   {sources.length && !hasReadySourceText ? (
                     <div className={consoleNotice.infoSmall}>
-                      Для URL-источника сначала извлеките текст страницы. PDF пока не парсим; для PDF добавьте ручной текст.
+                      Для URL-источника сначала извлеките текст страницы или PDF. Если PDF состоит из изображений, добавьте ручной текст; OCR будет позже.
                     </div>
                   ) : null}
                   {extractError ? (
@@ -1008,7 +1536,7 @@ export default function KnowledgeIntakePage() {
                     <div className={consoleNotice.draftPanel} data-testid="knowledge-extraction-draft">
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
-                          <div className="text-base font-semibold text-slate-50">
+                          <div className="text-base font-semibold text-[#111827]">
                             {editableDraft.editable_card_title || "Черновик карточки препарата"}
                           </div>
                           <p className="mt-1 text-xs text-slate-400">
@@ -1019,8 +1547,9 @@ export default function KnowledgeIntakePage() {
                       </div>
 
                       <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                        <CompactStat label="Единица измерения" value={formatKnowledgeStockUnit(editableDraft.stock_unit)} />
+                        <CompactStat className={consoleReadableStat} label="Единица измерения" value={formatKnowledgeStockUnit(editableDraft.stock_unit)} />
                         <CompactStat
+                          className={consoleReadableStat}
                           label="Тип расхода"
                           value={formatKnowledgeConsumptionType(
                             editableDraft.default_rate_unit,
@@ -1029,7 +1558,7 @@ export default function KnowledgeIntakePage() {
                             `${editableDraft.trade_name || ""} ${editableDraft.manufacturer || ""}`
                           )}
                         />
-                        <CompactStat label="Уверенность" value={formatKnowledgeConfidence(editableDraft.confidence)} />
+                        <CompactStat className={consoleReadableStat} label="Уверенность" value={formatKnowledgeConfidence(editableDraft.confidence)} />
                       </div>
 
                       <div className="mt-4 space-y-4">
@@ -1073,13 +1602,18 @@ export default function KnowledgeIntakePage() {
                             </div>
                             <div className="space-y-1.5">
                               <Label htmlFor="draft-subcategory">Подтип</Label>
-                              <Input
+                              <select
                                 id="draft-subcategory"
-                                value={editableDraft.subcategory || ""}
+                                value={selectValue(editableDraft.subcategory)}
                                 onChange={(event) => patchEditableDraft({ subcategory: event.target.value || null })}
-                                placeholder="Например: seed_treatment"
-                              />
-                              <div className="text-xs text-slate-500">{formatKnowledgeSubcategory(editableDraft.subcategory)}</div>
+                                className="h-10 w-full border px-3 text-sm"
+                              >
+                                {SUBCATEGORY_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                             <div className="space-y-1.5">
                               <Label htmlFor="draft-physical-state">Физическое состояние</Label>
@@ -1123,15 +1657,11 @@ export default function KnowledgeIntakePage() {
                               <Label htmlFor="draft-rate-type">Тип расхода</Label>
                               <select
                                 id="draft-rate-type"
-                                value={selectValue(editableDraft.default_rate_type)}
-                                onChange={(event) =>
-                                  patchEditableDraft({
-                                    default_rate_type: (event.target.value || null) as KnowledgeExtractionDraft["default_rate_type"],
-                                  })
-                                }
+                                value={consumptionSelectValue(editableDraft)}
+                                onChange={(event) => patchEditableDraft(consumptionPatch(event.target.value))}
                                 className="h-10 w-full border px-3 text-sm"
                               >
-                                {RATE_TYPE_OPTIONS.map((option) => (
+                                {CONSUMPTION_TYPE_OPTIONS.map((option) => (
                                   <option key={option.value} value={option.value}>
                                     {option.label}
                                   </option>
@@ -1159,7 +1689,13 @@ export default function KnowledgeIntakePage() {
                             </div>
                           </div>
 
-                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                          <CatalogLinkedDraftFields
+                            draft={editableDraft}
+                            catalogOptions={catalogOptions}
+                            onPatch={patchEditableDraft}
+                          />
+
+                          <div className="mt-3 hidden grid gap-3 md:grid-cols-2">
                             <div className="space-y-1.5">
                               <Label htmlFor="draft-active-ingredients">Действующие вещества</Label>
                               <Textarea
@@ -1253,7 +1789,7 @@ export default function KnowledgeIntakePage() {
                             </div>
                           </div>
                           {editableDraft.notes.length ? (
-                            <div className="mt-3 text-sm leading-6 text-slate-100">
+                            <div className="mt-3 text-sm leading-6 text-[#111827]">
                               <span className="font-semibold">Заметки extraction:</span> {formatDraftList(editableDraft.notes)}
                             </div>
                           ) : null}
@@ -1292,7 +1828,7 @@ export default function KnowledgeIntakePage() {
               </GlassCard>
 
               <div className="order-2">
-                <div className="text-sm font-semibold text-slate-100">Совпадения в базе</div>
+                <div className="text-sm font-semibold text-[#111827]">Совпадения в базе</div>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
                   Сначала проверьте, есть ли препарат или алиас в глобальном каталоге. После этого добавляйте источники для анализа.
                 </p>
@@ -1307,17 +1843,17 @@ export default function KnowledgeIntakePage() {
               <div className="order-3 space-y-3" data-testid="knowledge-intake-matches">
                 {matches.length ? (
                   matches.map((match) => (
-                    <GlassCard key={`${match.product_id}-${match.match_type}`} className="p-4">
+                    <GlassCard key={`${match.product_id}-${match.match_type}`} className={`${consoleReadableCard} p-4`}>
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                         <div className="min-w-0">
-                          <div className="truncate text-base font-semibold text-slate-50">{match.display_name}</div>
+                          <div className="truncate text-base font-semibold text-[#111827]">{match.display_name}</div>
                           <div className="mt-1 text-xs text-slate-400">
                             {match.trade_name || "—"} · {match.manufacturer || "производитель не указан"}
                           </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                          <StatusPill tone="accent">{formatConfidence(match.confidence)}</StatusPill>
-                          <StatusPill tone={match.metadata_review_required ? "warning" : "success"}>
+                          <StatusPill tone="accent" className={consoleReadablePill}>{formatConfidence(match.confidence)}</StatusPill>
+                          <StatusPill tone={match.metadata_review_required ? "warning" : "success"} className={consoleReadablePill}>
                             {match.metadata_review_required ? "Нужна проверка метаданных" : "Метаданные OK"}
                           </StatusPill>
                         </div>
@@ -1325,12 +1861,14 @@ export default function KnowledgeIntakePage() {
 
                       <div className="mt-4 grid gap-2 md:grid-cols-3 xl:grid-cols-4">
                         <CompactStat
+                          className={consoleReadableStat}
                           label="Тип"
                           value={formatKnowledgeProductType(match.product_type)}
                         />
-                        <CompactStat label="Подтип" value={formatKnowledgeSubcategory(match.subcategory)} />
-                        <CompactStat label="Единица измерения" value={formatKnowledgeStockUnit(match.stock_unit)} />
+                        <CompactStat className={consoleReadableStat} label="Подтип" value={formatKnowledgeSubcategory(match.subcategory)} />
+                        <CompactStat className={consoleReadableStat} label="Единица измерения" value={formatKnowledgeStockUnit(match.stock_unit)} />
                         <CompactStat
+                          className={consoleReadableStat}
                           label="Тип расхода"
                           value={formatKnowledgeConsumptionType(
                             match.default_rate_unit,
@@ -1340,6 +1878,7 @@ export default function KnowledgeIntakePage() {
                           )}
                         />
                         <CompactStat
+                          className={consoleReadableStat}
                           label="Match"
                           value={formatKnowledgeMatchType(match.match_type)}
                         />
@@ -1352,7 +1891,7 @@ export default function KnowledgeIntakePage() {
                   ))
                 ) : (
                   <EmptyState>
-                    <div className="font-semibold text-slate-100">Совпадений не найдено.</div>
+                    <div className="font-semibold text-[#111827]">Совпадений не найдено.</div>
                     <p className="mt-2 leading-6">
                       Это ещё не значит, что препарата нет. Следующий шаг — поиск источников и ручная проверка.
                     </p>

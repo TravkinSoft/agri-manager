@@ -263,6 +263,8 @@ const STATUS_LABELS: Record<string, string> = {
 
 const RATE_BASIS_LABELS: Record<RateBasis, string> = MATERIAL_RATE_BASIS_LABELS_RU;
 const VISIBLE_RATE_BASIS: RateBasis[] = [...MATERIAL_RATE_BASIS];
+const CARE_SYSTEMS_LOAD_TIMEOUT_MS = 45000;
+const CARE_SYSTEMS_AUTH_TIMEOUT_MS = 8000;
 const UNIT_LABELS: Record<MaterialDraft["rate_unit"], string> = {
   l: "л",
   ml: "мл",
@@ -270,6 +272,16 @@ const UNIT_LABELS: Record<MaterialDraft["rate_unit"], string> = {
   g: "г",
   pcs: "шт",
 };
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId);
+  });
+}
 
 const TARGET_TYPE_LABELS: Record<TargetType, string> = {
   disease: "Болезнь",
@@ -355,6 +367,20 @@ function dedupeByKey<T>(items: T[], key: (item: T) => string, prefer?: (current:
     map.set(nextKey, current && prefer ? prefer(current, item) : current || item);
   }
   return Array.from(map.values());
+}
+
+function normalizeBootstrapPayload(payload: Partial<Bootstrap> | null | undefined): Bootstrap {
+  const source = payload ?? {};
+  return {
+    season: source.season ?? null,
+    read_only: Boolean(source.read_only),
+    read_only_reason: source.read_only_reason ?? null,
+    crops: Array.isArray(source.crops) ? source.crops : [],
+    varieties: Array.isArray(source.varieties) ? source.varieties : [],
+    products: Array.isArray(source.products) ? source.products : [],
+    responsible_users: Array.isArray(source.responsible_users) ? source.responsible_users : [],
+    schemes: Array.isArray(source.schemes) ? source.schemes : [],
+  };
 }
 
 function productHint(product: Product) {
@@ -476,10 +502,11 @@ function SearchableSelect(props: {
 }
 
 export default function CareSystemsPage() {
-  const { profile } = useAuth();
+  const { profile, loading: authLoading } = useAuth();
   const { toast } = useToast();
   const [data, setData] = useState<Bootstrap | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedSchemeId, setSelectedSchemeId] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
@@ -520,7 +547,7 @@ export default function CareSystemsPage() {
   const [schemeFieldSearch, setSchemeFieldSearch] = useState("");
 
   const selectedScheme = useMemo(
-    () => data?.schemes.find((scheme) => scheme.id === selectedSchemeId) || data?.schemes[0] || null,
+    () => data?.schemes?.find((scheme) => scheme.id === selectedSchemeId) || data?.schemes?.[0] || null,
     [data?.schemes, selectedSchemeId]
   );
 
@@ -660,7 +687,11 @@ export default function CareSystemsPage() {
   const selectedSchemeFieldsLocked = selectedSchemeHasGenerated;
 
   async function authHeaders(contentType = false) {
-    const { data: sessionData } = await supabase.auth.getSession();
+    const { data: sessionData } = await withTimeout(
+      supabase.auth.getSession(),
+      CARE_SYSTEMS_AUTH_TIMEOUT_MS,
+      "Сессия загружается слишком долго. Обновите страницу и попробуйте снова."
+    );
     const token = sessionData.session?.access_token;
     if (!token) throw new Error("Сессия не найдена. Войдите снова.");
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
@@ -675,22 +706,36 @@ export default function CareSystemsPage() {
   }
 
   async function load() {
-    if (!profile) return;
+    if (!profile?.company_id) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
+    setLoadError(null);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), CARE_SYSTEMS_LOAD_TIMEOUT_MS);
     try {
       const response = await fetch(withCompany("/api/crop-care-schemes"), {
         headers: await authHeaders(),
         cache: "no-store",
+        signal: controller.signal,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить схемы");
-      setData(payload);
-      if (!selectedSchemeId && payload.schemes?.[0]?.id) {
-        setSelectedSchemeId(payload.schemes[0].id);
+      const normalizedPayload = normalizeBootstrapPayload(payload);
+      setData(normalizedPayload);
+      if (!selectedSchemeId && normalizedPayload.schemes[0]?.id) {
+        setSelectedSchemeId(normalizedPayload.schemes[0].id);
       }
     } catch (error: any) {
-      toast({ title: "Ошибка", description: error?.message || "Не удалось загрузить страницу", variant: "destructive" });
+      const message =
+        error?.name === "AbortError"
+          ? "Загрузка схем заняла слишком много времени. Проверьте соединение и обновите страницу."
+          : error?.message || "Не удалось загрузить страницу";
+      setLoadError(message);
+      toast({ title: "Ошибка", description: message, variant: "destructive" });
     } finally {
+      window.clearTimeout(timeoutId);
       setLoading(false);
     }
   }
@@ -721,12 +766,18 @@ export default function CareSystemsPage() {
   }
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!profile?.company_id) {
+      setLoading(false);
+      setData(null);
+      return;
+    }
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.id, profile?.company_id]);
+  }, [authLoading, profile?.id, profile?.company_id]);
 
   useEffect(() => {
-    if (!selectedSchemeId && data?.schemes[0]?.id) {
+    if (!selectedSchemeId && data?.schemes?.[0]?.id) {
       setSelectedSchemeId(data.schemes[0].id);
     }
   }, [data?.schemes, selectedSchemeId]);
@@ -999,6 +1050,36 @@ export default function CareSystemsPage() {
         <div className="flex min-h-[360px] items-center justify-center rounded-lg border border-[#1F2937] bg-[#111827] text-[#9CA3AF]">
           <Loader2 className="mr-2 h-5 w-5 animate-spin" />
           Загрузка схем...
+        </div>
+      </div>
+    );
+  }
+
+  if (!authLoading && !profile?.company_id) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Системы защиты и ухода" description="Схемы обработок, питания и фертигации" />
+        <div className="rounded-lg border border-[#273449] bg-[#111827] p-6">
+          <h2 className="text-lg font-semibold text-[#F9FAFB]">Компания не выбрана</h2>
+          <p className="mt-2 text-sm text-[#9CA3AF]">Для систем защиты и ухода нужен активный профиль компании. Обновите страницу или выберите компанию в верхней панели.</p>
+          <Button className="mt-4 bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]" onClick={() => window.location.reload()}>
+            Обновить страницу
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError && !data) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Системы защиты и ухода" description="Схемы обработок, питания и фертигации" />
+        <div className="rounded-lg border border-red-900/50 bg-red-950/30 p-6">
+          <h2 className="text-lg font-semibold text-red-100">Не удалось загрузить схемы</h2>
+          <p className="mt-2 text-sm text-red-200">{loadError}</p>
+          <Button className="mt-4 bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]" onClick={() => void load()}>
+            Повторить загрузку
+          </Button>
         </div>
       </div>
     );
