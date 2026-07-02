@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -16,37 +16,26 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import {
   addGlobalAgrochemicalToCompany,
   archiveCompanyPerson,
-  createCrop,
   createCompanyPerson,
+  createEquipmentReference,
   createMachineReference,
-  createSeedReproduction,
-  createSpecialistReference,
-  createVariety,
   createVehicleReference,
-  getGlobalVehicleBrands,
-  getGlobalVehicleModels,
+  getAdditives,
   getCompanyPeople,
-  getCrops,
   getEquipmentReferences,
   getFertilizers,
   getMachineReferences,
   getPesticides,
-  getSeedReproductions,
-  getSpecialistReferences,
-  getVarieties,
+  getSeasonAgronomyUsage,
   getVehicleReferences,
-  updateCompanyPerson,
-  updateSpecialistReference,
   searchAgrochemicalMaster,
+  updateCompanyPerson,
+  type SeasonAgronomyUsageRow,
 } from "@/lib/services/references";
 
 type DomainTab = "agronomy" | "agrochemistry" | "machine-yard" | "fleet" | "personnel";
-type AgronomyTab = "crops" | "varieties" | "reproductions";
-type AgrochemTab = "master" | "company";
 type MachineYardTab = "machines" | "equipment";
-type FleetTab = "vehicles";
-type PersonnelTab = "workers" | "specialists";
-type ModalType = "crop" | "variety" | "reproduction" | "machine" | "vehicle" | "specialist" | "worker";
+type ModalType = "machine" | "equipment" | "vehicle" | "worker";
 
 const pesticideCategoryLabels: Record<string, string> = {
   herbicide: "Гербицид",
@@ -79,23 +68,29 @@ const vehicleTypeLabels: Record<string, string> = {
   grain_truck: "Зерновоз",
   dump_truck: "Самосвал",
   tractor_trailer: "Трактор с прицепом",
-};
-
-const personnelTypeLabels: Record<string, string> = {
-  driver: "Водитель",
-  machine_operator: "Механизатор",
-};
-
-const workerRoleLabels: Record<string, string> = {
-  driver: "Водитель",
-  machine_operator: "Механизатор",
-  worker: "Рабочий",
-  cook: "Повар",
-  office: "Офис",
-  guard: "Охрана",
-  manager: "Руководитель",
+  tractor: "Трактор",
+  combine: "Комбайн",
+  trailer: "Прицеп",
+  loader: "Погрузчик",
+  sprayer: "Опрыскиватель",
+  seeder: "Сеялка",
   other: "Другое",
 };
+
+const workerRoleOptions = [
+  { value: "office", label: "Агроном" },
+  { value: "machine_operator", label: "Механизатор" },
+  { value: "driver", label: "Водитель" },
+  { value: "worker", label: "Рабочий" },
+  { value: "manager", label: "Администратор" },
+  { value: "cook", label: "Повар" },
+  { value: "guard", label: "Охрана" },
+  { value: "other", label: "Другое" },
+] as const;
+
+const workerRoleLabels: Record<string, string> = Object.fromEntries(
+  workerRoleOptions.map((option) => [option.value, option.label])
+);
 
 const employmentTypeLabels: Record<string, string> = {
   permanent: "Постоянный",
@@ -111,27 +106,79 @@ const workerStatusLabels: Record<string, string> = {
   archived: "Архив",
 };
 
-function DataTable(props: { headers: string[]; rows: string[][]; loading: boolean; empty: string }) {
+const formatHa = (value: number) =>
+  `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
+
+function DataTable(props: { headers: string[]; rows: ReactNode[][]; loading: boolean; empty: string }) {
   return (
     <Table>
       <TableHeader>
-        <TableRow>{props.headers.map((header) => <TableHead key={header}>{header}</TableHead>)}</TableRow>
+        <TableRow>
+          {props.headers.map((header) => (
+            <TableHead key={header}>{header}</TableHead>
+          ))}
+        </TableRow>
       </TableHeader>
       <TableBody>
         {props.loading ? (
-          <TableRow><TableCell colSpan={props.headers.length} className="text-center text-slate-500">Загрузка...</TableCell></TableRow>
+          <TableRow>
+            <TableCell colSpan={props.headers.length} className="text-center text-slate-500">
+              Загрузка...
+            </TableCell>
+          </TableRow>
         ) : props.rows.length === 0 ? (
-          <TableRow><TableCell colSpan={props.headers.length} className="text-center text-slate-500">{props.empty}</TableCell></TableRow>
+          <TableRow>
+            <TableCell colSpan={props.headers.length} className="text-center text-slate-500">
+              {props.empty}
+            </TableCell>
+          </TableRow>
         ) : (
           props.rows.map((row, rowIdx) => (
             <TableRow key={rowIdx}>
-              {row.map((cell, cellIdx) => <TableCell key={`${rowIdx}-${cellIdx}`} className={cellIdx === 0 ? "font-medium" : ""}>{cell}</TableCell>)}
+              {row.map((cell, cellIdx) => (
+                <TableCell key={`${rowIdx}-${cellIdx}`} className={cellIdx === 0 ? "font-medium" : ""}>
+                  {cell}
+                </TableCell>
+              ))}
             </TableRow>
           ))
         )}
       </TableBody>
     </Table>
   );
+}
+
+function reproductionDisplay(value?: string | null) {
+  const text = String(value || "").trim();
+  if (!text) return "—";
+  const normalized = text.toLowerCase();
+  const display = (code: string, description: string) => (
+    <div>
+      <div className="font-medium">{code}</div>
+      <div className="text-xs text-slate-500">{description}</div>
+    </div>
+  );
+  if (/(ориг|original|^os$|^oc$)/i.test(normalized)) return display("ОС", "Оригинальные семена");
+  if (/(супер|super|^se$|^сэ$)/i.test(normalized)) return display("СЭ", "Суперэлита");
+  if (/(элит|elite|^es$|^эс$)/i.test(normalized)) return display("ЭС?", "Элита, проверьте категорию");
+  if (/(рс1|rs1|r1|1 репр|первая)/i.test(normalized)) return display("РС1", "1-я репродукция");
+  if (/(рс2|rs2|r2|2 репр|вторая)/i.test(normalized)) return display("РС2", "2-я репродукция");
+  if (/(рс3|rs3|r3|3 репр|третья)/i.test(normalized)) return display("РС3", "3-я репродукция");
+  if (/(рс4|rs4|r4|4 репр|четвертая|четвёртая)/i.test(normalized)) return display("РС4", "4-я репродукция");
+  if (/f1/i.test(normalized)) return display("F1", "Гибрид 1-го поколения");
+  return text;
+}
+
+function materialKind(row: any) {
+  const haystack = [row.product_type, row.type, row.category, row.subcategory].join(" ").toLowerCase();
+  if (haystack.includes("fertilizer")) return "Удобрение";
+  if (haystack.includes("additive") || haystack.includes("adjuvant")) return "Добавка";
+  return "Пестицид";
+}
+
+function materialCategory(row: any) {
+  const key = String(row.subcategory || row.pesticide_category || row.fertilizer_type || row.category || "");
+  return pesticideCategoryLabels[key] || fertilizerTypeLabels[key] || key || "—";
 }
 
 export default function ReferencesPage() {
@@ -141,52 +188,44 @@ export default function ReferencesPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [linkingGlobalId, setLinkingGlobalId] = useState<string | null>(null);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
 
   const [domainTab, setDomainTab] = useState<DomainTab>("agronomy");
-  const [agronomyTab, setAgronomyTab] = useState<AgronomyTab>("crops");
-  const [agrochemTab, setAgrochemTab] = useState<AgrochemTab>("master");
   const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("machines");
-  const [fleetTab, setFleetTab] = useState<FleetTab>("vehicles");
-  const [personnelTab, setPersonnelTab] = useState<PersonnelTab>("workers");
   const [modalType, setModalType] = useState<ModalType | null>(null);
   const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
 
-  const [searchMaster, setSearchMaster] = useState("");
+  const [catalogSearch, setCatalogSearch] = useState("");
   const [workerSearch, setWorkerSearch] = useState("");
   const [workerRoleFilter, setWorkerRoleFilter] = useState("all");
   const [workerStatusFilter, setWorkerStatusFilter] = useState("active");
 
-  const [crops, setCrops] = useState<any[]>([]);
-  const [varieties, setVarieties] = useState<any[]>([]);
-  const [reproductions, setReproductions] = useState<any[]>([]);
+  const [seasonUsage, setSeasonUsage] = useState<SeasonAgronomyUsageRow[]>([]);
   const [pesticides, setPesticides] = useState<any[]>([]);
   const [fertilizers, setFertilizers] = useState<any[]>([]);
-  const [agroMasterRows, setAgroMasterRows] = useState<any[]>([]);
+  const [additives, setAdditives] = useState<any[]>([]);
+  const [catalogRows, setCatalogRows] = useState<any[]>([]);
   const [machines, setMachines] = useState<any[]>([]);
   const [equipment, setEquipment] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [workers, setWorkers] = useState<any[]>([]);
-  const [specialists, setSpecialists] = useState<any[]>([]);
-  const [globalBrands, setGlobalBrands] = useState<any[]>([]);
-  const [globalModels, setGlobalModels] = useState<any[]>([]);
 
   const [form, setForm] = useState<Record<string, string>>({});
 
+  const companyMaterials = useMemo(() => [...pesticides, ...fertilizers, ...additives], [pesticides, fertilizers, additives]);
+
   const currentAction = useMemo(() => {
-    if (domainTab === "agronomy") {
-      if (agronomyTab === "crops") return { label: "Добавить культуру", modal: "crop" as const };
-      if (agronomyTab === "varieties") return { label: "Добавить сорт", modal: "variety" as const };
-      return { label: "Добавить репродукцию", modal: "reproduction" as const };
+    if (domainTab === "machine-yard" && machineYardTab === "machines") {
+      return { label: "Добавить технику", modal: "machine" as const };
     }
-    if (domainTab === "machine-yard") {
-      if (machineYardTab === "machines") return { label: "Добавить технику", modal: "machine" as const };
-      return null;
+    if (domainTab === "machine-yard" && machineYardTab === "equipment") {
+      return { label: "Добавить оборудование", modal: "equipment" as const };
     }
-    if (domainTab === "fleet" && fleetTab === "vehicles") return { label: "Добавить машину", modal: "vehicle" as const };
-    if (domainTab === "personnel" && personnelTab === "workers") return { label: "Добавить работника", modal: "worker" as const };
-    if (domainTab === "personnel" && personnelTab === "specialists") return { label: "Добавить водителя/механизатора", modal: "specialist" as const };
+    if (domainTab === "fleet") return { label: "Добавить транспорт", modal: "vehicle" as const };
+    if (domainTab === "personnel") return { label: "Добавить сотрудника", modal: "worker" as const };
     return null;
-  }, [domainTab, agronomyTab, machineYardTab, fleetTab, personnelTab]);
+  }, [domainTab, machineYardTab]);
 
   const loadAll = async () => {
     if (!profile?.company_id) {
@@ -195,44 +234,28 @@ export default function ReferencesPage() {
     }
     setLoading(true);
     try {
-      const [cropRows, varietyRows, reprRows, pesticideRows, fertilizerRows, machineRows, equipmentRows, vehicleRows, workerRows, specialistRows, brandRows, modelRows] = await Promise.all([
-        getCrops(profile.company_id, false, "ru"),
-        getVarieties(profile.company_id, false, "ru"),
-        getSeedReproductions(profile.company_id, false, "ru"),
-        getPesticides(profile.company_id, false, "ru"),
-        getFertilizers(profile.company_id, false, "ru"),
-        getMachineReferences(profile.company_id, false, "ru"),
-        getEquipmentReferences(profile.company_id, false, "ru"),
-        getVehicleReferences(profile.company_id, false),
-        getCompanyPeople(profile.company_id, true),
-        getSpecialistReferences(profile.company_id, false),
-        getGlobalVehicleBrands(),
-        getGlobalVehicleModels(),
-      ]);
-      setCrops(cropRows);
-      setVarieties(varietyRows);
-      setReproductions(reprRows);
+      const [usageRows, pesticideRows, fertilizerRows, additiveRows, machineRows, equipmentRows, vehicleRows, workerRows] =
+        await Promise.all([
+          getSeasonAgronomyUsage(profile.company_id, "ru"),
+          getPesticides(profile.company_id, false, "ru"),
+          getFertilizers(profile.company_id, false, "ru"),
+          getAdditives(profile.company_id, false, "ru"),
+          getMachineReferences(profile.company_id, false, "ru"),
+          getEquipmentReferences(profile.company_id, false, "ru"),
+          getVehicleReferences(profile.company_id, false),
+          getCompanyPeople(profile.company_id, true),
+        ]);
+      setSeasonUsage(usageRows);
       setPesticides(pesticideRows);
       setFertilizers(fertilizerRows);
+      setAdditives(additiveRows);
       setMachines(machineRows);
       setEquipment(equipmentRows);
       setVehicles(vehicleRows);
       setWorkers(workerRows);
-      setSpecialists(specialistRows);
-      setGlobalBrands(brandRows);
-      setGlobalModels(modelRows);
     } finally {
       setLoading(false);
     }
-  };
-
-  const loadMasterCatalog = async () => {
-    if (!profile?.company_id) return;
-    const [pRows, fRows] = await Promise.all([
-      searchAgrochemicalMaster(profile.company_id, "pesticide", searchMaster, "ru"),
-      searchAgrochemicalMaster(profile.company_id, "fertilizer", searchMaster, "ru"),
-    ]);
-    setAgroMasterRows([...pRows, ...fRows].filter((row) => row.source_scope === "global"));
   };
 
   useEffect(() => {
@@ -240,18 +263,49 @@ export default function ReferencesPage() {
   }, [profile?.company_id]);
 
   useEffect(() => {
-    void loadMasterCatalog();
-  }, [profile?.company_id, searchMaster]);
+    if (!profile?.company_id || !catalogOpen) return;
+    const query = catalogSearch.trim();
+    if (query.length < 2) {
+      setCatalogRows([]);
+      setCatalogLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCatalogLoading(true);
+    (async () => {
+      try {
+        const [pRows, fRows, aRows] = await Promise.all([
+          searchAgrochemicalMaster(profile.company_id!, "pesticide", query, "ru"),
+          searchAgrochemicalMaster(profile.company_id!, "fertilizer", query, "ru"),
+          searchAgrochemicalMaster(profile.company_id!, "additive", query, "ru"),
+        ]);
+        if (!cancelled) setCatalogRows([...pRows, ...fRows, ...aRows]);
+      } catch (error) {
+        if (!cancelled) {
+          setCatalogRows([]);
+          toast({
+            title: "Ошибка",
+            description: error instanceof Error ? error.message : "Не удалось найти материалы в каталоге TravkinFlow",
+            variant: "destructive",
+          });
+        }
+      } finally {
+        if (!cancelled) setCatalogLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogOpen, catalogSearch, profile?.company_id, toast]);
 
   const filteredWorkers = useMemo(() => {
     const query = workerSearch.trim().toLowerCase();
     return workers.filter((worker) => {
-      const matchesSearch = !query || [
-        worker.full_name,
-        worker.short_name,
-        worker.phone,
-        worker.notes,
-      ].some((value) => String(value || "").toLowerCase().includes(query));
+      const matchesSearch =
+        !query ||
+        [worker.full_name, worker.short_name, worker.phone, worker.notes].some((value) =>
+          String(value || "").toLowerCase().includes(query)
+        );
       const matchesRole = workerRoleFilter === "all" || worker.role_type === workerRoleFilter;
       const matchesStatus = workerStatusFilter === "all" || worker.status === workerStatusFilter;
       return matchesSearch && matchesRole && matchesStatus;
@@ -274,19 +328,6 @@ export default function ReferencesPage() {
     if (!profile?.company_id || !profile?.id || !modalType || saving) return;
     setSaving(true);
     try {
-      if (modalType === "crop") {
-        if (!form.name?.trim()) throw new Error("Укажите название культуры");
-        await createCrop(profile.company_id, { name: form.name.trim() });
-      }
-      if (modalType === "variety") {
-        if (!form.name?.trim()) throw new Error("Укажите название сорта");
-        if (!form.crop_id) throw new Error("Сорт должен быть привязан к культуре");
-        await createVariety(profile.company_id, { name: form.name.trim(), crop_id: form.crop_id });
-      }
-      if (modalType === "reproduction") {
-        if (!form.name?.trim()) throw new Error("Укажите название репродукции");
-        await createSeedReproduction(profile.company_id, { name: form.name.trim() });
-      }
       if (modalType === "machine") {
         if (!form.name?.trim()) throw new Error("Укажите название техники");
         await createMachineReference(profile.company_id, profile.id, {
@@ -297,16 +338,23 @@ export default function ReferencesPage() {
           is_active: true,
         });
       }
+      if (modalType === "equipment") {
+        if (!form.name?.trim()) throw new Error("Укажите название оборудования");
+        await createEquipmentReference(profile.company_id, profile.id, {
+          name: form.name.trim(),
+          category: form.category || "other",
+        });
+      }
       if (modalType === "vehicle") {
-        if (!form.name?.trim()) throw new Error("Укажите название машины");
+        if (!form.name?.trim()) throw new Error("Укажите название транспорта");
         if (!form.plate_number?.trim()) throw new Error("Укажите госномер");
         await createVehicleReference(profile.company_id, profile.id, {
           name: form.name.trim(),
-          global_brand_id: form.global_brand_id || null,
-          global_model_id: form.global_model_id || null,
+          global_brand_id: null,
+          global_model_id: null,
           custom_name: form.custom_name || form.name.trim(),
           inventory_number: form.inventory_number || "",
-          primary_responsible_personnel_id: form.primary_responsible_personnel_id || null,
+          primary_responsible_personnel_id: null,
           vehicle_type: (form.vehicle_type || "truck") as any,
           plate_number: form.plate_number.trim(),
           capacity_kg: Number(form.capacity_kg || 0),
@@ -314,37 +362,6 @@ export default function ReferencesPage() {
           status: "free",
           is_active: true,
         });
-      }
-      if (modalType === "specialist") {
-        if (!form.full_name?.trim()) throw new Error("Укажите ФИО");
-        const created = await createSpecialistReference(profile.company_id, profile.id, {
-          full_name: form.full_name.trim(),
-          role: form.role || "",
-          personnel_type: (form.personnel_type || "driver") as any,
-          phone: form.phone || "",
-          status: (form.status || "active") as any,
-          note: form.note || "",
-          assigned_vehicle_ids: [],
-          machine_id: "",
-          equipment_id: "",
-        });
-        const assignedVehicleIds = String(form.assigned_vehicle_ids || "")
-          .split(",")
-          .map((x) => x.trim())
-          .filter(Boolean);
-        if (assignedVehicleIds.length > 0) {
-          await updateSpecialistReference(created.id, {
-            full_name: created.full_name,
-            role: created.role || "",
-            personnel_type: (created.personnel_type || "driver") as any,
-            phone: created.phone || "",
-            status: (created.status || "active") as any,
-            note: created.note || "",
-            assigned_vehicle_ids: assignedVehicleIds,
-            machine_id: "",
-            equipment_id: "",
-          });
-        }
       }
       if (modalType === "worker") {
         if (!form.full_name?.trim()) throw new Error("Укажите ФИО");
@@ -371,7 +388,7 @@ export default function ReferencesPage() {
     } catch (error) {
       toast({
         title: "Ошибка",
-        description: error instanceof Error ? error.message : "Не удалось создать запись",
+        description: error instanceof Error ? error.message : "Не удалось сохранить запись",
         variant: "destructive",
       });
     } finally {
@@ -399,23 +416,33 @@ export default function ReferencesPage() {
     try {
       await archiveCompanyPerson(profile.company_id, worker.id, profile.id);
       await loadAll();
-      toast({ title: "Готово", description: "Работник перенесён в архив" });
+      toast({ title: "Готово", description: "Сотрудник перенесён в архив" });
     } catch (error) {
-      toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось архивировать работника", variant: "destructive" });
+      toast({
+        title: "Ошибка",
+        description: error instanceof Error ? error.message : "Не удалось архивировать сотрудника",
+        variant: "destructive",
+      });
     } finally {
       setSaving(false);
     }
   };
 
-  const addFromMaster = async (productId: string) => {
+  const addFromCatalog = async (productId: string) => {
     if (!profile?.company_id || !profile?.id || linkingGlobalId) return;
     setLinkingGlobalId(productId);
     try {
       await addGlobalAgrochemicalToCompany(profile.company_id, profile.id, productId);
       await loadAll();
-      toast({ title: "Готово", description: "Препарат добавлен в каталог компании" });
+      setCatalogSearch("");
+      setCatalogRows([]);
+      toast({ title: "Готово", description: "Материал добавлен в компанию. Складские остатки не создавались." });
     } catch (error) {
-      toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось добавить в компанию", variant: "destructive" });
+      toast({
+        title: "Ошибка",
+        description: error instanceof Error ? error.message : "Не удалось добавить материал в компанию",
+        variant: "destructive",
+      });
     } finally {
       setLinkingGlobalId(null);
     }
@@ -423,14 +450,17 @@ export default function ReferencesPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Справочники" description="Управление доменами: Агрономия, Агрохимия, Машинный двор, Автопарк, Персонал" />
+      <PageHeader
+        title="Справочники"
+        description="Company-scoped справочники: структура сезона, материалы компании, техника, автопарк и персонал."
+      />
 
       <Tabs value={domainTab} onValueChange={(value) => setDomainTab(value as DomainTab)}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList className="w-full justify-start overflow-auto md:w-auto">
             <TabsTrigger value="agronomy">Агрономия</TabsTrigger>
             <TabsTrigger value="agrochemistry">Агрохимия</TabsTrigger>
-            <TabsTrigger value="machine-yard">Машинный двор</TabsTrigger>
+            <TabsTrigger value="machine-yard">Техника / оборудование</TabsTrigger>
             <TabsTrigger value="fleet">Автопарк</TabsTrigger>
             <TabsTrigger value="personnel">Персонал</TabsTrigger>
           </TabsList>
@@ -441,91 +471,60 @@ export default function ReferencesPage() {
           ) : null}
         </div>
 
-        <TabsContent value="agronomy" className="space-y-4">
-          <Tabs value={agronomyTab} onValueChange={(value) => setAgronomyTab(value as AgronomyTab)}>
-            <TabsList>
-              <TabsTrigger value="crops">Культуры</TabsTrigger>
-              <TabsTrigger value="varieties">Сорта</TabsTrigger>
-              <TabsTrigger value="reproductions">Репродукции</TabsTrigger>
-            </TabsList>
-            <TabsContent value="crops">
-              <Card>
-                <CardHeader><CardTitle>Культуры компании</CardTitle></CardHeader>
-                <CardContent><DataTable headers={["Название"]} rows={crops.map((x) => [x.name])} loading={loading} empty="Культуры не добавлены" /></CardContent>
-              </Card>
-            </TabsContent>
-            <TabsContent value="varieties">
-              <Card>
-                <CardHeader><CardTitle>Сорта (обязательно с привязкой к культуре)</CardTitle></CardHeader>
-                <CardContent><DataTable headers={["Культура", "Сорт"]} rows={varieties.map((x) => [x.crop_name || "-", x.name])} loading={loading} empty="Сорта не добавлены" /></CardContent>
-              </Card>
-            </TabsContent>
-            <TabsContent value="reproductions">
-              <Card>
-                <CardHeader><CardTitle>Репродукции</CardTitle></CardHeader>
-                <CardContent><DataTable headers={["Название"]} rows={reproductions.map((x) => [x.name])} loading={loading} empty="Репродукции не добавлены" /></CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+        <TabsContent value="agronomy">
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                Культуры в текущем сезоне
+                {seasonUsage[0]?.season_year ? ` ${seasonUsage[0].season_year}` : ""}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-slate-500">
+                Это read-only срез из структуры посевов компании. Глобальные культуры и демо-справочник здесь не показываются.
+              </p>
+              <DataTable
+                headers={["Культура", "Площадь", "Полей/участков", "Сорт", "Репродукция"]}
+                rows={seasonUsage.map((row) => [
+                  row.crop_name,
+                  formatHa(row.area_ha),
+                  String(row.field_count),
+                  row.variety_name || "—",
+                  reproductionDisplay(row.reproduction_name),
+                ])}
+                loading={loading}
+                empty="Структура сезона ещё не заполнена"
+              />
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="agrochemistry" className="space-y-4">
-          <Card className="border-dashed">
-            <CardContent className="pt-6 text-sm text-slate-600">
-              Агрохимия работает только через глобальный каталог AgriManager. Создание пестицидов и удобрений в компании запрещено.
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <CardTitle>Материалы компании</CardTitle>
+              <Button variant="outline" onClick={() => setCatalogOpen(true)}>
+                Добавить из каталога TravkinFlow
+              </Button>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-slate-500">
+                Здесь отображаются только препараты, удобрения и добавки, уже подключённые к компании.
+              </p>
+              <DataTable
+                headers={["Название", "Тип", "Категория/подтип", "Производитель", "ДВ/состав"]}
+                rows={companyMaterials.map((x) => [
+                  x.trade_name || x.name,
+                  materialKind(x),
+                  materialCategory(x),
+                  x.manufacturer || "—",
+                  x.active_ingredient || "—",
+                ])}
+                loading={loading}
+                empty="Материалы компании не добавлены"
+              />
             </CardContent>
           </Card>
-          <Tabs value={agrochemTab} onValueChange={(value) => setAgrochemTab(value as AgrochemTab)}>
-            <TabsList>
-              <TabsTrigger value="master">Каталог AgriManager</TabsTrigger>
-              <TabsTrigger value="company">Используется в компании</TabsTrigger>
-            </TabsList>
-            <TabsContent value="master" className="space-y-3">
-              <Input placeholder="Поиск по глобальному каталогу..." value={searchMaster} onChange={(e) => setSearchMaster(e.target.value)} className="max-w-md" />
-              <Card>
-                <CardHeader><CardTitle>Глобальные пестициды и удобрения</CardTitle></CardHeader>
-                <CardContent>
-                  <DataTable
-                    headers={["Название", "Тип", "Категория/Тип", "ДВ", "Действие"]}
-                    rows={agroMasterRows.map((x) => [
-                      x.trade_name || x.name,
-                      x.type === "pesticide" ? "Пестицид" : "Удобрение",
-                      x.type === "pesticide" ? pesticideCategoryLabels[x.pesticide_category || ""] || "-" : fertilizerTypeLabels[x.fertilizer_type || ""] || "-",
-                      x.active_ingredient || "-",
-                      linkingGlobalId === x.id ? "Добавление..." : "Добавить в компанию",
-                    ])}
-                    loading={loading}
-                    empty="Глобальные записи не найдены"
-                  />
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {agroMasterRows.map((x) => (
-                      <Button key={x.id} variant="outline" size="sm" disabled={!!linkingGlobalId} onClick={() => addFromMaster(x.id)}>
-                        {linkingGlobalId === x.id ? "Добавление..." : `Добавить: ${x.trade_name || x.name}`}
-                      </Button>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            <TabsContent value="company">
-              <Card>
-                <CardHeader><CardTitle>Подключенные продукты компании</CardTitle></CardHeader>
-                <CardContent>
-                  <DataTable
-                    headers={["Название", "Тип", "Категория/Тип", "ДВ"]}
-                    rows={[...pesticides, ...fertilizers].map((x) => [
-                      x.trade_name || x.name,
-                      x.type === "pesticide" ? "Пестицид" : "Удобрение",
-                      x.type === "pesticide" ? pesticideCategoryLabels[x.pesticide_category || ""] || "-" : fertilizerTypeLabels[x.fertilizer_type || ""] || "-",
-                      x.active_ingredient || "-",
-                    ])}
-                    loading={loading}
-                    empty="В компании еще нет подключенных агрохимических продуктов"
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
         </TabsContent>
 
         <TabsContent value="machine-yard">
@@ -536,173 +535,230 @@ export default function ReferencesPage() {
             </TabsList>
             <TabsContent value="machines">
               <Card>
-                <CardHeader><CardTitle>Техника</CardTitle></CardHeader>
-                <CardContent><DataTable headers={["Название", "Тип"]} rows={machines.map((x) => [x.name, x.type])} loading={loading} empty="Техника не добавлена" /></CardContent>
+                <CardHeader>
+                  <CardTitle>Техника компании</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={["Название", "Тип"]}
+                    rows={machines.map((x) => [x.name, x.type || "—"])}
+                    loading={loading}
+                    empty="Техника компании не добавлена"
+                  />
+                </CardContent>
               </Card>
             </TabsContent>
             <TabsContent value="equipment">
               <Card>
-                <CardHeader><CardTitle>Оборудование</CardTitle></CardHeader>
-                <CardContent><DataTable headers={["Название", "Категория"]} rows={equipment.map((x) => [x.name, x.category || "-"])} loading={loading} empty="Оборудование не добавлено" /></CardContent>
+                <CardHeader>
+                  <CardTitle>Оборудование компании</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={["Название", "Категория"]}
+                    rows={equipment.map((x) => [x.name, x.category || "—"])}
+                    loading={loading}
+                    empty="Оборудование компании не добавлено"
+                  />
+                </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
         </TabsContent>
 
         <TabsContent value="fleet">
-          <Tabs value={fleetTab} onValueChange={(value) => setFleetTab(value as FleetTab)}>
-            <TabsList><TabsTrigger value="vehicles">Машины</TabsTrigger></TabsList>
-            <TabsContent value="vehicles">
-              <Card>
-                <CardHeader><CardTitle>Автопарк</CardTitle></CardHeader>
-                <CardContent>
-                  <DataTable
-                    headers={["Название", "Тип", "Госномер", "Грузоподъемность (кг)"]}
-                    rows={vehicles.map((x) => [x.name, vehicleTypeLabels[x.vehicle_type] || x.vehicle_type, x.plate_number || "-", x.capacity_kg == null ? "-" : String(x.capacity_kg), x.primary_responsible?.full_name || "-", x.is_active ? "Активна" : "Неактивна"])}
-                    loading={loading}
-                    empty="Машины не добавлены"
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+          <Card>
+            <CardHeader>
+              <CardTitle>Автопарк</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DataTable
+                headers={["Название", "Тип", "Госномер", "Грузоподъёмность", "Ответственный", "Активность"]}
+                rows={vehicles.map((x) => [
+                  x.name,
+                  vehicleTypeLabels[x.vehicle_type] || x.vehicle_type || "—",
+                  x.plate_number || "—",
+                  x.capacity_kg == null ? "—" : `${Number(x.capacity_kg).toLocaleString("ru-RU")} кг`,
+                  x.primary_responsible?.full_name || "—",
+                  x.is_active ? "Активен" : "Неактивен",
+                ])}
+                loading={loading}
+                empty="Транспорт компании не добавлен"
+              />
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="personnel">
-          <Tabs value={personnelTab} onValueChange={(value) => setPersonnelTab(value as PersonnelTab)}>
-            <TabsList>
-              <TabsTrigger value="workers">Работники</TabsTrigger>
-              <TabsTrigger value="specialists">Водители и механизаторы</TabsTrigger>
-            </TabsList>
-            <TabsContent value="workers">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Работники компании</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_160px]">
-                    <Input
-                      placeholder="Поиск по ФИО, телефону или заметке..."
-                      value={workerSearch}
-                      onChange={(e) => setWorkerSearch(e.target.value)}
-                    />
-                    <Select value={workerRoleFilter} onValueChange={setWorkerRoleFilter}>
-                      <SelectTrigger><SelectValue placeholder="Роль" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Все роли</SelectItem>
-                        {Object.entries(workerRoleLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>{label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select value={workerStatusFilter} onValueChange={setWorkerStatusFilter}>
-                      <SelectTrigger><SelectValue placeholder="Статус" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">Все статусы</SelectItem>
-                        {Object.entries(workerStatusLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>{label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+          <Card>
+            <CardHeader>
+              <CardTitle>Персонал компании</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-[minmax(220px,1fr)_180px_160px]">
+                <Input
+                  placeholder="Поиск по ФИО, телефону или заметке..."
+                  value={workerSearch}
+                  onChange={(e) => setWorkerSearch(e.target.value)}
+                />
+                <Select value={workerRoleFilter} onValueChange={setWorkerRoleFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Роль" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Все роли</SelectItem>
+                    {workerRoleOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={workerStatusFilter} onValueChange={setWorkerStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Статус" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Все статусы</SelectItem>
+                    {Object.entries(workerStatusLabels).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>ФИО</TableHead>
-                        <TableHead>Роль</TableHead>
-                        <TableHead>Занятость</TableHead>
-                        <TableHead>Телефон</TableHead>
-                        <TableHead>Статус</TableHead>
-                        <TableHead>Заметка</TableHead>
-                        <TableHead className="text-right">Действия</TableHead>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>ФИО</TableHead>
+                    <TableHead>Роль</TableHead>
+                    <TableHead>Занятость</TableHead>
+                    <TableHead>Телефон</TableHead>
+                    <TableHead>Статус</TableHead>
+                    <TableHead>Заметка</TableHead>
+                    <TableHead className="text-right">Действия</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {loading ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-slate-500">
+                        Загрузка...
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredWorkers.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={7} className="text-center text-slate-500">
+                        Сотрудники не найдены
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    filteredWorkers.map((worker) => (
+                      <TableRow key={worker.id}>
+                        <TableCell className="font-medium">
+                          <div>{worker.full_name}</div>
+                          {worker.short_name ? <div className="text-xs text-slate-500">{worker.short_name}</div> : null}
+                        </TableCell>
+                        <TableCell>{workerRoleLabels[worker.role_type] || worker.role_type}</TableCell>
+                        <TableCell>{employmentTypeLabels[worker.employment_type] || worker.employment_type}</TableCell>
+                        <TableCell>{worker.phone || "—"}</TableCell>
+                        <TableCell>{workerStatusLabels[worker.status] || worker.status}</TableCell>
+                        <TableCell className="max-w-[260px] truncate">{worker.notes || "—"}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button variant="outline" size="sm" onClick={() => editWorker(worker)} disabled={saving}>
+                              Изменить
+                            </Button>
+                            {worker.status !== "archived" ? (
+                              <Button variant="outline" size="sm" onClick={() => archiveWorker(worker)} disabled={saving}>
+                                Архив
+                              </Button>
+                            ) : null}
+                          </div>
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {loading ? (
-                        <TableRow><TableCell colSpan={7} className="text-center text-slate-500">Загрузка...</TableCell></TableRow>
-                      ) : filteredWorkers.length === 0 ? (
-                        <TableRow><TableCell colSpan={7} className="text-center text-slate-500">Работники не найдены</TableCell></TableRow>
-                      ) : (
-                        filteredWorkers.map((worker) => (
-                          <TableRow key={worker.id}>
-                            <TableCell className="font-medium">
-                              <div>{worker.full_name}</div>
-                              {worker.short_name ? <div className="text-xs text-slate-500">{worker.short_name}</div> : null}
-                            </TableCell>
-                            <TableCell>{workerRoleLabels[worker.role_type] || worker.role_type}</TableCell>
-                            <TableCell>{employmentTypeLabels[worker.employment_type] || worker.employment_type}</TableCell>
-                            <TableCell>{worker.phone || "-"}</TableCell>
-                            <TableCell>{workerStatusLabels[worker.status] || worker.status}</TableCell>
-                            <TableCell className="max-w-[260px] truncate">{worker.notes || "-"}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                <Button variant="outline" size="sm" onClick={() => editWorker(worker)} disabled={saving}>
-                                  Изменить
-                                </Button>
-                                {worker.status !== "archived" ? (
-                                  <Button variant="outline" size="sm" onClick={() => archiveWorker(worker)} disabled={saving}>
-                                    Архив
-                                  </Button>
-                                ) : null}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-            </TabsContent>
-            <TabsContent value="specialists">
-              <Card>
-                <CardHeader><CardTitle>Совместимость: водители и механизаторы</CardTitle></CardHeader>
-                <CardContent>
-                  <DataTable
-                    headers={["ФИО", "Тип", "Телефон", "Статус"]}
-                    rows={specialists.map((x) => [
-                      x.full_name,
-                      personnelTypeLabels[x.personnel_type || ""] || x.role || "-",
-                      x.phone || "-",
-                      x.status === "inactive" ? "Неактивен" : "Активен",
-                    ])}
-                    loading={loading}
-                    empty="Водители и механизаторы не добавлены"
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={catalogOpen} onOpenChange={(open) => !linkingGlobalId && setCatalogOpen(open)}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Добавить из каталога TravkinFlow</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Поиск материала</Label>
+              <Input
+                placeholder="Введите минимум 2 символа: название, производитель, ДВ..."
+                value={catalogSearch}
+                onChange={(e) => setCatalogSearch(e.target.value)}
+              />
+              <p className="text-xs text-slate-500">
+                Полный глобальный каталог не загружается. Сначала найдите нужный препарат, затем добавьте его в компанию.
+              </p>
+            </div>
+            <div className="max-h-[420px] overflow-auto rounded-md border">
+              <DataTable
+                headers={["Название", "Тип", "Категория/подтип", "Производитель", "Статус"]}
+                rows={catalogRows.map((x) => [
+                  <div key={`${x.id}-name`}>
+                    <div>{x.trade_name || x.name}</div>
+                    {x.active_ingredient ? <div className="text-xs text-slate-500">{x.active_ingredient}</div> : null}
+                  </div>,
+                  materialKind(x),
+                  materialCategory(x),
+                  x.manufacturer || "—",
+                  x.source_scope === "company" ? (
+                    <span className="text-sm text-slate-500">Уже добавлен</span>
+                  ) : (
+                    <Button size="sm" disabled={!!linkingGlobalId} onClick={() => addFromCatalog(x.id)}>
+                      {linkingGlobalId === x.id ? "Добавление..." : "Добавить"}
+                    </Button>
+                  ),
+                ])}
+                loading={catalogLoading}
+                empty={catalogSearch.trim().length < 2 ? "Введите минимум 2 символа для поиска" : "Ничего не найдено"}
+              />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && closeModal()}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {modalType === "crop" ? "Добавить культуру" : null}
-              {modalType === "variety" ? "Добавить сорт" : null}
-              {modalType === "reproduction" ? "Добавить репродукцию" : null}
               {modalType === "machine" ? "Добавить технику" : null}
-              {modalType === "vehicle" ? "Добавить машину" : null}
-              {modalType === "specialist" ? "Добавить специалиста" : null}
-              {modalType === "worker" ? (editingWorkerId ? "Изменить работника" : "Добавить работника") : null}
+              {modalType === "equipment" ? "Добавить оборудование" : null}
+              {modalType === "vehicle" ? "Добавить транспорт" : null}
+              {modalType === "worker" ? (editingWorkerId ? "Изменить сотрудника" : "Добавить сотрудника") : null}
             </DialogTitle>
           </DialogHeader>
 
           <div className="space-y-3">
-            {modalType === "crop" || modalType === "reproduction" || modalType === "machine" || modalType === "vehicle" ? (
+            {modalType === "machine" || modalType === "equipment" || modalType === "vehicle" ? (
               <div>
                 <Label>Название</Label>
                 <Input value={form.name || ""} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
               </div>
             ) : null}
 
-            {modalType === "specialist" ? (
+            {modalType === "equipment" ? (
               <div>
-                <Label>ФИО</Label>
-                <Input value={form.full_name || ""} onChange={(e) => setForm((prev) => ({ ...prev, full_name: e.target.value }))} />
+                <Label>Категория</Label>
+                <Input
+                  value={form.category || ""}
+                  placeholder="Например: сеялка, культиватор, транспортер"
+                  onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
+                />
               </div>
             ) : null}
 
@@ -720,21 +776,32 @@ export default function ReferencesPage() {
                   <div>
                     <Label>Роль</Label>
                     <Select value={form.role_type || "worker"} onValueChange={(value) => setForm((prev) => ({ ...prev, role_type: value }))}>
-                      <SelectTrigger><SelectValue placeholder="Выберите роль" /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите роль" />
+                      </SelectTrigger>
                       <SelectContent>
-                        {Object.entries(workerRoleLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                        {workerRoleOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <Label>Тип занятости</Label>
-                    <Select value={form.employment_type || "unknown"} onValueChange={(value) => setForm((prev) => ({ ...prev, employment_type: value }))}>
-                      <SelectTrigger><SelectValue placeholder="Выберите тип" /></SelectTrigger>
+                    <Select
+                      value={form.employment_type || "unknown"}
+                      onValueChange={(value) => setForm((prev) => ({ ...prev, employment_type: value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите тип" />
+                      </SelectTrigger>
                       <SelectContent>
                         {Object.entries(employmentTypeLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -748,10 +815,14 @@ export default function ReferencesPage() {
                   <div>
                     <Label>Статус</Label>
                     <Select value={form.status || "active"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
-                      <SelectTrigger><SelectValue placeholder="Выберите статус" /></SelectTrigger>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Выберите статус" />
+                      </SelectTrigger>
                       <SelectContent>
                         {Object.entries(workerStatusLabels).map(([value, label]) => (
-                          <SelectItem key={value} value={value}>{label}</SelectItem>
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -764,22 +835,6 @@ export default function ReferencesPage() {
               </>
             ) : null}
 
-            {modalType === "variety" ? (
-              <>
-                <div>
-                  <Label>Название сорта</Label>
-                  <Input value={form.name || ""} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>Культура (обязательно)</Label>
-                  <Select value={form.crop_id || ""} onValueChange={(value) => setForm((prev) => ({ ...prev, crop_id: value }))}>
-                    <SelectTrigger><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
-                    <SelectContent>{crops.map((x) => <SelectItem key={x.id} value={x.id}>{x.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-              </>
-            ) : null}
-
             {modalType === "vehicle" ? (
               <>
                 <div>
@@ -787,8 +842,12 @@ export default function ReferencesPage() {
                   <Input value={form.plate_number || ""} onChange={(e) => setForm((prev) => ({ ...prev, plate_number: e.target.value }))} />
                 </div>
                 <div>
-                  <Label>Грузоподъемность (кг)</Label>
-                  <Input type="number" value={form.capacity_kg || ""} onChange={(e) => setForm((prev) => ({ ...prev, capacity_kg: e.target.value }))} />
+                  <Label>Грузоподъёмность (кг)</Label>
+                  <Input
+                    type="number"
+                    value={form.capacity_kg || ""}
+                    onChange={(e) => setForm((prev) => ({ ...prev, capacity_kg: e.target.value }))}
+                  />
                 </div>
               </>
             ) : null}

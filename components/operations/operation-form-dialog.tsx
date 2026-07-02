@@ -861,9 +861,12 @@ export function OperationFormDialog({
       products.map((item) => ({
         id: item.id,
         label: operationProductTradeName(item) || item.name,
-        hint: `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} - ` : ""}${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${formatStorageUnit(item.unit)}${
-          item.warehouseNames.length > 0 ? ` • ${item.warehouseNames.slice(0, 2).join(", ")}` : ""
-        }`,
+        hint:
+          Number(item.availableQty || 0) > 0
+            ? `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Есть на складе: ${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${formatStorageUnit(item.unit)}${
+                item.warehouseNames.length > 0 ? ` • ${item.warehouseNames.slice(0, 2).join(", ")}` : ""
+              }`
+            : `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Нет на складе • Можно планировать`,
       })),
     [products]
   );
@@ -928,7 +931,18 @@ export function OperationFormDialog({
   useEffect(() => {
     if (!open || !profile?.company_id) return;
     (async () => {
-      const [catRes, typeRes, machinesRes, equipmentRes, transportRes, stockRes, cropsRes, varietiesRes, reproductionsRes] = await Promise.all([
+      const [
+        catRes,
+        typeRes,
+        machinesRes,
+        equipmentRes,
+        transportRes,
+        companyProductsRes,
+        stockRes,
+        cropsRes,
+        varietiesRes,
+        reproductionsRes,
+      ] = await Promise.all([
         supabase.from("operation_categories").select("id,slug,name_ru,is_active").eq("is_active", true).order("name_ru"),
         supabase
           .from("operation_types")
@@ -938,6 +952,13 @@ export function OperationFormDialog({
         supabase.from("reference_machines").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase.from("reference_equipment").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase.from("reference_vehicles").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
+        supabase
+          .from("products")
+          .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_dosing_type,default_rate_unit")
+          .eq("company_id", profile.company_id)
+          .eq("archived", false)
+          .eq("is_active", true)
+          .order("name"),
         supabase
           .from("v_stock_balance_identity")
           .select("product_id,warehouse_id,quantity")
@@ -974,23 +995,11 @@ export function OperationFormDialog({
             .map((row: any) => ({ id: String(row.id), name: localizedName(row, "ru", ["name", "code"]) || "-" }))
         );
       }
-      if (!stockRes.error) {
-        const stockRows = (stockRes.data || []).filter((row: any) => row.product_id);
-        const productIds = Array.from(new Set(stockRows.map((row: any) => String(row.product_id))));
+      if (!companyProductsRes.error) {
+        const stockRows = (stockRes.error ? [] : stockRes.data || []).filter((row: any) => row.product_id);
         const warehouseIds = Array.from(new Set(stockRows.map((row: any) => String(row.warehouse_id || "")).filter(Boolean)));
 
-        if (productIds.length === 0) {
-          setProducts([]);
-        } else {
-          const [productMetaRes, warehouseMetaRes] = await Promise.all([
-            supabase
-              .from("products")
-              .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_dosing_type,default_rate_unit")
-              .or(`company_id.eq.${profile.company_id},company_id.is.null`)
-              .eq("archived", false)
-              .eq("is_active", true)
-              .in("id", productIds)
-              .order("name"),
+        const [warehouseMetaRes] = await Promise.all([
             warehouseIds.length > 0
               ? supabase
                   .from("warehouses")
@@ -998,7 +1007,7 @@ export function OperationFormDialog({
                   .eq("company_id", profile.company_id)
                   .in("id", warehouseIds)
               : Promise.resolve({ data: [], error: null } as any),
-          ]);
+        ]);
 
           const productMetaById = new Map<
             string,
@@ -1025,7 +1034,7 @@ export function OperationFormDialog({
               | "default_rate_unit"
             >
           >(
-            (productMetaRes.data || []).map((row: any) => [
+            (companyProductsRes.data || []).map((row: any) => [
               String(row.id),
               {
                 name:
@@ -1073,6 +1082,33 @@ export function OperationFormDialog({
           );
           const grouped = new Map<string, ProductOption>();
 
+          productMetaById.forEach((meta, productId) => {
+            grouped.set(productId, {
+              id: productId,
+              name: meta.name,
+              trade_name: meta.trade_name,
+              normalized_name: meta.normalized_name,
+              manufacturer: meta.manufacturer,
+              notes: meta.notes,
+              type: meta.type,
+              product_type: meta.product_type,
+              category: meta.category,
+              subcategory: meta.subcategory,
+              pesticide_category: meta.pesticide_category,
+              fertilizer_type: meta.fertilizer_type,
+              unit: meta.unit,
+              stock_unit: meta.stock_unit,
+              default_unit: meta.default_unit,
+              base_uom: meta.base_uom,
+              application_unit: meta.application_unit,
+              default_rate_type: meta.default_rate_type,
+              default_dosing_type: meta.default_dosing_type,
+              default_rate_unit: meta.default_rate_unit,
+              availableQty: 0,
+              warehouseNames: [],
+            });
+          });
+
           stockRows.forEach((row: any) => {
             if (!productionWarehouseIds.has(String(row.warehouse_id || ""))) return;
             const productId = String(row.product_id);
@@ -1112,8 +1148,13 @@ export function OperationFormDialog({
             grouped.set(productId, current);
           });
 
-          setProducts(Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name, "ru")));
-        }
+          setProducts(
+            Array.from(grouped.values()).sort((a, b) => {
+              const stockDiff = Number(b.availableQty > 0) - Number(a.availableQty > 0);
+              if (stockDiff !== 0) return stockDiff;
+              return a.name.localeCompare(b.name, "ru");
+            })
+          );
       }
     })();
   }, [open, profile?.company_id]);
@@ -1827,7 +1868,7 @@ export function OperationFormDialog({
               }}
               options={productOptionsForMaterial(material)}
               placeholder={isPotatoPlanting ? "Выберите удобрение или препарат" : "Выберите продукт"}
-              emptyLabel="Нет остатка на складе"
+              emptyLabel="Материалы компании не найдены"
             />
           ) : (
             <div className="flex h-8 items-center rounded-md border bg-muted/40 px-3 text-xs text-muted-foreground">
@@ -2951,7 +2992,7 @@ export function OperationFormDialog({
 
                 {productOptions.length === 0 && materials.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">
-                    Нет остатка на складе.
+                    Материалы компании не найдены.
                   </div>
                 ) : mainMaterialRows.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">
