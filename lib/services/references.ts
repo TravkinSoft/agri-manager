@@ -328,6 +328,42 @@ export async function archiveSeedReproduction(reproductionId: string): Promise<v
   }
 }
 
+const LEGACY_SEEDED_MACHINE_NAMES = new Set([
+  "amazone sprayer",
+  "claas lexion 770",
+  "dji t50",
+  "john deere",
+  "john deere 2",
+  "john deere seeder",
+  "john deere сеялка",
+  "amazone опрыскиватель",
+]);
+
+function normalizeReferenceAuditText(value: unknown): string {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function isLegacySeededMachineReference(row: { name?: unknown; created_at?: unknown; company_id?: unknown }): boolean {
+  const name = normalizeReferenceAuditText(row.name);
+  if (!LEGACY_SEEDED_MACHINE_NAMES.has(name)) return false;
+
+  const createdAt = String(row.created_at || "");
+  return (
+    createdAt.startsWith("2026-04-07") ||
+    createdAt.startsWith("2026-04-10")
+  );
+}
+
+function isLegacySeededEquipmentReference(row: { created_at?: unknown; brand?: unknown; model?: unknown; company_id?: unknown }): boolean {
+  const createdAt = String(row.created_at || "");
+  const isKnownGlobalCatalogSpillover =
+    createdAt.startsWith("2026-04-19T00:22:13") ||
+    createdAt.startsWith("2026-04-19T00:27:02") ||
+    createdAt.startsWith("2026-07-01T21:33:22");
+
+  return isKnownGlobalCatalogSpillover && Boolean(String(row.brand || "").trim() || String(row.model || "").trim());
+}
+
 export async function getMachineReferences(
   companyId: string,
   includeArchived = false,
@@ -342,7 +378,9 @@ export async function getMachineReferences(
   if (!includeArchived) query = query.eq("archived", false);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return ((data || []) as MachineReference[]).map((row: any) => ({
+  return ((data || []) as MachineReference[])
+    .filter((row: any) => !isLegacySeededMachineReference(row))
+    .map((row: any) => ({
     ...row,
     name: localizedName(row, language) || row.name,
   }));
@@ -500,7 +538,9 @@ export async function getEquipmentReferences(
   if (!includeArchived) query = query.eq("archived", false);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return ((data || []) as EquipmentReference[]).map((row: any) => ({
+  return ((data || []) as EquipmentReference[])
+    .filter((row: any) => !isLegacySeededEquipmentReference(row))
+    .map((row: any) => ({
     ...row,
     name: localizedName(row, language) || row.name,
   }));
@@ -1070,6 +1110,137 @@ function mapAgrochemicalRow(row: any, language: Language): AgrochemicalReference
   } as AgrochemicalReference;
 }
 
+export type SeasonAgronomyUsageRow = {
+  season_id: string | null;
+  season_year: number | null;
+  crop_id: string | null;
+  crop_name: string;
+  variety_id: string | null;
+  variety_name: string | null;
+  reproduction_id: string | null;
+  reproduction_name: string | null;
+  area_ha: number;
+  field_count: number;
+  field_names: string[];
+};
+
+export async function getSeasonAgronomyUsage(
+  companyId: string,
+  language: Language = "ru"
+): Promise<SeasonAgronomyUsageRow[]> {
+  const { data: seasonRows, error: seasonError } = await supabase
+    .from("seasons")
+    .select("id,year")
+    .eq("company_id", companyId)
+    .eq("archived", false)
+    .order("year", { ascending: false })
+    .limit(1);
+  if (seasonError) throw new Error(seasonError.message);
+
+  const season = (seasonRows || [])[0] as { id?: string; year?: number | null } | undefined;
+  if (!season?.id) return [];
+
+  const { data: structureRows, error: structureError } = await supabase
+    .from("crop_structure")
+    .select("id,field_id,crop_id,variety_id,reproduction_id,area")
+    .eq("company_id", companyId)
+    .eq("season_id", season.id)
+    .eq("archived", false);
+  if (structureError) throw new Error(structureError.message);
+
+  const rows = (structureRows || []) as any[];
+  if (!rows.length) return [];
+
+  const fieldIds = Array.from(new Set(rows.map((row) => String(row.field_id || "")).filter(Boolean)));
+  const cropIds = Array.from(new Set(rows.map((row) => String(row.crop_id || "")).filter(Boolean)));
+  const varietyIds = Array.from(new Set(rows.map((row) => String(row.variety_id || "")).filter(Boolean)));
+  const reproductionIds = Array.from(new Set(rows.map((row) => String(row.reproduction_id || "")).filter(Boolean)));
+
+  const [fieldsRes, cropsRes, varietiesRes, reproductionsRes] = await Promise.all([
+    fieldIds.length
+      ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    cropIds.length
+      ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", cropIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    varietyIds.length
+      ? supabase.from("varieties").select("id,name,name_ru,name_kz,name_en").in("id", varietyIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    reproductionIds.length
+      ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", reproductionIds)
+      : Promise.resolve({ data: [], error: null } as any),
+  ]);
+  if (fieldsRes.error) throw new Error(fieldsRes.error.message);
+  if (cropsRes.error) throw new Error(cropsRes.error.message);
+  if (varietiesRes.error) throw new Error(varietiesRes.error.message);
+  if (reproductionsRes.error) throw new Error(reproductionsRes.error.message);
+
+  const fieldNameById = new Map<string, string>(
+    (fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "-")])
+  );
+  const cropNameById = new Map<string, string>(
+    (cropsRes.data || []).map((row: any) => [String(row.id), String(localizedName(row, language) || row.name || "-")])
+  );
+  const varietyNameById = new Map<string, string>(
+    (varietiesRes.data || []).map((row: any) => [
+      String(row.id),
+      String(brandName(row) || localizedName(row, language) || row.name || "-"),
+    ])
+  );
+  const reproductionNameById = new Map<string, string>(
+    (reproductionsRes.data || []).map((row: any) => [
+      String(row.id),
+      String(localizedName(row, language, ["name", "code"]) || row.name || row.code || "-"),
+    ])
+  );
+
+  const grouped = new Map<
+    string,
+    SeasonAgronomyUsageRow & { fieldIds: Set<string> }
+  >();
+
+  for (const row of rows) {
+    const cropId = row.crop_id ? String(row.crop_id) : null;
+    const varietyId = row.variety_id ? String(row.variety_id) : null;
+    const reproductionId = row.reproduction_id ? String(row.reproduction_id) : null;
+    const groupKey = [cropId || "none", varietyId || "none", reproductionId || "none"].join("|");
+    const current =
+      grouped.get(groupKey) ||
+      ({
+        season_id: String(season.id),
+        season_year: season.year == null ? null : Number(season.year),
+        crop_id: cropId,
+        crop_name: cropId ? cropNameById.get(cropId) || "-" : "Не указано",
+        variety_id: varietyId,
+        variety_name: varietyId ? varietyNameById.get(varietyId) || null : null,
+        reproduction_id: reproductionId,
+        reproduction_name: reproductionId ? reproductionNameById.get(reproductionId) || null : null,
+        area_ha: 0,
+        field_count: 0,
+        field_names: [],
+        fieldIds: new Set<string>(),
+      } satisfies SeasonAgronomyUsageRow & { fieldIds: Set<string> });
+
+    current.area_ha += Number(row.area || 0);
+    const fieldId = row.field_id ? String(row.field_id) : "";
+    if (fieldId && !current.fieldIds.has(fieldId)) {
+      current.fieldIds.add(fieldId);
+      const fieldName = fieldNameById.get(fieldId);
+      if (fieldName) current.field_names.push(fieldName);
+    }
+    current.field_count = current.fieldIds.size;
+    grouped.set(groupKey, current);
+  }
+
+  return Array.from(grouped.values())
+    .map(({ fieldIds: _fieldIds, ...row }) => ({
+      ...row,
+      area_ha: Number(row.area_ha.toFixed(4)),
+      field_names: row.field_names.sort((a, b) => a.localeCompare(b, "ru")),
+    }))
+    .sort((a, b) => b.area_ha - a.area_ha || a.crop_name.localeCompare(b.crop_name, "ru"));
+}
+
 export async function getPesticides(
   companyId: string,
   includeArchived = false,
@@ -1131,20 +1302,34 @@ export async function searchAgrochemicalMaster(
   language: Language = "ru"
 ): Promise<AgrochemicalReference[]> {
   const text = queryText.trim().toLowerCase();
+  if (text.length < 2) return [];
+
+  const pattern = `%${text.replace(/[%_]/g, " ").replace(/,/g, " ")}%`;
+  const searchableColumns = [
+    `name.ilike.${pattern}`,
+    `trade_name.ilike.${pattern}`,
+    `normalized_name.ilike.${pattern}`,
+    `manufacturer.ilike.${pattern}`,
+    `active_ingredient.ilike.${pattern}`,
+  ].join(",");
 
   const companyQuery = supabase
     .from("products")
     .select("*")
     .eq("company_id", companyId)
     .eq("archived", false)
-    .order("name", { ascending: true });
+    .or(searchableColumns)
+    .order("name", { ascending: true })
+    .limit(50);
 
   const globalQuery = supabase
     .from("products")
     .select("*")
     .is("company_id", null)
     .eq("archived", false)
-    .order("name", { ascending: true });
+    .or(searchableColumns)
+    .order("name", { ascending: true })
+    .limit(50);
 
   const [{ data: companyData, error: companyError }, { data: globalData, error: globalError }] = await Promise.all([
     companyQuery,
@@ -1167,21 +1352,15 @@ export async function searchAgrochemicalMaster(
       source_scope: "global" as const,
     }));
 
-  const all = [...companyRows, ...globalRows];
-  if (!text) return all;
-
-  return all.filter((item) => {
-    const hay = [
-      item.name,
-      item.trade_name || "",
-      item.active_ingredient || "",
-      item.manufacturer || "",
-      item.formulation || "",
-    ]
-      .join(" ")
-      .toLowerCase();
-    return hay.includes(text);
-  });
+  const keyFor = (item: AgrochemicalReference) =>
+    [
+      String((item as any).normalized_name || item.trade_name || item.name || "").trim().toLowerCase(),
+      String(item.manufacturer || "").trim().toLowerCase(),
+      String(item.product_type || item.type || "").trim().toLowerCase(),
+    ].join("|");
+  const companyKeys = new Set(companyRows.map(keyFor));
+  const filteredGlobalRows = globalRows.filter((item) => !companyKeys.has(keyFor(item)));
+  return [...companyRows, ...filteredGlobalRows].slice(0, 80);
 }
 
 export async function addGlobalAgrochemicalToCompany(

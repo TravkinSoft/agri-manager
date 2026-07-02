@@ -1004,7 +1004,7 @@ export async function loadCropCareBootstrap(supabase: SupabaseClient, companyId:
       .from("products")
       .select("*")
       .eq("archived", false)
-      .or(`company_id.eq.${companyId},company_id.is.null`)
+      .eq("company_id", companyId)
       .order("name", { ascending: true })
       .limit(1500),
     supabase
