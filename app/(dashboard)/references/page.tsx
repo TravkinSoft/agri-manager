@@ -541,7 +541,7 @@ export default function ReferencesPage() {
                 <CardContent>
                   <DataTable
                     headers={["Название", "Тип"]}
-                    rows={machines.map((x) => [x.name, x.type || "—"])}
+                    rows={machines.map((x) => [x.display_name || x.full_name || x.name, x.display_type || x.type || "—"])}
                     loading={loading}
                     empty="Техника компании не добавлена"
                   />
@@ -556,7 +556,7 @@ export default function ReferencesPage() {
                 <CardContent>
                   <DataTable
                     headers={["Название", "Категория"]}
-                    rows={equipment.map((x) => [x.name, x.category || "—"])}
+                    rows={equipment.map((x) => [x.display_name || x.full_name || x.name, x.display_type || x.category || "—"])}
                     loading={loading}
                     empty="Оборудование компании не добавлено"
                   />
@@ -575,8 +575,8 @@ export default function ReferencesPage() {
               <DataTable
                 headers={["Название", "Тип", "Госномер", "Грузоподъёмность", "Ответственный", "Активность"]}
                 rows={vehicles.map((x) => [
-                  x.name,
-                  vehicleTypeLabels[x.vehicle_type] || x.vehicle_type || "—",
+                  x.display_name || x.full_name || x.name,
+                  x.display_type || vehicleTypeLabels[x.vehicle_type] || vehicleTypeLabels[x.type] || x.vehicle_type || x.type || "—",
                   x.plate_number || "—",
                   x.capacity_kg == null ? "—" : `${Number(x.capacity_kg).toLocaleString("ru-RU")} кг`,
                   x.primary_responsible?.full_name || "—",

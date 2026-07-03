@@ -343,6 +343,75 @@ function normalizeReferenceAuditText(value: unknown): string {
   return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function cleanImportedAssetDisplayName(value: unknown): string {
+  return String(value || "")
+    .replace(/\s*\[[^\]]+\]\s*$/u, "")
+    .replace(/\s+#\d+\s*$/u, "")
+    .trim();
+}
+
+function firstCleanAssetName(...values: unknown[]): string {
+  for (const value of values) {
+    const clean = cleanImportedAssetDisplayName(value);
+    if (clean) return clean;
+  }
+  return "—";
+}
+
+const machineAssetTypeLabels: Record<string, string> = {
+  tractor: "Трактор",
+  combine: "Комбайн",
+  combine_harvester: "Комбайн",
+  forage_harvester: "Кормоуборочный комбайн",
+  potato_harvester: "Картофелеуборочный комбайн",
+  self_propelled_sprayer: "Самоходный опрыскиватель",
+  self_propelled_seeder: "Самоходная сеялка",
+  self_propelled_spreader: "Самоходный разбрасыватель",
+  self_propelled_windrower: "Самоходный валкоукладчик",
+  self_propelled_mower: "Самоходная косилка",
+  loader: "Погрузчик",
+  telehandler: "Телескопический погрузчик",
+  sprayer: "Опрыскиватель",
+  seeder: "Сеялка",
+  cultivator: "Культиватор",
+  other: "Другое",
+};
+
+const equipmentAssetTypeLabels: Record<string, string> = {
+  potato: "Картофельное оборудование",
+  potato_planter: "Картофелесажалка",
+  potato_conveyor: "Картофельный транспортер",
+  header: "Жатка",
+  mowing: "Косилка",
+  rake: "Валкоукладчик",
+  planting: "Посевное оборудование",
+  spraying_attached: "Навесной опрыскиватель",
+  implement: "Агрегат",
+  other: "Другое",
+};
+
+const transportAssetTypeLabels: Record<string, string> = {
+  light_vehicle: "Легковой транспорт",
+  truck: "Грузовик",
+  tractor_unit: "Тягач",
+  trailer: "Прицеп",
+  bus: "Автобус",
+  special_vehicle: "Спецтранспорт",
+  grain_truck: "Зерновоз",
+  dump_truck: "Самосвал",
+  tractor_trailer: "Трактор с прицепом",
+  other: "Другое",
+};
+
+function labelByMap(map: Record<string, string>, ...values: unknown[]): string {
+  for (const value of values) {
+    const key = String(value || "").trim();
+    if (key && map[key]) return map[key];
+  }
+  const fallback = values.map((value) => String(value || "").trim()).find(Boolean);
+  return fallback || "—";
+}
+
 function isLegacySeededMachineReference(row: { name?: unknown; created_at?: unknown; company_id?: unknown }): boolean {
   const name = normalizeReferenceAuditText(row.name);
   if (!LEGACY_SEEDED_MACHINE_NAMES.has(name)) return false;
@@ -371,7 +440,10 @@ export async function getMachineReferences(
 ): Promise<MachineReference[]> {
   let query = supabase
     .from("reference_machines")
-    .select("*")
+    .select(`
+      *,
+      global_model:global_machine_model_id(id,full_name,category,brand,series,model)
+    `)
     .eq("company_id", companyId)
     .order("name", { ascending: true });
 
@@ -383,6 +455,8 @@ export async function getMachineReferences(
     .map((row: any) => ({
     ...row,
     name: localizedName(row, language) || row.name,
+    display_name: firstCleanAssetName(row.global_model?.full_name, row.full_name, localizedName(row, language), row.name),
+    display_type: labelByMap(machineAssetTypeLabels, row.global_model?.category, row.machinery_type, row.machine_category, row.type, row.category),
   }));
 }
 
@@ -396,6 +470,7 @@ export async function getVehicleReferences(
       *,
       global_vehicle_brands:global_brand_id(id,name),
       global_vehicle_models:global_model_id(id,name,model_type,default_capacity_kg),
+      transport_model:transport_model_id(id,full_name,category,brand,series,model),
       primary_responsible:primary_responsible_personnel_id(id,full_name,personnel_type,status)
     `)
     .eq("company_id", companyId)
@@ -406,10 +481,17 @@ export async function getVehicleReferences(
   if (error) throw new Error(error.message);
   return ((data || []) as any[]).map((row) => ({
     ...row,
-    name:
+    name: row.custom_name || row.name,
+    display_name: firstCleanAssetName(
+      row.transport_model?.full_name,
       row.global_vehicle_brands?.name && row.global_vehicle_models?.name
-        ? `${row.global_vehicle_brands.name} ${row.global_vehicle_models.name}${row.plate_number ? ` — ${row.plate_number}` : ""}`
-        : row.custom_name || row.name,
+        ? `${row.global_vehicle_brands.name} ${row.global_vehicle_models.name}`
+        : null,
+      row.full_name,
+      row.custom_name,
+      row.name
+    ),
+    display_type: labelByMap(transportAssetTypeLabels, row.transport_model?.category, row.fleet_type, row.type, row.vehicle_type),
   })) as VehicleReference[];
 }
 
@@ -532,7 +614,10 @@ export async function getEquipmentReferences(
 ): Promise<EquipmentReference[]> {
   let query = supabase
     .from("reference_equipment")
-    .select("*")
+    .select(`
+      *,
+      global_model:global_equipment_model_id(id,name,category,brand,series,model,equipment_type)
+    `)
     .eq("company_id", companyId)
     .order("name", { ascending: true });
   if (!includeArchived) query = query.eq("archived", false);
@@ -543,6 +628,8 @@ export async function getEquipmentReferences(
     .map((row: any) => ({
     ...row,
     name: localizedName(row, language) || row.name,
+    display_name: firstCleanAssetName(row.global_model?.name, row.full_name, localizedName(row, language), row.name),
+    display_type: labelByMap(equipmentAssetTypeLabels, row.global_model?.category, row.global_model?.equipment_type, row.equipment_category, row.category),
   }));
 }
 
