@@ -201,6 +201,8 @@ export interface SeedReproduction {
 export interface MachineReference {
   id: string;
   name: string;
+  display_name?: string;
+  display_type?: string;
   type: "combine" | "seeder" | "sprayer" | "cultivator" | "tractor" | "other";
   model: string | null;
   status: "free" | "working" | "maintenance";
@@ -215,6 +217,8 @@ export interface MachineReference {
 export interface VehicleReference {
   id: string;
   name: string;
+  display_name?: string;
+  display_type?: string;
   global_brand_id?: string | null;
   global_model_id?: string | null;
   custom_name?: string | null;
@@ -236,6 +240,8 @@ export interface VehicleReference {
 export interface EquipmentReference {
   id: string;
   name: string;
+  display_name?: string;
+  display_type?: string;
   category: string | null;
   archived: boolean;
   created_at: string;
