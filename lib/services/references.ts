@@ -353,7 +353,18 @@ function cleanImportedAssetDisplayName(value: unknown): string {
 function firstCleanAssetName(...values: unknown[]): string {
   for (const value of values) {
     const clean = cleanImportedAssetDisplayName(value);
-    if (clean) return clean;
+    const normalized = clean.toLowerCase();
+    if (
+      clean &&
+      normalized !== "other" &&
+      normalized !== "potato equipment" &&
+      normalized !== "картофельное оборудование" &&
+      normalized !== "оборудование" &&
+      normalized !== "другое" &&
+      !normalized.endsWith(" other")
+    ) {
+      return clean;
+    }
   }
   return "—";
 }
@@ -372,34 +383,74 @@ const machineAssetTypeLabels: Record<string, string> = {
   loader: "Погрузчик",
   telehandler: "Телескопический погрузчик",
   sprayer: "Опрыскиватель",
+  trailed_sprayer: "Прицепной опрыскиватель",
+  mounted_sprayer: "Навесной опрыскиватель",
   seeder: "Сеялка",
+  planter: "Сажалка",
   cultivator: "Культиватор",
+  plow: "Плуг",
+  disc_harrow: "Дисковая борона",
+  fertilizer_spreader: "Разбрасыватель удобрений",
+  drone: "Агродрон",
+  spraying_drone: "Дрон-опрыскиватель",
+  truck: "Грузовой транспорт",
   other: "Другое",
 };
 
 const equipmentAssetTypeLabels: Record<string, string> = {
+  seeding: "Посевное оборудование",
+  planting: "Посадочное оборудование",
+  seeder: "Посевное оборудование",
+  tillage_primary: "Основная обработка почвы",
+  tillage_secondary: "Поверхностная обработка почвы",
   potato: "Картофельное оборудование",
+  potato_cultivator: "Гребнеобразователь / картофельный культиватор",
   potato_planter: "Картофелесажалка",
   potato_conveyor: "Картофельный транспортер",
+  potato_harvester_equipment: "Прицепной картофелеуборочный комбайн",
+  potato_digger: "Картофелекопалка",
+  receiving_hopper: "Приёмный бункер",
   header: "Жатка",
-  mowing: "Косилка",
+  pickup_header: "Подборщик",
+  grain_storage: "Зернооборудование",
+  grain_handling: "Зернопогрузчик / зернометатель",
+  conveyor: "Транспортер",
+  separator: "Сепаратор",
+  precision_agriculture: "Точное земледелие",
+  mowing: "Косилка / сенозаготовка",
   rake: "Валкоукладчик",
-  planting: "Посевное оборудование",
-  spraying_attached: "Навесной опрыскиватель",
+  spraying: "Опрыскиватель",
+  spraying_attached: "Навесной/прицепной опрыскиватель",
+  loader: "Погрузчик",
+  loader_attachment: "Погрузочное оборудование",
+  tractor: "Трактор",
+  cultivator: "Культиватор",
+  plow: "Плуг",
+  harrow: "Борона",
+  rotary_harrow: "Ротационная борона",
+  baler: "Пресс-подборщик",
+  trailer: "Прицеп",
   implement: "Агрегат",
+  equipment: "Оборудование",
+  other_equipment: "Другое оборудование",
   other: "Другое",
 };
 
 const transportAssetTypeLabels: Record<string, string> = {
   light_vehicle: "Легковой транспорт",
-  truck: "Грузовик",
+  car: "Легковой транспорт",
+  truck: "Грузовой транспорт",
   tractor_unit: "Тягач",
   trailer: "Прицеп",
-  bus: "Автобус",
+  semi_trailer: "Полуприцеп",
+  bus: "Автобус / микроавтобус",
   special_vehicle: "Спецтранспорт",
   grain_truck: "Зерновоз",
   dump_truck: "Самосвал",
-  tractor_trailer: "Трактор с прицепом",
+  fuel_truck: "Топливозаправщик",
+  crane_truck: "Автокран",
+  pickup: "Пикап",
+  tractor_trailer: "Прицеп",
   other: "Другое",
 };
 
@@ -409,7 +460,7 @@ function labelByMap(map: Record<string, string>, ...values: unknown[]): string {
     if (key && map[key]) return map[key];
   }
   const fallback = values.map((value) => String(value || "").trim()).find(Boolean);
-  return fallback || "—";
+  return fallback ? "Другое" : "—";
 }
 
 function isLegacySeededMachineReference(row: { name?: unknown; created_at?: unknown; company_id?: unknown }): boolean {
@@ -491,7 +542,7 @@ export async function getVehicleReferences(
       row.custom_name,
       row.name
     ),
-    display_type: labelByMap(transportAssetTypeLabels, row.transport_model?.category, row.fleet_type, row.type, row.vehicle_type),
+    display_type: labelByMap(transportAssetTypeLabels, row.fleet_type, row.type, row.vehicle_type, row.transport_model?.category),
   })) as VehicleReference[];
 }
 
@@ -616,7 +667,7 @@ export async function getEquipmentReferences(
     .from("reference_equipment")
     .select(`
       *,
-      global_model:global_equipment_model_id(id,name,category,brand,series,model,equipment_type)
+      global_model:global_equipment_model_id(id,name,full_name,category,brand,series,model,equipment_type)
     `)
     .eq("company_id", companyId)
     .order("name", { ascending: true });
@@ -628,8 +679,8 @@ export async function getEquipmentReferences(
     .map((row: any) => ({
     ...row,
     name: localizedName(row, language) || row.name,
-    display_name: firstCleanAssetName(row.global_model?.name, row.full_name, localizedName(row, language), row.name),
-    display_type: labelByMap(equipmentAssetTypeLabels, row.global_model?.category, row.global_model?.equipment_type, row.equipment_category, row.category),
+    display_name: firstCleanAssetName(row.global_model?.full_name, row.global_model?.name, row.full_name, localizedName(row, language), row.name),
+    display_type: labelByMap(equipmentAssetTypeLabels, row.equipment_category, row.category, row.global_model?.category, row.global_model?.equipment_type),
   }));
 }
 
