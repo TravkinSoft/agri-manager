@@ -181,6 +181,12 @@ function materialCategory(row: any) {
   return pesticideCategoryLabels[key] || fertilizerTypeLabels[key] || key || "—";
 }
 
+function displayVehiclePlate(value?: string | null) {
+  const plate = String(value || "").trim();
+  if (!plate || /^OSV-ROW-/i.test(plate)) return "Госномер не указан";
+  return plate;
+}
+
 export default function ReferencesPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
@@ -577,7 +583,7 @@ export default function ReferencesPage() {
                 rows={vehicles.map((x) => [
                   x.display_name || x.full_name || x.name,
                   x.display_type || vehicleTypeLabels[x.vehicle_type] || vehicleTypeLabels[x.type] || x.vehicle_type || x.type || "—",
-                  x.plate_number || "—",
+                  displayVehiclePlate(x.plate_number),
                   x.capacity_kg == null ? "—" : `${Number(x.capacity_kg).toLocaleString("ru-RU")} кг`,
                   x.primary_responsible?.full_name || "—",
                   x.is_active ? "Активен" : "Неактивен",
