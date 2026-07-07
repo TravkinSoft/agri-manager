@@ -166,6 +166,26 @@ function DataTable(props: { headers: string[]; rows: ReactNode[][]; loading: boo
   );
 }
 
+function pluralRu(value: number, one: string, few: string, many: string) {
+  const abs = Math.abs(value);
+  const mod10 = abs % 10;
+  const mod100 = abs % 100;
+  if (mod10 === 1 && mod100 !== 11) return one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
+  return many;
+}
+
+function TabLabel({ label, count }: { label: string; count: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+      <span>{label}</span>
+      <span className="rounded-full border border-slate-700/70 bg-slate-950/70 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-slate-300">
+        {count}
+      </span>
+    </span>
+  );
+}
+
 function reproductionDisplay(value?: string | null) {
   const text = String(value || "").trim();
   if (!text) return "—";
@@ -232,6 +252,18 @@ export default function ReferencesPage() {
   const [form, setForm] = useState<Record<string, string>>({});
 
   const companyMaterials = useMemo(() => [...pesticides, ...fertilizers, ...additives], [pesticides, fertilizers, additives]);
+  const seasonCropCount = useMemo(() => {
+    const keys = new Set(
+      seasonUsage
+        .map((row) => String(row.crop_id || row.crop_name || "").trim())
+        .filter(Boolean)
+    );
+    return keys.size;
+  }, [seasonUsage]);
+  const countText = (value: number) => (loading ? "..." : String(value));
+  const agronomyCountText = loading
+    ? "..."
+    : `${seasonCropCount} ${pluralRu(seasonCropCount, "культура", "культуры", "культур")}`;
 
   const currentAction = useMemo(() => {
     if (domainTab === "machine-yard" && machineYardTab === "machines") {
@@ -476,11 +508,11 @@ export default function ReferencesPage() {
       <Tabs value={domainTab} onValueChange={(value) => setDomainTab(value as DomainTab)}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList className="w-full justify-start overflow-auto md:w-auto">
-            <TabsTrigger value="agronomy">Агрономия</TabsTrigger>
-            <TabsTrigger value="agrochemistry">Агрохимия</TabsTrigger>
-            <TabsTrigger value="machine-yard">Техника / оборудование</TabsTrigger>
-            <TabsTrigger value="fleet">Автопарк</TabsTrigger>
-            <TabsTrigger value="personnel">Персонал</TabsTrigger>
+            <TabsTrigger value="agronomy"><TabLabel label="Агрономия" count={agronomyCountText} /></TabsTrigger>
+            <TabsTrigger value="agrochemistry"><TabLabel label="Агрохимия" count={countText(companyMaterials.length)} /></TabsTrigger>
+            <TabsTrigger value="machine-yard"><TabLabel label="Техника / оборудование" count={countText(machines.length + equipment.length)} /></TabsTrigger>
+            <TabsTrigger value="fleet"><TabLabel label="Автопарк" count={countText(vehicles.length)} /></TabsTrigger>
+            <TabsTrigger value="personnel"><TabLabel label="Персонал" count={countText(workers.length)} /></TabsTrigger>
           </TabsList>
           {currentAction ? (
             <Button onClick={() => openModal(currentAction.modal)} disabled={saving}>
@@ -548,8 +580,8 @@ export default function ReferencesPage() {
         <TabsContent value="machine-yard">
           <Tabs value={machineYardTab} onValueChange={(value) => setMachineYardTab(value as MachineYardTab)}>
             <TabsList>
-              <TabsTrigger value="machines">Техника</TabsTrigger>
-              <TabsTrigger value="equipment">Оборудование</TabsTrigger>
+              <TabsTrigger value="machines"><TabLabel label="Техника" count={countText(machines.length)} /></TabsTrigger>
+              <TabsTrigger value="equipment"><TabLabel label="Оборудование" count={countText(equipment.length)} /></TabsTrigger>
             </TabsList>
             <TabsContent value="machines">
               <Card>
