@@ -28,18 +28,52 @@ export interface WarehouseIssueRequestItem {
   product_category: string | null;
   required_quantity: number;
   planned_quantity?: number | null;
+  prepared_quantity?: number | null;
+  prepared_unit?: string | null;
   issued_quantity: number | null;
+  issued_unit?: string | null;
+  received_quantity?: number | null;
+  received_unit?: string | null;
   consumed_quantity?: number | null;
   returned_quantity?: number | null;
   unit: string;
   planned_rate_per_ha?: number | null;
   actual_rate_per_ha?: number | null;
+  expected_consumed_quantity?: number | null;
   expected_return_quantity?: number | null;
   return_received_quantity?: number | null;
+  shortage_quantity?: number | null;
   loss_quantity?: number | null;
   loss_reason?: string | null;
   loss_comment?: string | null;
   return_comment?: string | null;
+  package_size?: number | null;
+  package_count?: number | null;
+  package_unit?: string | null;
+  reconciliation_status?:
+    | "not_required"
+    | "pending"
+    | "prepared"
+    | "issued"
+    | "received"
+    | "in_progress"
+    | "return_required"
+    | "shortage"
+    | "return_declared"
+    | "return_received"
+    | "loss_review"
+    | "reconciled"
+    | "blocked"
+    | "cancelled"
+    | string
+    | null;
+  substitution_status?: "none" | "proposed" | "approved" | "rejected" | string | null;
+  planned_product_id?: string | null;
+  actual_product_id?: string | null;
+  substitution_reason?: string | null;
+  substitution_requested_by?: string | null;
+  substitution_approved_by?: string | null;
+  substitution_approved_at?: string | null;
   batch_id?: string | null;
   created_at: string;
   product_name?: string;

@@ -144,6 +144,8 @@ export default function WarehouseRequestsPage() {
   const [mobileTab, setMobileTab] = useState<"requests" | "preparing" | "ready" | "history" | "stock">("requests");
   const [balanceByWarehouseProduct, setBalanceByWarehouseProduct] = useState<Record<string, number>>({});
   const [issueQtyByItem, setIssueQtyByItem] = useState<Record<string, string>>({});
+  const [preparedQtyByItem, setPreparedQtyByItem] = useState<Record<string, string>>({});
+  const [packageSizeByItem, setPackageSizeByItem] = useState<Record<string, string>>({});
 
   const canProcess =
     profile?.role === "warehouse" ||
@@ -233,13 +235,20 @@ export default function WarehouseRequestsPage() {
     if (!selectedRequest) return;
     setSourceWarehouseId(selectedRequest.source_warehouse_id || "");
     const defaults: Record<string, string> = {};
+    const preparedDefaults: Record<string, string> = {};
+    const packageDefaults: Record<string, string> = {};
     (selectedRequest.items || []).forEach((item) => {
       const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+      const prepared = toQty(item.prepared_quantity, 0) || planned;
       const alreadyIssued = toQty(item.issued_quantity, 0);
-      const remaining = Math.max(planned - alreadyIssued, 0);
+      const remaining = Math.max(prepared - alreadyIssued, 0);
       defaults[item.id] = remaining > 0 ? remaining.toFixed(2) : "0";
+      preparedDefaults[item.id] = prepared > 0 ? prepared.toFixed(2) : "0";
+      packageDefaults[item.id] = item.package_size ? String(item.package_size) : "";
     });
     setIssueQtyByItem(defaults);
+    setPreparedQtyByItem(preparedDefaults);
+    setPackageSizeByItem(packageDefaults);
   }, [selectedRequest?.id]);
 
   const stockCheckRows = useMemo(() => {
@@ -247,8 +256,9 @@ export default function WarehouseRequestsPage() {
     return (selectedRequest.items || []).map((item) => {
       const available = toQty(balanceByWarehouseProduct[`${effectiveSourceWarehouseId}|${item.product_id}`], 0);
       const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+      const prepared = Math.max(toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0) || planned), 0);
       const alreadyIssued = toQty(item.issued_quantity, 0);
-      const remaining = Math.max(planned - alreadyIssued, 0);
+      const remaining = Math.max(prepared - alreadyIssued, 0);
       const toIssueRaw = toQty(issueQtyByItem[item.id], remaining);
       const toIssue = Math.max(0, toIssueRaw);
       const missing = Math.max(0, toIssue - available);
@@ -257,6 +267,7 @@ export default function WarehouseRequestsPage() {
         item,
         available,
         planned,
+        prepared,
         alreadyIssued,
         remaining,
         toIssue,
@@ -329,6 +340,11 @@ export default function WarehouseRequestsPage() {
           companyId: profile.company_id!,
           status: "ready",
           sourceWarehouseId,
+          items: (selectedRequest.items || []).map((item) => ({
+            itemId: item.id,
+            preparedQuantity: toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0) || toQty(item.planned_quantity ?? item.required_quantity, 0)),
+            packageSize: packageSizeByItem[item.id] ? toQty(packageSizeByItem[item.id], 0) : null,
+          })),
         }),
       t("request_marked_ready")
     );
@@ -802,6 +818,8 @@ export default function WarehouseRequestsPage() {
                         <TableHead>{t("material")}</TableHead>
                         <TableHead>{t("category")}</TableHead>
                         <TableHead className="text-right">План</TableHead>
+                        <TableHead className="text-right">Тара</TableHead>
+                        <TableHead className="text-right">Подготовлено</TableHead>
                         <TableHead className="text-right">Выдано</TableHead>
                         <TableHead className="text-right">Осталось</TableHead>
                         <TableHead className="text-right">К выдаче</TableHead>
@@ -811,8 +829,9 @@ export default function WarehouseRequestsPage() {
                     <TableBody>
                       {(selectedRequest.items || []).map((item) => {
                         const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+                        const prepared = toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0) || planned);
                         const issued = toQty(item.issued_quantity, 0);
-                        const remaining = Math.max(planned - issued, 0);
+                        const remaining = Math.max(prepared - issued, 0);
                         const editable =
                           selectedRequest.status === "ready" || selectedRequest.status === "received_confirmed";
                         return (
@@ -820,6 +839,42 @@ export default function WarehouseRequestsPage() {
                           <TableCell>{item.product_name || "-"}</TableCell>
                           <TableCell>{item.product_type || item.product_category || "-"}</TableCell>
                           <TableCell className="text-right">{planned.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={packageSizeByItem[item.id] ?? ""}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setPackageSizeByItem((prev) => ({ ...prev, [item.id]: value }));
+                                const packageSize = toQty(value, 0);
+                                if (packageSize > 0 && planned > 0) {
+                                  const rounded = Math.ceil(planned / packageSize) * packageSize;
+                                  const next = rounded.toFixed(2);
+                                  setPreparedQtyByItem((prev) => ({ ...prev, [item.id]: next }));
+                                  setIssueQtyByItem((prev) => ({ ...prev, [item.id]: next }));
+                                }
+                              }}
+                              disabled={!(selectedRequest.status === "new" || selectedRequest.status === "active" || selectedRequest.status === "preparing") || submitting}
+                              className="ml-auto h-8 w-20"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={preparedQtyByItem[item.id] ?? prepared.toFixed(2)}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setPreparedQtyByItem((prev) => ({ ...prev, [item.id]: value }));
+                                setIssueQtyByItem((prev) => ({ ...prev, [item.id]: value }));
+                              }}
+                              disabled={!(selectedRequest.status === "new" || selectedRequest.status === "active" || selectedRequest.status === "preparing") || submitting}
+                              className="ml-auto h-8 w-24"
+                            />
+                          </TableCell>
                           <TableCell className="text-right">{issued.toFixed(2)}</TableCell>
                           <TableCell className="text-right">{remaining.toFixed(2)}</TableCell>
                           <TableCell className="text-right">

@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
+﻿import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { resolveCanonicalOperationType } from "@/lib/operations/operation-engine";
+import { calculateMaterialReconciliation, roundMaterialQuantity } from "@/lib/materials/reconciliation";
 import {
   SeasonGuardError,
   assertSeasonWritableForMutation,
@@ -68,7 +69,7 @@ function nullablePositiveNumber(value: unknown): number | null {
 
 function isV5SchemaError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
-  return /operation_status|specialist_task_status|planned_area_ha|completed_area_ha|remaining_area_ha|progress_percent|schema cache|column/i.test(message);
+  return /operation_status|specialist_task_status|planned_area_ha|completed_area_ha|remaining_area_ha|progress_percent|loss_quantity|expected_consumed_quantity|shortage_quantity|reconciliation_status|schema cache|column/i.test(message);
 }
 
 export async function POST(
@@ -101,7 +102,7 @@ export async function POST(
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("id,company_id,responsible_user_id,work_status,status,crop_structure_id,operation_category_slug,operation_type_slug,operation_type")
+      .select("id,company_id,responsible_user_id,work_status,status,crop_structure_id,field_id,operation_category_slug,operation_type_slug,operation_type")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -146,6 +147,8 @@ export async function POST(
     if (isProductionOperation && !comment) {
       return NextResponse.json({ error: "Completion comment is required" }, { status: 400 });
     }
+
+    let completedOperationMaterialsForHistory: any[] = [];
 
     if (isProductionOperation) {
       const { data: lines, error: linesError } = await supabase
@@ -231,7 +234,7 @@ export async function POST(
 
       const { data: materials, error: materialsError } = await supabase
         .from("operation_materials")
-        .select("id,product_id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
+        .select("id,product_id,actual_rate,planned_quantity,issued_quantity,consumed_quantity,returned_quantity,loss_quantity")
         .eq("operation_id", operationId)
         .eq("company_id", companyId);
       if (materialsError) {
@@ -253,14 +256,18 @@ export async function POST(
           const returnedQuantity = rawFact?.returnedQuantity === null || rawFact?.returnedQuantity === undefined || rawFact?.returnedQuantity === ""
             ? null
             : nullablePositiveNumber(rawFact.returnedQuantity);
+          const lossQuantity = rawFact?.lossQuantity === null || rawFact?.lossQuantity === undefined || rawFact?.lossQuantity === ""
+            ? 0
+            : nullablePositiveNumber(rawFact.lossQuantity);
           if (
             (rawFact?.actualRate !== null && rawFact?.actualRate !== undefined && rawFact?.actualRate !== "" && actualRate == null) ||
             (rawFact?.consumedQuantity !== null && rawFact?.consumedQuantity !== undefined && rawFact?.consumedQuantity !== "" && consumedQuantity == null) ||
-            (rawFact?.returnedQuantity !== null && rawFact?.returnedQuantity !== undefined && rawFact?.returnedQuantity !== "" && returnedQuantity == null)
+            (rawFact?.returnedQuantity !== null && rawFact?.returnedQuantity !== undefined && rawFact?.returnedQuantity !== "" && returnedQuantity == null) ||
+            (rawFact?.lossQuantity !== null && rawFact?.lossQuantity !== undefined && rawFact?.lossQuantity !== "" && lossQuantity == null)
           ) {
             return NextResponse.json({ error: "Material fact values must be zero or positive" }, { status: 400 });
           }
-          materialFactsById.set(materialId, { actualRate, consumedQuantity, returnedQuantity });
+          materialFactsById.set(materialId, { actualRate, consumedQuantity, returnedQuantity, lossQuantity });
         }
 
         const updatedMaterials: any[] = [];
@@ -273,24 +280,43 @@ export async function POST(
           const issued = Number(material.issued_quantity || 0);
           const consumed = fact.consumedQuantity ?? material.consumed_quantity ?? null;
           const returned = fact.returnedQuantity ?? material.returned_quantity ?? 0;
-          if (issued > 0 && Number(consumed || 0) + Number(returned || 0) > issued + 0.000001) {
+          const loss = fact.lossQuantity ?? material.loss_quantity ?? 0;
+          if (issued > 0 && Number(consumed || 0) + Number(returned || 0) + Number(loss || 0) > issued + 0.000001) {
             return NextResponse.json(
               { error: "Material fact cannot exceed issued quantity", material_id: material.id },
               { status: 400 }
             );
           }
-          const { data: updatedMaterial, error: materialUpdateError } = await supabase
+          let updateQuery = supabase
             .from("operation_materials")
             .update({
               actual_rate: fact.actualRate,
               consumed_quantity: consumed,
               returned_quantity: returned,
+              loss_quantity: loss,
             })
             .eq("id", material.id)
             .eq("operation_id", operationId)
             .eq("company_id", companyId)
-            .select("id,product_id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
+            .select("id,product_id,actual_rate,planned_quantity,issued_quantity,consumed_quantity,returned_quantity,loss_quantity")
             .single();
+          let { data: updatedMaterial, error: materialUpdateError }: { data: any | null; error: any } = await updateQuery;
+          if (materialUpdateError && isV5SchemaError(materialUpdateError)) {
+            const fallback = await supabase
+              .from("operation_materials")
+              .update({
+                actual_rate: fact.actualRate,
+                consumed_quantity: consumed,
+                returned_quantity: returned,
+              })
+              .eq("id", material.id)
+              .eq("operation_id", operationId)
+              .eq("company_id", companyId)
+              .select("id,product_id,actual_rate,planned_quantity,issued_quantity,consumed_quantity,returned_quantity")
+              .single();
+            updatedMaterial = fallback.data;
+            materialUpdateError = fallback.error;
+          }
           if (materialUpdateError || !updatedMaterial?.id) {
             return NextResponse.json(
               { error: materialUpdateError?.message || "Failed to update material facts" },
@@ -300,60 +326,6 @@ export async function POST(
           updatedMaterials.push(updatedMaterial);
         }
         normalizedMaterials = updatedMaterials;
-      }
-
-      if (normalizedMaterials.length > 0) {
-        const completedArea = (normalizedLines || []).reduce(
-          (sum: number, line: any) => sum + Number(line.actual_area_ha || 0),
-          0
-        );
-        const autoCompletedMaterials: any[] = [];
-
-        for (const material of normalizedMaterials as any[]) {
-          const issued = Number(material.issued_quantity || 0);
-          const hasConsumed = material.consumed_quantity !== null && material.consumed_quantity !== undefined;
-          const hasReturned = material.returned_quantity !== null && material.returned_quantity !== undefined;
-          const returned = hasReturned ? Number(material.returned_quantity || 0) : 0;
-          const consumed = hasConsumed ? Number(material.consumed_quantity || 0) : Math.max(issued - returned, 0);
-          const actualRate =
-            material.actual_rate !== null && material.actual_rate !== undefined
-              ? material.actual_rate
-              : completedArea > 0
-                ? Number((consumed / completedArea).toFixed(4))
-                : 0;
-
-          if (
-            Number(material.consumed_quantity || 0) === consumed &&
-            Number(material.returned_quantity || 0) === returned &&
-            Number(material.actual_rate || 0) === Number(actualRate || 0)
-          ) {
-            autoCompletedMaterials.push(material);
-            continue;
-          }
-
-          const { data: updatedMaterial, error: materialAutoUpdateError } = await supabase
-            .from("operation_materials")
-            .update({
-              actual_rate: actualRate,
-              consumed_quantity: Number(consumed.toFixed(4)),
-              returned_quantity: Number(returned.toFixed(4)),
-            })
-            .eq("id", material.id)
-            .eq("operation_id", operationId)
-            .eq("company_id", companyId)
-            .select("id,product_id,actual_rate,issued_quantity,consumed_quantity,returned_quantity")
-            .single();
-
-          if (materialAutoUpdateError || !updatedMaterial?.id) {
-            return NextResponse.json(
-              { error: materialAutoUpdateError?.message || "Failed to auto-complete material facts" },
-              { status: 400 }
-            );
-          }
-          autoCompletedMaterials.push(updatedMaterial);
-        }
-
-        normalizedMaterials = autoCompletedMaterials;
       }
 
       const incompleteMaterial = (normalizedMaterials || []).find((material: any) => {
@@ -376,7 +348,8 @@ export async function POST(
         const issued = Number(material.issued_quantity || 0);
         const consumed = Number(material.consumed_quantity || 0);
         const returned = Number(material.returned_quantity || 0);
-        return issued > 0 && consumed + returned > issued;
+        const loss = Number(material.loss_quantity || 0);
+        return issued > 0 && consumed + returned + loss > issued;
       });
 
       if (impossibleMaterialFact) {
@@ -386,6 +359,78 @@ export async function POST(
             material_id: impossibleMaterialFact.id,
           },
           { status: 400 }
+        );
+      }
+
+      const linkedRequestItemByProduct = new Map<string, any>();
+      const { data: closeCheckRequests, error: closeCheckRequestsError } = await supabase
+        .from("warehouse_issue_requests")
+        .select("id")
+        .eq("operation_id", operationId)
+        .eq("company_id", companyId)
+        .in("status", ["issued", "issued_by_warehouse", "partially_issued", "received_confirmed"]);
+
+      if (closeCheckRequestsError) {
+        return NextResponse.json(
+          { error: closeCheckRequestsError.message || "Failed to load linked material requests" },
+          { status: 400 }
+        );
+      }
+
+      const closeCheckRequestIds = (closeCheckRequests || [])
+        .map((requestRow: any) => String(requestRow.id))
+        .filter(Boolean);
+
+      if (closeCheckRequestIds.length > 0) {
+        const requestItemsResult = await supabase
+          .from("warehouse_issue_request_items")
+          .select("product_id,return_received_quantity,substitution_status,planned_product_id,actual_product_id")
+          .eq("company_id", companyId)
+          .in("request_id", closeCheckRequestIds);
+
+        if (requestItemsResult.error) {
+          if (!isV5SchemaError(requestItemsResult.error)) {
+            return NextResponse.json(
+              { error: requestItemsResult.error.message || "Failed to load linked request item facts" },
+              { status: 400 }
+            );
+          }
+        } else {
+          for (const item of requestItemsResult.data || []) {
+            const productId = String((item as any).product_id || "");
+            if (productId && !linkedRequestItemByProduct.has(productId)) {
+              linkedRequestItemByProduct.set(productId, item);
+            }
+          }
+        }
+      }
+
+      const unreconciledMaterial = (normalizedMaterials || []).map((material: any) => {
+        const requestItem = linkedRequestItemByProduct.get(String(material.product_id || ""));
+        const reconciliation = calculateMaterialReconciliation({
+          plannedQuantity: Number(material.planned_quantity || 0),
+          plannedAreaHa: plannedAreaForCompletion,
+          actualCompletedAreaHa: actualAreaForCompletion,
+          issuedQuantity: Number(material.issued_quantity || 0),
+          consumedQuantity: material.consumed_quantity,
+          returnedQuantity: material.returned_quantity,
+          returnReceivedQuantity: requestItem?.return_received_quantity,
+          lossQuantity: material.loss_quantity || 0,
+          substitutionStatus: requestItem?.substitution_status,
+          plannedProductId: requestItem?.planned_product_id,
+          actualProductId: requestItem?.actual_product_id,
+        });
+        return { material, reconciliation };
+      }).find((row: any) => !row.reconciliation.canClose);
+
+      if (unreconciledMaterial) {
+        return NextResponse.json(
+          {
+            error: "Material reconciliation is required before operation close",
+            material_id: unreconciledMaterial.material.id,
+            reasons: unreconciledMaterial.reconciliation.closeBlockingReasons,
+          },
+          { status: 409 }
         );
       }
 
@@ -417,25 +462,65 @@ export async function POST(
         const requestIds = (linkedRequests || []).map((requestRow: any) => String(requestRow.id)).filter(Boolean);
         if (requestIds.length > 0) {
           for (const material of materialFactsForRequests as any[]) {
-            const { error: requestItemSyncError } = await supabase
+            const reconciliation = calculateMaterialReconciliation({
+              plannedQuantity: Number(material.planned_quantity || 0),
+              plannedAreaHa: plannedAreaForCompletion,
+              actualCompletedAreaHa: actualAreaForCompletion,
+              issuedQuantity: Number(material.issued_quantity || 0),
+              consumedQuantity: Number(material.consumed_quantity || 0),
+              returnedQuantity: Number(material.returned_quantity || 0),
+              lossQuantity: Number(material.loss_quantity || 0),
+            });
+
+            if (!reconciliation.canClose) {
+              return NextResponse.json(
+                {
+                  error: "Material reconciliation is required before operation close",
+                  material_id: material.id,
+                  reasons: reconciliation.closeBlockingReasons,
+                },
+                { status: 409 }
+              );
+            }
+
+            let requestItemSyncResult = await supabase
               .from("warehouse_issue_request_items")
               .update({
-                consumed_quantity: Number(Number(material.consumed_quantity || 0).toFixed(4)),
-                returned_quantity: Number(Number(material.returned_quantity || 0).toFixed(4)),
+                consumed_quantity: roundMaterialQuantity(Number(material.consumed_quantity || 0)),
+                returned_quantity: roundMaterialQuantity(Number(material.returned_quantity || 0)),
+                loss_quantity: roundMaterialQuantity(Number(material.loss_quantity || 0)),
+                expected_consumed_quantity: reconciliation.expectedConsumedQuantity,
+                expected_return_quantity: reconciliation.expectedReturnQuantity,
+                shortage_quantity: reconciliation.shortageQuantity,
+                reconciliation_status: reconciliation.reconciliationStatus,
               })
               .eq("company_id", companyId)
               .eq("product_id", material.product_id)
               .in("request_id", requestIds);
 
-            if (requestItemSyncError) {
+            if (requestItemSyncResult.error && isV5SchemaError(requestItemSyncResult.error)) {
+              requestItemSyncResult = await supabase
+                .from("warehouse_issue_request_items")
+                .update({
+                  consumed_quantity: roundMaterialQuantity(Number(material.consumed_quantity || 0)),
+                  returned_quantity: roundMaterialQuantity(Number(material.returned_quantity || 0)),
+                })
+                .eq("company_id", companyId)
+                .eq("product_id", material.product_id)
+                .in("request_id", requestIds);
+            }
+
+            if (requestItemSyncResult.error) {
               return NextResponse.json(
-                { error: requestItemSyncError.message || "Failed to sync request material facts" },
+                { error: requestItemSyncResult.error.message || "Failed to sync request material facts" },
                 { status: 400 }
               );
             }
           }
         }
       }
+
+      completedOperationMaterialsForHistory = normalizedMaterials || [];
     }
 
     const nowIso = new Date().toISOString();
@@ -490,6 +575,51 @@ export async function POST(
         { error: updateResult.error?.message || "Failed to complete operation" },
         { status: 400 }
       );
+    }
+
+    if (isProductionOperation && operation.field_id && guardedSeasonId) {
+      const { data: seasonRow } = await supabase
+        .from("seasons")
+        .select("year,name")
+        .eq("id", guardedSeasonId)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      const seasonYear = Number((seasonRow as any)?.year || (seasonRow as any)?.name || new Date().getFullYear());
+      const materialFactsForHistory = (completedOperationMaterialsForHistory || []).map((material: any) => ({
+        product_id: material.product_id,
+        planned_quantity: Number(material.planned_quantity || 0),
+        issued_quantity: Number(material.issued_quantity || 0),
+        consumed_quantity: Number(material.consumed_quantity || 0),
+        returned_quantity: Number(material.returned_quantity || 0),
+        loss_quantity: Number(material.loss_quantity || 0),
+        actual_rate: material.actual_rate,
+      }));
+      const historyBase = {
+        company_id: companyId,
+        field_id: operation.field_id,
+        season_id: guardedSeasonId,
+        season_year: Number.isFinite(seasonYear) ? seasonYear : new Date().getFullYear(),
+        history_value: `Operation completed: ${operation.operation_type || "field work"}`,
+        original_raw_value: operation.operation_type || "operation completed",
+        source: "operation_close",
+        notes: comment || null,
+      };
+      let historyInsertResult = await supabase.from("field_history_entries").insert({
+        ...historyBase,
+        operation_id: operationId,
+        actual_completed_area_ha: Number(finalActualArea.toFixed(4)),
+        material_facts: materialFactsForHistory,
+        material_reconciliation_status: "reconciled",
+      });
+      if (historyInsertResult.error && isV5SchemaError(historyInsertResult.error)) {
+        historyInsertResult = await supabase.from("field_history_entries").insert(historyBase);
+      }
+      if (historyInsertResult.error) {
+        return NextResponse.json(
+          { error: historyInsertResult.error.message || "Failed to write field history" },
+          { status: 400 }
+        );
+      }
     }
 
     return NextResponse.json({ operation: updateResult.data });
