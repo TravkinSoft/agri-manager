@@ -20,6 +20,7 @@ import {
   createEquipmentReference,
   createMachineReference,
   createVehicleReference,
+  displayVehiclePlate,
   getAdditives,
   getCompanyPeople,
   getEquipmentReferences,
@@ -63,28 +64,15 @@ const fertilizerTypeLabels: Record<string, string> = {
   organic: "Органическое",
 };
 
-const vehicleTypeLabels: Record<string, string> = {
-  truck: "Грузовик",
-  grain_truck: "Зерновоз",
-  dump_truck: "Самосвал",
-  tractor_trailer: "Трактор с прицепом",
-  tractor: "Трактор",
-  combine: "Комбайн",
-  trailer: "Прицеп",
-  loader: "Погрузчик",
-  sprayer: "Опрыскиватель",
-  seeder: "Сеялка",
-  other: "Другое",
-};
-
 const workerRoleOptions = [
-  { value: "office", label: "Агроном" },
-  { value: "machine_operator", label: "Механизатор" },
+  { value: "agronomist", label: "Агроном" },
+  { value: "mechanic_operator", label: "Механизатор" },
   { value: "driver", label: "Водитель" },
+  { value: "warehouse_manager", label: "Кладовщик" },
+  { value: "weighbridge_operator", label: "Весовщик" },
   { value: "worker", label: "Рабочий" },
-  { value: "manager", label: "Администратор" },
-  { value: "cook", label: "Повар" },
-  { value: "guard", label: "Охрана" },
+  { value: "manager", label: "Руководитель" },
+  { value: "admin", label: "Администратор" },
   { value: "other", label: "Другое" },
 ] as const;
 
@@ -108,6 +96,36 @@ const workerStatusLabels: Record<string, string> = {
 
 const formatHa = (value: number) =>
   `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`;
+
+const emptyCell = "—";
+
+function assetBrand(row: any): string {
+  return row.global_model?.brand || row.transport_model?.brand || row.brand || row.global_vehicle_brands?.name || emptyCell;
+}
+
+function assetModel(row: any): string {
+  return row.global_model?.model || row.transport_model?.model || row.model || row.global_vehicle_models?.name || emptyCell;
+}
+
+function assetIdentifier(row: any): string {
+  const plate = row.plate_number || row.license_plate;
+  if (plate) {
+    const display = displayVehiclePlate(plate);
+    if (display !== "Госномер не указан") return display;
+  }
+  const inventory = String(row.inventory_number || "").trim();
+  if (/^(авто|комбайн|трактор|прицеп|гусеничный|сеялка)$/i.test(inventory)) return emptyCell;
+  return inventory || emptyCell;
+}
+
+function assetYear(row: any): string {
+  const year = Number(row.manufacture_year || 0);
+  return year > 1900 ? String(year) : emptyCell;
+}
+
+function activeStatus(row: any): string {
+  return row.is_active === false ? "Неактивен" : "Активен";
+}
 
 function DataTable(props: { headers: string[]; rows: ReactNode[][]; loading: boolean; empty: string }) {
   return (
@@ -179,12 +197,6 @@ function materialKind(row: any) {
 function materialCategory(row: any) {
   const key = String(row.subcategory || row.pesticide_category || row.fertilizer_type || row.category || "");
   return pesticideCategoryLabels[key] || fertilizerTypeLabels[key] || key || "—";
-}
-
-function displayVehiclePlate(value?: string | null) {
-  const plate = String(value || "").trim();
-  if (!plate || /^OSV-ROW-/i.test(plate)) return "Госномер не указан";
-  return plate;
 }
 
 export default function ReferencesPage() {
@@ -546,8 +558,16 @@ export default function ReferencesPage() {
                 </CardHeader>
                 <CardContent>
                   <DataTable
-                    headers={["Название", "Тип"]}
-                    rows={machines.map((x) => [x.display_name || x.full_name || x.name, x.display_type || x.type || "—"])}
+                    headers={["Название", "Тип", "Бренд", "Модель", "Госномер / Инв. №", "Год", "Статус"]}
+                    rows={machines.map((x) => [
+                      x.display_name || x.full_name || x.name,
+                      x.display_type || emptyCell,
+                      assetBrand(x),
+                      assetModel(x),
+                      assetIdentifier(x),
+                      assetYear(x),
+                      activeStatus(x),
+                    ])}
                     loading={loading}
                     empty="Техника компании не добавлена"
                   />
@@ -561,8 +581,15 @@ export default function ReferencesPage() {
                 </CardHeader>
                 <CardContent>
                   <DataTable
-                    headers={["Название", "Категория"]}
-                    rows={equipment.map((x) => [x.display_name || x.full_name || x.name, x.display_type || x.category || "—"])}
+                    headers={["Название", "Категория", "Бренд", "Модель", "Инв. №", "Статус"]}
+                    rows={equipment.map((x) => [
+                      x.display_name || x.full_name || x.name,
+                      x.display_type || emptyCell,
+                      assetBrand(x),
+                      assetModel(x),
+                      x.inventory_number || emptyCell,
+                      activeStatus(x),
+                    ])}
                     loading={loading}
                     empty="Оборудование компании не добавлено"
                   />
@@ -579,14 +606,15 @@ export default function ReferencesPage() {
             </CardHeader>
             <CardContent>
               <DataTable
-                headers={["Название", "Тип", "Госномер", "Грузоподъёмность", "Ответственный", "Активность"]}
+                headers={["Название", "Категория", "Бренд", "Модель", "Госномер", "VIN", "Статус"]}
                 rows={vehicles.map((x) => [
                   x.display_name || x.full_name || x.name,
-                  x.display_type || vehicleTypeLabels[x.vehicle_type] || vehicleTypeLabels[x.type] || x.vehicle_type || x.type || "—",
+                  x.display_type || emptyCell,
+                  assetBrand(x),
+                  assetModel(x),
                   displayVehiclePlate(x.plate_number),
-                  x.capacity_kg == null ? "—" : `${Number(x.capacity_kg).toLocaleString("ru-RU")} кг`,
-                  x.primary_responsible?.full_name || "—",
-                  x.is_active ? "Активен" : "Неактивен",
+                  x.vin || emptyCell,
+                  activeStatus(x),
                 ])}
                 loading={loading}
                 empty="Транспорт компании не добавлен"

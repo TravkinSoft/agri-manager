@@ -369,7 +369,7 @@ function firstCleanAssetName(...values: unknown[]): string {
   return "—";
 }
 
-const machineAssetTypeLabels: Record<string, string> = {
+export const machineAssetTypeLabels: Record<string, string> = {
   tractor: "Трактор",
   combine: "Комбайн",
   combine_harvester: "Комбайн",
@@ -397,7 +397,7 @@ const machineAssetTypeLabels: Record<string, string> = {
   other: "Другое",
 };
 
-const equipmentAssetTypeLabels: Record<string, string> = {
+export const equipmentAssetTypeLabels: Record<string, string> = {
   seeding: "Посевное оборудование",
   planting: "Посадочное оборудование",
   seeder: "Посевное оборудование",
@@ -436,7 +436,7 @@ const equipmentAssetTypeLabels: Record<string, string> = {
   other: "Другое",
 };
 
-const transportAssetTypeLabels: Record<string, string> = {
+export const transportAssetTypeLabels: Record<string, string> = {
   light_vehicle: "Легковой транспорт",
   car: "Легковой транспорт",
   truck: "Грузовой транспорт",
@@ -454,7 +454,7 @@ const transportAssetTypeLabels: Record<string, string> = {
   other: "Другое",
 };
 
-function labelByMap(map: Record<string, string>, ...values: unknown[]): string {
+export function labelByMap(map: Record<string, string>, ...values: unknown[]): string {
   for (const value of values) {
     const key = String(value || "").trim();
     if (key && map[key]) return map[key];
@@ -729,10 +729,107 @@ function isCompanyPeopleSchemaMissing(error: any): boolean {
   );
 }
 
-function roleTypeToSpecialistType(roleType?: CompanyPersonRoleType | null): "driver" | "machine_operator" | null {
+function roleTypeToSpecialistType(roleType?: CompanyPersonRoleType | "machine_operator" | null): "driver" | "machine_operator" | null {
   if (roleType === "driver") return "driver";
-  if (roleType === "machine_operator") return "machine_operator";
+  if (roleType === "mechanic_operator" || roleType === "machine_operator") return "machine_operator";
   return null;
+}
+
+function cleanAssetPart(value: unknown): string {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^\[?\?+\]?$/u.test(raw)) return "";
+  if (/^OSV-ROW-/iu.test(raw)) return "";
+  return raw.replace(/\s+/g, " ");
+}
+
+function cleanAssetIdentifier(value: unknown): string {
+  const clean = cleanAssetPart(value);
+  const normalized = clean.toLowerCase();
+  if (
+    normalized === "авто" ||
+    normalized === "комбайн" ||
+    normalized === "трактор" ||
+    normalized === "прицеп" ||
+    normalized === "гусеничный" ||
+    normalized === "сеялка"
+  ) {
+    return "";
+  }
+  return clean;
+}
+
+function firstCleanAssetPart(...values: unknown[]): string {
+  for (const value of values) {
+    const clean = cleanAssetPart(value);
+    if (clean) return clean;
+  }
+  return "";
+}
+
+function firstCleanAssetIdentifier(...values: unknown[]): string {
+  for (const value of values) {
+    const clean = cleanAssetIdentifier(value);
+    if (clean) return clean;
+  }
+  return "";
+}
+
+export function displayVehiclePlate(value: unknown): string {
+  const clean = cleanAssetPart(value);
+  return clean || "Госномер не указан";
+}
+
+function assetBrand(row: any): string {
+  return firstCleanAssetPart(row.global_model?.brand, row.transport_model?.brand, row.brand, row.global_vehicle_brands?.name);
+}
+
+function assetModel(row: any): string {
+  return firstCleanAssetPart(row.global_model?.model, row.transport_model?.model, row.model, row.global_vehicle_models?.name);
+}
+
+function assetYear(row: any): string {
+  const year = Number(row.manufacture_year || 0);
+  return year > 1900 ? String(year) : "";
+}
+
+export function buildAssetSelectorLabel(row: any, kind: "machine" | "equipment" | "vehicle"): string {
+  const name = firstCleanAssetName(
+    row.display_name,
+    row.global_model?.full_name,
+    row.global_model?.name,
+    row.transport_model?.full_name,
+    row.full_name,
+    localizedName(row, "ru"),
+    row.name
+  );
+  const type =
+    row.display_type ||
+    (kind === "machine"
+      ? labelByMap(machineAssetTypeLabels, row.global_model?.category, row.machinery_type, row.machine_category, row.type, row.category)
+      : kind === "equipment"
+        ? labelByMap(equipmentAssetTypeLabels, row.equipment_category, row.category, row.global_model?.category, row.global_model?.equipment_type)
+        : labelByMap(transportAssetTypeLabels, row.fleet_type, row.type, row.vehicle_type, row.transport_model?.category));
+  const identifier =
+    kind === "vehicle"
+      ? displayVehiclePlate(row.plate_number || row.license_plate)
+      : firstCleanAssetIdentifier(row.license_plate, row.inventory_number);
+
+  return [name, type, identifier].filter((part) => part && part !== "—").join(" — ");
+}
+
+export function buildAssetSelectorHint(row: any): string {
+  const parts = [
+    assetBrand(row) ? `Бренд: ${assetBrand(row)}` : "",
+    assetModel(row) ? `Модель: ${assetModel(row)}` : "",
+    assetYear(row) ? `Год: ${assetYear(row)}` : "",
+    cleanAssetIdentifier(row.inventory_number) ? `Инв. №: ${cleanAssetIdentifier(row.inventory_number)}` : "",
+  ].filter(Boolean);
+  return parts.join(" • ");
+}
+
+function specialistTypeToRoleType(personnelType?: "driver" | "machine_operator" | null): CompanyPersonRoleType {
+  return personnelType === "machine_operator" ? "mechanic_operator" : "driver";
 }
 
 function normalizeCompanyPersonPayload(payload: CompanyPersonFormData) {
@@ -829,7 +926,7 @@ async function ensureCompanyPersonForSpecialist(
   userId: string,
   payload: SpecialistReferenceFormData
 ): Promise<string | null> {
-  const roleType = (payload.personnel_type || "driver") as CompanyPersonRoleType;
+  const roleType = specialistTypeToRoleType(payload.personnel_type || "driver");
 
   const { data: existing, error: existingError } = await supabase
     .from("company_people")
@@ -1131,7 +1228,7 @@ export async function updateSpecialistReference(
   }
   const updated = data as SpecialistReference;
   if ((updated as any).person_id) {
-    const roleType = (updated.personnel_type || "driver") as CompanyPersonRoleType;
+    const roleType = specialistTypeToRoleType(updated.personnel_type || "driver");
     const { error: personUpdateError } = await supabase
       .from("company_people")
       .update({

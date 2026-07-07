@@ -66,13 +66,14 @@ export const specialistReferenceSchema = z.object({
 });
 
 export const companyPersonRoleValues = [
+  "agronomist",
+  "mechanic_operator",
   "driver",
-  "machine_operator",
+  "warehouse_manager",
+  "weighbridge_operator",
   "worker",
-  "cook",
-  "office",
-  "guard",
   "manager",
+  "admin",
   "other",
 ] as const;
 
@@ -204,7 +205,31 @@ export interface MachineReference {
   display_name?: string;
   display_type?: string;
   type: "combine" | "seeder" | "sprayer" | "cultivator" | "tractor" | "other";
+  full_name?: string | null;
+  brand?: string | null;
+  series?: string | null;
   model: string | null;
+  machine_category?: string | null;
+  machinery_type?: string | null;
+  category?: string | null;
+  global_machine_model_id?: string | null;
+  global_model?: {
+    id?: string | null;
+    full_name?: string | null;
+    category?: string | null;
+    brand?: string | null;
+    series?: string | null;
+    model?: string | null;
+  } | null;
+  inventory_number?: string | null;
+  license_plate?: string | null;
+  vin?: string | null;
+  serial_number?: string | null;
+  manufacture_year?: number | null;
+  source_raw_name?: string | null;
+  source_clean_name?: string | null;
+  import_source?: string | null;
+  import_source_row?: number | null;
   status: "free" | "working" | "maintenance";
   is_active: boolean;
   archived: boolean;
@@ -219,10 +244,32 @@ export interface VehicleReference {
   name: string;
   display_name?: string;
   display_type?: string;
+  full_name?: string | null;
+  brand?: string | null;
+  series?: string | null;
+  model?: string | null;
+  fleet_type?: string | null;
+  transport_model_id?: string | null;
+  transport_model?: {
+    id?: string | null;
+    full_name?: string | null;
+    category?: string | null;
+    brand?: string | null;
+    series?: string | null;
+    model?: string | null;
+  } | null;
   global_brand_id?: string | null;
   global_model_id?: string | null;
   custom_name?: string | null;
   inventory_number?: string | null;
+  license_plate?: string | null;
+  vin?: string | null;
+  serial_number?: string | null;
+  manufacture_year?: number | null;
+  source_raw_name?: string | null;
+  source_clean_name?: string | null;
+  import_source?: string | null;
+  import_source_row?: number | null;
   primary_responsible_personnel_id?: string | null;
   vehicle_type: "truck" | "tractor" | "combine" | "trailer" | "loader" | "sprayer" | "seeder" | "other" | "grain_truck" | "dump_truck" | "tractor_trailer";
   plate_number: string;
@@ -242,6 +289,29 @@ export interface EquipmentReference {
   name: string;
   display_name?: string;
   display_type?: string;
+  full_name?: string | null;
+  brand?: string | null;
+  series?: string | null;
+  model?: string | null;
+  equipment_category?: string | null;
+  global_equipment_model_id?: string | null;
+  global_model?: {
+    id?: string | null;
+    name?: string | null;
+    full_name?: string | null;
+    category?: string | null;
+    brand?: string | null;
+    series?: string | null;
+    model?: string | null;
+    equipment_type?: string | null;
+  } | null;
+  inventory_number?: string | null;
+  serial_number?: string | null;
+  manufacture_year?: number | null;
+  source_raw_name?: string | null;
+  source_clean_name?: string | null;
+  import_source?: string | null;
+  import_source_row?: number | null;
   category: string | null;
   archived: boolean;
   created_at: string;
