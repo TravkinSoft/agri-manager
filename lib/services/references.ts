@@ -392,7 +392,15 @@ export const machineAssetTypeLabels: Record<string, string> = {
   disc_harrow: "Дисковая борона",
   fertilizer_spreader: "Разбрасыватель удобрений",
   drone: "Агродрон",
+  aerial_application: "Агродрон",
+  uav: "Агродрон",
   spraying_drone: "Дрон-опрыскиватель",
+  spreading_drone: "Дрон-разбрасыватель",
+  spraying_spreading_drone: "Дрон-опрыскиватель / разбрасыватель",
+  mapping_drone: "Дрон мониторинга",
+  multispectral_drone: "Мультиспектральный дрон",
+  cargo_drone: "Грузовой дрон",
+  scout_drone: "Дрон разведки",
   truck: "Грузовой транспорт",
   other: "Другое",
 };
@@ -507,7 +515,7 @@ export async function getMachineReferences(
     ...row,
     name: localizedName(row, language) || row.name,
     display_name: firstCleanAssetName(row.global_model?.full_name, row.full_name, localizedName(row, language), row.name),
-    display_type: labelByMap(machineAssetTypeLabels, row.global_model?.category, row.machinery_type, row.machine_category, row.type, row.category),
+    display_type: labelByMap(machineAssetTypeLabels, row.machinery_type, row.machine_type, row.machine_category, row.type, row.category, row.global_model?.category),
   }));
 }
 
@@ -806,7 +814,7 @@ export function buildAssetSelectorLabel(row: any, kind: "machine" | "equipment" 
   const type =
     row.display_type ||
     (kind === "machine"
-      ? labelByMap(machineAssetTypeLabels, row.global_model?.category, row.machinery_type, row.machine_category, row.type, row.category)
+      ? labelByMap(machineAssetTypeLabels, row.machinery_type, row.machine_type, row.machine_category, row.type, row.category, row.global_model?.category)
       : kind === "equipment"
         ? labelByMap(equipmentAssetTypeLabels, row.equipment_category, row.category, row.global_model?.category, row.global_model?.equipment_type)
         : labelByMap(transportAssetTypeLabels, row.fleet_type, row.type, row.vehicle_type, row.transport_model?.category));

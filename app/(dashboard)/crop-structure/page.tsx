@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Edit3, FileText, LayoutGrid, Map as MapIcon, Plus, Search, Table2, X } from "lucide-react";
+import { Download, Edit3, FileText, LayoutGrid, Map as MapIcon, Maximize2, Plus, Search, Table2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -319,6 +319,7 @@ export default function CropStructurePage() {
   const [sectionChoiceField, setSectionChoiceField] = useState<Field | null>(null);
   const [specialists, setSpecialists] = useState<SpecialistAssignee[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
+  const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(null);
 
   const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
@@ -986,7 +987,29 @@ export default function CropStructurePage() {
     setDraftRows((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   };
 
-  const fillFullArea = () => {
+  const requestRemoveRow = (index: number) => {
+    const row = draftRows[index];
+    if (!row) return;
+    const operationsCount = row.id ? operationFactsByAllocation.get(row.id)?.length || 0 : 0;
+    const materialsCount = row.id ? consumptionsByAllocation.get(row.id)?.length || 0 : 0;
+    if (operationsCount || materialsCount) {
+      toast({
+        title: "Нельзя удалить участок",
+        description: `По этому участку уже есть ${operationsCount} операций и ${materialsCount} строк материалов. Сначала разберите связанные данные.`,
+        variant: "destructive",
+      });
+      return;
+    }
+    setPendingDeleteIndex(index);
+  };
+
+  const confirmRemoveRow = () => {
+    if (pendingDeleteIndex == null) return;
+    removeRow(pendingDeleteIndex);
+    setPendingDeleteIndex(null);
+  };
+
+  const fillRemainingArea = (index: number) => {
     if (!selectedField) return;
     setDraftRows((prev) => {
       if (!prev.length) {
@@ -1004,8 +1027,11 @@ export default function CropStructurePage() {
           },
         ];
       }
-      const otherArea = prev.slice(1).reduce((sum, row) => sum + Number(row.area || 0), 0);
-      return [{ ...prev[0], area: Math.max(0, selectedField.area - otherArea) }, ...prev.slice(1)];
+      return prev.map((row, rowIndex) => {
+        if (rowIndex !== index) return row;
+        const otherArea = prev.reduce((sum, item, itemIndex) => (itemIndex === index ? sum : sum + Number(item.area || 0)), 0);
+        return { ...row, area: Math.max(0, selectedField.area - otherArea) };
+      });
     });
   };
 
@@ -1017,7 +1043,7 @@ export default function CropStructurePage() {
         return;
       }
       if (isPotatoAllocation(row) && (!row.seed_spacing_cm || row.seed_spacing_cm <= 0)) {
-        toast({ title: "Ошибка", description: "Для картофеля укажите межклубневое расстояние в структуре.", variant: "destructive" });
+        toast({ title: "Ошибка", description: "Для картофеля укажите межсемянное расстояние в структуре.", variant: "destructive" });
         return;
       }
     }
@@ -1051,6 +1077,15 @@ export default function CropStructurePage() {
       const curIds = new Set(draftRows.map((row) => row.id).filter(Boolean) as string[]);
       const delIds = Array.from(prevIds).filter((id) => !curIds.has(id));
       if (delIds.length) {
+        const protectedIds = delIds.filter((id) => (operationFactsByAllocation.get(id)?.length || 0) > 0 || (consumptionsByAllocation.get(id)?.length || 0) > 0);
+        if (protectedIds.length) {
+          toast({
+            title: "Нельзя удалить участок",
+            description: "У участка уже есть операции или материалы. Сначала разберите связанные данные.",
+            variant: "destructive",
+          });
+          return;
+        }
         const del = await supabase.from("crop_structure").delete().eq("company_id", profile.company_id).eq("field_id", selectedFieldId).eq("season_id", seasonId).in("id", delIds);
         if (del.error) throw del.error;
       }
@@ -2043,64 +2078,100 @@ export default function CropStructurePage() {
 
   const renderEditor = () => {
     if (!selectedField) return null;
+    const editorLabelClass = "mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400";
+    const editorControlClass =
+      "h-10 border-slate-700 bg-[#0f1622] text-slate-100 shadow-inner shadow-black/20 placeholder:text-slate-500 focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-yellow-400/50 focus-visible:ring-offset-0";
+    const editorSelectContentClass = "border-slate-700 bg-[#101720] text-slate-100 shadow-xl";
+
     return (
-      <div className="rounded-2xl border bg-white p-4">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="text-slate-100">
+        <div className="mb-3">
           <div>
-            <div className="text-sm font-semibold text-slate-950">Редактор структуры</div>
-            <div className="text-xs text-slate-500">План: {fmtHa(sumArea(draftRows))} / {fmtHa(selectedField.area)} · Остаток: {fmtHa(selectedField.area - sumArea(draftRows))}</div>
+            <div className="text-sm font-semibold text-slate-100">Редактор структуры</div>
+            <div className="mt-1 text-xs text-slate-400">План: {fmtHa(sumArea(draftRows))} / {fmtHa(selectedField.area)} · Остаток: {fmtHa(selectedField.area - sumArea(draftRows))}</div>
           </div>
-          <Button variant="outline" size="sm" onClick={fillFullArea}>Вся площадь</Button>
         </div>
 
-        <div className="space-y-2">
+        <div className="space-y-3">
           {draftRows.map((row, index) => {
             const vars = row.crop_id ? varietiesByCrop.get(row.crop_id) || [] : [];
             const pct = selectedField.area > 0 ? ((Number(row.area || 0) / selectedField.area) * 100).toFixed(2) : "0.00";
+            const operationsCount = row.id ? operationFactsByAllocation.get(row.id)?.length || 0 : 0;
+            const materialsCount = row.id ? consumptionsByAllocation.get(row.id)?.length || 0 : 0;
+            const isDeleteLocked = operationsCount > 0 || materialsCount > 0;
             return (
-              <div key={`${row.id || "new"}-${index}`} className="grid grid-cols-12 items-end gap-2 rounded-xl bg-slate-50 p-2">
+              <div key={`${row.id || "new"}-${index}`} className="overflow-hidden rounded-xl border border-slate-700/80 bg-[#101823] shadow-sm ring-1 ring-slate-900/40">
+                <div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-yellow-500 text-[11px] font-bold text-slate-950">{index + 1}</span>
+                    <span className="text-xs font-semibold text-slate-200">Участок структуры</span>
+                  </div>
+                  <span className="text-xs text-slate-400">{fmtHa(Number(row.area || 0))}</span>
+                </div>
+                <div className="grid grid-cols-12 items-end gap-2 p-3">
                 <div className="col-span-12 md:col-span-3">
-                  <Label>Культура *</Label>
+                  <Label className={editorLabelClass}>Культура *</Label>
                   <Select value={row.crop_id || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
-                    <SelectTrigger><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
-                    <SelectContent><SelectItem value="none">—</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
+                    <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
+                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="col-span-12 md:col-span-2">
-                  <Label>Сорт *</Label>
+                  <Label className={editorLabelClass}>Сорт *</Label>
                   <Select value={row.variety_id || "none"} onValueChange={(value) => patchDraft(index, { variety_id: value === "none" ? null : value })}>
-                    <SelectTrigger><SelectValue placeholder="Выберите сорт" /></SelectTrigger>
-                    <SelectContent><SelectItem value="none">—</SelectItem>{vars.map((variety) => <SelectItem key={variety.id} value={variety.id}>{variety.name}</SelectItem>)}</SelectContent>
+                    <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите сорт" /></SelectTrigger>
+                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{vars.map((variety) => <SelectItem key={variety.id} value={variety.id}>{variety.name}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="col-span-12 md:col-span-2">
-                  <Label>Репродукция *</Label>
+                  <Label className={editorLabelClass}>Репродукция *</Label>
                   <Select value={row.reproduction_id || "none"} onValueChange={(value) => patchDraft(index, { reproduction_id: value === "none" ? null : value })}>
-                    <SelectTrigger><SelectValue placeholder="Репродукция" /></SelectTrigger>
-                    <SelectContent><SelectItem value="none">—</SelectItem>{globalReproductions.map((item) => <SelectItem key={item.id} value={item.id}>{standardReproductionLabel(item)}</SelectItem>)}</SelectContent>
+                    <SelectTrigger className={editorControlClass}><SelectValue placeholder="Репродукция" /></SelectTrigger>
+                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{globalReproductions.map((item) => <SelectItem key={item.id} value={item.id}>{standardReproductionLabel(item)}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div className="col-span-6 md:col-span-2">
-                  <Label>Площадь, га *</Label>
-                  <Input type="number" min={0} step="0.01" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
+                <div className="col-span-7 md:col-span-3">
+                  <Label className={editorLabelClass}>Площадь, га *</Label>
+                  <div className="flex gap-1.5">
+                    <Input className={editorControlClass} type="number" min={0} step="0.01" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
+                    <Button
+                      type="button"
+                      title="Заполнить остатком площади"
+                      aria-label="Заполнить остатком площади"
+                      className="h-10 w-10 shrink-0 border border-slate-700 bg-[#0b1220] p-0 text-slate-400 hover:border-yellow-500/50 hover:bg-[#172033] hover:text-yellow-300"
+                      variant="outline"
+                      onClick={() => fillRemainingArea(index)}
+                    >
+                      <Maximize2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
                 </div>
                 <div className="col-span-3 md:col-span-1">
-                  <Label>%</Label>
-                  <div className="flex h-10 items-center rounded-md border bg-white px-3 text-sm">{pct}</div>
+                  <Label className={editorLabelClass}>%</Label>
+                  <div className="flex h-10 items-center rounded-md border border-slate-700 bg-[#0b1220] px-3 text-sm font-semibold text-slate-200 shadow-inner shadow-black/20">{pct}</div>
                 </div>
-                <div className="col-span-3 md:col-span-1">
-                  <Label>Удалить</Label>
-                  <Button className="w-full" variant="ghost" size="icon" onClick={() => removeRow(index)}><X className="h-4 w-4" /></Button>
+                <div className="col-span-2 md:col-span-1">
+                  <Label className={editorLabelClass}>Удалить</Label>
+                  <Button
+                    className="h-10 w-10 border border-transparent text-slate-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    variant="ghost"
+                    size="icon"
+                    title={isDeleteLocked ? "Нельзя удалить: есть операции или материалы" : "Удалить участок"}
+                    onClick={() => requestRemoveRow(index)}
+                    disabled={isDeleteLocked}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
                 </div>
-                <div className="col-span-12 grid grid-cols-1 gap-2 border-t border-slate-200 pt-2 md:grid-cols-4">
+                <div className="col-span-12 grid grid-cols-1 gap-2 border-t border-slate-700/70 pt-3 md:grid-cols-3">
                   <div>
-                    <Label>Орошение</Label>
+                    <Label className={editorLabelClass}>Орошение</Label>
                     <Select
                       value={normalizeIrrigationType(row.irrigation_type)}
                       onValueChange={(value) => patchDraft(index, { irrigation_type: normalizeIrrigationType(value) })}
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
+                      <SelectTrigger className={editorControlClass}><SelectValue /></SelectTrigger>
+                      <SelectContent className={editorSelectContentClass}>
                         <SelectItem value="unknown">Не указано</SelectItem>
                         <SelectItem value="drip">Капельное</SelectItem>
                         <SelectItem value="sprinkler">Дождевание</SelectItem>
@@ -2109,8 +2180,9 @@ export default function CropStructurePage() {
                     </Select>
                   </div>
                   <div>
-                    <Label>Междурядье, м</Label>
+                    <Label className={editorLabelClass}>Междурядье, м</Label>
                     <Input
+                      className={editorControlClass}
                       type="number"
                       min={0}
                       step="0.01"
@@ -2120,8 +2192,9 @@ export default function CropStructurePage() {
                     />
                   </div>
                   <div>
-                    <Label>{isPotatoAllocation(row) ? "Межклубневое, см" : "Расстояние в ряду, см"}</Label>
+                    <Label className={editorLabelClass}>Межсемянное расстояние, см</Label>
                     <Input
+                      className={editorControlClass}
                       type="number"
                       min={0}
                       step="0.1"
@@ -2130,18 +2203,14 @@ export default function CropStructurePage() {
                       placeholder={isPotatoAllocation(row) ? "32" : "см"}
                     />
                   </div>
-                  <div className="flex items-end">
-                    <div className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-200">
-                      {getIrrigationTypeLabel(row.irrigation_type)}
-                    </div>
-                  </div>
+                </div>
                 </div>
               </div>
             );
           })}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          <Button variant="outline" onClick={addRow}><Plus className="mr-2 h-4 w-4" />Добавить строку</Button>
+          <Button className="border-slate-700 bg-[#0b1220] text-slate-100 hover:border-yellow-500/50 hover:bg-[#172033] hover:text-white" variant="outline" onClick={addRow}><Plus className="mr-2 h-4 w-4" />Добавить строку</Button>
         </div>
       </div>
     );
@@ -2229,6 +2298,7 @@ export default function CropStructurePage() {
 
   const hasFields = fields.length > 0;
   const sectionChoiceRows = sectionChoiceField ? operationAllocationsForField(sectionChoiceField.id) : [];
+  const pendingDeleteRow = pendingDeleteIndex == null ? null : draftRows[pendingDeleteIndex] || null;
 
   return (
     <div className="space-y-4">
@@ -2358,21 +2428,43 @@ export default function CropStructurePage() {
               <Button variant={fieldDialogTab === "dossier" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("dossier")}>
                 Агро-контур
               </Button>
-              <Button variant={fieldDialogTab === "legal" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("legal")}>
-                Юридический контур
-              </Button>
               <Button variant={fieldDialogTab === "editor" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("editor")}>
                 Редактор структуры
               </Button>
+              <Button variant={fieldDialogTab === "legal" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("legal")}>
+                Юридический контур
+              </Button>
             </div>
             {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
-            {fieldDialogTab === "legal" ? renderLegalContour() : null}
             {fieldDialogTab === "editor" ? renderEditor() : null}
+            {fieldDialogTab === "legal" ? renderLegalContour() : null}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeField}>Закрыть</Button>
             <Button onClick={save} disabled={saving}>
               <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pendingDeleteIndex !== null} onOpenChange={(open) => !open && setPendingDeleteIndex(null)}>
+        <DialogContent className="max-w-md border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50">
+          <DialogHeader>
+            <DialogTitle>Удалить участок структуры?</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              {pendingDeleteRow
+                ? `Будет удалена строка на ${fmtHa(Number(pendingDeleteRow.area || 0))}. Это действие применится после сохранения структуры.`
+                : "Будет удалена выбранная строка структуры после сохранения."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+            Если у участка уже есть операции, материалы или история, удаление заблокируется.
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingDeleteIndex(null)}>Отмена</Button>
+            <Button className="bg-rose-600 text-white hover:bg-rose-500" onClick={confirmRemoveRow}>
+              Удалить участок
             </Button>
           </DialogFooter>
         </DialogContent>
