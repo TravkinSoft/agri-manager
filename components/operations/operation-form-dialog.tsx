@@ -72,6 +72,7 @@ import {
   isUnitAllowedForMaterialRateBasis,
   normalizeMaterialRateBasis,
 } from "@/lib/materials/metadata";
+import { buildAssetSelectorHint, buildAssetSelectorLabel } from "@/lib/services/references";
 import {
   OPERATION_SUBTYPE_DEFINITIONS,
   OPERATION_TYPE_DEFINITIONS,
@@ -123,7 +124,7 @@ type OperationTypeMaster = {
   is_active?: boolean;
 };
 
-type RefOption = { id: string; name: string };
+type RefOption = { id: string; name: string; hint?: string };
 type ProductOption = {
   id: string;
   name: string;
@@ -853,9 +854,9 @@ export function OperationFormDialog({
     [specialists]
   );
 
-  const machineOptions = useMemo(() => machines.map((item) => ({ id: item.id, label: item.name })), [machines]);
-  const equipmentOptions = useMemo(() => equipment.map((item) => ({ id: item.id, label: item.name })), [equipment]);
-  const transportOptions = useMemo(() => transports.map((item) => ({ id: item.id, label: item.name })), [transports]);
+  const machineOptions = useMemo(() => machines.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [machines]);
+  const equipmentOptions = useMemo(() => equipment.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [equipment]);
+  const transportOptions = useMemo(() => transports.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [transports]);
   const productOptions = useMemo(
     () =>
       products.map((item) => ({
@@ -949,9 +950,27 @@ export function OperationFormDialog({
           .select("id,slug,name_ru,category_slug,requires_machine,requires_product,requires_field,affects_inventory,affects_field_history,is_active")
           .eq("is_active", true)
           .order("name_ru"),
-        supabase.from("reference_machines").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
-        supabase.from("reference_equipment").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
-        supabase.from("reference_vehicles").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
+        supabase
+          .from("reference_machines")
+          .select("id,name,full_name,brand,series,model,type,category,machine_category,machinery_type,inventory_number,license_plate,manufacture_year,global_model:global_machine_model_id(id,full_name,category,brand,series,model)")
+          .eq("company_id", profile.company_id)
+          .eq("archived", false)
+          .eq("is_active", true)
+          .order("name"),
+        supabase
+          .from("reference_equipment")
+          .select("id,name,full_name,brand,series,model,category,equipment_category,inventory_number,manufacture_year,global_model:global_equipment_model_id(id,name,full_name,category,brand,series,model,equipment_type)")
+          .eq("company_id", profile.company_id)
+          .eq("archived", false)
+          .eq("is_active", true)
+          .order("name"),
+        supabase
+          .from("reference_vehicles")
+          .select("id,name,full_name,brand,series,model,type,vehicle_type,fleet_type,plate_number,license_plate,inventory_number,vin,manufacture_year,transport_model:transport_model_id(id,full_name,category,brand,series,model)")
+          .eq("company_id", profile.company_id)
+          .eq("archived", false)
+          .eq("is_active", true)
+          .order("name"),
         supabase
           .from("products")
           .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_dosing_type,default_rate_unit")
@@ -971,9 +990,27 @@ export function OperationFormDialog({
 
       if (!catRes.error) setCategories(mergeCanonicalCategories((catRes.data || []) as OperationCategory[]));
       if (!typeRes.error) setTypes(mergeCanonicalTypes((typeRes.data || []) as OperationTypeMaster[]));
-      if (!machinesRes.error) setMachines((machinesRes.data || []).map((row: any) => ({ id: String(row.id), name: String(row.name || "-") })));
-      if (!equipmentRes.error) setEquipment((equipmentRes.data || []).map((row: any) => ({ id: String(row.id), name: String(row.name || "-") })));
-      if (!transportRes.error) setTransports((transportRes.data || []).map((row: any) => ({ id: String(row.id), name: String(row.name || "-") })));
+      if (!machinesRes.error) {
+        setMachines((machinesRes.data || []).map((row: any) => ({
+          id: String(row.id),
+          name: buildAssetSelectorLabel(row, "machine"),
+          hint: buildAssetSelectorHint(row),
+        })));
+      }
+      if (!equipmentRes.error) {
+        setEquipment((equipmentRes.data || []).map((row: any) => ({
+          id: String(row.id),
+          name: buildAssetSelectorLabel(row, "equipment"),
+          hint: buildAssetSelectorHint(row),
+        })));
+      }
+      if (!transportRes.error) {
+        setTransports((transportRes.data || []).map((row: any) => ({
+          id: String(row.id),
+          name: buildAssetSelectorLabel(row, "vehicle"),
+          hint: buildAssetSelectorHint(row),
+        })));
+      }
       if (!cropsRes.error) {
         setCropCatalog(
           (cropsRes.data || [])

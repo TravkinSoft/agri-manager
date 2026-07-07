@@ -1097,8 +1097,8 @@ async function enrichTickets(
       : Promise.resolve({ data: [], error: null } as any),
     driverIds.length
       ? context.supabase
-          .from("reference_personnel")
-          .select("id,full_name,email")
+          .from("reference_specialists")
+          .select("id,full_name")
           .in("id", driverIds)
       : Promise.resolve({ data: [], error: null } as any),
     vehicleIds.length
