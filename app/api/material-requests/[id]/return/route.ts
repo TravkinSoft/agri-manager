@@ -105,6 +105,43 @@ export async function POST(
     }
 
     if (itemsRaw.length === 0) {
+      if (acceptReturn) {
+        const nowIso = new Date().toISOString();
+        const closePatch: Record<string, unknown> = {
+          updated_at: nowIso,
+          warehouse_request_status: "closed",
+          return_closed_at: nowIso,
+          return_received_by_user_id: actor.id,
+        };
+        let closeResult = await supabase
+          .from("warehouse_issue_requests")
+          .update(closePatch)
+          .eq("id", requestId)
+          .eq("company_id", companyId);
+
+        if (closeResult.error && isV5WarehouseSchemaError(closeResult.error)) {
+          closeResult = await supabase
+            .from("warehouse_issue_requests")
+            .update({ updated_at: nowIso })
+            .eq("id", requestId)
+            .eq("company_id", companyId);
+        }
+
+        if (closeResult.error) {
+          return NextResponse.json(
+            { error: closeResult.error.message || "Failed to close return workflow" },
+            { status: 400 }
+          );
+        }
+
+        return NextResponse.json({
+          success: true,
+          returned_items: 0,
+          return_movements: 0,
+          already_received: true,
+          request_id: requestId,
+        });
+      }
       return NextResponse.json({ error: "Return items are required" }, { status: 400 });
     }
     const itemById = new Map((requestItems || []).map((row: any) => [String(row.id), row]));
@@ -298,7 +335,7 @@ export async function POST(
     };
     const v5RequestPatch: Record<string, unknown> = {
       ...baseRequestPatch,
-      warehouse_request_status: acceptReturn ? "return_received" : "return_expected",
+      warehouse_request_status: acceptReturn ? "closed" : "return_expected",
     };
     if (acceptReturn) {
       v5RequestPatch.return_received_at = txPayload.length > 0 ? nowIso : null;

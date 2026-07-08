@@ -16,6 +16,10 @@ const READ_ROLES = [
 const WRITE_ROLES = [
   "global_admin",
   "company_admin",
+  "warehouse",
+  "warehouse_operator",
+  "agronomist",
+  "director",
 ] as const;
 
 const PRODUCT_TYPES = new Set([

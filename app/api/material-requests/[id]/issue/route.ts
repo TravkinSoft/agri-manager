@@ -30,6 +30,15 @@ function isV5WarehouseSchemaError(error: unknown): boolean {
   return /warehouse_request_status|prepared_quantity|expected_consumed_quantity|shortage_quantity|reconciliation_status|substitution_status|planned_product_id|actual_product_id|schema cache|column/i.test(message);
 }
 
+function normalizeOperationMaterialTypeForDb(value: unknown): string {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "additive") return "adjuvant";
+  if (normalized === "crop_protection" || normalized === "plant_protection") return "pesticide";
+  if (normalized === "micro_fertilizer") return "fertilizer";
+  if (normalized === "antifoam") return "defoamer";
+  return normalized || "other";
+}
+
 async function getProductBalance(
   supabase: any,
   params: {
@@ -150,7 +159,7 @@ async function syncOperationMaterialsFromRequest(
     const current =
       grouped.get(productId) || {
         productId,
-        materialType: String(item.product_category || "other"),
+        materialType: normalizeOperationMaterialTypeForDb(item.product_category || "other"),
         unit: String(item.unit || "kg"),
         planned: 0,
         issued: 0,

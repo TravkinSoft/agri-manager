@@ -67,6 +67,12 @@ function nullablePositiveNumber(value: unknown): number | null {
   return n;
 }
 
+function readFactNumber(rawFact: any, camelKey: string, snakeKey: string, fallback: number | null = null): number | null {
+  const rawValue = rawFact?.[camelKey] ?? rawFact?.[snakeKey];
+  if (rawValue === null || rawValue === undefined || rawValue === "") return fallback;
+  return nullablePositiveNumber(rawValue);
+}
+
 function isV5SchemaError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
   return /operation_status|specialist_task_status|planned_area_ha|completed_area_ha|remaining_area_ha|progress_percent|loss_quantity|expected_consumed_quantity|shortage_quantity|reconciliation_status|schema cache|column/i.test(message);
@@ -89,7 +95,11 @@ export async function POST(
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
     const comment = String(body.comment || "").trim();
     const lineFacts = Array.isArray(body.lineFacts) ? body.lineFacts : [];
-    const materialFacts = Array.isArray(body.materialFacts) ? body.materialFacts : [];
+    const materialFacts = Array.isArray(body.materialFacts)
+      ? body.materialFacts
+      : Array.isArray(body.material_facts)
+        ? body.material_facts
+        : [];
     const fallbackActualArea = nullablePositiveNumber(body.actualAreaHa);
     const supabase = getServiceClient();
 
@@ -244,35 +254,31 @@ export async function POST(
       let normalizedMaterials = materials || [];
       if (materialFacts.length > 0 && normalizedMaterials.length > 0) {
         const materialFactsById = new Map<string, any>();
+        const materialFactsByProductId = new Map<string, any>();
         for (const rawFact of materialFacts) {
-          const materialId = String(rawFact?.materialId || rawFact?.id || "").trim();
-          if (!materialId) continue;
-          const actualRate = rawFact?.actualRate === null || rawFact?.actualRate === undefined || rawFact?.actualRate === ""
-            ? null
-            : nullablePositiveNumber(rawFact.actualRate);
-          const consumedQuantity = rawFact?.consumedQuantity === null || rawFact?.consumedQuantity === undefined || rawFact?.consumedQuantity === ""
-            ? null
-            : nullablePositiveNumber(rawFact.consumedQuantity);
-          const returnedQuantity = rawFact?.returnedQuantity === null || rawFact?.returnedQuantity === undefined || rawFact?.returnedQuantity === ""
-            ? null
-            : nullablePositiveNumber(rawFact.returnedQuantity);
-          const lossQuantity = rawFact?.lossQuantity === null || rawFact?.lossQuantity === undefined || rawFact?.lossQuantity === ""
-            ? 0
-            : nullablePositiveNumber(rawFact.lossQuantity);
+          const materialId = String(rawFact?.materialId || rawFact?.material_id || rawFact?.operationMaterialId || rawFact?.operation_material_id || rawFact?.id || "").trim();
+          const productId = String(rawFact?.productId || rawFact?.product_id || "").trim();
+          if (!materialId && !productId) continue;
+          const actualRate = readFactNumber(rawFact, "actualRate", "actual_rate", null);
+          const consumedQuantity = readFactNumber(rawFact, "consumedQuantity", "consumed_quantity", null);
+          const returnedQuantity = readFactNumber(rawFact, "returnedQuantity", "returned_quantity", null);
+          const lossQuantity = readFactNumber(rawFact, "lossQuantity", "loss_quantity", 0);
           if (
-            (rawFact?.actualRate !== null && rawFact?.actualRate !== undefined && rawFact?.actualRate !== "" && actualRate == null) ||
-            (rawFact?.consumedQuantity !== null && rawFact?.consumedQuantity !== undefined && rawFact?.consumedQuantity !== "" && consumedQuantity == null) ||
-            (rawFact?.returnedQuantity !== null && rawFact?.returnedQuantity !== undefined && rawFact?.returnedQuantity !== "" && returnedQuantity == null) ||
-            (rawFact?.lossQuantity !== null && rawFact?.lossQuantity !== undefined && rawFact?.lossQuantity !== "" && lossQuantity == null)
+            ((rawFact?.actualRate ?? rawFact?.actual_rate) !== null && (rawFact?.actualRate ?? rawFact?.actual_rate) !== undefined && (rawFact?.actualRate ?? rawFact?.actual_rate) !== "" && actualRate == null) ||
+            ((rawFact?.consumedQuantity ?? rawFact?.consumed_quantity) !== null && (rawFact?.consumedQuantity ?? rawFact?.consumed_quantity) !== undefined && (rawFact?.consumedQuantity ?? rawFact?.consumed_quantity) !== "" && consumedQuantity == null) ||
+            ((rawFact?.returnedQuantity ?? rawFact?.returned_quantity) !== null && (rawFact?.returnedQuantity ?? rawFact?.returned_quantity) !== undefined && (rawFact?.returnedQuantity ?? rawFact?.returned_quantity) !== "" && returnedQuantity == null) ||
+            ((rawFact?.lossQuantity ?? rawFact?.loss_quantity) !== null && (rawFact?.lossQuantity ?? rawFact?.loss_quantity) !== undefined && (rawFact?.lossQuantity ?? rawFact?.loss_quantity) !== "" && lossQuantity == null)
           ) {
             return NextResponse.json({ error: "Material fact values must be zero or positive" }, { status: 400 });
           }
-          materialFactsById.set(materialId, { actualRate, consumedQuantity, returnedQuantity, lossQuantity });
+          const fact = { actualRate, consumedQuantity, returnedQuantity, lossQuantity };
+          if (materialId) materialFactsById.set(materialId, fact);
+          if (productId) materialFactsByProductId.set(productId, fact);
         }
 
         const updatedMaterials: any[] = [];
         for (const material of normalizedMaterials as any[]) {
-          const fact = materialFactsById.get(String(material.id));
+          const fact = materialFactsById.get(String(material.id)) || materialFactsByProductId.get(String(material.product_id || ""));
           if (!fact) {
             updatedMaterials.push(material);
             continue;
@@ -326,6 +332,133 @@ export async function POST(
           updatedMaterials.push(updatedMaterial);
         }
         normalizedMaterials = updatedMaterials;
+      }
+
+      const materialFactsForRequests = (normalizedMaterials || []).filter((material: any) => {
+        return (
+          material.product_id &&
+          material.consumed_quantity !== null &&
+          material.consumed_quantity !== undefined &&
+          material.returned_quantity !== null &&
+          material.returned_quantity !== undefined
+        );
+      });
+
+      if (materialFactsForRequests.length > 0) {
+        const { data: linkedRequests, error: linkedRequestsError } = await supabase
+          .from("warehouse_issue_requests")
+          .select("id")
+          .eq("operation_id", operationId)
+          .eq("company_id", companyId)
+          .in("status", ["issued", "issued_by_warehouse", "partially_issued", "received_confirmed"]);
+
+        if (linkedRequestsError) {
+          return NextResponse.json(
+            { error: linkedRequestsError.message || "Failed to load linked material requests" },
+            { status: 400 }
+          );
+        }
+
+        const requestIds = (linkedRequests || []).map((requestRow: any) => String(requestRow.id)).filter(Boolean);
+        if (requestIds.length > 0) {
+          const requestItemsResult = await supabase
+            .from("warehouse_issue_request_items")
+            .select("id,request_id,product_id,return_received_quantity,substitution_status,planned_product_id,actual_product_id")
+            .eq("company_id", companyId)
+            .in("request_id", requestIds);
+
+          if (requestItemsResult.error && !isV5SchemaError(requestItemsResult.error)) {
+            return NextResponse.json(
+              { error: requestItemsResult.error.message || "Failed to load linked request item facts" },
+              { status: 400 }
+            );
+          }
+
+          const requestItemByProduct = new Map<string, any>();
+          if (!requestItemsResult.error) {
+            for (const item of requestItemsResult.data || []) {
+              const productId = String((item as any).product_id || "");
+              if (productId && !requestItemByProduct.has(productId)) {
+                requestItemByProduct.set(productId, item);
+              }
+            }
+          }
+
+          let anyDeclaredReturn = false;
+          let allFactsReconciled = true;
+          for (const material of materialFactsForRequests as any[]) {
+            const requestItem = requestItemByProduct.get(String(material.product_id || ""));
+            const reconciliation = calculateMaterialReconciliation({
+              plannedQuantity: Number(material.planned_quantity || 0),
+              plannedAreaHa: plannedAreaForCompletion,
+              actualCompletedAreaHa: actualAreaForCompletion,
+              issuedQuantity: Number(material.issued_quantity || 0),
+              consumedQuantity: Number(material.consumed_quantity || 0),
+              returnedQuantity: Number(material.returned_quantity || 0),
+              returnReceivedQuantity: requestItem?.return_received_quantity,
+              lossQuantity: Number(material.loss_quantity || 0),
+              substitutionStatus: requestItem?.substitution_status,
+              plannedProductId: requestItem?.planned_product_id,
+              actualProductId: requestItem?.actual_product_id,
+            });
+            if (Number(material.returned_quantity || 0) > 0) anyDeclaredReturn = true;
+            if (!reconciliation.canClose) allFactsReconciled = false;
+
+            let requestItemSyncResult = await supabase
+              .from("warehouse_issue_request_items")
+              .update({
+                consumed_quantity: roundMaterialQuantity(Number(material.consumed_quantity || 0)),
+                returned_quantity: roundMaterialQuantity(Number(material.returned_quantity || 0)),
+                loss_quantity: roundMaterialQuantity(Number(material.loss_quantity || 0)),
+                expected_consumed_quantity: reconciliation.expectedConsumedQuantity,
+                expected_return_quantity: reconciliation.expectedReturnQuantity,
+                shortage_quantity: reconciliation.shortageQuantity,
+                reconciliation_status: reconciliation.reconciliationStatus,
+              })
+              .eq("company_id", companyId)
+              .eq("product_id", material.product_id)
+              .in("request_id", requestIds);
+
+            if (requestItemSyncResult.error && isV5SchemaError(requestItemSyncResult.error)) {
+              requestItemSyncResult = await supabase
+                .from("warehouse_issue_request_items")
+                .update({
+                  consumed_quantity: roundMaterialQuantity(Number(material.consumed_quantity || 0)),
+                  returned_quantity: roundMaterialQuantity(Number(material.returned_quantity || 0)),
+                })
+                .eq("company_id", companyId)
+                .eq("product_id", material.product_id)
+                .in("request_id", requestIds);
+            }
+
+            if (requestItemSyncResult.error) {
+              return NextResponse.json(
+                { error: requestItemSyncResult.error.message || "Failed to sync request material facts" },
+                { status: 400 }
+              );
+            }
+          }
+
+          let requestSyncPatch: Record<string, unknown> | null = null;
+          if (anyDeclaredReturn) {
+            requestSyncPatch = { warehouse_request_status: "return_expected", return_expected_at: new Date().toISOString(), return_requested_by_user_id: actor.id };
+          } else if (allFactsReconciled) {
+            requestSyncPatch = { warehouse_request_status: "closed", return_closed_at: new Date().toISOString() };
+          }
+          if (requestSyncPatch) {
+            const requestSyncResult = await supabase
+              .from("warehouse_issue_requests")
+              .update({ ...requestSyncPatch, updated_at: new Date().toISOString() })
+              .eq("company_id", companyId)
+              .in("id", requestIds);
+            if (requestSyncResult.error && !isV5SchemaError(requestSyncResult.error)) {
+              return NextResponse.json(
+                { error: requestSyncResult.error.message || "Failed to sync request return status" },
+                { status: 400 }
+              );
+            }
+          }
+        }
       }
 
       const incompleteMaterial = (normalizedMaterials || []).find((material: any) => {
@@ -432,92 +565,6 @@ export async function POST(
           },
           { status: 409 }
         );
-      }
-
-      const materialFactsForRequests = (normalizedMaterials || []).filter((material: any) => {
-        return (
-          material.product_id &&
-          material.consumed_quantity !== null &&
-          material.consumed_quantity !== undefined &&
-          material.returned_quantity !== null &&
-          material.returned_quantity !== undefined
-        );
-      });
-
-      if (materialFactsForRequests.length > 0) {
-        const { data: linkedRequests, error: linkedRequestsError } = await supabase
-          .from("warehouse_issue_requests")
-          .select("id")
-          .eq("operation_id", operationId)
-          .eq("company_id", companyId)
-          .in("status", ["issued", "issued_by_warehouse", "partially_issued", "received_confirmed"]);
-
-        if (linkedRequestsError) {
-          return NextResponse.json(
-            { error: linkedRequestsError.message || "Failed to load linked material requests" },
-            { status: 400 }
-          );
-        }
-
-        const requestIds = (linkedRequests || []).map((requestRow: any) => String(requestRow.id)).filter(Boolean);
-        if (requestIds.length > 0) {
-          for (const material of materialFactsForRequests as any[]) {
-            const reconciliation = calculateMaterialReconciliation({
-              plannedQuantity: Number(material.planned_quantity || 0),
-              plannedAreaHa: plannedAreaForCompletion,
-              actualCompletedAreaHa: actualAreaForCompletion,
-              issuedQuantity: Number(material.issued_quantity || 0),
-              consumedQuantity: Number(material.consumed_quantity || 0),
-              returnedQuantity: Number(material.returned_quantity || 0),
-              lossQuantity: Number(material.loss_quantity || 0),
-            });
-
-            if (!reconciliation.canClose) {
-              return NextResponse.json(
-                {
-                  error: "Material reconciliation is required before operation close",
-                  material_id: material.id,
-                  reasons: reconciliation.closeBlockingReasons,
-                },
-                { status: 409 }
-              );
-            }
-
-            let requestItemSyncResult = await supabase
-              .from("warehouse_issue_request_items")
-              .update({
-                consumed_quantity: roundMaterialQuantity(Number(material.consumed_quantity || 0)),
-                returned_quantity: roundMaterialQuantity(Number(material.returned_quantity || 0)),
-                loss_quantity: roundMaterialQuantity(Number(material.loss_quantity || 0)),
-                expected_consumed_quantity: reconciliation.expectedConsumedQuantity,
-                expected_return_quantity: reconciliation.expectedReturnQuantity,
-                shortage_quantity: reconciliation.shortageQuantity,
-                reconciliation_status: reconciliation.reconciliationStatus,
-              })
-              .eq("company_id", companyId)
-              .eq("product_id", material.product_id)
-              .in("request_id", requestIds);
-
-            if (requestItemSyncResult.error && isV5SchemaError(requestItemSyncResult.error)) {
-              requestItemSyncResult = await supabase
-                .from("warehouse_issue_request_items")
-                .update({
-                  consumed_quantity: roundMaterialQuantity(Number(material.consumed_quantity || 0)),
-                  returned_quantity: roundMaterialQuantity(Number(material.returned_quantity || 0)),
-                })
-                .eq("company_id", companyId)
-                .eq("product_id", material.product_id)
-                .in("request_id", requestIds);
-            }
-
-            if (requestItemSyncResult.error) {
-              return NextResponse.json(
-                { error: requestItemSyncResult.error.message || "Failed to sync request material facts" },
-                { status: 400 }
-              );
-            }
-          }
-        }
       }
 
       completedOperationMaterialsForHistory = normalizedMaterials || [];
