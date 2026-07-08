@@ -27,20 +27,41 @@ type CompanyContextItem = {
   name: string;
 };
 
+type CompanyUserContextItem = {
+  id: string;
+  name: string;
+  email: string | null;
+  role: string | null;
+};
+
 export function Header() {
   const { toggleSidebar } = useSidebar();
   const { user, profile, signOut } = useAuth();
   const { t } = useLanguage();
   const router = useRouter();
   const [companies, setCompanies] = useState<CompanyContextItem[]>([]);
+  const [companyUsers, setCompanyUsers] = useState<CompanyUserContextItem[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState("__none__");
   const [switchingCompany, setSwitchingCompany] = useState(false);
+  const [switchingUser, setSwitchingUser] = useState(false);
+  const [loadingCompanyUsers, setLoadingCompanyUsers] = useState(false);
 
   const isGlobal = isGlobalAdmin(profile?.role);
-  const activeCompanyId = profile?.context_company_id || null;
+  const isImpersonating = Boolean(profile?.is_impersonating);
+  const canUseUserSwitcher = isGlobal || isImpersonating;
+  const profileContextCompanyId = profile?.context_company_id || null;
+  const activeCompanyId = isGlobal && selectedCompanyId !== "__none__" ? selectedCompanyId : null;
+  const activeUserCompanyId =
+    isImpersonating
+      ? profile?.impersonated_company_id || profile?.company_id || null
+      : isGlobal
+        ? activeCompanyId
+        : profile?.company_id || null;
   const activeCompanyName = useMemo(
     () => companies.find((item) => item.id === activeCompanyId)?.name || null,
     [companies, activeCompanyId]
   );
+  const activeUserValue = isImpersonating && profile?.id ? profile.id : "__admin__";
 
   const buildAuthHeaders = async (contentType: "json" | "none" = "none") => {
     const { data, error } = await supabase.auth.getSession();
@@ -55,6 +76,10 @@ export function Header() {
   };
 
   useEffect(() => {
+    setSelectedCompanyId(profileContextCompanyId || "__none__");
+  }, [profileContextCompanyId]);
+
+  useEffect(() => {
     const loadCompanies = async () => {
       if (!isGlobal) return;
       try {
@@ -67,12 +92,48 @@ export function Header() {
         if (!response.ok) return;
         const data = await response.json();
         setCompanies(Array.isArray(data?.companies) ? data.companies : []);
+        setSelectedCompanyId(data?.selectedCompanyId ? String(data.selectedCompanyId) : "__none__");
       } catch (error) {
         console.error("Failed to load companies for global admin:", error);
       }
     };
     void loadCompanies();
-  }, [isGlobal, profile?.context_company_id]);
+  }, [isGlobal, profileContextCompanyId]);
+
+  useEffect(() => {
+    const loadCompanyUsers = async () => {
+      if (!canUseUserSwitcher || !activeUserCompanyId) {
+        setCompanyUsers([]);
+        return;
+      }
+
+      setLoadingCompanyUsers(true);
+      try {
+        const headers = await buildAuthHeaders("none");
+        const response = await fetch(
+          `/api/global-admin/company-users?companyId=${encodeURIComponent(activeUserCompanyId)}`,
+          {
+            method: "GET",
+            headers,
+            cache: "no-store",
+          }
+        );
+        if (!response.ok) {
+          setCompanyUsers([]);
+          return;
+        }
+        const data = await response.json();
+        setCompanyUsers(Array.isArray(data?.users) ? data.users : []);
+      } catch (error) {
+        console.error("Failed to load company users for header switcher:", error);
+        setCompanyUsers([]);
+      } finally {
+        setLoadingCompanyUsers(false);
+      }
+    };
+
+    void loadCompanyUsers();
+  }, [canUseUserSwitcher, activeUserCompanyId]);
 
   const handleLogout = async () => {
     try {
@@ -122,24 +183,77 @@ export function Header() {
   };
 
   const handleSwitchCompany = async (companyId: string) => {
-    if (!user?.id || !isGlobal) return;
+    if (!user?.id || !isGlobal || switchingCompany) return;
+    const nextValue = companyId || "__none__";
+    if (nextValue === selectedCompanyId) return;
+    const previousValue = selectedCompanyId;
+    setSelectedCompanyId(nextValue);
+    setCompanyUsers([]);
     setSwitchingCompany(true);
     try {
       const headers = await buildAuthHeaders("json");
       const response = await fetch("/api/global-admin/companies", {
         method: "POST",
         headers,
-        body: JSON.stringify({ companyId: companyId === "__none__" ? null : companyId }),
+        body: JSON.stringify({ companyId: nextValue === "__none__" ? null : nextValue }),
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload?.error || "Failed to switch company context");
       }
-      window.location.href = companyId === "__none__" ? "/platform" : "/dashboard";
+      const payload = await response.json().catch(() => ({}));
+      setSelectedCompanyId(payload?.selectedCompanyId ? String(payload.selectedCompanyId) : "__none__");
+      if (nextValue === "__none__") {
+        window.location.assign("/platform");
+        return;
+      }
+      const currentPath = `${window.location.pathname}${window.location.search || ""}`;
+      const nextPath = window.location.pathname.startsWith("/platform") ? "/dashboard" : currentPath;
+      window.location.assign(nextPath);
     } catch (error) {
       console.error("Company context switch failed:", error);
+      setSelectedCompanyId(previousValue);
     } finally {
       setSwitchingCompany(false);
+    }
+  };
+
+  const handleSwitchUser = async (profileId: string) => {
+    if (!user?.id || !canUseUserSwitcher || switchingUser) return;
+    if (profileId === activeUserValue && profileId !== "__admin__") return;
+
+    setSwitchingUser(true);
+    try {
+      const headers = await buildAuthHeaders("json");
+
+      if (profileId === "__admin__") {
+        if (!isImpersonating) return;
+        const response = await fetch("/api/global-admin/impersonation", {
+          method: "DELETE",
+          headers,
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          throw new Error(payload?.error || "Failed to return to global admin");
+        }
+        window.location.reload();
+        return;
+      }
+
+      const response = await fetch("/api/global-admin/impersonation", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ targetProfileId: profileId, reason: "Header company user switcher" }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || "Failed to switch user context");
+      }
+      window.location.reload();
+    } catch (error) {
+      console.error("User context switch failed:", error);
+    } finally {
+      setSwitchingUser(false);
     }
   };
 
@@ -171,7 +285,7 @@ export function Header() {
             <span className="text-xs font-medium text-[#9CA3AF]">
               {activeCompanyId ? t("company_context") : t("platform_mode")}
             </span>
-            <Select value={activeCompanyId || "__none__"} onValueChange={handleSwitchCompany} disabled={switchingCompany}>
+            <Select value={selectedCompanyId} onValueChange={handleSwitchCompany} disabled={switchingCompany}>
               <SelectTrigger className="h-9 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
                 <SelectValue placeholder={t("select_company")} />
               </SelectTrigger>
@@ -185,6 +299,32 @@ export function Header() {
               </SelectContent>
             </Select>
             {activeCompanyName ? <span className="max-w-[150px] truncate text-xs text-[#9CA3AF]">{activeCompanyName}</span> : null}
+          </div>
+        ) : null}
+
+        {canUseUserSwitcher && activeUserCompanyId ? (
+          <div className="hidden min-w-[280px] items-center gap-2 lg:flex">
+            <span className="text-xs font-medium text-[#9CA3AF]">Вы как</span>
+            <Select
+              value={activeUserValue}
+              onValueChange={handleSwitchUser}
+              disabled={switchingUser || loadingCompanyUsers}
+            >
+              <SelectTrigger className="h-9 border-[#2C3446] bg-[#1A1F2B] text-[#F3F4F6]">
+                <SelectValue placeholder="Выберите пользователя" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__admin__">
+                  {isImpersonating ? "Вернуться к Global Admin" : "Global Admin"}
+                </SelectItem>
+                {companyUsers.map((companyUser) => (
+                  <SelectItem key={companyUser.id} value={companyUser.id}>
+                    {companyUser.name || companyUser.email || companyUser.id}
+                    {companyUser.role ? ` · ${getRoleLabel(companyUser.role)}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         ) : null}
 

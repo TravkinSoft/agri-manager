@@ -32,7 +32,7 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ defaultPath: string }>;
   signUp: (payload: {
     email: string;
     password: string;
@@ -87,6 +87,25 @@ async function clearServerImpersonationContext(accessToken?: string | null) {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
       cache: "no-store",
+    });
+  } catch {
+    // This is best-effort. Non-global-admin users will be rejected by the API.
+  }
+}
+
+async function clearGlobalAdminCompanyContext(accessToken?: string | null) {
+  const token = String(accessToken || "").trim();
+  if (!token || typeof window === "undefined") return;
+
+  try {
+    await fetch("/api/global-admin/companies", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      cache: "no-store",
+      body: JSON.stringify({ companyId: "__none__" }),
     });
   } catch {
     // This is best-effort. Non-global-admin users will be rejected by the API.
@@ -287,11 +306,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const actor = actorContext?.actor || null;
       const displayProfile = await resolveDisplayProfileForActor(data, actor);
 
+      const selectedGlobalAdminCompany =
+        normalizedRole === "global_admin"
+          ? actor?.contextCompanyId || contextCompanyId
+          : null;
       const effectiveCompany =
-        actor?.companyId ||
-        (normalizedRole === "global_admin" && contextCompanyId
-          ? contextCompanyId
-          : await resolveEffectiveCompanyId(data?.company_id));
+        actor?.isImpersonating && actor?.companyId
+          ? actor.companyId
+          : selectedGlobalAdminCompany || actor?.companyId || await resolveEffectiveCompanyId(data?.company_id);
       const effectiveRole = parseCanonicalRole(actor?.role) || normalizedRole;
       const effectiveRoleRawKey = normalizeRoleKey(actor?.role || displayProfile.role || data.role);
       const effectiveProfileId = String(actor?.id || data.id || "").trim() || data.id;
@@ -412,7 +434,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (signedInUserId) {
       const { data: profileRow } = await supabase
         .from("profiles")
-        .select("status")
+        .select("status,role")
         .eq("id", signedInUserId)
         .maybeSingle();
       if (profileRow && String(profileRow.status || "active").toLowerCase() !== "active") {
@@ -422,7 +444,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         throw new Error("Подтвердите email кодом из письма перед входом.");
       }
+      if (parseCanonicalRole(profileRow?.role) === "global_admin") {
+        await clearGlobalAdminCompanyContext(accessToken);
+        return { defaultPath: "/platform" };
+      }
     }
+    return { defaultPath: "/dashboard" };
   };
 
   const signUp = async (payload: {

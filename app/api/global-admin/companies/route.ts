@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
+import {
+  SessionAuthError,
+  clearServerActorContextCacheForRequest,
+  getServerActorFromSession,
+} from "@/lib/auth/server-session";
 
 export const runtime = "nodejs";
 
@@ -120,6 +124,8 @@ export async function POST(request: NextRequest) {
     if (!upsertRes) {
       throw new Error(lastErrorMessage || "Failed to update company context");
     }
+
+    clearServerActorContextCacheForRequest(request);
 
     return NextResponse.json({
       ok: true,

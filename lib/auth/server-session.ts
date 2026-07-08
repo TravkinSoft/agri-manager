@@ -99,6 +99,13 @@ type ServerActorOptions = {
 const ACTOR_CONTEXT_CACHE_TTL_MS = 30_000;
 const actorContextCache = new Map<string, { actor: ServerActorContext; expiresAt: number }>();
 
+export function clearServerActorContextCacheForRequest(request: NextRequest): void {
+  const token = parseBearerToken(request);
+  if (!token) return;
+  actorContextCache.delete(`actor:${token}`);
+  actorContextCache.delete(`admin:${token}`);
+}
+
 function isUuidLike(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
