@@ -326,12 +326,58 @@ export default function CropStructurePage() {
   const season = useMemo(() => seasons.find((item) => item.id === seasonId) || null, [seasons, seasonId]);
 
   const cropLabel = (crop: Crop) => (localizedName(crop as never, language) || crop.name || "").trim();
+  const cropOptionKey = (crop: Crop) => {
+    const key = cropLabel(crop).replace(/\s+/g, " ").trim().toLocaleLowerCase("ru");
+    if (key === "травосмесь") return "травосмеси";
+    return key;
+  };
+  const cropOptionPriority = (crop: Crop) => {
+    const label = cropLabel(crop);
+    const ownName = String(crop.name || crop.name_ru || "").trim();
+    const hasReadableRuName = /[А-Яа-яЁё]/.test(ownName);
+    return (crop.company_id == null ? 0 : 100) + (hasReadableRuName && ownName === label ? 10 : 0);
+  };
   const isVisibleCatalogItem = (item: { company_id?: string | null; archived?: boolean | null; is_active?: boolean | null }) =>
     (item.company_id == null || item.company_id === profile?.company_id) && !item.archived && item.is_active !== false;
-  const globalCrops = useMemo(
-    () => allCrops.filter(isVisibleCatalogItem).sort((a, b) => cropLabel(a).localeCompare(cropLabel(b), "ru")),
-    [allCrops, language, profile?.company_id],
+  const visibleCrops = useMemo(() => allCrops.filter(isVisibleCatalogItem), [allCrops, profile?.company_id]);
+  const cropCatalog = useMemo(() => {
+    const byKey = new Map<string, Crop>();
+    const aliases = new Map<string, string>();
+
+    for (const crop of visibleCrops) {
+      const key = cropOptionKey(crop);
+      if (!key) continue;
+      const current = byKey.get(key);
+      if (
+        !current ||
+        cropOptionPriority(crop) > cropOptionPriority(current) ||
+        (cropOptionPriority(crop) === cropOptionPriority(current) && cropLabel(crop).localeCompare(cropLabel(current), "ru") < 0)
+      ) {
+        byKey.set(key, crop);
+      }
+    }
+
+    for (const crop of visibleCrops) {
+      const canonical = byKey.get(cropOptionKey(crop));
+      if (canonical) aliases.set(crop.id, canonical.id);
+    }
+
+    return {
+      options: Array.from(byKey.values()).sort((a, b) => cropLabel(a).localeCompare(cropLabel(b), "ru")),
+      aliasById: aliases,
+    };
+  }, [visibleCrops, language]);
+  const globalCrops = cropCatalog.options;
+  const displayCropId = (id?: string | null) => (id ? cropCatalog.aliasById.get(id) || id : null);
+  const cropMap = useMemo(
+    () => new Map(visibleCrops.map((crop) => [crop.id, crop])),
+    [visibleCrops],
   );
+  const globalCropIds = useMemo(() => new Set(globalCrops.map((crop) => crop.id)), [globalCrops]);
+  const cropSelectOptions = (selectedCropId?: string | null) =>
+    selectedCropId && !globalCropIds.has(selectedCropId) && cropMap.get(selectedCropId)
+      ? [...globalCrops, cropMap.get(selectedCropId) as Crop].sort((a, b) => cropLabel(a).localeCompare(cropLabel(b), "ru"))
+      : globalCrops;
   const globalVarieties = useMemo(() => allVarieties.filter(isVisibleCatalogItem), [allVarieties, profile?.company_id]);
   const globalReproductions = useMemo(
     () =>
@@ -340,14 +386,22 @@ export default function CropStructurePage() {
         .sort((a, b) => Number(a.level_order || 0) - Number(b.level_order || 0) || standardReproductionLabel(a).localeCompare(standardReproductionLabel(b), "ru")),
     [allReproductions, profile?.company_id]
   );
-  const cropMap = useMemo(() => new Map(globalCrops.map((crop) => [crop.id, crop])), [globalCrops]);
   const varietyMap = useMemo(() => new Map(globalVarieties.map((item) => [item.id, item])), [globalVarieties]);
   const reproductionMap = useMemo(() => new Map(globalReproductions.map((item) => [item.id, item])), [globalReproductions]);
   const varietiesByCrop = useMemo(() => {
     const map = new Map<string, Variety[]>();
-    for (const variety of globalVarieties) map.set(variety.crop_id, [...(map.get(variety.crop_id) || []), variety]);
+    for (const variety of globalVarieties) {
+      const cropIds = [variety.crop_id];
+      const visibleCropId = displayCropId(variety.crop_id);
+      if (visibleCropId && visibleCropId !== variety.crop_id) {
+        cropIds.push(visibleCropId);
+      }
+      for (const cropId of cropIds) {
+        map.set(cropId, [...(map.get(cropId) || []), variety]);
+      }
+    }
     return map;
-  }, [globalVarieties]);
+  }, [globalVarieties, cropCatalog.aliasById]);
 
   useEffect(() => {
     if (!selectedField) {
@@ -2094,7 +2148,8 @@ export default function CropStructurePage() {
 
         <div className="space-y-3">
           {draftRows.map((row, index) => {
-            const vars = row.crop_id ? varietiesByCrop.get(row.crop_id) || [] : [];
+            const rowCropId = displayCropId(row.crop_id);
+            const vars = rowCropId ? varietiesByCrop.get(rowCropId) || [] : [];
             const pct = selectedField.area > 0 ? ((Number(row.area || 0) / selectedField.area) * 100).toFixed(2) : "0.00";
             const operationsCount = row.id ? operationFactsByAllocation.get(row.id)?.length || 0 : 0;
             const materialsCount = row.id ? consumptionsByAllocation.get(row.id)?.length || 0 : 0;
@@ -2111,9 +2166,9 @@ export default function CropStructurePage() {
                 <div className="grid grid-cols-12 items-end gap-2 p-3">
                 <div className="col-span-12 md:col-span-3">
                   <Label className={editorLabelClass}>Культура *</Label>
-                  <Select value={row.crop_id || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
+                  <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
                     <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
-                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
+                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
                 <div className="col-span-12 md:col-span-2">
