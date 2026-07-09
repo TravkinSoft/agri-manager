@@ -391,6 +391,9 @@ const statusLabel = (status: string) => {
   return status;
 };
 
+const ticketCompanyLabel = (ticket: WeighbridgeTicket | null | undefined) =>
+  String(ticket?.company_name || "").trim() || "Компания";
+
 const operationUiLabel = (opType: string) => {
   if (opType === "harvest_incoming") return "Урожай";
   if (opType === "supplier_receipt") return "Поставка от контрагента";
@@ -3184,7 +3187,7 @@ export default function WeighbridgeOperationsPage() {
 
               <div className="mx-auto w-full max-w-[540px] min-h-[960px] rounded-md border bg-[#f7f1e3] p-4 text-[#1f1b16]" style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}>
                 <div className="mb-3 border-b border-[#b8a788] pb-2 text-center">
-                  <div className="text-sm font-semibold tracking-wide">ТОО “АСТЫК-STEM”</div>
+                  <div className="text-sm font-semibold tracking-wide">{ticketCompanyLabel(activeTicket)}</div>
                   <div className="mt-1 text-3xl font-black">ВЕСОВОЙ ТАЛОН</div>
                   <div className="mt-1 text-lg font-bold">№ {activeTicket.ticket_no}</div>
                 </div>
@@ -3300,7 +3303,7 @@ export default function WeighbridgeOperationsPage() {
               </SheetHeader>
               <div className="mx-auto w-full max-w-[540px] min-h-[960px] rounded-md border bg-[#f7f1e3] p-4 text-[#1f1b16]" style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}>
                 <div className="mb-3 border-b border-[#b8a788] pb-2 text-center">
-                  <div className="text-sm font-semibold tracking-wide">ТОО “АСТЫК-STEM”</div>
+                  <div className="text-sm font-semibold tracking-wide">{ticketCompanyLabel(historyPreviewTicket)}</div>
                   <div className="mt-1 text-3xl font-black">ВЕСОВОЙ ТАЛОН</div>
                   <div className="mt-1 text-lg font-bold">№ {historyPreviewTicket.ticket_no}</div>
                 </div>

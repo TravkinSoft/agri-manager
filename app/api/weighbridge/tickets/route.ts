@@ -95,8 +95,16 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    const { data: company } = await supabase
+      .from("companies")
+      .select("id,name")
+      .eq("id", companyId)
+      .maybeSingle();
+    const companyName = String((company as any)?.name || "").trim() || null;
+
     const tickets = (data || []).map((row: any) => ({
       ...row,
+      company_name: companyName,
       lines: (row.lines || []).map((line: any) => ({
         id: String(line.id),
         product_id: String(line.product_id),
@@ -817,11 +825,33 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
       timing.totalMs = Date.now() - startedAt;
-      return NextResponse.json({ ticket: finalizedTicket || createdTicket, debug: timing });
+      const { data: company } = await supabase
+        .from("companies")
+        .select("id,name")
+        .eq("id", ticket.company_id)
+        .maybeSingle();
+      return NextResponse.json({
+        ticket: {
+          ...(finalizedTicket || createdTicket),
+          company_name: String((company as any)?.name || "").trim() || null,
+        },
+        debug: timing,
+      });
     }
 
     timing.totalMs = Date.now() - startedAt;
-    return NextResponse.json({ ticket: createdTicket, debug: timing });
+    const { data: company } = await supabase
+      .from("companies")
+      .select("id,name")
+      .eq("id", ticket.company_id)
+      .maybeSingle();
+    return NextResponse.json({
+      ticket: {
+        ...createdTicket,
+        company_name: String((company as any)?.name || "").trim() || null,
+      },
+      debug: timing,
+    });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {
