@@ -1479,9 +1479,8 @@ export default function WeighbridgeOperationsPage() {
     if (form.operationType === "harvest_incoming") {
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
-      if (form.fieldId && harvestIncompleteFields[form.fieldId]) return "В структуре поля отсутствует сорт или репродукция";
-      if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId || !form.varietyId || !form.reproductionId) {
-        return "Заполните поле, склад, культуру, сорт и репродукцию";
+      if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId) {
+        return "Заполните поле, склад и культуру";
       }
       if (!fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId)) {
         return "Выбранная посевная строка не связана с этим полем";
@@ -1587,9 +1586,8 @@ export default function WeighbridgeOperationsPage() {
     if (form.operationType === "harvest_incoming") {
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
-      if (form.fieldId && harvestIncompleteFields[form.fieldId]) return "В структуре поля отсутствует сорт/репродукция";
-      if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId || !form.varietyId || !form.reproductionId) {
-        return "Заполните поле, склад, культуру, сорт и репродукцию";
+      if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId) {
+        return "Заполните поле, склад и культуру";
       }
       const hasLinkedCombo = fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId);
       if (!hasLinkedCombo) return "Выбранные культура/сорт/репродукция не связаны с полем в структуре посева";

@@ -502,8 +502,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "gross_weight_kg is required and must be positive for harvest incoming" }, { status: 400 });
       }
       for (const line of lines) {
-        if (!line.variety_id || !line.reproduction_id) {
-          return NextResponse.json({ error: "variety_id and reproduction_id are required for harvest incoming lines" }, { status: 400 });
+        if (!line.crop_id) {
+          return NextResponse.json({ error: "crop_id is required for harvest incoming lines" }, { status: 400 });
         }
         const lineQty = Number(line.quantity || 0);
         if (!Number.isFinite(lineQty) || lineQty <= 0) {
@@ -642,9 +642,7 @@ export async function POST(request: NextRequest) {
         .eq("company_id", ticket.company_id)
         .eq("season_id", seasonId)
         .eq("field_id", ticket.field_id)
-        .eq("archived", false)
-        .not("variety_id", "is", null)
-        .not("reproduction_id", "is", null);
+        .eq("archived", false);
       if (structureError) {
         return NextResponse.json({ error: structureError.message }, { status: 400 });
       }
@@ -666,7 +664,7 @@ export async function POST(request: NextRequest) {
         const keyV2 = `${String(line.crop_id || "")}:${String(line.variety_id || "")}:${String(line.reproduction_id || "")}`;
         if (!allowed.has(keyV2)) {
           return NextResponse.json(
-            { error: "Line crop/variety/reproduction is not linked to field crop structure for active season" },
+            { error: "Line crop identity is not linked to field crop structure for active season" },
             { status: 400 }
           );
         }
