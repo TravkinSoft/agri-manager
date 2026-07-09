@@ -1489,6 +1489,9 @@ export default function WeighbridgeOperationsPage() {
       if (!fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId)) {
         return "Выбранная посевная строка не связана с этим полем";
       }
+      if (!selectedHarvestAllocation?.varietyId || !selectedHarvestAllocation?.reproductionId) {
+        return "Для прихода урожая нужно указать сорт и репродукцию в структуре посевов. Откройте структуру посевов, выберите строку и заполните сорт/репродукцию.";
+      }
       if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
     } else if (form.operationType === "supplier_receipt") {
       if (!form.supplierId) return "Выберите контрагента";
