@@ -479,17 +479,18 @@ export default function CropStructurePage() {
   const allocationTitle = (allocation: Allocation) =>
     `${cropName(allocation.crop_id)} / ${varietyName(allocation.variety_id)} / ${reproductionName(allocation.reproduction_id)} — ${fmtHa(Number(allocation.area || 0))}`;
 
-  const cropStructureRowIds = useMemo(
-    () =>
-      Array.from(
+  const selectedCropStructureRowIds = useMemo(
+    () => {
+      if (!selectedFieldId) return [];
+      return Array.from(
         new Set(
-          Array.from(allocByField.values())
-            .flat()
+          (allocByField.get(selectedFieldId) || [])
             .map((row) => row.id)
             .filter((id): id is string => Boolean(id))
         )
-      ),
-    [allocByField]
+      );
+    },
+    [allocByField, selectedFieldId]
   );
 
   const consumptionIdentityKey = (
@@ -768,7 +769,7 @@ export default function CropStructurePage() {
   }, [activeCompanyId, seasonId, toast]);
 
   useEffect(() => {
-    if (!activeCompanyId || !seasonId) {
+    if (!activeCompanyId || !seasonId || !selectedFieldId) {
       setConsumptions([]);
       return;
     }
@@ -780,6 +781,7 @@ export default function CropStructurePage() {
           .select("id,operation_id,field_id,crop_structure_row_id,operation_type,product_id,variety_id,reproduction_id,batch_class,quantity_kg,area_ha,norm_per_ha,consumed_at,ticket_id,responsible_personnel_id,vehicle_id,notes")
           .eq("company_id", activeCompanyId)
           .eq("season_id", seasonId)
+          .eq("field_id", selectedFieldId)
           .order("consumed_at", { ascending: false });
 
         if (res.error) {
@@ -837,10 +839,10 @@ export default function CropStructurePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeCompanyId, seasonId, varietyMap, reproductionMap, toast, language]);
+  }, [activeCompanyId, seasonId, selectedFieldId, varietyMap, reproductionMap, toast, language]);
 
   useEffect(() => {
-    if (!activeCompanyId || !seasonId || cropStructureRowIds.length === 0) {
+    if (!activeCompanyId || !seasonId || !selectedFieldId || selectedCropStructureRowIds.length === 0) {
       setOperationFacts([]);
       setOperationConsumptions([]);
       return;
@@ -884,7 +886,7 @@ export default function CropStructurePage() {
           `)
           .eq("company_id", activeCompanyId)
           .eq("archived", false)
-          .in("crop_structure_id", cropStructureRowIds)
+          .in("crop_structure_id", selectedCropStructureRowIds)
           .order("date", { ascending: false });
 
         if (res.error) throw res.error;
@@ -980,10 +982,10 @@ export default function CropStructurePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeCompanyId, seasonId, cropStructureRowIds, toast]);
+  }, [activeCompanyId, seasonId, selectedFieldId, selectedCropStructureRowIds, toast]);
 
   useEffect(() => {
-    if (!activeCompanyId || !seasonId) {
+    if (!activeCompanyId || !seasonId || !selectedFieldId) {
       setLegalLinksByField(new Map());
       return;
     }
@@ -995,6 +997,7 @@ export default function CropStructurePage() {
           .select("id, field_id, crop_id, area_ha, cadastral_parcel_id, legal_entity_id, owner_legal_entity_id, usage_legal_entity_id, status, allocation_method, source, notes")
           .eq("company_id", activeCompanyId)
           .eq("season_id", seasonId)
+          .eq("field_id", selectedFieldId)
           .neq("status", "archived");
         if (linksError) throw new Error(linksError.message);
 
@@ -1057,7 +1060,7 @@ export default function CropStructurePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeCompanyId, seasonId, cropMap]);
+  }, [activeCompanyId, seasonId, selectedFieldId, cropMap]);
 
   const openField = (fieldId: string, tab: "dossier" | "editor" | "legal" = "dossier") => {
     setSelectedFieldId(fieldId);
