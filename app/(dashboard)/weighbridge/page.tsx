@@ -18,7 +18,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
-import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getWeighbridgeBootstrap, listTickets, openShift, patchTicket, voidTicket } from "@/lib/services/weighbridge";
+import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getWeighbridgeBootstrap, getWeighbridgeResources, listTickets, openShift, patchTicket, voidTicket } from "@/lib/services/weighbridge";
 import type { TicketDirection, TicketInput, TicketLineInput, WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
@@ -753,10 +753,10 @@ export default function WeighbridgeOperationsPage() {
     if (authLoading || !profile?.company_id || !profile?.id || !canView) return;
     setLoading(true);
     try {
-      const [fieldsRes, warehousesRes, vehiclesRes, processingRes, productsRes, identityRefs, supplierRows, buyerRows, driverRows, ticketRows, operationsRes] = await Promise.all([
+      const [fieldsRes, warehousesRes, resourceRows, processingRes, productsRes, identityRefs, supplierRows, buyerRows, ticketRows, operationsRes] = await Promise.all([
         supabase.from("fields").select("id,name,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").eq("company_id", profile.company_id).eq("archived", false).order("name"),
-        supabase.from("reference_vehicles").select("id,name,custom_name,plate_number,primary_responsible_personnel_id,is_active,archived").eq("company_id", profile.company_id).eq("is_active", true).eq("archived", false).order("name"),
+        getWeighbridgeResources(profile.company_id),
         supabase.from("processing_points").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase
           .from("products")
@@ -767,7 +767,6 @@ export default function WeighbridgeOperationsPage() {
         loadMasterIdentityRefs(profile.company_id),
         loadSuppliers(profile.company_id),
         loadBuyers(profile.company_id),
-        loadDriversV2(profile.company_id),
         listTickets(profile.company_id, profile.id),
         supabase
           .from("operations")
@@ -777,8 +776,8 @@ export default function WeighbridgeOperationsPage() {
           .order("date", { ascending: false })
           .limit(500),
       ]);
-      if (fieldsRes.error || warehousesRes.error || vehiclesRes.error || processingRes.error || productsRes.error || operationsRes.error) {
-        throw new Error(fieldsRes.error?.message || warehousesRes.error?.message || vehiclesRes.error?.message || processingRes.error?.message || productsRes.error?.message || "Не удалось загрузить данные");
+      if (fieldsRes.error || warehousesRes.error || processingRes.error || productsRes.error || operationsRes.error) {
+        throw new Error(fieldsRes.error?.message || warehousesRes.error?.message || processingRes.error?.message || productsRes.error?.message || "Не удалось загрузить данные");
       }
       setFields((fieldsRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Поле"), area: Number(r.area || 0) })));
       setWarehouses((warehousesRes.data || []).map((r: any) => ({ id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Склад") })));
@@ -786,7 +785,7 @@ export default function WeighbridgeOperationsPage() {
       setBuyers(buyerRows);
       setFields((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
       setWarehouses((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
-      setVehicles((vehiclesRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.custom_name || r.name || "Машина"), plate: String(r.plate_number || ""), primaryPersonnelId: r.primary_responsible_personnel_id ? String(r.primary_responsible_personnel_id) : null })));
+      setVehicles(((resourceRows?.vehicles || []) as any[]).map((r: any) => ({ id: String(r.id), name: String(r.name || "Машина"), plate: String(r.plate || ""), primaryPersonnelId: r.primaryPersonnelId ? String(r.primaryPersonnelId) : null })));
       setProcessingPoints((processingRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Точка") })));
       const dedupeByName = (rows: any[]) => {
         const map = new Map<string, any>();
@@ -859,7 +858,12 @@ export default function WeighbridgeOperationsPage() {
           name: localizedName(r, lang, ["name"]) || String(r.name || "Репродукция"),
         }))
       );
-      setDrivers(driverRows);
+      setDrivers(((resourceRows?.drivers || []) as any[]).map((r: any) => ({
+        id: String(r.id),
+        name: String(r.name || "Ответственный"),
+        machineId: r.machineId ? String(r.machineId) : null,
+        assignedVehicleIds: Array.isArray(r.assignedVehicleIds) ? r.assignedVehicleIds.map(String) : [],
+      })));
       setTickets(ticketRows || []);
       const fieldNameById = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "Поле")]));
       setLinkedOperations(
