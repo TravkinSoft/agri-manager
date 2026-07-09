@@ -17,7 +17,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { getFieldDisplayName } from "@/lib/fields/display";
-import { createOperation, getAssignableSpecialists } from "@/lib/services/operations";
+import { createOperation } from "@/lib/services/operations";
 import type { OperationFormData, SpecialistAssignee } from "@/lib/types/operation";
 import type { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import {
@@ -54,6 +54,15 @@ type Reproduction = {
   archived?: boolean | null;
   is_active?: boolean | null;
   level_order?: number | null;
+};
+type CropStructureBootstrapPayload = {
+  companyId: string;
+  fields: Field[];
+  seasons: Season[];
+  crops: Crop[];
+  varieties: Variety[];
+  reproductions: Reproduction[];
+  specialists: SpecialistAssignee[];
 };
 type Allocation = {
   id?: string;
@@ -287,6 +296,8 @@ export default function CropStructurePage() {
   const { profile, loading: authLoading } = useAuth();
   const { language } = useLanguage();
   const tr = (ru: string, kz: string, en: string) => (language === "kz" ? kz : language === "en" ? en : ru);
+  const activeCompanyId = profile?.company_id || null;
+  const activeProfileId = profile?.id || null;
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -338,8 +349,8 @@ export default function CropStructurePage() {
     return (crop.company_id == null ? 0 : 100) + (hasReadableRuName && ownName === label ? 10 : 0);
   };
   const isVisibleCatalogItem = (item: { company_id?: string | null; archived?: boolean | null; is_active?: boolean | null }) =>
-    (item.company_id == null || item.company_id === profile?.company_id) && !item.archived && item.is_active !== false;
-  const visibleCrops = useMemo(() => allCrops.filter(isVisibleCatalogItem), [allCrops, profile?.company_id]);
+    (item.company_id == null || item.company_id === activeCompanyId) && !item.archived && item.is_active !== false;
+  const visibleCrops = useMemo(() => allCrops.filter(isVisibleCatalogItem), [allCrops, activeCompanyId]);
   const cropCatalog = useMemo(() => {
     const byKey = new Map<string, Crop>();
     const aliases = new Map<string, string>();
@@ -378,13 +389,13 @@ export default function CropStructurePage() {
     selectedCropId && !globalCropIds.has(selectedCropId) && cropMap.get(selectedCropId)
       ? [...globalCrops, cropMap.get(selectedCropId) as Crop].sort((a, b) => cropLabel(a).localeCompare(cropLabel(b), "ru"))
       : globalCrops;
-  const globalVarieties = useMemo(() => allVarieties.filter(isVisibleCatalogItem), [allVarieties, profile?.company_id]);
+  const globalVarieties = useMemo(() => allVarieties.filter(isVisibleCatalogItem), [allVarieties, activeCompanyId]);
   const globalReproductions = useMemo(
     () =>
       allReproductions
         .filter(isVisibleCatalogItem)
         .sort((a, b) => Number(a.level_order || 0) - Number(b.level_order || 0) || standardReproductionLabel(a).localeCompare(standardReproductionLabel(b), "ru")),
-    [allReproductions, profile?.company_id]
+    [allReproductions, activeCompanyId]
   );
   const varietyMap = useMemo(() => new Map(globalVarieties.map((item) => [item.id, item])), [globalVarieties]);
   const reproductionMap = useMemo(() => new Map(globalReproductions.map((item) => [item.id, item])), [globalReproductions]);
@@ -624,12 +635,25 @@ export default function CropStructurePage() {
 
   useEffect(() => {
     let mounted = true;
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
     (async () => {
       if (authLoading) return;
-      if (!profile?.company_id) {
+      if (!activeCompanyId) {
         if (mounted) {
           setFields([]);
           setSeasons([]);
+          setSeasonId("");
+          setAllCrops([]);
+          setAllVarieties([]);
+          setAllReproductions([]);
+          setAllocByField(new Map());
+          setInitialByField(new Map());
+          setConsumptions([]);
+          setOperationFacts([]);
+          setOperationConsumptions([]);
+          setLegalLinksByField(new Map());
+          setSpecialists([]);
           setLoadError("Компания не выбрана. Выберите компанию и обновите страницу.");
           setLoading(false);
         }
@@ -638,58 +662,90 @@ export default function CropStructurePage() {
       try {
         setLoading(true);
         setLoadError(null);
-        const [fieldsRes, seasonsRes, cropsRes, varietiesRes, reproductionsRes, specialistsRes] = await Promise.all([
-          supabase.from("fields").select("id,name,notes,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
-          supabase.from("seasons").select("id,year").eq("company_id", profile.company_id).eq("archived", false).order("year", { ascending: false }),
-          supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,company_id,archived,is_active"),
-          supabase.from("varieties").select("id,name,crop_id,company_id,archived,is_active"),
-          supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code,company_id,archived,is_active,level_order").order("level_order"),
-          getAssignableSpecialists(profile.company_id).catch(() => [] as SpecialistAssignee[]),
-        ]);
-        if (fieldsRes.error || seasonsRes.error || cropsRes.error || varietiesRes.error || reproductionsRes.error) {
-          throw fieldsRes.error || seasonsRes.error || cropsRes.error || varietiesRes.error || reproductionsRes.error;
+        setFields([]);
+        setSeasons([]);
+        setSeasonId("");
+        setAllocByField(new Map());
+        setInitialByField(new Map());
+        setConsumptions([]);
+        setOperationFacts([]);
+        setOperationConsumptions([]);
+        setLegalLinksByField(new Map());
+        setSelectedFieldId(null);
+        setDraftRows([]);
+
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        const token = sessionData.session?.access_token;
+        if (sessionError || !token) {
+          throw new Error("User is not authenticated");
+        }
+
+        const params = new URLSearchParams({ companyId: activeCompanyId });
+        const response = await fetch(`/api/crop-structure/bootstrap?${params.toString()}`, {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const payload = (await response.json().catch(() => ({}))) as Partial<CropStructureBootstrapPayload> & {
+          error?: string;
+        };
+        if (!response.ok) {
+          throw new Error(payload.error || "Failed to load crop structure bootstrap");
+        }
+        if (payload.companyId && payload.companyId !== activeCompanyId) {
+          throw new Error("Selected company context changed while loading crop structure");
         }
         if (!mounted) return;
-        const normalizedFields = ((fieldsRes.data || []) as Field[]).map((field) => ({
+        const normalizedFields = ((payload.fields || []) as Field[]).map((field) => ({
           ...field,
           name: getFieldDisplayName(field),
         }));
         setFields(normalizedFields);
-        const seasonRows = (seasonsRes.data || []) as Season[];
+        const seasonRows = (payload.seasons || []) as Season[];
         setSeasons(seasonRows);
-        setAllCrops((cropsRes.data || []) as Crop[]);
-        setAllVarieties((varietiesRes.data || []) as Variety[]);
-        setAllReproductions((reproductionsRes.data || []) as Reproduction[]);
-        setSpecialists(specialistsRes as SpecialistAssignee[]);
-        if (seasonRows.length) setSeasonId((prev) => prev || seasonRows[0].id);
+        setAllCrops((payload.crops || []) as Crop[]);
+        setAllVarieties((payload.varieties || []) as Variety[]);
+        setAllReproductions((payload.reproductions || []) as Reproduction[]);
+        setSpecialists((payload.specialists || []) as SpecialistAssignee[]);
+        setSeasonId(seasonRows[0]?.id || "");
       } catch (error) {
+        if (!mounted) return;
         const message = error instanceof Error ? error.message : "Не удалось загрузить структуру посевов";
         if (mounted) setLoadError(message);
         toast({ title: "Ошибка", description: message, variant: "destructive" });
       } finally {
         if (mounted) setLoading(false);
+        window.clearTimeout(timeoutId);
       }
     })();
     return () => {
       mounted = false;
+      controller.abort();
+      window.clearTimeout(timeoutId);
     };
-  }, [authLoading, profile?.company_id]);
+  }, [authLoading, activeCompanyId, toast]);
 
   useEffect(() => {
-    if (!profile?.company_id || !seasonId) return;
+    if (!activeCompanyId || !seasonId) {
+      setAllocByField(new Map());
+      setInitialByField(new Map());
+      return;
+    }
+    let cancelled = false;
     (async () => {
       try {
         let res: any = await supabase
           .from("crop_structure")
           .select(CROP_STRUCTURE_V4_SELECT)
-          .eq("company_id", profile.company_id)
+          .eq("company_id", activeCompanyId)
           .eq("season_id", seasonId)
           .eq("archived", false);
         if (res.error && isMissingCropStructureV4Column(res.error)) {
           res = await supabase
             .from("crop_structure")
             .select(CROP_STRUCTURE_BASE_SELECT)
-            .eq("company_id", profile.company_id)
+            .eq("company_id", activeCompanyId)
             .eq("season_id", seasonId)
             .eq("archived", false);
         }
@@ -699,29 +755,37 @@ export default function CropStructurePage() {
           const allocation = allocationFromRow(row);
           map.set(row.field_id, [...(map.get(row.field_id) || []), allocation]);
         }
+        if (cancelled) return;
         setAllocByField(map);
         setInitialByField(new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({ ...item }))])));
       } catch (error) {
         toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить посевные строки", variant: "destructive" });
       }
     })();
-  }, [profile?.company_id, seasonId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId, seasonId, toast]);
 
   useEffect(() => {
-    if (!profile?.company_id || !seasonId) return;
+    if (!activeCompanyId || !seasonId) {
+      setConsumptions([]);
+      return;
+    }
+    let cancelled = false;
     (async () => {
       try {
         const res = await supabase
           .from("field_material_consumptions")
           .select("id,operation_id,field_id,crop_structure_row_id,operation_type,product_id,variety_id,reproduction_id,batch_class,quantity_kg,area_ha,norm_per_ha,consumed_at,ticket_id,responsible_personnel_id,vehicle_id,notes")
-          .eq("company_id", profile.company_id)
+          .eq("company_id", activeCompanyId)
           .eq("season_id", seasonId)
           .order("consumed_at", { ascending: false });
 
         if (res.error) {
           const message = String(res.error.message || "").toLowerCase();
           if (message.includes("field_material_consumptions") || message.includes("schema cache")) {
-            setConsumptions([]);
+            if (!cancelled) setConsumptions([]);
             return;
           }
           throw res.error;
@@ -739,6 +803,7 @@ export default function CropStructurePage() {
         const productNames = new Map<string, string>((productsRes.data || []).map((row: any) => [String(row.id), brandName(row) || "Материал"]));
         const specialistNames = new Map<string, string>((specialistsRes.data || []).map((row: any) => [String(row.id), String(row.full_name || "Ответственный")]));
         const vehicleNames = new Map<string, string>((vehiclesRes.data || []).map((row: any) => [String(row.id), [row.name, row.plate_number].filter(Boolean).join(" ") || "Техника"]));
+        if (cancelled) return;
         setConsumptions(rows.map((row: any) => ({
           id: String(row.id),
           operation_id: row.operation_id ? String(row.operation_id) : null,
@@ -764,14 +829,18 @@ export default function CropStructurePage() {
           notes: row.notes || null,
         })));
       } catch (error) {
+        if (cancelled) return;
         setConsumptions([]);
         toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить фактический расход по полям", variant: "destructive" });
       }
     })();
-  }, [profile?.company_id, seasonId, varietyMap, reproductionMap]);
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCompanyId, seasonId, varietyMap, reproductionMap, toast, language]);
 
   useEffect(() => {
-    if (!profile?.company_id || !seasonId || cropStructureRowIds.length === 0) {
+    if (!activeCompanyId || !seasonId || cropStructureRowIds.length === 0) {
       setOperationFacts([]);
       setOperationConsumptions([]);
       return;
@@ -813,7 +882,7 @@ export default function CropStructurePage() {
               actual_area_ha
             )
           `)
-          .eq("company_id", profile.company_id)
+          .eq("company_id", activeCompanyId)
           .eq("archived", false)
           .in("crop_structure_id", cropStructureRowIds)
           .order("date", { ascending: false });
@@ -911,10 +980,10 @@ export default function CropStructurePage() {
     return () => {
       cancelled = true;
     };
-  }, [profile?.company_id, seasonId, cropStructureRowIds, toast]);
+  }, [activeCompanyId, seasonId, cropStructureRowIds, toast]);
 
   useEffect(() => {
-    if (!profile?.company_id || !seasonId) {
+    if (!activeCompanyId || !seasonId) {
       setLegalLinksByField(new Map());
       return;
     }
@@ -924,7 +993,7 @@ export default function CropStructurePage() {
         const { data: links, error: linksError } = await supabase
           .from("field_cadastre_links")
           .select("id, field_id, crop_id, area_ha, cadastral_parcel_id, legal_entity_id, owner_legal_entity_id, usage_legal_entity_id, status, allocation_method, source, notes")
-          .eq("company_id", profile.company_id)
+          .eq("company_id", activeCompanyId)
           .eq("season_id", seasonId)
           .neq("status", "archived");
         if (linksError) throw new Error(linksError.message);
@@ -988,7 +1057,7 @@ export default function CropStructurePage() {
     return () => {
       cancelled = true;
     };
-  }, [profile?.company_id, seasonId, cropMap]);
+  }, [activeCompanyId, seasonId, cropMap]);
 
   const openField = (fieldId: string, tab: "dossier" | "editor" | "legal" = "dossier") => {
     setSelectedFieldId(fieldId);
@@ -1090,7 +1159,7 @@ export default function CropStructurePage() {
   };
 
   const save = async () => {
-    if (!selectedFieldId || !selectedField || !profile?.company_id || !profile.id || !seasonId) return;
+    if (!selectedFieldId || !selectedField || !activeCompanyId || !activeProfileId || !seasonId) return;
     for (const row of draftRows) {
       if (!row.crop_id || !row.variety_id || !row.reproduction_id || row.area == null || row.area <= 0) {
         toast({ title: "Ошибка", description: "Заполните культуру, сорт, репродукцию и площадь.", variant: "destructive" });
@@ -1108,8 +1177,8 @@ export default function CropStructurePage() {
     try {
       setSaving(true);
       const toStructurePayload = (row: Allocation, includeTechnology: boolean) => ({
-        company_id: profile.company_id,
-        user_id: profile.id,
+        company_id: activeCompanyId,
+        user_id: activeProfileId,
         field_id: selectedFieldId,
         season_id: seasonId,
         crop_id: row.crop_id,
@@ -1140,7 +1209,7 @@ export default function CropStructurePage() {
           });
           return;
         }
-        const del = await supabase.from("crop_structure").delete().eq("company_id", profile.company_id).eq("field_id", selectedFieldId).eq("season_id", seasonId).in("id", delIds);
+        const del = await supabase.from("crop_structure").delete().eq("company_id", activeCompanyId).eq("field_id", selectedFieldId).eq("season_id", seasonId).in("id", delIds);
         if (del.error) throw del.error;
       }
       const updates = draftRows.filter((row) => row.id);
@@ -1165,9 +1234,9 @@ export default function CropStructurePage() {
         }
         if (ins.error) throw ins.error;
       }
-      let res: any = await supabase.from("crop_structure").select(CROP_STRUCTURE_V4_SELECT).eq("company_id", profile.company_id).eq("season_id", seasonId).eq("archived", false);
+      let res: any = await supabase.from("crop_structure").select(CROP_STRUCTURE_V4_SELECT).eq("company_id", activeCompanyId).eq("season_id", seasonId).eq("archived", false);
       if (res.error && isMissingCropStructureV4Column(res.error)) {
-        res = await supabase.from("crop_structure").select(CROP_STRUCTURE_BASE_SELECT).eq("company_id", profile.company_id).eq("season_id", seasonId).eq("archived", false);
+        res = await supabase.from("crop_structure").select(CROP_STRUCTURE_BASE_SELECT).eq("company_id", activeCompanyId).eq("season_id", seasonId).eq("archived", false);
       }
       if (res.error) throw res.error;
       const map = new Map<string, Allocation[]>();
@@ -1236,9 +1305,9 @@ export default function CropStructurePage() {
         created_at: "",
         updated_at: "",
         user_id: "",
-        company_id: profile?.company_id || null,
+        company_id: activeCompanyId,
       })),
-    [fields, profile?.company_id]
+    [fields, activeCompanyId]
   );
 
   const operationDialogCropStructures = useMemo<CropStructureWithDetails[]>(() => {
@@ -1350,13 +1419,13 @@ export default function CropStructurePage() {
   };
 
   const handleCreateOperationPlan = async (data: OperationFormData, options?: { idempotencyKey?: string }) => {
-    if (!profile?.company_id) {
+    if (!activeCompanyId) {
       const message = "Не выбран контекст компании.";
       toast({ title: "Ошибка", description: message, variant: "destructive" });
       throw new Error(message);
     }
     try {
-      const created = await createOperation(profile.company_id, data, options);
+      const created = await createOperation(activeCompanyId, data, options);
       setOperationDialogOpen(false);
       setOperationDefaults(undefined);
       if ((created as any)?.offline_queued) {
