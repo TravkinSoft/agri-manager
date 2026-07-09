@@ -59,6 +59,7 @@ type CropStructureBootstrapPayload = {
   companyId: string;
   fields: Field[];
   seasons: Season[];
+  cropStructure?: unknown[];
   crops: Crop[];
   varieties: Variety[];
   reproductions: Reproduction[];
@@ -222,6 +223,17 @@ const allocationFromRow = (row: any): Allocation => ({
   row_spacing_m: row.row_spacing_m == null ? null : Number(row.row_spacing_m || 0),
   seed_spacing_cm: row.seed_spacing_cm == null ? null : Number(row.seed_spacing_cm || 0),
 });
+const buildAllocationMap = (rows: unknown[]) => {
+  const map = new Map<string, Allocation[]>();
+  for (const row of rows as any[]) {
+    if (!row?.field_id) continue;
+    const fieldId = String(row.field_id);
+    map.set(fieldId, [...(map.get(fieldId) || []), allocationFromRow(row)]);
+  }
+  return map;
+};
+const cloneAllocationMap = (map: Map<string, Allocation[]>) =>
+  new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({ ...item }))]));
 const fmtDate = (value?: string | null) => {
   if (!value) return "-";
   const d = new Date(value);
@@ -311,6 +323,7 @@ export default function CropStructurePage() {
   const [allReproductions, setAllReproductions] = useState<Reproduction[]>([]);
   const [allocByField, setAllocByField] = useState<Map<string, Allocation[]>>(new Map());
   const [initialByField, setInitialByField] = useState<Map<string, Allocation[]>>(new Map());
+  const [bootstrappedStructureKey, setBootstrappedStructureKey] = useState<string | null>(null);
   const [consumptions, setConsumptions] = useState<Consumption[]>([]);
   const [operationFacts, setOperationFacts] = useState<StructureOperationFact[]>([]);
   const [operationConsumptions, setOperationConsumptions] = useState<Consumption[]>([]);
@@ -650,6 +663,7 @@ export default function CropStructurePage() {
           setAllReproductions([]);
           setAllocByField(new Map());
           setInitialByField(new Map());
+          setBootstrappedStructureKey(null);
           setConsumptions([]);
           setOperationFacts([]);
           setOperationConsumptions([]);
@@ -668,6 +682,7 @@ export default function CropStructurePage() {
         setSeasonId("");
         setAllocByField(new Map());
         setInitialByField(new Map());
+        setBootstrappedStructureKey(null);
         setConsumptions([]);
         setOperationFacts([]);
         setOperationConsumptions([]);
@@ -709,7 +724,12 @@ export default function CropStructurePage() {
         setAllVarieties((payload.varieties || []) as Variety[]);
         setAllReproductions((payload.reproductions || []) as Reproduction[]);
         setSpecialists((payload.specialists || []) as SpecialistAssignee[]);
-        setSeasonId(seasonRows[0]?.id || "");
+        const nextSeasonId = seasonRows[0]?.id || "";
+        const bootstrapMap = buildAllocationMap(payload.cropStructure || []);
+        setAllocByField(bootstrapMap);
+        setInitialByField(cloneAllocationMap(bootstrapMap));
+        setBootstrappedStructureKey(nextSeasonId ? `${activeCompanyId}:${nextSeasonId}` : null);
+        setSeasonId(nextSeasonId);
       } catch (error) {
         if (!mounted) return;
         const message = error instanceof Error ? error.message : "Не удалось загрузить структуру посевов";
@@ -733,6 +753,9 @@ export default function CropStructurePage() {
       setInitialByField(new Map());
       return;
     }
+    if (bootstrappedStructureKey === `${activeCompanyId}:${seasonId}`) {
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -751,14 +774,10 @@ export default function CropStructurePage() {
             .eq("archived", false);
         }
         if (res.error) throw res.error;
-        const map = new Map<string, Allocation[]>();
-        for (const row of (res.data || []) as any[]) {
-          const allocation = allocationFromRow(row);
-          map.set(row.field_id, [...(map.get(row.field_id) || []), allocation]);
-        }
+        const map = buildAllocationMap(res.data || []);
         if (cancelled) return;
         setAllocByField(map);
-        setInitialByField(new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({ ...item }))])));
+        setInitialByField(cloneAllocationMap(map));
       } catch (error) {
         toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Не удалось загрузить посевные строки", variant: "destructive" });
       }
@@ -766,7 +785,7 @@ export default function CropStructurePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeCompanyId, seasonId, toast]);
+  }, [activeCompanyId, seasonId, bootstrappedStructureKey, toast]);
 
   useEffect(() => {
     if (!activeCompanyId || !seasonId || !selectedFieldId) {
@@ -1242,13 +1261,10 @@ export default function CropStructurePage() {
         res = await supabase.from("crop_structure").select(CROP_STRUCTURE_BASE_SELECT).eq("company_id", activeCompanyId).eq("season_id", seasonId).eq("archived", false);
       }
       if (res.error) throw res.error;
-      const map = new Map<string, Allocation[]>();
-      for (const row of (res.data || []) as any[]) {
-        const item = allocationFromRow(row);
-        map.set(row.field_id, [...(map.get(row.field_id) || []), item]);
-      }
+      const map = buildAllocationMap(res.data || []);
       setAllocByField(map);
-      setInitialByField(new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({ ...item }))])));
+      setInitialByField(cloneAllocationMap(map));
+      setBootstrappedStructureKey(`${activeCompanyId}:${seasonId}`);
       setDraftRows((map.get(selectedFieldId) || []).map((item) => ({ ...item })));
       toast({ title: "Сохранено", description: "Структура поля обновлена." });
     } catch (error) {

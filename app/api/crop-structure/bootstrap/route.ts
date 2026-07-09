@@ -5,6 +5,19 @@ import { getServiceClient } from "@/lib/supabase/service";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const CROP_STRUCTURE_BASE_SELECT = "id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
+const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
+
+const isMissingCropStructureV4Column = (error: unknown) => {
+  const message = String((error as any)?.message || error || "").toLowerCase();
+  return (
+    message.includes("irrigation_type") ||
+    message.includes("row_spacing_m") ||
+    message.includes("seed_spacing_cm") ||
+    message.includes("schema cache")
+  );
+};
+
 async function loadCropStructureBootstrap(companyId: string) {
   const supabase = getServiceClient();
 
@@ -48,9 +61,35 @@ async function loadCropStructureBootstrap(companyId: string) {
     throw new Error(error.message || "Failed to load crop structure bootstrap");
   }
 
+  const activeSeasonId = seasonsRes.data?.[0]?.id || null;
+  let cropStructureRows: unknown[] = [];
+  if (activeSeasonId) {
+    let cropStructureRes: any = await supabase
+      .from("crop_structure")
+      .select(CROP_STRUCTURE_V4_SELECT)
+      .eq("company_id", companyId)
+      .eq("season_id", activeSeasonId)
+      .eq("archived", false);
+
+    if (cropStructureRes.error && isMissingCropStructureV4Column(cropStructureRes.error)) {
+      cropStructureRes = await supabase
+        .from("crop_structure")
+        .select(CROP_STRUCTURE_BASE_SELECT)
+        .eq("company_id", companyId)
+        .eq("season_id", activeSeasonId)
+        .eq("archived", false);
+    }
+
+    if (cropStructureRes.error) {
+      throw new Error(cropStructureRes.error.message || "Failed to load crop structure rows");
+    }
+    cropStructureRows = cropStructureRes.data || [];
+  }
+
   return {
     fields: fieldsRes.data || [],
     seasons: seasonsRes.data || [],
+    cropStructure: cropStructureRows,
     crops: cropsRes.data || [],
     varieties: varietiesRes.data || [],
     reproductions: reproductionsRes.data || [],
