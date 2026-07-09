@@ -83,8 +83,9 @@ export async function GET(
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
     }
 
-    const [{ data: lines }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: drivers }, { data: vehicles }, { data: operators }, { data: counterparties }] = await Promise.all([
+    const [{ data: lines }, { data: company }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: drivers }, { data: vehicles }, { data: operators }, { data: counterparties }] = await Promise.all([
       supabase.from("ticket_lines").select("*").eq("ticket_id", id).order("created_at", { ascending: true }),
+      supabase.from("companies").select("id,name").eq("id", ticket.company_id).maybeSingle(),
       supabase.from("fields").select("id,name").eq("company_id", ticket.company_id),
       supabase.from("warehouses").select("id,name").eq("company_id", ticket.company_id),
       supabase.from("products").select("id,name,trade_name,normalized_name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
@@ -137,6 +138,7 @@ export async function GET(
         (operators || []).find((x: any) => x.id === ticket.created_by)?.email ||
         "-"
       : "-";
+    const companyName = String((company as any)?.name || "").trim() || "Company";
 
     const contextLabel = isSupplierReceipt
       ? `Supplier: ${supplierName}`
@@ -173,6 +175,7 @@ export async function GET(
       "AgriManager",
       "Supplier Receipt Document",
       "----------------------------------------",
+      `Company: ${companyName}`,
       `Status: ${ticket.status || "-"}`,
       `Operation type: Supplier receipt`,
       `Supplier: ${supplierName}`,
@@ -193,6 +196,7 @@ export async function GET(
       "AgriManager",
       "Weighbridge Ticket",
       "----------------------------------------",
+      `Company: ${companyName}`,
       `Ticket No: ${ticket.ticket_no || "-"}`,
       `Created at: ${fmt(ticket.created_at)}`,
       `Closed at: ${fmt(ticket.finalized_at)}`,

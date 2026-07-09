@@ -31,7 +31,7 @@ import {
   updateWarehouseIssueRequestStatus,
 } from "@/lib/services/warehouse-requests";
 import type { Warehouse } from "@/lib/types/warehouse";
-import type { WarehouseIssueRequest } from "@/lib/types/warehouse-request";
+import type { WarehouseIssueRequest, WarehouseIssueRequestItem } from "@/lib/types/warehouse-request";
 
 function statusBadge(status: string) {
   if (status === "received_confirmed") return "bg-emerald-500/15 text-emerald-200 border border-emerald-400/30";
@@ -59,6 +59,56 @@ function statusLabel(status: string, t: (key: any) => string): string {
 function toQty(value: unknown, fallback = 0): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
+}
+
+const PRODUCT_CATEGORY_LABELS: Record<string, string> = {
+  pesticide: "СЗР",
+  crop_protection: "СЗР",
+  fertilizer: "Удобрение",
+  seed: "Семена",
+  seed_planting_material: "Семена",
+  additive: "Добавка",
+  organic: "Органика",
+  fuel: "Топливо",
+  commodity: "Товар",
+  other: "Другое",
+};
+
+const RECONCILIATION_LABELS: Record<string, string> = {
+  not_required: "Сверка не нужна",
+  pending: "Ожидает сверки",
+  prepared: "Подготовлено",
+  issued: "Выдано",
+  received: "Принято специалистом",
+  in_progress: "В работе",
+  return_required: "Нужен возврат",
+  shortage: "Дефицит",
+  return_declared: "Возврат заявлен",
+  return_received: "Возврат принят",
+  loss_review: "Проверка потерь",
+  reconciled: "Сверено",
+  blocked: "Заблокировано",
+  cancelled: "Отменено",
+};
+
+function productCategoryLabel(item: WarehouseIssueRequestItem): string {
+  const key = String(item.product_type || item.product_category || "").trim().toLowerCase();
+  if (!key) return "-";
+  return PRODUCT_CATEGORY_LABELS[key] || "Другое";
+}
+
+function reconciliationLabel(status: unknown): string {
+  const key = String(status || "").trim().toLowerCase();
+  if (!key) return "-";
+  return RECONCILIATION_LABELS[key] || "Требует проверки";
+}
+
+function itemReconciliationSummary(item: WarehouseIssueRequestItem): Array<{ label: string; value: number }> {
+  return [
+    { label: "Возврат", value: toQty(item.return_received_quantity ?? item.returned_quantity, 0) },
+    { label: "Потери", value: toQty(item.loss_quantity, 0) },
+    { label: "Дефицит", value: toQty(item.shortage_quantity, 0) },
+  ];
 }
 
 function requestRecipientLabel(row: WarehouseIssueRequest): string {
@@ -144,6 +194,8 @@ export default function WarehouseRequestsPage() {
   const [mobileTab, setMobileTab] = useState<"requests" | "preparing" | "ready" | "history" | "stock">("requests");
   const [balanceByWarehouseProduct, setBalanceByWarehouseProduct] = useState<Record<string, number>>({});
   const [issueQtyByItem, setIssueQtyByItem] = useState<Record<string, string>>({});
+  const [preparedQtyByItem, setPreparedQtyByItem] = useState<Record<string, string>>({});
+  const [packageSizeByItem, setPackageSizeByItem] = useState<Record<string, string>>({});
 
   const canProcess =
     profile?.role === "warehouse" ||
@@ -233,13 +285,20 @@ export default function WarehouseRequestsPage() {
     if (!selectedRequest) return;
     setSourceWarehouseId(selectedRequest.source_warehouse_id || "");
     const defaults: Record<string, string> = {};
+    const preparedDefaults: Record<string, string> = {};
+    const packageDefaults: Record<string, string> = {};
     (selectedRequest.items || []).forEach((item) => {
       const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+      const prepared = toQty(item.prepared_quantity, 0) || planned;
       const alreadyIssued = toQty(item.issued_quantity, 0);
-      const remaining = Math.max(planned - alreadyIssued, 0);
+      const remaining = Math.max(prepared - alreadyIssued, 0);
       defaults[item.id] = remaining > 0 ? remaining.toFixed(2) : "0";
+      preparedDefaults[item.id] = prepared > 0 ? prepared.toFixed(2) : "0";
+      packageDefaults[item.id] = item.package_size ? String(item.package_size) : "";
     });
     setIssueQtyByItem(defaults);
+    setPreparedQtyByItem(preparedDefaults);
+    setPackageSizeByItem(packageDefaults);
   }, [selectedRequest?.id]);
 
   const stockCheckRows = useMemo(() => {
@@ -247,8 +306,9 @@ export default function WarehouseRequestsPage() {
     return (selectedRequest.items || []).map((item) => {
       const available = toQty(balanceByWarehouseProduct[`${effectiveSourceWarehouseId}|${item.product_id}`], 0);
       const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+      const prepared = Math.max(toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0) || planned), 0);
       const alreadyIssued = toQty(item.issued_quantity, 0);
-      const remaining = Math.max(planned - alreadyIssued, 0);
+      const remaining = Math.max(prepared - alreadyIssued, 0);
       const toIssueRaw = toQty(issueQtyByItem[item.id], remaining);
       const toIssue = Math.max(0, toIssueRaw);
       const missing = Math.max(0, toIssue - available);
@@ -257,6 +317,7 @@ export default function WarehouseRequestsPage() {
         item,
         available,
         planned,
+        prepared,
         alreadyIssued,
         remaining,
         toIssue,
@@ -329,6 +390,11 @@ export default function WarehouseRequestsPage() {
           companyId: profile.company_id!,
           status: "ready",
           sourceWarehouseId,
+          items: (selectedRequest.items || []).map((item) => ({
+            itemId: item.id,
+            preparedQuantity: toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0) || toQty(item.planned_quantity ?? item.required_quantity, 0)),
+            packageSize: packageSizeByItem[item.id] ? toQty(packageSizeByItem[item.id], 0) : null,
+          })),
         }),
       t("request_marked_ready")
     );
@@ -766,12 +832,23 @@ export default function WarehouseRequestsPage() {
                     return (
                       <div key={item.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-3 text-sm">
                         <div className="font-medium text-slate-100">{item.product_name || "-"}</div>
-                        <div className="mt-1 text-xs text-slate-500">{item.product_type || item.product_category || "-"}</div>
+                        <div className="mt-1 text-xs text-slate-500">{productCategoryLabel(item)}</div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-400">
                           <div>План: {planned.toFixed(2)}</div>
                           <div>Выдано: {issued.toFixed(2)}</div>
                           <div>Осталось: {remaining.toFixed(2)}</div>
                           <div>{t("unit")}: {localizeUnit(item.unit || item.product_unit || "kg", language)}</div>
+                        </div>
+                        <div className="mt-2 rounded-md border border-slate-800 bg-slate-900/60 p-2 text-xs text-slate-300">
+                          <div className="mb-1 font-medium text-slate-200">{reconciliationLabel(item.reconciliation_status)}</div>
+                          <div className="grid grid-cols-3 gap-1">
+                            {itemReconciliationSummary(item).map((row) => (
+                              <div key={row.label}>
+                                <span className="text-slate-500">{row.label}: </span>
+                                <span className="font-semibold text-slate-100">{row.value.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                         <div className="mt-2">
                           <Label className="mb-1 block text-xs">К выдаче</Label>
@@ -802,8 +879,14 @@ export default function WarehouseRequestsPage() {
                         <TableHead>{t("material")}</TableHead>
                         <TableHead>{t("category")}</TableHead>
                         <TableHead className="text-right">План</TableHead>
+                        <TableHead className="text-right">Тара</TableHead>
+                        <TableHead className="text-right">Подготовлено</TableHead>
                         <TableHead className="text-right">Выдано</TableHead>
                         <TableHead className="text-right">Осталось</TableHead>
+                        <TableHead className="text-right">Возврат</TableHead>
+                        <TableHead className="text-right">Потери</TableHead>
+                        <TableHead className="text-right">Дефицит</TableHead>
+                        <TableHead>Сверка</TableHead>
                         <TableHead className="text-right">К выдаче</TableHead>
                         <TableHead>{t("unit")}</TableHead>
                       </TableRow>
@@ -811,17 +894,65 @@ export default function WarehouseRequestsPage() {
                     <TableBody>
                       {(selectedRequest.items || []).map((item) => {
                         const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+                        const prepared = toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0) || planned);
                         const issued = toQty(item.issued_quantity, 0);
-                        const remaining = Math.max(planned - issued, 0);
+                        const remaining = Math.max(prepared - issued, 0);
+                        const returned = toQty(item.return_received_quantity ?? item.returned_quantity, 0);
+                        const loss = toQty(item.loss_quantity, 0);
+                        const shortage = toQty(item.shortage_quantity, 0);
                         const editable =
                           selectedRequest.status === "ready" || selectedRequest.status === "received_confirmed";
                         return (
                         <TableRow key={item.id}>
                           <TableCell>{item.product_name || "-"}</TableCell>
-                          <TableCell>{item.product_type || item.product_category || "-"}</TableCell>
+                          <TableCell>{productCategoryLabel(item)}</TableCell>
                           <TableCell className="text-right">{planned.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={packageSizeByItem[item.id] ?? ""}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setPackageSizeByItem((prev) => ({ ...prev, [item.id]: value }));
+                                const packageSize = toQty(value, 0);
+                                if (packageSize > 0 && planned > 0) {
+                                  const rounded = Math.ceil(planned / packageSize) * packageSize;
+                                  const next = rounded.toFixed(2);
+                                  setPreparedQtyByItem((prev) => ({ ...prev, [item.id]: next }));
+                                  setIssueQtyByItem((prev) => ({ ...prev, [item.id]: next }));
+                                }
+                              }}
+                              disabled={!(selectedRequest.status === "new" || selectedRequest.status === "active" || selectedRequest.status === "preparing") || submitting}
+                              className="ml-auto h-8 w-20"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={preparedQtyByItem[item.id] ?? prepared.toFixed(2)}
+                              onChange={(e) => {
+                                const value = e.target.value;
+                                setPreparedQtyByItem((prev) => ({ ...prev, [item.id]: value }));
+                                setIssueQtyByItem((prev) => ({ ...prev, [item.id]: value }));
+                              }}
+                              disabled={!(selectedRequest.status === "new" || selectedRequest.status === "active" || selectedRequest.status === "preparing") || submitting}
+                              className="ml-auto h-8 w-24"
+                            />
+                          </TableCell>
                           <TableCell className="text-right">{issued.toFixed(2)}</TableCell>
                           <TableCell className="text-right">{remaining.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{returned.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{loss.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{shortage.toFixed(2)}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="border-slate-700 bg-slate-950 text-slate-200">
+                              {reconciliationLabel(item.reconciliation_status)}
+                            </Badge>
+                          </TableCell>
                           <TableCell className="text-right">
                             <Input
                               type="number"

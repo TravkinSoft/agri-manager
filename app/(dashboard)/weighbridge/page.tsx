@@ -18,7 +18,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
-import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getWeighbridgeBootstrap, listTickets, openShift, patchTicket, voidTicket } from "@/lib/services/weighbridge";
+import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getWeighbridgeBootstrap, getWeighbridgeResources, listTickets, openShift, patchTicket, voidTicket } from "@/lib/services/weighbridge";
 import type { TicketDirection, TicketInput, TicketLineInput, WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
@@ -391,6 +391,9 @@ const statusLabel = (status: string) => {
   return status;
 };
 
+const ticketCompanyLabel = (ticket: WeighbridgeTicket | null | undefined) =>
+  String(ticket?.company_name || "").trim() || "Компания";
+
 const operationUiLabel = (opType: string) => {
   if (opType === "harvest_incoming") return "Урожай";
   if (opType === "supplier_receipt") return "Поставка от контрагента";
@@ -753,10 +756,10 @@ export default function WeighbridgeOperationsPage() {
     if (authLoading || !profile?.company_id || !profile?.id || !canView) return;
     setLoading(true);
     try {
-      const [fieldsRes, warehousesRes, vehiclesRes, processingRes, productsRes, identityRefs, supplierRows, buyerRows, driverRows, ticketRows, operationsRes] = await Promise.all([
+      const [fieldsRes, warehousesRes, resourceRows, processingRes, productsRes, identityRefs, supplierRows, buyerRows, ticketRows, operationsRes] = await Promise.all([
         supabase.from("fields").select("id,name,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").eq("company_id", profile.company_id).eq("archived", false).order("name"),
-        supabase.from("reference_vehicles").select("id,name,custom_name,plate_number,primary_responsible_personnel_id,is_active,archived").eq("company_id", profile.company_id).eq("is_active", true).eq("archived", false).order("name"),
+        getWeighbridgeResources(profile.company_id),
         supabase.from("processing_points").select("id,name").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase
           .from("products")
@@ -767,7 +770,6 @@ export default function WeighbridgeOperationsPage() {
         loadMasterIdentityRefs(profile.company_id),
         loadSuppliers(profile.company_id),
         loadBuyers(profile.company_id),
-        loadDriversV2(profile.company_id),
         listTickets(profile.company_id, profile.id),
         supabase
           .from("operations")
@@ -777,8 +779,8 @@ export default function WeighbridgeOperationsPage() {
           .order("date", { ascending: false })
           .limit(500),
       ]);
-      if (fieldsRes.error || warehousesRes.error || vehiclesRes.error || processingRes.error || productsRes.error || operationsRes.error) {
-        throw new Error(fieldsRes.error?.message || warehousesRes.error?.message || vehiclesRes.error?.message || processingRes.error?.message || productsRes.error?.message || "Не удалось загрузить данные");
+      if (fieldsRes.error || warehousesRes.error || processingRes.error || productsRes.error || operationsRes.error) {
+        throw new Error(fieldsRes.error?.message || warehousesRes.error?.message || processingRes.error?.message || productsRes.error?.message || "Не удалось загрузить данные");
       }
       setFields((fieldsRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Поле"), area: Number(r.area || 0) })));
       setWarehouses((warehousesRes.data || []).map((r: any) => ({ id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Склад") })));
@@ -786,7 +788,7 @@ export default function WeighbridgeOperationsPage() {
       setBuyers(buyerRows);
       setFields((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
       setWarehouses((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
-      setVehicles((vehiclesRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.custom_name || r.name || "Машина"), plate: String(r.plate_number || ""), primaryPersonnelId: r.primary_responsible_personnel_id ? String(r.primary_responsible_personnel_id) : null })));
+      setVehicles(((resourceRows?.vehicles || []) as any[]).map((r: any) => ({ id: String(r.id), name: String(r.name || "Машина"), plate: String(r.plate || ""), primaryPersonnelId: r.primaryPersonnelId ? String(r.primaryPersonnelId) : null })));
       setProcessingPoints((processingRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Точка") })));
       const dedupeByName = (rows: any[]) => {
         const map = new Map<string, any>();
@@ -859,7 +861,12 @@ export default function WeighbridgeOperationsPage() {
           name: localizedName(r, lang, ["name"]) || String(r.name || "Репродукция"),
         }))
       );
-      setDrivers(driverRows);
+      setDrivers(((resourceRows?.drivers || []) as any[]).map((r: any) => ({
+        id: String(r.id),
+        name: String(r.name || "Ответственный"),
+        machineId: r.machineId ? String(r.machineId) : null,
+        assignedVehicleIds: Array.isArray(r.assignedVehicleIds) ? r.assignedVehicleIds.map(String) : [],
+      })));
       setTickets(ticketRows || []);
       const fieldNameById = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "Поле")]));
       setLinkedOperations(
@@ -1479,12 +1486,14 @@ export default function WeighbridgeOperationsPage() {
     if (form.operationType === "harvest_incoming") {
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
-      if (form.fieldId && harvestIncompleteFields[form.fieldId]) return "В структуре поля отсутствует сорт или репродукция";
-      if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId || !form.varietyId || !form.reproductionId) {
-        return "Заполните поле, склад, культуру, сорт и репродукцию";
+      if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId) {
+        return "Заполните поле, склад и культуру";
       }
       if (!fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId)) {
         return "Выбранная посевная строка не связана с этим полем";
+      }
+      if (!selectedHarvestAllocation?.varietyId || !selectedHarvestAllocation?.reproductionId) {
+        return "Для прихода урожая нужно указать сорт и репродукцию в структуре посевов. Откройте структуру посевов, выберите строку и заполните сорт/репродукцию.";
       }
       if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
     } else if (form.operationType === "supplier_receipt") {
@@ -1587,9 +1596,8 @@ export default function WeighbridgeOperationsPage() {
     if (form.operationType === "harvest_incoming") {
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
-      if (form.fieldId && harvestIncompleteFields[form.fieldId]) return "В структуре поля отсутствует сорт/репродукция";
-      if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId || !form.varietyId || !form.reproductionId) {
-        return "Заполните поле, склад, культуру, сорт и репродукцию";
+      if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId) {
+        return "Заполните поле, склад и культуру";
       }
       const hasLinkedCombo = fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId);
       if (!hasLinkedCombo) return "Выбранные культура/сорт/репродукция не связаны с полем в структуре посева";
@@ -3179,7 +3187,7 @@ export default function WeighbridgeOperationsPage() {
 
               <div className="mx-auto w-full max-w-[540px] min-h-[960px] rounded-md border bg-[#f7f1e3] p-4 text-[#1f1b16]" style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}>
                 <div className="mb-3 border-b border-[#b8a788] pb-2 text-center">
-                  <div className="text-sm font-semibold tracking-wide">ТОО “АСТЫК-STEM”</div>
+                  <div className="text-sm font-semibold tracking-wide">{ticketCompanyLabel(activeTicket)}</div>
                   <div className="mt-1 text-3xl font-black">ВЕСОВОЙ ТАЛОН</div>
                   <div className="mt-1 text-lg font-bold">№ {activeTicket.ticket_no}</div>
                 </div>
@@ -3295,7 +3303,7 @@ export default function WeighbridgeOperationsPage() {
               </SheetHeader>
               <div className="mx-auto w-full max-w-[540px] min-h-[960px] rounded-md border bg-[#f7f1e3] p-4 text-[#1f1b16]" style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}>
                 <div className="mb-3 border-b border-[#b8a788] pb-2 text-center">
-                  <div className="text-sm font-semibold tracking-wide">ТОО “АСТЫК-STEM”</div>
+                  <div className="text-sm font-semibold tracking-wide">{ticketCompanyLabel(historyPreviewTicket)}</div>
                   <div className="mt-1 text-3xl font-black">ВЕСОВОЙ ТАЛОН</div>
                   <div className="mt-1 text-lg font-bold">№ {historyPreviewTicket.ticket_no}</div>
                 </div>

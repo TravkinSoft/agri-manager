@@ -7,6 +7,7 @@ import {
   assertSeasonWritableForMutation,
   resolveOperationSeasonIdForGuard,
 } from "@/lib/seasons/season-guard";
+import { calculateMaterialReconciliation } from "@/lib/materials/reconciliation";
 
 const PROGRESS_ALLOWED_ROLES = [
   "global_admin",
@@ -16,7 +17,7 @@ const PROGRESS_ALLOWED_ROLES = [
   "brigadier",
 ] as const;
 
-const SCHEMA_FALLBACK_RE = /operation_progress|operation_status|specialist_task_status|planned_area_ha|completed_area_ha|remaining_area_ha|progress_percent|last_progress_at|last_stop_reason|schema cache|does not exist|column/i;
+const SCHEMA_FALLBACK_RE = /operation_progress|operation_status|specialist_task_status|planned_area_ha|completed_area_ha|remaining_area_ha|progress_percent|last_progress_at|last_stop_reason|expected_consumed_quantity|shortage_quantity|reconciliation_status|schema cache|does not exist|column/i;
 
 function toNonNegativeNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -147,6 +148,76 @@ async function updateOperationLinesActual(
 
     if (updateError) throw new Error(updateError.message || "Failed to update operation line progress");
   }
+}
+
+async function updateLinkedMaterialExpectations(
+  supabase: any,
+  params: {
+    companyId: string;
+    operationId: string;
+    plannedArea: number;
+    completedArea: number;
+  }
+) {
+  const { data: requests, error: requestsError } = await supabase
+    .from("warehouse_issue_requests")
+    .select("id")
+    .eq("company_id", params.companyId)
+    .eq("operation_id", params.operationId);
+
+  if (requestsError) {
+    if (isSchemaFallbackError(requestsError)) return false;
+    throw new Error(requestsError.message || "Failed to read linked material requests");
+  }
+
+  const requestIds = (requests || []).map((row: any) => String(row.id)).filter(Boolean);
+  if (requestIds.length === 0) return true;
+
+  const { data: items, error: itemsError } = await supabase
+    .from("warehouse_issue_request_items")
+    .select("id,planned_quantity,required_quantity,issued_quantity,expected_return_quantity,return_received_quantity,loss_quantity,returned_quantity,consumed_quantity,package_size,substitution_status,planned_product_id,actual_product_id")
+    .eq("company_id", params.companyId)
+    .in("request_id", requestIds);
+
+  if (itemsError) {
+    if (isSchemaFallbackError(itemsError)) return false;
+    throw new Error(itemsError.message || "Failed to read request items");
+  }
+
+  for (const item of items || []) {
+    const reconciliation = calculateMaterialReconciliation({
+      plannedQuantity: Number(item.planned_quantity ?? item.required_quantity ?? 0),
+      plannedAreaHa: params.plannedArea,
+      actualCompletedAreaHa: params.completedArea,
+      issuedQuantity: Number(item.issued_quantity || 0),
+      consumedQuantity: item.consumed_quantity,
+      returnedQuantity: item.returned_quantity,
+      returnReceivedQuantity: item.return_received_quantity,
+      lossQuantity: item.loss_quantity,
+      packageSize: item.package_size,
+      substitutionStatus: item.substitution_status,
+      plannedProductId: item.planned_product_id,
+      actualProductId: item.actual_product_id,
+    });
+
+    const { error: itemUpdateError } = await supabase
+      .from("warehouse_issue_request_items")
+      .update({
+        expected_consumed_quantity: reconciliation.expectedConsumedQuantity,
+        expected_return_quantity: reconciliation.expectedReturnQuantity,
+        shortage_quantity: reconciliation.shortageQuantity,
+        reconciliation_status: reconciliation.reconciliationStatus,
+      })
+      .eq("id", item.id)
+      .eq("company_id", params.companyId);
+
+    if (itemUpdateError) {
+      if (isSchemaFallbackError(itemUpdateError)) return false;
+      throw new Error(itemUpdateError.message || "Failed to update material expectation");
+    }
+  }
+
+  return true;
 }
 
 export async function POST(
@@ -280,6 +351,13 @@ export async function POST(
       nowIso,
     });
 
+    const materialExpectationsPersisted = await updateLinkedMaterialExpectations(supabase, {
+      companyId,
+      operationId,
+      plannedArea,
+      completedArea: clampedCompleted,
+    });
+
     const v5StatePersisted = await updateOperationExecutionState(supabase, {
       companyId,
       operationId,
@@ -303,6 +381,7 @@ export async function POST(
         status_after_report: statusAfterReport,
         progress_persisted: progressPersisted,
         v5_state_persisted: v5StatePersisted,
+        material_expectations_persisted: materialExpectationsPersisted,
       },
     });
   } catch (error) {

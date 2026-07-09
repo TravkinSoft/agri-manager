@@ -64,7 +64,8 @@ export async function GET(
       }
     }
 
-    const [fieldRes, warehouseFromRes, warehouseToRes, supplierRes, buyerRes, vehicleRes, driverRes, creatorRes] = await Promise.all([
+    const [companyRes, fieldRes, warehouseFromRes, warehouseToRes, supplierRes, buyerRes, vehicleRes, driverRes, creatorRes] = await Promise.all([
+      supabase.from("companies").select("id,name").eq("id", ticket.company_id).maybeSingle(),
       ticket.field_id
         ? supabase.from("fields").select("id,name").eq("company_id", companyId).eq("id", ticket.field_id).maybeSingle()
         : Promise.resolve({ data: null } as any),
@@ -130,6 +131,7 @@ export async function GET(
     const varietyById = new Map<string, any>((varietiesRes.data || []).map((item: any) => [String(item.id), item]));
     const reproductionById = new Map<string, any>((reproductionsRes.data || []).map((item: any) => [String(item.id), item]));
     const lineWarehouseById = new Map<string, any>((lineWarehousesRes.data || []).map((item: any) => [String(item.id), item]));
+    const company = (companyRes as any)?.data || null;
     const field = (fieldRes as any)?.data || null;
     const warehouseFrom = (warehouseFromRes as any)?.data || null;
     const warehouseTo = (warehouseToRes as any)?.data || null;
@@ -154,6 +156,7 @@ export async function GET(
     return NextResponse.json({
       ticket: {
         ...ticket,
+        company_name: company?.name || null,
         field_name_snapshot: field?.name || null,
         warehouse_from_name_snapshot: warehouseFrom?.name || null,
         warehouse_to_name_snapshot: warehouseTo?.name || null,

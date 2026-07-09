@@ -108,6 +108,7 @@ export default function WeighbridgePrintPage() {
   const isTransfer = ticket?.op_type === "warehouse_transfer";
   const isShipment = ticket?.op_type === "shipment_outbound";
   const ticketNo = ticket?.ticket_no || ticket?.id || "-";
+  const companyLabel = String(ticket?.company_name || "").trim() || "Компания";
   const allocationLabel = ticket?.crop_structure_allocation_label || mainLine?.crop_structure_allocation_label || "-";
   const warehouseLabel = ticket?.warehouse_to_name_snapshot || ticket?.warehouse_from_name_snapshot || "-";
   const cropLabel = isHarvest ? mainLine?.product_name || mainLine?.product_name_snapshot || ticket?.crop_name_snapshot || "-" : productSummary(lines);
@@ -160,7 +161,7 @@ export default function WeighbridgePrintPage() {
         style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}
       >
         <div className="mb-3 border-b border-[#b8a788] pb-2 text-center">
-          <div className="text-sm font-semibold tracking-wide">ТОО “АСТЫК-STEM”</div>
+          <div className="text-sm font-semibold tracking-wide">{companyLabel}</div>
           <div className="mt-1 text-3xl font-black">ВЕСОВОЙ ТАЛОН</div>
           <div className="mt-1 text-lg font-bold">№ {ticketNo}</div>
         </div>

@@ -5,6 +5,7 @@ import {
   resolveMaterialRequestSession,
   toWorkflowStatus,
 } from "@/app/api/material-requests/_helpers";
+import { calculateMaterialReconciliation, roundMaterialQuantity } from "@/lib/materials/reconciliation";
 
 type IssueLinePayload = {
   itemId: string;
@@ -26,7 +27,16 @@ function toNumber(value: unknown): number {
 
 function isV5WarehouseSchemaError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
-  return /warehouse_request_status|schema cache|column/i.test(message);
+  return /warehouse_request_status|prepared_quantity|expected_consumed_quantity|shortage_quantity|reconciliation_status|substitution_status|planned_product_id|actual_product_id|schema cache|column/i.test(message);
+}
+
+function normalizeOperationMaterialTypeForDb(value: unknown): string {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "additive") return "adjuvant";
+  if (normalized === "crop_protection" || normalized === "plant_protection") return "pesticide";
+  if (normalized === "micro_fertilizer") return "fertilizer";
+  if (normalized === "antifoam") return "defoamer";
+  return normalized || "other";
 }
 
 async function getProductBalance(
@@ -117,11 +127,21 @@ async function syncOperationMaterialsFromRequest(
 ) {
   if (!params.operationId) return;
 
-  const { data: items, error } = await supabase
+  let { data: items, error } = await supabase
     .from("warehouse_issue_request_items")
-    .select("product_id,product_category,planned_quantity,required_quantity,issued_quantity,unit")
+    .select("product_id,product_category,planned_quantity,required_quantity,issued_quantity,unit,actual_product_id,planned_product_id,substitution_status")
     .eq("company_id", params.companyId)
     .eq("request_id", params.requestId);
+
+  if (error && isV5WarehouseSchemaError(error)) {
+    const fallback = await supabase
+      .from("warehouse_issue_request_items")
+      .select("product_id,product_category,planned_quantity,required_quantity,issued_quantity,unit")
+      .eq("company_id", params.companyId)
+      .eq("request_id", params.requestId);
+    items = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) throw new Error(error.message || "Failed to read request items for operation material sync");
 
@@ -131,12 +151,15 @@ async function syncOperationMaterialsFromRequest(
   >();
 
   for (const item of items || []) {
-    const productId = String(item.product_id || "");
+    const productId =
+      item.actual_product_id && item.substitution_status === "approved"
+        ? String(item.actual_product_id)
+        : String(item.product_id || "");
     if (!productId) continue;
     const current =
       grouped.get(productId) || {
         productId,
-        materialType: String(item.product_category || "other"),
+        materialType: normalizeOperationMaterialTypeForDb(item.product_category || "other"),
         unit: String(item.unit || "kg"),
         planned: 0,
         issued: 0,
@@ -286,12 +309,25 @@ export async function POST(
       return NextResponse.json({ error: warehouseError?.message || "Source warehouse not found" }, { status: 404 });
     }
 
-    const { data: requestItems, error: itemsError } = await supabase
+    const requestItemsResult = await supabase
       .from("warehouse_issue_request_items")
-      .select("id,product_id,planned_quantity,required_quantity,issued_quantity,batch_id,unit")
+      .select("id,product_id,planned_quantity,required_quantity,prepared_quantity,issued_quantity,batch_id,unit,package_size,package_count,planned_product_id,actual_product_id,substitution_status")
       .eq("request_id", requestId)
       .eq("company_id", companyId)
       .order("created_at", { ascending: true });
+    let requestItems: any[] | null = requestItemsResult.data as any[] | null;
+    let itemsError = requestItemsResult.error;
+
+    if (itemsError && isV5WarehouseSchemaError(itemsError)) {
+      const fallbackItems = await supabase
+        .from("warehouse_issue_request_items")
+        .select("id,product_id,planned_quantity,required_quantity,issued_quantity,batch_id,unit")
+        .eq("request_id", requestId)
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: true });
+      requestItems = fallbackItems.data;
+      itemsError = fallbackItems.error;
+    }
 
     if (itemsError) {
       return NextResponse.json({ error: itemsError.message }, { status: 400 });
@@ -306,8 +342,10 @@ export async function POST(
 
     for (const item of requestItems) {
       const planned = Number(item.planned_quantity ?? item.required_quantity ?? 0);
+      const prepared = Number(item.prepared_quantity ?? 0);
+      const targetQuantity = prepared > 0 ? prepared : planned;
       const alreadyIssued = Number(item.issued_quantity || 0);
-      const remaining = Math.max(planned - alreadyIssued, 0);
+      const remaining = Math.max(targetQuantity - alreadyIssued, 0);
       const requested = requestedByItemId.get(String(item.id));
       const quantity = requested ? Number(requested.issued_quantity || 0) : remaining;
       if (!Number.isFinite(quantity) || quantity < 0) {
@@ -316,8 +354,16 @@ export async function POST(
       if (quantity === 0) continue;
       if (quantity > remaining + 0.000001) {
         return NextResponse.json(
-          { error: `Issued quantity exceeds planned remainder for item ${item.id}` },
+          { error: `Issued quantity exceeds prepared remainder for item ${item.id}` },
           { status: 400 }
+        );
+      }
+      const plannedProductId = String(item.planned_product_id || item.product_id || "");
+      const actualProductId = String(item.actual_product_id || item.product_id || "");
+      if (plannedProductId && actualProductId && plannedProductId !== actualProductId && item.substitution_status !== "approved") {
+        return NextResponse.json(
+          { error: `Material substitution must be approved before issue for item ${item.id}` },
+          { status: 409 }
         );
       }
       issuePlan.push({
@@ -406,36 +452,81 @@ export async function POST(
 
     for (const row of issuePlan) {
       const nextIssued = Number(Number(row.item.issued_quantity || 0) + row.quantity);
+      const reconciliation = calculateMaterialReconciliation({
+        plannedQuantity: Number(row.item.planned_quantity ?? row.item.required_quantity ?? 0),
+        issuedQuantity: nextIssued,
+        packageSize: row.item.package_size ?? null,
+        substitutionStatus: row.item.substitution_status || "none",
+        plannedProductId: row.item.planned_product_id || row.item.product_id || null,
+        actualProductId: row.item.actual_product_id || row.item.product_id || null,
+      });
+      const itemPatch = {
+        issued_quantity: Number(nextIssued.toFixed(4)),
+        issued_unit: row.item.unit || null,
+        batch_id: row.batchId,
+        expected_consumed_quantity: reconciliation.expectedConsumedQuantity,
+        expected_return_quantity: reconciliation.expectedReturnQuantity,
+        shortage_quantity: reconciliation.shortageQuantity,
+        package_count: reconciliation.packageCount,
+        reconciliation_status: "issued",
+      };
       const { error: itemUpdateError } = await supabase
         .from("warehouse_issue_request_items")
-        .update({
-          issued_quantity: Number(nextIssued.toFixed(4)),
-          batch_id: row.batchId,
-        })
+        .update(itemPatch)
         .eq("id", row.item.id)
         .eq("company_id", companyId);
 
       if (itemUpdateError) {
-        return NextResponse.json({ error: itemUpdateError.message || "Failed to update issued quantity" }, { status: 400 });
+        if (isV5WarehouseSchemaError(itemUpdateError)) {
+          const { error: fallbackItemUpdateError } = await supabase
+            .from("warehouse_issue_request_items")
+            .update({
+              issued_quantity: Number(nextIssued.toFixed(4)),
+              batch_id: row.batchId,
+            })
+            .eq("id", row.item.id)
+            .eq("company_id", companyId);
+          if (fallbackItemUpdateError) {
+            return NextResponse.json({ error: fallbackItemUpdateError.message || "Failed to update issued quantity" }, { status: 400 });
+          }
+        } else {
+          return NextResponse.json({ error: itemUpdateError.message || "Failed to update issued quantity" }, { status: 400 });
+        }
       }
     }
 
-    const { data: totals, error: totalsError } = await supabase
+    const totalsResult = await supabase
       .from("warehouse_issue_request_items")
-      .select("planned_quantity,required_quantity,issued_quantity")
+      .select("planned_quantity,required_quantity,prepared_quantity,issued_quantity")
       .eq("request_id", requestId)
       .eq("company_id", companyId);
+    let totals: any[] | null = totalsResult.data as any[] | null;
+    let totalsError = totalsResult.error;
+
+    if (totalsError && isV5WarehouseSchemaError(totalsError)) {
+      const fallbackTotals = await supabase
+        .from("warehouse_issue_request_items")
+        .select("planned_quantity,required_quantity,issued_quantity")
+        .eq("request_id", requestId)
+        .eq("company_id", companyId);
+      totals = fallbackTotals.data;
+      totalsError = fallbackTotals.error;
+    }
 
     if (totalsError) {
       return NextResponse.json({ error: totalsError.message || "Failed to calculate issue totals" }, { status: 400 });
     }
 
     const totalRequired = (totals || []).reduce(
-      (sum: number, item: any) => sum + Number(item.planned_quantity ?? item.required_quantity ?? 0),
+      (sum: number, item: any) => {
+        const prepared = Number(item.prepared_quantity ?? 0);
+        const planned = Number(item.planned_quantity ?? item.required_quantity ?? 0);
+        return sum + (prepared > 0 ? prepared : planned);
+      },
       0
     );
     const totalIssued = (totals || []).reduce(
-      (sum: number, item: any) => sum + Number(item.issued_quantity || 0),
+      (sum: number, item: any) => sum + roundMaterialQuantity(Number(item.issued_quantity || 0)),
       0
     );
     const nextStatusRaw = totalRequired > 0 && totalIssued >= totalRequired - 0.000001

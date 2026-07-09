@@ -492,6 +492,136 @@ function isLegacySeededEquipmentReference(row: { created_at?: unknown; brand?: u
   return isKnownGlobalCatalogSpillover && Boolean(String(row.brand || "").trim() || String(row.model || "").trim());
 }
 
+type CompanyAssetReferences = {
+  machines: MachineReference[];
+  equipment: EquipmentReference[];
+  vehicles: VehicleReference[];
+};
+
+type CompanyAssetReferencesPayload = {
+  companyId: string;
+  machines: any[];
+  equipment: any[];
+  vehicles: any[];
+};
+
+const companyAssetReferenceRequests = new Map<string, Promise<CompanyAssetReferencesPayload>>();
+
+async function getSessionAuthorizationHeader(): Promise<Record<string, string>> {
+  const { data, error } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (error || !token) {
+    throw new Error("User is not authenticated");
+  }
+  return { Authorization: `Bearer ${token}` };
+}
+
+async function fetchCompanyAssetReferencesPayload(companyId: string): Promise<CompanyAssetReferencesPayload> {
+  const key = String(companyId || "").trim();
+  if (!key) {
+    throw new Error("Company context is required");
+  }
+
+  const pending = companyAssetReferenceRequests.get(key);
+  if (pending) return pending;
+
+  const request = (async () => {
+    const headers = await getSessionAuthorizationHeader();
+    const params = new URLSearchParams({ companyId: key });
+    const response = await fetch(`/api/references/company-assets?${params.toString()}`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload?.error || "Failed to load company assets");
+    }
+    return {
+      companyId: String(payload?.companyId || key),
+      machines: Array.isArray(payload?.machines) ? payload.machines : [],
+      equipment: Array.isArray(payload?.equipment) ? payload.equipment : [],
+      vehicles: Array.isArray(payload?.vehicles) ? payload.vehicles : [],
+    };
+  })().finally(() => {
+    companyAssetReferenceRequests.delete(key);
+  });
+
+  companyAssetReferenceRequests.set(key, request);
+  return request;
+}
+
+function mapMachineReference(row: any, language: Language): MachineReference {
+  return {
+    ...row,
+    name: localizedName(row, language) || row.name,
+    display_name: firstCleanAssetName(row.global_model?.full_name, row.full_name, localizedName(row, language), row.name),
+    display_type: labelByMap(
+      machineAssetTypeLabels,
+      row.machinery_type,
+      row.machine_type,
+      row.machine_category,
+      row.type,
+      row.category,
+      row.global_model?.category
+    ),
+  } as MachineReference;
+}
+
+function mapEquipmentReference(row: any, language: Language): EquipmentReference {
+  return {
+    ...row,
+    name: localizedName(row, language) || row.name,
+    display_name: firstCleanAssetName(
+      row.global_model?.full_name,
+      row.global_model?.name,
+      row.full_name,
+      localizedName(row, language),
+      row.name
+    ),
+    display_type: labelByMap(
+      equipmentAssetTypeLabels,
+      row.equipment_category,
+      row.category,
+      row.global_model?.category,
+      row.global_model?.equipment_type
+    ),
+  } as EquipmentReference;
+}
+
+function mapVehicleReference(row: any): VehicleReference {
+  return {
+    ...row,
+    name: row.custom_name || row.name,
+    display_name: firstCleanAssetName(
+      row.transport_model?.full_name,
+      row.global_vehicle_brands?.name && row.global_vehicle_models?.name
+        ? `${row.global_vehicle_brands.name} ${row.global_vehicle_models.name}`
+        : null,
+      row.full_name,
+      row.custom_name,
+      row.name
+    ),
+    display_type: labelByMap(transportAssetTypeLabels, row.fleet_type, row.type, row.vehicle_type, row.transport_model?.category),
+  } as VehicleReference;
+}
+
+export async function getCompanyAssetReferences(
+  companyId: string,
+  language: Language = "ru"
+): Promise<CompanyAssetReferences> {
+  const payload = await fetchCompanyAssetReferencesPayload(companyId);
+  return {
+    machines: payload.machines
+      .filter((row: any) => !isLegacySeededMachineReference(row))
+      .map((row: any) => mapMachineReference(row, language)),
+    equipment: payload.equipment
+      .filter((row: any) => !isLegacySeededEquipmentReference(row))
+      .map((row: any) => mapEquipmentReference(row, language)),
+    vehicles: payload.vehicles.map((row: any) => mapVehicleReference(row)),
+  };
+}
+
 export async function getMachineReferences(
   companyId: string,
   includeArchived = false,
@@ -511,12 +641,7 @@ export async function getMachineReferences(
   if (error) throw new Error(error.message);
   return ((data || []) as MachineReference[])
     .filter((row: any) => !isLegacySeededMachineReference(row))
-    .map((row: any) => ({
-    ...row,
-    name: localizedName(row, language) || row.name,
-    display_name: firstCleanAssetName(row.global_model?.full_name, row.full_name, localizedName(row, language), row.name),
-    display_type: labelByMap(machineAssetTypeLabels, row.machinery_type, row.machine_type, row.machine_category, row.type, row.category, row.global_model?.category),
-  }));
+    .map((row: any) => mapMachineReference(row, language));
 }
 
 export async function getVehicleReferences(
@@ -538,20 +663,7 @@ export async function getVehicleReferences(
   if (!includeArchived) query = query.eq("archived", false);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return ((data || []) as any[]).map((row) => ({
-    ...row,
-    name: row.custom_name || row.name,
-    display_name: firstCleanAssetName(
-      row.transport_model?.full_name,
-      row.global_vehicle_brands?.name && row.global_vehicle_models?.name
-        ? `${row.global_vehicle_brands.name} ${row.global_vehicle_models.name}`
-        : null,
-      row.full_name,
-      row.custom_name,
-      row.name
-    ),
-    display_type: labelByMap(transportAssetTypeLabels, row.fleet_type, row.type, row.vehicle_type, row.transport_model?.category),
-  })) as VehicleReference[];
+  return ((data || []) as any[]).map((row) => mapVehicleReference(row));
 }
 
 export async function createVehicleReference(
@@ -684,12 +796,7 @@ export async function getEquipmentReferences(
   if (error) throw new Error(error.message);
   return ((data || []) as EquipmentReference[])
     .filter((row: any) => !isLegacySeededEquipmentReference(row))
-    .map((row: any) => ({
-    ...row,
-    name: localizedName(row, language) || row.name,
-    display_name: firstCleanAssetName(row.global_model?.full_name, row.global_model?.name, row.full_name, localizedName(row, language), row.name),
-    display_type: labelByMap(equipmentAssetTypeLabels, row.equipment_category, row.category, row.global_model?.category, row.global_model?.equipment_type),
-  }));
+    .map((row: any) => mapEquipmentReference(row, language));
 }
 
 export async function createEquipmentReference(

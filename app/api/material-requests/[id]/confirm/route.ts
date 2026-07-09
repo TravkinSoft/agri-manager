@@ -8,7 +8,7 @@ import {
 
 function isV5WarehouseSchemaError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
-  return /warehouse_request_status|picked_up_at|schema cache|column/i.test(message);
+  return /warehouse_request_status|picked_up_at|received_quantity|received_unit|reconciliation_status|schema cache|column/i.test(message);
 }
 
 export async function POST(
@@ -91,6 +91,38 @@ export async function POST(
           { error: updateResult.error?.message || "Failed to accept prepared materials" },
           { status: 400 }
         );
+      }
+
+      const { data: items, error: itemsError } = await supabase
+        .from("warehouse_issue_request_items")
+        .select("id,prepared_quantity,planned_quantity,required_quantity,unit")
+        .eq("request_id", requestId)
+        .eq("company_id", companyId);
+
+      if (!itemsError && items?.length) {
+        for (const item of items as any[]) {
+          const receivedQuantity = Number(
+            item.prepared_quantity ?? item.planned_quantity ?? item.required_quantity ?? 0
+          );
+          const { error: itemUpdateError } = await supabase
+            .from("warehouse_issue_request_items")
+            .update({
+              received_quantity: Number(receivedQuantity.toFixed(4)),
+              received_unit: item.unit || null,
+              reconciliation_status: "received",
+            })
+            .eq("id", item.id)
+            .eq("company_id", companyId);
+
+          if (itemUpdateError && !isV5WarehouseSchemaError(itemUpdateError)) {
+            return NextResponse.json(
+              { error: itemUpdateError.message || "Failed to save received quantities" },
+              { status: 400 }
+            );
+          }
+        }
+      } else if (itemsError && !isV5WarehouseSchemaError(itemsError)) {
+        return NextResponse.json({ error: itemsError.message || "Failed to load request items" }, { status: 400 });
       }
 
       return NextResponse.json({

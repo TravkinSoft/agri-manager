@@ -77,6 +77,7 @@ export interface WeighingInput {
 export interface WeighbridgeTicket {
   id: string;
   company_id: string;
+  company_name?: string | null;
   ticket_no: string;
   ticket_type: string;
   op_type: string;

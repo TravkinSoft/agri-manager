@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
-import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
+import {
+  SessionAuthError,
+  clearServerActorContextCacheForRequest,
+  getServerActorFromSession,
+} from "@/lib/auth/server-session";
 import { parseCanonicalRole } from "@/lib/auth/role-contract";
 
 export const runtime = "nodejs";
@@ -154,6 +158,7 @@ export async function POST(request: NextRequest) {
       console.error("Failed to write impersonation audit start event:", auditRes.error.message);
     }
 
+    clearServerActorContextCacheForRequest(request);
     const effectiveActor = await getServerActorFromSession(request);
     return NextResponse.json({
       ok: true,
@@ -219,6 +224,7 @@ export async function DELETE(request: NextRequest) {
       console.error("Failed to write impersonation audit stop event:", auditRes.error.message);
     }
 
+    clearServerActorContextCacheForRequest(request);
     return NextResponse.json({ ok: true, isImpersonating: false });
   } catch (error) {
     if (error instanceof SessionAuthError) {

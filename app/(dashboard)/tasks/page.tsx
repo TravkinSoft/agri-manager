@@ -21,6 +21,7 @@ import { useLanguage } from '@/lib/contexts/language-context';
 import { localizeUnit } from '@/lib/i18n/helpers';
 import { supabase } from '@/lib/supabase/client';
 import { hasQaDataMarker } from '@/lib/utils/qa-data';
+import { resolveWorkTitle } from '@/lib/operations/work-title';
 import {
   confirmWarehouseReceipt,
   getRecipientWarehouseIssueRequests,
@@ -51,6 +52,7 @@ interface OperationMaterial {
   issued_quantity: number | null;
   consumed_quantity: number | null;
   returned_quantity: number | null;
+  loss_quantity?: number | null;
   actual_rate: number | null;
   unit: string | null;
   products?: { name: string | null; trade_name?: string | null; unit?: string | null } | null;
@@ -59,6 +61,9 @@ interface OperationMaterial {
 interface Operation {
   id: string;
   operation_type: string;
+  operation_category_slug?: string | null;
+  operation_type_slug?: string | null;
+  operation_engine_label?: string | null;
   date: string;
   notes: string | null;
   status?: string | null;
@@ -143,6 +148,7 @@ function normalizeOperationRow(row: any): Operation {
           issued_quantity: material.issued_quantity == null ? null : toNumber(material.issued_quantity),
           consumed_quantity: material.consumed_quantity == null ? null : toNumber(material.consumed_quantity),
           returned_quantity: material.returned_quantity == null ? null : toNumber(material.returned_quantity),
+          loss_quantity: material.loss_quantity == null ? null : toNumber(material.loss_quantity),
           actual_rate: material.actual_rate == null ? null : toNumber(material.actual_rate),
         }))
       : [],
@@ -255,6 +261,20 @@ function operationVisibleMaterials(operation: Operation): OperationMaterial[] {
   return (operation.operation_materials || []).filter((material) => !hasQaDataMarker(operationMaterialName(material)));
 }
 
+function operationWorkTitle(operation: Operation): string {
+  return resolveWorkTitle({
+    operationType: operation.operation_type,
+    operationTypeSlug: operation.operation_type_slug,
+    operationCategorySlug: operation.operation_category_slug,
+    operationEngineLabel: operation.operation_engine_label,
+    materials: operationVisibleMaterials(operation).map((material) => ({
+      material_type: material.material_type,
+      product_type: material.material_type,
+      product_name: operationMaterialName(material),
+    })),
+  });
+}
+
 function operationLineDefaultArea(operation: Operation): string {
   const firstLine = operation.operation_lines?.[0];
   const area = firstLine?.actual_area_ha ?? firstLine?.planned_area_ha ?? null;
@@ -286,7 +306,7 @@ export default function TasksPage() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
   const [lineFactDraft, setLineFactDraft] = useState<Record<string, string>>({});
-  const [materialFactDraft, setMaterialFactDraft] = useState<Record<string, { consumed: string; returned: string; actualRate: string }>>({});
+  const [materialFactDraft, setMaterialFactDraft] = useState<Record<string, { consumed: string; returned: string; loss: string; actualRate: string }>>({});
   const [completionComment, setCompletionComment] = useState('Выполнено специалистом');
   const [progressAreaDraft, setProgressAreaDraft] = useState('');
   const [progressStopReason, setProgressStopReason] = useState('');
@@ -321,6 +341,9 @@ export default function TasksPage() {
             `
             id,
             operation_type,
+            operation_category_slug,
+            operation_type_slug,
+            operation_engine_label,
             date,
             notes,
             status,
@@ -342,6 +365,7 @@ export default function TasksPage() {
               issued_quantity,
               consumed_quantity,
               returned_quantity,
+              loss_quantity,
               actual_rate,
               unit,
               products(name,trade_name,unit)
@@ -423,7 +447,7 @@ export default function TasksPage() {
   const filteredCompletedOperations = useMemo(() => {
     const search = historySearch.trim().toLowerCase();
     return completedOperations.filter((operation) => {
-      const text = `${operation.operation_type} ${operation.fields?.name || ''} ${operation.notes || ''}`.toLowerCase();
+      const text = `${operationWorkTitle(operation)} ${operation.fields?.name || ''} ${operation.notes || ''}`.toLowerCase();
       const dateValue = operation.completed_at || operation.date;
       const date = dateValue ? dateValue.slice(0, 10) : '';
       const matchesSearch = !search || text.includes(search);
@@ -443,14 +467,15 @@ export default function TasksPage() {
       lineDraft.__fallback = operationLineDefaultArea(operation);
     }
 
-    const materialDraft: Record<string, { consumed: string; returned: string; actualRate: string }> = {};
+    const materialDraft: Record<string, { consumed: string; returned: string; loss: string; actualRate: string }> = {};
     (operation.operation_materials || []).forEach((material) => {
-      const issued = material.issued_quantity ?? 0;
-      const consumed = material.consumed_quantity ?? (issued > 0 ? issued : material.planned_quantity ?? 0);
+      const consumed = material.consumed_quantity ?? null;
       const returned = material.returned_quantity ?? 0;
+      const loss = material.loss_quantity ?? 0;
       materialDraft[material.id] = {
         consumed: consumed == null ? '' : String(consumed),
         returned: returned == null ? '0' : String(returned),
+        loss: loss == null ? '0' : String(loss),
         actualRate: material.actual_rate == null ? '' : String(material.actual_rate),
       };
     });
@@ -572,10 +597,11 @@ export default function TasksPage() {
     }
 
     const materialFacts = operationVisibleMaterials(operation).map((material) => {
-      const draft = materialFactDraft[material.id] || { consumed: '', returned: '0', actualRate: '' };
+      const draft = materialFactDraft[material.id] || { consumed: '', returned: '0', loss: '0', actualRate: '' };
       const issued = toNumber(material.issued_quantity, 0);
       const returnedQuantity = draft.returned.trim() ? Number(draft.returned) : 0;
-      const consumedQuantity = Math.max(issued - returnedQuantity, 0);
+      const consumedQuantity = draft.consumed.trim() ? Number(draft.consumed) : NaN;
+      const lossQuantity = draft.loss.trim() ? Number(draft.loss) : 0;
       const completedArea = areaStats.completed > 0 ? areaStats.completed : fallbackArea || 0;
       const actualRate = completedArea > 0 ? Number((consumedQuantity / completedArea).toFixed(4)) : null;
       return {
@@ -583,13 +609,17 @@ export default function TasksPage() {
         actualRate,
         consumedQuantity,
         returnedQuantity,
+        lossQuantity,
+        issuedQuantity: issued,
       };
     });
     const invalidMaterial = materialFacts.find((fact) => {
       const consumedInvalid = fact.consumedQuantity == null || !Number.isFinite(fact.consumedQuantity) || fact.consumedQuantity < 0;
       const returnedInvalid = fact.returnedQuantity == null || !Number.isFinite(fact.returnedQuantity) || fact.returnedQuantity < 0;
+      const lossInvalid = fact.lossQuantity == null || !Number.isFinite(fact.lossQuantity) || fact.lossQuantity < 0;
       const rateInvalid = fact.actualRate != null && (!Number.isFinite(fact.actualRate) || fact.actualRate < 0);
-      return consumedInvalid || returnedInvalid || rateInvalid;
+      const sumInvalid = Math.abs(fact.consumedQuantity + fact.returnedQuantity + fact.lossQuantity - fact.issuedQuantity) > MATERIAL_QTY_EPS;
+      return consumedInvalid || returnedInvalid || lossInvalid || rateInvalid || sumInvalid;
     });
     if (invalidMaterial) {
       toast({ title: 'Ошибка', description: 'Проверьте фактический расход и возврат материалов.', variant: 'destructive' });
@@ -770,7 +800,7 @@ export default function TasksPage() {
         <CardContent className="space-y-2.5 p-3 sm:p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
-              <div className="truncate text-xs font-semibold uppercase tracking-wide text-yellow-200/90">{operation.operation_type}</div>
+              <div className="truncate text-xs font-semibold uppercase tracking-wide text-yellow-200/90">{operationWorkTitle(operation)}</div>
               <div className="truncate text-lg font-bold leading-tight text-white">{operation.fields?.name || 'Поле не указано'}</div>
               <div className="truncate text-xs text-slate-400">
                 {[cropName, varietyName].filter(Boolean).join(' • ') || 'Культура не указана'}
@@ -1088,7 +1118,7 @@ export default function TasksPage() {
           {selectedOperation ? (
             <>
               <DialogHeader>
-                <DialogTitle className="text-xl text-white">{selectedOperation.operation_type}</DialogTitle>
+                <DialogTitle className="text-xl text-white">{operationWorkTitle(selectedOperation)}</DialogTitle>
                 <DialogDescription className="text-slate-400">
                   {selectedOperation.fields?.name || 'Поле не указано'} • {formatDate(selectedOperation.date)}
                 </DialogDescription>
@@ -1207,12 +1237,29 @@ export default function TasksPage() {
                               План: {formatQty(material.planned_quantity, localizeUnit(material.unit || material.products?.unit || '', language))}
                             </div>
                           </div>
-                          <div className="mt-2 grid gap-2 md:grid-cols-3">
+                          <div className="mt-2 grid gap-2 md:grid-cols-4">
                             <div className="rounded-md border border-slate-800 bg-slate-950/40 p-2 text-xs">
                               <div className="text-slate-500">Выдано</div>
                               <div className="font-semibold text-slate-100">
                                 {formatQty(material.issued_quantity || 0, localizeUnit(material.unit || material.products?.unit || '', language))}
                               </div>
+                            </div>
+                            <div>
+                              <Label className="text-xs text-slate-400">Фактический расход</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={material.issued_quantity || undefined}
+                                step="0.01"
+                                value={materialFactDraft[material.id]?.consumed ?? ''}
+                                onChange={(event) => {
+                                  const consumed = event.target.value;
+                                  setMaterialFactDraft((prev) => ({
+                                    ...prev,
+                                    [material.id]: { ...(prev[material.id] || { returned: '0', loss: '0', actualRate: '' }), consumed },
+                                  }));
+                                }}
+                              />
                             </div>
                             <div>
                               <Label className="text-xs text-slate-400">Вернуть на склад</Label>
@@ -1224,29 +1271,29 @@ export default function TasksPage() {
                                 value={materialFactDraft[material.id]?.returned ?? '0'}
                                 onChange={(event) => {
                                   const returned = event.target.value;
-                                  const issued = toNumber(material.issued_quantity, 0);
-                                  const returnedNumber = Number(returned || 0);
-                                  const consumed = Number.isFinite(returnedNumber)
-                                    ? Math.max(issued - returnedNumber, 0).toFixed(2)
-                                    : '';
                                   setMaterialFactDraft((prev) => ({
                                     ...prev,
-                                    [material.id]: { ...(prev[material.id] || { actualRate: '' }), consumed, returned },
+                                    [material.id]: { ...(prev[material.id] || { consumed: '', loss: '0', actualRate: '' }), returned },
                                   }));
                                 }}
                               />
                             </div>
-                            <div className="rounded-md border border-slate-800 bg-slate-950/40 p-2 text-xs">
-                              <div className="text-slate-500">Расход посчитается</div>
-                              <div className="font-semibold text-slate-100">
-                                {formatQty(
-                                  Math.max(
-                                    toNumber(material.issued_quantity, 0) - toNumber(materialFactDraft[material.id]?.returned, 0),
-                                    0
-                                  ),
-                                  localizeUnit(material.unit || material.products?.unit || '', language)
-                                )}
-                              </div>
+                            <div>
+                              <Label className="text-xs text-slate-400">Потери / списание</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={material.issued_quantity || undefined}
+                                step="0.01"
+                                value={materialFactDraft[material.id]?.loss ?? '0'}
+                                onChange={(event) => {
+                                  const loss = event.target.value;
+                                  setMaterialFactDraft((prev) => ({
+                                    ...prev,
+                                    [material.id]: { ...(prev[material.id] || { consumed: '', returned: '0', actualRate: '' }), loss },
+                                  }));
+                                }}
+                              />
                             </div>
                           </div>
                         </div>

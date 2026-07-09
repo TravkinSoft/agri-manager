@@ -22,13 +22,11 @@ import {
   createVehicleReference,
   displayVehiclePlate,
   getAdditives,
+  getCompanyAssetReferences,
   getCompanyPeople,
-  getEquipmentReferences,
   getFertilizers,
-  getMachineReferences,
   getPesticides,
   getSeasonAgronomyUsage,
-  getVehicleReferences,
   searchAgrochemicalMaster,
   updateCompanyPerson,
   type SeasonAgronomyUsageRow,
@@ -284,24 +282,22 @@ export default function ReferencesPage() {
     }
     setLoading(true);
     try {
-      const [usageRows, pesticideRows, fertilizerRows, additiveRows, machineRows, equipmentRows, vehicleRows, workerRows] =
+      const [usageRows, pesticideRows, fertilizerRows, additiveRows, assetRows, workerRows] =
         await Promise.all([
           getSeasonAgronomyUsage(profile.company_id, "ru"),
           getPesticides(profile.company_id, false, "ru"),
           getFertilizers(profile.company_id, false, "ru"),
           getAdditives(profile.company_id, false, "ru"),
-          getMachineReferences(profile.company_id, false, "ru"),
-          getEquipmentReferences(profile.company_id, false, "ru"),
-          getVehicleReferences(profile.company_id, false),
+          getCompanyAssetReferences(profile.company_id, "ru"),
           getCompanyPeople(profile.company_id, true),
         ]);
       setSeasonUsage(usageRows);
       setPesticides(pesticideRows);
       setFertilizers(fertilizerRows);
       setAdditives(additiveRows);
-      setMachines(machineRows);
-      setEquipment(equipmentRows);
-      setVehicles(vehicleRows);
+      setMachines(assetRows.machines);
+      setEquipment(assetRows.equipment);
+      setVehicles(assetRows.vehicles);
       setWorkers(workerRows);
     } finally {
       setLoading(false);

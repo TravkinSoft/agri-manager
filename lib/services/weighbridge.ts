@@ -33,6 +33,15 @@ export async function getWeighbridgeBootstrap(companyId?: string, _userId?: stri
   return parseJsonOrThrow(response);
 }
 
+export async function getWeighbridgeResources(companyId?: string) {
+  const headers = await buildClientAuthHeaders("none");
+  const url = companyId
+    ? `/api/weighbridge/resources?companyId=${encodeURIComponent(companyId)}`
+    : "/api/weighbridge/resources";
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
+  return parseJsonOrThrow(response);
+}
+
 export async function getActiveShift(companyId?: string, _userId?: string) {
   const headers = await buildClientAuthHeaders("none");
   const url = companyId
