@@ -9,8 +9,8 @@ function isUuidLike(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
-function normalizeProfileName(row: { full_name?: string | null; name?: string | null; email?: string | null; id: string }) {
-  return String(row.full_name || row.name || row.email || row.id).trim();
+function normalizeProfileName(row: { full_name?: string | null; email?: string | null; id: string }) {
+  return String(row.full_name || row.email || row.id).trim();
 }
 
 export async function GET(request: NextRequest) {
@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
 
     const profilesRes = await supabase
       .from("profiles")
-      .select("id,full_name,name,email,role,status,company_id")
+      .select("id,full_name,email,role,status,company_id")
       .eq("company_id", companyId)
       .eq("status", "active")
       .order("role", { ascending: true })
@@ -54,7 +54,6 @@ export async function GET(request: NextRequest) {
         name: normalizeProfileName({
           id: String(row.id),
           full_name: row.full_name,
-          name: row.name,
           email: row.email,
         }),
         email: row.email ? String(row.email) : null,

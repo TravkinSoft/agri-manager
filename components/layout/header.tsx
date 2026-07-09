@@ -45,6 +45,7 @@ export function Header() {
   const [switchingCompany, setSwitchingCompany] = useState(false);
   const [switchingUser, setSwitchingUser] = useState(false);
   const [loadingCompanyUsers, setLoadingCompanyUsers] = useState(false);
+  const [companyUsersError, setCompanyUsersError] = useState<string | null>(null);
 
   const isGlobal = isGlobalAdmin(profile?.role);
   const isImpersonating = Boolean(profile?.is_impersonating);
@@ -104,10 +105,12 @@ export function Header() {
     const loadCompanyUsers = async () => {
       if (!canUseUserSwitcher || !activeUserCompanyId) {
         setCompanyUsers([]);
+        setCompanyUsersError(null);
         return;
       }
 
       setLoadingCompanyUsers(true);
+      setCompanyUsersError(null);
       try {
         const headers = await buildAuthHeaders("none");
         const response = await fetch(
@@ -119,14 +122,18 @@ export function Header() {
           }
         );
         if (!response.ok) {
+          const payload = await response.json().catch(() => ({}));
           setCompanyUsers([]);
+          setCompanyUsersError(payload?.error || "Не удалось загрузить пользователей компании");
           return;
         }
         const data = await response.json();
         setCompanyUsers(Array.isArray(data?.users) ? data.users : []);
+        setCompanyUsersError(null);
       } catch (error) {
         console.error("Failed to load company users for header switcher:", error);
         setCompanyUsers([]);
+        setCompanyUsersError(error instanceof Error ? error.message : "Не удалось загрузить пользователей компании");
       } finally {
         setLoadingCompanyUsers(false);
       }
@@ -189,6 +196,7 @@ export function Header() {
     const previousValue = selectedCompanyId;
     setSelectedCompanyId(nextValue);
     setCompanyUsers([]);
+    setCompanyUsersError(null);
     setSwitchingCompany(true);
     try {
       const headers = await buildAuthHeaders("json");
@@ -220,6 +228,7 @@ export function Header() {
 
   const handleSwitchUser = async (profileId: string) => {
     if (!user?.id || !canUseUserSwitcher || switchingUser) return;
+    if (profileId.startsWith("__") && profileId !== "__admin__") return;
     if (profileId === activeUserValue && profileId !== "__admin__") return;
 
     setSwitchingUser(true);
@@ -306,6 +315,7 @@ export function Header() {
           <div className="hidden min-w-[280px] items-center gap-2 lg:flex">
             <span className="text-xs font-medium text-[#9CA3AF]">Вы как</span>
             <Select
+              key={`${activeUserCompanyId}:${activeUserValue}`}
               value={activeUserValue}
               onValueChange={handleSwitchUser}
               disabled={switchingUser || loadingCompanyUsers}
@@ -317,6 +327,21 @@ export function Header() {
                 <SelectItem value="__admin__">
                   {isImpersonating ? "Вернуться к Global Admin" : "Global Admin"}
                 </SelectItem>
+                {loadingCompanyUsers ? (
+                  <SelectItem value="__loading_users__" disabled>
+                    Загрузка пользователей...
+                  </SelectItem>
+                ) : null}
+                {!loadingCompanyUsers && companyUsersError ? (
+                  <SelectItem value="__company_users_error__" disabled>
+                    Пользователи не загрузились
+                  </SelectItem>
+                ) : null}
+                {!loadingCompanyUsers && !companyUsersError && companyUsers.length === 0 ? (
+                  <SelectItem value="__company_users_empty__" disabled>
+                    В компании нет активных пользователей
+                  </SelectItem>
+                ) : null}
                 {companyUsers.map((companyUser) => (
                   <SelectItem key={companyUser.id} value={companyUser.id}>
                     {companyUser.name || companyUser.email || companyUser.id}
