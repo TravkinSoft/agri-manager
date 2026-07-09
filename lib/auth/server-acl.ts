@@ -43,10 +43,6 @@ export async function assertActorAccess(params: {
     throw new SessionAuthError("Actor profile not found", 403);
   }
 
-  if (companyId && profile.company_id !== companyId) {
-    throw new SessionAuthError("Actor does not belong to the target company", 403);
-  }
-
   const normalizedRole = normalizeRole(profile.role);
   const allowedNormalized: string[] = Array.from(new Set(allowedRoles.flatMap((role) => {
     if (role === "admin") {
@@ -60,6 +56,10 @@ export async function assertActorAccess(params: {
 
   if (!normalizedRole || !allowedNormalized.includes(normalizedRole)) {
     throw new SessionAuthError("Access denied for current role", 403);
+  }
+
+  if (companyId && normalizedRole !== "global_admin" && profile.company_id !== companyId) {
+    throw new SessionAuthError("Actor does not belong to the target company", 403);
   }
 
   if (requireActive && String(profile.status || "active") !== "active") {
