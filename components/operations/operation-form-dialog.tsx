@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FieldErrors, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
@@ -90,6 +90,7 @@ import {
   type OperationPurposeSlug,
   type TankMixComponentType,
 } from "@/lib/operations/operation-engine";
+import { formatCropIdentity, resolveCropIdentity } from "@/lib/operations/crop-identity";
 
 interface OperationFormDialogProps {
   open: boolean;
@@ -734,6 +735,38 @@ export function OperationFormDialog({
     () => cropStructures.find((item) => item.id === selectedCropStructureId) || null,
     [cropStructures, selectedCropStructureId]
   );
+  const cropNameById = useMemo(
+    () => new Map(cropCatalog.map((item) => [item.id, item.name])),
+    [cropCatalog]
+  );
+  const varietyNameById = useMemo(
+    () => new Map(varietyCatalog.map((item) => [item.id, item.name])),
+    [varietyCatalog]
+  );
+  const reproductionNameById = useMemo(
+    () => new Map(reproductionCatalog.map((item) => [item.id, item.name])),
+    [reproductionCatalog]
+  );
+  const resolveStructureCropIdentity = useCallback(
+    (structure: CropStructureWithDetails) =>
+      resolveCropIdentity(
+        {
+          cropName: structure.crop_name,
+          varietyName: structure.variety_name,
+          reproductionName: structure.reproduction_name,
+        },
+        {
+          cropName: cropNameById.get(String(structure.crop_id || "")),
+          varietyName: varietyNameById.get(String(structure.variety_id || "")),
+          reproductionName: reproductionNameById.get(String(structure.reproduction_id || "")),
+        }
+      ),
+    [cropNameById, reproductionNameById, varietyNameById]
+  );
+  const selectedCropIdentity = useMemo(
+    () => (selectedCropStructure ? resolveStructureCropIdentity(selectedCropStructure) : null),
+    [resolveStructureCropIdentity, selectedCropStructure]
+  );
   const selectedField = useMemo(
     () => fields.find((item) => item.id === selectedFieldId) || null,
     [fields, selectedFieldId]
@@ -742,17 +775,17 @@ export function OperationFormDialog({
   const selectedIrrigationType = normalizeIrrigationType((selectedCropStructure as any)?.irrigation_type);
   const hasExplicitIrrigationType = selectedIrrigationType !== "unknown";
   const selectedIsPotato = isPotatoCropContext(
-    selectedCropStructure?.crop_name,
-    selectedCropStructure?.variety_name
+    selectedCropIdentity?.cropName,
+    selectedCropIdentity?.varietyName
   );
   const availabilityContext = useMemo(
     () => ({
-      cropName: selectedCropStructure?.crop_name || null,
-      varietyName: selectedCropStructure?.variety_name || null,
+      cropName: selectedCropIdentity?.cropName || null,
+      varietyName: selectedCropIdentity?.varietyName || null,
       irrigationType: selectedIrrigationType,
       hasCropStructure: Boolean(selectedCropStructure),
     }),
-    [selectedCropStructure, selectedIrrigationType]
+    [selectedCropIdentity, selectedCropStructure, selectedIrrigationType]
   );
   const selectedFieldCropStructures = useMemo(
     () =>
@@ -800,19 +833,6 @@ export function OperationFormDialog({
       }).allowed;
     });
   }, [availabilityContext, types, categorySlug, isWholeFieldScope]);
-  const cropStructureOptions = useMemo(
-    () =>
-      cropStructures
-        .filter((item) => !item.archived && (!selectedFieldId || item.field_id === selectedFieldId))
-        .map((item) => ({
-          id: item.id,
-          label: `${item.crop_name || "без культуры"} / ${item.variety_name || "без сорта"} / ${
-            item.reproduction_name || "без репр."
-          } — ${Number(item.area || 0).toFixed(2)} га`,
-        })),
-    [cropStructures, selectedFieldId]
-  );
-
   const fieldLabelWithArea = (field: Field) => {
     const title = getFieldDisplayName(field).trim();
     const prefixedTitle = title.toLowerCase().startsWith("поле") ? title : `Поле ${title}`;
@@ -828,10 +848,20 @@ export function OperationFormDialog({
     });
   }, [fields]);
 
-  const cropStructureLabel = (structure: CropStructureWithDetails) =>
-    `${structure.crop_name || "Культура не задана"} / ${structure.variety_name || "Без сорта"} / ${
-      structure.reproduction_name || "Без репродукции"
-    }`;
+  const cropStructureLabel = useCallback(
+    (structure: CropStructureWithDetails) => formatCropIdentity(resolveStructureCropIdentity(structure)),
+    [resolveStructureCropIdentity]
+  );
+  const cropStructureOptions = useMemo(
+    () =>
+      cropStructures
+        .filter((item) => !item.archived && (!selectedFieldId || item.field_id === selectedFieldId))
+        .map((item) => ({
+          id: item.id,
+          label: `${cropStructureLabel(item)} — ${Number(item.area || 0).toFixed(2)} га`,
+        })),
+    [cropStructureLabel, cropStructures, selectedFieldId]
+  );
 
   const createTargetFromStructure = (structure: CropStructureWithDetails): OperationTargetDraft => ({
     key: createTargetKey(),
@@ -885,11 +915,11 @@ export function OperationFormDialog({
       ? structureChangeReproductionId
       : selectedCropStructure?.reproduction_id || "none";
   const operationCropName =
-    cropCatalog.find((item) => item.id === structureEditorCropId)?.name || selectedCropStructure?.crop_name || null;
+    cropCatalog.find((item) => item.id === structureEditorCropId)?.name || selectedCropIdentity?.cropName || null;
   const operationVarietyName =
-    varietyCatalog.find((item) => item.id === structureEditorVarietyId)?.name || selectedCropStructure?.variety_name || null;
+    varietyCatalog.find((item) => item.id === structureEditorVarietyId)?.name || selectedCropIdentity?.varietyName || null;
   const operationReproductionName =
-    reproductionCatalog.find((item) => item.id === structureEditorReproductionId)?.name || selectedCropStructure?.reproduction_name || null;
+    reproductionCatalog.find((item) => item.id === structureEditorReproductionId)?.name || selectedCropIdentity?.reproductionName || null;
   const operationIsPotato = isPotatoCropContext(operationCropName, operationVarietyName);
   const structureChangeActive = Boolean(
     selectedCropStructure &&

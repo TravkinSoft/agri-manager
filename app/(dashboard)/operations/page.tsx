@@ -69,6 +69,7 @@ import { Field } from "@/lib/types/field";
 import { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
+import { formatVarietyReproduction } from "@/lib/operations/crop-identity";
 import {
   getPurposeDefinitionsForOperation,
   getTankMixComponentDefinition,
@@ -242,7 +243,10 @@ export default function OperationsPage() {
         key,
         varietyId,
         reproductionId,
-        label: `${row.variety_name || "без сорта"} / ${row.reproduction_name || "без репр."}`,
+        label: formatVarietyReproduction({
+          varietyName: row.variety_name,
+          reproductionName: row.reproduction_name,
+        }),
       });
     });
     return options.sort((a, b) => a.label.localeCompare(b.label, "ru"));

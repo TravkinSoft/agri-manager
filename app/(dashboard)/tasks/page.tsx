@@ -22,6 +22,7 @@ import { localizeUnit } from '@/lib/i18n/helpers';
 import { supabase } from '@/lib/supabase/client';
 import { hasQaDataMarker } from '@/lib/utils/qa-data';
 import { resolveWorkTitle } from '@/lib/operations/work-title';
+import { resolveCropIdentity } from '@/lib/operations/crop-identity';
 import {
   confirmWarehouseReceipt,
   getRecipientWarehouseIssueRequests,
@@ -40,8 +41,14 @@ import {
 
 interface OperationLine {
   id: string;
+  crop_id: string | null;
+  variety_id: string | null;
+  reproduction_id: string | null;
   planned_area_ha: number | null;
   actual_area_ha: number | null;
+  crops?: { name: string | null; name_ru?: string | null } | null;
+  varieties?: { name: string | null } | null;
+  reproductions?: { name: string | null; name_ru?: string | null } | null;
 }
 
 interface OperationMaterial {
@@ -136,8 +143,14 @@ function normalizeOperationRow(row: any): Operation {
     operation_lines: Array.isArray(row.operation_lines)
       ? row.operation_lines.map((line: any) => ({
           id: String(line.id),
+          crop_id: line.crop_id || null,
+          variety_id: line.variety_id || null,
+          reproduction_id: line.reproduction_id || null,
           planned_area_ha: line.planned_area_ha == null ? null : toNumber(line.planned_area_ha),
           actual_area_ha: line.actual_area_ha == null ? null : toNumber(line.actual_area_ha),
+          crops: relationOne(line.crops),
+          varieties: relationOne(line.varieties),
+          reproductions: relationOne(line.reproductions),
         }))
       : [],
     operation_materials: Array.isArray(row.operation_materials)
@@ -153,6 +166,24 @@ function normalizeOperationRow(row: any): Operation {
         }))
       : [],
   } as Operation;
+}
+
+function getOperationCropIdentity(operation: Operation) {
+  const line = operation.operation_lines?.find(
+    (item) => item.crop_id || item.variety_id || item.reproduction_id || item.crops || item.varieties || item.reproductions
+  );
+  return resolveCropIdentity(
+    {
+      cropName: operation.crop_structure?.crops?.name_ru || operation.crop_structure?.crops?.name,
+      varietyName: operation.crop_structure?.varieties?.name,
+      reproductionName: operation.crop_structure?.seed_reproductions?.name,
+    },
+    {
+      cropName: line?.crops?.name_ru || line?.crops?.name,
+      varietyName: line?.varieties?.name,
+      reproductionName: line?.reproductions?.name_ru || line?.reproductions?.name,
+    }
+  );
 }
 
 function getTaskPhase(task: Operation): TaskPhase {
@@ -355,7 +386,17 @@ export default function TasksPage() {
               varieties(name),
               seed_reproductions(name)
             ),
-            operation_lines(id,planned_area_ha,actual_area_ha),
+            operation_lines(
+              id,
+              crop_id,
+              variety_id,
+              reproduction_id,
+              planned_area_ha,
+              actual_area_ha,
+              crops:crop_id(name,name_ru),
+              varieties:variety_id(name),
+              reproductions:reproduction_id(name,name_ru)
+            ),
             operation_materials(
               id,
               material_type,
@@ -441,6 +482,10 @@ export default function TasksPage() {
   const selectedOperation = useMemo(
     () => operations.find((operation) => operation.id === selectedOperationId) || null,
     [operations, selectedOperationId]
+  );
+  const selectedOperationCropIdentity = useMemo(
+    () => (selectedOperation ? getOperationCropIdentity(selectedOperation) : null),
+    [selectedOperation]
   );
 
   const filteredCompletedOperations = useMemo(() => {
@@ -759,8 +804,7 @@ export default function TasksPage() {
     const hasMaterialRequests = requests.filter((request) => request.status !== 'cancelled').length > 0;
     const warehouseIsPreparing = requests.some((request) => ['new', 'active', 'preparing'].includes(request.status));
     const waitingWarehouseIssue = requests.some((request) => request.status === 'received_confirmed' && !request.issued_at);
-    const cropName = operation.crop_structure?.crops?.name_ru || operation.crop_structure?.crops?.name || null;
-    const varietyName = operation.crop_structure?.varieties?.name || null;
+    const cropIdentity = getOperationCropIdentity(operation);
     const visibleOperationMaterials = operationVisibleMaterials(operation);
     const hasPlannedMaterialsWithoutRequest = visibleOperationMaterials.length > 0 && requests.length === 0;
     const canStartOperation = readyForStart && !hasPlannedMaterialsWithoutRequest;
@@ -802,7 +846,7 @@ export default function TasksPage() {
               <div className="truncate text-xs font-semibold uppercase tracking-wide text-yellow-200/90">{operationWorkTitle(operation)}</div>
               <div className="truncate text-lg font-bold leading-tight text-white">{operation.fields?.name || 'Поле не указано'}</div>
               <div className="truncate text-xs text-slate-400">
-                {[cropName, varietyName].filter(Boolean).join(' • ') || 'Культура не указана'}
+                {[cropIdentity.cropName, cropIdentity.varietyName, cropIdentity.reproductionName].filter(Boolean).join(' • ') || 'Культура не указана'}
               </div>
             </div>
             {taskStatusBadge(phase)}
@@ -1132,16 +1176,16 @@ export default function TasksPage() {
                   <div>
                     <div className="text-xs text-slate-500">Культура</div>
                     <div className="font-semibold text-white">
-                      {selectedOperation.crop_structure?.crops?.name_ru || selectedOperation.crop_structure?.crops?.name || '-'}
+                      {selectedOperationCropIdentity?.cropName || '-'}
                     </div>
                   </div>
                   <div>
                     <div className="text-xs text-slate-500">Сорт</div>
-                    <div className="text-slate-200">{selectedOperation.crop_structure?.varieties?.name || '-'}</div>
+                    <div className="text-slate-200">{selectedOperationCropIdentity?.varietyName || '-'}</div>
                   </div>
                   <div>
                     <div className="text-xs text-slate-500">Репродукция</div>
-                    <div className="text-slate-200">{selectedOperation.crop_structure?.seed_reproductions?.name || '-'}</div>
+                    <div className="text-slate-200">{selectedOperationCropIdentity?.reproductionName || '-'}</div>
                   </div>
                 </div>
 

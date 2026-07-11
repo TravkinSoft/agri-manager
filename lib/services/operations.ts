@@ -20,6 +20,7 @@ import {
   resolveCanonicalOperationType,
   toStorageMaterialType,
 } from "@/lib/operations/operation-engine";
+import { resolveCropIdentity } from "@/lib/operations/crop-identity";
 import { enqueueOfflineRequest } from "@/lib/offline/offline-queue";
 
 const DB_OPERATION_MATERIAL_TYPES = new Set([
@@ -142,6 +143,18 @@ function normalizeOperationRow(op: any): OperationWithDetails {
     operationLines.find((line) => line.crop_id || line.crop_name || line.variety_id || line.reproduction_id) ||
     operationLines[0] ||
     null;
+  const cropIdentity = resolveCropIdentity(
+    {
+      cropName: primaryLine?.crop_name,
+      varietyName: primaryLine?.variety_name,
+      reproductionName: primaryLine?.reproduction_name,
+    },
+    {
+      cropName: localizedName(op.crop_structure?.crops, "ru"),
+      varietyName: brandName(op.crop_structure?.varieties),
+      reproductionName: localizedName(op.crop_structure?.seed_reproductions, "ru"),
+    }
+  );
 
   return {
     ...op,
@@ -161,9 +174,9 @@ function normalizeOperationRow(op: any): OperationWithDetails {
     tank_mix: (config as any).tank_mix && typeof (config as any).tank_mix === "object" ? (config as any).tank_mix : null,
     work_status: op.work_status || (op.status === "completed" ? "completed" : op.status === "in_progress" ? "in_progress" : "active"),
     field_name: op.fields?.name || primaryLine?.field_name || "-",
-    crop_name: primaryLine?.crop_name || localizedName(op.crop_structure?.crops, "ru") || "-",
-    variety_name: primaryLine?.variety_name || brandName(op.crop_structure?.varieties) || "-",
-    reproduction_name: primaryLine?.reproduction_name || "-",
+    crop_name: cropIdentity.cropName || "-",
+    variety_name: cropIdentity.varietyName || "-",
+    reproduction_name: cropIdentity.reproductionName || "-",
     materials: normalizeOperationMaterials(op.operation_materials),
     ...parseOperationDraftDetails(op.notes),
   } as OperationWithDetails;
@@ -225,7 +238,8 @@ export async function getOperations(
       fields:field_id (name),
       crop_structure:crop_structure_id (
         crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name)
+        varieties:variety_id (name),
+        seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
       ),
       operation_materials:operation_materials (
         *,
@@ -284,7 +298,8 @@ export async function getSpecialistOperations(
       fields:field_id (name),
       crop_structure:crop_structure_id (
         crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name)
+        varieties:variety_id (name),
+        seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
       ),
       operation_materials:operation_materials (
         *,
