@@ -83,7 +83,7 @@ interface Operation {
   crop_structure?: {
     crops?: { name: string | null; name_ru?: string | null } | null;
     varieties?: { name: string | null } | null;
-    seed_reproductions?: { name: string | null } | null;
+    seed_reproductions?: { name: string | null; name_ru?: string | null } | null;
   } | null;
   operation_lines?: OperationLine[];
   operation_materials?: OperationMaterial[];
@@ -176,7 +176,8 @@ function getOperationCropIdentity(operation: Operation) {
     {
       cropName: operation.crop_structure?.crops?.name_ru || operation.crop_structure?.crops?.name,
       varietyName: operation.crop_structure?.varieties?.name,
-      reproductionName: operation.crop_structure?.seed_reproductions?.name,
+      reproductionName:
+        operation.crop_structure?.seed_reproductions?.name_ru || operation.crop_structure?.seed_reproductions?.name,
     },
     {
       cropName: line?.crops?.name_ru || line?.crops?.name,
@@ -384,7 +385,7 @@ export default function TasksPage() {
             crop_structure(
               crops(name,name_ru),
               varieties(name),
-              seed_reproductions(name)
+              seed_reproductions(name,name_ru)
             ),
             operation_lines(
               id,
