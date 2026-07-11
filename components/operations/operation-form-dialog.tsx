@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FieldErrors, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
@@ -90,6 +90,7 @@ import {
   type OperationPurposeSlug,
   type TankMixComponentType,
 } from "@/lib/operations/operation-engine";
+import { formatCropIdentity, resolveCropIdentity } from "@/lib/operations/crop-identity";
 
 interface OperationFormDialogProps {
   open: boolean;
@@ -144,7 +145,6 @@ type ProductOption = {
   base_uom?: string | null;
   application_unit?: string | null;
   default_rate_type?: string | null;
-  default_dosing_type?: string | null;
   default_rate_unit?: string | null;
   availableQty: number;
   warehouseNames: string[];
@@ -666,6 +666,7 @@ export function OperationFormDialog({
   const [equipment, setEquipment] = useState<RefOption[]>([]);
   const [transports, setTransports] = useState<RefOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
+  const [productsLoadError, setProductsLoadError] = useState<string | null>(null);
   const [cropCatalog, setCropCatalog] = useState<CropCatalogOption[]>([]);
   const [varietyCatalog, setVarietyCatalog] = useState<VarietyCatalogOption[]>([]);
   const [reproductionCatalog, setReproductionCatalog] = useState<ReproductionCatalogOption[]>([]);
@@ -734,6 +735,38 @@ export function OperationFormDialog({
     () => cropStructures.find((item) => item.id === selectedCropStructureId) || null,
     [cropStructures, selectedCropStructureId]
   );
+  const cropNameById = useMemo(
+    () => new Map(cropCatalog.map((item) => [item.id, item.name])),
+    [cropCatalog]
+  );
+  const varietyNameById = useMemo(
+    () => new Map(varietyCatalog.map((item) => [item.id, item.name])),
+    [varietyCatalog]
+  );
+  const reproductionNameById = useMemo(
+    () => new Map(reproductionCatalog.map((item) => [item.id, item.name])),
+    [reproductionCatalog]
+  );
+  const resolveStructureCropIdentity = useCallback(
+    (structure: CropStructureWithDetails) =>
+      resolveCropIdentity(
+        {
+          cropName: structure.crop_name,
+          varietyName: structure.variety_name,
+          reproductionName: structure.reproduction_name,
+        },
+        {
+          cropName: cropNameById.get(String(structure.crop_id || "")),
+          varietyName: varietyNameById.get(String(structure.variety_id || "")),
+          reproductionName: reproductionNameById.get(String(structure.reproduction_id || "")),
+        }
+      ),
+    [cropNameById, reproductionNameById, varietyNameById]
+  );
+  const selectedCropIdentity = useMemo(
+    () => (selectedCropStructure ? resolveStructureCropIdentity(selectedCropStructure) : null),
+    [resolveStructureCropIdentity, selectedCropStructure]
+  );
   const selectedField = useMemo(
     () => fields.find((item) => item.id === selectedFieldId) || null,
     [fields, selectedFieldId]
@@ -742,17 +775,17 @@ export function OperationFormDialog({
   const selectedIrrigationType = normalizeIrrigationType((selectedCropStructure as any)?.irrigation_type);
   const hasExplicitIrrigationType = selectedIrrigationType !== "unknown";
   const selectedIsPotato = isPotatoCropContext(
-    selectedCropStructure?.crop_name,
-    selectedCropStructure?.variety_name
+    selectedCropIdentity?.cropName,
+    selectedCropIdentity?.varietyName
   );
   const availabilityContext = useMemo(
     () => ({
-      cropName: selectedCropStructure?.crop_name || null,
-      varietyName: selectedCropStructure?.variety_name || null,
+      cropName: selectedCropIdentity?.cropName || null,
+      varietyName: selectedCropIdentity?.varietyName || null,
       irrigationType: selectedIrrigationType,
       hasCropStructure: Boolean(selectedCropStructure),
     }),
-    [selectedCropStructure, selectedIrrigationType]
+    [selectedCropIdentity, selectedCropStructure, selectedIrrigationType]
   );
   const selectedFieldCropStructures = useMemo(
     () =>
@@ -800,19 +833,6 @@ export function OperationFormDialog({
       }).allowed;
     });
   }, [availabilityContext, types, categorySlug, isWholeFieldScope]);
-  const cropStructureOptions = useMemo(
-    () =>
-      cropStructures
-        .filter((item) => !item.archived && (!selectedFieldId || item.field_id === selectedFieldId))
-        .map((item) => ({
-          id: item.id,
-          label: `${item.crop_name || "без культуры"} / ${item.variety_name || "без сорта"} / ${
-            item.reproduction_name || "без репр."
-          } — ${Number(item.area || 0).toFixed(2)} га`,
-        })),
-    [cropStructures, selectedFieldId]
-  );
-
   const fieldLabelWithArea = (field: Field) => {
     const title = getFieldDisplayName(field).trim();
     const prefixedTitle = title.toLowerCase().startsWith("поле") ? title : `Поле ${title}`;
@@ -828,10 +848,20 @@ export function OperationFormDialog({
     });
   }, [fields]);
 
-  const cropStructureLabel = (structure: CropStructureWithDetails) =>
-    `${structure.crop_name || "Культура не задана"} / ${structure.variety_name || "Без сорта"} / ${
-      structure.reproduction_name || "Без репродукции"
-    }`;
+  const cropStructureLabel = useCallback(
+    (structure: CropStructureWithDetails) => formatCropIdentity(resolveStructureCropIdentity(structure)),
+    [resolveStructureCropIdentity]
+  );
+  const cropStructureOptions = useMemo(
+    () =>
+      cropStructures
+        .filter((item) => !item.archived && (!selectedFieldId || item.field_id === selectedFieldId))
+        .map((item) => ({
+          id: item.id,
+          label: `${cropStructureLabel(item)} — ${Number(item.area || 0).toFixed(2)} га`,
+        })),
+    [cropStructureLabel, cropStructures, selectedFieldId]
+  );
 
   const createTargetFromStructure = (structure: CropStructureWithDetails): OperationTargetDraft => ({
     key: createTargetKey(),
@@ -885,11 +915,11 @@ export function OperationFormDialog({
       ? structureChangeReproductionId
       : selectedCropStructure?.reproduction_id || "none";
   const operationCropName =
-    cropCatalog.find((item) => item.id === structureEditorCropId)?.name || selectedCropStructure?.crop_name || null;
+    cropCatalog.find((item) => item.id === structureEditorCropId)?.name || selectedCropIdentity?.cropName || null;
   const operationVarietyName =
-    varietyCatalog.find((item) => item.id === structureEditorVarietyId)?.name || selectedCropStructure?.variety_name || null;
+    varietyCatalog.find((item) => item.id === structureEditorVarietyId)?.name || selectedCropIdentity?.varietyName || null;
   const operationReproductionName =
-    reproductionCatalog.find((item) => item.id === structureEditorReproductionId)?.name || selectedCropStructure?.reproduction_name || null;
+    reproductionCatalog.find((item) => item.id === structureEditorReproductionId)?.name || selectedCropIdentity?.reproductionName || null;
   const operationIsPotato = isPotatoCropContext(operationCropName, operationVarietyName);
   const structureChangeActive = Boolean(
     selectedCropStructure &&
@@ -926,6 +956,7 @@ export function OperationFormDialog({
     submitIdempotencyKeyRef.current = createOperationIdempotencyKey();
     setSubmitting(false);
     setSubmitError(null);
+    setProductsLoadError(null);
     form.clearErrors();
   }, [open]);
 
@@ -973,7 +1004,7 @@ export function OperationFormDialog({
           .order("name"),
         supabase
           .from("products")
-          .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_dosing_type,default_rate_unit")
+          .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_rate_unit")
           .eq("company_id", profile.company_id)
           .eq("archived", false)
           .eq("is_active", true)
@@ -1032,7 +1063,11 @@ export function OperationFormDialog({
             .map((row: any) => ({ id: String(row.id), name: localizedName(row, "ru", ["name", "code"]) || "-" }))
         );
       }
-      if (!companyProductsRes.error) {
+      if (companyProductsRes.error) {
+        setProducts([]);
+        setProductsLoadError(`Не удалось загрузить материалы компании: ${companyProductsRes.error.message}`);
+      } else {
+        setProductsLoadError(null);
         const stockRows = (stockRes.error ? [] : stockRes.data || []).filter((row: any) => row.product_id);
         const warehouseIds = Array.from(new Set(stockRows.map((row: any) => String(row.warehouse_id || "")).filter(Boolean)));
 
@@ -1067,7 +1102,6 @@ export function OperationFormDialog({
               | "base_uom"
               | "application_unit"
               | "default_rate_type"
-              | "default_dosing_type"
               | "default_rate_unit"
             >
           >(
@@ -1103,7 +1137,6 @@ export function OperationFormDialog({
                 base_uom: row.base_uom ? String(row.base_uom) : null,
                 application_unit: row.application_unit ? String(row.application_unit) : null,
                 default_rate_type: row.default_rate_type ? String(row.default_rate_type) : null,
-                default_dosing_type: row.default_dosing_type ? String(row.default_dosing_type) : null,
                 default_rate_unit: row.default_rate_unit ? String(row.default_rate_unit) : null,
               },
             ])
@@ -1139,7 +1172,6 @@ export function OperationFormDialog({
               base_uom: meta.base_uom,
               application_unit: meta.application_unit,
               default_rate_type: meta.default_rate_type,
-              default_dosing_type: meta.default_dosing_type,
               default_rate_unit: meta.default_rate_unit,
               availableQty: 0,
               warehouseNames: [],
@@ -1172,7 +1204,6 @@ export function OperationFormDialog({
                 base_uom: meta.base_uom,
                 application_unit: meta.application_unit,
                 default_rate_type: meta.default_rate_type,
-                default_dosing_type: meta.default_dosing_type,
                 default_rate_unit: meta.default_rate_unit,
                 availableQty: 0,
                 warehouseNames: [],
@@ -3027,7 +3058,11 @@ export function OperationFormDialog({
                   </div>
                 ) : null}
 
-                {productOptions.length === 0 && materials.length === 0 ? (
+                {productsLoadError ? (
+                  <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
+                    {productsLoadError}
+                  </div>
+                ) : productOptions.length === 0 && materials.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">
                     Материалы компании не найдены.
                   </div>
