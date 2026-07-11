@@ -384,7 +384,7 @@ export async function POST(
             }
           }
 
-          let anyDeclaredReturn = false;
+          let hasPendingReturnAcceptance = false;
           let allFactsReconciled = true;
           for (const material of materialFactsForRequests as any[]) {
             const requestItem = requestItemByProduct.get(String(material.product_id || ""));
@@ -401,7 +401,11 @@ export async function POST(
               plannedProductId: requestItem?.planned_product_id,
               actualProductId: requestItem?.actual_product_id,
             });
-            if (Number(material.returned_quantity || 0) > 0) anyDeclaredReturn = true;
+            const declaredReturn = Number(material.returned_quantity || 0);
+            const acceptedReturn = Number(requestItem?.return_received_quantity || 0);
+            if (declaredReturn > acceptedReturn + 0.000001) {
+              hasPendingReturnAcceptance = true;
+            }
             if (!reconciliation.canClose) allFactsReconciled = false;
 
             let requestItemSyncResult = await supabase
@@ -440,7 +444,7 @@ export async function POST(
           }
 
           let requestSyncPatch: Record<string, unknown> | null = null;
-          if (anyDeclaredReturn) {
+          if (hasPendingReturnAcceptance) {
             requestSyncPatch = { warehouse_request_status: "return_expected", return_expected_at: new Date().toISOString(), return_requested_by_user_id: actor.id };
           } else if (allFactsReconciled) {
             requestSyncPatch = { warehouse_request_status: "closed", return_closed_at: new Date().toISOString() };

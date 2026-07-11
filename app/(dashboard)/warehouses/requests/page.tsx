@@ -25,6 +25,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
 import { getInventoryBalances, getWarehouses } from "@/lib/services/warehouses";
 import {
+  acceptWarehouseReturnMaterials,
   createIssueTicketFromRequest,
   getWarehouseIssueRequests,
   issueWarehouseRequest,
@@ -104,8 +105,13 @@ function reconciliationLabel(status: unknown): string {
 }
 
 function itemReconciliationSummary(item: WarehouseIssueRequestItem): Array<{ label: string; value: number }> {
+  const declaredReturn = Math.max(
+    toQty(item.returned_quantity, 0),
+    toQty(item.return_received_quantity, 0)
+  );
+
   return [
-    { label: "Возврат", value: toQty(item.return_received_quantity ?? item.returned_quantity, 0) },
+    { label: "Возврат", value: declaredReturn },
     { label: "Потери", value: toQty(item.loss_quantity, 0) },
     { label: "Дефицит", value: toQty(item.shortage_quantity, 0) },
   ];
@@ -159,7 +165,8 @@ function warehouseColumnKey(row: WarehouseIssueRequest): WarehouseColumnKey {
   if (v5Status === "collecting") return "collecting";
   if (v5Status === "ready_for_pickup") return "ready";
   if (v5Status === "picked_up_by_specialist") return "handoff";
-  if (v5Status === "issued" || v5Status === "return_expected") return "history";
+  if (v5Status === "issued") return "history";
+  if (v5Status === "return_expected") return "handoff";
   if (v5Status === "return_received" || v5Status === "closed") return "history";
   if (v5Status === "cancelled") return "history";
 
@@ -174,7 +181,7 @@ function warehouseColumnKey(row: WarehouseIssueRequest): WarehouseColumnKey {
 const WAREHOUSE_COLUMNS: Array<{ key: WarehouseColumnKey; title: string; description: string }> = [
   { key: "collecting", title: "К сборке", description: "Новые заявки и подготовка" },
   { key: "ready", title: "Готово к выдаче", description: "Ждём подтверждение специалиста" },
-  { key: "handoff", title: "К отдаче", description: "Можно фиксировать выдачу" },
+  { key: "handoff", title: "К выдаче и возврату", description: "Можно выдать или принять возврат" },
   { key: "history", title: "История", description: "Выдано, отменено, закрыто" },
 ];
 
@@ -218,8 +225,7 @@ export default function WarehouseRequestsPage() {
         getWarehouses(profile.company_id, false, language),
         getInventoryBalances(profile.company_id, language),
       ]);
-      const visibleRequests = requestRows.filter((row) => row.status !== "new");
-      setRequests(visibleRequests);
+      setRequests(requestRows);
       setWarehouses(warehouseRows);
       const nextBalanceMap: Record<string, number> = {};
       balances.forEach((row) => {
@@ -227,10 +233,10 @@ export default function WarehouseRequestsPage() {
       });
       setBalanceByWarehouseProduct(nextBalanceMap);
 
-      if (!selectedId && visibleRequests.length > 0) {
-        setSelectedId(visibleRequests[0].id);
-      } else if (selectedId && !visibleRequests.some((row) => row.id === selectedId)) {
-        setSelectedId(visibleRequests[0]?.id || null);
+      if (!selectedId && requestRows.length > 0) {
+        setSelectedId(requestRows[0].id);
+      } else if (selectedId && !requestRows.some((row) => row.id === selectedId)) {
+        setSelectedId(requestRows[0]?.id || null);
       }
     } catch (error: any) {
       toast({
@@ -288,8 +294,7 @@ export default function WarehouseRequestsPage() {
     const preparedDefaults: Record<string, string> = {};
     const packageDefaults: Record<string, string> = {};
     (selectedRequest.items || []).forEach((item) => {
-      const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
-      const prepared = toQty(item.prepared_quantity, 0) || planned;
+      const prepared = toQty(item.prepared_quantity, 0);
       const alreadyIssued = toQty(item.issued_quantity, 0);
       const remaining = Math.max(prepared - alreadyIssued, 0);
       defaults[item.id] = remaining > 0 ? remaining.toFixed(2) : "0";
@@ -306,12 +311,13 @@ export default function WarehouseRequestsPage() {
     return (selectedRequest.items || []).map((item) => {
       const available = toQty(balanceByWarehouseProduct[`${effectiveSourceWarehouseId}|${item.product_id}`], 0);
       const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
-      const prepared = Math.max(toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0) || planned), 0);
+      const prepared = Math.max(toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0)), 0);
       const alreadyIssued = toQty(item.issued_quantity, 0);
       const remaining = Math.max(prepared - alreadyIssued, 0);
       const toIssueRaw = toQty(issueQtyByItem[item.id], remaining);
       const toIssue = Math.max(0, toIssueRaw);
       const missing = Math.max(0, toIssue - available);
+      const stockDeficit = Math.max(0, planned - available);
       const exceedsRemaining = toIssue > remaining + 0.000001;
       return {
         item,
@@ -322,6 +328,8 @@ export default function WarehouseRequestsPage() {
         remaining,
         toIssue,
         missing,
+        stockDeficit,
+        preparedExceedsAvailable: prepared > available + 0.000001,
         exceedsRemaining,
         enough: available + 0.000001 >= toIssue,
       };
@@ -329,7 +337,10 @@ export default function WarehouseRequestsPage() {
   }, [selectedRequest, effectiveSourceWarehouseId, balanceByWarehouseProduct, issueQtyByItem]);
 
   const hasStockShortage = stockCheckRows.some((row) => row.toIssue > 0 && !row.enough);
+  const hasPreparationStockShortage = stockCheckRows.some((row) => row.preparedExceedsAvailable);
+  const hasPreparedMaterials = stockCheckRows.some((row) => row.prepared > 0);
   const hasIssueQtyOverRemaining = stockCheckRows.some((row) => row.exceedsRemaining);
+  const stockDeficitRows = stockCheckRows.filter((row) => row.stockDeficit > 0.000001);
 
   const runAction = async (fn: () => Promise<void>, successMessage: string) => {
     if (!selectedRequest || !profile?.company_id) return;
@@ -383,6 +394,27 @@ export default function WarehouseRequestsPage() {
       return;
     }
 
+    if (hasPreparationStockShortage) {
+      const firstShortage = stockCheckRows.find((row) => row.preparedExceedsAvailable);
+      toast({
+        title: t("insufficient_stock"),
+        description: firstShortage
+          ? `${firstShortage.item.product_name || t("material")}: доступно ${firstShortage.available.toFixed(2)} ${localizeUnit(firstShortage.item.unit || firstShortage.item.product_unit || "", language)}, подготовлено ${firstShortage.prepared.toFixed(2)} ${localizeUnit(firstShortage.item.unit || firstShortage.item.product_unit || "", language)}.`
+          : "Подготовленное количество превышает остаток на складе.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!hasPreparedMaterials) {
+      toast({
+        title: t("insufficient_stock"),
+        description: "На выбранном складе нет подготовленных материалов. Заявка остаётся в подготовке.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     await runAction(
       () =>
         updateWarehouseIssueRequestStatus({
@@ -392,7 +424,7 @@ export default function WarehouseRequestsPage() {
           sourceWarehouseId,
           items: (selectedRequest.items || []).map((item) => ({
             itemId: item.id,
-            preparedQuantity: toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0) || toQty(item.planned_quantity ?? item.required_quantity, 0)),
+            preparedQuantity: toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0)),
             packageSize: packageSizeByItem[item.id] ? toQty(packageSizeByItem[item.id], 0) : null,
           })),
         }),
@@ -509,6 +541,44 @@ export default function WarehouseRequestsPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleAcceptReturn = async () => {
+    if (!selectedRequest || !profile?.company_id) return;
+
+    const items = (selectedRequest.items || [])
+      .map((item) => {
+        const declared = toQty(item.returned_quantity, 0);
+        const received = toQty(item.return_received_quantity, 0);
+        return {
+          itemId: item.id,
+          returnedQuantity: Math.max(declared - received, 0),
+        };
+      })
+      .filter((item) => item.returnedQuantity > 0.000001);
+
+    if (items.length === 0) {
+      await runAction(
+        () =>
+          acceptWarehouseReturnMaterials({
+            requestId: selectedRequest.id,
+            companyId: profile.company_id!,
+            items: [],
+          }),
+        "Возврат уже был принят. Сверка заявки закрыта."
+      );
+      return;
+    }
+
+    await runAction(
+      () =>
+        acceptWarehouseReturnMaterials({
+          requestId: selectedRequest.id,
+          companyId: profile.company_id!,
+          items,
+        }),
+      "Возврат принят на склад и отражён в остатках."
+    );
   };
 
   const handleCreateIssueTicket = async () => {
@@ -822,6 +892,24 @@ export default function WarehouseRequestsPage() {
                   </div>
                 )}
 
+                {stockDeficitRows.length > 0 && (
+                  <Alert variant="destructive">
+                    <AlertDescription>
+                      <span className="font-semibold">Дефицит на выбранном складе.</span>{" "}
+                      {stockDeficitRows
+                        .map(
+                          (row) =>
+                            `${row.item.product_name || "Материал"}: не хватает ${row.stockDeficit.toFixed(2)} ${localizeUnit(
+                              row.item.unit || row.item.product_unit || "",
+                              language
+                            )}`
+                        )
+                        .join("; ")}
+                      . Заявку нельзя подготовить или выдать сверх фактического остатка.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
                 <div className="space-y-2 md:hidden">
                   {(selectedRequest.items || []).map((item) => {
                     const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
@@ -894,12 +982,16 @@ export default function WarehouseRequestsPage() {
                     <TableBody>
                       {(selectedRequest.items || []).map((item) => {
                         const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
-                        const prepared = toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0) || planned);
+                        const prepared = toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0));
                         const issued = toQty(item.issued_quantity, 0);
                         const remaining = Math.max(prepared - issued, 0);
-                        const returned = toQty(item.return_received_quantity ?? item.returned_quantity, 0);
+                        const returned = Math.max(
+                          toQty(item.returned_quantity, 0),
+                          toQty(item.return_received_quantity, 0)
+                        );
                         const loss = toQty(item.loss_quantity, 0);
-                        const shortage = toQty(item.shortage_quantity, 0);
+                        const available = toQty(balanceByWarehouseProduct[`${effectiveSourceWarehouseId}|${item.product_id}`], 0);
+                        const shortage = Math.max(toQty(item.shortage_quantity, 0), Math.max(planned - available, 0));
                         const editable =
                           selectedRequest.status === "ready" || selectedRequest.status === "received_confirmed";
                         return (
@@ -1028,6 +1120,12 @@ export default function WarehouseRequestsPage() {
                         <Button variant="outline" onClick={handleCancel} disabled={submitting}>{t("cancel")}</Button>
                       </>
                     )}
+
+                    {selectedRequest.warehouse_request_status === "return_expected" && (
+                      <Button onClick={handleAcceptReturn} disabled={submitting}>
+                        Принять возврат
+                      </Button>
+                    )}
                   </div>
                 )}
 
@@ -1042,6 +1140,12 @@ export default function WarehouseRequestsPage() {
                 {selectedRequest.status === "received_confirmed" && (
                   <div className="rounded-md border border-emerald-500/40 bg-emerald-950/30 p-3 text-sm text-emerald-100">
                     Специалист подтвердил получение. Теперь можно нажать «Товар отдан» и списать материалы со склада.
+                  </div>
+                )}
+
+                {selectedRequest.warehouse_request_status === "return_expected" && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">
+                    Специалист заявил возврат. Примите материал на склад, чтобы завершить сверку и закрыть операцию.
                   </div>
                 )}
               </>

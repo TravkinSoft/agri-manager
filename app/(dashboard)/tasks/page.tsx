@@ -343,7 +343,6 @@ export default function TasksPage() {
             operation_type,
             operation_category_slug,
             operation_type_slug,
-            operation_engine_label,
             date,
             notes,
             status,

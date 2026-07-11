@@ -144,7 +144,6 @@ type ProductOption = {
   base_uom?: string | null;
   application_unit?: string | null;
   default_rate_type?: string | null;
-  default_dosing_type?: string | null;
   default_rate_unit?: string | null;
   availableQty: number;
   warehouseNames: string[];
@@ -666,6 +665,7 @@ export function OperationFormDialog({
   const [equipment, setEquipment] = useState<RefOption[]>([]);
   const [transports, setTransports] = useState<RefOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
+  const [productsLoadError, setProductsLoadError] = useState<string | null>(null);
   const [cropCatalog, setCropCatalog] = useState<CropCatalogOption[]>([]);
   const [varietyCatalog, setVarietyCatalog] = useState<VarietyCatalogOption[]>([]);
   const [reproductionCatalog, setReproductionCatalog] = useState<ReproductionCatalogOption[]>([]);
@@ -926,6 +926,7 @@ export function OperationFormDialog({
     submitIdempotencyKeyRef.current = createOperationIdempotencyKey();
     setSubmitting(false);
     setSubmitError(null);
+    setProductsLoadError(null);
     form.clearErrors();
   }, [open]);
 
@@ -973,7 +974,7 @@ export function OperationFormDialog({
           .order("name"),
         supabase
           .from("products")
-          .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_dosing_type,default_rate_unit")
+          .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_rate_unit")
           .eq("company_id", profile.company_id)
           .eq("archived", false)
           .eq("is_active", true)
@@ -1032,7 +1033,11 @@ export function OperationFormDialog({
             .map((row: any) => ({ id: String(row.id), name: localizedName(row, "ru", ["name", "code"]) || "-" }))
         );
       }
-      if (!companyProductsRes.error) {
+      if (companyProductsRes.error) {
+        setProducts([]);
+        setProductsLoadError(`Не удалось загрузить материалы компании: ${companyProductsRes.error.message}`);
+      } else {
+        setProductsLoadError(null);
         const stockRows = (stockRes.error ? [] : stockRes.data || []).filter((row: any) => row.product_id);
         const warehouseIds = Array.from(new Set(stockRows.map((row: any) => String(row.warehouse_id || "")).filter(Boolean)));
 
@@ -1067,7 +1072,6 @@ export function OperationFormDialog({
               | "base_uom"
               | "application_unit"
               | "default_rate_type"
-              | "default_dosing_type"
               | "default_rate_unit"
             >
           >(
@@ -1103,7 +1107,6 @@ export function OperationFormDialog({
                 base_uom: row.base_uom ? String(row.base_uom) : null,
                 application_unit: row.application_unit ? String(row.application_unit) : null,
                 default_rate_type: row.default_rate_type ? String(row.default_rate_type) : null,
-                default_dosing_type: row.default_dosing_type ? String(row.default_dosing_type) : null,
                 default_rate_unit: row.default_rate_unit ? String(row.default_rate_unit) : null,
               },
             ])
@@ -1139,7 +1142,6 @@ export function OperationFormDialog({
               base_uom: meta.base_uom,
               application_unit: meta.application_unit,
               default_rate_type: meta.default_rate_type,
-              default_dosing_type: meta.default_dosing_type,
               default_rate_unit: meta.default_rate_unit,
               availableQty: 0,
               warehouseNames: [],
@@ -1172,7 +1174,6 @@ export function OperationFormDialog({
                 base_uom: meta.base_uom,
                 application_unit: meta.application_unit,
                 default_rate_type: meta.default_rate_type,
-                default_dosing_type: meta.default_dosing_type,
                 default_rate_unit: meta.default_rate_unit,
                 availableQty: 0,
                 warehouseNames: [],
@@ -3027,7 +3028,11 @@ export function OperationFormDialog({
                   </div>
                 ) : null}
 
-                {productOptions.length === 0 && materials.length === 0 ? (
+                {productsLoadError ? (
+                  <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
+                    {productsLoadError}
+                  </div>
+                ) : productOptions.length === 0 && materials.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">
                     Материалы компании не найдены.
                   </div>

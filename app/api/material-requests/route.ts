@@ -9,12 +9,37 @@ import {
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { calculatePackagePlan, roundMaterialQuantity } from "@/lib/materials/reconciliation";
 import { resolveWorkTitle } from "@/lib/operations/work-title";
+
+type MaterialRequestItemInput = {
+  id?: unknown;
+  itemId?: unknown;
+  packageSize?: unknown;
+  preparedQuantity?: unknown;
+  packageCount?: unknown;
+};
 import { buildProductPassport } from "@/lib/products/product-passport";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
 function toNumber(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+async function getWarehouseProductBalance(
+  supabase: any,
+  companyId: string,
+  warehouseId: string,
+  productId: string
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("v_stock_balance_identity")
+    .select("quantity")
+    .eq("company_id", companyId)
+    .eq("warehouse_id", warehouseId)
+    .eq("product_id", productId);
+
+  if (error) throw error;
+  return (data || []).reduce((sum: number, row: any) => sum + toNumber(row.quantity), 0);
 }
 
 function workflowToRawStatuses(status: string): string[] {
@@ -248,7 +273,9 @@ export async function PATCH(request: NextRequest) {
     const requestId = String(body.requestId || "").trim();
     const action = String(body.action || "").trim();
     const sourceWarehouseId = String(body.sourceWarehouseId || "").trim() || null;
-    const itemsInput = Array.isArray(body.items) ? body.items : [];
+    const itemsInput: MaterialRequestItemInput[] = Array.isArray(body.items)
+      ? (body.items as MaterialRequestItemInput[])
+      : [];
 
     if (!requestId) {
       return NextResponse.json({ error: "requestId is required" }, { status: 400 });
@@ -274,6 +301,70 @@ export async function PATCH(request: NextRequest) {
         { error: existingError?.message || "Material request not found" },
         { status: 404 }
       );
+    }
+
+    const readyItemPlans = new Map<
+      string,
+      { preparedQuantity: number; packageSize: number | null; packageCount: number | null }
+    >();
+    if (action === "ready") {
+      if (!sourceWarehouseId) {
+        return NextResponse.json({ error: "Source warehouse is required before materials can be prepared" }, { status: 400 });
+      }
+      if (itemsInput.length === 0) {
+        return NextResponse.json({ error: "Prepared quantities are required before materials can be marked ready" }, { status: 400 });
+      }
+
+      const { data: requestItems, error: requestItemsError } = await supabase
+        .from("warehouse_issue_request_items")
+        .select("id,product_id,planned_quantity,required_quantity,unit")
+        .eq("request_id", requestId)
+        .eq("company_id", companyId);
+      if (requestItemsError) {
+        return NextResponse.json({ error: requestItemsError.message || "Failed to load request materials" }, { status: 400 });
+      }
+
+      const inputByItemId = new Map(itemsInput.map((item) => [String(item.itemId || item.id || ""), item]));
+      for (const item of requestItems || []) {
+        const raw = inputByItemId.get(String(item.id));
+        if (!raw) {
+          return NextResponse.json({ error: `Prepared quantity is required for request item ${item.id}` }, { status: 400 });
+        }
+        const planned = toNumber(item.planned_quantity ?? item.required_quantity);
+        const packageSize =
+          raw.packageSize === null || raw.packageSize === undefined || raw.packageSize === ""
+            ? null
+            : toNumber(raw.packageSize);
+        const packagePlan = calculatePackagePlan({ plannedQuantity: planned, packageSize });
+        const preparedQuantity =
+          raw.preparedQuantity === null || raw.preparedQuantity === undefined || raw.preparedQuantity === ""
+            ? packagePlan.preparedQuantity
+            : roundMaterialQuantity(Math.max(toNumber(raw.preparedQuantity), 0));
+        const available = await getWarehouseProductBalance(supabase, companyId, sourceWarehouseId, String(item.product_id || ""));
+        if (preparedQuantity > available + 0.000001) {
+          return NextResponse.json(
+            {
+              error: `Insufficient stock for product ${item.product_id}. Available: ${available}, requested preparation: ${preparedQuantity}`,
+              product_id: item.product_id,
+              available_quantity: available,
+              requested_prepared_quantity: preparedQuantity,
+            },
+            { status: 409 }
+          );
+        }
+        readyItemPlans.set(String(item.id), {
+          preparedQuantity,
+          packageSize,
+          packageCount:
+            raw.packageCount === null || raw.packageCount === undefined || raw.packageCount === ""
+              ? packagePlan.packageCount
+              : Math.max(toNumber(raw.packageCount), 0),
+        });
+      }
+
+      if (!Array.from(readyItemPlans.values()).some((item) => item.preparedQuantity > 0.000001)) {
+        return NextResponse.json({ error: "No available materials were prepared for this request" }, { status: 409 });
+      }
     }
 
     const nowIso = new Date().toISOString();
@@ -345,17 +436,24 @@ export async function PATCH(request: NextRequest) {
           return NextResponse.json({ error: `Request item ${itemId} not found` }, { status: 404 });
         }
         const planned = toNumber(dbItem.planned_quantity ?? dbItem.required_quantity);
+        const readyPlan = readyItemPlans.get(itemId);
         const packageSize =
-          raw?.packageSize === null || raw?.packageSize === undefined || raw?.packageSize === ""
+          readyPlan
+            ? readyPlan.packageSize
+            : raw?.packageSize === null || raw?.packageSize === undefined || raw?.packageSize === ""
             ? null
             : toNumber(raw.packageSize);
         const packagePlan = calculatePackagePlan({ plannedQuantity: planned, packageSize });
         const preparedQuantity =
-          raw?.preparedQuantity === null || raw?.preparedQuantity === undefined || raw?.preparedQuantity === ""
+          readyPlan
+            ? readyPlan.preparedQuantity
+            : raw?.preparedQuantity === null || raw?.preparedQuantity === undefined || raw?.preparedQuantity === ""
             ? packagePlan.preparedQuantity
             : roundMaterialQuantity(Math.max(toNumber(raw.preparedQuantity), 0));
         const packageCount =
-          raw?.packageCount === null || raw?.packageCount === undefined || raw?.packageCount === ""
+          readyPlan
+            ? readyPlan.packageCount
+            : raw?.packageCount === null || raw?.packageCount === undefined || raw?.packageCount === ""
             ? packagePlan.packageCount
             : Math.max(toNumber(raw.packageCount), 0);
 

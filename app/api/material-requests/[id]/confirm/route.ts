@@ -51,6 +51,27 @@ export async function POST(
         return NextResponse.json({ error: "Source warehouse is not set for request" }, { status: 400 });
       }
 
+      const { data: items, error: itemsError } = await supabase
+        .from("warehouse_issue_request_items")
+        .select("id,prepared_quantity,unit")
+        .eq("request_id", requestId)
+        .eq("company_id", companyId);
+
+      if (itemsError && !isV5WarehouseSchemaError(itemsError)) {
+        return NextResponse.json({ error: itemsError.message || "Failed to load prepared materials" }, { status: 400 });
+      }
+
+      const preparedItems = (items || []).map((item: any) => ({
+        ...item,
+        preparedQuantity: Math.max(Number(item.prepared_quantity || 0), 0),
+      }));
+      if (!preparedItems.some((item: any) => item.preparedQuantity > 0.000001)) {
+        return NextResponse.json(
+          { error: "Warehouse has not prepared any available materials for this request" },
+          { status: 409 }
+        );
+      }
+
       const nowIso = new Date().toISOString();
       const basePatch = {
         status: "received_confirmed",
@@ -93,17 +114,9 @@ export async function POST(
         );
       }
 
-      const { data: items, error: itemsError } = await supabase
-        .from("warehouse_issue_request_items")
-        .select("id,prepared_quantity,planned_quantity,required_quantity,unit")
-        .eq("request_id", requestId)
-        .eq("company_id", companyId);
-
-      if (!itemsError && items?.length) {
-        for (const item of items as any[]) {
-          const receivedQuantity = Number(
-            item.prepared_quantity ?? item.planned_quantity ?? item.required_quantity ?? 0
-          );
+      if (preparedItems.length) {
+        for (const item of preparedItems) {
+          const receivedQuantity = item.preparedQuantity;
           const { error: itemUpdateError } = await supabase
             .from("warehouse_issue_request_items")
             .update({
@@ -121,8 +134,6 @@ export async function POST(
             );
           }
         }
-      } else if (itemsError && !isV5WarehouseSchemaError(itemsError)) {
-        return NextResponse.json({ error: itemsError.message || "Failed to load request items" }, { status: 400 });
       }
 
       return NextResponse.json({

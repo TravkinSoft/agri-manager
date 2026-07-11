@@ -341,9 +341,8 @@ export async function POST(
     const issuePlan: Array<{ item: any; quantity: number; batchId: string | null }> = [];
 
     for (const item of requestItems) {
-      const planned = Number(item.planned_quantity ?? item.required_quantity ?? 0);
       const prepared = Number(item.prepared_quantity ?? 0);
-      const targetQuantity = prepared > 0 ? prepared : planned;
+      const targetQuantity = prepared;
       const alreadyIssued = Number(item.issued_quantity || 0);
       const remaining = Math.max(targetQuantity - alreadyIssued, 0);
       const requested = requestedByItemId.get(String(item.id));
@@ -520,8 +519,7 @@ export async function POST(
     const totalRequired = (totals || []).reduce(
       (sum: number, item: any) => {
         const prepared = Number(item.prepared_quantity ?? 0);
-        const planned = Number(item.planned_quantity ?? item.required_quantity ?? 0);
-        return sum + (prepared > 0 ? prepared : planned);
+        return sum + prepared;
       },
       0
     );
