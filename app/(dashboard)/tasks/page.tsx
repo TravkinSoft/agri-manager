@@ -46,6 +46,9 @@ interface OperationLine {
   reproduction_id: string | null;
   planned_area_ha: number | null;
   actual_area_ha: number | null;
+  crop_name?: string | null;
+  variety_name?: string | null;
+  reproduction_name?: string | null;
   crops?: { name: string | null; name_ru?: string | null } | null;
   varieties?: { name: string | null } | null;
   reproductions?: { name: string | null; name_ru?: string | null } | null;
@@ -63,6 +66,13 @@ interface OperationMaterial {
   actual_rate: number | null;
   unit: string | null;
   products?: { name: string | null; trade_name?: string | null; unit?: string | null } | null;
+}
+
+interface TaskCropIdentity {
+  operation_id: string;
+  crop_name: string | null;
+  variety_name: string | null;
+  reproduction_name: string | null;
 }
 
 interface Operation {
@@ -87,6 +97,7 @@ interface Operation {
   } | null;
   operation_lines?: OperationLine[];
   operation_materials?: OperationMaterial[];
+  task_crop_identity?: TaskCropIdentity | null;
 }
 
 type TaskPhase = 'active' | 'accepted' | 'in_progress' | 'completed';
@@ -148,6 +159,9 @@ function normalizeOperationRow(row: any): Operation {
           reproduction_id: line.reproduction_id || null,
           planned_area_ha: line.planned_area_ha == null ? null : toNumber(line.planned_area_ha),
           actual_area_ha: line.actual_area_ha == null ? null : toNumber(line.actual_area_ha),
+          crop_name: line.crop_name || null,
+          variety_name: line.variety_name || null,
+          reproduction_name: line.reproduction_name || null,
           crops: relationOne(line.crops),
           varieties: relationOne(line.varieties),
           reproductions: relationOne(line.reproductions),
@@ -174,15 +188,20 @@ function getOperationCropIdentity(operation: Operation) {
   );
   return resolveCropIdentity(
     {
+      cropName: operation.task_crop_identity?.crop_name,
+      varietyName: operation.task_crop_identity?.variety_name,
+      reproductionName: operation.task_crop_identity?.reproduction_name,
+    },
+    {
       cropName: operation.crop_structure?.crops?.name_ru || operation.crop_structure?.crops?.name,
       varietyName: operation.crop_structure?.varieties?.name,
       reproductionName:
         operation.crop_structure?.seed_reproductions?.name_ru || operation.crop_structure?.seed_reproductions?.name,
     },
     {
-      cropName: line?.crops?.name_ru || line?.crops?.name,
-      varietyName: line?.varieties?.name,
-      reproductionName: line?.reproductions?.name_ru || line?.reproductions?.name,
+      cropName: line?.crop_name || line?.crops?.name_ru || line?.crops?.name,
+      varietyName: line?.variety_name || line?.varieties?.name,
+      reproductionName: line?.reproduction_name || line?.reproductions?.name_ru || line?.reproductions?.name,
     }
   );
 }
@@ -362,6 +381,17 @@ export default function TasksPage() {
     };
   };
 
+  const getTaskCropIdentities = async (): Promise<TaskCropIdentity[]> => {
+    if (!profile?.company_id) return [];
+    const response = await fetch(
+      `/api/tasks/operation-identities?companyId=${encodeURIComponent(profile.company_id)}`,
+      { headers: await buildAuthHeaders(), cache: 'no-store' }
+    );
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.error || 'Не удалось загрузить identity задач');
+    return Array.isArray(payload?.identities) ? payload.identities : [];
+  };
+
   const loadTasks = async () => {
     if (!profile?.id || !profile.company_id) return;
     setLoading(true);
@@ -428,8 +458,20 @@ export default function TasksPage() {
       const cleanOperations = ((operationsResult.data || []) as any[])
         .map(normalizeOperationRow)
         .filter((operation) => !operationHasQaMarker(operation));
+      let identityByOperationId = new Map<string, TaskCropIdentity>();
+      try {
+        identityByOperationId = new Map(
+          (await getTaskCropIdentities()).map((identity) => [identity.operation_id, identity])
+        );
+      } catch {
+        // Client-side relations remain a read-only fallback when the identity API is temporarily unavailable.
+      }
+      const operationsWithCanonicalIdentity = cleanOperations.map((operation) => ({
+        ...operation,
+        task_crop_identity: identityByOperationId.get(operation.id) || null,
+      }));
       const cleanRequests = (requestsResult || []).filter((request) => !requestHasQaMarker(request));
-      setOperations(cleanOperations);
+      setOperations(operationsWithCanonicalIdentity);
       setMaterialRequests(cleanRequests);
 
       const returnDraft: Record<string, string> = {};
