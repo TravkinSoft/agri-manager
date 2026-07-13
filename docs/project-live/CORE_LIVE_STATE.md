@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-14
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `c6788b6`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `b42d777`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -18,7 +18,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | AUDITED_PENDING_REVIEW | Component Model V2 содержит 425 компонентов и 1373 глобальные product links, company links `0`. ТЗ №149 проверило все строки: live aliases `0`, sources `0`; подготовлены 24 безопасных alias-кандидата и 349 bounded source-кандидатов, но import не выполнялся. Формы, биология, safener, возможные дубли и мусор оставлены на ручной review; app read-cutover не разрешён. |
+| ГЛБД | IMPORT_PREVIEW_READY_WITH_BLOCKS | Component Model V2 содержит 425 компонентов и 1373 глобальные product links, company links `0`. ТЗ №150 проверило входные 24/349: aliases safe `24`, sources safe `295`, sources blocked `54` (44 review conflicts + 10 inactive components). Первый/второй isolated apply и точный rollback PASS; production import не выполнялся, app read-cutover не разрешён. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 
@@ -96,6 +96,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №147 | DONE_IN_THIS_COMMIT | Создан отдельный подтверждённый QA Auth-user `Assistant QA Test1`: только TravkinFlowTest1, `agronomist`, не global/company admin. JWT сохранён только в ignored Assistant `.env.local`; RLS read/cross-company denial PASS, business data/schema unchanged. |
 | №148 | DONE_IN_THIS_COMMIT | Migration `20260713183038` сделана definition-aware и безопасной при повторе: first/second apply PASS, schema fingerprint и row counts совпадают, 10 constraints/4 indexes/3 triggers без дублей, полный warehouse QA PASS. Production, backfill и legacy rows не менялись. |
 | №149 | DONE_IN_THIS_COMMIT | Read-only аудит всех 425 GLBD V2 компонентов и 1373 product links; подготовлены 8 master/review файлов вне Git, second pass PASS, import/merge/archive/source writes не выполнялись. |
+| №150 | DONE_IN_THIS_COMMIT | Import preview вне migrations: input 24 aliases/349 sources, final safe 24/295, blocked sources 54; first apply 24/295, second apply +0/+0, rollback 0/0, DB и business data не менялись. |
 
 ## TZ-146 warehouse preflight
 
@@ -135,6 +136,17 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Import candidates remain proposals only: aliases `24`; sources `349` (`333` internal-existing-data identity/classification claims plus `16` previously source-verified product claims). Owner approval and a separate import preflight are mandatory.
 - Manual queues: merge-review components `43`, form relations `22`, biological `22`, safener `23`, garbage/relink `15`, needs-source components `92`. No disputed row was marked READY automatically.
 - Production database, business data, schema, migrations, product links, component status and deployment were not changed.
+
+## TZ-150 GLBD aliases and sources import preview
+
+- TZ-150 status: `DONE_WITH_BLOCKED_ROWS`; report: [task-reports/core/TZ-150.md](task-reports/core/TZ-150.md).
+- Input hashes and counts matched TZ-149 exactly: aliases `24`, sources `349`; live production remained components `425`, product links `1373`, aliases `0`, sources `0`, company links `0`.
+- Final safe subset: aliases `24`, sources `295` (`internal_existing_data=279`, `official_registry=6`, `manufacturer_site=7`, `official_label=3`).
+- Sources blocked: `54` distinct rows. Of these, 44 intersect explicit review queues and 10 point to inactive components. Category counts may overlap: merge `20`, safener `21`, garbage/relink `1`, needs-source `3`, inactive `10`.
+- SQL previews are outside `supabase/migrations`, fail closed without exact batch tokens, use deterministic IDs and semantic duplicate checks, and contain no component/product/company mutation.
+- Isolated PGlite result: first apply `24/295`; second apply added `0/0`; duplicate groups `0`; orphans `0`; company links `0`; exact rollback restored aliases/sources to `0/0`; components/product links stayed `425/1373`.
+- `READY_FOR_PRODUCTION_IMPORT=NO`: this task grants no apply approval, and the 54 blocked source rows require separate owner decisions. A future apply may use only the exact 24/295 subset after fresh live preflight, backup and explicit approval.
+- Production database, business data, schema, migration history, deployment, Assistant code and Integration Contract were not changed.
 
 ## Forbidden actions
 

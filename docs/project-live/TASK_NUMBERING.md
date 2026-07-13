@@ -34,6 +34,7 @@
 | TZ-147 | CORE / ASSISTANT GOVERNANCE | Provision safe QA identity for A102 | copilot-v1 | DONE | TZ-A102,TZ-145 | [task-reports/core/TZ-147.md](task-reports/core/TZ-147.md) | `SELF` |
 | TZ-148 | WAREHOUSE / DATABASE | Make Warehouse Units V2 migration repeat-safe | copilot-v1 | DONE | TZ-144,TZ-146,TZ-147 | [task-reports/core/TZ-148.md](task-reports/core/TZ-148.md) | `SELF` |
 | TZ-149 | GLBD | Component V2 alias and source audit | copilot-v1 | DONE | TZ-148 | [task-reports/core/TZ-149.md](task-reports/core/TZ-149.md) | `SELF` |
+| TZ-150 | GLBD | Component aliases and sources import preview | copilot-v1 | DONE | TZ-149 | [task-reports/core/TZ-150.md](task-reports/core/TZ-150.md) | `SELF` |
 
 ## Status values
 
