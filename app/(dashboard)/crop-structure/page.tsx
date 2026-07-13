@@ -17,6 +17,11 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { getFieldDisplayName } from "@/lib/fields/display";
+import {
+  isFallowCrop,
+  normalizeCropStructureSeedAttributes,
+  validateAndNormalizeCropStructureRows,
+} from "@/lib/crop-structure/fallow";
 import { createOperation } from "@/lib/services/operations";
 import type { OperationFormData, SpecialistAssignee } from "@/lib/types/operation";
 import type { CropStructureWithDetails } from "@/lib/types/crop-structure";
@@ -453,6 +458,8 @@ export default function CropStructurePage() {
   const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? standardReproductionLabel(reproductionMap.get(id)) : "-");
   const isPotatoAllocation = (row: Pick<Allocation, "crop_id" | "variety_id">) =>
     isPotatoCropContext(cropName(row.crop_id), varietyName(row.variety_id));
+  const isFallowAllocation = (row: Pick<Allocation, "crop_id">) =>
+    isFallowCrop(row.crop_id ? cropMap.get(row.crop_id) : null);
   const sumArea = (rows: Allocation[]) => rows.reduce((sum, row) => sum + Number(row.area || 0), 0);
   const allocationKey = (row: Allocation, index = 0) =>
     row.id || `${row.field_id || "field"}-${row.crop_id || "crop"}-${row.variety_id || "variety"}-${row.reproduction_id || "repro"}-${Number(row.area || 0)}-${index}`;
@@ -1097,10 +1104,14 @@ export default function CropStructurePage() {
     setDraftRows((prev) => {
       const next = [...prev];
       const old = next[index];
-      const merged = { ...old, ...patch };
+      let merged = { ...old, ...patch };
       if (patch.crop_id && patch.crop_id !== old.crop_id) {
         merged.variety_id = null;
       }
+      merged = normalizeCropStructureSeedAttributes(
+        merged,
+        merged.crop_id ? cropMap.get(merged.crop_id) : null
+      );
       if (isPotatoAllocation(merged)) {
         merged.row_spacing_m = merged.row_spacing_m || 0.75;
         merged.irrigation_type = normalizeIrrigationType(merged.irrigation_type);
@@ -1181,45 +1192,28 @@ export default function CropStructurePage() {
   };
 
   const save = async () => {
-    if (!selectedFieldId || !selectedField || !activeCompanyId || !activeProfileId || !seasonId) return;
-    for (const row of draftRows) {
-      if (!row.crop_id || !row.variety_id || !row.reproduction_id || row.area == null || row.area <= 0) {
-        toast({ title: "Ошибка", description: "Заполните культуру, сорт, репродукцию и площадь.", variant: "destructive" });
-        return;
-      }
+    if (!selectedFieldId || !selectedField || !activeCompanyId || !seasonId) return;
+    const validation = validateAndNormalizeCropStructureRows({
+      rows: draftRows,
+      cropsById: cropMap,
+      fieldArea: selectedField.area,
+      areaEpsilon: EPS,
+    });
+    if (!validation.ok) {
+      toast({ title: "Ошибка", description: validation.message, variant: "destructive" });
+      return;
+    }
+    for (const row of validation.rows) {
       if (isPotatoAllocation(row) && (!row.seed_spacing_cm || row.seed_spacing_cm <= 0)) {
         toast({ title: "Ошибка", description: "Для картофеля укажите межсемянное расстояние в структуре.", variant: "destructive" });
         return;
       }
     }
-    if (sumArea(draftRows) > selectedField.area + EPS) {
-      toast({ title: "Ошибка", description: "Площадь посевных строк превышает площадь поля.", variant: "destructive" });
-      return;
-    }
     try {
       setSaving(true);
-      const toStructurePayload = (row: Allocation, includeTechnology: boolean) => ({
-        company_id: activeCompanyId,
-        user_id: activeProfileId,
-        field_id: selectedFieldId,
-        season_id: seasonId,
-        crop_id: row.crop_id,
-        variety_id: row.variety_id,
-        reproduction_id: row.reproduction_id,
-        notes: row.notes || null,
-        area: Number(row.area || 0),
-        status: "planned",
-        ...(includeTechnology
-          ? {
-              irrigation_type: normalizeIrrigationType(row.irrigation_type),
-              row_spacing_m: row.row_spacing_m ?? (isPotatoAllocation(row) ? 0.75 : null),
-              seed_spacing_cm: row.seed_spacing_cm ?? null,
-            }
-          : {}),
-      });
       const prev = initialByField.get(selectedFieldId) || [];
       const prevIds = new Set(prev.map((row) => row.id).filter(Boolean) as string[]);
-      const curIds = new Set(draftRows.map((row) => row.id).filter(Boolean) as string[]);
+      const curIds = new Set(validation.rows.map((row) => row.id).filter(Boolean) as string[]);
       const delIds = Array.from(prevIds).filter((id) => !curIds.has(id));
       if (delIds.length) {
         const protectedIds = delIds.filter((id) => (operationFactsByAllocation.get(id)?.length || 0) > 0 || (consumptionsByAllocation.get(id)?.length || 0) > 0);
@@ -1231,41 +1225,40 @@ export default function CropStructurePage() {
           });
           return;
         }
-        const del = await supabase.from("crop_structure").delete().eq("company_id", activeCompanyId).eq("field_id", selectedFieldId).eq("season_id", seasonId).in("id", delIds);
-        if (del.error) throw del.error;
       }
-      const updates = draftRows.filter((row) => row.id);
-      if (updates.length) {
-        let up = await supabase.from("crop_structure").upsert(
-          updates.map((row) => ({ id: row.id, ...toStructurePayload(row, true) })),
-          { onConflict: "id" },
-        );
-        if (up.error && isMissingCropStructureV4Column(up.error)) {
-          up = await supabase.from("crop_structure").upsert(
-            updates.map((row) => ({ id: row.id, ...toStructurePayload(row, false) })),
-            { onConflict: "id" },
-          );
-        }
-        if (up.error) throw up.error;
-      }
-      const inserts = draftRows.filter((row) => !row.id);
-      if (inserts.length) {
-        let ins = await supabase.from("crop_structure").insert(inserts.map((row) => toStructurePayload(row, true)));
-        if (ins.error && isMissingCropStructureV4Column(ins.error)) {
-          ins = await supabase.from("crop_structure").insert(inserts.map((row) => toStructurePayload(row, false)));
-        }
-        if (ins.error) throw ins.error;
-      }
-      let res: any = await supabase.from("crop_structure").select(CROP_STRUCTURE_V4_SELECT).eq("company_id", activeCompanyId).eq("season_id", seasonId).eq("archived", false);
-      if (res.error && isMissingCropStructureV4Column(res.error)) {
-        res = await supabase.from("crop_structure").select(CROP_STRUCTURE_BASE_SELECT).eq("company_id", activeCompanyId).eq("season_id", seasonId).eq("archived", false);
-      }
-      if (res.error) throw res.error;
-      const map = buildAllocationMap(res.data || []);
-      setAllocByField(map);
-      setInitialByField(cloneAllocationMap(map));
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (sessionError || !token) throw new Error("User is not authenticated");
+
+      const response = await fetch(`/api/crop-structure/fields/${selectedFieldId}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyId: activeCompanyId,
+          seasonId,
+          rows: validation.rows,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { rows?: unknown[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Failed to save crop structure");
+
+      const savedRows = (payload.rows || []).map(allocationFromRow);
+      setAllocByField((current) => {
+        const next = new Map(current);
+        next.set(selectedFieldId, savedRows);
+        return next;
+      });
+      setInitialByField((current) => {
+        const next = cloneAllocationMap(current);
+        next.set(selectedFieldId, savedRows.map((item) => ({ ...item })));
+        return next;
+      });
       setBootstrappedStructureKey(`${activeCompanyId}:${seasonId}`);
-      setDraftRows((map.get(selectedFieldId) || []).map((item) => ({ ...item })));
+      setDraftRows(savedRows.map((item) => ({ ...item })));
       toast({ title: "Сохранено", description: "Структура поля обновлена." });
     } catch (error) {
       toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Save failed", variant: "destructive" });
@@ -2242,6 +2235,7 @@ export default function CropStructurePage() {
             const operationsCount = row.id ? operationFactsByAllocation.get(row.id)?.length || 0 : 0;
             const materialsCount = row.id ? consumptionsByAllocation.get(row.id)?.length || 0 : 0;
             const isDeleteLocked = operationsCount > 0 || materialsCount > 0;
+            const isFallowRow = isFallowAllocation(row);
             return (
               <div key={`${row.id || "new"}-${index}`} className="overflow-hidden rounded-xl border border-slate-700/80 bg-[#101823] shadow-sm ring-1 ring-slate-900/40">
                 <div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2">
@@ -2252,27 +2246,31 @@ export default function CropStructurePage() {
                   <span className="text-xs text-slate-400">{fmtHa(Number(row.area || 0))}</span>
                 </div>
                 <div className="grid grid-cols-12 items-end gap-2 p-3">
-                <div className="col-span-12 md:col-span-3">
+                <div className={isFallowRow ? "col-span-12 md:col-span-7" : "col-span-12 md:col-span-3"}>
                   <Label className={editorLabelClass}>Культура *</Label>
                   <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
                     <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
                     <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <div className="col-span-12 md:col-span-2">
-                  <Label className={editorLabelClass}>Сорт *</Label>
-                  <Select value={row.variety_id || "none"} onValueChange={(value) => patchDraft(index, { variety_id: value === "none" ? null : value })}>
-                    <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите сорт" /></SelectTrigger>
-                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{vars.map((variety) => <SelectItem key={variety.id} value={variety.id}>{variety.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div className="col-span-12 md:col-span-2">
-                  <Label className={editorLabelClass}>Репродукция *</Label>
-                  <Select value={row.reproduction_id || "none"} onValueChange={(value) => patchDraft(index, { reproduction_id: value === "none" ? null : value })}>
-                    <SelectTrigger className={editorControlClass}><SelectValue placeholder="Репродукция" /></SelectTrigger>
-                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{globalReproductions.map((item) => <SelectItem key={item.id} value={item.id}>{standardReproductionLabel(item)}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
+                {!isFallowRow ? (
+                  <>
+                    <div className="col-span-12 md:col-span-2">
+                      <Label className={editorLabelClass}>Сорт *</Label>
+                      <Select value={row.variety_id || "none"} onValueChange={(value) => patchDraft(index, { variety_id: value === "none" ? null : value })}>
+                        <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите сорт" /></SelectTrigger>
+                        <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{vars.map((variety) => <SelectItem key={variety.id} value={variety.id}>{variety.name}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-12 md:col-span-2">
+                      <Label className={editorLabelClass}>Репродукция *</Label>
+                      <Select value={row.reproduction_id || "none"} onValueChange={(value) => patchDraft(index, { reproduction_id: value === "none" ? null : value })}>
+                        <SelectTrigger className={editorControlClass}><SelectValue placeholder="Репродукция" /></SelectTrigger>
+                        <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{globalReproductions.map((item) => <SelectItem key={item.id} value={item.id}>{standardReproductionLabel(item)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </>
+                ) : null}
                 <div className="col-span-7 md:col-span-3">
                   <Label className={editorLabelClass}>Площадь, га *</Label>
                   <div className="flex gap-1.5">
@@ -2306,7 +2304,7 @@ export default function CropStructurePage() {
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="col-span-12 grid grid-cols-1 gap-2 border-t border-slate-700/70 pt-3 md:grid-cols-3">
+                <div className={`col-span-12 grid grid-cols-1 gap-2 border-t border-slate-700/70 pt-3 ${isFallowRow ? "" : "md:grid-cols-3"}`}>
                   <div>
                     <Label className={editorLabelClass}>Орошение</Label>
                     <Select
@@ -2322,30 +2320,34 @@ export default function CropStructurePage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
-                    <Label className={editorLabelClass}>Междурядье, м</Label>
-                    <Input
-                      className={editorControlClass}
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.row_spacing_m == null ? "" : String(row.row_spacing_m)}
-                      onChange={(event) => patchDraft(index, { row_spacing_m: parseNum(event.target.value) })}
-                      placeholder={isPotatoAllocation(row) ? "0.75" : "м"}
-                    />
-                  </div>
-                  <div>
-                    <Label className={editorLabelClass}>Межсемянное расстояние, см</Label>
-                    <Input
-                      className={editorControlClass}
-                      type="number"
-                      min={0}
-                      step="0.1"
-                      value={row.seed_spacing_cm == null ? "" : String(row.seed_spacing_cm)}
-                      onChange={(event) => patchDraft(index, { seed_spacing_cm: parseNum(event.target.value) })}
-                      placeholder={isPotatoAllocation(row) ? "32" : "см"}
-                    />
-                  </div>
+                  {!isFallowRow ? (
+                    <>
+                      <div>
+                        <Label className={editorLabelClass}>Междурядье, м</Label>
+                        <Input
+                          className={editorControlClass}
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={row.row_spacing_m == null ? "" : String(row.row_spacing_m)}
+                          onChange={(event) => patchDraft(index, { row_spacing_m: parseNum(event.target.value) })}
+                          placeholder={isPotatoAllocation(row) ? "0.75" : "м"}
+                        />
+                      </div>
+                      <div>
+                        <Label className={editorLabelClass}>Межсемянное расстояние, см</Label>
+                        <Input
+                          className={editorControlClass}
+                          type="number"
+                          min={0}
+                          step="0.1"
+                          value={row.seed_spacing_cm == null ? "" : String(row.seed_spacing_cm)}
+                          onChange={(event) => patchDraft(index, { seed_spacing_cm: parseNum(event.target.value) })}
+                          placeholder={isPotatoAllocation(row) ? "32" : "см"}
+                        />
+                      </div>
+                    </>
+                  ) : null}
                 </div>
                 </div>
               </div>
