@@ -32,6 +32,7 @@
 
 | TZ-146 | WAREHOUSE / DATABASE | Warehouse Units V2 production preflight | copilot-v1 | DONE | TZ-144,TZ-145 | [task-reports/core/TZ-146.md](task-reports/core/TZ-146.md) | `SELF` |
 | TZ-147 | CORE / ASSISTANT GOVERNANCE | Provision safe QA identity for A102 | copilot-v1 | DONE | TZ-A102,TZ-145 | [task-reports/core/TZ-147.md](task-reports/core/TZ-147.md) | `SELF` |
+| TZ-148 | WAREHOUSE / DATABASE | Make Warehouse Units V2 migration repeat-safe | copilot-v1 | DONE | TZ-144,TZ-146,TZ-147 | [task-reports/core/TZ-148.md](task-reports/core/TZ-148.md) | `SELF` |
 
 ## Status values
 

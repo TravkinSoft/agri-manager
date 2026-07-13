@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-14
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `7495e73`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `ec69412`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144.
@@ -94,6 +94,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №145 | DONE_IN_THIS_COMMIT | Core принял A100/A101, обновил Integration Contract до 0.2 и зарегистрировал A102 только для локальной read-only проверки. Assistant code не объединялся. |
 | A102 | PLANNED | Real Local Runtime Validation разрешён только локально и read-only после sync contract 0.2; merge/deploy запрещены. |
 | №147 | DONE_IN_THIS_COMMIT | Создан отдельный подтверждённый QA Auth-user `Assistant QA Test1`: только TravkinFlowTest1, `agronomist`, не global/company admin. JWT сохранён только в ignored Assistant `.env.local`; RLS read/cross-company denial PASS, business data/schema unchanged. |
+| №148 | DONE_IN_THIS_COMMIT | Migration `20260713183038` сделана definition-aware и безопасной при повторе: first/second apply PASS, schema fingerprint и row counts совпадают, 10 constraints/4 indexes/3 triggers без дублей, полный warehouse QA PASS. Production, backfill и legacy rows не менялись. |
 
 ## TZ-146 warehouse preflight
 
@@ -114,6 +115,15 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Access and refresh tokens exist only in ignored `project-assistant-v1/.env.local`. Secret values were neither printed nor committed.
 - Final business fingerprint matches preflight; schema, migrations, migration history, app code, and deployment were not changed.
 - A102 is unblocked only for the already approved local read-only runtime validation. All Assistant write paths remain forbidden.
+
+## TZ-148 Warehouse Units V2 repeat safety
+
+- TZ-148 status: `DONE`; report: [task-reports/core/TZ-148.md](task-reports/core/TZ-148.md).
+- Repeat failure was caused by ten named CHECK constraints being added without a definition-aware existence guard; the first visible conflict was `products_density_contract_v2`.
+- Every named constraint now follows create-if-absent, no-op-if-identical, and STOP-if-different semantics. No differing constraint is silently dropped or replaced.
+- Isolated first and second apply both pass with schema fingerprint `2939db9075816906de24f76db7a4d6db58f190c4e7afe8290bcc93063b4518a9`, equal row counts, and zero duplicate constraints, indexes, or triggers.
+- Full kg/l/pcs/seed/transfer/issue/return/reconciliation/storno and protection QA passes; legacy rows changed `0`, production calls `0`.
+- A fresh production backup and repeat preflight are still mandatory. Migration apply, backfill, production writes, merge, and deploy were not performed.
 
 ## Forbidden actions
 

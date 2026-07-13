@@ -152,69 +152,108 @@ begin
 end;
 $$;
 
-alter table public.inventory_batches drop constraint if exists inventory_batches_batch_class_check;
-alter table public.inventory_batches add constraint inventory_batches_batch_class_check
-  check (batch_class in ('commodity','seed','material','feed','waste','processing','rejected')) not valid;
-alter table public.stock_ledger_entries drop constraint if exists stock_ledger_entries_batch_class_check;
-alter table public.stock_ledger_entries add constraint stock_ledger_entries_batch_class_check
-  check (batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')) not valid;
-alter table public.ticket_lines drop constraint if exists ticket_lines_batch_class_check;
-alter table public.ticket_lines add constraint ticket_lines_batch_class_check
-  check (batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')) not valid;
-alter table public.field_material_consumptions drop constraint if exists field_material_consumptions_batch_class_check;
-alter table public.field_material_consumptions add constraint field_material_consumptions_batch_class_check
-  check (batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')) not valid;
+-- A repeat must preserve an identical named constraint and must never replace a
+-- different production definition silently. A temporary LIKE-table lets
+-- PostgreSQL normalize the expected expression before the exact comparison.
+do $$
+declare
+  item record;
+  existing_definition text;
+  expected_definition text;
+begin
+  for item in
+    select *
+    from (values
+      ('public.inventory_batches'::regclass, 'inventory_batches_batch_class_check',
+        $constraint$batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$),
+      ('public.stock_ledger_entries'::regclass, 'stock_ledger_entries_batch_class_check',
+        $constraint$batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$),
+      ('public.ticket_lines'::regclass, 'ticket_lines_batch_class_check',
+        $constraint$batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$),
+      ('public.field_material_consumptions'::regclass, 'field_material_consumptions_batch_class_check',
+        $constraint$batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$),
+      ('public.products'::regclass, 'products_density_contract_v2',
+        $constraint$density_kg_per_l is null or (
+          density_kg_per_l > 0
+          and lower(trim(density_unit)) = 'kg/l'
+          and nullif(trim(density_source), '') is not null
+          and lower(trim(density_verification_status)) = 'verified'
+          and density_verified_at is not null
+        )$constraint$),
+      ('public.inventory_transactions'::regclass, 'inventory_transactions_unit_contract_v2',
+        $constraint$unit_contract_version is null or (
+          unit_contract_version = 2 and base_quantity > 0 and base_uom in ('kg','l','pcs')
+          and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
+          and nullif(trim(unit_source), '') is not null
+        )$constraint$),
+      ('public.stock_ledger_entries'::regclass, 'stock_ledger_entries_unit_contract_v2',
+        $constraint$unit_contract_version is null or (
+          unit_contract_version = 2 and quantity > 0 and uom in ('kg','l','pcs')
+          and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
+          and nullif(trim(unit_source), '') is not null
+        )$constraint$),
+      ('public.ticket_lines'::regclass, 'ticket_lines_unit_contract_v2',
+        $constraint$unit_contract_version is null or (
+          unit_contract_version = 2 and quantity > 0 and uom in ('kg','l','pcs')
+          and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
+          and nullif(trim(unit_source), '') is not null
+        )$constraint$),
+      ('public.inventory_batches'::regclass, 'inventory_batches_unit_contract_v2',
+        $constraint$unit_contract_version is null or (
+          unit_contract_version = 2 and initial_quantity > 0 and current_quantity >= 0 and uom in ('kg','l','pcs')
+          and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
+          and nullif(trim(unit_source), '') is not null
+        )$constraint$),
+      ('public.field_material_consumptions'::regclass, 'field_material_consumptions_unit_contract_v2',
+        $constraint$unit_contract_version is null or (
+          unit_contract_version = 2 and quantity > 0 and uom in ('kg','l','pcs')
+          and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
+        )$constraint$)
+    ) as definitions(table_name, constraint_name, check_expression)
+  loop
+    select pg_get_constraintdef(c.oid, true)
+      into existing_definition
+    from pg_constraint c
+    where c.conrelid = item.table_name
+      and c.conname = item.constraint_name;
 
-alter table public.products
-  add constraint products_density_contract_v2 check (
-    density_kg_per_l is null or (
-      density_kg_per_l > 0
-      and lower(trim(density_unit)) = 'kg/l'
-      and nullif(trim(density_source), '') is not null
-      and lower(trim(density_verification_status)) = 'verified'
-      and density_verified_at is not null
-    )
-  ) not valid;
+    if existing_definition is null then
+      execute format(
+        'alter table %s add constraint %I check (%s) not valid',
+        item.table_name,
+        item.constraint_name,
+        item.check_expression
+      );
+      continue;
+    end if;
 
-alter table public.inventory_transactions
-  add constraint inventory_transactions_unit_contract_v2 check (
-    unit_contract_version is null or (
-      unit_contract_version = 2 and base_quantity > 0 and base_uom in ('kg','l','pcs')
-      and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
-      and nullif(trim(unit_source), '') is not null
-    )
-  ) not valid;
-alter table public.stock_ledger_entries
-  add constraint stock_ledger_entries_unit_contract_v2 check (
-    unit_contract_version is null or (
-      unit_contract_version = 2 and quantity > 0 and uom in ('kg','l','pcs')
-      and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
-      and nullif(trim(unit_source), '') is not null
-    )
-  ) not valid;
-alter table public.ticket_lines
-  add constraint ticket_lines_unit_contract_v2 check (
-    unit_contract_version is null or (
-      unit_contract_version = 2 and quantity > 0 and uom in ('kg','l','pcs')
-      and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
-      and nullif(trim(unit_source), '') is not null
-    )
-  ) not valid;
-alter table public.inventory_batches
-  add constraint inventory_batches_unit_contract_v2 check (
-    unit_contract_version is null or (
-      unit_contract_version = 2 and initial_quantity > 0 and current_quantity >= 0 and uom in ('kg','l','pcs')
-      and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
-      and nullif(trim(unit_source), '') is not null
-    )
-  ) not valid;
-alter table public.field_material_consumptions
-  add constraint field_material_consumptions_unit_contract_v2 check (
-    unit_contract_version is null or (
-      unit_contract_version = 2 and quantity > 0 and uom in ('kg','l','pcs')
-      and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
-    )
-  ) not valid;
+    execute 'drop table if exists pg_temp.warehouse_units_constraint_probe';
+    execute format(
+      'create temporary table warehouse_units_constraint_probe (like %s) on commit drop',
+      item.table_name
+    );
+    execute format(
+      'alter table pg_temp.warehouse_units_constraint_probe add constraint %I check (%s) not valid',
+      item.constraint_name,
+      item.check_expression
+    );
+    select pg_get_constraintdef(c.oid, true)
+      into expected_definition
+    from pg_constraint c
+    where c.conrelid = 'pg_temp.warehouse_units_constraint_probe'::regclass
+      and c.conname = item.constraint_name;
+
+    if existing_definition is distinct from expected_definition then
+      raise exception using
+        message = format('Constraint %s on %s has an unexpected definition', item.constraint_name, item.table_name),
+        detail = format('Existing: %s; expected: %s', existing_definition, expected_definition),
+        hint = 'Stop and review the live constraint. This migration will not replace it silently.';
+    end if;
+
+    execute 'drop table pg_temp.warehouse_units_constraint_probe';
+  end loop;
+end;
+$$;
 
 create or replace function public.enforce_stock_ledger_contract_v2()
 returns trigger

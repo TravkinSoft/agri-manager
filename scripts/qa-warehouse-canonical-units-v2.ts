@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { resolveStockUnitContract } from "@/lib/warehouse/stock-unit-contract";
@@ -32,6 +33,108 @@ async function expectReject(run: () => Promise<unknown> | unknown, pattern: RegE
   }
   assert(error instanceof Error, "Expected operation to fail");
   assert.match(error.message, pattern);
+}
+
+async function schemaFingerprint(db: PGlite) {
+  const result = await db.query<{ kind: string; object_name: string; definition: string }>(`
+    select 'column'::text kind, table_name || '.' || column_name object_name,
+      concat_ws('|', data_type, udt_name, is_nullable, coalesce(column_default, '')) definition
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name in ('products','inventory_transactions','stock_ledger_entries','ticket_lines','inventory_batches','field_material_consumptions')
+    union all
+    select 'constraint', c.conrelid::regclass::text || '.' || c.conname,
+      pg_get_constraintdef(c.oid, true)
+    from pg_constraint c
+    where c.conrelid in (
+      'public.products'::regclass, 'public.inventory_transactions'::regclass,
+      'public.stock_ledger_entries'::regclass, 'public.ticket_lines'::regclass,
+      'public.inventory_batches'::regclass, 'public.field_material_consumptions'::regclass
+    )
+    union all
+    select 'index', schemaname || '.' || indexname, indexdef
+    from pg_indexes
+    where schemaname = 'public'
+      and tablename in ('products','inventory_transactions','stock_ledger_entries','ticket_lines','inventory_batches','field_material_consumptions')
+    union all
+    select 'trigger', t.tgrelid::regclass::text || '.' || t.tgname,
+      pg_get_triggerdef(t.oid, true)
+    from pg_trigger t
+    where not t.tgisinternal
+      and t.tgrelid in (
+        'public.stock_ledger_entries'::regclass,
+        'public.inventory_batches'::regclass,
+        'public.field_material_consumptions'::regclass
+      )
+    union all
+    select 'function', p.oid::regprocedure::text,
+      pg_get_functiondef(p.oid) || '|acl=' || coalesce(p.proacl::text, '')
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public'
+      and p.proname in (
+        'canonical_stock_uom','validate_stock_quantity_contract','enforce_stock_ledger_contract_v2',
+        'enforce_inventory_batch_contract_v2','enforce_field_material_contract_v2',
+        'post_inventory_transaction_to_ledger','get_stock_balance_canonical'
+      )
+    union all
+    select 'view', c.oid::regclass::text,
+      pg_get_viewdef(c.oid, true) || '|acl=' || coalesce(c.relacl::text, '')
+    from pg_class c
+    join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public' and c.relkind = 'v'
+      and c.relname in (
+        'v_stock_movements_canonical','v_stock_balance_canonical',
+        'v_stock_balance_identity','v_stock_balance_reconciliation'
+      )
+    order by 1, 2
+  `);
+  const serialized = JSON.stringify(result.rows);
+  return {
+    hash: createHash("sha256").update(serialized).digest("hex"),
+    serialized,
+  };
+}
+
+async function warehouseRowCounts(db: PGlite) {
+  const result = await db.query<Record<string, number>>(`
+    select
+      (select count(*)::int from public.companies) companies,
+      (select count(*)::int from public.warehouses) warehouses,
+      (select count(*)::int from public.products) products,
+      (select count(*)::int from public.inventory_transactions) inventory_transactions,
+      (select count(*)::int from public.stock_ledger_entries) stock_ledger_entries,
+      (select count(*)::int from public.ticket_lines) ticket_lines,
+      (select count(*)::int from public.inventory_batches) inventory_batches,
+      (select count(*)::int from public.field_material_consumptions) field_material_consumptions
+  `);
+  return result.rows[0];
+}
+
+async function repeatObjectCounts(db: PGlite) {
+  const result = await db.query<Record<string, number>>(`
+    select
+      (select count(*)::int from pg_constraint
+        where conname in (
+          'inventory_batches_batch_class_check','stock_ledger_entries_batch_class_check',
+          'ticket_lines_batch_class_check','field_material_consumptions_batch_class_check',
+          'products_density_contract_v2','inventory_transactions_unit_contract_v2',
+          'stock_ledger_entries_unit_contract_v2','ticket_lines_unit_contract_v2',
+          'inventory_batches_unit_contract_v2','field_material_consumptions_unit_contract_v2'
+        )) named_constraints,
+      (select count(*)::int from pg_indexes where indexname in (
+        'idx_inventory_transactions_company_product_uom_v2',
+        'idx_stock_ledger_company_wh_product_uom_v2',
+        'idx_stock_ledger_company_wh_identity_uom_class_v2',
+        'idx_inventory_batches_company_product_uom_v2'
+      )) named_indexes,
+      (select count(*)::int from pg_trigger where not tgisinternal and tgname in (
+        'trg_enforce_stock_ledger_contract_v2',
+        'trg_enforce_inventory_batch_contract_v2',
+        'trg_enforce_field_material_contract_v2'
+      )) named_triggers
+  `);
+  return result.rows[0];
 }
 
 async function main() {
@@ -122,7 +225,23 @@ async function main() {
   `);
 
   const beforeLegacy = await db.query<{ count: number }>("select count(*)::int count from stock_ledger_entries");
-  await db.exec(await readFile(MIGRATION, "utf8"));
+  const migrationSql = await readFile(MIGRATION, "utf8");
+  await db.exec(migrationSql);
+  const firstFingerprint = await schemaFingerprint(db);
+  const firstRowCounts = await warehouseRowCounts(db);
+  const firstObjectCounts = await repeatObjectCounts(db);
+
+  await db.exec(migrationSql);
+  const secondFingerprint = await schemaFingerprint(db);
+  const secondRowCounts = await warehouseRowCounts(db);
+  const secondObjectCounts = await repeatObjectCounts(db);
+
+  assert.equal(secondFingerprint.hash, firstFingerprint.hash, "Second apply must preserve the schema fingerprint");
+  assert.equal(secondFingerprint.serialized, firstFingerprint.serialized, "Second apply must preserve normalized schema definitions");
+  assert.deepEqual(secondRowCounts, firstRowCounts, "Second apply must not change business row counts");
+  assert.deepEqual(firstObjectCounts, { named_constraints: 10, named_indexes: 4, named_triggers: 3 });
+  assert.deepEqual(secondObjectCounts, firstObjectCounts, "Second apply must not duplicate named objects");
+
   const afterLegacy = await db.query<{ count: number }>("select count(*)::int count from stock_ledger_entries where unit_contract_version is null");
   assert.equal(beforeLegacy.rows[0].count, 2);
   assert.equal(afterLegacy.rows[0].count, 2, "Migration must not backfill legacy rows");
@@ -225,7 +344,41 @@ async function main() {
   await expectReject(() => db.query(`insert into stock_ledger_entries(company_id,product_id,warehouse_id,direction,quantity,uom,delta_qty_signed,reason_type,unit_source,unit_contract_version)
     values ($1,$2,$3,'in',1,'kg',1,'qa','qa',2)`, [COMPANY, KG, WH_A]), /unit_contract|batch/i);
 
-  console.log(JSON.stringify({ migration: "PASS", kg: "PASS", liter: "PASS", verifiedDensity: "PASS", pcs: "PASS", seed: "PASS", transfer: "PASS", batchCreation: "PASS", fieldMaterial: "PASS", storno: "PASS", processing: "PASS", reconciliation: "PASS", crossUnitSum: "BLOCKED", legacyRowsChanged: 0 }, null, 2));
+  await db.exec("alter table public.products drop constraint products_density_contract_v2");
+  await db.exec("alter table public.products add constraint products_density_contract_v2 check (density_kg_per_l is null or density_kg_per_l > 0) not valid");
+  await expectReject(() => db.exec(migrationSql), /unexpected definition/i);
+
+  console.log(JSON.stringify({
+    firstApply: "PASS",
+    secondApply: "PASS",
+    schemaFingerprint: firstFingerprint.hash,
+    schemaFingerprintMatch: true,
+    rowCountsMatch: true,
+    namedConstraints: 10,
+    namedIndexes: 4,
+    namedTriggers: 3,
+    duplicateObjects: 0,
+    mismatchedConstraintGuard: "PASS",
+    migration: "PASS",
+    kg: "PASS",
+    liter: "PASS",
+    verifiedDensity: "PASS",
+    pcs: "PASS",
+    seed: "PASS",
+    transfer: "PASS",
+    issue: "PASS",
+    return: "PASS",
+    batchCreation: "PASS",
+    fieldMaterial: "PASS",
+    storno: "PASS",
+    processing: "PASS",
+    reconciliation: "PASS",
+    crossUnitSum: "BLOCKED",
+    unknownUnit: "BLOCKED",
+    batchClassValidation: "PASS",
+    legacyRowsChanged: 0,
+    productionCalls: 0,
+  }, null, 2));
   await db.close();
 }
 
