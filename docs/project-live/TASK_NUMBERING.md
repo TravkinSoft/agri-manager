@@ -22,8 +22,9 @@
 | TZ-139 | CORE | Project Live and assistant handoff foundation | copilot-v1 | DONE | TZ-135,TZ-137,TZ-138 | [task-reports/core/TZ-139.md](task-reports/core/TZ-139.md) | `3ef0afe` |
 | TZ-140 | DATABASE | Push core commits and repair six legacy history entries | copilot-v1 | DONE | TZ-137,TZ-138,TZ-139 | [task-reports/core/TZ-140.md](task-reports/core/TZ-140.md) | `SELF` |
 | TZ-141 | ASSISTANT / GOVERNANCE | Assistant isolated branch and Live sync | copilot-v1 -> assistant-v1 | DONE | TZ-139,TZ-140 | [task-reports/core/TZ-141.md](task-reports/core/TZ-141.md) | `d192587` |
-| TZ-A100 | ASSISTANT | Current Architecture & Runtime Audit | assistant-v1 | PLANNED | TZ-141 | `task-reports/assistant/TZ-A100.md` (not created) | NOT_SET |
+| TZ-A100 | ASSISTANT | Current Architecture & Runtime Audit | assistant-v1 | DONE | TZ-141 | [task-reports/assistant/TZ-A100.md](task-reports/assistant/TZ-A100.md) | `4cb8cdf` |
 | TZ-142 | DATABASE | Audit partially equivalent legacy migrations | copilot-v1 | DONE | TZ-141 | [task-reports/core/TZ-142.md](task-reports/core/TZ-142.md) | `SELF` |
+| TZ-143 | WAREHOUSE | Warehouse units and batch classes correction plan | copilot-v1 | DONE | TZ-142 | [task-reports/core/TZ-143.md](task-reports/core/TZ-143.md) | `SELF` |
 
 ## Status values
 

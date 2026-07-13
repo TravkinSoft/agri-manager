@@ -14,8 +14,8 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Поля | READY | В production 100 company-scoped полей; Field остаётся главным производственным объектом. |
 | Структура посевов | IN_PROGRESS | В production 122 строки. Основной flow и lazy-load больших компаний проверены; fix сохранения участка «Пар» готов в `copilot-v1` по ТЗ №136, но ещё не выпущен в production. |
 | Операции | READY | Создание, роли, материальная сверка и закрытие проверены E2E; формула выдачи и факта контролируется сервером. |
-| Склады | LIMITED | В production 2 склада; выдача, возврат и ledger работают. ТЗ №142 подтвердило P1: 7 confirmed transactions не имеют `base_quantity_kg`, а объёмные движения могут попадать в ledger с подписью `kg`. До backfill нужно исправить writer и утвердить политику `kg/л`. |
-| Ledger | LIMITED | `stock_ledger_entries` и balance views остаются источником складской правды, но 7 строк имеют `batch_class=NULL`, который view маскирует как `commodity`. Нужен coordinated corrective batch без изменения данных до backup/approval. |
+| Склады | LIMITED | В production 2 склада; выдача, возврат и ledger работают. ТЗ №143 нашло 18 writer-сценариев, из них 15 имеют прямой unit fallback/дефект. Выбран additive контракт `base_quantity + base_uom + optional mass_kg`; writers должны быть исправлены до адресного backfill. |
+| Ledger | LIMITED | `stock_ledger_entries` остаётся источником складской правды, но current views суммируют без `uom`, а `batch_class=NULL` маскируют как `commodity`. Для 7 inventory/7 ledger строк подготовлен только адресный план; production data не менялась. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
 | ГЛБД | LIMITED | Legacy AI и Component Model V2 имеют паритет 425 компонентов / 1373 связей. V2 schema live; app read-cutover на V2 ещё не выполнен и не разрешён этим документом. |
@@ -72,7 +72,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Fix участка «Пар» (ТЗ №136) и canonical varieties migration (ТЗ №138) находятся только в `copilot-v1`, production их ещё не получил.
 - Closed-season read-only enforcement не подтверждён как полный для всех write routes.
 - GLBD Component Model V2 ещё не стал app read source; legacy/V2 cutover должен быть отдельным ТЗ.
-- Складская базовая единица и batch identity: 7 inventory rows имеют `base_quantity_kg=NULL`, 7 ledger rows имеют `batch_class=NULL`; литровые движения нельзя автоматически backfill как kg.
+- Складская базовая единица и batch identity: ТЗ №143 подтвердила 18 writer-сценариев и 15 прямых unit/class fallback-рисков. У 7 inventory rows `base_quantity_kg=NULL`, у 7 ledger rows `batch_class=NULL`; пять литровых строк нельзя превращать в kg без verified density. До backfill нужны additive schema, исправление всех writers, unit-aware views, backup и отдельный approval.
 - Land legal MVP не имеет трёх integrity guards. Live duplicate preflight чистый и land tables пусты, но до начала реального ввода нужен отдельный schema-only corrective batch.
 
 ## Current tasks
@@ -85,6 +85,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №140 | DONE_IN_THIS_COMMIT | Commit ТЗ №138/139 сохранены в origin; 6 history versions repaired; schema/business data не изменились; осталось 57 local-only versions. |
 | №141 | DONE | Созданы изолированные branch/worktree и Live sync protocol для Travkin Assistant; runtime не запускался. |
 | №142 | DONE_IN_THIS_COMMIT | Read-only аудит 15 неполных миграций: P0=0, P1=3, P2=12; подготовлены 8 безопасных corrective/supersession batches; DB не менялась. |
+| №143 | DONE_IN_THIS_COMMIT | Read-only план складских единиц и batch class: 18 writer-сценариев, universal quantity contract, corrective migration preview, точечный план 7+7 строк, E2E и rollback; DB/app code не менялись. |
 
 ## Forbidden actions
 
@@ -104,4 +105,4 @@ ASSISTANT_ALLOWED_MODE: `READ_ONLY_DESIGN_AND_AUDIT`
 ASSISTANT_ALLOWED_DATA: код репозитория; Project Live; approved architecture text; документированные read-only server contracts; обезличенные audit findings по отдельному ТЗ
 ASSISTANT_BLOCKED_AREAS: production DB connection; direct SQL; write tools; operation/warehouse/crop-structure/season mutations; migration history; RLS bypass; deploy; contract edits
 
-Assistant implementation: `NOT_STARTED`. Ветка `assistant-v1`: `NOT_CREATED`. Production writes: `DISABLED`.
+Assistant implementation: `NOT_STARTED`. Ветка `assistant-v1`: `EXISTS`; TZ-A100 read-only runtime audit завершён. Production writes: `DISABLED`.
