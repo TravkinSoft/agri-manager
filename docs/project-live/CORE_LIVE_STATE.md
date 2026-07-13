@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-13
+LAST_UPDATED: 2026-07-14
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `687653447753df7cb3eb5fd1eef3454b5fdac046`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `7495e73`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144.
@@ -93,6 +93,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | A101 | DONE | На `assistant-v1` реализован изолированный read-only foundation: 8 tools, user JWT/RLS, mocked QA 16/16, typecheck/build PASS; production не менялась. |
 | №145 | DONE_IN_THIS_COMMIT | Core принял A100/A101, обновил Integration Contract до 0.2 и зарегистрировал A102 только для локальной read-only проверки. Assistant code не объединялся. |
 | A102 | PLANNED | Real Local Runtime Validation разрешён только локально и read-only после sync contract 0.2; merge/deploy запрещены. |
+| №147 | DONE_IN_THIS_COMMIT | Создан отдельный подтверждённый QA Auth-user `Assistant QA Test1`: только TravkinFlowTest1, `agronomist`, не global/company admin. JWT сохранён только в ignored Assistant `.env.local`; RLS read/cross-company denial PASS, business data/schema unchanged. |
 
 ## TZ-146 warehouse preflight
 
@@ -103,6 +104,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Repeat apply fails because `products_density_contract_v2` already exists. Migration `20260713183038` must be made repeat-safe and retested before owner approval.
 - Required future order: warehouse-write pause, fresh backup/preflight, migration, schema postcheck, immediate TZ-144 code deploy, smoke, then resume writes.
 - Production DB, migration history, business data, balances, deploy state, and legacy rows were not changed by TZ-146.
+
+## TZ-147 Assistant QA identity
+
+- TZ-147 status: `DONE`; report: [task-reports/core/TZ-147.md](task-reports/core/TZ-147.md).
+- The only exact `TravkinFlowTest1` company was selected; one confirmed Auth user and one canonical `profiles` link were created.
+- Authorization state is `role=agronomist`, `status=active`, `is_owner=false`; global/company admin privileges are absent and there is no `company_people` row.
+- Normal Auth sign-in and user-JWT RLS checks passed: Test1 season/field/crop structure are readable, while another company's company/profile/field rows are invisible.
+- Access and refresh tokens exist only in ignored `project-assistant-v1/.env.local`. Secret values were neither printed nor committed.
+- Final business fingerprint matches preflight; schema, migrations, migration history, app code, and deployment were not changed.
+- A102 is unblocked only for the already approved local read-only runtime validation. All Assistant write paths remain forbidden.
 
 ## Forbidden actions
 
@@ -122,4 +133,4 @@ ASSISTANT_ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
 ASSISTANT_ALLOWED_DATA: server-authenticated context and results of the eight tools listed in Integration Contract 0.2; code; Project Live; approved architecture text
 ASSISTANT_BLOCKED_AREAS: production deployment; direct SQL; database/schema changes; create/draft/navigation/KB mutations; warehouse/operation writes; migration history; RLS bypass; contract edits by assistant
 
-Assistant implementation: `A101_LOCAL_FOUNDATION_PASS` at `51e878e`; mocked QA `16/16`, typecheck/build PASS. A102: `PLANNED_LOCAL_READ_ONLY`. Assistant merge: `NO`. Production writes: `DISABLED`.
+Assistant implementation: `A101_LOCAL_FOUNDATION_PASS` at `51e878e`; mocked QA `16/16`, typecheck/build PASS. A102: `READY_LOCAL_READ_ONLY_WITH_DEDICATED_QA_JWT`. Assistant merge: `NO`. Production writes: `DISABLED`.
