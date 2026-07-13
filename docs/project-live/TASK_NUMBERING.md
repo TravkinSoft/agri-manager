@@ -24,7 +24,7 @@
 | TZ-141 | ASSISTANT / GOVERNANCE | Assistant isolated branch and Live sync | copilot-v1 -> assistant-v1 | DONE | TZ-139,TZ-140 | [task-reports/core/TZ-141.md](task-reports/core/TZ-141.md) | `d192587` |
 | TZ-A100 | ASSISTANT | Current Architecture & Runtime Audit | assistant-v1 | DONE | TZ-141 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A100.md` | `4cb8cdf` |
 | TZ-A101 | ASSISTANT | Read-only Assistant Foundation | assistant-v1 | DONE | TZ-A100 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A101.md` | `51e878e` |
-| TZ-A102 | ASSISTANT | Real Local Runtime Validation | assistant-v1 | PLANNED | TZ-A101,TZ-145 | `PLANNED` | `N/A` |
+| TZ-A102 | ASSISTANT | Real Local Runtime Validation | assistant-v1 | DONE | TZ-A101,TZ-145 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A102.md` | `c4ec0b0` |
 | TZ-142 | DATABASE | Audit partially equivalent legacy migrations | copilot-v1 | DONE | TZ-141 | [task-reports/core/TZ-142.md](task-reports/core/TZ-142.md) | `SELF` |
 | TZ-143 | WAREHOUSE | Warehouse units and batch classes correction plan | copilot-v1 | DONE | TZ-142 | [task-reports/core/TZ-143.md](task-reports/core/TZ-143.md) | `SELF` |
 | TZ-144 | WAREHOUSE | Canonical warehouse units and batch identity implementation | copilot-v1 | DONE | TZ-143 | [task-reports/core/TZ-144.md](task-reports/core/TZ-144.md) | `SELF` |
@@ -33,6 +33,7 @@
 | TZ-146 | WAREHOUSE / DATABASE | Warehouse Units V2 production preflight | copilot-v1 | DONE | TZ-144,TZ-145 | [task-reports/core/TZ-146.md](task-reports/core/TZ-146.md) | `SELF` |
 | TZ-147 | CORE / ASSISTANT GOVERNANCE | Provision safe QA identity for A102 | copilot-v1 | DONE | TZ-A102,TZ-145 | [task-reports/core/TZ-147.md](task-reports/core/TZ-147.md) | `SELF` |
 | TZ-148 | WAREHOUSE / DATABASE | Make Warehouse Units V2 migration repeat-safe | copilot-v1 | DONE | TZ-144,TZ-146,TZ-147 | [task-reports/core/TZ-148.md](task-reports/core/TZ-148.md) | `SELF` |
+| TZ-149 | GLBD | Component V2 alias and source audit | copilot-v1 | DONE | TZ-148 | [task-reports/core/TZ-149.md](task-reports/core/TZ-149.md) | `SELF` |
 
 ## Status values
 

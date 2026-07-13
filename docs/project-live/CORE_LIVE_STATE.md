@@ -2,10 +2,10 @@
 
 LAST_UPDATED: 2026-07-14
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `ec69412`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `c6788b6`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
-PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144.
+PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
 
 ## Current system status
 
@@ -14,11 +14,11 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Поля | READY | В production 100 company-scoped полей; Field остаётся главным производственным объектом. |
 | Структура посевов | IN_PROGRESS | В production 122 строки. Основной flow и lazy-load больших компаний проверены; fix сохранения участка «Пар» готов в `copilot-v1` по ТЗ №136, но ещё не выпущен в production. |
 | Операции | READY | Создание, роли, материальная сверка и закрытие проверены E2E; формула выдачи и факта контролируется сервером. |
-| Склады | LOCAL_READY | ТЗ №144 локально перевело 15 проблемных writer paths на единый контракт `base_quantity + base_uom + optional mass_kg`, обязательный `batch_class` и доказуемую плотность. Migration `20260713183038` создана, но не применена; production и 7 legacy movements не менялись. |
+| Склады | FROZEN_PENDING_FUTURE_APPLY | ТЗ №144 локально перевело 15 проблемных writer paths на единый контракт `base_quantity + base_uom + optional mass_kg`, обязательный `batch_class` и доказуемую плотность. ТЗ №148 доказало repeat safety. Commit `c6788b6` отправлен в `origin/copilot-v1`; migration `20260713183038` не применена, backfill не запускался, scope заморожен до отдельного production preflight и approval. |
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | LIMITED | Legacy AI и Component Model V2 имеют паритет 425 компонентов / 1373 связей. V2 schema live; app read-cutover на V2 ещё не выполнен и не разрешён этим документом. |
+| ГЛБД | AUDITED_PENDING_REVIEW | Component Model V2 содержит 425 компонентов и 1373 глобальные product links, company links `0`. ТЗ №149 проверило все строки: live aliases `0`, sources `0`; подготовлены 24 безопасных alias-кандидата и 349 bounded source-кандидатов, но import не выполнялся. Формы, биология, safener, возможные дубли и мусор оставлены на ручной review; app read-cutover не разрешён. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 
@@ -92,9 +92,10 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | A100 | DONE | Проведён статический аудит legacy Assistant runtime; выявлены потеря history/context и два core P0. |
 | A101 | DONE | На `assistant-v1` реализован изолированный read-only foundation: 8 tools, user JWT/RLS, mocked QA 16/16, typecheck/build PASS; production не менялась. |
 | №145 | DONE_IN_THIS_COMMIT | Core принял A100/A101, обновил Integration Contract до 0.2 и зарегистрировал A102 только для локальной read-only проверки. Assistant code не объединялся. |
-| A102 | PLANNED | Real Local Runtime Validation разрешён только локально и read-only после sync contract 0.2; merge/deploy запрещены. |
+| A102 | DONE_WITH_FINDINGS | Real Local Runtime Validation завершён на `assistant-v1`: 14/20 PASS, Supabase GET 37, DB writes 0. До отдельного fix/rerun заблокированы Assistant acceptance, merge и deploy. |
 | №147 | DONE_IN_THIS_COMMIT | Создан отдельный подтверждённый QA Auth-user `Assistant QA Test1`: только TravkinFlowTest1, `agronomist`, не global/company admin. JWT сохранён только в ignored Assistant `.env.local`; RLS read/cross-company denial PASS, business data/schema unchanged. |
 | №148 | DONE_IN_THIS_COMMIT | Migration `20260713183038` сделана definition-aware и безопасной при повторе: first/second apply PASS, schema fingerprint и row counts совпадают, 10 constraints/4 indexes/3 triggers без дублей, полный warehouse QA PASS. Production, backfill и legacy rows не менялись. |
+| №149 | DONE_IN_THIS_COMMIT | Read-only аудит всех 425 GLBD V2 компонентов и 1373 product links; подготовлены 8 master/review файлов вне Git, second pass PASS, import/merge/archive/source writes не выполнялись. |
 
 ## TZ-146 warehouse preflight
 
@@ -125,6 +126,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Full kg/l/pcs/seed/transfer/issue/return/reconciliation/storno and protection QA passes; legacy rows changed `0`, production calls `0`.
 - A fresh production backup and repeat preflight are still mandatory. Migration apply, backfill, production writes, merge, and deploy were not performed.
 
+## TZ-149 GLBD Component V2 alias and source audit
+
+- TZ-149 status: `DONE`; report: [task-reports/core/TZ-149.md](task-reports/core/TZ-149.md).
+- Live read-only snapshot: components `425`, global product links `1373`, company links `0`, existing aliases `0`, existing sources `0`.
+- All 425 components and 1373 links were covered. There are 365 components without an English name, 425 without a source row, 12 links without concentration and 1357 links without a verified product-specific source.
+- Outside Git, the owner package contains 528 alias review rows, 441 bounded source rows, 172 identity/review rows and all eight required master/self-check files.
+- Import candidates remain proposals only: aliases `24`; sources `349` (`333` internal-existing-data identity/classification claims plus `16` previously source-verified product claims). Owner approval and a separate import preflight are mandatory.
+- Manual queues: merge-review components `43`, form relations `22`, biological `22`, safener `23`, garbage/relink `15`, needs-source components `92`. No disputed row was marked READY automatically.
+- Production database, business data, schema, migrations, product links, component status and deployment were not changed.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:
@@ -143,4 +154,4 @@ ASSISTANT_ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
 ASSISTANT_ALLOWED_DATA: server-authenticated context and results of the eight tools listed in Integration Contract 0.2; code; Project Live; approved architecture text
 ASSISTANT_BLOCKED_AREAS: production deployment; direct SQL; database/schema changes; create/draft/navigation/KB mutations; warehouse/operation writes; migration history; RLS bypass; contract edits by assistant
 
-Assistant implementation: `A101_LOCAL_FOUNDATION_PASS` at `51e878e`; mocked QA `16/16`, typecheck/build PASS. A102: `READY_LOCAL_READ_ONLY_WITH_DEDICATED_QA_JWT`. Assistant merge: `NO`. Production writes: `DISABLED`.
+Assistant implementation: `A101_LOCAL_FOUNDATION_PASS` at `51e878e`; mocked QA `16/16`, typecheck/build PASS. A102 completed at `c4ec0b0` with `14/20` scenarios passing and six findings; DB writes `0`. Assistant acceptance/merge/deploy remain blocked pending a separate fix and rerun. Production writes: `DISABLED`.
