@@ -94,6 +94,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №145 | DONE_IN_THIS_COMMIT | Core принял A100/A101, обновил Integration Contract до 0.2 и зарегистрировал A102 только для локальной read-only проверки. Assistant code не объединялся. |
 | A102 | PLANNED | Real Local Runtime Validation разрешён только локально и read-only после sync contract 0.2; merge/deploy запрещены. |
 
+## TZ-146 warehouse preflight
+
+- TZ-146 status: `DONE_WITH_BLOCKER`; report: [task-reports/core/TZ-146.md](task-reports/core/TZ-146.md).
+- Fresh read-only backup is verified outside Git at `C:\Users\TRAVKIN\Downloads\TravkinFlow-backups\TZ-146\warehouse-units-v2-20260713T194902571Z`; manifest SHA-256 `A1DDB99AC36FC85296E5BA188E31B89CB57293857454FFE6DA16CBA7A733498F`.
+- First isolated migration apply and full warehouse QA pass; the known legacy 7+7 rows remain unchanged.
+- Production preflight found 87 products with unsupported `base_uom=unknown`, 7 ledger rows with NULL `batch_class`, and one legacy mixed kg/l group. Existing inventory/ledger movements have no unsupported unit after RU/EN canonicalization and have zero cross-company conflicts.
+- Repeat apply fails because `products_density_contract_v2` already exists. Migration `20260713183038` must be made repeat-safe and retested before owner approval.
+- Required future order: warehouse-write pause, fresh backup/preflight, migration, schema postcheck, immediate TZ-144 code deploy, smoke, then resume writes.
+- Production DB, migration history, business data, balances, deploy state, and legacy rows were not changed by TZ-146.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:

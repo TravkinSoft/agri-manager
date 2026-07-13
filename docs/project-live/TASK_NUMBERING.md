@@ -30,6 +30,8 @@
 | TZ-144 | WAREHOUSE | Canonical warehouse units and batch identity implementation | copilot-v1 | DONE | TZ-143 | [task-reports/core/TZ-144.md](task-reports/core/TZ-144.md) | `SELF` |
 | TZ-145 | CORE / ASSISTANT GOVERNANCE | Approve read-only Assistant foundation | copilot-v1 | DONE | TZ-A100,TZ-A101 | [task-reports/core/TZ-145.md](task-reports/core/TZ-145.md) | `SELF` |
 
+| TZ-146 | WAREHOUSE / DATABASE | Warehouse Units V2 production preflight | copilot-v1 | DONE | TZ-144,TZ-145 | [task-reports/core/TZ-146.md](task-reports/core/TZ-146.md) | `SELF` |
+
 ## Status values
 
 Use one of: `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `SUPERSEDED`.
