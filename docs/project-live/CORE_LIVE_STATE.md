@@ -14,8 +14,8 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Поля | READY | В production 100 company-scoped полей; Field остаётся главным производственным объектом. |
 | Структура посевов | IN_PROGRESS | В production 122 строки. Основной flow и lazy-load больших компаний проверены; fix сохранения участка «Пар» готов в `copilot-v1` по ТЗ №136, но ещё не выпущен в production. |
 | Операции | READY | Создание, роли, материальная сверка и закрытие проверены E2E; формула выдачи и факта контролируется сервером. |
-| Склады | LIMITED | В production 2 склада; выдача, возврат и ledger работают. Открыт P1 по единообразной crop/material request identity в отдельных представлениях. |
-| Ledger | READY | `stock_ledger_entries` и канонические balance views являются источником складской правды; OUT создаёт складская выдача, IN — приём возврата или подтверждённый приход. |
+| Склады | LIMITED | В production 2 склада; выдача, возврат и ledger работают. ТЗ №142 подтвердило P1: 7 confirmed transactions не имеют `base_quantity_kg`, а объёмные движения могут попадать в ledger с подписью `kg`. До backfill нужно исправить writer и утвердить политику `kg/л`. |
+| Ledger | LIMITED | `stock_ledger_entries` и balance views остаются источником складской правды, но 7 строк имеют `batch_class=NULL`, который view маскирует как `commodity`. Нужен coordinated corrective batch без изменения данных до backup/approval. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
 | ГЛБД | LIMITED | Legacy AI и Component Model V2 имеют паритет 425 компонентов / 1373 связей. V2 schema live; app read-cutover на V2 ещё не выполнен и не разрешён этим документом. |
@@ -28,9 +28,9 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Remote migration history: 76 записей; head `20260712203746` (`glbd_component_model_v2`).
 - Восемь ранее отсутствовавших версий `20260623170000`–`20260712203746` уже синхронизированы с remote history без повторного запуска migration SQL.
 - ТЗ №140 синхронизировало 6 проверенных `SUPERSEDED` versions: `20260412234000`, `20260413182000`, `20260417103000`, `20260430110000`, `20260510110000`, `20260521100500`. Выполнялся только официальный history repair; migration SQL не запускался.
-- После ТЗ №140 остаётся 57 старых local-only migration-history позиций из программы аудита ТЗ №135. Их нельзя автоматически считать применёнными.
+- После ТЗ №140 остаётся 57 старых local-only migration-history позиций из программы аудита ТЗ №135. ТЗ №142 подробно классифицировало 15 из них с неполным результатом: 7 schema-only corrections, 2 schema+data corrections и 6 superseded intents. Ни одна версия не repaired/applied.
 - `db push`: **НЕ РАЗРЕШЁН** до отдельного owner-approved batch plan по старым migration versions.
-- Активные блокеры DB-процесса: 57 версий требуют отдельного batch-by-batch решения; повторное исполнение уже эквивалентных SQL запрещено.
+- Активные блокеры DB-процесса: для 15 неполных версий есть batch roadmap, но нет owner approval на apply; остальные local-only versions также нельзя repair/apply массово. Повторное исполнение старого SQL запрещено.
 - Последний подтверждённый migration-history backup: `C:\Users\TRAVKIN\Downloads\CodecSaaS\audit-output\TZ-140\backups\migration-history-20260713T161533631Z`; manifest SHA-256 `60dde2ad4d9150c42babf01485c183017611c7bf2245468d8a90c086eb0fb683`. Backup содержит все 70 pre-repair history rows со statements, local/remote inventories, hashes шести файлов и evidence ТЗ №137; это не полный PITR backup бизнес-данных.
 - Post-repair read-only snapshot ТЗ №140: products 1231; fields 100; crop_structure 122; operations 8; warehouses 2; legacy AI 425/1373; GLBD V2 425/1373. Public schema, variety и crop-identity fingerprints совпали с pre-repair snapshot.
 
@@ -72,6 +72,8 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Fix участка «Пар» (ТЗ №136) и canonical varieties migration (ТЗ №138) находятся только в `copilot-v1`, production их ещё не получил.
 - Closed-season read-only enforcement не подтверждён как полный для всех write routes.
 - GLBD Component Model V2 ещё не стал app read source; legacy/V2 cutover должен быть отдельным ТЗ.
+- Складская базовая единица и batch identity: 7 inventory rows имеют `base_quantity_kg=NULL`, 7 ledger rows имеют `batch_class=NULL`; литровые движения нельзя автоматически backfill как kg.
+- Land legal MVP не имеет трёх integrity guards. Live duplicate preflight чистый и land tables пусты, но до начала реального ввода нужен отдельный schema-only corrective batch.
 
 ## Current tasks
 
@@ -81,6 +83,8 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №138 | DONE | Canonical global varieties migration, commit `4eb2d58` в `origin/copilot-v1`; production release не выполнен. |
 | №139 | DONE | Создана Project Live и handoff foundation, commit `3ef0afe` в `origin/copilot-v1`; app/DB не менялись. |
 | №140 | DONE_IN_THIS_COMMIT | Commit ТЗ №138/139 сохранены в origin; 6 history versions repaired; schema/business data не изменились; осталось 57 local-only versions. |
+| №141 | DONE | Созданы изолированные branch/worktree и Live sync protocol для Travkin Assistant; runtime не запускался. |
+| №142 | DONE_IN_THIS_COMMIT | Read-only аудит 15 неполных миграций: P0=0, P1=3, P2=12; подготовлены 8 безопасных corrective/supersession batches; DB не менялась. |
 
 ## Forbidden actions
 
