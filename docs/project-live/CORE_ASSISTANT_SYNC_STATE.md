@@ -1,20 +1,27 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-14T02:34:32+05:00
+LAST_REVIEW_AT: 2026-07-14T03:08:54+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `b42d777`)
+CORE_COMMIT: `SELF` (previous core commit: `f4a7088`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
-ASSISTANT_COMMIT_REVIEWED: `c4ec0b041b6486d0a3af6d759597c05129d0a470`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T02:34:32+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T02:34:32+05:00
-LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A102.md` — real local read-only validation completed with findings: 14/20 scenarios passed, 6 failed, DB writes `0`.
+ASSISTANT_COMMIT_REVIEWED: `20117c6739f6ebb2c538e33f073822b8eb1985f3`
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T03:08:54+05:00
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T03:08:54+05:00
+LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A103.md` — read-only acceptance completed: 20/20 scenarios passed, DB writes `0`.
 
-ASSISTANT_CHANGES_FOUND: YES — TZ-A102 changed assistant-owned documentation and audit state only; app code, core files, schema and production were not changed.
-CORE_IMPACT_FOUND: FINDINGS_REQUIRE_SEPARATE_ASSISTANT_FIX_TASK — A102 exposed weak write-intent refusal and a model-layer foreign-company grounding failure, although user-JWT RLS continued to hide foreign rows.
+ASSISTANT_CHANGES_FOUND: YES — TZ-A103 fixed Assistant-owned read-only runtime findings; core files, schema, GLBD and production were not changed.
+CORE_IMPACT_FOUND: NO — A103 remains inside the existing contract 0.2 eight-tool read-only boundary.
 INTEGRATION_CONTRACT_IMPACT: NO — contract 0.2 and the eight-tool read-only allowlist remain unchanged.
-CORE_ACTION_REQUIRED: NO_FOR_TZ150 — the GLBD import-preview and isolated test can proceed independently; Assistant acceptance, merge and deployment remain blocked pending a separate owner-approved fix and rerun.
-NEXT_SAFE_ACTION: Keep `assistant-v1` isolated. Register a separate Assistant task for the six A102 findings before any merge or deploy; do not alter Assistant code as part of GLBD work.
+CORE_ACTION_REQUIRED: NO_FOR_TZ151 — the exact owner-approved GLBD insert could proceed independently.
+NEXT_SAFE_ACTION: Keep `assistant-v1` isolated; merge, deploy and Assistant write capability still require separate owner approval.
+
+## TZ-151 review result
+
+TZ151_ASSISTANT_CHANGES_FOUND: `A103_READ_ONLY_RUNTIME_FIXES_AND_ACCEPTANCE_ONLY`
+TZ151_CORE_IMPACT_FOUND: `NO_BLOCKER_FOR_EXACT_GLBD_ALIAS_SOURCE_INSERT`
+TZ151_INTEGRATION_CONTRACT_IMPACT: `NO`; Integration Contract was not edited.
+TZ151_ACTION: Imported exactly 24 aliases and 295 sources after backup and live preflight. No merge, rebase, Assistant code change, migration, deployment, component/product-link/company mutation or blocked-row import occurred.
 
 ## TZ-150 review result
 

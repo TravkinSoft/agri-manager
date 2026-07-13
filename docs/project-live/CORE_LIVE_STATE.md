@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-14
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `b42d777`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `f4a7088`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -18,13 +18,14 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | IMPORT_PREVIEW_READY_WITH_BLOCKS | Component Model V2 содержит 425 компонентов и 1373 глобальные product links, company links `0`. ТЗ №150 проверило входные 24/349: aliases safe `24`, sources safe `295`, sources blocked `54` (44 review conflicts + 10 inactive components). Первый/второй isolated apply и точный rollback PASS; production import не выполнялся, app read-cutover не разрешён. |
+| ГЛБД | FIRST_ALIAS_SOURCE_IMPORT_DONE | Component Model V2 содержит 425 компонентов, 1373 глобальные product links, 24 aliases и 295 sources; company links `0`. ТЗ №151 импортировало только утверждённый пакет, второй apply добавил `0/0`, дубли/orphans `0`, полный component/product-link payload не изменился. 54 source-строки остаются заблокированными; app read-cutover не выполнялся. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 
 ## Current database state
 
 - Supabase project: `bhsemlvmkikpntabctml`.
+- GLBD V2 после ТЗ №151: components `425`, product links `1373`, aliases `24`, sources `295`, company links `0`. Components, product links и company scope совпали с pre-import backup.
 - Remote migration history: 76 записей; head `20260712203746` (`glbd_component_model_v2`).
 - Восемь ранее отсутствовавших версий `20260623170000`–`20260712203746` уже синхронизированы с remote history без повторного запуска migration SQL.
 - ТЗ №140 синхронизировало 6 проверенных `SUPERSEDED` versions: `20260412234000`, `20260413182000`, `20260417103000`, `20260430110000`, `20260510110000`, `20260521100500`. Выполнялся только официальный history repair; migration SQL не запускался.
@@ -74,6 +75,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Fix участка «Пар» (ТЗ №136) и canonical varieties migration (ТЗ №138) находятся только в `copilot-v1`, production их ещё не получил.
 - Closed-season read-only enforcement не подтверждён как полный для всех write routes.
 - GLBD Component Model V2 ещё не стал app read source; legacy/V2 cutover должен быть отдельным ТЗ.
+- UI пока не читает `glbd_component_aliases` и `glbd_component_sources`; database identity search PASS, а подключение alias/source к app search/card является отдельным scope. 54 source-строки остаются в review/inactive/source очередях и не были импортированы.
 - Складская базовая единица и batch identity: ТЗ №144 локально подготовила additive schema, единый resolver, исправления 15 writer paths и unit-aware views; isolated migration/E2E PASS. Migration ещё не применена к production, а 7 inventory/7 ledger legacy rows не backfill-ились. Перед production нужен отдельный backup, live preflight, preview E2E и owner approval.
 - Land legal MVP не имеет трёх integrity guards. Live duplicate preflight чистый и land tables пусты, но до начала реального ввода нужен отдельный schema-only corrective batch.
 
@@ -93,10 +95,12 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | A101 | DONE | На `assistant-v1` реализован изолированный read-only foundation: 8 tools, user JWT/RLS, mocked QA 16/16, typecheck/build PASS; production не менялась. |
 | №145 | DONE_IN_THIS_COMMIT | Core принял A100/A101, обновил Integration Contract до 0.2 и зарегистрировал A102 только для локальной read-only проверки. Assistant code не объединялся. |
 | A102 | DONE_WITH_FINDINGS | Real Local Runtime Validation завершён на `assistant-v1`: 14/20 PASS, Supabase GET 37, DB writes 0. До отдельного fix/rerun заблокированы Assistant acceptance, merge и deploy. |
+| A103 | DONE | Все 20/20 read-only acceptance scenarios PASS на `assistant-v1`; DB writes 0, foreign rows 0, contract остаётся 0.2. Merge/deploy/write capability по-прежнему требуют отдельного approval. |
 | №147 | DONE_IN_THIS_COMMIT | Создан отдельный подтверждённый QA Auth-user `Assistant QA Test1`: только TravkinFlowTest1, `agronomist`, не global/company admin. JWT сохранён только в ignored Assistant `.env.local`; RLS read/cross-company denial PASS, business data/schema unchanged. |
 | №148 | DONE_IN_THIS_COMMIT | Migration `20260713183038` сделана definition-aware и безопасной при повторе: first/second apply PASS, schema fingerprint и row counts совпадают, 10 constraints/4 indexes/3 triggers без дублей, полный warehouse QA PASS. Production, backfill и legacy rows не менялись. |
 | №149 | DONE_IN_THIS_COMMIT | Read-only аудит всех 425 GLBD V2 компонентов и 1373 product links; подготовлены 8 master/review файлов вне Git, second pass PASS, import/merge/archive/source writes не выполнялись. |
 | №150 | DONE_IN_THIS_COMMIT | Import preview вне migrations: input 24 aliases/349 sources, final safe 24/295, blocked sources 54; first apply 24/295, second apply +0/+0, rollback 0/0, DB и business data не менялись. |
+| №151 | DONE_IN_THIS_COMMIT | После verified backup/live preflight импортированы ровно 24 aliases и 295 sources; blocked 54 не затронуты, second apply +0/+0, дубли/orphans/company links 0, components/product links неизменны 425/1373. |
 
 ## TZ-146 warehouse preflight
 
@@ -148,6 +152,18 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - `READY_FOR_PRODUCTION_IMPORT=NO`: this task grants no apply approval, and the 54 blocked source rows require separate owner decisions. A future apply may use only the exact 24/295 subset after fresh live preflight, backup and explicit approval.
 - Production database, business data, schema, migration history, deployment, Assistant code and Integration Contract were not changed.
 
+## TZ-151 GLBD aliases and sources production import
+
+- TZ-151 status: `DONE`; report: [task-reports/core/TZ-151.md](task-reports/core/TZ-151.md).
+- Exact TZ-150 candidate hashes passed: aliases `24`, sources `295`, blocked IDs in apply `0`.
+- Verified backup is outside Git at `C:\Users\TRAVKIN\Downloads\CodecSaaS\db-backups\glbd-aliases-sources-tz151-20260713T215635254Z`; backup manifest was verified before apply.
+- One guarded transaction inserted the two approved tables only. The second identical apply added aliases `0`, sources `0`.
+- Final production: aliases `24`, sources `295`, alias/source duplicates `0/0`, collisions `0`, orphans `0/0`, company links `0`.
+- Full pre/post snapshots prove components and product links unchanged at `425/1373`; product/company scope also stayed unchanged.
+- Exact-ID rollback was not run in production. The production-ready rollback restored the isolated baseline from `24/295` to `0/0` while preserving `425/1373`.
+- Database-level canonical/English/Russian/case/hyphen-normalized search resolves to one active component. Current app code has no alias/source-table reads, so UI cutover remains separate.
+- The 54 blocked source rows remain outside production tables and require their own owner-review task.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:
@@ -166,4 +182,4 @@ ASSISTANT_ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
 ASSISTANT_ALLOWED_DATA: server-authenticated context and results of the eight tools listed in Integration Contract 0.2; code; Project Live; approved architecture text
 ASSISTANT_BLOCKED_AREAS: production deployment; direct SQL; database/schema changes; create/draft/navigation/KB mutations; warehouse/operation writes; migration history; RLS bypass; contract edits by assistant
 
-Assistant implementation: `A101_LOCAL_FOUNDATION_PASS` at `51e878e`; mocked QA `16/16`, typecheck/build PASS. A102 completed at `c4ec0b0` with `14/20` scenarios passing and six findings; DB writes `0`. Assistant acceptance/merge/deploy remain blocked pending a separate fix and rerun. Production writes: `DISABLED`.
+Assistant implementation: `A103_READ_ONLY_RUNTIME_ACCEPTANCE_PASS_20_OF_20` at `20117c6`; mocked and real read-only checks PASS, DB writes `0`, foreign rows `0`, contract 0.2 unchanged. Merge/deploy/write capability remain blocked without separate owner approval. Production writes: `DISABLED`.
