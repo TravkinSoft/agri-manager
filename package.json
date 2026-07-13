@@ -17,6 +17,7 @@
     "qa:assistant:backlog-step2-step3-step6": "npx tsx scripts/qa-copilot-backlog-step2-step3-step6.ts",
     "qa:assistant:trace": "npx tsx scripts/trace-copilot-decision-flow.ts",
     "qa:warehouse:units-v2": "npx tsx scripts/qa-warehouse-canonical-units-v2.ts",
+    "qa:glbd:component-discovery": "npx tsx scripts/qa-glbd-component-discovery.ts",
     "cleanup:users": "node scripts/cleanup-users-keep-admin.mjs",
     "import:structure2026:dry": "node scripts/import-structure-2026.mjs --mode dry-run",
     "import:structure2026:execute": "node scripts/import-structure-2026.mjs --mode execute --confirm-reset true"

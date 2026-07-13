@@ -18,7 +18,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | FIRST_ALIAS_SOURCE_IMPORT_DONE | Component Model V2 содержит 425 компонентов, 1373 глобальные product links, 24 aliases и 295 sources; company links `0`. ТЗ №151 импортировало только утверждённый пакет, второй apply добавил `0/0`, дубли/orphans `0`, полный component/product-link payload не изменился. 54 source-строки остаются заблокированными; app read-cutover не выполнялся. |
+| ГЛБД | ALIAS_SOURCE_READ_PATH_READY_LOCAL | Component Model V2 содержит 425 компонентов, 1373 глобальные product links, 24 aliases и 295 sources; company links `0`. ТЗ №152 подключило aliases к существующему поиску и knowledge intake, а sources — к ленивой карточке компонента в `copilot-v1`. 54 заблокированные source-строки отсутствуют в production и не используются. Deploy не выполнялся. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 
@@ -58,6 +58,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - После применения migration `20260713183038` все новые warehouse writers обязаны использовать общий server resolver `resolveWarehouseStockContract`: canonical units `kg/l/pcs`, обязательный `batch_class`, `mass_kg` для жидкости только с verified density evidence. До отдельного production preflight этот контракт остаётся локальным и не меняет live DB.
 - `GET /api/weighbridge/resources` возвращает company-scoped vehicles и допустимых responsible persons; `/api/weighbridge/tickets/**` хранит и закрывает талон; company label берётся из записи талона.
 - GLBD legacy и V2 находятся в production параллельно. Наличие V2 не разрешает ассистенту или UI самовольно переключать read path.
+- `GET /api/global-admin/catalog/active_ingredients` в `copilot-v1` дополняет legacy IDs каноническими GLBD names/aliases, а запрос с `componentId` лениво возвращает только активный компонент и его подтверждённые sources. Списки и selects не загружают source rows.
 - Legacy `/api/assistant/**` в core не становятся автоматически разрешёнными. Contract 0.2 принимает только изолированный A101 read-only runtime на `assistant-v1` с восемью явно перечисленными tools; merge и production deployment не разрешены.
 
 ## Known P0/P1 issues
@@ -74,8 +75,8 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Material request crop/product identity отображается не полностью единообразно во всех экранах; canonical IDs и warehouse flow не должны заменяться UI fallback-текстом.
 - Fix участка «Пар» (ТЗ №136) и canonical varieties migration (ТЗ №138) находятся только в `copilot-v1`, production их ещё не получил.
 - Closed-season read-only enforcement не подтверждён как полный для всех write routes.
-- GLBD Component Model V2 ещё не стал app read source; legacy/V2 cutover должен быть отдельным ТЗ.
-- UI пока не читает `glbd_component_aliases` и `glbd_component_sources`; database identity search PASS, а подключение alias/source к app search/card является отдельным scope. 54 source-строки остаются в review/inactive/source очередях и не были импортированы.
+- Полный GLBD V2 product-link cutover ещё не выполнен: product identity и concentration продолжают использовать проверенные legacy links, а ТЗ №152 добавляет только каноническое отображение/поиск и lazy source cards.
+- Alias/source read path ТЗ №152 находится только в `copilot-v1`; production UI ещё не получил этот код. 54 заблокированные source-строки не импортированы и fallback на них отсутствует.
 - Складская базовая единица и batch identity: ТЗ №144 локально подготовила additive schema, единый resolver, исправления 15 writer paths и unit-aware views; isolated migration/E2E PASS. Migration ещё не применена к production, а 7 inventory/7 ledger legacy rows не backfill-ились. Перед production нужен отдельный backup, live preflight, preview E2E и owner approval.
 - Land legal MVP не имеет трёх integrity guards. Live duplicate preflight чистый и land tables пусты, но до начала реального ввода нужен отдельный schema-only corrective batch.
 
@@ -101,6 +102,8 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №149 | DONE_IN_THIS_COMMIT | Read-only аудит всех 425 GLBD V2 компонентов и 1373 product links; подготовлены 8 master/review файлов вне Git, second pass PASS, import/merge/archive/source writes не выполнялись. |
 | №150 | DONE_IN_THIS_COMMIT | Import preview вне migrations: input 24 aliases/349 sources, final safe 24/295, blocked sources 54; first apply 24/295, second apply +0/+0, rollback 0/0, DB и business data не менялись. |
 | №151 | DONE_IN_THIS_COMMIT | После verified backup/live preflight импортированы ровно 24 aliases и 295 sources; blocked 54 не затронуты, second apply +0/+0, дубли/orphans/company links 0, components/product links неизменны 425/1373. |
+| A104 | DONE | На `assistant-v1` завершён server-owned conversation runtime v2: mocked 20/20, real local 12/12, ERP writes 0; core/GLBD contract не изменён. |
+| №152 | DONE_IN_THIS_COMMIT | Existing Global Admin catalog API расширен batch-поиском по canonical/RU/EN/24 aliases; product composition открывает lazy component card с 295 verified sources. DB/migration/deploy не менялись. |
 
 ## TZ-146 warehouse preflight
 
@@ -164,6 +167,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Database-level canonical/English/Russian/case/hyphen-normalized search resolves to one active component. Current app code has no alias/source-table reads, so UI cutover remains separate.
 - The 54 blocked source rows remain outside production tables and require their own owner-review task.
 
+## TZ-152 GLBD alias search and component source cards
+
+- TZ-152 status: `DONE`; report: [task-reports/core/TZ-152.md](task-reports/core/TZ-152.md).
+- Existing Global Admin catalog flow remains the only search path: text -> `/api/global-admin/catalog/[entity]` -> batch GLBD components+aliases -> canonical dedupe -> current table UI. No parallel search service was created.
+- Canonical, Russian, English and alias matching share case/space/punctuation/hyphen normalization. Exact cross-component alias conflicts return an explicit clarification instead of selecting a random component.
+- Product catalogs for pesticides, fertilizers and growth regulators keep legacy product/link IDs and concentrations, but display canonical component names and open the same GLBD component card from composition.
+- Component sources are loaded only when a card opens. Source type and claim scope are localized; URL is limited to HTTP(S); empty cards show a human empty state. List/select requests never load the 295 source rows.
+- Live read-only verification: components `425`, visible `415`, aliases `24`, sources `295`, `needs_source=0`, source orphans `0`, cross-component alias conflicts `0`.
+- The 54 rejected candidate sources remain absent from production and cannot appear through fallback. Production DB, company data, product links, concentrations, schema, migrations and deployment were not changed.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:
@@ -182,4 +195,4 @@ ASSISTANT_ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
 ASSISTANT_ALLOWED_DATA: server-authenticated context and results of the eight tools listed in Integration Contract 0.2; code; Project Live; approved architecture text
 ASSISTANT_BLOCKED_AREAS: production deployment; direct SQL; database/schema changes; create/draft/navigation/KB mutations; warehouse/operation writes; migration history; RLS bypass; contract edits by assistant
 
-Assistant implementation: `A103_READ_ONLY_RUNTIME_ACCEPTANCE_PASS_20_OF_20` at `20117c6`; mocked and real read-only checks PASS, DB writes `0`, foreign rows `0`, contract 0.2 unchanged. Merge/deploy/write capability remain blocked without separate owner approval. Production writes: `DISABLED`.
+Assistant implementation: `A104_SERVER_CONVERSATION_RUNTIME_V2_PASS` at `2152b73`; mocked `20/20` and real local `12/12`, ERP writes `0`, foreign rows `0`, contract 0.2 unchanged. Merge/deploy/write capability remain blocked without separate owner approval. Production writes: `DISABLED`.

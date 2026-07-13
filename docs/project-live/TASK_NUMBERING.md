@@ -26,6 +26,7 @@
 | TZ-A101 | ASSISTANT | Read-only Assistant Foundation | assistant-v1 | DONE | TZ-A100 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A101.md` | `51e878e` |
 | TZ-A102 | ASSISTANT | Real Local Runtime Validation | assistant-v1 | DONE | TZ-A101,TZ-145 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A102.md` | `c4ec0b0` |
 | TZ-A103 | ASSISTANT | Close A102 findings and pass read-only acceptance | assistant-v1 | DONE | TZ-A102 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A103.md` | `20117c6` |
+| TZ-A104 | ASSISTANT | Server Conversation Runtime V2 | assistant-v1 | DONE | TZ-A103 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A104.md` | `2152b73` |
 | TZ-142 | DATABASE | Audit partially equivalent legacy migrations | copilot-v1 | DONE | TZ-141 | [task-reports/core/TZ-142.md](task-reports/core/TZ-142.md) | `SELF` |
 | TZ-143 | WAREHOUSE | Warehouse units and batch classes correction plan | copilot-v1 | DONE | TZ-142 | [task-reports/core/TZ-143.md](task-reports/core/TZ-143.md) | `SELF` |
 | TZ-144 | WAREHOUSE | Canonical warehouse units and batch identity implementation | copilot-v1 | DONE | TZ-143 | [task-reports/core/TZ-144.md](task-reports/core/TZ-144.md) | `SELF` |
@@ -37,6 +38,7 @@
 | TZ-149 | GLBD | Component V2 alias and source audit | copilot-v1 | DONE | TZ-148 | [task-reports/core/TZ-149.md](task-reports/core/TZ-149.md) | `SELF` |
 | TZ-150 | GLBD | Component aliases and sources import preview | copilot-v1 | DONE | TZ-149 | [task-reports/core/TZ-150.md](task-reports/core/TZ-150.md) | `SELF` |
 | TZ-151 | GLBD | Import approved component aliases and sources | copilot-v1 | DONE | TZ-150 | [task-reports/core/TZ-151.md](task-reports/core/TZ-151.md) | `SELF` |
+| TZ-152 | GLBD / UI | Surface component aliases in search and sources in cards | copilot-v1 | DONE | TZ-151 | [task-reports/core/TZ-152.md](task-reports/core/TZ-152.md) | `SELF` |
 
 ## Status values
 

@@ -703,9 +703,9 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
   active_ingredients: {
     entity: "active_ingredients",
     title: "Действующие вещества",
-    description: "Справочник действующих веществ.",
+    description: "Компоненты GLBD с официальными и дополнительными названиями.",
     createLabel: "Добавить ДВ",
-    searchPlaceholder: "Поиск по названию, slug...",
+    searchPlaceholder: "Поиск по русскому, английскому или дополнительному названию...",
     columns: [
       { key: "name_ru", label: "Название (RU)" },
       { key: "name_en", label: "Название (EN)" },

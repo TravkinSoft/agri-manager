@@ -112,6 +112,9 @@ function isVisibleCatalogRow(row: Record<string, unknown>): boolean {
 }
 
 function rowAliases(row: Record<string, unknown>): string[] {
+  const glbdAliases = Array.isArray(row.glbd_aliases)
+    ? row.glbd_aliases.map((value) => text(value))
+    : [];
   return uniqueTexts([
     text(row.name),
     text(row.name_ru),
@@ -119,6 +122,7 @@ function rowAliases(row: Record<string, unknown>): string[] {
     text(row.latin_name),
     text(row.normalized_name),
     text(row.slug),
+    ...glbdAliases,
   ]);
 }
 
@@ -159,16 +163,69 @@ async function loadRows(supabase: SupabaseClient, table: string): Promise<Record
 }
 
 export async function loadKnowledgeCatalogReferences(supabase: SupabaseClient): Promise<CatalogReferences> {
-  const [activeIngredientsRows, cropRows, diseaseRows, pestRows, weedRows] = await Promise.all([
+  const [
+    activeIngredientsRows,
+    glbdComponentsResult,
+    glbdAliasesResult,
+    cropRows,
+    diseaseRows,
+    pestRows,
+    weedRows,
+  ] = await Promise.all([
     loadRows(supabase, "active_ingredients"),
+    supabase
+      .from("glbd_components")
+      .select("id,legacy_active_ingredient_id,canonical_name,name_ru,name_en")
+      .eq("is_active", true)
+      .is("archived_at", null),
+    supabase
+      .from("glbd_component_aliases")
+      .select("component_id,alias_text,normalized_text"),
     loadRows(supabase, "crops"),
     loadRows(supabase, "diseases"),
     loadRows(supabase, "pests"),
     loadRows(supabase, "weeds"),
   ]);
 
+  if (glbdComponentsResult.error) {
+    throw new Error(`Failed to load glbd_components: ${glbdComponentsResult.error.message}`);
+  }
+  if (glbdAliasesResult.error) {
+    throw new Error(`Failed to load glbd_component_aliases: ${glbdAliasesResult.error.message}`);
+  }
+
+  const aliasesByComponent = new Map<string, string[]>();
+  for (const alias of glbdAliasesResult.data || []) {
+    const list = aliasesByComponent.get(alias.component_id) || [];
+    list.push(alias.alias_text, alias.normalized_text);
+    aliasesByComponent.set(alias.component_id, list);
+  }
+
+  const componentByLegacyId = new Map<string, any>();
+  for (const component of glbdComponentsResult.data || []) {
+    if (component.legacy_active_ingredient_id) {
+      componentByLegacyId.set(component.legacy_active_ingredient_id, component);
+    }
+  }
+
+  const enrichedActiveIngredientRows = activeIngredientsRows.map((row) => {
+    const component = componentByLegacyId.get(text(row.id));
+    if (!component) return row;
+    return {
+      ...row,
+      name_ru: component.name_ru || row.name_ru,
+      name_en: component.name_en || row.name_en,
+      glbd_aliases: uniqueTexts([
+        component.canonical_name,
+        component.name_ru,
+        component.name_en,
+        ...(aliasesByComponent.get(component.id) || []),
+      ]),
+    };
+  });
+
   return {
-    activeIngredients: activeIngredientsRows.map(toCatalogRef).filter(Boolean) as CatalogRef[],
+    activeIngredients: enrichedActiveIngredientRows.map(toCatalogRef).filter(Boolean) as CatalogRef[],
     crops: cropRows.map(toCatalogRef).filter(Boolean) as CatalogRef[],
     targets: [
       ...(diseaseRows.map((row) => toTargetRef("disease", row)).filter(Boolean) as CatalogTargetRef[]),

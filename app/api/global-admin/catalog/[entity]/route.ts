@@ -5,6 +5,19 @@ import { localizedName } from "@/lib/i18n/helpers";
 import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
 import { buildProductPassport } from "@/lib/products/product-passport";
 import type { GlobalCatalogEntity } from "@/lib/platform/global-catalog-config";
+import {
+  buildGlbdComponentSearchEntries,
+  dedupeByCanonicalComponent,
+  findExactGlbdAliasConflict,
+  glbdComponentDisplayName,
+  glbdComponentMatchesSearch,
+  glbdComponentTypeLabel,
+  isVisibleGlbdComponent,
+  matchedGlbdAlias,
+  normalizeGlbdSearchText,
+  toGlbdComponentSourceDisplay,
+  type GlbdComponentSearchEntry,
+} from "@/lib/glbd/component-discovery";
 
 type EntityConfig = {
   table: string;
@@ -738,6 +751,19 @@ function expandProductSearchTerms(search: string): string[] {
 
 function productSearchMatches(row: any, search: string): boolean {
   const searchTerms = expandProductSearchTerms(search).map(normalizeSearchText);
+  const componentTerms = Array.isArray(row.active_ingredient_components)
+    ? row.active_ingredient_components.flatMap((component: any) => [
+        component.displayName,
+        component.nameEn,
+        ...(Array.isArray(component.aliases) ? component.aliases : []),
+      ])
+    : [];
+  const componentNeedle = normalizeGlbdSearchText(search);
+  const componentMatch = componentNeedle
+    ? componentTerms.some((value: any) =>
+        normalizeGlbdSearchText(value).includes(componentNeedle)
+      )
+    : false;
   const hay = [
     row.trade_name,
     row.name,
@@ -747,7 +773,7 @@ function productSearchMatches(row: any, search: string): boolean {
     row.manufacturer_name,
     row.manufacturer,
   ].map(normalizeSearchText);
-  return searchTerms.some((term) => term && hay.some((value) => value.includes(term)));
+  return componentMatch || searchTerms.some((term) => term && hay.some((value) => value.includes(term)));
 }
 
 function isUuidLike(value: string): boolean {
@@ -910,7 +936,147 @@ async function attachSeedProductNames(supabase: any, rows: any[]) {
   });
 }
 
-async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
+async function loadGlbdComponentSearchIndex(supabase: any): Promise<GlbdComponentSearchEntry[]> {
+  const [componentsResult, aliasesResult] = await Promise.all([
+    supabase
+      .from("glbd_components")
+      .select(
+        "id,legacy_active_ingredient_id,canonical_name,name_ru,name_en,component_type,is_active,archived_at"
+      ),
+    supabase
+      .from("glbd_component_aliases")
+      .select("component_id,alias_text,normalized_text,language"),
+  ]);
+
+  if (componentsResult.error) {
+    throw new Error(`Не удалось загрузить компоненты GLBD: ${componentsResult.error.message}`);
+  }
+  if (aliasesResult.error) {
+    throw new Error(`Не удалось загрузить дополнительные названия GLBD: ${aliasesResult.error.message}`);
+  }
+
+  return buildGlbdComponentSearchEntries(
+    componentsResult.data || [],
+    aliasesResult.data || []
+  );
+}
+
+function glbdSearchConflict(index: GlbdComponentSearchEntry[], search: string) {
+  const matches = findExactGlbdAliasConflict(index, search);
+  const uniqueIds = new Set(matches.map((component) => component.id));
+  if (uniqueIds.size < 2) return null;
+  return {
+    message: "Этот вариант названия относится к нескольким компонентам. Уточните официальное название.",
+    components: matches.map(glbdComponentDisplayName),
+  };
+}
+
+function attachGlbdComponentsToLegacyIngredients(
+  rows: any[],
+  index: GlbdComponentSearchEntry[],
+  search: string
+) {
+  const byLegacyId = new Map<string, GlbdComponentSearchEntry>();
+  const byComponentId = new Map<string, GlbdComponentSearchEntry>();
+  for (const component of index) {
+    byComponentId.set(component.id, component);
+    if (!isVisibleGlbdComponent(component) || !component.legacy_active_ingredient_id) continue;
+    byLegacyId.set(component.legacy_active_ingredient_id, component);
+  }
+
+  const enriched = rows.map((row) => {
+    const component = byLegacyId.get(row.id);
+    if (!component) return row;
+    return {
+      ...row,
+      name_ru: component.name_ru || row.name_ru,
+      name_en: component.name_en || row.name_en,
+      canonical_name: component.canonical_name || row.name_en || row.name_ru,
+      glbd_component_id: component.id,
+      glbd_component_type: component.component_type,
+      glbd_component_type_label: glbdComponentTypeLabel(component.component_type),
+      glbd_aliases: component.aliases.map((alias) => alias.alias_text).filter(Boolean),
+      matched_alias: search ? matchedGlbdAlias(component, search) : null,
+    };
+  });
+
+  const filtered = search
+    ? enriched.filter((row) => {
+        const component = row.glbd_component_id
+          ? byComponentId.get(row.glbd_component_id)
+          : null;
+        return component
+          ? glbdComponentMatchesSearch(component, search)
+          : [row.name_ru, row.name_en, row.slug, row.description]
+              .map(normalizeSearchText)
+              .some((value) => value.includes(normalizeSearchText(search)));
+      })
+    : enriched;
+
+  return dedupeByCanonicalComponent(filtered);
+}
+
+async function loadGlbdComponentCard(supabase: any, componentId: string) {
+  const [componentResult, aliasesResult, sourcesResult] = await Promise.all([
+    supabase
+      .from("glbd_components")
+      .select("id,canonical_name,name_ru,name_en,component_type,is_active,archived_at")
+      .eq("id", componentId)
+      .eq("is_active", true)
+      .is("archived_at", null)
+      .maybeSingle(),
+    supabase
+      .from("glbd_component_aliases")
+      .select("alias_text,normalized_text")
+      .eq("component_id", componentId),
+    supabase
+      .from("glbd_component_sources")
+      .select("id,component_id,source_type,source_url,source_title,claim_scope,checked_at")
+      .eq("component_id", componentId)
+      .neq("source_type", "needs_source")
+      .order("checked_at", { ascending: false, nullsFirst: false }),
+  ]);
+
+  if (componentResult.error) throw new Error(componentResult.error.message);
+  if (!componentResult.data) return null;
+  if (aliasesResult.error) throw new Error(aliasesResult.error.message);
+  if (sourcesResult.error) throw new Error(sourcesResult.error.message);
+
+  const component = componentResult.data;
+  const primaryNames = new Set(
+    [component.name_ru, component.name_en, component.canonical_name]
+      .map(normalizeGlbdSearchText)
+      .filter(Boolean)
+  );
+  const aliasNames = Array.from(
+    new Set(
+      (aliasesResult.data || [])
+        .map((alias: any) => String(alias.alias_text || alias.normalized_text || "").trim())
+        .filter((alias: string) => alias && !primaryNames.has(normalizeGlbdSearchText(alias)))
+    )
+  );
+  const sources = (sourcesResult.data || [])
+    .map(toGlbdComponentSourceDisplay)
+    .filter(Boolean);
+
+  return {
+    id: component.id,
+    displayName: glbdComponentDisplayName(component),
+    nameEn:
+      component.name_en && component.name_en !== component.name_ru
+        ? component.name_en
+        : null,
+    typeLabel: glbdComponentTypeLabel(component.component_type),
+    aliases: aliasNames,
+    sources,
+  };
+}
+
+async function attachActiveIngredientsToProducts(
+  supabase: any,
+  rows: any[],
+  glbdIndex?: GlbdComponentSearchEntry[]
+) {
   if (!rows.length) return rows;
 
   const productIds = Array.from(new Set(rows.map((row) => row.id).filter(Boolean)));
@@ -945,11 +1111,23 @@ async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
     return rows.map((row) => ({ ...row, active_ingredient: "-", active_ingredients: "-" }));
   }
 
+  const resolvedGlbdIndex = glbdIndex || (await loadGlbdComponentSearchIndex(supabase));
+  const componentByLegacyIngredientId = new Map<string, GlbdComponentSearchEntry>();
+  for (const component of resolvedGlbdIndex) {
+    if (!isVisibleGlbdComponent(component) || !component.legacy_active_ingredient_id) continue;
+    componentByLegacyIngredientId.set(component.legacy_active_ingredient_id, component);
+  }
+
   const ingredientNameById = new Map<string, string>();
   for (const ingredient of ingredients) {
+    const component = componentByLegacyIngredientId.get(ingredient.id);
     ingredientNameById.set(
       ingredient.id,
-      ingredient.name_ru || ingredient.name_en || ingredient.slug || "-"
+      (component ? glbdComponentDisplayName(component) : null) ||
+        ingredient.name_ru ||
+        ingredient.name_en ||
+        ingredient.slug ||
+        "-"
     );
   }
 
@@ -994,14 +1172,38 @@ async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
 
     const dedup = new Set<string>();
     const names: string[] = [];
+    const components: Array<{
+      id: string;
+      legacyIngredientId: string;
+      displayName: string;
+      nameEn: string | null;
+      typeLabel: string;
+      aliases: string[];
+    }> = [];
 
     for (const link of productLinks) {
       const name = ingredientNameById.get(link.active_ingredient_id);
       if (!name || name === "-") continue;
-      const key = name.trim().toLowerCase();
+      const component = componentByLegacyIngredientId.get(link.active_ingredient_id);
+      const key = component?.id || name.trim().toLowerCase();
       if (!key || dedup.has(key)) continue;
       dedup.add(key);
       names.push(name);
+      if (component) {
+        components.push({
+          id: component.id,
+          legacyIngredientId: link.active_ingredient_id,
+          displayName: glbdComponentDisplayName(component),
+          nameEn:
+            component.name_en && component.name_en !== component.name_ru
+              ? component.name_en
+              : null,
+          typeLabel: glbdComponentTypeLabel(component.component_type),
+          aliases: component.aliases
+            .map((alias) => String(alias.alias_text || "").trim())
+            .filter(Boolean),
+        });
+      }
     }
 
     const text = names.length ? names.join(", ") : "-";
@@ -1010,6 +1212,7 @@ async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
       ...row,
       active_ingredient: text,
       active_ingredients: text,
+      active_ingredient_components: components,
       pesticide_category:
         categoryMap.get(row.category_id) ||
         row.pesticide_category ||
@@ -1061,17 +1264,68 @@ export async function GET(
     const config = ENTITY_CONFIG[entity];
     const { supabase } = await assertGlobalAdminRequest(request);
 
+    const componentId = String(request.nextUrl.searchParams.get("componentId") || "").trim();
+    if (entity === "active_ingredients" && componentId) {
+      if (!isUuidLike(componentId)) {
+        return NextResponse.json({ error: "Некорректный идентификатор компонента" }, { status: 400 });
+      }
+      const component = await loadGlbdComponentCard(supabase, componentId);
+      if (!component) {
+        return NextResponse.json({ error: "Компонент не найден или архивирован" }, { status: 404 });
+      }
+      return NextResponse.json({ component });
+    }
+
+    const search = String(request.nextUrl.searchParams.get("search") || "").trim();
+    const productEntity =
+      entity === "pesticides" ||
+      entity === "fertilizers" ||
+      entity === "additives" ||
+      entity === "growth_regulators";
+    const componentProductEntity =
+      entity === "pesticides" ||
+      entity === "fertilizers" ||
+      entity === "growth_regulators";
+    let glbdIndex: GlbdComponentSearchEntry[] | undefined;
+    let matchingProductIds: string[] = [];
+
+    if (entity === "active_ingredients" || componentProductEntity) {
+      glbdIndex = await loadGlbdComponentSearchIndex(supabase);
+    }
+
+    if (search && componentProductEntity && glbdIndex) {
+      const legacyIngredientIds = glbdIndex
+        .filter(
+          (component) =>
+            isVisibleGlbdComponent(component) &&
+            Boolean(component.legacy_active_ingredient_id) &&
+            glbdComponentMatchesSearch(component, search)
+        )
+        .map((component) => component.legacy_active_ingredient_id as string);
+
+      if (legacyIngredientIds.length) {
+        const { data: matchedLinks, error: matchedLinksError } = await supabase
+          .from("product_active_ingredients")
+          .select("product_id")
+          .in("active_ingredient_id", legacyIngredientIds);
+        if (matchedLinksError) throw new Error(matchedLinksError.message);
+        matchingProductIds = Array.from(
+          new Set((matchedLinks || []).map((link: any) => link.product_id).filter(Boolean))
+        );
+      }
+    }
+
     let query = supabase.from(config.table).select(config.select);
     query = config.scopeWhere(query);
     query = query.eq("archived", false);
 
-    const search = String(request.nextUrl.searchParams.get("search") || "").trim();
-    if (search) {
+    if (search && entity !== "active_ingredients") {
       const searchTerms =
-        entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators"
-          ? expandProductSearchTerms(search)
-          : [search];
+        productEntity ? expandProductSearchTerms(search) : [search];
       const orParts = searchTerms.flatMap((term) => config.searchColumns.map((column) => `${column}.ilike.%${term}%`));
+      if (productEntity && matchingProductIds.length) {
+        orParts.push(`id.in.(${matchingProductIds.join(",")})`);
+      }
       query = query.or(orParts.join(","));
     }
 
@@ -1147,14 +1401,16 @@ export async function GET(
 
     const rawRows = data || [];
     let hydratedRows = rawRows;
-    if (entity === "varieties") {
+    if (entity === "active_ingredients" && glbdIndex) {
+      hydratedRows = attachGlbdComponentsToLegacyIngredients(rawRows, glbdIndex, search);
+    } else if (entity === "varieties") {
       hydratedRows = await attachCropNamesToVarieties(supabase, rawRows);
     } else if (entity === "seeds") {
       hydratedRows = await attachSeedProductNames(supabase, rawRows);
     } else if (entity === "pesticides" || entity === "fertilizers") {
-      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
+      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows, glbdIndex);
     } else if (entity === "growth_regulators") {
-      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
+      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows, glbdIndex);
     }
 
     if (search && (entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators")) {
@@ -1162,7 +1418,8 @@ export async function GET(
     }
 
     const rows = hydratedRows.map((row: any) => (config.normalizeRow ? config.normalizeRow(row) : row));
-    return NextResponse.json({ rows });
+    const searchConflict = search && glbdIndex ? glbdSearchConflict(glbdIndex, search) : null;
+    return NextResponse.json({ rows, searchConflict });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
