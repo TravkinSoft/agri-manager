@@ -1,47 +1,68 @@
 # Assistant Live State
 
 LAST_UPDATED: `2026-07-13`
-STATUS: `A100_AUDIT_COMPLETE_IMPLEMENTATION_NOT_APPROVED`
+STATUS: `A101_READ_ONLY_FOUNDATION_IMPLEMENTED_LOCAL_VALIDATION_PASSING`
 BRANCH: `assistant-v1`
-BASE_ASSISTANT_COMMIT: `d19258762bb7eaf2afcca94eb7d611d56eedbd41`
-CORE_COMMIT_REVIEWED: `719cad6d575c8b7fefdce03464ab313c39669d33`
+BASE_ASSISTANT_COMMIT: `4cb8cdf77f140da5a04ade53a5f4022bc04b9bc4`
+CORE_COMMIT_REVIEWED: `03696a7914a134b6f2b1ab7d7411e9e7c76be8e3`
 CONTRACT_VERSION_REVIEWED: `0.1`
-ALLOWED_MODE: `READ_ONLY_DESIGN_AND_AUDIT`
+ALLOWED_MODE: `OWNER_APPROVED_TZ_A101_READ_ONLY_IMPLEMENTATION`
+WRITE_CAPABILITY: `NOT_APPROVED_AND_NOT_EXPOSED`
 
-RUNTIME_AUDIT: `DONE_TZ_A100`
-LEGACY_RUNTIME: `AUDITED_NOT_APPROVED_FOR_ASSISTANT_V1`
-CONVERSATION_MEMORY: `PARTIAL_MESSAGES_PERSIST_BUT_NOT_SENT_TO_MODEL`
-ENTITY_STATE: `PARTIAL_CLIENT_LOCALSTORAGE_NOT_THREAD_SCOPED`
-CONTEXT_BUILDER: `PARTIAL_RUNTIME_AND_SESSION_HINTS_ONLY`
-ERP_TOOLS: `AUDITED_62_RUNTIME_TOOLS_41_MODEL_SCHEMAS_POLICY_GAPS_FOUND`
-KNOWLEDGE_BASE: `AUDITED_KEYWORD_RUNTIME_NO_EMBEDDINGS_CRITICAL_ISOLATION_GAP_FOUND`
-PERSISTENT_MEMORY: `PARTIAL_USER_MEMORY_ASYNC_CAPTURE_NOT_GUARANTEED`
-SETTINGS_ROOM: `AUDITED_WORKING_PARTIAL_DECORATIVE_AND_CONFLICTING_CONTROLS_FOUND`
-STREAMING: `NOT_IMPLEMENTED_FOR_ASSISTANT_QUERY`
-FEEDBACK: `NOT_IMPLEMENTED`
-EVALUATIONS: `STATIC_TRACE_ONLY_NO_PRODUCTION_CALLS`
-PRODUCTION_ACCESS: `NONE_DURING_A100`
-WRITE_ACTIONS: `NO_WRITES_EXECUTED; LEGACY_CONFIRM_ROUTE_EXISTS_AND_IS_NOT_V1_APPROVED`
+RUNTIME: `ASSISTANT_A101_READ_ONLY_V1`
+CONVERSATION_HISTORY: `SERVER_VERIFIED_CURRENT_THREAD_MAX_20_USER_ASSISTANT_MESSAGES`
+THREAD_STATE: `THREAD_SCOPED_STRUCTURED_STATE_NO_NEW_TABLE`
+FIELD_SEARCH: `TYPED_NAME_NUMBER_AREA_TOLERANCE_SEASON`
+MODEL_PATH: `ONE_SETTINGS_SELECTED_CHAT_COMPLETIONS_MODEL_NO_MODEL_ROUTING`
+MODEL_TOOLS: `8_READ_ONLY_SCHEMAS_ALL_SIDE_EFFECT_NONE`
+TOOL_DATA_CLIENT: `AUTHENTICATED_USER_JWT_WITH_RLS_NOT_SERVICE_ROLE`
+WRITE_TOOLS: `NOT_EXPOSED`
+NAVIGATION_ACTIONS: `NOT_EXPOSED_OR_EXECUTED`
+DRAFT_CARDS: `NOT_GENERATED_OR_CONFIRMABLE`
+LEGACY_CONFIRM_DRAFT: `UNREACHABLE_FROM_ASSISTANT_V1`
+KB_DELETE: `UNREACHABLE_FROM_ASSISTANT_V1`
+DATABASE_SCHEMA: `UNCHANGED`
+PRODUCTION: `NOT_CALLED_OR_CHANGED`
 
-## A100 outcome
+## A101 runtime
 
-The current main panel is a hybrid legacy runtime, not a clean model-native conversation:
+The main `/api/assistant/query` path now uses an isolated read-only runtime. It builds one bounded model conversation from constant rules, server-authenticated actor/company/season/page context, structured focus for the verified thread, at most 19 prior user/assistant messages, and the current user message. The current message plus retained history never exceeds 20 conversation messages; the complete initial input is additionally bounded to 24,000 characters. Client `system` hints and messages with a different thread scope are excluded. History is context only and never a source of live ERP facts.
 
-- the UI persists and reloads threads, then submits up to 20 recent messages;
-- the server accepts that history but neither the GPT decision call, the general-answer call, nor the model planner includes it in OpenAI messages;
-- follow-up continuity therefore depends on a small client-side `sessionState`, stored in `localStorage` and shared across thread switches within one shell session;
-- a fast GPT classifier runs first, but deterministic regex routing, hardcoded tool maps, direct fast tools, and legacy fallback logic can still dominate or override the path;
-- platform controls are not uniformly enforced: some work, some only change prompt text, and some are unused;
-- 62 runtime tools and 41 model-facing schemas exist, but there is no single enforced policy boundary for role, allowed-tools, company, season, and side effects;
-- Knowledge Base runtime performs keyword search without embeddings or vector search and contains a cross-company archive flaw in the service-role DELETE path;
-- normal chat requests create only drafts; the default main-panel card posts to canonical `/api/operations`, but the older specialist surface and its directly callable legacy `confirm-draft` endpoint perform ERP writes without the canonical operation-create role and season guards.
+The model receives exactly these tools:
 
-The complete evidence, scenario traces, tool inventory, findings, priorities, and proposed A101 scope are in [TZ-A100.md](task-reports/assistant/TZ-A100.md).
+1. `get_current_context`;
+2. `search_fields`;
+3. `get_field_card`;
+4. `get_field_land_bank_summary`;
+5. `get_field_materials`;
+6. `get_warehouse_stock`;
+7. `get_crop_structure_summary`;
+8. `get_active_operations_summary`.
 
-## Governance status
+The central policy checks authentication, server-selected company, actor/company match, platform role and tool permission, fixed allowlist, `side_effect=none`, requested/result row bounds, season where required, and cross-company markers in tool results. Model tool execution uses a request-bound user JWT Supabase client so helper lookups remain under RLS even when the legacy registry lacks a company column. The old registry remains present but is not the model-facing runtime.
 
-No application code, API, OpenAI integration, prompt, router, tools, database, migration, data, import script, deployment, merge, or rebase was changed by TZ-A100. The presence of existing legacy routes does not grant them Travkin Assistant V1 approval.
+Thread state contains `threadId`, selected field ID/label, selected warehouse ID, selected operation ID, last intent, and unresolved question. It is recovered only from assistant metadata in the verified current thread or a matching request state. UI state is keyed by thread. Switching threads resets mismatched focus. Field focus is derived from tool output, never from regex analysis of assistant prose.
 
-## Next assistant action
+Field search distinguishes name, number, and area. `Сад` maps to `name`, `поле 28` to `number=28`, and `22 га` to `area_ha=22`; multiple matches stay unresolved and require clarification. The tested follow-up `Покажи поле 28` → `А материалы?` calls `get_field_materials` with the structured focus for field 28.
 
-`STOP` before implementation. The owner must approve TZ-A101 and the core side must accept any required contract/API capability. The proposed first scope is read-only: enforce one server policy boundary, pass bounded thread history to the model, make state thread-scoped, correct typed field search, and disable all write/draft-confirm/navigation side effects from the V1 path. No DB/schema change is part of that proposal.
+## Model/settings diagnostics
+
+The runtime resolves settings once and uses that single model for every turn in the current tool loop. It does not use the previous fast/heavy model routing. Diagnostics expose requested model, effective model returned by OpenAI, requested reasoning plus `unsupported` effective reasoning, effective temperature only when the selected model supports it, retained history count, total conversation count, and the eight available tools. Local A101 tests use mocked OpenAI and mocked Supabase only; no live model was invoked.
+
+## Write boundary
+
+No ERP write tool, generic SQL, resolver, navigation tool, KB mutation, `create_*` schema, write action, or confirmable draft card is available to the model. The main panel ignores legacy stored actions/cards, its confirmation handler is read-only, navigation actions are blocked, and the legacy specialist confirm call was removed. Existing chat/thread transcript persistence remains infrastructure outside the model tool boundary; it does not grant ERP write capability.
+
+The unsafe core endpoint and KB DELETE implementation are not modified on this branch. Required core fixes are proposed in [2026-07-assistant-p0-core-security.md](contract-proposals/assistant/2026-07-assistant-p0-core-security.md).
+
+## Validation
+
+- `npm ci`: pass, lockfile unchanged;
+- baseline and post-change `npm run typecheck`: pass;
+- baseline `npm run build`: pass;
+- `npx --no-install tsx scripts/qa-assistant-a101-read-only.ts`: 16/16 pass, production calls 0, DB writes 0;
+- final `npm run build`, sequential `npm run typecheck`, mocked QA, diff check, and security greps: pass. The build retains the pre-existing Supabase Realtime dynamic-dependency warning.
+
+## Governance note
+
+The explicit owner task grants `READ_ONLY_IMPLEMENTATION_APPROVED=YES` and `WRITE_CAPABILITY_APPROVED=NO` for TZ-A101. At reviewed core commit `03696a7`, contract 0.1 still says foundation-only and `TASK_NUMBERING.md` does not yet contain the A101 row. No core-owned file is edited here. Core must reconcile the task registry/contract before treating A101 as contract-approved for production integration.

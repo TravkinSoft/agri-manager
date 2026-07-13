@@ -164,6 +164,16 @@ type AssistantSessionStatePayload = {
   lastActionAt: string | null;
 };
 
+type ReadOnlyThreadStatePayload = {
+  threadId: string;
+  selectedFieldId: string | null;
+  selectedFieldLabel: string | null;
+  selectedWarehouseId: string | null;
+  selectedOperationId: string | null;
+  lastIntent: string | null;
+  unresolvedQuestion: string | null;
+};
+
 type AssistantNavigationActionPayload =
   | {
       type: "open_page";
@@ -195,6 +205,7 @@ type AssistantNavigationActionPayload =
 type QueryResponsePayload = {
   response?: string;
   sessionState?: Partial<AssistantSessionStatePayload>;
+  threadState?: Partial<ReadOnlyThreadStatePayload>;
   threadId?: string | null;
   messageIds?: {
     assistant?: string | null;
@@ -276,6 +287,18 @@ const EMPTY_STATE: AssistantSessionStatePayload = {
   lastActionSummary: null,
   lastActionAt: null,
 };
+
+function emptyThreadState(threadId: string): ReadOnlyThreadStatePayload {
+  return {
+    threadId,
+    selectedFieldId: null,
+    selectedFieldLabel: null,
+    selectedWarehouseId: null,
+    selectedOperationId: null,
+    lastIntent: null,
+    unresolvedQuestion: null,
+  };
+}
 
 const TOOL_LOADING_STEPS = ["Смотрю контекст...", "Проверяю источники...", "Собираю короткий ответ..."] as const;
 
@@ -556,39 +579,6 @@ function actionReceiptToMessage(receipt: AssistantActionReceipt): AssistantChatM
       ].filter(Boolean),
     },
   };
-}
-
-function buildWorkingContextHint(params: {
-  runtimeContext: AssistantRuntimeUiContext;
-  sessionState: AssistantSessionStatePayload;
-}): string | null {
-  const { runtimeContext, sessionState } = params;
-  const hints = [
-    runtimeContext.companyName ? `company=${runtimeContext.companyName}` : null,
-    runtimeContext.season ? `season=${runtimeContext.season}` : null,
-    runtimeContext.currentRoute ? `route=${runtimeContext.currentRoute}` : null,
-    runtimeContext.selectedFieldLabel || runtimeContext.selectedFieldId
-      ? `selected_field=${runtimeContext.selectedFieldLabel || runtimeContext.selectedFieldId}`
-      : null,
-    runtimeContext.selectedCropStructureSectionLabel || runtimeContext.selectedCropStructureSectionId
-      ? `selected_section=${runtimeContext.selectedCropStructureSectionLabel || runtimeContext.selectedCropStructureSectionId}`
-      : null,
-    runtimeContext.selectedWarehouseLabel || runtimeContext.selectedWarehouseId
-      ? `selected_warehouse=${runtimeContext.selectedWarehouseLabel || runtimeContext.selectedWarehouseId}`
-      : null,
-    sessionState.focusEntityLabel ? `dialog_focus=${sessionState.focusEntityLabel}` : null,
-    sessionState.focusModule ? `focus_module=${sessionState.focusModule}` : null,
-    sessionState.lastFieldLabel || sessionState.lastField ? `last_field=${sessionState.lastFieldLabel || sessionState.lastField}` : null,
-    sessionState.lastWarehouseLabel || sessionState.lastWarehouse ? `last_warehouse=${sessionState.lastWarehouseLabel || sessionState.lastWarehouse}` : null,
-    sessionState.lastOperationLabel || sessionState.lastOperation ? `last_operation=${sessionState.lastOperationLabel || sessionState.lastOperation}` : null,
-    sessionState.lastTicketLabel || sessionState.lastTicket ? `last_ticket=${sessionState.lastTicketLabel || sessionState.lastTicket}` : null,
-    sessionState.lastCropStructureSectionLabel || sessionState.lastCropStructureSection
-      ? `last_section=${sessionState.lastCropStructureSectionLabel || sessionState.lastCropStructureSection}`
-      : null,
-    sessionState.lastBatchLabel || sessionState.lastBatch ? `last_batch=${sessionState.lastBatchLabel || sessionState.lastBatch}` : null,
-    sessionState.lastIntent ? `last_intent=${sessionState.lastIntent}` : null,
-  ].filter(Boolean);
-  return hints.length ? `Working context for follow-up interpretation: ${hints.join("; ")}.` : null;
 }
 
 function formatDraftNumber(value: number | null | undefined): string {
@@ -884,41 +874,6 @@ function sanitizeAssistantAnswer(content: string): string {
   return "Ответ скрыт: в истории или источнике обнаружены тестовые QA-данные. Повторите запрос, и я проверю только производственные данные.";
 }
 
-const FIELD_LABEL_PATTERN = "[0-9]{1,3}(?:-[0-9]{1,3}){0,2}";
-const LARGEST_FIELD_ANSWER_PATTERN = new RegExp(
-  `самое\\s+большое\\s+поле[\\s\\S]{0,40}?(?:№\\s*)?(?:поле\\s*)?(${FIELD_LABEL_PATTERN})`,
-  "iu"
-);
-const FIELD_AREA_ANSWER_PATTERN = new RegExp(
-  `(?:^|\\n)\\s*(?:№\\s*)?(?:поле\\s*)?(${FIELD_LABEL_PATTERN})\\s*[:—-]\\s*[0-9][0-9\\s.,]*\\s*(?:га|ha)\\b`,
-  "iu"
-);
-
-function inferFieldFocusFromAssistantText(content: string): string | null {
-  const text = stripInternalAssistantLines(content);
-  const match = text.match(LARGEST_FIELD_ANSWER_PATTERN) || text.match(FIELD_AREA_ANSWER_PATTERN);
-  return match?.[1] || null;
-}
-
-function applyInferredFieldFocus(
-  state: AssistantSessionStatePayload,
-  fieldLabel: string | null
-): AssistantSessionStatePayload {
-  if (!fieldLabel) return state;
-  const sameField = state.lastField === fieldLabel || state.lastFieldLabel === fieldLabel;
-  return {
-    ...state,
-    lastField: fieldLabel,
-    lastFieldId: sameField ? state.lastFieldId : null,
-    lastFieldLabel: fieldLabel,
-    focusEntityType: "field",
-    focusEntityId: sameField ? state.focusEntityId : null,
-    focusEntityLabel: fieldLabel,
-    focusSource: "assistant_answer",
-    focusUpdatedAt: new Date().toISOString(),
-  };
-}
-
 export function AssistantChatPane({
   runtimeContext,
   sessionId,
@@ -954,7 +909,7 @@ export function AssistantChatPane({
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [loadingStepIndex, setLoadingStepIndex] = useState(0);
   const [requestError, setRequestError] = useState<string | null>(null);
-  const [sessionState, setSessionState] = useState<AssistantSessionStatePayload>(EMPTY_STATE);
+  const [threadStates, setThreadStates] = useState<Record<string, ReadOnlyThreadStatePayload>>({});
   const [lastMode, setLastMode] = useState<string>("erp_data");
   const [, setActionReceipts] = useState<AssistantActionReceipt[]>([]);
   const [confirmingDraftId, setConfirmingDraftId] = useState<string | null>(null);
@@ -1244,7 +1199,7 @@ export function AssistantChatPane({
       if (!raw) {
         setActiveThreadId(null);
         setActiveTab("chat");
-        setSessionState(EMPTY_STATE);
+        setThreadStates({});
         setMessages([]);
         setInput("");
         setLastMode("erp_data");
@@ -1253,18 +1208,28 @@ export function AssistantChatPane({
       const parsed = JSON.parse(raw) as {
         activeThreadId?: string | null;
         activeTab?: "chat" | "history" | "settings";
-        sessionState?: Partial<AssistantSessionStatePayload>;
+        threadStates?: Record<string, Partial<ReadOnlyThreadStatePayload>>;
         messages?: AssistantChatMessage[];
         input?: string;
         lastMode?: string;
       };
       if (parsed.activeThreadId) setActiveThreadId(String(parsed.activeThreadId));
       if (parsed.activeTab) setActiveTab(parsed.activeTab);
-      if (parsed.sessionState && typeof parsed.sessionState === "object") {
-        setSessionState((prev) => ({ ...prev, ...parsed.sessionState }));
+      if (parsed.threadStates && typeof parsed.threadStates === "object") {
+        const validated: Record<string, ReadOnlyThreadStatePayload> = {};
+        Object.entries(parsed.threadStates).forEach(([threadId, value]) => {
+          if (!value || typeof value !== "object" || value.threadId !== threadId) return;
+          validated[threadId] = { ...emptyThreadState(threadId), ...value, threadId };
+        });
+        setThreadStates(validated);
       }
       if (Array.isArray(parsed.messages) && parsed.messages.length > 0) {
-        setMessages(parsed.messages.filter(isProductionAssistantMessage).slice(-MAX_CACHED_MESSAGES));
+        setMessages(
+          parsed.messages
+            .filter(isProductionAssistantMessage)
+            .slice(-MAX_CACHED_MESSAGES)
+            .map((message) => ({ ...message, actions: undefined, draftCards: undefined }))
+        );
       }
       if (typeof parsed.input === "string") setInput(parsed.input);
       if (typeof parsed.lastMode === "string") setLastMode(parsed.lastMode);
@@ -1283,14 +1248,14 @@ export function AssistantChatPane({
       JSON.stringify({
         activeThreadId,
         activeTab,
-        sessionState,
+        threadStates,
         messages: messages.filter(isProductionAssistantMessage).slice(-MAX_CACHED_MESSAGES),
         input,
         lastMode,
         updatedAt: new Date().toISOString(),
       })
     );
-  }, [storageKey, storageHydrated, hydratedStorageKey, activeThreadId, activeTab, sessionState, messages, input, lastMode]);
+  }, [storageKey, storageHydrated, hydratedStorageKey, activeThreadId, activeTab, threadStates, messages, input, lastMode]);
 
   useEffect(() => {
     return () => stopVoiceStream();
@@ -1406,6 +1371,20 @@ export function AssistantChatPane({
         code?: string;
       };
       if (!response.ok) throw new Error(mapAssistantError(payload.code || null, payload.error || null));
+      const storedThreadState = [...(payload.messages || [])]
+        .reverse()
+        .map((message) => message.metadata?.read_only_thread_state)
+        .find((value) => value && typeof value === "object") as Record<string, unknown> | undefined;
+      if (storedThreadState && storedThreadState.threadId === threadId) {
+        setThreadStates((previous) => ({
+          ...previous,
+          [threadId]: {
+            ...emptyThreadState(threadId),
+            ...(storedThreadState as Partial<ReadOnlyThreadStatePayload>),
+            threadId,
+          },
+        }));
+      }
       const nextMessages = (payload.messages || []).map((message) => {
         const metadata = (message.metadata || {}) as Record<string, unknown>;
         return {
@@ -1413,8 +1392,8 @@ export function AssistantChatPane({
           role: message.role || "assistant",
           content: String(message.content || ""),
           createdAt: String(message.created_at || new Date().toISOString()),
-          actions: Array.isArray(metadata.actions) ? (metadata.actions as AssistantActionButton[]) : undefined,
-          draftCards: Array.isArray(metadata.draft_cards) ? (metadata.draft_cards as AssistantDraftCard[]) : undefined,
+          actions: undefined,
+          draftCards: undefined,
           meta: {
             sourceHints: Array.isArray(metadata.source_hints) ? (metadata.source_hints as string[]) : [],
             toolActivity: Array.isArray(metadata.tool_activity) ? (metadata.tool_activity as string[]) : [],
@@ -1460,7 +1439,7 @@ export function AssistantChatPane({
     setThreads((prev) => [created, ...prev.filter((thread) => thread.id !== created.id)]);
     setActiveThreadId(created.id);
     setMessages([]);
-    setSessionState(EMPTY_STATE);
+    setThreadStates((previous) => ({ ...previous, [created.id]: emptyThreadState(created.id) }));
     setLastMode("erp_data");
     return created.id;
   };
@@ -1645,77 +1624,11 @@ export function AssistantChatPane({
 
   const confirmDraftCard = useCallback(
     async (messageId: string, card: AssistantOperationDraftCard) => {
-      if (confirmingDraftId || card.status === "confirmed") return;
-      if (card.status === "cancelled") {
-        const error = "Черновик отменён. Сначала верните его в работу.";
-        updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error, collapsed: false }));
-        setRequestError(error);
-        return;
-      }
-      if (card.status === "expired") {
-        const error = "Срок действия черновика истёк. Создайте новый черновик.";
-        updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error, collapsed: false }));
-        setRequestError(error);
-        return;
-      }
-      if (card.confirm.missingFields.length > 0) {
-        const error = `Нельзя создать операцию: уточните ${card.confirm.missingFields.join(", ")}.`;
-        updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error }));
-        setRequestError(error);
-        return;
-      }
-
-      setConfirmingDraftId(card.id);
-      updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error: null }));
-      try {
-        const headers = await getAuthHeaders();
-        const response = await fetch(card.confirm.endpoint, {
-          method: card.confirm.method,
-          headers: {
-            ...headers,
-            "Idempotency-Key": card.confirm.idempotencyKey,
-            "X-Include-Timing": "1",
-          },
-          body: JSON.stringify({
-            ...card.confirm.body,
-            companyId: resolvedCompanyId,
-            idempotency_key: card.confirm.idempotencyKey,
-          }),
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          operation?: { id?: string; operation_type?: string };
-          error?: string;
-          idempotent_replay?: boolean;
-        };
-        if (!response.ok) throw new Error(payload.error || "Не удалось создать операцию.");
-        updateDraftCard(messageId, card.id, (draft) => ({
-          ...draft,
-          status: "confirmed",
-          collapsed: false,
-          error: null,
-        }));
-        recordActionReceipt({
-          id: uid(),
-          actionId: card.id,
-          actionType: "confirm_operation_draft",
-          status: "executed",
-          targetRoute: "/operations",
-          message: payload.idempotent_replay
-            ? "Черновик уже был подтверждён ранее. Операция найдена без дубля."
-            : "Черновик подтверждён. Операция создана в журнале.",
-          error: null,
-          executedAt: new Date().toISOString(),
-          clientVerified: true,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Не удалось подтвердить черновик.";
-        updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error: message }));
-        setRequestError(message);
-      } finally {
-        setConfirmingDraftId(null);
-      }
+      const error = "Подтверждение и любые действия записи отключены в Travkin Assistant V1.";
+      updateDraftCard(messageId, card.id, (draft) => ({ ...draft, error, collapsed: false }));
+      setRequestError(error);
     },
-    [confirmingDraftId, recordActionReceipt, resolvedCompanyId, updateDraftCard]
+    [updateDraftCard]
   );
 
   const executeAction = async (action: AssistantActionButton) => {
@@ -1739,66 +1652,7 @@ export function AssistantChatPane({
       focusInput();
       return;
     }
-    const route = action.targetRoute || action.route || "/dashboard";
-    const filters = action.filters || {};
-    const targetRoute = routeWithFilters(route, filters);
-    const initialHref = window.location.href;
-    try {
-      assertRouteAllowedForRole(access.role, targetRoute);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось выполнить переход.";
-      setRequestError(message);
-      recordActionReceipt({
-        id: uid(),
-        actionId: action.id,
-        actionType: action.actionType || "navigate",
-        status: "blocked",
-        targetRoute,
-        message: `Не удалось выполнить переход: ${message}`,
-        error: message,
-        executedAt: new Date().toISOString(),
-        clientVerified: false,
-      });
-      return;
-    }
-    setManualFilters(filters);
-    router.push(targetRoute);
-    setActiveTab("chat");
-    focusInput();
-    const navigationAction = actionButtonToNavigationAction(action, targetRoute, filters);
-    const confirmed = await confirmExecution({
-      action: navigationAction,
-      targetRoute,
-      initialHref,
-    });
-    const actionType = action.actionType || "navigate";
-    if (confirmed.executed) {
-      recordActionReceipt({
-        id: uid(),
-        actionId: action.id,
-        actionType,
-        status: "executed",
-        targetRoute,
-        message: action.label ? `${action.label}: выполнено.` : "Переход выполнен.",
-        error: null,
-        executedAt: new Date().toISOString(),
-        clientVerified: true,
-      });
-      return;
-    }
-    const error = confirmed.error || "URL не изменился.";
-    setRequestError(`Не удалось выполнить переход: ${error}`);
-    recordActionReceipt({
-      id: uid(),
-      actionId: action.id,
-      actionType,
-      status: "failed",
-      targetRoute,
-      message: `Не удалось выполнить переход: ${error}`,
-      error,
-      executedAt: new Date().toISOString(),
-      clientVerified: false,
-    });
+    setRequestError("Навигационные действия отключены в Travkin Assistant V1.");
   };
 
   const sendMessage = async () => {
@@ -1806,45 +1660,6 @@ export function AssistantChatPane({
     if (!text || loading || disabledReason) return;
 
     setRequestError(null);
-    const draftEditCommand = parseDraftEditCommand(text);
-    const draftTarget = draftEditCommand ? findLatestDraftCard() : null;
-    if (draftEditCommand && draftTarget && isOperationDraftCard(draftTarget.card)) {
-      const edited = applyDraftEditCommandToCard(draftTarget.card, draftEditCommand);
-      const userMessage: AssistantChatMessage = {
-        id: uid(),
-        role: "user",
-        content: text,
-        createdAt: new Date().toISOString(),
-      };
-      const statusText = edited.warnings.length
-        ? `Обновил черновик частично: ${edited.labels.join("; ")}.\n\n${edited.warnings.join("\n")}`
-        : `Обновил черновик: ${edited.labels.join("; ")}.\nПроверь карточку и нажми “Подтвердить”, когда всё верно.`;
-      const assistantMessage: AssistantChatMessage = {
-        id: uid(),
-        role: "assistant",
-        content: statusText,
-        createdAt: new Date().toISOString(),
-        meta: {
-          mode: "mixed",
-          intent: "edit_draft",
-          sourceHints: ["Черновик изменён локально, без записи в БД."],
-          toolActivity: [],
-        },
-      };
-      updateDraftCard(draftTarget.messageId, draftTarget.card.id, () => edited.card);
-      setMessages((prev) => [...prev, userMessage, assistantMessage]);
-      setInput("");
-      setActiveTab("chat");
-      focusInput();
-      void appendThreadMessage(activeThreadId, "user", userMessage.content);
-      void appendThreadMessage(activeThreadId, "assistant", assistantMessage.content, {
-        mode: "mixed",
-        intent: "edit_draft",
-        source_hints: ["Черновик изменён локально, без записи в БД."],
-      });
-      return;
-    }
-
     setLoading(true);
     const optimisticMessage: AssistantChatMessage = {
       id: uid(),
@@ -1864,9 +1679,7 @@ export function AssistantChatPane({
       }
       if (!threadId) throw new Error("Не удалось создать чат.");
 
-      const workingContextHint = buildWorkingContextHint({ runtimeContext, sessionState });
       const historyForRequest = [
-        ...(workingContextHint ? [{ role: "system", content: workingContextHint }] : []),
         ...[...messages, optimisticMessage]
         .filter(isProductionAssistantMessage)
         .slice(-20)
@@ -1880,9 +1693,10 @@ export function AssistantChatPane({
           message: text,
           threadId,
           chatId: threadId,
+          historyThreadId: threadId,
           chatHistory: historyForRequest,
           runtimeContext,
-          sessionState,
+          threadState: threadStates[threadId] || emptyThreadState(threadId),
           sessionId,
           companyId: resolvedCompanyId,
           locale: runtimeContext.locale || "ru",
@@ -1898,112 +1712,14 @@ export function AssistantChatPane({
       const sourceHints = Array.isArray(meta.sourceHints) ? meta.sourceHints : [];
       const intentName = meta.intent?.name ? String(meta.intent.name) : undefined;
       const mode = typeof meta.mode === "string" ? meta.mode : "erp_data";
-      const navigationActions = Array.isArray(payload.navigationActions) ? payload.navigationActions : [];
-      const actions = Array.isArray(payload.actions) ? payload.actions : [];
-      const draftCards = Array.isArray(payload.draftCards) ? payload.draftCards : [];
+      const actions: AssistantActionButton[] = [];
+      const draftCards: AssistantDraftCard[] = [];
       const toolActivity = Array.isArray(payload.toolActivity) ? payload.toolActivity : [];
       setLastMode(mode);
 
-      let navigationExecuted: boolean | null = null;
-      let navigationError: string | null = null;
-      let navigationRoute: string | null = null;
-      let navigationActionType: string | null = null;
-      let navigationEntityType: string | null = null;
-      let navigationEntityId: string | null = null;
-
-      if (navigationActions.length > 0) {
-        const firstAction = navigationActions[0];
-        const initialHref = window.location.href;
-        navigationActionType = firstAction.type;
-        let actionFiltersForDebug: Record<string, string> | null = null;
-        if (firstAction.type === "open_entity") {
-          navigationEntityType = firstAction.entityType;
-          navigationEntityId = firstAction.entityId || null;
-        }
-        try {
-          switch (firstAction.type) {
-            case "open_page": {
-              if (!firstAction.route) throw new Error("Missing route for open_page");
-              navigationRoute = routeWithFilters(firstAction.route);
-              assertRouteAllowedForRole(access.role, navigationRoute);
-              setManualFilters({});
-              router.push(navigationRoute);
-              actionFiltersForDebug = {};
-              break;
-            }
-            case "open_page_with_filter":
-            case "apply_filter": {
-              if (!firstAction.route) throw new Error("Missing route for filtered navigation");
-              const filters = firstAction.filters || {};
-              navigationRoute = routeWithFilters(firstAction.route, filters);
-              assertRouteAllowedForRole(access.role, navigationRoute);
-              setManualFilters(filters);
-              router.push(navigationRoute);
-              actionFiltersForDebug = filters;
-              break;
-            }
-            case "open_entity": {
-              if (!firstAction.route) throw new Error("Missing route for open_entity");
-              if (!firstAction.entityId) throw new Error("Entity id is required for open_entity");
-              const filters = buildEntityFilters(firstAction);
-              if (firstAction.entityType === "warehouse" && !filters.warehouseId) {
-                filters.warehouseId = firstAction.entityId;
-              }
-              navigationRoute = routeWithFilters(firstAction.route, filters);
-              assertRouteAllowedForRole(access.role, navigationRoute);
-              setManualFilters(filters);
-              router.push(navigationRoute);
-              actionFiltersForDebug = filters;
-              break;
-            }
-          }
-          const confirmed = await confirmExecution({
-            action: firstAction,
-            targetRoute: navigationRoute,
-            initialHref,
-          });
-          navigationExecuted = confirmed.executed;
-          navigationError = confirmed.error;
-          if (payload.debug) {
-            setDebugSnapshot({
-              ...payload.debug,
-              engine: {
-                ...payload.debug.engine,
-                navigationIntentDetected:
-                  payload.debug.engine.navigationIntentDetected ||
-                  intentName === "navigation_help" ||
-                  navigationActions.length > 0,
-                navigationActionCreated:
-                  payload.debug.engine.navigationActionCreated || navigationActions.length > 0,
-                navigationActionExecuted: confirmed.executed,
-                navigationActionType: navigationActionType || payload.debug.engine.navigationActionType || null,
-                navigationEntityType: navigationEntityType || payload.debug.engine.navigationEntityType || null,
-                navigationEntityId: navigationEntityId || payload.debug.engine.navigationEntityId || null,
-                navigationFilters: actionFiltersForDebug,
-                targetRoute: navigationRoute || payload.debug.engine.targetRoute || null,
-                routerError: confirmed.error || null,
-              },
-            });
-          }
-        } catch (error) {
-          navigationExecuted = false;
-          navigationError = error instanceof Error ? error.message : "Router push failed";
-        }
-      }
-
       const responseRenderStartedAt = typeof window !== "undefined" && window.performance ? window.performance.now() : Date.now();
       const answer = String(payload.response || "").trim() || "По системе сейчас данных по этому запросу не найдено.";
-      const successTail =
-        navigationExecuted === true && intentName === "navigation_help"
-          ? firstActionToSuccessText(navigationActions[0] || null)
-          : null;
-      const rawFinalAnswer =
-        navigationExecuted === false
-          ? `${answer}\n\nНе удалось выполнить переход: ${navigationError || "route не найден"}.`
-          : successTail
-            ? `${answer}\n\n${successTail}`
-            : answer;
-      const finalAnswer = sanitizeAssistantAnswer(rawFinalAnswer);
+      const finalAnswer = sanitizeAssistantAnswer(answer);
       const assistantMessage: AssistantChatMessage = {
         id: payload.messageIds?.assistant || uid(),
         role: "assistant",
@@ -2034,36 +1750,31 @@ export function AssistantChatPane({
           engine: {
             ...payload.debug.engine,
             navigationIntentDetected:
-              payload.debug.engine.navigationIntentDetected ||
-              intentName === "navigation_help" ||
-              navigationActions.length > 0,
-            navigationActionCreated:
-              payload.debug.engine.navigationActionCreated || navigationActions.length > 0,
-            navigationActionExecuted:
-              navigationExecuted ?? payload.debug.engine.navigationActionExecuted ?? null,
-            navigationActionType: navigationActionType || payload.debug.engine.navigationActionType || null,
-            navigationEntityType: navigationEntityType || payload.debug.engine.navigationEntityType || null,
-            navigationEntityId: navigationEntityId || payload.debug.engine.navigationEntityId || null,
-            navigationFilters: payload.debug.engine.navigationFilters || null,
-            targetRoute: navigationRoute || payload.debug.engine.targetRoute || null,
-            routerError: navigationError || payload.debug.engine.routerError || null,
+              false,
+            navigationActionCreated: false,
+            navigationActionExecuted: null,
+            navigationActionType: null,
+            navigationEntityType: null,
+            navigationEntityId: null,
+            navigationFilters: null,
+            targetRoute: null,
+            routerError: null,
           },
         });
       } else {
         setDebugSnapshot(null);
       }
 
-      const inferredFieldFocus = inferFieldFocusFromAssistantText(finalAnswer);
-      if ((payload.sessionState && typeof payload.sessionState === "object") || inferredFieldFocus) {
-        setSessionState((prev) =>
-          applyInferredFieldFocus(
-            {
-              ...prev,
-              ...(payload.sessionState && typeof payload.sessionState === "object" ? payload.sessionState : {}),
-            },
-            inferredFieldFocus
-          )
-        );
+      const responseThreadId = payload.threadId || threadId;
+      if (payload.threadState && typeof payload.threadState === "object" && responseThreadId) {
+        setThreadStates((previous) => ({
+          ...previous,
+          [responseThreadId]: {
+            ...emptyThreadState(responseThreadId),
+            ...payload.threadState,
+            threadId: responseThreadId,
+          },
+        }));
       }
 
       if (payload.threadId && payload.threadId !== activeThreadId) {
@@ -2102,7 +1813,9 @@ export function AssistantChatPane({
 
   const clearCurrentThreadView = () => {
     setMessages([]);
-    setSessionState(EMPTY_STATE);
+    if (activeThreadId) {
+      setThreadStates((previous) => ({ ...previous, [activeThreadId]: emptyThreadState(activeThreadId) }));
+    }
     setRequestError(null);
   };
 
@@ -2236,70 +1949,10 @@ export function AssistantChatPane({
 
   const openGenericDraftModule = useCallback(
     async (card: AssistantGenericDraftCard) => {
-      const targetRoute = card.route || "/dashboard";
-      const initialHref = window.location.href;
-      try {
-        assertRouteAllowedForRole(access.role, targetRoute);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Не удалось выполнить переход.";
-        setRequestError(message);
-        recordActionReceipt({
-          id: uid(),
-          actionId: card.id,
-          actionType: `open_${card.kind}_draft_module`,
-          status: "blocked",
-          targetRoute,
-          message: `Не удалось открыть модуль: ${message}`,
-          error: message,
-          executedAt: new Date().toISOString(),
-          clientVerified: false,
-        });
-        return;
-      }
-
-      router.push(targetRoute);
-      setActiveTab("chat");
-      focusInput();
-      const confirmed = await confirmExecution({
-        action: {
-          type: "open_page",
-          page: targetRoute.replace(/^\//, "") || "dashboard",
-          route: targetRoute,
-        },
-        targetRoute,
-        initialHref,
-      });
-
-      if (confirmed.executed) {
-        recordActionReceipt({
-          id: uid(),
-          actionId: card.id,
-          actionType: `open_${card.kind}_draft_module`,
-          status: "executed",
-          targetRoute,
-          message: `${card.actionLabel}: выполнено.`,
-          error: null,
-          executedAt: new Date().toISOString(),
-          clientVerified: true,
-        });
-        return;
-      }
-
-      const error = confirmed.error || "URL не изменился.";
-      setRequestError(`Не удалось открыть модуль: ${error}`);
-      recordActionReceipt({
-        id: uid(),
-        actionId: card.id,
-        actionType: `open_${card.kind}_draft_module`,
-        status: "failed",
-        targetRoute,
-        message: `Не удалось открыть модуль: ${error}`,
-        error,
-        executedAt: new Date().toISOString(),
-        clientVerified: false,
-      });
+      void card;
+      setRequestError("Навигация к write-модулям отключена в Travkin Assistant V1.");
     },
-    [access.role, focusInput, recordActionReceipt, router]
+    []
   );
 
   const renderGenericDraftCard = (messageId: string, card: AssistantGenericDraftCard) => {
@@ -2679,10 +2332,10 @@ export function AssistantChatPane({
                 <button
                   type="button"
                   onClick={() => void confirmDraftCard(messageId, card)}
-                  disabled={isConfirming || card.status !== "draft"}
+                  disabled
                   className="rounded-lg bg-[#E0B100] px-3 py-1.5 text-xs font-semibold text-[#111827] transition hover:bg-[#C89F00] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isConfirming ? "Создаю..." : card.status === "confirmed" ? "Создано" : "Подтвердить"}
+                  Только чтение
                 </button>
                 <button
                   type="button"

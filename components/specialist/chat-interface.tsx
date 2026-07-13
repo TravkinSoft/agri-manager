@@ -746,118 +746,13 @@ export function ChatInterface({
   };
 
   const handleConfirmDraft = async (draft: OperationDraft, messageIndex: number) => {
-    if (!profile?.id || !profile?.company_id) {
-      toast({
-        title: t("error"),
-        description: "Cannot confirm draft before profile is loaded",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const currentMessage = messages[messageIndex];
-    if (!currentMessage?.draft) return;
-    if (currentMessage.draftStatus === "confirmed") {
-      toast({
-        title: t("success"),
-        description: "Операция уже создана по этому черновику.",
-      });
-      return;
-    }
-    if (currentMessage.draftStatus === "confirming") {
-      return;
-    }
-
-    const metadata =
-      draft.metadata && typeof draft.metadata === "object"
-        ? ({ ...draft.metadata } as Record<string, unknown>)
-        : {};
-    const resolvedResponsibleId = resolveResponsibleIdFromResources(draft);
-    if (resolvedResponsibleId) {
-      metadata.responsible_id = resolvedResponsibleId;
-    }
-    const normalizedDraft: OperationDraft = { ...draft, metadata };
-
-    if (hasWarehouseMaterialHints(normalizedDraft) && !UUID_RE.test(String(metadata.responsible_id || "").trim())) {
-      toast({
-        title: t("error"),
-        description: "Выберите ответственного из списка пользователей (обязательно для заявки на склад).",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      setMessages((prev) =>
-        prev.map((msg, index) => (index === messageIndex ? { ...msg, draftStatus: "confirming" } : msg))
-      );
-      const headers = await buildAuthorizedHeaders("json");
-
-      const response = await fetch("/api/operations/confirm-draft", {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          draft: normalizedDraft,
-          companyId: profile.company_id,
-          userId: profile.id,
-          confirmToken: currentMessage.draftConfirmToken,
-          chatMessageId: currentMessage.id,
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to create operation");
-      }
-
-      const result = await response.json();
-      const confirmedAt = result?.confirmedAt ? String(result.confirmedAt) : new Date().toISOString();
-      const createdOperationId = result?.operation?.id ? String(result.operation.id) : undefined;
-      const confirmToken = result?.confirmToken ? String(result.confirmToken) : currentMessage.draftConfirmToken;
-
-      toast({
-        title: t("success"),
-        description: result?.duplicate ? "Операция уже была создана ранее." : t("operation_created"),
-      });
-
-      let confirmedMessageId: string | undefined;
-      setMessages((prev) =>
-        prev.map((msg, index) => {
-          if (index !== messageIndex) return msg;
-          confirmedMessageId = msg.id;
-          return {
-            ...msg,
-            draftStatus: "confirmed",
-            draftConfirmedAt: confirmedAt,
-            createdOperationId,
-            draftConfirmToken: confirmToken,
-          };
-        })
-      );
-
-      if (onDraftConfirmed) {
-        const updatedDraft: OperationDraft = {
-          ...normalizedDraft,
-          metadata: {
-            ...(normalizedDraft.metadata || {}),
-            confirmation_state: "confirmed",
-            confirmed_at: confirmedAt,
-            operation_id: createdOperationId,
-            confirm_token: confirmToken,
-          },
-        };
-        await onDraftConfirmed(confirmedMessageId, updatedDraft);
-      }
-    } catch (error) {
-      setMessages((prev) =>
-        prev.map((msg, index) => (index === messageIndex ? { ...msg, draftStatus: "draft" } : msg))
-      );
-      toast({
-        title: t("error"),
-        description: error instanceof Error ? error.message : "Failed to create operation",
-        variant: "destructive",
-      });
-    }
+    void draft;
+    void messageIndex;
+    toast({
+      title: t("error"),
+      description: "Подтверждение черновиков отключено в Travkin Assistant V1 (read-only).",
+      variant: "destructive",
+    });
   };
 
   const handleCancelDraft = (messageIndex: number) => {

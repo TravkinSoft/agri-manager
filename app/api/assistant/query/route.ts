@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
+import { getAuthenticatedServerClient } from "@/lib/supabase/server-user";
 import { getAssistantPlatformSettings } from "@/lib/assistant/settings-store";
-import { runAssistantEngine } from "@/lib/assistant/engine/query";
+import { runReadOnlyAssistantV1 } from "@/lib/assistant/v1/engine";
 import {
-  buildAssistantLongTermMemoryContext,
-  captureAssistantMemorySignals,
   type AssistantMemoryContext,
   type AssistantMemoryWriteResult,
 } from "@/lib/assistant/memory-store";
-import { writeAssistantAuditLog } from "@/lib/assistant/audit-log";
-import { buildAssistantDraftCards } from "@/lib/assistant/draft-cards";
 import {
   appendAssistantThreadMessage,
   getAssistantThreadById,
+  listAssistantThreadMessages,
   updateAssistantThreadTitle,
 } from "@/lib/assistant/threads-store";
 import type { AssistantDebugMetadata, AssistantDebugSettingsSource } from "@/lib/assistant/debug-types";
@@ -45,6 +43,21 @@ function filterProductionChatHistory(history: unknown): Array<{ role?: string; c
       role: asString((message as Record<string, unknown>).role) || "user",
       content: asString((message as Record<string, unknown>).content) || "",
     }));
+}
+
+function readStoredThreadState(
+  history: Array<{ role: string; metadata: Record<string, unknown> | null }>,
+  threadId: string
+): Record<string, unknown> | null {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message.role !== "assistant" || !message.metadata) continue;
+    const state = message.metadata.read_only_thread_state;
+    if (!state || typeof state !== "object") continue;
+    const stateThreadId = asString((state as Record<string, unknown>).threadId);
+    if (stateThreadId === threadId) return state as Record<string, unknown>;
+  }
+  return null;
 }
 
 const INTERNAL_ANSWER_LINE_PATTERNS = [
@@ -495,7 +508,15 @@ function buildDebugMetadata(params: {
   requestMessage: string;
   sessionId: string | null;
   threadId: string | null;
-  result: AssistantEngineResult;
+  result: AssistantEngineResult & {
+    runtimeDiagnostics?: {
+      effectiveTemperature?: number | null;
+      effectiveReasoning?: string;
+      requestedReasoning?: string;
+      historyMessageCount?: number;
+      availableTools?: string[];
+    };
+  };
   navigationActions: AssistantNavigationAction[];
   latencyMs: number;
   actor: {
@@ -543,6 +564,9 @@ function buildDebugMetadata(params: {
   if (threadPersistenceError) {
     warnings.push(`Ошибка сохранения истории: ${threadPersistenceError}`);
   }
+  if (result.runtimeDiagnostics?.effectiveReasoning === "unsupported") {
+    warnings.push(`Reasoning setting ${result.runtimeDiagnostics.requestedReasoning || "unknown"} is unsupported in A101 Chat Completions runtime.`);
+  }
 
   return {
     generatedAt: new Date().toISOString(),
@@ -554,8 +578,11 @@ function buildDebugMetadata(params: {
       promptVersion: asString(result.model.promptVersion),
       promptSource: result.model.promptSource,
       promptUpdatedAt: asString(result.model.promptUpdatedAt),
-      temperature: Number.isFinite(Number(settings.temperature)) ? Number(settings.temperature) : null,
-      reasoningEffort: asString(settings.reasoningEffort),
+      temperature:
+        Number.isFinite(Number(result.runtimeDiagnostics?.effectiveTemperature))
+          ? Number(result.runtimeDiagnostics?.effectiveTemperature)
+          : null,
+      reasoningEffort: asString(result.runtimeDiagnostics?.effectiveReasoning) || "unsupported",
       requestMode: result.model.requestMode,
       llmStatus: result.model.llm.status,
       llmHttpStatus: result.model.llm.httpStatus,
@@ -596,7 +623,7 @@ function buildDebugMetadata(params: {
     },
     engine: {
       endpoint: "/api/assistant/query",
-      engineVersion: "assistant-engine-v2",
+      engineVersion: "assistant-a101-read-only-v1",
       intent: asString(result.intent.name),
       expectedAnswerType: asString(result.diagnostics.expectedAnswerType),
       selectedSource: asString(result.diagnostics.selectedSource),
@@ -729,7 +756,6 @@ export async function POST(request: NextRequest) {
   let threadId: string | null = null;
   let sessionId: string | null = null;
   let requestMessage: string | null = null;
-  let shouldWriteAuditLog = true;
   let threadPersistenceError: string | null = null;
   let persistedAssistantMessageId: string | null = null;
   const startedAt = Date.now();
@@ -748,68 +774,43 @@ export async function POST(request: NextRequest) {
     }
 
     const requestedCompanyId = asString(payload?.companyId) || asString((payload as any)?.runtimeContext?.companyId);
-    try {
-      companyId = resolveCompanyForActor(actor, requestedCompanyId);
-    } catch (error) {
-      if (
-        error instanceof SessionAuthError &&
-        actor.role === "global_admin" &&
-        error.status === 400 &&
-        String(error.message || "").includes("Global admin company context is not selected") &&
-        isUuidLike(requestedCompanyId)
-      ) {
-        companyId = requestedCompanyId;
-      } else {
-        throw error;
-      }
-    }
+    companyId = resolveCompanyForActor(actor, requestedCompanyId);
     chatId = asString(payload?.chatId);
     threadId = asString(payload?.threadId) || chatId;
     sessionId = asString(payload?.sessionId);
+    if (!threadId) {
+      return NextResponse.json({ error: "Thread is required", code: "THREAD_REQUIRED" }, { status: 400 });
+    }
 
     const supabase = getServiceClient();
+    const toolSupabase = getAuthenticatedServerClient(request);
     let longTermMemory: AssistantMemoryContext = {
       count: 0,
       contextText: null,
       latestUpdatedAt: null,
       warning: null,
     };
-    let memoryReadMs: number | null = null;
-    const memoryReadStartedAt = Date.now();
+    const memoryReadMs: number | null = 0;
     const companyPromise = supabase.from("companies").select("name").eq("id", companyId).maybeSingle();
     const settingsPromise = getAssistantPlatformSettings(supabase, actor.id);
-    const memoryPromise = buildAssistantLongTermMemoryContext({
+    const threadPromise = getAssistantThreadById({
       supabase,
       companyId,
       userId: actor.id,
-    })
-      .then((context) => {
-        return { context, warning: null as string | null };
-      })
-      .catch((error) => {
-        return {
-          context: {
-            count: 0,
-            contextText: null,
-            latestUpdatedAt: null,
-            warning: error instanceof Error ? error.message : "Failed to load assistant memory",
-          } satisfies AssistantMemoryContext,
-          warning: error instanceof Error ? error.message : "Failed to load assistant memory",
-        };
-      });
+      threadId,
+    });
 
-    const [companyRes, settings, memoryReadResult] = await Promise.all([companyPromise, settingsPromise, memoryPromise]);
+    const [companyRes, settings, thread] = await Promise.all([companyPromise, settingsPromise, threadPromise]);
+    if (!thread) {
+      return NextResponse.json({ error: "Thread not found in current company scope", code: "THREAD_DENIED" }, { status: 404 });
+    }
     companyName = asString(companyRes.data?.name) || null;
-    shouldWriteAuditLog = !!settings.logging?.enabled;
-    longTermMemory = settings.memoryPolicy?.userMemoryEnabled
-      ? memoryReadResult.context
-      : {
-          count: 0,
-          contextText: null,
-          latestUpdatedAt: null,
-          warning: null,
-        };
-    memoryReadMs = Date.now() - memoryReadStartedAt;
+    longTermMemory = {
+      count: 0,
+      contextText: null,
+      latestUpdatedAt: null,
+      warning: null,
+    };
     const runtimeContextPayload = buildRuntimeContextPayload({
       payload,
       actor: { id: actor.id, role: actor.role },
@@ -817,21 +818,32 @@ export async function POST(request: NextRequest) {
       companyName,
     });
 
-    const productionChatHistory = filterProductionChatHistory(payload?.chatHistory);
-
-    const result = await runAssistantEngine({
+    const storedHistory = await listAssistantThreadMessages({
       supabase,
+      companyId,
+      userId: actor.id,
+      threadId,
+      limit: 60,
+    });
+    const storedThreadState = readStoredThreadState(storedHistory, threadId);
+    const requestThreadState =
+      payload?.threadState && typeof payload.threadState === "object"
+        ? payload.threadState as Record<string, unknown>
+        : null;
+    const result = await runReadOnlyAssistantV1({
+      supabase: toolSupabase,
       actor,
       companyId,
+      companyName,
       settings,
       input: {
         message: requestMessage,
         locale: payload?.locale || "ru",
-        chatId: threadId,
-        chatHistory: productionChatHistory,
+        threadId,
+        historyThreadId: threadId,
+        history: storedHistory.map((item) => ({ role: item.role, content: item.content })),
         runtimeContext: runtimeContextPayload,
-        sessionState: payload?.sessionState || null,
-        longTermMemoryContext: longTermMemory.contextText,
+        threadState: storedThreadState || requestThreadState,
       },
     });
     const safeAnswer = sanitizeAssistantAnswer(result.answer);
@@ -841,33 +853,9 @@ export async function POST(request: NextRequest) {
       warning: null,
     };
     const memoryWriteMs: number | null = null;
-    if (settings.memoryPolicy?.userMemoryEnabled) {
-      void captureAssistantMemorySignals({
-          supabase,
-          companyId,
-          userId: actor.id,
-          message: requestMessage,
-        }).catch(() => undefined);
-    }
-    const attachPendingDraftUi = shouldAttachPendingDraftUi({
-      requestMessage: requestMessage || "",
-      result,
-      previousSessionState: payload?.sessionState || null,
-    });
-    const responseActions = filterProductionActions(
-      buildActionButtons({
-        intentName: result.intent?.name || null,
-        requestMessage: requestMessage || "",
-        navigationActions: result.navigationActions || [],
-        sessionState: attachPendingDraftUi ? result.sessionState : null,
-      })
-    );
-    const responseDraftCards = attachPendingDraftUi
-      ? buildAssistantDraftCards({
-          pendingActionType: result.sessionState.pendingActionType,
-          pendingActionPayloadJson: result.sessionState.pendingActionPayloadJson,
-        })
-      : [];
+    const responseActions: AssistantActionButton[] = [];
+    const responseDraftCards: never[] = [];
+    const responseNavigationActions: AssistantNavigationAction[] = [];
 
     if (threadId) {
       try {
@@ -908,13 +896,15 @@ export async function POST(request: NextRequest) {
               actions: responseActions,
               draft_cards: responseDraftCards,
               tool_calls: result.toolCalls || [],
-              navigation_actions: result.navigationActions || [],
+              navigation_actions: responseNavigationActions,
               answer_source: result.answerSource,
               grounded: result.grounded,
               llm: result.model.llm,
               prompt_version: result.model.promptVersion,
               prompt_source: result.model.promptSource,
               prompt_updated_at: result.model.promptUpdatedAt,
+              read_only_thread_state: result.threadState,
+              read_only_runtime: result.runtimeDiagnostics,
               session_id: sessionId,
               assistant_panel: true,
             },
@@ -950,7 +940,7 @@ export async function POST(request: NextRequest) {
           sessionId,
           threadId,
           result,
-          navigationActions: result.navigationActions || [],
+          navigationActions: responseNavigationActions,
           latencyMs: Date.now() - startedAt,
           actor: {
             contextCompanyId: actor.contextCompanyId,
@@ -964,38 +954,15 @@ export async function POST(request: NextRequest) {
         })
       : undefined;
 
-    if (shouldWriteAuditLog) {
-      await writeAssistantAuditLog(supabase, {
-        actor_user_id: actor.id,
-        company_id: companyId,
-        role: actor.role,
-        chat_id: threadId || chatId,
-        session_id: sessionId,
-        intent: result.intent.name,
-        tool_calls: result.toolCalls.map((toolCall) => ({
-          tool: toolCall.tool,
-          ok: toolCall.ok,
-          rows: toolCall.rows || 0,
-          error: toolCall.error || null,
-        })),
-        runtime_context: {
-          ...(payload?.runtimeContext || {}),
-          _server: runtimeContextPayload,
-        },
-        request_excerpt: requestMessage,
-        response_excerpt: safeAnswer,
-        error_text: threadPersistenceError,
-      });
-    }
-
     return NextResponse.json({
       response: safeAnswer,
       sessionState: result.sessionState,
+      threadState: result.threadState,
       threadId,
       messageIds: {
         assistant: persistedAssistantMessageId,
       },
-      navigationActions: result.navigationActions || [],
+      navigationActions: responseNavigationActions,
       actions: responseActions,
       draftCards: responseDraftCards,
       toolActivity: visibleToolActivity,
@@ -1010,6 +977,7 @@ export async function POST(request: NextRequest) {
         sourceHints: result.sourceHints,
         performance: result.performance,
         llm: result.model.llm,
+        readOnlyRuntime: result.runtimeDiagnostics,
         prompt: {
           version: result.model.promptVersion,
           source: result.model.promptSource,
@@ -1019,23 +987,6 @@ export async function POST(request: NextRequest) {
       ...(debug ? { debug } : {}),
     });
   } catch (error) {
-    const supabase = getServiceClient();
-    if (actorId && companyId && shouldWriteAuditLog) {
-      await writeAssistantAuditLog(supabase, {
-        actor_user_id: actorId,
-        company_id: companyId,
-        role,
-        chat_id: threadId || chatId,
-        session_id: sessionId,
-        intent: "error",
-        tool_calls: [],
-        runtime_context: {},
-        request_excerpt: requestMessage,
-        response_excerpt: null,
-        error_text: error instanceof Error ? error.message : "Assistant query failed",
-      });
-    }
-
     if (error instanceof SessionAuthError) {
       return NextResponse.json(
         {
