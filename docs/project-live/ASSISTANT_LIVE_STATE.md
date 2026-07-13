@@ -1,8 +1,8 @@
 # Assistant Live State
 
-STATUS: NOT_STARTED
-BRANCH: NOT_CREATED
-BASE_CORE_COMMIT: `4eb2d585a6570c1d382ae4c47963f60d23e12800` (baseline before Project Live foundation commit)
+STATUS: READY_FOR_ISOLATED_AUDIT
+BRANCH: `assistant-v1`
+BASE_CORE_COMMIT: `SELF` (documentation commit that becomes the exact base of `assistant-v1`)
 RUNTIME_AUDIT: NOT_STARTED
 CONVERSATION_MEMORY: NOT_IMPLEMENTED
 ENTITY_STATE: NOT_IMPLEMENTED
@@ -14,6 +14,8 @@ SETTINGS_ROOM: NOT_IMPLEMENTED
 EVALUATIONS: NOT_IMPLEMENTED
 PRODUCTION_ACCESS: NONE
 WRITE_ACTIONS: DISABLED
+
+Разработка Travkin Assistant ещё не начиналась. Первый этап — отдельный read-only аудит текущего assistant runtime. V1 начинается только в read-only режиме и не меняет core без отдельного предложения и принятого изменения [Integration Contract](INTEGRATION_CONTRACT.md).
 
 ## Approved architecture
 
@@ -36,4 +38,4 @@ Foundation-принципы:
 
 Не начинать без отдельной команды владельца.
 
-Первый будущий этап: `ASSIST-0 / ASSIST-1` — создать ветку отдельным согласованным ТЗ, выполнить sync protocol и провести read-only audit текущего assistant runtime. До этого production access отсутствует, write actions выключены.
+Первый будущий этап: ТЗ №142 — выполнить sync protocol и провести read-only аудит текущего assistant runtime в изолированной ветке. Production access отсутствует, write actions выключены.
