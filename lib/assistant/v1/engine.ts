@@ -3,7 +3,6 @@ import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import type { ServerActorContext } from "@/lib/auth/server-session";
 import {
   assistantModelSupportsCustomTemperature,
-  buildOpenAiChatCompletionBody,
   resolveAssistantModelConfig,
 } from "@/lib/assistant/openai";
 import { getAssistantTool } from "@/lib/assistant/engine/tools";
@@ -43,6 +42,8 @@ import {
   type ReadOnlyRuntimeDiagnostics,
   type ReadOnlyThreadState,
 } from "@/lib/assistant/v1/types";
+import { requestRuntimeModel } from "@/lib/assistant/v2/responses-adapter";
+import type { AssistantRuntimeMode } from "@/lib/assistant/v2/runtime-mode";
 
 type Usage = {
   promptTokens: number | null;
@@ -62,6 +63,8 @@ export type ReadOnlyEngineDependencies = {
   fetchImpl?: typeof fetch;
   apiKey?: string | null;
   executeTool?: ReadOnlyToolExecutor;
+  runtimeMode?: AssistantRuntimeMode;
+  timeoutMs?: number;
 };
 
 export type ReadOnlyAssistantV1Input = {
@@ -71,6 +74,8 @@ export type ReadOnlyAssistantV1Input = {
   history?: ReadOnlyHistoryMessage[] | null;
   runtimeContext?: Partial<AssistantUiContext> | null;
   threadState?: Record<string, unknown> | ReadOnlyThreadState | null;
+  historyTruncated?: boolean;
+  meaningfulHistoryCount?: number;
   locale?: "ru" | "kz" | "en" | null;
 };
 
@@ -285,7 +290,11 @@ function updateThreadState(params: {
   message: string;
 }): ReadOnlyThreadState {
   const { previous, name, args, output, message } = params;
-  const next: ReadOnlyThreadState = { ...previous, lastIntent: INTENT_BY_TOOL[name] };
+  const next: ReadOnlyThreadState = {
+    ...previous,
+    lastIntent: INTENT_BY_TOOL[name],
+    lastSuccessfulTool: name,
+  };
   const rows = output.rows || [];
   if (name === "search_fields" || name === "get_field_card") {
     const typed = parseTypedFieldSearchParameters(message, args);
@@ -399,7 +408,7 @@ function buildResult(params: {
       configuredModel: params.modelConfig.configuredModel,
       actualModel: params.actualModel,
       settingsSource: params.modelConfig.settingsSource,
-      promptVersion: A101_PROMPT_VERSION,
+      promptVersion: params.diagnostics.runtimeMode === "responses_v2" ? "a104-conversation-v2" : A101_PROMPT_VERSION,
       promptSource: "code_default",
       promptUpdatedAt: PROMPT_UPDATED_AT,
       requestMode: "model_first",
@@ -449,6 +458,7 @@ export async function runReadOnlyAssistantV1(params: {
     state: params.input.threadState,
     runtimeContext,
   });
+  const runtimeMode: AssistantRuntimeMode = params.dependencies?.runtimeMode || "chat_completions_legacy";
   const modelConfig = resolveAssistantModelConfig(params.settings);
   const temperatureSupported = assistantModelSupportsCustomTemperature(modelConfig.actualModel);
   const emptyDiagnostics: ReadOnlyRuntimeDiagnostics = {
@@ -466,6 +476,14 @@ export async function runReadOnlyAssistantV1(params: {
     requestPolicyDecision: "model_with_tools",
     blockedToolName: null,
     singleModelPath: true,
+    runtimeMode,
+    historyTruncated: Boolean(params.input.historyTruncated),
+    meaningfulHistoryCount: Math.max(0, Number(params.input.meaningfulHistoryCount || 0)),
+    stablePromptPrefixHash: "",
+    dynamicContextChars: 0,
+    cachedInputTokens: null,
+    openAiRequestId: null,
+    openAiEndpoint: runtimeMode === "responses_v2" ? "/v1/responses" : "/v1/chat/completions",
   };
   const generalIntent: AssistantIntent = {
     name: "general_question",
@@ -519,6 +537,13 @@ export async function runReadOnlyAssistantV1(params: {
     historyMessageCount: conversation.historyMessageCount,
     conversationMessageCount: conversation.conversationMessageCount,
     modelInputMessageCount: conversation.messages.length,
+    historyTruncated: Boolean(params.input.historyTruncated) || conversation.historyTruncated,
+    meaningfulHistoryCount:
+      params.input.meaningfulHistoryCount == null
+        ? conversation.meaningfulHistoryCount
+        : Math.max(0, Number(params.input.meaningfulHistoryCount)),
+    stablePromptPrefixHash: conversation.stablePromptPrefixHash,
+    dynamicContextChars: conversation.dynamicContextChars,
   };
   const requestDecision = decideReadOnlyRequestPolicy({
     message,
@@ -630,40 +655,57 @@ export async function runReadOnlyAssistantV1(params: {
   let modelMs = 0;
   let toolMs = 0;
   const requiredInventoryProduct = modelToolsEnabled ? explicitNamedMaterial(message) : null;
+  let responseStatus: number | null = null;
 
   for (let turn = 0; turn < MAX_MODEL_TURNS; turn += 1) {
     const modelStartedAt = Date.now();
-    let response: Response | null = null;
-    try {
-      response = await fetchImpl("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify(buildOpenAiChatCompletionBody({
-          model: modelConfig.actualModel,
-          temperature: modelConfig.temperature,
-          messages,
-          tools: toolSchemas,
-          toolChoice: modelToolsEnabled ? "auto" : "none",
-          maxCompletionTokens: 1_200,
-        })),
-      });
-    } catch {
-      response = null;
-    }
+    const runtimeResponse = await requestRuntimeModel({
+      mode: runtimeMode,
+      apiKey: String(apiKey),
+      model: modelConfig.actualModel,
+      temperature: modelConfig.temperature,
+      messages,
+      tools: toolSchemas,
+      toolChoice: modelToolsEnabled ? "auto" : "none",
+      maxOutputTokens: 1_200,
+      fetchImpl,
+      timeoutMs: params.dependencies?.timeoutMs,
+    });
     modelMs += Date.now() - modelStartedAt;
-    if (!response) {
-      llm = { status: "network_error", httpStatus: null, errorCode: "OPENAI_NETWORK_ERROR", errorMessage: "OpenAI request failed", missingEnv: [] };
+    responseStatus = runtimeResponse.status;
+    diagnostics.openAiRequestId = runtimeResponse.requestId || diagnostics.openAiRequestId;
+    diagnostics.cachedInputTokens = runtimeResponse.cachedInputTokens == null
+      ? diagnostics.cachedInputTokens
+      : (diagnostics.cachedInputTokens || 0) + runtimeResponse.cachedInputTokens;
+    if (runtimeResponse.networkError) {
+      llm = {
+        status: "network_error",
+        httpStatus: null,
+        errorCode: runtimeResponse.networkError === "timeout" ? "OPENAI_TIMEOUT" : "OPENAI_NETWORK_ERROR",
+        errorMessage: runtimeResponse.networkError === "timeout" ? "OpenAI request timed out" : "OpenAI request failed",
+        missingEnv: [],
+      };
       break;
     }
-    const data: any = await response.json().catch(() => ({}));
+    if (runtimeResponse.parseError) {
+      llm = {
+        status: "invalid_response",
+        httpStatus: responseStatus,
+        errorCode: "OPENAI_RESPONSE_PARSE_ERROR",
+        errorMessage: "OpenAI returned a non-JSON response",
+        missingEnv: [],
+      };
+      break;
+    }
+    const data: any = runtimeResponse.data;
     usage = mergeUsage(usage, usageFrom(data?.usage));
     actualModel = clean(data?.model) || actualModel;
     diagnostics.effectiveModel = actualModel;
-    if (!response.ok) {
+    if (!runtimeResponse.ok) {
       llm = {
         status: "http_error",
-        httpStatus: response.status,
-        errorCode: clean(data?.error?.code),
+        httpStatus: responseStatus,
+        errorCode: clean(data?.error?.code) || (responseStatus === 429 ? "rate_limit_exceeded" : "OPENAI_HTTP_ERROR"),
         errorMessage: clean(data?.error?.message),
         missingEnv: [],
       };
@@ -689,7 +731,7 @@ export async function runReadOnlyAssistantV1(params: {
     }
     if (!requestedToolCalls.length) {
       finalAnswer = answer;
-      llm = { status: "ok", httpStatus: response.status, errorCode: null, errorMessage: null, missingEnv: [] };
+      llm = { status: "ok", httpStatus: responseStatus, errorCode: null, errorMessage: null, missingEnv: [] };
       break;
     }
     messages.push({ role: "assistant", content: answer, tool_calls: requestedToolCalls });
@@ -700,7 +742,7 @@ export async function runReadOnlyAssistantV1(params: {
         diagnostics.blockedToolName = rawName;
         llm = {
           status: "invalid_response",
-          httpStatus: response.status,
+          httpStatus: responseStatus,
           errorCode: !modelToolsEnabled
             ? "TOOLS_DISABLED_FOR_CHAT"
             : isReadOnlyModelToolName(rawName)
@@ -749,7 +791,7 @@ export async function runReadOnlyAssistantV1(params: {
       } catch (error) {
         const policyError = error instanceof ReadOnlyPolicyError ? error : new ReadOnlyPolicyError("TOOL_POLICY_DENIED", "Tool policy denied the call.");
         diagnostics.blockedToolName = rawName;
-        llm = { status: "invalid_response", httpStatus: response.status, errorCode: policyError.code, errorMessage: policyError.message, missingEnv: [] };
+        llm = { status: "invalid_response", httpStatus: responseStatus, errorCode: policyError.code, errorMessage: policyError.message, missingEnv: [] };
         return buildResult({
           startedAt,
           answer: "Запрос инструмента заблокирован read-only политикой.",
@@ -801,7 +843,7 @@ export async function runReadOnlyAssistantV1(params: {
         toolMs += Date.now() - toolStartedAt;
         if (error instanceof ReadOnlyPolicyError) {
           diagnostics.blockedToolName = rawName;
-          llm = { status: "invalid_response", httpStatus: response.status, errorCode: error.code, errorMessage: error.message, missingEnv: [] };
+          llm = { status: "invalid_response", httpStatus: responseStatus, errorCode: error.code, errorMessage: error.message, missingEnv: [] };
           return buildResult({
             startedAt,
             answer: "Результат инструмента заблокирован политикой изоляции компании.",

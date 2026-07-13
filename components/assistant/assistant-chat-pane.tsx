@@ -170,7 +170,9 @@ type ReadOnlyThreadStatePayload = {
   selectedFieldLabel: string | null;
   selectedWarehouseId: string | null;
   selectedOperationId: string | null;
+  selectedCropStructureLineId: string | null;
   lastIntent: string | null;
+  lastSuccessfulTool: string | null;
   unresolvedQuestion: string | null;
 };
 
@@ -295,7 +297,9 @@ function emptyThreadState(threadId: string): ReadOnlyThreadStatePayload {
     selectedFieldLabel: null,
     selectedWarehouseId: null,
     selectedOperationId: null,
+    selectedCropStructureLineId: null,
     lastIntent: null,
+    lastSuccessfulTool: null,
     unresolvedQuestion: null,
   };
 }
@@ -1679,27 +1683,25 @@ export function AssistantChatPane({
       }
       if (!threadId) throw new Error("Не удалось создать чат.");
 
-      const historyForRequest = [
-        ...[...messages, optimisticMessage]
-        .filter(isProductionAssistantMessage)
-        .slice(-20)
-        .map((message) => ({ role: message.role, content: message.content })),
-      ];
-
       const response = await fetch("/api/assistant/query", {
         method: "POST",
         headers,
         body: JSON.stringify({
           message: text,
           threadId,
-          chatId: threadId,
-          historyThreadId: threadId,
-          chatHistory: historyForRequest,
-          runtimeContext,
-          threadState: threadStates[threadId] || emptyThreadState(threadId),
-          sessionId,
+          runtimeContext: {
+            currentPage: runtimeContext.currentPage,
+            currentRoute: runtimeContext.currentRoute,
+            currentModule: runtimeContext.currentModule,
+            season: runtimeContext.season,
+            defaultSeason: runtimeContext.defaultSeason,
+            locale: runtimeContext.locale,
+            selectedFieldId: runtimeContext.selectedFieldId,
+            selectedWarehouseId: runtimeContext.selectedWarehouseId,
+            selectedOperationId: runtimeContext.selectedOperationId,
+            selectedCropStructureSectionId: runtimeContext.selectedCropStructureSectionId,
+          },
           companyId: resolvedCompanyId,
-          locale: runtimeContext.locale || "ru",
         }),
       });
 

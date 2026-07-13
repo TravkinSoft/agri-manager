@@ -1,4 +1,5 @@
 import type { AssistantEngineResult, AssistantIntentName, AssistantToolName } from "@/lib/assistant/engine/types";
+import type { AssistantRuntimeMode } from "@/lib/assistant/v2/runtime-mode";
 
 export const READ_ONLY_MODEL_TOOL_NAMES = [
   "get_current_context",
@@ -19,7 +20,9 @@ export type ReadOnlyThreadState = {
   selectedFieldLabel: string | null;
   selectedWarehouseId: string | null;
   selectedOperationId: string | null;
+  selectedCropStructureLineId: string | null;
   lastIntent: AssistantIntentName | null;
+  lastSuccessfulTool: ReadOnlyModelToolName | null;
   unresolvedQuestion: string | null;
 };
 export type ReadOnlyHistoryMessage = {
@@ -42,6 +45,14 @@ export type ReadOnlyRuntimeDiagnostics = {
   requestPolicyDecision: "model_with_tools" | "model_without_tools" | "clarify_material" | "deny_write" | "deny_foreign_company";
   blockedToolName: string | null;
   singleModelPath: true;
+  runtimeMode: AssistantRuntimeMode;
+  historyTruncated: boolean;
+  meaningfulHistoryCount: number;
+  stablePromptPrefixHash: string;
+  dynamicContextChars: number;
+  cachedInputTokens: number | null;
+  openAiRequestId: string | null;
+  openAiEndpoint: "/v1/chat/completions" | "/v1/responses";
 };
 
 export type ReadOnlyAssistantV1Result = AssistantEngineResult & {

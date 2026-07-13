@@ -3,6 +3,7 @@ import type {
   ReadOnlyHistoryMessage,
   ReadOnlyThreadState,
 } from "@/lib/assistant/v1/types";
+import { createHash } from "node:crypto";
 
 export const A101_PROMPT_VERSION = "a101-read-only-v1";
 export const A101_MAX_CONVERSATION_MESSAGES = 20;
@@ -19,6 +20,10 @@ export type BoundedConversation = {
   historyMessageCount: number;
   conversationMessageCount: number;
   totalChars: number;
+  historyTruncated: boolean;
+  meaningfulHistoryCount: number;
+  stablePromptPrefixHash: string;
+  dynamicContextChars: number;
 };
 
 function clean(value: unknown): string | null {
@@ -36,7 +41,9 @@ export function emptyReadOnlyThreadState(threadId: string): ReadOnlyThreadState 
     selectedFieldLabel: null,
     selectedWarehouseId: null,
     selectedOperationId: null,
+    selectedCropStructureLineId: null,
     lastIntent: null,
+    lastSuccessfulTool: null,
     unresolvedQuestion: null,
   };
 }
@@ -55,6 +62,7 @@ export function normalizeReadOnlyThreadState(params: {
       fresh.selectedFieldLabel = clean(params.runtimeContext.selectedFieldLabel);
       fresh.selectedWarehouseId = clean(params.runtimeContext.selectedWarehouseId);
       fresh.selectedOperationId = clean(params.runtimeContext.selectedOperationId);
+      fresh.selectedCropStructureLineId = clean(params.runtimeContext.selectedCropStructureSectionId);
     }
     return fresh;
   }
@@ -64,7 +72,11 @@ export function normalizeReadOnlyThreadState(params: {
     selectedFieldLabel: clean(state.selectedFieldLabel) || clean(state.selected_field_label),
     selectedWarehouseId: clean(state.selectedWarehouseId) || clean(state.selected_warehouse_id),
     selectedOperationId: clean(state.selectedOperationId) || clean(state.selected_operation_id),
+    selectedCropStructureLineId:
+      clean(state.selectedCropStructureLineId) || clean(state.selected_crop_structure_line_id),
     lastIntent: (clean(state.lastIntent) || clean(state.last_intent)) as ReadOnlyThreadState["lastIntent"],
+    lastSuccessfulTool:
+      (clean(state.lastSuccessfulTool) || clean(state.last_successful_tool)) as ReadOnlyThreadState["lastSuccessfulTool"],
     unresolvedQuestion: clean(state.unresolvedQuestion) || clean(state.unresolved_question),
   };
 }
@@ -108,7 +120,9 @@ export function buildBoundedConversation(params: {
     selected_field_label: params.threadState.selectedFieldLabel,
     selected_warehouse_id: params.threadState.selectedWarehouseId,
     selected_operation_id: params.threadState.selectedOperationId,
+    selected_crop_structure_line_id: params.threadState.selectedCropStructureLineId,
     last_intent: params.threadState.lastIntent,
+    last_successful_tool: params.threadState.lastSuccessfulTool,
     unresolved_question: params.threadState.unresolvedQuestion,
   }), 2_000);
   const systemMessages: ConversationMessage[] = [
@@ -136,6 +150,7 @@ export function buildBoundedConversation(params: {
     validHistory.pop();
   }
 
+  const meaningfulHistoryCount = validHistory.length;
   const candidateHistory = validHistory.slice(-(A101_MAX_CONVERSATION_MESSAGES - 1));
   const fixedChars = systemMessages.reduce((sum, item) => sum + item.content.length, 0) + currentMessage.length;
   let remainingChars = Math.max(0, A101_MAX_MODEL_INPUT_CHARS - fixedChars);
@@ -153,5 +168,9 @@ export function buildBoundedConversation(params: {
     historyMessageCount: boundedHistory.length,
     conversationMessageCount: boundedHistory.length + 1,
     totalChars: messages.reduce((sum, item) => sum + item.content.length, 0),
+    historyTruncated: meaningfulHistoryCount > candidateHistory.length,
+    meaningfulHistoryCount,
+    stablePromptPrefixHash: createHash("sha256").update(CONSTANT_RULES).digest("hex"),
+    dynamicContextChars: serverContext.length + focusContext.length,
   };
 }

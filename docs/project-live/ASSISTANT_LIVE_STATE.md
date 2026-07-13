@@ -1,19 +1,19 @@
 # Assistant Live State
 
 LAST_UPDATED: `2026-07-14`
-STATUS: `A103_READ_ONLY_RUNTIME_ACCEPTANCE_PASS_20_OF_20`
+STATUS: `A104_SERVER_CONVERSATION_RUNTIME_V2_PASS`
 BRANCH: `assistant-v1`
-BASE_ASSISTANT_COMMIT: `c4ec0b041b6486d0a3af6d759597c05129d0a470`
-CORE_COMMIT_REVIEWED: `b42d777ad9333bc11ed9adfe8b732bb0f72dc6c1`
+BASE_ASSISTANT_COMMIT: `20117c6739f6ebb2c538e33f073822b8eb1985f3`
+CORE_COMMIT_REVIEWED: `f4a7088e7516ebab42739f2b2277f3b6254e9b48`
 CONTRACT_VERSION_REVIEWED: `0.2`
 ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
 WRITE_CAPABILITY: `NOT_APPROVED_AND_NOT_EXPOSED`
 
-RUNTIME: `ASSISTANT_A101_READ_ONLY_V1`
+RUNTIME: `ASSISTANT_A104_SERVER_CONVERSATION_V2`
 CONVERSATION_HISTORY: `SERVER_VERIFIED_CURRENT_THREAD_MAX_20_USER_ASSISTANT_MESSAGES`
 THREAD_STATE: `THREAD_SCOPED_STRUCTURED_STATE_NO_NEW_TABLE`
 FIELD_SEARCH: `TYPED_NAME_NUMBER_AREA_TOLERANCE_SEASON`
-MODEL_PATH: `ONE_SETTINGS_SELECTED_CHAT_COMPLETIONS_MODEL_NO_MODEL_ROUTING`
+MODEL_PATH: `EXPLICIT_CHAT_COMPLETIONS_LEGACY_OR_STATELESS_RESPONSES_V2_NO_FALLBACK`
 MODEL_TOOLS: `8_READ_ONLY_SCHEMAS_ALL_SIDE_EFFECT_NONE`
 TOOL_DATA_CLIENT: `AUTHENTICATED_USER_JWT_WITH_RLS_NOT_SERVICE_ROLE`
 WRITE_TOOLS: `NOT_EXPOSED`
@@ -101,3 +101,13 @@ The real Test1 fixture was discovered dynamically through GET: `Тестовое
 Model availability is checked explicitly. Configured `gpt-5.3` remains unchanged and unavailable; A103 used the approved process-only `gpt-5.4-mini` override, with effective snapshot `gpt-5.4-mini-2026-03-17` and no silent fallback. The package alias `qa:assistant:readonly-v1` runs the existing regression suite rather than a duplicate runner.
 
 Final real acceptance is `20/20 PASS`: 45 Supabase GET requests, 0 non-read requests, 0 database writes, 0 foreign rows, 0 production mutations, and exactly the eight approved read-only schemas. Audit evidence remains uncommitted under `audit-output/TZ-A103/`. Merge, deploy, production mutation, and write capability remain blocked.
+
+## A104 server conversation runtime v2
+
+The main panel no longer sends history or thread state. `/api/assistant/query` validates ownership, persists the current user row, reloads the newest server transcript in chronological order, builds bounded meaningful history and structured focus, runs the selected adapter/tool loop, persists the assistant row with structured diagnostics, and only then returns success. Assistant persistence failure cannot be reported as saved memory.
+
+Local development defaults to `responses_v2`; production continues to default to the physically preserved `chat_completions_legacy` adapter. Responses uses `POST /v1/responses` with `store:false`, explicit instructions, ordered input, exact eight function tools, call IDs/results, final text, usage/cached tokens, latency, request ID, and model/error identity. There is no silent adapter or model fallback. The unavailable configured `gpt-5.3` stayed unchanged; real QA used an explicit process-only `gpt-5.4-mini` override.
+
+Supabase remains the conversation source of truth. A separate real probe confirmed linked `previous_response_id` continuity and explicit invalid-ID failure, but provider state is not stored by the application. History is capped at 19 prior meaningful user/assistant messages plus current input; system/tool/debug/technical/client-hint/injection/secret-like rows are excluded. `history_truncated`, stable-prefix hash, dynamic-context size, input/cached tokens, history count, endpoint, request ID, and model identity are recorded. A nullable summary slot is reserved for A105.
+
+Structured state includes field ID/label, warehouse ID, operation ID, crop-structure-line ID, last intent, last successful tool, and unresolved question. It comes only from matching server metadata, company/RLS-verified UI IDs, or current tool output. Real local acceptance passed 12/12 and mocked acceptance 20/20; the legacy suite remains 24/24. ERP/business writes, foreign rows, schema/migrations, production mutations, merge, rebase, and deploy were zero. Local chat persistence created only the QA user's own test threads/messages.
