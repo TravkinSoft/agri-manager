@@ -4,7 +4,7 @@ CONTRACT_VERSION: 0.1
 STATUS: FOUNDATION_ONLY
 LAST_UPDATED: 2026-07-13
 COMPATIBILITY: No assistant implementation is approved yet.
-ASSISTANT_ACTION_REQUIRED: Run initial sync and runtime audit only after owner-approved `ASSIST-0 / ASSIST-1`.
+ASSISTANT_ACTION_REQUIRED: Run initial sync and runtime audit only under owner-reserved ТЗ A100.
 
 ## Назначение
 

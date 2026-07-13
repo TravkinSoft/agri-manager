@@ -1,5 +1,7 @@
 # Assistant Task Report Template
 
+REPORT_FILE: `TZ-Axxx.md`
+
 TASK:
 STATUS:
 BRANCH:

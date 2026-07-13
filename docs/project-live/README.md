@@ -31,11 +31,12 @@
 
 ### ASSISTANT-ТЗ
 
-1. Создать `task-reports/assistant/TZ-XXX.md` по [ASSISTANT_TASK_REPORT_TEMPLATE.md](templates/ASSISTANT_TASK_REPORT_TEMPLATE.md).
-2. Обновить `ASSISTANT_LIVE_STATE.md`.
-3. Обновить `ASSISTANT_SYNC_STATE.md`.
-4. Не менять `CORE_LIVE_STATE.md`, `INTEGRATION_CONTRACT.md` и `TASK_NUMBERING.md`.
-5. Изменение контракта предложить через [CONTRACT_CHANGE_PROPOSAL_TEMPLATE.md](templates/CONTRACT_CHANGE_PROPOSAL_TEMPLATE.md).
+1. Убедиться, что номер `TZ-Axxx` заранее зарегистрирован основной веткой в `TASK_NUMBERING.md`; самостоятельно присваивать номер запрещено.
+2. Создать `task-reports/assistant/TZ-Axxx.md` по [ASSISTANT_TASK_REPORT_TEMPLATE.md](templates/ASSISTANT_TASK_REPORT_TEMPLATE.md).
+3. Обновить `ASSISTANT_LIVE_STATE.md`.
+4. Обновить `ASSISTANT_SYNC_STATE.md`.
+5. Не менять `CORE_LIVE_STATE.md`, `INTEGRATION_CONTRACT.md` и `TASK_NUMBERING.md`.
+6. Изменение контракта предложить через [CONTRACT_CHANGE_PROPOSAL_TEMPLATE.md](templates/CONTRACT_CHANGE_PROPOSAL_TEMPLATE.md).
 
 ## Протокол перед каждым CORE-ТЗ
 

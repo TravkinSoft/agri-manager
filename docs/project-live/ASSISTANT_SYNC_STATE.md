@@ -14,7 +14,7 @@ CORE_CHANGES_SINCE_LAST_SYNC: INITIAL_SYNC_NOT_RUN
 CONTRACT_CHANGES_FOUND: UNKNOWN
 SYNC_REQUIRED: YES
 SYNC_BLOCKER: ASSISTANT_BRANCH_NOT_CREATED
-NEXT_SAFE_ACTION: Wait for owner-approved `ASSIST-0 / ASSIST-1`; then run the protocol from [README.md](README.md) before any implementation.
+NEXT_SAFE_ACTION: Run the protocol from [README.md](README.md) for the owner-reserved ТЗ A100 before any implementation.
 
 ## Mandatory rule
 

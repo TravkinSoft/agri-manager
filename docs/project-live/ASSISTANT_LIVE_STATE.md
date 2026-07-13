@@ -38,4 +38,4 @@ Foundation-принципы:
 
 Не начинать без отдельной команды владельца.
 
-Первый будущий этап: ТЗ №142 — выполнить sync protocol и провести read-only аудит текущего assistant runtime в изолированной ветке. Production access отсутствует, write actions выключены.
+Первый будущий этап: ТЗ A100 — выполнить sync protocol и провести read-only аудит текущего assistant runtime в изолированной ветке. Production access отсутствует, write actions выключены.

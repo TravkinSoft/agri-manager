@@ -4,6 +4,15 @@
 
 Допустимые направления: `CORE`, `DATABASE`, `GLBD`, `ASSISTANT`, `UI`, `OPERATIONS`, `WAREHOUSE`.
 
+## Независимые последовательности
+
+- Основная ветка TravkinFlow использует `TZ-141`, `TZ-142`, `TZ-143` и далее; в тексте это «ТЗ №141», «ТЗ №142», «ТЗ №143».
+- Ветка Travkin Assistant использует отдельную последовательность `TZ-A100`, `TZ-A101`, `TZ-A102` и далее; `A` — латинская буква.
+- CORE- и ASSISTANT-номера не пересекаются и никогда не используются повторно.
+- Core-отчёт называется `task-reports/core/TZ-141.md`; assistant-отчёт называется `task-reports/assistant/TZ-A100.md`.
+- Основная ветка может резервировать номера `Axxx` в этом реестре.
+- `assistant-v1` не присваивает себе новый номер самостоятельно: номер должен сначала появиться в этом реестре основной ветки.
+
 | task_number | direction | title | branch | status | depends_on | report_path | commit_hash |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | TZ-135 | DATABASE | Legacy migration audit | copilot-v1 | DONE | TZ-134 | `external: audit-output/TZ-135/` | N/A (audit outputs not committed) |
@@ -13,8 +22,8 @@
 | TZ-139 | CORE | Project Live and assistant handoff foundation | copilot-v1 | DONE | TZ-135,TZ-137,TZ-138 | [task-reports/core/TZ-139.md](task-reports/core/TZ-139.md) | `3ef0afe` |
 | TZ-140 | DATABASE | Push core commits and repair six legacy history entries | copilot-v1 | DONE | TZ-137,TZ-138,TZ-139 | [task-reports/core/TZ-140.md](task-reports/core/TZ-140.md) | `SELF` |
 | TZ-141 | ASSISTANT / GOVERNANCE | Assistant isolated branch and Live sync | copilot-v1 -> assistant-v1 | IN_PROGRESS | TZ-139,TZ-140 | [task-reports/core/TZ-141.md](task-reports/core/TZ-141.md) | `SELF` |
-| TZ-142 | ASSISTANT | Current Architecture & Runtime Audit | assistant-v1 | PLANNED | TZ-141 | Not created | NOT_SET |
-| TZ-143 | DATABASE | Audit partially equivalent legacy migrations | copilot-v1 | PLANNED | TZ-141 | Not created | NOT_SET |
+| TZ-A100 | ASSISTANT | Current Architecture & Runtime Audit | assistant-v1 | PLANNED | TZ-141 | `task-reports/assistant/TZ-A100.md` (not created) | NOT_SET |
+| TZ-142 | DATABASE | Audit partially equivalent legacy migrations | copilot-v1 | PLANNED | TZ-141 | Not created | NOT_SET |
 
 ## Status values
 
@@ -23,6 +32,8 @@ Use one of: `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `CANCELLED`, `SUPERSEDE
 ## Registration rule
 
 1. Before issuing a new number, search this file.
-2. Add the task once with direction and branch.
-3. Update status and report path after completion; do not delete the row.
-4. `SELF` is allowed only when the registry row and task report are committed together with the task itself.
+2. Choose the correct independent sequence: numeric CORE or Latin-`A` ASSISTANT.
+3. Add the task once with direction and branch.
+4. Update status and report path after completion; do not delete the row.
+5. `assistant-v1` may use only an `Axxx` number already reserved here by the main branch.
+6. `SELF` is allowed only when the registry row and task report are committed together with the task itself.
