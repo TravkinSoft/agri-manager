@@ -12,6 +12,13 @@ export type ReadOnlyToolPolicy = {
   requiresSeason: boolean;
 };
 
+export type ReadOnlyRequestPolicyDecision =
+  | { mode: "model_with_tools"; code: null }
+  | { mode: "model_without_tools"; code: "ORDINARY_CONVERSATION" }
+  | { mode: "clarify_material"; code: "AMBIGUOUS_MATERIAL" }
+  | { mode: "deny_write"; code: "WRITE_ACTION_DENIED" }
+  | { mode: "deny_foreign_company"; code: "FOREIGN_COMPANY_DENIED" };
+
 export const READ_ONLY_TOOL_POLICIES: Readonly<Record<ReadOnlyModelToolName, ReadOnlyToolPolicy>> = Object.freeze({
   get_current_context: { sideEffect: "none", maxRows: 1, requiresSeason: false },
   search_fields: { sideEffect: "none", maxRows: 50, requiresSeason: false },
@@ -37,6 +44,67 @@ export class ReadOnlyPolicyError extends Error {
 function clean(value: unknown): string | null {
   const text = String(value ?? "").trim();
   return text.length ? text : null;
+}
+
+function normalizePolicyText(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[«»“”"'`.,!?;:()\[\]{}]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isOrdinaryConversationRequest(message: string): boolean {
+  const text = normalizePolicyText(message);
+  return /^(?:привет|привент|здравствуй(?:те)?|добрый\s+(?:день|вечер|утро)|спасибо(?:\s+большое)?|благодарю|как\s+дела|hello|hi|thanks|thank\s+you|how\s+are\s+you)$/u.test(text);
+}
+
+function isExplicitWriteRequest(message: string): boolean {
+  const text = normalizePolicyText(message);
+  return /^(?:пожалуйста\s+)?(?:спиши|списать|создай|создать|измени|изменить|закрой|закрыть|выполни|выполнить|удали|удалить|добавь|добавить|перемести|переместить|проведи|провести|подтверди|подтвердить|выдай|выдать|верни|вернуть|вызови|вызвать)(?:\s|$)/u.test(text) ||
+    /^(?:insert|update|delete|drop|alter|create|write|close|confirm)(?:\s|$)/u.test(text);
+}
+
+function isAmbiguousMaterialRequest(message: string): boolean {
+  const text = normalizePolicyText(message);
+  return /^(?:сколько\s+)?осталось\s+(?:удобрения|материала)$/u.test(text);
+}
+
+function explicitlyRequestsForeignCompany(message: string, currentCompanyName: string | null | undefined): boolean {
+  const text = normalizePolicyText(message);
+  if (!text) return false;
+  if (/(?:^|\s)(?:чужой|чужая|чужую|чужие|другой|другая|другую)\s+компани/u.test(text)) return true;
+
+  const currentCompany = normalizePolicyText(currentCompanyName);
+  if (currentCompany && text.includes(currentCompany)) return false;
+
+  const targetMatch = text.match(/(?:^|\s)(?:компания|компании|компанию|company)\s+(.+)$/u);
+  const target = targetMatch?.[1]?.trim() || "";
+  if (!target) return false;
+  if (/^(?:моя|моей|мою|наша|нашей|нашу|текущая|текущей|текущую|эта|этой|эту|своя|своей|свою)$/u.test(target)) {
+    return false;
+  }
+  return true;
+}
+
+export function decideReadOnlyRequestPolicy(params: {
+  message: string;
+  currentCompanyName?: string | null;
+}): ReadOnlyRequestPolicyDecision {
+  if (isExplicitWriteRequest(params.message)) {
+    return { mode: "deny_write", code: "WRITE_ACTION_DENIED" };
+  }
+  if (explicitlyRequestsForeignCompany(params.message, params.currentCompanyName)) {
+    return { mode: "deny_foreign_company", code: "FOREIGN_COMPANY_DENIED" };
+  }
+  if (isAmbiguousMaterialRequest(params.message)) {
+    return { mode: "clarify_material", code: "AMBIGUOUS_MATERIAL" };
+  }
+  if (isOrdinaryConversationRequest(params.message)) {
+    return { mode: "model_without_tools", code: "ORDINARY_CONVERSATION" };
+  }
+  return { mode: "model_with_tools", code: null };
 }
 
 function selectedActorCompany(actor: ServerActorContext): string | null {

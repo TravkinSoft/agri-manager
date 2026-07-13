@@ -12,6 +12,7 @@
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
     "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",
     "qa:assistant:full": "npx tsx scripts/qa-assistant-copilot-full-check.ts",
+    "qa:assistant:readonly-v1": "npx --no-install tsx scripts/qa-assistant-a101-read-only.ts",
     "qa:assistant:intent-router": "npx tsx scripts/qa-assistant-intent-router-2026.ts",
     "qa:assistant:step5": "npx tsx scripts/qa-copilot-step5-source-of-truth.ts",
     "qa:assistant:backlog-step2-step3-step6": "npx tsx scripts/qa-copilot-backlog-step2-step3-step6.ts",

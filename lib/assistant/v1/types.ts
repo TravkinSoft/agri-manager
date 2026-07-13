@@ -38,6 +38,8 @@ export type ReadOnlyRuntimeDiagnostics = {
   conversationMessageCount: number;
   modelInputMessageCount: number;
   availableTools: ReadOnlyModelToolName[];
+  modelToolsEnabled: boolean;
+  requestPolicyDecision: "model_with_tools" | "model_without_tools" | "clarify_material" | "deny_write" | "deny_foreign_company";
   blockedToolName: string | null;
   singleModelPath: true;
 };

@@ -31,6 +31,7 @@ import {
   assertReadOnlyResultCompany,
   assertReadOnlyToolPolicy,
   boundReadOnlyToolOutput,
+  decideReadOnlyRequestPolicy,
   isReadOnlyModelToolName,
 } from "@/lib/assistant/v1/policy";
 import { getReadOnlyModelToolSchemas } from "@/lib/assistant/v1/tool-schemas";
@@ -219,6 +220,8 @@ function normalizedToolArgs(params: {
     return {
       query: message,
       status: "active",
+      field_id: clean(rawArgs.field_id) || state.selectedFieldId,
+      field: clean(rawArgs.field) || state.selectedFieldLabel,
       season: clean(rawArgs.season_id) || runtimeContext.season,
       season_id: clean(rawArgs.season_id),
       output_type: "summary_total",
@@ -229,6 +232,14 @@ function normalizedToolArgs(params: {
     return { query: message, output_type: "summary_total" };
   }
   return { query: message, output_type: "filtered_summary" };
+}
+
+function explicitNamedMaterial(message: string): string | null {
+  const match = String(message || "").match(
+    /(?:^|\s)(?:материал(?:а|у|ом|е)?|material)\s+[«"']?([^»"'?!.;,]{2,120})[»"']?/iu
+  );
+  const product = clean(match?.[1]);
+  return product && !/^(?:материал|удобрени[ея])$/iu.test(product) ? product : null;
 }
 
 function normalizeFieldLabel(value: unknown): string {
@@ -451,6 +462,8 @@ export async function runReadOnlyAssistantV1(params: {
     conversationMessageCount: 1,
     modelInputMessageCount: 0,
     availableTools: [...READ_ONLY_MODEL_TOOL_NAMES],
+    modelToolsEnabled: true,
+    requestPolicyDecision: "model_with_tools",
     blockedToolName: null,
     singleModelPath: true,
   };
@@ -507,6 +520,71 @@ export async function runReadOnlyAssistantV1(params: {
     conversationMessageCount: conversation.conversationMessageCount,
     modelInputMessageCount: conversation.messages.length,
   };
+  const requestDecision = decideReadOnlyRequestPolicy({
+    message,
+    currentCompanyName: params.companyName || runtimeContext.companyName,
+  });
+  diagnostics.requestPolicyDecision = requestDecision.mode;
+  diagnostics.modelToolsEnabled = requestDecision.mode === "model_with_tools";
+
+  if (requestDecision.mode === "clarify_material") {
+    return buildResult({
+      startedAt,
+      answer: "Уточните точное название материала. После этого я смогу проверить остаток в режиме только для чтения.",
+      state,
+      runtimeContext,
+      settings: params.settings,
+      modelConfig,
+      actualModel: null,
+      llm: {
+        ...defaultLlm(),
+        status: "not_called",
+        errorCode: requestDecision.code,
+        errorMessage: "Ambiguous material request clarified before OpenAI and ERP tools.",
+      },
+      usage: { promptTokens: null, completionTokens: null, totalTokens: null },
+      toolCalls: [],
+      outputs: [],
+      intent: generalIntent,
+      answerSource: "policy_block",
+      grounded: false,
+      modelMs: 0,
+      toolMs: 0,
+      diagnostics,
+    });
+  }
+
+  if (requestDecision.mode === "deny_write" || requestDecision.mode === "deny_foreign_company") {
+    const foreignCompany = requestDecision.mode === "deny_foreign_company";
+    return buildResult({
+      startedAt,
+      answer: foreignCompany
+        ? "Доступ к данным другой компании запрещён. Показаны данные текущей компании не будут."
+        : "Это действие сейчас недоступно: ассистент работает только на чтение. Никакие данные не изменены.",
+      state,
+      runtimeContext,
+      settings: params.settings,
+      modelConfig,
+      actualModel: null,
+      llm: {
+        ...defaultLlm(),
+        status: "not_called",
+        errorCode: requestDecision.code,
+        errorMessage: foreignCompany
+          ? "Explicit foreign-company request denied before OpenAI and ERP tools."
+          : "Explicit write request denied before OpenAI and ERP tools.",
+      },
+      usage: { promptTokens: null, completionTokens: null, totalTokens: null },
+      toolCalls: [],
+      outputs: [],
+      intent: generalIntent,
+      answerSource: foreignCompany ? "access_denied" : "policy_block",
+      grounded: false,
+      modelMs: 0,
+      toolMs: 0,
+      diagnostics,
+    });
+  }
   const apiKey = params.dependencies && Object.prototype.hasOwnProperty.call(params.dependencies, "apiKey")
     ? params.dependencies.apiKey
     : process.env.OPENAI_API_KEY;
@@ -539,7 +617,8 @@ export async function runReadOnlyAssistantV1(params: {
     return tool.run(context);
   });
   const messages: any[] = conversation.messages.map((item) => ({ ...item }));
-  const toolSchemas = getReadOnlyModelToolSchemas();
+  const modelToolsEnabled = requestDecision.mode === "model_with_tools";
+  const toolSchemas = modelToolsEnabled ? getReadOnlyModelToolSchemas() : [];
   const toolCalls: AssistantEngineResult["toolCalls"] = [];
   const outputs: AssistantToolOutput[] = [];
   let nextState = state;
@@ -550,6 +629,7 @@ export async function runReadOnlyAssistantV1(params: {
   let usage: Usage = { promptTokens: null, completionTokens: null, totalTokens: null };
   let modelMs = 0;
   let toolMs = 0;
+  const requiredInventoryProduct = modelToolsEnabled ? explicitNamedMaterial(message) : null;
 
   for (let turn = 0; turn < MAX_MODEL_TURNS; turn += 1) {
     const modelStartedAt = Date.now();
@@ -563,7 +643,7 @@ export async function runReadOnlyAssistantV1(params: {
           temperature: modelConfig.temperature,
           messages,
           tools: toolSchemas,
-          toolChoice: "auto",
+          toolChoice: modelToolsEnabled ? "auto" : "none",
           maxCompletionTokens: 1_200,
         })),
       });
@@ -591,8 +671,22 @@ export async function runReadOnlyAssistantV1(params: {
     }
 
     const choice = data?.choices?.[0]?.message || {};
-    const requestedToolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
+    let requestedToolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
     const answer = clean(choice.content) || "";
+    if (
+      !requestedToolCalls.length &&
+      requiredInventoryProduct &&
+      !toolCalls.some((item) => item.tool === "get_warehouse_stock")
+    ) {
+      requestedToolCalls = [{
+        id: `readonly-required-inventory-${turn}`,
+        type: "function",
+        function: {
+          name: "get_warehouse_stock",
+          arguments: JSON.stringify({ product: requiredInventoryProduct }),
+        },
+      }];
+    }
     if (!requestedToolCalls.length) {
       finalAnswer = answer;
       llm = { status: "ok", httpStatus: response.status, errorCode: null, errorMessage: null, missingEnv: [] };
@@ -602,12 +696,16 @@ export async function runReadOnlyAssistantV1(params: {
 
     for (const call of requestedToolCalls) {
       const rawName = clean(call?.function?.name) || "unknown";
-      if (!isReadOnlyModelToolName(rawName) || toolCalls.length >= MAX_TOOL_CALLS) {
+      if (!modelToolsEnabled || !isReadOnlyModelToolName(rawName) || toolCalls.length >= MAX_TOOL_CALLS) {
         diagnostics.blockedToolName = rawName;
         llm = {
           status: "invalid_response",
           httpStatus: response.status,
-          errorCode: isReadOnlyModelToolName(rawName) ? "TOOL_CALL_LIMIT" : "TOOL_NOT_ALLOWED",
+          errorCode: !modelToolsEnabled
+            ? "TOOLS_DISABLED_FOR_CHAT"
+            : isReadOnlyModelToolName(rawName)
+              ? "TOOL_CALL_LIMIT"
+              : "TOOL_NOT_ALLOWED",
           errorMessage: `Blocked model tool call: ${rawName}`,
           missingEnv: [],
         };

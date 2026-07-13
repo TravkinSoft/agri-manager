@@ -54,8 +54,14 @@ export function parseTypedFieldSearchParameters(
       delete result.name;
     }
   } else {
+    const namedMatch = text.match(/(?:^|\s)назван[\p{L}]*\s+[«"']?([^»"'?!.;,]+)[»"']?/iu);
+    const fieldNameMatch = text.match(/(?:^|\s)пол(?:е|я)\s+[«"']?([\p{L}][\p{L}\p{N}\s_-]{0,80})[»"']?/iu);
+    const messageName = cleanName(namedMatch?.[1] || fieldNameMatch?.[1] || "");
     const numberMatch = text.match(/(?:^|\s)(?:пол(?:е|я)|field|№)\s*№?\s*(\d{1,3}(?:-\d{1,3}){0,2})(?!\d)/iu);
-    if (numberMatch?.[1]) {
+    if (messageName) {
+      result.name = messageName;
+      delete result.number;
+    } else if (numberMatch?.[1]) {
       result.number = numberMatch[1];
       delete result.name;
     }

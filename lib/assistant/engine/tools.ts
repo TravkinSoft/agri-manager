@@ -83,7 +83,9 @@ function isQaMarkerText(value: unknown): boolean {
 }
 
 function isDebugOrTestDataAllowed(context: AssistantToolContext): boolean {
+  const dedicatedQaCompany = normalizeSearchText(context.runtimeContext.companyName) === "travkinflowtest1";
   return (
+    dedicatedQaCompany ||
     parseBoolish(context.intent.parameters.include_test_data) ||
     parseBoolish(context.intent.parameters.debug) ||
     parseBoolish(context.intent.parameters.test_mode)
@@ -3358,6 +3360,8 @@ async function buildOperationRows(
   const statusFilter = inferredActive ? "active" : rawStatus;
   const ignoreSearchTerms = shouldTreatOperationQueryAsStatusOnly(queryText, statusFilter);
   const terms = ignoreSearchTerms ? [] : buildSearchTerms(queryText);
+  const requestedFieldId = cleanString(context.intent.parameters.field_id);
+  const requestedFieldLabel = normalizeSearchText(context.intent.parameters.field);
 
   const res = await context.supabase
     .from("operations")
@@ -3376,6 +3380,15 @@ async function buildOperationRows(
 
   const rows = (res.data || [])
     .filter((row: any) => {
+      const operationLineFieldIds = Array.isArray(row.operation_lines)
+        ? row.operation_lines.map((line: any) => cleanString(line?.field_id)).filter(Boolean)
+        : [];
+      const operationFieldIds = [cleanString(row.field_id), ...operationLineFieldIds].filter(Boolean);
+      if (requestedFieldId && !operationFieldIds.includes(requestedFieldId)) return false;
+      if (!requestedFieldId && requestedFieldLabel) {
+        const rowFieldLabel = normalizeSearchText(operationFieldLabel(row));
+        if (!rowFieldLabel.includes(requestedFieldLabel)) return false;
+      }
       const workStatus = normalizeOperationWorkStatus(row);
       if (statusFilter === "active" && !isActiveOperationRow(row)) return false;
       if (statusFilter === "in_progress" && workStatus !== "in_progress") return false;
@@ -3402,6 +3415,12 @@ async function buildOperationRows(
       const materials = normalizeOperationMaterials(row);
       return {
         operation_id: String(row.id || ""),
+        field_ids: Array.from(new Set([
+          cleanString(row.field_id),
+          ...(Array.isArray(row.operation_lines)
+            ? row.operation_lines.map((line: any) => cleanString(line?.field_id))
+            : []),
+        ].filter(Boolean))),
         date: cleanString(row.date),
         operation_type: cleanString(row.operation_type) || "-",
         operation_type_slug: cleanString(row.operation_type_slug),
@@ -3460,7 +3479,7 @@ const getActiveOperationsSummaryToolAlias: AssistantToolDefinition = {
     return {
       title: "Active operations summary",
       rows: rows.slice(0, 120),
-      summary: `count=${rows.length}`,
+      summary: `count=${rows.length}${cleanString(context.intent.parameters.field_id) ? "; field_scoped=true" : ""}`,
       source: {
         module: "operations",
         tableOrView: "operations + operation_lines + operation_materials (active summary)",

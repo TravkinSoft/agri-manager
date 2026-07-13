@@ -77,6 +77,7 @@ const CONSTANT_RULES = [
   "For fields: Сад is a name; 22 га is area_ha=22, never number=22; поле 28 is number=28.",
   "If more than one field matches, list candidates and ask one clarification question. Never select a random field.",
   "For a short follow-up about materials, use structured selected field focus from this thread.",
+  "For a short follow-up about active operations, scope the summary to the structured selected field ID from this thread.",
   "Answer briefly in the user's language. Do not claim a write or navigation was performed.",
 ].join("\n");
 

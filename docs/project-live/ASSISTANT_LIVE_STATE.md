@@ -1,10 +1,10 @@
 # Assistant Live State
 
 LAST_UPDATED: `2026-07-14`
-STATUS: `A102_LOCAL_RUNTIME_VALIDATION_DONE_WITH_FINDINGS`
+STATUS: `A103_READ_ONLY_RUNTIME_ACCEPTANCE_PASS_20_OF_20`
 BRANCH: `assistant-v1`
-BASE_ASSISTANT_COMMIT: `51e878e7306d0b6a821a21b9a7174466e165d10c`
-CORE_COMMIT_REVIEWED: `ec6941294d7c172a58479a42c3fce1d3d1757133`
+BASE_ASSISTANT_COMMIT: `c4ec0b041b6486d0a3af6d759597c05129d0a470`
+CORE_COMMIT_REVIEWED: `b42d777ad9333bc11ed9adfe8b732bb0f72dc6c1`
 CONTRACT_VERSION_REVIEWED: `0.2`
 ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
 WRITE_CAPABILITY: `NOT_APPROVED_AND_NOT_EXPOSED`
@@ -91,3 +91,13 @@ Field name/area/number parsing, warehouse product lookup, nonexistent-material e
 ## Governance note
 
 Core contract 0.2 at `ec694129` approves A102 only for local read-only validation. A102 is complete as a validation phase, but its findings block any claim that the real runtime fully passes acceptance. No merge, rebase, preview/production deploy, production mutation, or write capability is approved. Core-owned Project Live files were read with `git show` and were not edited.
+
+## A103 read-only acceptance
+
+TZ-A103 closes the six A102 runtime findings without enabling writes. Ordinary greetings and thanks run with no ERP schemas or tool calls. Explicit write, SQL, forbidden-tool, and foreign-company requests are decided centrally before OpenAI or ERP tools. Ambiguous material requests are clarified before tools, while explicitly named materials use a deterministic read-only warehouse lookup.
+
+The real Test1 fixture was discovered dynamically through GET: `Тестовое поле 1`, 100 ha. Its structured ID remained selected through the field, materials, and active-operations chain, same-thread history reached OpenAI, and a new thread inherited neither history nor field focus. Field names ending in digits no longer collapse into numeric field searches.
+
+Model availability is checked explicitly. Configured `gpt-5.3` remains unchanged and unavailable; A103 used the approved process-only `gpt-5.4-mini` override, with effective snapshot `gpt-5.4-mini-2026-03-17` and no silent fallback. The package alias `qa:assistant:readonly-v1` runs the existing regression suite rather than a duplicate runner.
+
+Final real acceptance is `20/20 PASS`: 45 Supabase GET requests, 0 non-read requests, 0 database writes, 0 foreign rows, 0 production mutations, and exactly the eight approved read-only schemas. Audit evidence remains uncommitted under `audit-output/TZ-A103/`. Merge, deploy, production mutation, and write capability remain blocked.

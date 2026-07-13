@@ -110,6 +110,7 @@ const tools: PlannerToolSchema[] = [
       parameters: {
         type: "object",
         properties: {
+          field_id: { type: "string", description: "Selected field ID for a field-scoped follow-up." },
           season_id: { type: "string" },
           limit: { type: "integer", minimum: 1, maximum: 100 },
         },

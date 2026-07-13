@@ -1,48 +1,50 @@
 # Assistant Sync State
 
-LAST_SYNC_AT: `2026-07-14T01:42:35+05:00`
+LAST_SYNC_AT: `2026-07-14T02:24:52+05:00`
 ASSISTANT_BRANCH: `assistant-v1`
-ASSISTANT_BASE_COMMIT: `51e878e7306d0b6a821a21b9a7174466e165d10c`
-ASSISTANT_COMMIT: `SELF` (TZ-A102 documentation commit)
+ASSISTANT_BASE_COMMIT: `c4ec0b041b6486d0a3af6d759597c05129d0a470`
+ASSISTANT_COMMIT: `SELF` (TZ-A103 implementation and report commit)
 
 CORE_BRANCH_REVIEWED: `origin/copilot-v1`
-CORE_COMMIT_REVIEWED: `ec6941294d7c172a58479a42c3fce1d3d1757133`
-CORE_LIVE_STATE_REVIEWED_AT: `2026-07-14T01:42:35+05:00`
+CORE_COMMIT_REVIEWED: `b42d777ad9333bc11ed9adfe8b732bb0f72dc6c1`
+CORE_LIVE_STATE_REVIEWED_AT: `2026-07-14T02:24:52+05:00`
+LATEST_CORE_REPORT_REVIEWED: `TZ-149.md`
 INTEGRATION_CONTRACT_VERSION: `0.2`
 INTEGRATION_CONTRACT_HASH: `20EDC32A8D3540DF9C779C7DF3C8F931E0AA91349327111BF8A924460871C307`
 
 CORE_PRODUCTION_COMMIT_REVIEWED: `321e45fa681fecff89307545d0ec3fa600b4c982`
 CORE_PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`
-CORE_DB_STATUS_REVIEWED: `76 remote history rows; head 20260712203746; 57 old local-only versions remain; db push prohibited`
 ASSISTANT_ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
 WRITE_CAPABILITY_APPROVED: `NO`
 
-CORE_CHANGES_SINCE_LAST_SYNC: `TZ-145 approved A101 and contract 0.2; TZ-147 provisioned the dedicated Test1 QA identity and unblocked A102 local read-only validation`
-CONTRACT_CHANGES_FOUND: `YES; 0.1 -> 0.2, exact current hash verified`
-ASSISTANT_API_CONTRACT_CHANGES_FOUND: `NO_NEW_API_OR_SCHEMA; exactly eight read-only tools remain approved`
-INCOMPATIBLE_CHANGES_FOUND: `NO_CONTRACT_INCOMPATIBILITY_FOR_A102_LOCAL_READ_ONLY_VALIDATION`
-OWNER_TASK_OVERRIDE: `NOT_REQUIRED; TZ-147 and contract 0.2 explicitly unblock A102`
-SYNC_STATUS: `A102_LOCAL_READ_ONLY_VALIDATION_COMPLETE_WITH_FINDINGS`
-SYNC_BLOCKER: `REAL_RUNTIME_ACCEPTANCE_NOT_FULLY_PASSING: 14/20 scenarios pass; local model alias gpt-5.3 is unavailable; model-layer foreign-company refusal and write-intent refusal need fixes; QA fixture lacks field 28`
-NEXT_SAFE_ACTION: `Review A102 findings and create a separately approved fix/fixture task. Keep merge, deploy, database changes, and write capability blocked.`
+CORE_CHANGES_SINCE_LAST_SYNC: `TZ-148 froze unapplied Warehouse Units V2 after repeat-safety work; TZ-149 completed an independent read-only GLBD audit. Neither changes the Assistant contract.`
+CONTRACT_CHANGES_FOUND: `NO; version 0.2 and exact hash unchanged`
+ASSISTANT_API_CONTRACT_CHANGES_FOUND: `NO; exactly eight read-only tools remain approved`
+INCOMPATIBLE_CHANGES_FOUND: `NO`
+OWNER_TASK_OVERRIDE: `The owner explicitly supplied TZ-A103 in this task; core TASK_NUMBERING does not yet contain A103, so the registry gap is recorded and core-owned files remain untouched.`
+SYNC_STATUS: `A103_LOCAL_READ_ONLY_ACCEPTANCE_PASS_20_OF_20`
+SYNC_BLOCKER: `NONE for local read-only acceptance; merge, deploy, production mutation, and write capability remain unapproved`
+NEXT_SAFE_ACTION: `Keep audit-output uncommitted and request separate core/owner approval before any merge, deploy, production change, or write capability.`
 
 ## Reviewed core sources
 
-The following files were read from the fetched core ref with `git show`, without merge or rebase:
+After `git fetch origin`, the following current sources were read with `git show`, without merge or rebase:
 
 - `origin/copilot-v1:docs/project-live/CORE_LIVE_STATE.md`;
 - `origin/copilot-v1:docs/project-live/INTEGRATION_CONTRACT.md`;
 - `origin/copilot-v1:docs/project-live/TASK_NUMBERING.md`;
-- `origin/copilot-v1:docs/project-live/task-reports/core/TZ-147.md`.
+- `origin/copilot-v1:docs/project-live/task-reports/core/TZ-149.md`.
 
-Core commit `ec694129` keeps contract 0.2, records A101 as approved local read-only foundation, and confirms the dedicated `TravkinFlowTest1` agronomist QA identity. The identity can read its own Test1 scope and sees zero rows from another company under RLS. Database, migration, production, merge, and deploy restrictions remain unchanged.
+The latest core commit is `b42d777ad9333bc11ed9adfe8b732bb0f72dc6c1`. Contract 0.2 remains byte-for-byte at the hash above. TZ-149 reports only a read-only GLBD audit and no Assistant integration change. `TASK_NUMBERING.md` has no A103 entry; the explicit user-supplied task is the recorded owner authorization for this isolated assistant branch work, not authorization to edit core-owned files.
 
-## A102 compatibility and result
+## A103 compatibility and result
 
-The security gate passed: core contract/hash matched, the user JWT resolved only to `TravkinFlowTest1`, cross-company RLS probes returned zero rows, all Supabase transport calls were GET, and the model saw only the eight approved schemas. The complete 20-scenario runtime validation finished with 14 PASS and 6 FAIL. These failures are acceptance findings, not permission to expand scope. No assistant or core application code was changed for A102.
+The A103 implementation stays inside the existing A101 boundary: exactly eight `side_effect=none` schemas, user-JWT/RLS reads, no application write route, no database/schema/data/import change, and no production call. The central request policy now suppresses tools for ordinary conversation, refuses write/SQL/forbidden-tool requests, and denies explicit foreign-company requests before OpenAI and ERP tools.
 
-The configured local alias `gpt-5.3` is unavailable to the existing key. It was not edited. The measured run used a process-only `gpt-5.4-mini` override and received effective snapshot `gpt-5.4-mini-2026-03-17`. Full evidence remains uncommitted under `audit-output/TZ-A102/`.
+Final real local acceptance against `TravkinFlowTest1` is 20/20 PASS. The dynamically read field `Тестовое поле 1` retained the same structured ID through field, materials, and active-operation follow-ups; same-thread history reached OpenAI; the new thread inherited no focus. The measured final run used 45 Supabase GET requests, 0 non-read requests, 0 foreign rows, and 0 database writes.
+
+Configured `gpt-5.3` remains unchanged and unavailable. Explicit preflight selected the approved process-only `gpt-5.4-mini` override; OpenAI returned `gpt-5.4-mini-2026-03-17`. Silent fallback was not used. The expired QA access token was refreshed at the separate security gate using the existing local refresh token and the rotated pair was stored only in ignored `.env.local`; no secret was printed or committed. The final measured acceptance run itself required no auth refresh and contained only GET/read-only Supabase transport.
 
 ## Mandatory rule
 
-Before every subsequent task in `assistant-v1`, fetch `origin/copilot-v1`, read the mandatory core sources with `git show`, and record the actual ref, contract version/hash, compatibility result, and allowed mode here. Contract changes, new core API requirements, database/schema work, fixes to the A102 findings, or any write capability require a separately approved task. No automatic merge or rebase is allowed.
+Before every subsequent task in `assistant-v1`, fetch `origin/copilot-v1`, read the mandatory core sources with `git show`, and record the actual ref, contract version/hash, compatibility result, and allowed mode here. No automatic merge or rebase is allowed.
