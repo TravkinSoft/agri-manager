@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
 
 const READ_ROLES = [
   "global_admin",
@@ -116,6 +117,7 @@ export async function POST(request: NextRequest) {
     const type = String(body.type || "").trim().toLowerCase();
     if (!name) return NextResponse.json({ error: "Product name is required" }, { status: 400 });
     if (!PRODUCT_TYPES.has(type)) return NextResponse.json({ error: "Invalid product type" }, { status: 400 });
+    const baseUom = normalizeStockUom(toNullableText(body.base_uom) || toNullableText(body.unit)).baseUom;
 
     const payload = {
       company_id: companyId,
@@ -129,11 +131,11 @@ export async function POST(request: NextRequest) {
       accounting_mode: ACCOUNTING_MODES.has(String(body.accounting_mode || ""))
         ? String(body.accounting_mode)
         : "bulk_mass",
-      base_uom: toNullableText(body.base_uom) || "kg",
+      base_uom: baseUom,
       pack_uom: toNullableText(body.pack_uom),
       unit_weight_kg: toNullableNumber(body.unit_weight_kg),
       units_per_pack: toNullableNumber(body.units_per_pack),
-      unit: toNullableText(body.unit) || "kg",
+      unit: baseUom,
       description: toNullableText(body.description),
       archived: false,
       is_active: body.is_active !== false,

@@ -3,6 +3,8 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
+import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
+import type { StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -109,7 +111,7 @@ export async function GET(request: NextRequest) {
         id: String(line.id),
         product_id: String(line.product_id),
         quantity: Number(line.quantity || 0),
-        uom: String(line.uom || "kg"),
+        uom: String(line.uom || "legacy/unknown"),
         warehouse_from_id: line.warehouse_from_id ? String(line.warehouse_from_id) : null,
         warehouse_to_id: line.warehouse_to_id ? String(line.warehouse_to_id) : null,
         unit_price: line.unit_price == null ? null : Number(line.unit_price),
@@ -241,7 +243,6 @@ export async function POST(request: NextRequest) {
       if (!line.product_id || !Number.isFinite(qty) || qty <= 0) {
         return NextResponse.json({ error: "transfer product identity and positive quantity are required" }, { status: 400 });
       }
-      line.batch_class = line.batch_class || "commodity";
     }
     if (isFieldIssue) {
       if (!ticket.warehouse_from_id || !ticket.field_id) {
@@ -258,7 +259,6 @@ export async function POST(request: NextRequest) {
       if (!line.product_id || !Number.isFinite(qty) || qty <= 0) {
         return NextResponse.json({ error: "field issue product identity and positive quantity are required" }, { status: 400 });
       }
-      line.batch_class = line.batch_class || "commodity";
     }
     if (isShipment || isDisposal) {
       if (!ticket.warehouse_from_id) {
@@ -272,7 +272,6 @@ export async function POST(request: NextRequest) {
       if (!line.product_id || !Number.isFinite(qty) || qty <= 0) {
         return NextResponse.json({ error: "stock identity and positive quantity are required" }, { status: 400 });
       }
-      line.batch_class = line.batch_class || "commodity";
       if (isShipment) {
         if (!ticket.buyer_id || String(ticket.destination_kind || "") !== "counterparty") {
           return NextResponse.json({ error: "counterparty is required for shipment" }, { status: 400 });
@@ -327,12 +326,55 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const stockEvent: StockBusinessEvent = isHarvestIncoming
+      ? "harvest_incoming"
+      : isSupplierReceipt
+        ? "supplier_receipt"
+        : isWarehouseTransfer
+          ? "manual_transfer"
+          : isFieldIssue
+            ? "field_issue"
+            : isShipment
+              ? "shipment"
+              : isDisposal
+                ? "disposal"
+                : "processing";
+
+    for (const line of lines) {
+      const contract = await resolveWarehouseStockContract(supabase, {
+        companyId: ticket.company_id,
+        productId: line.product_id,
+        quantity: line.quantity,
+        inputUom: line.uom,
+        requestedBatchClass: line.batch_class,
+        event: stockEvent,
+        fieldMaterialCategory: ticket.field_material_category,
+      });
+      if (!isDirectSupplierReceipt && contract.baseUom !== "kg" && !isDirectWarehouseTransfer && !isDirectFieldIssue) {
+        return NextResponse.json(
+          { error: "Литры и штуки нельзя подменять весом нетто. Используйте прямой документ с количеством в единице товара." },
+          { status: 400 }
+        );
+      }
+      line.quantity = contract.baseQuantity;
+      line.uom = contract.baseUom;
+      line.batch_class = contract.batchClass;
+      line.mass_kg = contract.massKg;
+      line.density_kg_per_l = contract.densityKgPerL;
+      line.density_unit = contract.densityUnit;
+      line.density_source = contract.densitySource;
+      line.density_verification_status = contract.densityVerificationStatus;
+      line.density_verified_at = contract.densityVerifiedAt;
+      line.unit_source = contract.unitSource;
+      line.unit_contract_version = contract.unitContractVersion;
+    }
+
     if (isWarehouseTransfer) {
       const line = lines[0];
       const requiredQty = Number(line.quantity || 0);
       const { data: balances, error: balanceError } = await supabase
         .from("v_stock_balance_identity")
-        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,quantity")
+        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
         .eq("company_id", ticket.company_id)
         .eq("warehouse_id", ticket.warehouse_from_id)
         .eq("product_id", line.product_id)
@@ -344,7 +386,8 @@ export async function POST(request: NextRequest) {
         sameNullable(row.variety_id, line.variety_id) &&
         sameNullable(row.reproduction_id, line.reproduction_id) &&
         (sameNullable(row.batch_id, line.batch_id) || sameNullable(row.batch_id, line.lot_id)) &&
-        String(row.batch_class || "commodity") === String(line.batch_class || "commodity")
+        String(row.batch_class || "") === String(line.batch_class || "") &&
+        String(row.uom || "") === String(line.uom || "")
       );
       const available = Number(match?.quantity || 0);
       if (!match) {
@@ -362,7 +405,7 @@ export async function POST(request: NextRequest) {
       const requiredQty = Number(line.quantity || 0);
       const { data: balances, error: balanceError } = await supabase
         .from("v_stock_balance_identity")
-        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,quantity")
+        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
         .eq("company_id", ticket.company_id)
         .eq("warehouse_id", ticket.warehouse_from_id)
         .eq("product_id", line.product_id)
@@ -374,7 +417,8 @@ export async function POST(request: NextRequest) {
         sameNullable(row.variety_id, line.variety_id) &&
         sameNullable(row.reproduction_id, line.reproduction_id) &&
         (sameNullable(row.batch_id, line.batch_id) || sameNullable(row.batch_id, line.lot_id)) &&
-        String(row.batch_class || "commodity") === String(line.batch_class || "commodity")
+        String(row.batch_class || "") === String(line.batch_class || "") &&
+        String(row.uom || "") === String(line.uom || "")
       );
       const available = Number(match?.quantity || 0);
       if (!match) {
@@ -392,7 +436,7 @@ export async function POST(request: NextRequest) {
       const requiredQty = Number(line.quantity || 0);
       const { data: balances, error: balanceError } = await supabase
         .from("v_stock_balance_identity")
-        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,quantity")
+        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
         .eq("company_id", ticket.company_id)
         .eq("warehouse_id", ticket.warehouse_from_id)
         .eq("product_id", line.product_id)
@@ -404,7 +448,8 @@ export async function POST(request: NextRequest) {
         sameNullable(row.variety_id, line.variety_id) &&
         sameNullable(row.reproduction_id, line.reproduction_id) &&
         (sameNullable(row.batch_id, line.batch_id) || sameNullable(row.batch_id, line.lot_id)) &&
-        String(row.batch_class || "commodity") === String(line.batch_class || "commodity")
+        String(row.batch_class || "") === String(line.batch_class || "") &&
+        String(row.uom || "") === String(line.uom || "")
       );
       const available = Number(match?.quantity || 0);
       if (!match) {
@@ -749,7 +794,7 @@ export async function POST(request: NextRequest) {
       product_id: line.product_id,
       crop_id: line.crop_id ?? null,
       quantity: Number(line.quantity || 0),
-      uom: String(line.uom || "kg").trim(),
+      uom: String(line.uom || "").trim(),
       warehouse_from_id: line.warehouse_from_id || (ticket.direction === "outgoing" || ticket.direction === "transfer" ? ticket.warehouse_from_id || null : null),
       warehouse_to_id: line.warehouse_to_id || (ticket.direction === "incoming" || ticket.direction === "transfer" ? ticket.warehouse_to_id || null : null),
       unit_price: line.unit_price == null ? null : Number(line.unit_price),
@@ -770,6 +815,14 @@ export async function POST(request: NextRequest) {
       operation_line_id: (line as any).operation_line_id ?? null,
       batch_id: line.batch_id ?? null,
       batch_class: line.batch_class ?? null,
+      mass_kg: line.mass_kg ?? null,
+      density_kg_per_l: line.density_kg_per_l ?? null,
+      density_unit: line.density_unit ?? null,
+      density_source: line.density_source ?? null,
+      density_verification_status: line.density_verification_status ?? null,
+      density_verified_at: line.density_verified_at ?? null,
+      unit_source: line.unit_source ?? null,
+      unit_contract_version: line.unit_contract_version ?? null,
     }));
 
     const { error: linesError } = await supabase.from("ticket_lines").insert(linesPayload);

@@ -3,6 +3,8 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { postInventoryTransactionToLedger } from "./_ledger";
+import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
+import { toStockContractColumns, type StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
 
 type MovementType = "receipt" | "issue" | "transfer" | "writeoff" | "adjustment";
 type TransactionDirection = "in" | "out";
@@ -53,6 +55,14 @@ function normalizeMovementType(movementType: unknown, direction: unknown): Movem
   return direction === "in" ? "receipt" : "issue";
 }
 
+function stockEventForMovement(movementType: MovementType): StockBusinessEvent {
+  if (movementType === "receipt") return "manual_receipt";
+  if (movementType === "transfer") return "manual_transfer";
+  if (movementType === "writeoff") return "manual_writeoff";
+  if (movementType === "adjustment") return "manual_adjustment";
+  return "manual_issue";
+}
+
 function normalizeLedgerMovementType(reasonType: unknown, direction: unknown): MovementType {
   const reason = String(reasonType || "").trim().toLowerCase();
   if (reason.includes("adjust")) return "adjustment";
@@ -95,13 +105,15 @@ function applyMovementToBalances(
     warehouseId?: string | null;
     productId: string;
     quantity: number;
+    uom: string;
+    batchClass: string;
   }
 ) {
   if (normalizeStatus(movement.status) !== "confirmed") return;
   const productId = movement.productId;
   const qty = movement.quantity;
   const add = (warehouseId: string, value: number) => {
-    const key = `${warehouseId}|${productId}`;
+    const key = `${warehouseId}|${productId}|${movement.uom}|${movement.batchClass}`;
     map.set(key, (map.get(key) || 0) + value);
   };
 
@@ -134,7 +146,7 @@ async function loadConfirmedBalanceMap(companyId: string) {
   const supabase = getServiceClient();
   const { data, error } = await supabase
     .from("v_stock_balance_canonical")
-    .select("warehouse_id, product_id, quantity")
+    .select("warehouse_id, product_id, quantity, uom, batch_class")
     .eq("company_id", companyId);
   if (error) throw new Error(error.message);
 
@@ -143,7 +155,10 @@ async function loadConfirmedBalanceMap(companyId: string) {
     const warehouseId = String(row.warehouse_id || "");
     const productId = String(row.product_id || "");
     if (!warehouseId || !productId) return;
-    map.set(`${warehouseId}|${productId}`, toNumberSafe(row.quantity));
+    const uom = String(row.uom || "");
+    const batchClass = String(row.batch_class || "");
+    if (!uom || !batchClass) return;
+    map.set(`${warehouseId}|${productId}|${uom}|${batchClass}`, toNumberSafe(row.quantity));
   });
   return map;
 }
@@ -156,6 +171,8 @@ function ensureSufficientStock(
     source_warehouse_id?: string | null;
     product_id: string;
     quantity: number;
+    base_uom: string;
+    batch_class: string;
   }
 ) {
   const productId = String(payload.product_id || "");
@@ -171,7 +188,7 @@ function ensureSufficientStock(
 
   const sourceId = String(payload.source_warehouse_id || "").trim();
   if (!sourceId) return;
-  const available = balanceMap.get(`${sourceId}|${productId}`) || 0;
+  const available = balanceMap.get(`${sourceId}|${productId}|${payload.base_uom}|${payload.batch_class}`) || 0;
   if (available < qty) {
     throw new Error(
       `Insufficient stock. Available: ${available.toFixed(2)}, requested: ${qty.toFixed(2)}`
@@ -296,7 +313,7 @@ export async function GET(request: NextRequest) {
         warehouse_name: warehouseName,
         product_name: row.products?.name || "N/A",
         product_type: row.products?.product_type || row.products?.type || "N/A",
-        product_unit: row.uom || row.products?.base_uom || row.products?.unit || "kg",
+        product_unit: row.uom || "legacy/unknown",
         created_by_email: row.profiles?.email || "N/A",
         source_system: "stock_ledger_entries",
         source_id: row.id || null,
@@ -339,21 +356,38 @@ export async function POST(request: NextRequest) {
     });
 
     const normalized = buildPayloadFromBody(body, actor.id, actor.authUserId, companyId);
+    const contract = await resolveWarehouseStockContract(supabase, {
+      companyId,
+      productId: normalized.payload.product_id,
+      quantity: normalized.payload.quantity,
+      inputUom: body.input_uom,
+      requestedBatchClass: body.batch_class,
+      event: stockEventForMovement(normalized.movementType),
+    });
+    const canonicalPayload = {
+      ...normalized.payload,
+      quantity: contract.baseQuantity,
+      unit: contract.baseUom,
+      base_quantity_kg: contract.massKg,
+      ...toStockContractColumns(contract),
+    };
 
     if (normalized.status === "confirmed") {
       const balances = await loadConfirmedBalanceMap(companyId);
       ensureSufficientStock(balances, {
         movement_type: normalized.movementType,
         transaction_type: normalized.direction,
-        source_warehouse_id: normalized.payload.source_warehouse_id,
-        product_id: normalized.payload.product_id,
-        quantity: normalized.payload.quantity,
+        source_warehouse_id: canonicalPayload.source_warehouse_id,
+        product_id: canonicalPayload.product_id,
+        quantity: canonicalPayload.base_quantity,
+        base_uom: canonicalPayload.base_uom,
+        batch_class: canonicalPayload.batch_class,
       });
     }
 
     const { data, error } = await supabase
       .from("inventory_transactions")
-      .insert(normalized.payload)
+      .insert(canonicalPayload)
       .select("*")
       .single();
     if (error || !data) {

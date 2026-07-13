@@ -76,6 +76,8 @@ type StockIdentityOption = {
   batch_id: string | null;
   batch_class: string;
   batch_class_label: string;
+  uom: string;
+  is_legacy_invalid?: boolean;
   product_type?: string;
   quantity: number;
   label: string;
@@ -1037,7 +1039,7 @@ export default function WeighbridgeOperationsPage() {
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить остатки склада");
-        return (payload.items || []) as StockIdentityOption[];
+        return ((payload.items || []) as StockIdentityOption[]).filter((item) => !item.is_legacy_invalid);
       })
       .then((items) => {
         if (cancelled) return;
@@ -1807,14 +1809,17 @@ export default function WeighbridgeOperationsPage() {
       product_id: productId,
       crop_id: form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierItemMode === "agro_identity") || (isFieldIssue && isSeedIssueOperation(form.fieldMaterialCategory)) ? form.cropId : null,
       quantity: movementQuantity,
-      uom: "kg",
+      uom:
+        form.operationType === "harvest_incoming"
+          ? "kg"
+          : selectedTransferStock?.uom || inferProductUnit(productById.get(productId)),
       warehouse_from_id: form.warehouseFromId || null,
       warehouse_to_id: form.warehouseToId || null,
       notes: form.operationType === "harvest_incoming" ? "Приемка урожая" : form.operationType === "supplier_receipt" ? "Приемка от поставщика" : form.operationType === "transfer_between_warehouses" ? "Межскладское перемещение" : undefined,
       lot_id: form.operationType === "supplier_receipt" ? form.supplierLot.trim() || null : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal) ? selectedTransferStock?.batch_id || null : null,
       supplier_lot: form.operationType === "supplier_receipt" ? form.supplierLot.trim() || null : null,
       batch_id: (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal) && isUuidLike(selectedTransferStock?.batch_id) ? selectedTransferStock?.batch_id || null : null,
-      batch_class: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.batch_class || "commodity" : null,
+      batch_class: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.batch_class || null : null,
       variety_id: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierItemMode === "agro_identity") ? form.varietyId || null : null,
       reproduction_id: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierItemMode === "agro_identity") ? form.reproductionId || null : null,
       operation_line_id: isFieldIssue ? form.linkedOperationLineId || null : null,
@@ -1842,7 +1847,7 @@ export default function WeighbridgeOperationsPage() {
               ].filter(Boolean).join("\n"),
               lot_id: draft.supplierLot.trim() || null,
               supplier_lot: draft.supplierLot.trim() || null,
-              batch_class: "commodity",
+              batch_class: null,
             };
           })
         : [line];
@@ -2704,7 +2709,7 @@ export default function WeighbridgeOperationsPage() {
                     <div className="grid gap-2 md:grid-cols-5">
                       <div className="space-y-1"><Label>Номенклатура *</Label><Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v, quantityUom: inferProductUnit(productById.get(v)) }))}><SelectTrigger className="h-8"><SelectValue placeholder="Удобрения, СЗР, ГСМ..." /></SelectTrigger><SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div>
                       <div className="space-y-1"><Label>{form.supplierReceiptMode === "direct" || supplierReceiptUsesMultipleLines ? "Количество *" : "Количество"}</Label><Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder={form.supplierReceiptMode === "weighbridge" && !supplierReceiptUsesMultipleLines ? "опц. для нескольких строк" : ""} /></div>
-                      <div className="space-y-1"><Label>Ед. *</Label><Select value={form.quantityUom} onValueChange={(v) => setForm((p) => ({ ...p, quantityUom: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Ед." /></SelectTrigger><SelectContent>{["kg","g","l","m","roll","pcs","pack"].map((unit) => <SelectItem key={unit} value={unit}>{unitLabel(unit)}</SelectItem>)}</SelectContent></Select></div>
+                      <div className="space-y-1"><Label>Ед. *</Label><Select value={form.quantityUom} onValueChange={(v) => setForm((p) => ({ ...p, quantityUom: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Ед." /></SelectTrigger><SelectContent>{["kg","g","l","ml","pcs"].map((unit) => <SelectItem key={unit} value={unit}>{unitLabel(unit)}</SelectItem>)}</SelectContent></Select></div>
                       <div className="space-y-1"><Label>Склад строки *</Label><Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Склад" /></SelectTrigger><SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent></Select></div>
                     </div>
                     <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs text-slate-300" onClick={() => setShowSupplierExtraFields((v) => !v)}>

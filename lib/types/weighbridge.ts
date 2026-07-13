@@ -24,6 +24,14 @@ export interface TicketLineInput {
   reproduction_id?: string | null;
   batch_class?: string | null;
   operation_line_id?: string | null;
+  mass_kg?: number | null;
+  density_kg_per_l?: number | null;
+  density_unit?: string | null;
+  density_source?: string | null;
+  density_verification_status?: string | null;
+  density_verified_at?: string | null;
+  unit_source?: string | null;
+  unit_contract_version?: number | null;
 }
 
 export interface TicketInput {

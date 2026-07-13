@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 12);
@@ -69,6 +70,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ticketId: reqRow.linked_ticket_id, duplicate: true });
     }
 
+    const { data: products } = await supabase
+      .from("products")
+      .select("id, name")
+      .in("id", (reqRow.items || []).map((item: any) => item.product_id))
+      .eq("company_id", reqRow.company_id);
+    const productById = new Map<string, string>();
+    (products || []).forEach((item: any) => productById.set(String(item.id), String(item.name)));
+
+    const lines: any[] = [];
+    for (const item of reqRow.items || []) {
+      const contract = await resolveWarehouseStockContract(supabase, {
+        companyId: reqRow.company_id,
+        productId: item.product_id,
+        quantity: Number(item.required_quantity || 0),
+        inputUom: item.unit,
+        event: "field_issue",
+      });
+      lines.push({
+        company_id: reqRow.company_id,
+        product_id: item.product_id,
+        product_name_snapshot: productById.get(String(item.product_id)) || null,
+        uom: contract.baseUom,
+        quantity: contract.baseQuantity,
+        batch_class: contract.batchClass,
+        mass_kg: contract.massKg,
+        density_kg_per_l: contract.densityKgPerL,
+        density_unit: contract.densityUnit,
+        density_source: contract.densitySource,
+        density_verification_status: contract.densityVerificationStatus,
+        density_verified_at: contract.densityVerifiedAt,
+        unit_source: contract.unitSource,
+        unit_contract_version: contract.unitContractVersion,
+        operation_line_id: reqRow.operation_line_id || null,
+        notes: `From warehouse request ${reqRow.request_number}`,
+      });
+    }
+
     const ticketNo = buildTicketNo(reqRow.company_id);
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
@@ -100,28 +138,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: ticketError?.message || "Failed to create ticket" }, { status: 400 });
     }
 
-    const { data: products } = await supabase
-      .from("products")
-      .select("id, name")
-      .in("id", (reqRow.items || []).map((item: any) => item.product_id))
-      .eq("company_id", reqRow.company_id);
-    const productById = new Map<string, string>();
-    (products || []).forEach((item: any) => productById.set(String(item.id), String(item.name)));
-
-    const lines = (reqRow.items || []).map((item: any) => ({
-      ticket_id: ticket.id,
-      company_id: reqRow.company_id,
-      product_id: item.product_id,
-      product_name_snapshot: productById.get(String(item.product_id)) || null,
-      uom: item.unit || "kg",
-      quantity: Number(item.required_quantity || 0),
-      operation_line_id: reqRow.operation_line_id || null,
-      notes: `From warehouse request ${reqRow.request_number}`,
-    }));
-
     if (lines.length > 0) {
-      const { error: linesError } = await supabase.from("ticket_lines").insert(lines);
+      const ticketLines = lines.map((line) => ({ ...line, ticket_id: ticket.id }));
+      const { error: linesError } = await supabase.from("ticket_lines").insert(ticketLines);
       if (linesError) {
+        await supabase.from("tickets").delete().eq("id", ticket.id).eq("company_id", reqRow.company_id);
         return NextResponse.json({ error: linesError.message }, { status: 400 });
       }
     }

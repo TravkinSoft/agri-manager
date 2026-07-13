@@ -2,10 +2,10 @@
 
 LAST_UPDATED: 2026-07-13
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий docs commit: `3ef0afe239e9fe682cef76b2d3495f5fc5e02bad`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий docs commit: `03696a7914a134b6f2b1ab7d7411e9e7c76be8e3`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
-PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения ТЗ №136, №138 и №139.
+PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144.
 
 ## Current system status
 
@@ -14,8 +14,8 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Поля | READY | В production 100 company-scoped полей; Field остаётся главным производственным объектом. |
 | Структура посевов | IN_PROGRESS | В production 122 строки. Основной flow и lazy-load больших компаний проверены; fix сохранения участка «Пар» готов в `copilot-v1` по ТЗ №136, но ещё не выпущен в production. |
 | Операции | READY | Создание, роли, материальная сверка и закрытие проверены E2E; формула выдачи и факта контролируется сервером. |
-| Склады | LIMITED | В production 2 склада; выдача, возврат и ledger работают. ТЗ №143 нашло 18 writer-сценариев, из них 15 имеют прямой unit fallback/дефект. Выбран additive контракт `base_quantity + base_uom + optional mass_kg`; writers должны быть исправлены до адресного backfill. |
-| Ledger | LIMITED | `stock_ledger_entries` остаётся источником складской правды, но current views суммируют без `uom`, а `batch_class=NULL` маскируют как `commodity`. Для 7 inventory/7 ledger строк подготовлен только адресный план; production data не менялась. |
+| Склады | LOCAL_READY | ТЗ №144 локально перевело 15 проблемных writer paths на единый контракт `base_quantity + base_uom + optional mass_kg`, обязательный `batch_class` и доказуемую плотность. Migration `20260713183038` создана, но не применена; production и 7 legacy movements не менялись. |
+| Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
 | ГЛБД | LIMITED | Legacy AI и Component Model V2 имеют паритет 425 компонентов / 1373 связей. V2 schema live; app read-cutover на V2 ещё не выполнен и не разрешён этим документом. |
@@ -54,6 +54,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - `GET /api/crop-structure/bootstrap` загружает стартовый company/season список; `GET /api/crop-structure/fields/[id]` загружает детали только открытого поля.
 - `GET /api/tasks/operation-identities` берёт crop/variety/reproduction из связанной `crop_structure`, с fallback на operation line.
 - Material flow идёт через `/api/material-requests/**` и `/api/operations/**`: ledger OUT только после warehouse issue, ledger IN только после warehouse return acceptance; закрытие требует `issued = consumed + returned + loss` и завершённую сверку.
+- После применения migration `20260713183038` все новые warehouse writers обязаны использовать общий server resolver `resolveWarehouseStockContract`: canonical units `kg/l/pcs`, обязательный `batch_class`, `mass_kg` для жидкости только с verified density evidence. До отдельного production preflight этот контракт остаётся локальным и не меняет live DB.
 - `GET /api/weighbridge/resources` возвращает company-scoped vehicles и допустимых responsible persons; `/api/weighbridge/tickets/**` хранит и закрывает талон; company label берётся из записи талона.
 - GLBD legacy и V2 находятся в production параллельно. Наличие V2 не разрешает ассистенту или UI самовольно переключать read path.
 - Существующие `/api/assistant/**` routes считаются **UNAUDITED LEGACY RUNTIME** и не входят в одобренный контракт Travkin Assistant V1 до отдельного runtime audit.
@@ -72,7 +73,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Fix участка «Пар» (ТЗ №136) и canonical varieties migration (ТЗ №138) находятся только в `copilot-v1`, production их ещё не получил.
 - Closed-season read-only enforcement не подтверждён как полный для всех write routes.
 - GLBD Component Model V2 ещё не стал app read source; legacy/V2 cutover должен быть отдельным ТЗ.
-- Складская базовая единица и batch identity: ТЗ №143 подтвердила 18 writer-сценариев и 15 прямых unit/class fallback-рисков. У 7 inventory rows `base_quantity_kg=NULL`, у 7 ledger rows `batch_class=NULL`; пять литровых строк нельзя превращать в kg без verified density. До backfill нужны additive schema, исправление всех writers, unit-aware views, backup и отдельный approval.
+- Складская базовая единица и batch identity: ТЗ №144 локально подготовила additive schema, единый resolver, исправления 15 writer paths и unit-aware views; isolated migration/E2E PASS. Migration ещё не применена к production, а 7 inventory/7 ledger legacy rows не backfill-ились. Перед production нужен отдельный backup, live preflight, preview E2E и owner approval.
 - Land legal MVP не имеет трёх integrity guards. Live duplicate preflight чистый и land tables пусты, но до начала реального ввода нужен отдельный schema-only corrective batch.
 
 ## Current tasks
@@ -86,6 +87,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №141 | DONE | Созданы изолированные branch/worktree и Live sync protocol для Travkin Assistant; runtime не запускался. |
 | №142 | DONE_IN_THIS_COMMIT | Read-only аудит 15 неполных миграций: P0=0, P1=3, P2=12; подготовлены 8 безопасных corrective/supersession batches; DB не менялась. |
 | №143 | DONE_IN_THIS_COMMIT | Read-only план складских единиц и batch class: 18 writer-сценариев, universal quantity contract, corrective migration preview, точечный план 7+7 строк, E2E и rollback; DB/app code не менялись. |
+| №144 | DONE_IN_THIS_COMMIT | Локально созданы additive migration `20260713183038`, единый unit/batch resolver, исправления 15 writer paths и unit-aware ledger views; isolated migration/E2E PASS, production и legacy rows не менялись. |
 
 ## Forbidden actions
 

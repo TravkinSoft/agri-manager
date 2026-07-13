@@ -348,11 +348,11 @@ export async function createProduct(
     crop_id: productData.crop_id || null,
     product_form: productData.product_form || null,
     accounting_mode: productData.accounting_mode || "bulk_mass",
-    base_uom: productData.base_uom || "kg",
+    base_uom: productData.base_uom,
     pack_uom: productData.pack_uom || null,
     unit_weight_kg: productData.unit_weight_kg ?? null,
     units_per_pack: productData.units_per_pack ?? null,
-    unit: productData.unit || "kg",
+    unit: productData.unit || productData.base_uom,
     description: productData.description || null,
     companyId,
   };
@@ -380,7 +380,7 @@ export async function updateProduct(
     accounting_mode:
       productData.accounting_mode === undefined ? undefined : productData.accounting_mode,
     base_uom:
-      productData.base_uom === undefined ? undefined : productData.base_uom || "kg",
+      productData.base_uom === undefined ? undefined : productData.base_uom,
     pack_uom:
       productData.pack_uom === undefined ? undefined : productData.pack_uom || null,
     unit_weight_kg:
@@ -565,7 +565,7 @@ export async function getInventoryBalances(companyId: string, language: Language
   const identityRes = await supabase
     .from("v_stock_balance_identity")
     .select(
-      "warehouse_id, product_id, variety_id, reproduction_id, batch_id, batch_class, quantity, last_movement_at"
+      "warehouse_id, product_id, variety_id, reproduction_id, batch_id, batch_class, quantity, last_movement_at, uom"
     )
     .eq("company_id", companyId);
   const identityMissing =
@@ -579,7 +579,7 @@ export async function getInventoryBalances(companyId: string, language: Language
   if (identityMissing) {
     const canonicalRes = await supabase
       .from("v_stock_balance_canonical")
-      .select("warehouse_id, product_id, quantity, last_movement_at")
+      .select("warehouse_id, product_id, quantity, last_movement_at, uom, batch_class")
       .eq("company_id", companyId);
     if (canonicalRes.error) throw new Error(canonicalRes.error.message);
 
@@ -612,9 +612,11 @@ export async function getInventoryBalances(companyId: string, language: Language
       .map((row: any) => {
         const productName = brandName(productById.get(String(row.product_id))) || "N/A";
         const classLabel =
-          String(row.batch_class || "commodity") === "seed"
+          String(row.batch_class || "") === "seed"
             ? "Семенной фонд"
-            : String(row.batch_class || "commodity") === "feed"
+            : String(row.batch_class || "") === "material"
+              ? "Материал"
+            : String(row.batch_class || "") === "feed"
               ? "Кормовой"
               : String(row.batch_class || "commodity") === "waste"
                 ? "Отход"
@@ -635,7 +637,7 @@ export async function getInventoryBalances(companyId: string, language: Language
           reproduction_id: null,
           reproduction_name: "-",
           batch_id: null,
-          batch_class: String(row.batch_class || "commodity"),
+          batch_class: String(row.batch_class || "legacy/unknown"),
           identity_name: classLabel
             ? `${productName} / - / - / ${classLabel}`
             : `${productName} / - / -`,
@@ -643,10 +645,7 @@ export async function getInventoryBalances(companyId: string, language: Language
             productById.get(String(row.product_id))?.product_type ||
             productById.get(String(row.product_id))?.type ||
             "N/A",
-          unit:
-            productById.get(String(row.product_id))?.base_uom ||
-            productById.get(String(row.product_id))?.unit ||
-            "kg",
+          unit: String(row.uom || "legacy/unknown"),
           quantity: toNumber(row.quantity),
           last_updated: row.last_movement_at || new Date().toISOString(),
         };
@@ -739,9 +738,11 @@ export async function getInventoryBalances(companyId: string, language: Language
           "-")
         : "-";
       const classLabel =
-        String(row.batch_class || "commodity") === "seed"
+        String(row.batch_class || "") === "seed"
           ? "Семенной фонд"
-          : String(row.batch_class || "commodity") === "feed"
+          : String(row.batch_class || "") === "material"
+            ? "Материал"
+          : String(row.batch_class || "") === "feed"
             ? "Кормовой"
             : String(row.batch_class || "commodity") === "waste"
               ? "Отход"
@@ -762,10 +763,10 @@ export async function getInventoryBalances(companyId: string, language: Language
         reproduction_id: row.reproduction_id ? String(row.reproduction_id) : null,
         reproduction_name: reproductionName,
         batch_id: row.batch_id ? String(row.batch_id) : null,
-        batch_class: String(row.batch_class || "commodity"),
+        batch_class: String(row.batch_class || "legacy/unknown"),
         identity_name: classLabel ? `${identityCore} / ${classLabel}` : identityCore,
         product_type: productById.get(String(row.product_id))?.product_type || productById.get(String(row.product_id))?.type || "N/A",
-        unit: productById.get(String(row.product_id))?.base_uom || productById.get(String(row.product_id))?.unit || "kg",
+        unit: String(row.uom || "legacy/unknown"),
         quantity: toNumber(row.quantity),
         last_updated: row.last_movement_at || new Date().toISOString(),
       };

@@ -5,6 +5,9 @@ import {
   asMaterialRequestError,
   resolveMaterialRequestSession,
 } from "@/app/api/material-requests/_helpers";
+import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
+import { toStockContractColumns } from "@/lib/warehouse/stock-unit-contract";
+import { postInventoryTransactionToLedger } from "@/app/api/warehouses/transactions/_ledger";
 
 type ReturnItemInput = {
   itemId: string;
@@ -241,14 +244,23 @@ export async function POST(
     }
 
     const nowIso = new Date().toISOString();
-    const txPayload = normalized
-      .filter((row) => acceptReturn && row.returnedQuantity > MATERIAL_QTY_EPS)
-      .map((row) => ({
+    const txPayload: any[] = [];
+    for (const row of normalized.filter((item) => acceptReturn && item.returnedQuantity > MATERIAL_QTY_EPS)) {
+      const contract = await resolveWarehouseStockContract(supabase, {
+        companyId,
+        productId: row.dbItem.product_id,
+        quantity: row.returnedQuantity,
+        inputUom: row.dbItem.unit,
+        event: "material_return",
+      });
+      txPayload.push({
         warehouse_id: requestRow.source_warehouse_id,
         source_warehouse_id: null,
         destination_warehouse_id: requestRow.source_warehouse_id,
         product_id: row.dbItem.product_id,
-        quantity: row.returnedQuantity,
+        quantity: contract.baseQuantity,
+        unit: contract.baseUom,
+        base_quantity_kg: contract.massKg,
         transaction_type: "in",
         movement_type: "adjustment",
         status: "confirmed",
@@ -263,25 +275,28 @@ export async function POST(
         warehouse_issue_request_item_id: row.itemId,
         operation_id: requestRow.operation_id || null,
         field_id: requestRow.field_id || null,
-      }));
+        quantity_input: row.returnedQuantity,
+        input_uom: row.dbItem.unit,
+        ...toStockContractColumns(contract),
+      });
+    }
 
     if (acceptReturn && txPayload.length > 0) {
       const { data: insertedTransactions, error: insertError } = await supabase
         .from("inventory_transactions")
         .insert(txPayload)
-        .select("id");
+        .select("*");
       if (insertError) {
         return NextResponse.json({ error: insertError.message || "Failed to register return movement" }, { status: 400 });
       }
 
       for (const tx of insertedTransactions || []) {
         if (!tx?.id) continue;
-        const { error: ledgerPostError } = await supabase.rpc("post_inventory_transaction_to_ledger", {
-          p_transaction_id: tx.id,
-        });
-        if (ledgerPostError) {
+        try {
+          await postInventoryTransactionToLedger(supabase, tx);
+        } catch (ledgerPostError) {
           return NextResponse.json(
-            { error: ledgerPostError.message || "Failed to post return movement to stock ledger" },
+            { error: ledgerPostError instanceof Error ? ledgerPostError.message : "Failed to post return movement to stock ledger" },
             { status: 400 }
           );
         }

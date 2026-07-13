@@ -6,6 +6,7 @@ import {
   toWorkflowStatus,
 } from "@/app/api/material-requests/_helpers";
 import { calculateMaterialReconciliation, roundMaterialQuantity } from "@/lib/materials/reconciliation";
+import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
 
 type IssueLinePayload = {
   itemId: string;
@@ -45,6 +46,8 @@ async function getProductBalance(
     companyId: string;
     warehouseId: string;
     productId: string;
+    uom: string;
+    batchClass: string;
   }
 ): Promise<number> {
   const { data, error } = await supabase
@@ -52,16 +55,12 @@ async function getProductBalance(
     .select("quantity")
     .eq("company_id", params.companyId)
     .eq("warehouse_id", params.warehouseId)
-    .eq("product_id", params.productId);
+    .eq("product_id", params.productId)
+    .eq("uom", params.uom)
+    .eq("batch_class", params.batchClass);
 
   if (error) {
-    const { data: rpcData, error: rpcError } = await supabase.rpc("get_warehouse_product_balance", {
-      p_company_id: params.companyId,
-      p_warehouse_id: params.warehouseId,
-      p_product_id: params.productId,
-    });
-    if (rpcError) throw new Error(rpcError.message || error.message || "Failed to check stock balance");
-    return toNumber(rpcData);
+    throw new Error(error.message || "Failed to check unit-aware stock balance");
   }
 
   return (data || []).reduce((sum: number, row: any) => sum + toNumber(row.quantity), 0);
@@ -75,14 +74,18 @@ async function allocateStockIdentity(
     productId: string;
     quantity: number;
     batchId?: string | null;
+    uom: string;
+    batchClass: string;
   }
-): Promise<Array<{ quantity: number; batchId: string | null; batchClass: string | null }>> {
+): Promise<Array<{ quantity: number; batchId: string | null; batchClass: string; uom: string }>> {
   let query = supabase
     .from("v_stock_balance_identity")
-    .select("batch_id,batch_class,quantity,last_movement_at")
+    .select("batch_id,batch_class,uom,quantity,last_movement_at")
     .eq("company_id", params.companyId)
     .eq("warehouse_id", params.warehouseId)
     .eq("product_id", params.productId)
+    .eq("uom", params.uom)
+    .eq("batch_class", params.batchClass)
     .gt("quantity", 0)
     .order("last_movement_at", { ascending: true });
 
@@ -93,7 +96,7 @@ async function allocateStockIdentity(
   const { data, error } = await query;
   if (error) throw new Error(error.message || "Failed to allocate stock identity");
 
-  const allocations: Array<{ quantity: number; batchId: string | null; batchClass: string | null }> = [];
+  const allocations: Array<{ quantity: number; batchId: string | null; batchClass: string; uom: string }> = [];
   let remaining = params.quantity;
 
   for (const row of data || []) {
@@ -104,7 +107,8 @@ async function allocateStockIdentity(
     allocations.push({
       quantity: Number(qty.toFixed(4)),
       batchId: row.batch_id ? String(row.batch_id) : null,
-      batchClass: row.batch_class ? String(row.batch_class) : null,
+      batchClass: String(row.batch_class),
+      uom: String(row.uom),
     });
     remaining = Number((remaining - qty).toFixed(4));
   }
@@ -160,7 +164,7 @@ async function syncOperationMaterialsFromRequest(
       grouped.get(productId) || {
         productId,
         materialType: normalizeOperationMaterialTypeForDb(item.product_category || "other"),
-        unit: String(item.unit || "kg"),
+        unit: String(item.unit || ""),
         planned: 0,
         issued: 0,
       };
@@ -379,10 +383,19 @@ export async function POST(
     const nowIso = new Date().toISOString();
     const ledgerRows: any[] = [];
     for (const row of issuePlan) {
+      const requestedContract = await resolveWarehouseStockContract(supabase, {
+        companyId,
+        productId: row.item.product_id,
+        quantity: row.quantity,
+        inputUom: row.item.unit,
+        event: "material_issue",
+      });
       const balance = await getProductBalance(supabase, {
         companyId,
         warehouseId: sourceWarehouseId,
         productId: row.item.product_id,
+        uom: requestedContract.baseUom,
+        batchClass: requestedContract.batchClass,
       });
       if (balance + 0.000001 < row.quantity) {
         return NextResponse.json(
@@ -401,6 +414,8 @@ export async function POST(
         .eq("reason_type", "warehouse_issue")
         .eq("warehouse_id", sourceWarehouseId)
         .eq("product_id", row.item.product_id)
+        .eq("uom", requestedContract.baseUom)
+        .eq("batch_class", requestedContract.batchClass)
         .eq("is_storno", false);
       if (existingLedgerError) {
         return NextResponse.json({ error: existingLedgerError.message || "Failed to check issued ledger" }, { status: 400 });
@@ -419,24 +434,43 @@ export async function POST(
         productId: row.item.product_id,
         quantity: Number(quantityToPost.toFixed(4)),
         batchId: row.batchId,
+        uom: requestedContract.baseUom,
+        batchClass: requestedContract.batchClass,
       });
 
       for (const allocation of allocations) {
+        const contract = await resolveWarehouseStockContract(supabase, {
+          companyId,
+          productId: row.item.product_id,
+          quantity: allocation.quantity,
+          inputUom: allocation.uom,
+          requestedBatchClass: allocation.batchClass,
+          event: "material_issue",
+          unitSourceOverride: "stock_identity",
+        });
         ledgerRows.push({
           company_id: companyId,
           product_id: row.item.product_id,
           warehouse_id: sourceWarehouseId,
           direction: "out",
-          quantity: allocation.quantity,
-          uom: row.item.unit || "kg",
-          delta_qty_signed: -Math.abs(allocation.quantity),
+          quantity: contract.baseQuantity,
+          uom: contract.baseUom,
+          delta_qty_signed: -Math.abs(contract.baseQuantity),
           reason_type: "warehouse_issue",
           reason_ref_id: row.item.id,
           occurred_at: nowIso,
           created_by: actorUserId,
           notes: `Warehouse issue after specialist pickup. Request ${reqRow.request_number || requestId}, operation ${reqRow.operation_id || "-"}`,
           batch_id_text: allocation.batchId,
-          batch_class: allocation.batchClass || "commodity",
+          batch_class: contract.batchClass,
+          mass_kg: contract.massKg,
+          density_kg_per_l: contract.densityKgPerL,
+          density_unit: contract.densityUnit,
+          density_source: contract.densitySource,
+          density_verification_status: contract.densityVerificationStatus,
+          density_verified_at: contract.densityVerifiedAt,
+          unit_source: contract.unitSource,
+          unit_contract_version: contract.unitContractVersion,
           operation_line_id: null,
         });
       }

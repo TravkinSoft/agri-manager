@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
           return_comment,
           batch_id,
           created_at,
-          products:product_id(name, trade_name, normalized_name, type, unit)
+          products:product_id(name, trade_name, normalized_name, type, unit, base_uom)
     `;
     const reconciliationItemSelect = `
           ${legacyItemSelect},
@@ -214,7 +214,7 @@ export async function GET(request: NextRequest) {
           product_unit:
             passport?.units.stockUnit && passport.units.stockUnit !== "unknown"
               ? passport.units.stockUnit
-              : item.products?.unit || item.unit || "kg",
+              : item.products?.base_uom || item.products?.unit || item.unit || "",
         };
       });
 

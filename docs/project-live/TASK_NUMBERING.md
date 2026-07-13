@@ -25,6 +25,7 @@
 | TZ-A100 | ASSISTANT | Current Architecture & Runtime Audit | assistant-v1 | DONE | TZ-141 | [task-reports/assistant/TZ-A100.md](task-reports/assistant/TZ-A100.md) | `4cb8cdf` |
 | TZ-142 | DATABASE | Audit partially equivalent legacy migrations | copilot-v1 | DONE | TZ-141 | [task-reports/core/TZ-142.md](task-reports/core/TZ-142.md) | `SELF` |
 | TZ-143 | WAREHOUSE | Warehouse units and batch classes correction plan | copilot-v1 | DONE | TZ-142 | [task-reports/core/TZ-143.md](task-reports/core/TZ-143.md) | `SELF` |
+| TZ-144 | WAREHOUSE | Canonical warehouse units and batch identity implementation | copilot-v1 | DONE | TZ-143 | [task-reports/core/TZ-144.md](task-reports/core/TZ-144.md) | `SELF` |
 
 ## Status values
 
