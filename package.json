@@ -14,6 +14,7 @@
     "qa:assistant:full": "npx tsx scripts/qa-assistant-copilot-full-check.ts",
     "qa:assistant:readonly-v1": "npx --no-install tsx scripts/qa-assistant-a101-read-only.ts",
     "qa:assistant:conversation-v2": "npx --no-install tsx scripts/qa-assistant-a104-conversation-v2.ts",
+    "qa:assistant:memory-v1": "npx --no-install tsx scripts/qa-assistant-a105-memory-v1.ts",
     "qa:assistant:intent-router": "npx tsx scripts/qa-assistant-intent-router-2026.ts",
     "qa:assistant:step5": "npx tsx scripts/qa-copilot-step5-source-of-truth.ts",
     "qa:assistant:backlog-step2-step3-step6": "npx tsx scripts/qa-copilot-backlog-step2-step3-step6.ts",

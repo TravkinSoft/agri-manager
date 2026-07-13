@@ -4,6 +4,8 @@ import { getAuthenticatedServerClient } from "@/lib/supabase/server-user";
 import { getAssistantPlatformSettings } from "@/lib/assistant/settings-store";
 import { runReadOnlyAssistantV1 } from "@/lib/assistant/v1/engine";
 import {
+  buildAssistantLongTermMemoryContext,
+  isAssistantMemoryV1RuntimeEnabled,
   type AssistantMemoryContext,
   type AssistantMemoryWriteResult,
 } from "@/lib/assistant/memory-store";
@@ -14,6 +16,7 @@ import {
 } from "@/lib/assistant/threads-store";
 import {
   containsPotentialConversationSecret,
+  deriveUnresolvedQuestionV1,
   loadServerConversationV2,
   verifyAssistantUiContextV2,
 } from "@/lib/assistant/v2/server-conversation";
@@ -762,8 +765,10 @@ export async function POST(request: NextRequest) {
       contextText: null,
       latestUpdatedAt: null,
       warning: null,
+      ids: [],
+      categories: [],
     };
-    const memoryReadMs: number | null = 0;
+    let memoryReadMs: number | null = 0;
     const companyPromise = supabase.from("companies").select("name").eq("id", companyId).maybeSingle();
     const settingsPromise = getAssistantPlatformSettings(supabase, actor.id);
     const threadPromise = getAssistantThreadById({
@@ -784,7 +789,20 @@ export async function POST(request: NextRequest) {
       contextText: null,
       latestUpdatedAt: null,
       warning: null,
+      ids: [],
+      categories: [],
     };
+    if (isAssistantMemoryV1RuntimeEnabled()) {
+      const memoryStartedAt = Date.now();
+      longTermMemory = await buildAssistantLongTermMemoryContext({
+        supabase,
+        companyId,
+        userId: actor.id,
+        query: requestMessage,
+        limit: 5,
+      });
+      memoryReadMs = Date.now() - memoryStartedAt;
+    }
     const runtimeMode = resolveAssistantRuntimeMode();
     const runtimeContextPayload = await verifyAssistantUiContextV2({
       supabase: toolSupabase,
@@ -846,6 +864,9 @@ export async function POST(request: NextRequest) {
         threadState: serverConversation.state,
         historyTruncated: serverConversation.historyTruncated,
         meaningfulHistoryCount: serverConversation.meaningfulMessageCount,
+        summaryContext: serverConversation.summaryContext,
+        unresolvedQuestionContext: serverConversation.unresolvedQuestionContext,
+        approvedMemoryContext: longTermMemory.contextText,
       },
       dependencies: { runtimeMode },
     });
@@ -875,6 +896,13 @@ export async function POST(request: NextRequest) {
     const responseActions: AssistantActionButton[] = [];
     const responseDraftCards: never[] = [];
     const responseNavigationActions: AssistantNavigationAction[] = [];
+    const unresolvedQuestion = deriveUnresolvedQuestionV1({
+      threadId,
+      previous: serverConversation.unresolvedQuestion,
+      nextQuestion: result.threadState.unresolvedQuestion,
+      userMessage: requestMessage,
+      state: result.threadState,
+    });
 
     try {
       const assistantThreadMessage = await appendAssistantThreadMessage({
@@ -909,6 +937,8 @@ export async function POST(request: NextRequest) {
             excluded_message_count: serverConversation.excludedMessageCount,
             summary: serverConversation.summary,
           },
+          conversation_summary_v1: serverConversation.summary,
+          unresolved_question_v1: unresolvedQuestion,
           session_id: threadId,
           assistant_runtime_mode: runtimeMode,
           assistant_panel: true,
@@ -992,6 +1022,15 @@ export async function POST(request: NextRequest) {
         readOnlyRuntime: result.runtimeDiagnostics,
         runtimeMode,
         historyTruncated: serverConversation.historyTruncated,
+        summary: {
+          active: Boolean(serverConversation.summary),
+          coveredMessageCount: serverConversation.summary?.coveredMessageCount || 0,
+        },
+        memory: {
+          count: longTermMemory.count,
+          categories: longTermMemory.categories,
+          ids: longTermMemory.ids,
+        },
         conversationMemorySaved: Boolean(persistedAssistantMessageId),
         prompt: {
           version: result.model.promptVersion,

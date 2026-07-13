@@ -12,12 +12,43 @@ import {
 import type { ReadOnlyHistoryMessage, ReadOnlyThreadState } from "@/lib/assistant/v1/types";
 
 export const A104_MAX_MEANINGFUL_MESSAGES = 20;
+export const A105_SUMMARY_REFRESH_MESSAGE_DELTA = 4;
 
-export type AssistantConversationSummarySlot = {
+export type AssistantConversationSummary = {
   version: 1;
-  content: string;
+  threadId: string;
+  topics: string[];
+  selectedObjects: {
+    fieldId: string | null;
+    fieldLabel: string | null;
+    warehouseId: string | null;
+    operationId: string | null;
+    cropStructureLineId: string | null;
+  };
+  decisions: string[];
+  confirmedFacts: string[];
+  unresolvedQuestions: string[];
+  rejectedAlternatives: string[];
+  lastSafeAction: string | null;
+  updatedAt: string;
   coveredUntilMessageId: string | null;
-} | null;
+  coveredMessageCount: number;
+};
+
+export type AssistantConversationSummarySlot = AssistantConversationSummary | null;
+
+export type AssistantUnresolvedQuestion = {
+  version: 1;
+  threadId: string;
+  question: string;
+  expectedClarification: string;
+  fieldId: string | null;
+  warehouseId: string | null;
+  operationId: string | null;
+  appearedAt: string;
+  status: "open" | "resolved" | "cancelled";
+  closedAt: string | null;
+};
 
 export type ServerConversationV2 = {
   history: ReadOnlyHistoryMessage[];
@@ -26,6 +57,9 @@ export type ServerConversationV2 = {
   meaningfulMessageCount: number;
   excludedMessageCount: number;
   summary: AssistantConversationSummarySlot;
+  summaryContext: string | null;
+  unresolvedQuestion: AssistantUnresolvedQuestion | null;
+  unresolvedQuestionContext: string | null;
 };
 
 const SECRET_PATTERNS = [
@@ -51,6 +85,185 @@ function clean(value: unknown, max = 4_000): string | null {
   const text = String(value ?? "").trim();
   if (!text) return null;
   return text.length > max ? text.slice(0, max) : text;
+}
+
+function unique(values: Array<string | null>, limit = 8): string[] {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value)))).slice(0, limit);
+}
+
+function safeSummaryLine(value: unknown, max = 240): string | null {
+  const text = clean(value, max);
+  if (!text || containsPotentialConversationSecret(text)) return null;
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function classifyTopics(messages: AssistantThreadMessageRecord[]): string[] {
+  const text = messages.map((message) => message.content).join(" ").toLowerCase();
+  const topics: string[] = [];
+  const rules: Array<[string, RegExp]> = [
+    ["fields", /пол[ея]|field|сад/],
+    ["warehouses", /склад|warehouse|остат/],
+    ["operations", /операц|operation/],
+    ["materials", /материал|удобр|семен|product/],
+    ["crop_structure", /культур|посев|crop/],
+    ["assistant_preferences", /запомни|предпочита|отвечай|формат|язык/],
+  ];
+  for (const [topic, pattern] of rules) {
+    if (pattern.test(text)) topics.push(topic);
+  }
+  return topics.slice(0, 8);
+}
+
+function latestStoredSummary(messages: AssistantThreadMessageRecord[], threadId: string): AssistantConversationSummarySlot {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const raw = messages[index].metadata?.conversation_summary_v1;
+    if (!raw || typeof raw !== "object") continue;
+    const summary = raw as Partial<AssistantConversationSummary>;
+    if (summary.version !== 1 || summary.threadId !== threadId || !Array.isArray(summary.topics)) continue;
+    return summary as AssistantConversationSummary;
+  }
+  return null;
+}
+
+function latestStoredUnresolvedQuestion(
+  messages: AssistantThreadMessageRecord[],
+  threadId: string
+): AssistantUnresolvedQuestion | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const raw = messages[index].metadata?.unresolved_question_v1;
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Partial<AssistantUnresolvedQuestion>;
+    if (item.version !== 1 || item.threadId !== threadId) continue;
+    if (item.status !== "open" && item.status !== "resolved" && item.status !== "cancelled") continue;
+    return item as AssistantUnresolvedQuestion;
+  }
+  return null;
+}
+
+function buildConversationSummary(params: {
+  threadId: string;
+  olderMessages: AssistantThreadMessageRecord[];
+  state: ReadOnlyThreadState;
+  previous: AssistantConversationSummarySlot;
+}): AssistantConversationSummarySlot {
+  if (!params.olderMessages.length) return params.previous;
+  const coveredIds = new Set(params.olderMessages.map((message) => message.id));
+  const previousCoveredIndex = params.previous?.coveredUntilMessageId
+    ? params.olderMessages.findIndex((message) => message.id === params.previous?.coveredUntilMessageId)
+    : -1;
+  const newlyCovered = previousCoveredIndex >= 0
+    ? params.olderMessages.slice(previousCoveredIndex + 1)
+    : params.olderMessages;
+  const topics = classifyTopics(params.olderMessages);
+  const materialTopicChange = classifyTopics(newlyCovered).some((topic) => !params.previous?.topics.includes(topic));
+  if (
+    params.previous &&
+    newlyCovered.length < A105_SUMMARY_REFRESH_MESSAGE_DELTA &&
+    !materialTopicChange &&
+    params.previous.coveredUntilMessageId &&
+    coveredIds.has(params.previous.coveredUntilMessageId)
+  ) {
+    return params.previous;
+  }
+
+  const userMessages = params.olderMessages.filter((message) => message.role === "user");
+  const decisions = unique(userMessages.map((message) =>
+    /(?:решено|выбираю|выбрали|будем|оставим|давай|подтверждаю)/i.test(message.content)
+      ? safeSummaryLine(message.content)
+      : null
+  ));
+  const confirmedFacts = unique(userMessages.map((message) =>
+    /(?:подтверждаю(?:,|:)?|это факт|точно известно)/i.test(message.content) &&
+    !/(остат|статус операц|склад|api|token|key)/i.test(message.content)
+      ? safeSummaryLine(message.content)
+      : null
+  ));
+  const rejectedAlternatives = unique(userMessages.map((message) =>
+    /(?:не надо|отмен|отказываюсь|не использовать|не выбира)/i.test(message.content)
+      ? safeSummaryLine(message.content)
+      : null
+  ));
+  const lastAssistant = [...params.olderMessages].reverse().find((message) => message.role === "assistant");
+  const now = new Date().toISOString();
+  return {
+    version: 1,
+    threadId: params.threadId,
+    topics,
+    selectedObjects: {
+      fieldId: params.state.selectedFieldId,
+      fieldLabel: params.state.selectedFieldLabel,
+      warehouseId: params.state.selectedWarehouseId,
+      operationId: params.state.selectedOperationId,
+      cropStructureLineId: params.state.selectedCropStructureLineId,
+    },
+    decisions,
+    confirmedFacts,
+    unresolvedQuestions: params.state.unresolvedQuestion ? [params.state.unresolvedQuestion] : [],
+    rejectedAlternatives,
+    lastSafeAction: lastAssistant ? safeSummaryLine(lastAssistant.content) : null,
+    updatedAt: now,
+    coveredUntilMessageId: params.olderMessages[params.olderMessages.length - 1]?.id || null,
+    coveredMessageCount: params.olderMessages.length,
+  };
+}
+
+export function formatConversationSummaryContext(summary: AssistantConversationSummarySlot): string | null {
+  if (!summary) return null;
+  return JSON.stringify({
+    topics: summary.topics,
+    selected_objects: summary.selectedObjects,
+    decisions: summary.decisions,
+    confirmed_facts: summary.confirmedFacts,
+    unresolved_questions: summary.unresolvedQuestions,
+    rejected_or_cancelled: summary.rejectedAlternatives,
+    last_safe_action: summary.lastSafeAction,
+    updated_at: summary.updatedAt,
+  });
+}
+
+export function formatUnresolvedQuestionContext(item: AssistantUnresolvedQuestion | null): string | null {
+  if (!item || item.status !== "open") return null;
+  return JSON.stringify({
+    unresolved_question: item.question,
+    expected_clarification: item.expectedClarification,
+    related_field_id: item.fieldId,
+    related_warehouse_id: item.warehouseId,
+    related_operation_id: item.operationId,
+    appeared_at: item.appearedAt,
+    status: item.status,
+  });
+}
+
+export function deriveUnresolvedQuestionV1(params: {
+  threadId: string;
+  previous: AssistantUnresolvedQuestion | null;
+  nextQuestion: string | null;
+  userMessage: string;
+  state: ReadOnlyThreadState;
+  now?: string;
+}): AssistantUnresolvedQuestion | null {
+  const now = params.now || new Date().toISOString();
+  const nextQuestion = safeSummaryLine(params.nextQuestion, 500);
+  const cancelled = /^(?:отмена|отмени|неважно|не надо|cancel)\b/i.test(params.userMessage.trim());
+  if (params.previous?.threadId === params.threadId && params.previous.status === "open" && (cancelled || !nextQuestion)) {
+    return { ...params.previous, status: cancelled ? "cancelled" : "resolved", closedAt: now };
+  }
+  if (!nextQuestion) return params.previous?.threadId === params.threadId ? params.previous : null;
+  if (params.previous?.threadId === params.threadId && params.previous.status === "open" && params.previous.question === nextQuestion) {
+    return params.previous;
+  }
+  return {
+    version: 1,
+    threadId: params.threadId,
+    question: nextQuestion,
+    expectedClarification: nextQuestion,
+    fieldId: params.state.selectedFieldId,
+    warehouseId: params.state.selectedWarehouseId,
+    operationId: params.state.selectedOperationId,
+    appearedAt: now,
+    status: "open",
+    closedAt: null,
+  };
 }
 
 function structuredStateFromMessages(
@@ -112,13 +325,25 @@ export function buildServerConversationV2(params: {
   );
   const maxHistory = A104_MAX_MEANINGFUL_MESSAGES - 1;
   const selected = meaningful.slice(-maxHistory);
+  const older = meaningful.slice(0, Math.max(0, meaningful.length - maxHistory));
+  const previousSummary = latestStoredSummary(params.messages, params.threadId);
+  const summary = buildConversationSummary({
+    threadId: params.threadId,
+    olderMessages: older,
+    state,
+    previous: previousSummary,
+  });
+  const unresolvedQuestion = latestStoredUnresolvedQuestion(params.messages, params.threadId);
   return {
     history: selected.map((message) => ({ role: message.role, content: clean(message.content) || "" })),
     state,
     historyTruncated: meaningful.length > maxHistory,
     meaningfulMessageCount: meaningful.length,
     excludedMessageCount: params.messages.length - meaningful.length - 1,
-    summary: null,
+    summary,
+    summaryContext: formatConversationSummaryContext(summary),
+    unresolvedQuestion,
+    unresolvedQuestionContext: formatUnresolvedQuestionContext(unresolvedQuestion),
   };
 }
 

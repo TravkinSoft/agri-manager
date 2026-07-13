@@ -1,10 +1,10 @@
 # Assistant Live State
 
 LAST_UPDATED: `2026-07-14`
-STATUS: `A104_SERVER_CONVERSATION_RUNTIME_V2_PASS`
+STATUS: `A105_SUMMARY_PASS_CONFIRMED_MEMORY_LOCAL_PROTOTYPE`
 BRANCH: `assistant-v1`
 BASE_ASSISTANT_COMMIT: `20117c6739f6ebb2c538e33f073822b8eb1985f3`
-CORE_COMMIT_REVIEWED: `f4a7088e7516ebab42739f2b2277f3b6254e9b48`
+CORE_COMMIT_REVIEWED: `350d9572833bdc0b3d93fec7958fa2b04aae856e`
 CONTRACT_VERSION_REVIEWED: `0.2`
 ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
 WRITE_CAPABILITY: `NOT_APPROVED_AND_NOT_EXPOSED`
@@ -23,6 +23,12 @@ LEGACY_CONFIRM_DRAFT: `UNREACHABLE_FROM_ASSISTANT_V1`
 KB_DELETE: `UNREACHABLE_FROM_ASSISTANT_V1`
 DATABASE_SCHEMA: `UNCHANGED`
 PRODUCTION: `NOT_CALLED_OR_CHANGED`
+
+A105_SUMMARY: `STRUCTURED_SERVER_METADATA_AFTER_20_MESSAGES`
+A105_RECENT_MESSAGES: `19_PRIOR_PLUS_CURRENT_VERBATIM`
+A105_UNRESOLVED: `THREAD_SCOPED_OPEN_RESOLVED_CANCELLED`
+A105_CONFIRMED_MEMORY: `LOCAL_PROTOTYPE_DISABLED_BY_DEFAULT_AND_ALWAYS_DISABLED_IN_PRODUCTION`
+A105_SCHEMA: `INSUFFICIENT; CONTRACT_PROPOSAL_ONLY; NO MIGRATION`
 
 ## A101 runtime
 
@@ -111,3 +117,13 @@ Local development defaults to `responses_v2`; production continues to default to
 Supabase remains the conversation source of truth. A separate real probe confirmed linked `previous_response_id` continuity and explicit invalid-ID failure, but provider state is not stored by the application. History is capped at 19 prior meaningful user/assistant messages plus current input; system/tool/debug/technical/client-hint/injection/secret-like rows are excluded. `history_truncated`, stable-prefix hash, dynamic-context size, input/cached tokens, history count, endpoint, request ID, and model identity are recorded. A nullable summary slot is reserved for A105.
 
 Structured state includes field ID/label, warehouse ID, operation ID, crop-structure-line ID, last intent, last successful tool, and unresolved question. It comes only from matching server metadata, company/RLS-verified UI IDs, or current tool output. Real local acceptance passed 12/12 and mocked acceptance 20/20; the legacy suite remains 24/24. ERP/business writes, foreign rows, schema/migrations, production mutations, merge, rebase, and deploy were zero. Local chat persistence created only the QA user's own test threads/messages.
+
+## A105 summary and confirmed memory V1
+
+Long threads now produce a versioned structured summary in server-owned assistant message metadata after the transcript exceeds 20 meaningful messages. The model still receives the newest 19 prior messages verbatim plus the current message. Summary refresh is bounded to the initial threshold, four newly covered messages, or a material topic change. Secret-like, technical, system, tool, debug and injection rows are excluded. The summary and structured unresolved-question state are added only by the server context builder and survive reload without client history/state input.
+
+Unresolved questions are separately represented with expected clarification, related field/warehouse/operation IDs, appeared time, and open/resolved/cancelled status. The record is keyed to the verified thread and is not inherited by a new thread.
+
+The tracked `assistant_memories` table is insufficient for production confirmed memory and has no tracked authenticated-user RLS policies. A contract proposal requests first-class lifecycle/provenance columns and RLS. No migration was created or applied. The local compatibility API is off by default, forced off in production, user-scope only, candidate-first, confirmation-gated, capped to five approved/unexpired relevant items, and audited on delete. Company memory remains disabled.
+
+Mocked A105 acceptance is 26/26; A104 regression is 20/20; A101 read-only regression is 24/24. Typecheck and build pass. A105 made no OpenAI call, Test1 DB write, ERP write, schema change, production change, merge, rebase or deploy. Real memory QA is intentionally blocked until Core approves the schema/RLS and local memory-write validation.

@@ -76,6 +76,9 @@ export type ReadOnlyAssistantV1Input = {
   threadState?: Record<string, unknown> | ReadOnlyThreadState | null;
   historyTruncated?: boolean;
   meaningfulHistoryCount?: number;
+  summaryContext?: string | null;
+  unresolvedQuestionContext?: string | null;
+  approvedMemoryContext?: string | null;
   locale?: "ru" | "kz" | "en" | null;
 };
 
@@ -531,6 +534,9 @@ export async function runReadOnlyAssistantV1(params: {
     company: { id: params.companyId, name: params.companyName || null },
     runtimeContext,
     threadState: state,
+    summaryContext: params.input.summaryContext,
+    unresolvedQuestionContext: params.input.unresolvedQuestionContext,
+    approvedMemoryContext: params.input.approvedMemoryContext,
   });
   const diagnostics: ReadOnlyRuntimeDiagnostics = {
     ...emptyDiagnostics,
