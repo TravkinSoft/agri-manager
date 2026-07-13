@@ -1,10 +1,10 @@
 # TravkinFlow Core ↔ Assistant Integration Contract
 
-CONTRACT_VERSION: 0.1
-STATUS: FOUNDATION_ONLY
-LAST_UPDATED: 2026-07-13
-COMPATIBILITY: No assistant implementation is approved yet.
-ASSISTANT_ACTION_REQUIRED: Run initial sync and runtime audit only under owner-reserved ТЗ A100.
+CONTRACT_VERSION: 0.2
+STATUS: READ_ONLY_ASSISTANT_FOUNDATION_APPROVED
+LAST_UPDATED: 2026-07-14
+COMPATIBILITY: TZ-A100 and TZ-A101 at assistant commit `51e878e7306d0b6a821a21b9a7174466e165d10c` are approved only as a local read-only foundation. Merge and production deployment are not approved.
+ASSISTANT_ACTION_REQUIRED: TZ-A102 may perform real local runtime validation only after syncing this contract. Writes, direct SQL, database changes, merge and deploy remain forbidden.
 
 ## Назначение
 
@@ -31,15 +31,41 @@ ASSISTANT_ACTION_REQUIRED: Run initial sync and runtime audit only under owner-r
 - менять migration history, migrations или schema;
 - делать deploy, merge или push без отдельного разрешения;
 - считать существующие unaudited `/api/assistant/**` routes автоматически одобренными tools.
+- использовать create tools, draft confirmation или navigation execution;
+- изменять Knowledge Base;
+- вызывать warehouse или operation writes;
+- использовать generic SQL или любые tools со скрытыми side effects.
 
-## Разрешено на первом этапе
+## Утверждённый read-only foundation
 
 - читать код в согласованном scope;
 - проводить read-only аудит runtime, storage, permissions и API boundaries;
 - читать файлы Project Live;
 - создавать архитектурные и security отчёты;
-- проектировать узкие read-only ERP tools без их подключения к production;
+- локально разрабатывать и проверять `assistant-v1` без production deployment;
 - создавать предложения по изменению контракта.
+
+Модели разрешены ровно восемь read-only tools A101:
+
+1. `get_current_context`;
+2. `search_fields`;
+3. `get_field_card`;
+4. `get_field_land_bank_summary`;
+5. `get_field_materials`;
+6. `get_warehouse_stock`;
+7. `get_crop_structure_summary`;
+8. `get_active_operations_summary`.
+
+Каждый tool обязан иметь `side_effect=none`, использовать server-authenticated actor/company/season context и пользовательский JWT/RLS read path. Любой другой tool закрыт по умолчанию.
+
+## Открытые core P0
+
+До отдельного исправления Travkin Assistant запрещено использовать два legacy core route:
+
+1. `app/api/operations/confirm-draft/route.ts` — не использует канонические operation-create права и защиту активного/закрытого сезона.
+2. Knowledge Base DELETE — не доказывает принадлежность документа текущей компании перед service-role mutation.
+
+A101 не делает эти маршруты безопасными: он только исключает их из model schemas, UI actions и runtime tool boundary.
 
 ## Минимальные требования к будущему read-only tool
 
@@ -72,6 +98,13 @@ ASSISTANT_ACTION_REQUIRED: Run initial sync and runtime audit only under owner-r
 После изменения контракта assistant sync останавливает текущую реализацию до подтверждения совместимости. SHA-256 рассчитывается по фактическому файлу при sync и записывается в `ASSISTANT_SYNC_STATE.md`.
 
 ## Changelog
+
+### 0.2 — 2026-07-14
+
+- Приняты результаты TZ-A100 и локальный read-only foundation TZ-A101.
+- Разрешена локальная разработка и TZ-A102 runtime validation без merge/deploy.
+- Зафиксированы восемь разрешённых read-only tools и запрет любых side effects.
+- Два legacy core P0 оставлены запрещёнными до отдельного исправления и acceptance evidence.
 
 ### 0.1 — 2026-07-13
 

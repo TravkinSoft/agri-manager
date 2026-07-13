@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-13
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий docs commit: `03696a7914a134b6f2b1ab7d7411e9e7c76be8e3`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `687653447753df7cb3eb5fd1eef3454b5fdac046`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144.
@@ -57,13 +57,14 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - После применения migration `20260713183038` все новые warehouse writers обязаны использовать общий server resolver `resolveWarehouseStockContract`: canonical units `kg/l/pcs`, обязательный `batch_class`, `mass_kg` для жидкости только с verified density evidence. До отдельного production preflight этот контракт остаётся локальным и не меняет live DB.
 - `GET /api/weighbridge/resources` возвращает company-scoped vehicles и допустимых responsible persons; `/api/weighbridge/tickets/**` хранит и закрывает талон; company label берётся из записи талона.
 - GLBD legacy и V2 находятся в production параллельно. Наличие V2 не разрешает ассистенту или UI самовольно переключать read path.
-- Существующие `/api/assistant/**` routes считаются **UNAUDITED LEGACY RUNTIME** и не входят в одобренный контракт Travkin Assistant V1 до отдельного runtime audit.
+- Legacy `/api/assistant/**` в core не становятся автоматически разрешёнными. Contract 0.2 принимает только изолированный A101 read-only runtime на `assistant-v1` с восемью явно перечисленными tools; merge и production deployment не разрешены.
 
 ## Known P0/P1 issues
 
 ### P0
 
-- Подтверждённых открытых P0 на момент обновления нет.
+- Legacy `operations/confirm-draft` не применяет канонические operation-create права и защиту сезона; маршрут запрещён Travkin Assistant до отдельного core fix.
+- Knowledge Base DELETE не доказывает company ownership документа перед service-role mutation; KB mutations запрещены Travkin Assistant до отдельного core fix.
 
 ### P1
 
@@ -88,6 +89,10 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №142 | DONE_IN_THIS_COMMIT | Read-only аудит 15 неполных миграций: P0=0, P1=3, P2=12; подготовлены 8 безопасных corrective/supersession batches; DB не менялась. |
 | №143 | DONE_IN_THIS_COMMIT | Read-only план складских единиц и batch class: 18 writer-сценариев, universal quantity contract, corrective migration preview, точечный план 7+7 строк, E2E и rollback; DB/app code не менялись. |
 | №144 | DONE_IN_THIS_COMMIT | Локально созданы additive migration `20260713183038`, единый unit/batch resolver, исправления 15 writer paths и unit-aware ledger views; isolated migration/E2E PASS, production и legacy rows не менялись. |
+| A100 | DONE | Проведён статический аудит legacy Assistant runtime; выявлены потеря history/context и два core P0. |
+| A101 | DONE | На `assistant-v1` реализован изолированный read-only foundation: 8 tools, user JWT/RLS, mocked QA 16/16, typecheck/build PASS; production не менялась. |
+| №145 | DONE_IN_THIS_COMMIT | Core принял A100/A101, обновил Integration Contract до 0.2 и зарегистрировал A102 только для локальной read-only проверки. Assistant code не объединялся. |
+| A102 | PLANNED | Real Local Runtime Validation разрешён только локально и read-only после sync contract 0.2; merge/deploy запрещены. |
 
 ## Forbidden actions
 
@@ -102,9 +107,9 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## Assistant readiness
 
-ASSISTANT_CORE_READINESS: `FOUNDATION_ONLY`
-ASSISTANT_ALLOWED_MODE: `READ_ONLY_DESIGN_AND_AUDIT`
-ASSISTANT_ALLOWED_DATA: код репозитория; Project Live; approved architecture text; документированные read-only server contracts; обезличенные audit findings по отдельному ТЗ
-ASSISTANT_BLOCKED_AREAS: production DB connection; direct SQL; write tools; operation/warehouse/crop-structure/season mutations; migration history; RLS bypass; deploy; contract edits
+ASSISTANT_CORE_READINESS: `READ_ONLY_ASSISTANT_FOUNDATION_APPROVED`
+ASSISTANT_ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
+ASSISTANT_ALLOWED_DATA: server-authenticated context and results of the eight tools listed in Integration Contract 0.2; code; Project Live; approved architecture text
+ASSISTANT_BLOCKED_AREAS: production deployment; direct SQL; database/schema changes; create/draft/navigation/KB mutations; warehouse/operation writes; migration history; RLS bypass; contract edits by assistant
 
-Assistant implementation: `NOT_STARTED`. Ветка `assistant-v1`: `EXISTS`; TZ-A100 read-only runtime audit завершён. Production writes: `DISABLED`.
+Assistant implementation: `A101_LOCAL_FOUNDATION_PASS` at `51e878e`; mocked QA `16/16`, typecheck/build PASS. A102: `PLANNED_LOCAL_READ_ONLY`. Assistant merge: `NO`. Production writes: `DISABLED`.

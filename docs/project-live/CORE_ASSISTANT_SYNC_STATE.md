@@ -1,20 +1,20 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-14T00:01:27+05:00
+LAST_REVIEW_AT: 2026-07-14T00:13:11+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `03696a7914a134b6f2b1ab7d7411e9e7c76be8e3`
+CORE_COMMIT: `687653447753df7cb3eb5fd1eef3454b5fdac046`
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
-ASSISTANT_COMMIT_REVIEWED: `4cb8cdf77f140da5a04ade53a5f4022bc04b9bc4`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T00:01:27+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T00:01:27+05:00
-LATEST_ASSISTANT_TASK_REPORT: [task-reports/assistant/TZ-A100.md](task-reports/assistant/TZ-A100.md) on `origin/assistant-v1` — static read-only runtime audit completed.
+ASSISTANT_COMMIT_REVIEWED: `51e878e7306d0b6a821a21b9a7174466e165d10c`
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T00:13:11+05:00
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T00:13:11+05:00
+LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A101.md` — local read-only Assistant foundation implemented and mocked QA 16/16 passed.
 
-ASSISTANT_CHANGES_FOUND: YES — TZ-A100 changed only assistant-owned Live documentation and its assistant task report.
-CORE_IMPACT_FOUND: NO — assistant branch did not change application/core files or production.
-INTEGRATION_CONTRACT_IMPACT: NO — contract version/hash reviewed by assistant remained unchanged; TZ-A100 proposes later work but does not authorize it.
-CORE_ACTION_REQUIRED: NO for TZ-144. The two legacy assistant P0 findings stay isolated from this warehouse implementation and require separate core-owned tasks before assistant writes are enabled.
-NEXT_SAFE_ACTION: Complete TZ-144 locally, commit its additive migration, shared resolver, writer/view fixes and isolated tests. Do not apply the migration, backfill legacy rows, push, merge or deploy without a separate owner-approved production preflight.
+ASSISTANT_CHANGES_FOUND: YES — TZ-A101 changed only assistant-owned runtime/UI/docs/tests and added no migration or production change.
+CORE_IMPACT_FOUND: GOVERNANCE_ONLY — core accepts A100/A101 results but does not merge assistant code.
+INTEGRATION_CONTRACT_IMPACT: YES — core contract is advanced to 0.2 and approves only the local read-only foundation with eight tools.
+CORE_ACTION_REQUIRED: DONE_FOR_FOUNDATION — A101 is registered; A102 is reserved. The legacy confirm-draft and KB DELETE P0 findings remain open and forbidden to Assistant V1.
+NEXT_SAFE_ACTION: `assistant-v1` may run TZ-A102 as local read-only runtime validation after syncing contract 0.2. No writes, direct SQL, database changes, merge or deploy.
 
 ## Mandatory rule
 
