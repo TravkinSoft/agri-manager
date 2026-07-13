@@ -29,28 +29,28 @@ begin
   if not exists (
     select 1
     from pg_constraint
-    where conname = 'varieties_crop_id_fk_v2'
+    where conname = 'varieties_crop_id_fk_v3'
   ) then
     alter table public.varieties
-      add constraint varieties_crop_id_fk_v2
+      add constraint varieties_crop_id_fk_v3
       foreign key (crop_id) references public.crops(id) on delete cascade;
   end if;
 end $$;
 
-create unique index if not exists ux_varieties_global_crop_name_active_v3
+create unique index if not exists ux_varieties_global_crop_name_active_v4
   on public.varieties(crop_id, lower(name))
-  where company_id is null and archived = false and is_active = true;
+  where company_id is null and archived = false and coalesce(is_active, true) = true;
 
-create index if not exists idx_varieties_crop_id_v3
+create index if not exists idx_varieties_crop_id_v4
   on public.varieties(crop_id);
 
-create index if not exists idx_varieties_name_v3
+create index if not exists idx_varieties_name_v4
   on public.varieties(lower(name));
 
-create index if not exists idx_varieties_common_kz_v3
+create index if not exists idx_varieties_common_kz_v4
   on public.varieties(is_common_in_kz);
 
-create index if not exists idx_varieties_is_active_v3
+create index if not exists idx_varieties_is_active_v4
   on public.varieties(is_active);
 
 drop trigger if exists update_varieties_updated_at on public.varieties;
@@ -273,4 +273,3 @@ where v.company_id is null
   and v.archived = false
   and lower(coalesce(v.breeder_or_originator, '')) like '%norika%'
 order by c.slug, v.name;
-
