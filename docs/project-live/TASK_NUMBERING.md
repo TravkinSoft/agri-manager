@@ -10,7 +10,8 @@
 | TZ-136 | UI | Fallow crop structure fix | copilot-v1 | DONE | — | Not created before Project Live foundation | `e36ab0a` |
 | TZ-137 | DATABASE | Superseded migrations review | copilot-v1 | DONE | TZ-135 | `external: audit-output/TZ-137/` | N/A (audit outputs not committed) |
 | TZ-138 | DATABASE | Canonical varieties selective commit | copilot-v1 | DONE | TZ-137 | Not created before Project Live foundation | `4eb2d58` |
-| TZ-139 | CORE | Project Live and assistant handoff foundation | copilot-v1 | DONE | TZ-135,TZ-137,TZ-138 | [task-reports/core/TZ-139.md](task-reports/core/TZ-139.md) | `SELF` |
+| TZ-139 | CORE | Project Live and assistant handoff foundation | copilot-v1 | DONE | TZ-135,TZ-137,TZ-138 | [task-reports/core/TZ-139.md](task-reports/core/TZ-139.md) | `3ef0afe` |
+| TZ-140 | DATABASE | Push core commits and repair six legacy history entries | copilot-v1 | DONE | TZ-137,TZ-138,TZ-139 | [task-reports/core/TZ-140.md](task-reports/core/TZ-140.md) | `SELF` |
 
 ## Status values
 
