@@ -1,10 +1,10 @@
 # TravkinFlow Core ↔ Assistant Integration Contract
 
-CONTRACT_VERSION: 0.2
-STATUS: READ_ONLY_ASSISTANT_FOUNDATION_APPROVED
+CONTRACT_VERSION: 0.3
+STATUS: ASSISTANT_MEMORY_SCHEMA_APPROVED
 LAST_UPDATED: 2026-07-14
-COMPATIBILITY: TZ-A100 and TZ-A101 at assistant commit `51e878e7306d0b6a821a21b9a7174466e165d10c` are approved only as a local read-only foundation. Merge and production deployment are not approved.
-ASSISTANT_ACTION_REQUIRED: TZ-A102 may perform real local runtime validation only after syncing this contract. Writes, direct SQL, database changes, merge and deploy remain forbidden.
+COMPATIBILITY: Read-only foundation A100-A104 remains approved. TZ-A105 at assistant commit `b22f765583b2cd556a29b9e25c332561f19dd262` is accepted as a schema-gated prototype and design proposal; its branch is not merged. TZ-A106 may implement the approved memory boundary only in an isolated non-production environment. Production migration, memory writes, merge and deployment are not approved.
+ASSISTANT_ACTION_REQUIRED: Before TZ-A106 real acceptance, create a separate Supabase development branch with owner cost approval, sync this contract, and keep the feature QA-only. The production project `bhsemlvmkikpntabctml` is not a memory test environment.
 
 ## Назначение
 
@@ -22,7 +22,7 @@ ASSISTANT_ACTION_REQUIRED: TZ-A102 may perform real local runtime validation onl
 
 ## Ассистенту запрещено
 
-- выполнять прямой SQL или подключаться напрямую к production DB;
+- выполнять прямой SQL или подключаться напрямую к production DB; исключение A106 действует только для утверждённой migration в отдельном non-production контуре;
 - использовать service credentials или обходить RLS/ACL;
 - писать или изменять operations;
 - менять warehouse state, ledger, заявки, выдачу или возврат;
@@ -57,6 +57,55 @@ ASSISTANT_ACTION_REQUIRED: TZ-A102 may perform real local runtime validation onl
 8. `get_active_operations_summary`.
 
 Каждый tool обязан иметь `side_effect=none`, использовать server-authenticated actor/company/season context и пользовательский JWT/RLS read path. Любой другой tool закрыт по умолчанию.
+
+## Утверждённая память пользователя V1
+
+TZ-A105 одобрен как архитектурная основа со schema gate. Он не разрешает production writes и не включает assistant-код в core. Утверждены следующие сущности:
+
+1. `chats` — существующий разговор, всегда с конкретными `user_id` и `company_id`.
+2. `chat_messages` — сообщения разговора. Резюме и незакрытые вопросы хранятся в версионированном `metadata`, а не в новой дублирующей таблице.
+3. `assistant_memories` — существующая user-scoped таблица памяти. `category`, `memory_key` и `value` остаются каноническим содержимым; lifecycle/provenance дополняются first-class полями.
+4. `assistant_memory_events` — единственная новая таблица: content-free неизменяемая история создания candidate, подтверждения, отклонения и удаления. Общий `audit_log` не используется, потому что он company-visible и не обеспечивает приватность личной памяти.
+
+Для `assistant_memories` разрешено добавить: `source_message_id`, `created_by`, `approved_by`, `memory_type`, `status`, `approved_at`, `rejected_at`, `expires_at`. Дублирующий `content` не создаётся: используется существующий `value`. Три существующие legacy-записи не backfill-ятся автоматически и не участвуют в approved retrieval, пока их `status` не определён отдельным решением.
+
+Conversation summary хранит только устойчивый контекст разговора и указатель на покрытый диапазон сообщений. Unresolved question хранит вопрос, требуемое уточнение, bounded object IDs, время и состояние `open/resolved/cancelled`. Эти записи принадлежат одному chat/user/company и не являются долгосрочной памятью.
+
+### Разрешённые типы памяти
+
+- язык общения;
+- краткость ответа;
+- уровень объяснения;
+- предпочитаемый формат;
+- подтверждённая роль пользователя;
+- предпочтение источников;
+- устойчивое правило совместной работы.
+
+Запрещено запоминать secrets/tokens/passwords, временные складские остатки, живые операции и статусы, неподтверждённые утверждения, данные другого пользователя или компании и любые инструкции, отменяющие ACL, RLS, системные правила или права. Полноценная Knowledge Base вынесена в TZ-A107.
+
+### Lifecycle и retrieval
+
+- Любая новая запись сначала имеет `candidate`; модель не может сразу создать `approved`.
+- `approved` допускается только после явного подтверждения текущего пользователя и фиксирует `approved_by/approved_at`.
+- `rejected` и expired записи не попадают в контекст.
+- Пользователь может увидеть и явно удалить только свою память; deletion сохраняет content-free audit event.
+- Retrieval выполняется сервером только по `scope=user + current company_id + current user_id + status=approved + unexpired`, сортируется по свежести и ограничивается пятью строками.
+- Company-wide memory отключена и требует отдельной версии контракта.
+
+### RLS и runtime
+
+- Основной runtime использует request-scoped Supabase client с JWT текущего пользователя. Service role не является допустимым основным runtime памяти.
+- `user_id`, `company_id`, `scope`, `created_by` и approval actor выводятся сервером/Auth; значения из request body не считаются доверенными.
+- SELECT/INSERT/UPDATE/DELETE разрешаются только владельцу в текущей компании. Candidate можно перевести только в `approved` или `rejected`; provenance/content/ownership после создания неизменяемы.
+- `assistant_memory_events` доступна владельцу только для SELECT; события пишет database trigger, прямые client INSERT/UPDATE/DELETE запрещены.
+- Для `chats` и `chat_messages` A106 обязан добавить restrictive user+company policies, потому что live audit TZ-153 обнаружил legacy permissive public policies.
+- Обязательны отрицательные тесты: другой user той же компании, другая компания, anon, spoofed IDs, чужое подтверждение и чужое удаление.
+
+### Разрешение для TZ-A106
+
+Разрешены локальная реализация и реальные записи только в assistant chat/memory tables изолированного non-production контура, только QA-пользователем TravkinFlowTest1 и только для memory scenarios. По-прежнему запрещены ERP/warehouse/operation writes, production migration/deploy, company-wide memory и автоматическое approval.
+
+Выбранный контур — отдельная Supabase development branch от TravkinFlow. На момент TZ-153 branch отсутствует; её создание требует отдельного owner cost confirmation. До создания branch A106 может писать код и тесты, но не выполнять real mutation acceptance.
 
 ## Открытые core P0
 
@@ -98,6 +147,14 @@ A101 не делает эти маршруты безопасными: он то
 После изменения контракта assistant sync останавливает текущую реализацию до подтверждения совместимости. SHA-256 рассчитывается по фактическому файлу при sync и записывается в `ASSISTANT_SYNC_STATE.md`.
 
 ## Changelog
+
+### 0.3 — 2026-07-14
+
+- Рассмотрен и принят schema-gated результат TZ-A105 на commit `b22f765` без merge/rebase.
+- Утверждено повторное использование `chats`, `chat_messages` и `assistant_memories`; одобрена одна новая private-audit сущность `assistant_memory_events`.
+- Зафиксированы candidate-first lifecycle, явное user approval, expiry/deletion, user+company RLS и запрет service-role primary runtime.
+- Разрешена TZ-A106 реализация только в отдельном non-production контуре; production schema/data/deploy остаются запрещены.
+- Полная Knowledge Base зарезервирована за TZ-A107.
 
 ### 0.2 — 2026-07-14
 

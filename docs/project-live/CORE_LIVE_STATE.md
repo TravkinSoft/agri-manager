@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-14
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `f4a7088`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `65b3031`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -21,6 +21,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | ГЛБД | ALIAS_SOURCE_READ_PATH_READY_LOCAL | Component Model V2 содержит 425 компонентов, 1373 глобальные product links, 24 aliases и 295 sources; company links `0`. ТЗ №152 подключило aliases к существующему поиску и knowledge intake, а sources — к ленивой карточке компонента в `copilot-v1`. 54 заблокированные source-строки отсутствуют в production и не используются. Deploy не выполнялся. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
+| Travkin Assistant | MEMORY_SCHEMA_APPROVED_NONPROD_ONLY | A105 reviewed at `b22f765`; summary/unresolved-question storage and user-scoped candidate memory schema approved by Contract 0.3. Production memory writes, migration, merge and deploy remain disabled; A106 needs a separate Supabase branch. |
 
 ## Current database state
 
@@ -59,7 +60,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - `GET /api/weighbridge/resources` возвращает company-scoped vehicles и допустимых responsible persons; `/api/weighbridge/tickets/**` хранит и закрывает талон; company label берётся из записи талона.
 - GLBD legacy и V2 находятся в production параллельно. Наличие V2 не разрешает ассистенту или UI самовольно переключать read path.
 - `GET /api/global-admin/catalog/active_ingredients` в `copilot-v1` дополняет legacy IDs каноническими GLBD names/aliases, а запрос с `componentId` лениво возвращает только активный компонент и его подтверждённые sources. Списки и selects не загружают source rows.
-- Legacy `/api/assistant/**` в core не становятся автоматически разрешёнными. Contract 0.2 принимает только изолированный A101 read-only runtime на `assistant-v1` с восемью явно перечисленными tools; merge и production deployment не разрешены.
+- Legacy `/api/assistant/**` в core не становятся автоматически разрешёнными. Contract 0.3 сохраняет восемь read-only tools и отдельно разрешает A106 memory mutations только в assistant chat/memory tables изолированного non-production контура; merge, production migration, memory writes и deployment не разрешены.
 
 ## Known P0/P1 issues
 
@@ -79,6 +80,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Alias/source read path ТЗ №152 находится только в `copilot-v1`; production UI ещё не получил этот код. 54 заблокированные source-строки не импортированы и fallback на них отсутствует.
 - Складская базовая единица и batch identity: ТЗ №144 локально подготовила additive schema, единый resolver, исправления 15 writer paths и unit-aware views; isolated migration/E2E PASS. Migration ещё не применена к production, а 7 inventory/7 ledger legacy rows не backfill-ились. Перед production нужен отдельный backup, live preflight, preview E2E и owner approval.
 - Land legal MVP не имеет трёх integrity guards. Live duplicate preflight чистый и land tables пусты, но до начала реального ввода нужен отдельный schema-only corrective batch.
+- Для A106 отсутствует безопасный non-production Supabase branch. Production project нельзя использовать для memory acceptance; branch provisioning требует отдельного owner cost confirmation.
 
 ## Current tasks
 
@@ -104,6 +106,8 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №151 | DONE_IN_THIS_COMMIT | После verified backup/live preflight импортированы ровно 24 aliases и 295 sources; blocked 54 не затронуты, second apply +0/+0, дубли/orphans/company links 0, components/product links неизменны 425/1373. |
 | A104 | DONE | На `assistant-v1` завершён server-owned conversation runtime v2: mocked 20/20, real local 12/12, ERP writes 0; core/GLBD contract не изменён. |
 | №152 | DONE_IN_THIS_COMMIT | Existing Global Admin catalog API расширен batch-поиском по canonical/RU/EN/24 aliases; product composition открывает lazy component card с 295 verified sources. DB/migration/deploy не менялись. |
+| A105 | DONE_WITH_SCHEMA_GATE | Local summary/unresolved-question/memory prototype: mocked 26/26, writes 0; schema/RLS approval передан Core и принят ТЗ №153. |
+| №153 | DONE_IN_THIS_COMMIT | Утверждены minimal memory entities, candidate lifecycle, user+company RLS и non-production A106 boundary; production/DB/schema/merge/deploy не менялись. |
 
 ## TZ-146 warehouse preflight
 
@@ -177,6 +181,19 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Live read-only verification: components `425`, visible `415`, aliases `24`, sources `295`, `needs_source=0`, source orphans `0`, cross-component alias conflicts `0`.
 - The 54 rejected candidate sources remain absent from production and cannot appear through fallback. Production DB, company data, product links, concentrations, schema, migrations and deployment were not changed.
 
+## TZ-153 Travkin Assistant memory schema approval
+
+- Verified `origin/assistant-v1` head and A105 report/proposal at `b22f765583b2cd556a29b9e25c332561f19dd262`; no merge or rebase was performed.
+- Live read-only audit: `chats=63`, `chat_messages=909`, `assistant_memories=3` and all memory rows are `scope=user`. `assistant_memories` has RLS enabled but no policies; `chats` and `chat_messages` have legacy permissive public policies; `assistant_audit_logs` is absent.
+- Approved reuse: conversation summary and unresolved question in versioned `chat_messages.metadata`; candidate/approved/rejected user memory in existing `assistant_memories` with additive lifecycle/provenance columns.
+- Approved one new table: `assistant_memory_events`, because generic company-visible `audit_log` cannot provide private immutable per-user memory history. Event rows contain no memory content.
+- Company-wide memory remains disabled. Only explicit candidate -> user-approved/rejected transitions are allowed; rejected, expired and legacy status-null rows are not retrievable.
+- Primary runtime is request-scoped user JWT/RLS. Service role is not an approved primary memory runtime. Cross-user/cross-company/anon/spoof/foreign-approval/delete denial tests are mandatory.
+- A fully commented preview and rollback are outside Git at `audit-output/TZ-153/assistant_memory_schema_preview.sql`. It is not an active migration and was not executed.
+- No Supabase branch exists. The selected A106 target is a separate development branch from production; quoted cost is `$0.01344/hour` and creation requires owner confirmation. Production is not a test target.
+- Contract advanced to `0.3 ASSISTANT_MEMORY_SCHEMA_APPROVED`; A106 is reserved for non-production implementation/acceptance and A107 for the future permission-aware Knowledge Base.
+- Production DB, schema, business data, migration history, Assistant code, merge and deployment were not changed.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:
@@ -190,9 +207,9 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## Assistant readiness
 
-ASSISTANT_CORE_READINESS: `READ_ONLY_ASSISTANT_FOUNDATION_APPROVED`
-ASSISTANT_ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
-ASSISTANT_ALLOWED_DATA: server-authenticated context and results of the eight tools listed in Integration Contract 0.2; code; Project Live; approved architecture text
-ASSISTANT_BLOCKED_AREAS: production deployment; direct SQL; database/schema changes; create/draft/navigation/KB mutations; warehouse/operation writes; migration history; RLS bypass; contract edits by assistant
+ASSISTANT_CORE_READINESS: `ASSISTANT_MEMORY_SCHEMA_APPROVED`
+ASSISTANT_ALLOWED_MODE: `READ_ONLY_FOUNDATION_PLUS_A106_ISOLATED_NONPROD_MEMORY_QA`
+ASSISTANT_ALLOWED_DATA: server-authenticated results of the eight Contract 0.3 read-only tools; own-company own-user chat state; own user-scoped candidate/approved memory in the future isolated A106 environment; code; Project Live; approved architecture text
+ASSISTANT_BLOCKED_AREAS: production memory writes/migration/deployment; company-wide memory; automatic approval; ERP/warehouse/operation writes; generic SQL; Knowledge Base mutations; migration history; RLS bypass; service-role primary memory runtime; contract edits by assistant
 
-Assistant implementation: `A104_SERVER_CONVERSATION_RUNTIME_V2_PASS` at `2152b73`; mocked `20/20` and real local `12/12`, ERP writes `0`, foreign rows `0`, contract 0.2 unchanged. Merge/deploy/write capability remain blocked without separate owner approval. Production writes: `DISABLED`.
+Assistant implementation: `A105_DONE_WITH_SCHEMA_GATE` at `b22f765`; local mocked `26/26`, DB/OpenAI/ERP writes `0`. Contract 0.3 approves only the schema and isolated A106 boundary. A106 real acceptance is blocked until a separate Supabase development branch is provisioned with owner cost confirmation. Merge/deploy/production writes remain `DISABLED`.

@@ -1,20 +1,35 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-14T03:54:42+05:00
+LAST_REVIEW_AT: 2026-07-14T17:47:30+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `f4a7088`)
+CORE_COMMIT: `SELF` (previous core commit: `65b3031`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
-ASSISTANT_COMMIT_REVIEWED: `2152b73f8013b11b1dc37a4ea5c94cf08b4d752c`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T03:54:42+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T03:54:42+05:00
-LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A104.md` — server-owned conversation runtime v2 completed; mocked `20/20`, real local `12/12`, ERP writes `0`.
+ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T17:47:30+05:00
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T17:47:30+05:00
+LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A105.md` — conversation summary, unresolved-question metadata and candidate-first memory prototype completed locally; mocked QA `26/26`, DB/OpenAI/ERP writes `0`, real memory acceptance blocked by schema/contract gate.
 
-ASSISTANT_CHANGES_FOUND: YES — TZ-A104 added Assistant-owned server conversation replay and a local stateless Responses adapter; core files, schema, GLBD and production were not changed.
-CORE_IMPACT_FOUND: NO — A104 remains inside the existing contract 0.2 eight-tool read-only boundary.
-INTEGRATION_CONTRACT_IMPACT: NO — contract 0.2 and the eight-tool read-only allowlist remain unchanged.
-CORE_ACTION_REQUIRED: NO_FOR_TZ152 — GLBD alias/source read integration can proceed independently.
-NEXT_SAFE_ACTION: Keep `assistant-v1` isolated; merge, deploy and Assistant write capability still require separate owner approval.
+ASSISTANT_CHANGES_FOUND: YES — TZ-A105 adds local-only summary/unresolved-question/memory lifecycle prototypes and requests an additive schema/RLS contract. Core/schema/production were not changed by the Assistant branch.
+CORE_IMPACT_FOUND: YES — Core must approve storage ownership, RLS, non-production acceptance environment and the only permitted memory write boundary.
+INTEGRATION_CONTRACT_IMPACT: YES — TZ-153 advances the contract from 0.2 to 0.3 and approves user-scoped candidate memory only in isolated non-production A106.
+INTEGRATION_CONTRACT_VERSION: `0.3`
+INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F0C010E67D9F9F6`
+CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
+NEXT_SAFE_ACTION: Provision a separate Supabase development branch after owner cost confirmation, then run TZ-A106 there. Keep `assistant-v1` isolated; production migration, memory writes, merge and deploy remain forbidden.
+
+## TZ-153 review result
+
+TZ153_ASSISTANT_CHANGES_FOUND: `A105_LOCAL_MEMORY_PROTOTYPE_AND_SCHEMA_PROPOSAL`
+TZ153_ASSISTANT_COMMIT_VERIFIED: `b22f765583b2cd556a29b9e25c332561f19dd262`
+TZ153_LIVE_SCHEMA_AUDIT: `PASS_WITH_SECURITY_GAPS`; `chats`/`chat_messages` are reusable but have legacy public-true policies, `assistant_memories` is reusable but has no RLS policies, and `assistant_audit_logs` is absent.
+TZ153_APPROVED_STORAGE: `chat_messages.metadata + assistant_memories + new assistant_memory_events`
+TZ153_COMPANY_MEMORY: `DISABLED`
+TZ153_RUNTIME: `USER_JWT_RLS_PRIMARY`; service role is not an approved primary memory runtime.
+TZ153_TEST_ENVIRONMENT: `SEPARATE_SUPABASE_BRANCH_REQUIRED`; current branch list is empty and only production project exists. Estimated branch cost returned by Supabase: `$0.01344/hour`; creation requires owner confirmation.
+TZ153_PRODUCTION_IMPACT: `NONE`; no DB/schema/business-data/deploy/merge/rebase occurred.
+TZ153_INTEGRATION_CONTRACT: `0.3 ASSISTANT_MEMORY_SCHEMA_APPROVED`
+TZ153_ACTION: Reserve A106 for implementation/real acceptance after branch provisioning and A107 for the future full Knowledge Base.
 
 ## TZ-152 review result
 
