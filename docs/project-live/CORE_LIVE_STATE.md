@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-14
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `65b3031`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `81cdbaa`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -21,18 +21,18 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | ГЛБД | ALIAS_SOURCE_READ_PATH_READY_LOCAL | Component Model V2 содержит 425 компонентов, 1373 глобальные product links, 24 aliases и 295 sources; company links `0`. ТЗ №152 подключило aliases к существующему поиску и knowledge intake, а sources — к ленивой карточке компонента в `copilot-v1`. 54 заблокированные source-строки отсутствуют в production и не используются. Deploy не выполнялся. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
-| Travkin Assistant | MEMORY_SCHEMA_APPROVED_NONPROD_ONLY | A105 reviewed at `b22f765`; summary/unresolved-question storage and user-scoped candidate memory schema approved by Contract 0.3. Production memory writes, migration, merge and deploy remain disabled; A106 needs a separate Supabase branch. |
+| Travkin Assistant | BLOCKED_BY_MIGRATION_HISTORY_RECOVERY | A105 reviewed at `b22f765`; Contract 0.3 still approves only isolated non-production A106. The first `assistant-memory-a106` branch failed while replaying malformed migration-history payloads and was deleted after evidence capture. Production memory writes, migration, merge and deploy remain disabled. |
 
 ## Current database state
 
 - Supabase project: `bhsemlvmkikpntabctml`.
 - GLBD V2 после ТЗ №151: components `425`, product links `1373`, aliases `24`, sources `295`, company links `0`. Components, product links и company scope совпали с pre-import backup.
-- Remote migration history: 76 записей; head `20260712203746` (`glbd_component_model_v2`).
+- Remote migration history: 76 записей; head `20260712203746` (`glbd_component_model_v2`). TZ-155 proved 38 homogeneous malformed `statements[]` payloads (`20260305200628`–`20260404153413`) plus a separate ambiguous local/history drift at `20260610123000`; no history row was changed.
 - Восемь ранее отсутствовавших версий `20260623170000`–`20260712203746` уже синхронизированы с remote history без повторного запуска migration SQL.
 - ТЗ №140 синхронизировало 6 проверенных `SUPERSEDED` versions: `20260412234000`, `20260413182000`, `20260417103000`, `20260430110000`, `20260510110000`, `20260521100500`. Выполнялся только официальный history repair; migration SQL не запускался.
 - После ТЗ №140 остаётся 57 старых local-only migration-history позиций из программы аудита ТЗ №135. ТЗ №142 подробно классифицировало 15 из них с неполным результатом: 7 schema-only corrections, 2 schema+data corrections и 6 superseded intents. Ни одна версия не repaired/applied.
 - `db push`: **НЕ РАЗРЕШЁН** до отдельного owner-approved batch plan по старым migration versions.
-- Активные блокеры DB-процесса: для 15 неполных версий есть batch roadmap, но нет owner approval на apply; остальные local-only versions также нельзя repair/apply массово. Повторное исполнение старого SQL запрещено.
+- Активные блокеры DB-процесса: для 15 неполных версий есть batch roadmap, но нет owner approval на apply; остальные local-only versions также нельзя repair/apply массово. TZ-155 additionally found invalid local-only migration `20260509142000` (`unique (lower(name))`) and a separate `20260610123000` history drift. Повторное исполнение старого SQL запрещено.
 - Последний подтверждённый migration-history backup: `C:\Users\TRAVKIN\Downloads\CodecSaaS\audit-output\TZ-140\backups\migration-history-20260713T161533631Z`; manifest SHA-256 `60dde2ad4d9150c42babf01485c183017611c7bf2245468d8a90c086eb0fb683`. Backup содержит все 70 pre-repair history rows со statements, local/remote inventories, hashes шести файлов и evidence ТЗ №137; это не полный PITR backup бизнес-данных.
 - Post-repair read-only snapshot ТЗ №140: products 1231; fields 100; crop_structure 122; operations 8; warehouses 2; legacy AI 425/1373; GLBD V2 425/1373. Public schema, variety и crop-identity fingerprints совпали с pre-repair snapshot.
 
@@ -80,7 +80,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Alias/source read path ТЗ №152 находится только в `copilot-v1`; production UI ещё не получил этот код. 54 заблокированные source-строки не импортированы и fallback на них отсутствует.
 - Складская базовая единица и batch identity: ТЗ №144 локально подготовила additive schema, единый resolver, исправления 15 writer paths и unit-aware views; isolated migration/E2E PASS. Migration ещё не применена к production, а 7 inventory/7 ledger legacy rows не backfill-ились. Перед production нужен отдельный backup, live preflight, preview E2E и owner approval.
 - Land legal MVP не имеет трёх integrity guards. Live duplicate preflight чистый и land tables пусты, но до начала реального ввода нужен отдельный schema-only corrective batch.
-- Для A106 отсутствует безопасный non-production Supabase branch. Production project нельзя использовать для memory acceptance; branch provisioning требует отдельного owner cost confirmation.
+- Для A106 отсутствует безопасный non-production Supabase branch. Owner-approved `assistant-memory-a106` creation reached `MIGRATIONS_FAILED`, evidence was saved, and the paid branch was deleted. A106 remains blocked until migration-history recovery is split and approved; production project нельзя использовать для memory acceptance.
 
 ## Current tasks
 
@@ -108,6 +108,8 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №152 | DONE_IN_THIS_COMMIT | Existing Global Admin catalog API расширен batch-поиском по canonical/RU/EN/24 aliases; product composition открывает lazy component card с 295 verified sources. DB/migration/deploy не менялись. |
 | A105 | DONE_WITH_SCHEMA_GATE | Local summary/unresolved-question/memory prototype: mocked 26/26, writes 0; schema/RLS approval передан Core и принят ТЗ №153. |
 | №153 | DONE_IN_THIS_COMMIT | Утверждены minimal memory entities, candidate lifecycle, user+company RLS и non-production A106 boundary; production/DB/schema/merge/deploy не менялись. |
+| №154 | BLOCKED | Branch `assistant-memory-a106` создана без production data, но bootstrap остановился на malformed migration-history payload; A106 не запускался. |
+| №155 | BLOCKED_IN_THIS_COMMIT | Evidence и полный history backup сохранены, branch удалена; SQL-aware audit доказал 38 однородных повреждений плюс отдельный drift `20260610123000`, поэтому repair/replay остановлены. |
 
 ## TZ-146 warehouse preflight
 
@@ -194,6 +196,17 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Contract advanced to `0.3 ASSISTANT_MEMORY_SCHEMA_APPROVED`; A106 is reserved for non-production implementation/acceptance and A107 for the future permission-aware Knowledge Base.
 - Production DB, schema, business data, migration history, Assistant code, merge and deployment were not changed.
 
+## TZ-154/TZ-155 Assistant branch bootstrap and migration-history recovery gate
+
+- The owner-approved non-production branch `assistant-memory-a106` (`omlgluwtqmhkyiwltiyr`) failed with `MIGRATIONS_FAILED`. The bootstrap created an empty history table and then hit `syntax error at or near "\\"`; checked application tables were absent.
+- Full branch evidence was saved without secrets. The failed paid branch was then deleted successfully; production `main` remains the only Supabase branch.
+- Verified backup outside Git: `C:\Users\TRAVKIN\Downloads\CodecSaaS\backups\tz-155-2026-07-14T150348634Z`; 76 history rows, 135 local file hashes, manifest SHA-256 `cf525850f9e417e932244f0f86b4b1c7898686d747d6841d6e8d60c480c733b6`.
+- SQL-aware parser comparison proved exactly 38 homogeneous escaped-newline/naive-semicolon-split rows from `20260305200628` through `20260404153413`. All 38 match the exact forward transform of their current local files and are restorable in principle.
+- The prior 39th candidate `20260610123000` contains a legitimate `E'\n'` and differs separately: production history has 2 statements, current local source has 3 and begins with an extra `alter table` statement. It is not part of the homogeneous repair and requires independent proof.
+- Full local parser preflight found another separate blocker: local-only `20260509142000_personnel_vehicles_master_upgrade.sql:12` uses invalid expression constraint `unique (lower(name))`. It was not changed.
+- Per TZ-155 fail-closed rules, no restored statements pack, repair preview, rollback preview, isolated replay or schema fingerprint comparison was produced. Production migration history, schema and business data remained unchanged.
+- A106 stays blocked. Next owner decision must split exact 38-row metadata recovery, `20260610123000` canonical-history audit and `20260509142000` local migration correction.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:
@@ -207,9 +220,9 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## Assistant readiness
 
-ASSISTANT_CORE_READINESS: `ASSISTANT_MEMORY_SCHEMA_APPROVED`
-ASSISTANT_ALLOWED_MODE: `READ_ONLY_FOUNDATION_PLUS_A106_ISOLATED_NONPROD_MEMORY_QA`
+ASSISTANT_CORE_READINESS: `ASSISTANT_MEMORY_SCHEMA_APPROVED_A106_ENVIRONMENT_BLOCKED`
+ASSISTANT_ALLOWED_MODE: `READ_ONLY_FOUNDATION_ONLY_UNTIL_MIGRATION_HISTORY_RECOVERY`
 ASSISTANT_ALLOWED_DATA: server-authenticated results of the eight Contract 0.3 read-only tools; own-company own-user chat state; own user-scoped candidate/approved memory in the future isolated A106 environment; code; Project Live; approved architecture text
 ASSISTANT_BLOCKED_AREAS: production memory writes/migration/deployment; company-wide memory; automatic approval; ERP/warehouse/operation writes; generic SQL; Knowledge Base mutations; migration history; RLS bypass; service-role primary memory runtime; contract edits by assistant
 
-Assistant implementation: `A105_DONE_WITH_SCHEMA_GATE` at `b22f765`; local mocked `26/26`, DB/OpenAI/ERP writes `0`. Contract 0.3 approves only the schema and isolated A106 boundary. A106 real acceptance is blocked until a separate Supabase development branch is provisioned with owner cost confirmation. Merge/deploy/production writes remain `DISABLED`.
+Assistant implementation: `A105_DONE_WITH_SCHEMA_GATE` at `b22f765`; local mocked `26/26`, DB/OpenAI/ERP writes `0`. Contract 0.3 approves only the schema and isolated A106 boundary. A106 real acceptance is blocked because the first owner-approved branch could not replay production migration history and was deleted after evidence capture. Merge/deploy/production writes remain `DISABLED`.

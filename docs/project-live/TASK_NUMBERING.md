@@ -28,7 +28,7 @@
 | TZ-A103 | ASSISTANT | Close A102 findings and pass read-only acceptance | assistant-v1 | DONE | TZ-A102 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A103.md` | `20117c6` |
 | TZ-A104 | ASSISTANT | Server Conversation Runtime V2 | assistant-v1 | DONE | TZ-A103 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A104.md` | `2152b73` |
 | TZ-A105 | ASSISTANT | Conversation Summary, Unresolved Questions & Confirmed Memory Prototype | assistant-v1 | DONE_WITH_SCHEMA_GATE | TZ-A104 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A105.md` | `b22f765` |
-| TZ-A106 | ASSISTANT | Memory Schema Implementation & Real Acceptance | assistant-v1 | PLANNED | TZ-A105,TZ-153 | `external: pending` | — |
+| TZ-A106 | ASSISTANT | Memory Schema Implementation & Real Acceptance | assistant-v1 | BLOCKED | TZ-A105,TZ-153,TZ-154,TZ-155 | `external: pending` | — |
 | TZ-A107 | ASSISTANT | Full Permission-Aware Knowledge Base | assistant-v1 | PLANNED | TZ-A106 | `external: pending` | — |
 | TZ-142 | DATABASE | Audit partially equivalent legacy migrations | copilot-v1 | DONE | TZ-141 | [task-reports/core/TZ-142.md](task-reports/core/TZ-142.md) | `SELF` |
 | TZ-143 | WAREHOUSE | Warehouse units and batch classes correction plan | copilot-v1 | DONE | TZ-142 | [task-reports/core/TZ-143.md](task-reports/core/TZ-143.md) | `SELF` |
@@ -43,6 +43,8 @@
 | TZ-151 | GLBD | Import approved component aliases and sources | copilot-v1 | DONE | TZ-150 | [task-reports/core/TZ-151.md](task-reports/core/TZ-151.md) | `SELF` |
 | TZ-152 | GLBD / UI | Surface component aliases in search and sources in cards | copilot-v1 | DONE | TZ-151 | [task-reports/core/TZ-152.md](task-reports/core/TZ-152.md) | `SELF` |
 | TZ-153 | CORE / ASSISTANT GOVERNANCE | Approve Travkin Assistant confirmed memory schema | copilot-v1 | DONE | TZ-A105,TZ-152 | [task-reports/core/TZ-153.md](task-reports/core/TZ-153.md) | `SELF` |
+| TZ-154 | DATABASE / ASSISTANT GOVERNANCE | Provision isolated Supabase branch for A106 | copilot-v1 | BLOCKED | TZ-153 | `external: evidence in audit-output/TZ-155/` | — |
+| TZ-155 | DATABASE | Prepare corrupted migration-history recovery | copilot-v1 | BLOCKED | TZ-154 | [task-reports/core/TZ-155.md](task-reports/core/TZ-155.md) | `SELF` |
 
 ## Status values
 

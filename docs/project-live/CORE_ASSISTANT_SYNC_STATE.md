@@ -1,13 +1,13 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-14T17:47:30+05:00
+LAST_REVIEW_AT: 2026-07-14T20:06:57+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `65b3031`)
+CORE_COMMIT: `SELF` (previous core commit: `81cdbaa`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T17:47:30+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T17:47:30+05:00
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T20:06:57+05:00
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T20:06:57+05:00
 LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A105.md` — conversation summary, unresolved-question metadata and candidate-first memory prototype completed locally; mocked QA `26/26`, DB/OpenAI/ERP writes `0`, real memory acceptance blocked by schema/contract gate.
 
 ASSISTANT_CHANGES_FOUND: YES — TZ-A105 adds local-only summary/unresolved-question/memory lifecycle prototypes and requests an additive schema/RLS contract. Core/schema/production were not changed by the Assistant branch.
@@ -16,7 +16,19 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-153 advances the contract from 0.2 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.3`
 INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F0C010E67D9F9F6`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
-NEXT_SAFE_ACTION: Provision a separate Supabase development branch after owner cost confirmation, then run TZ-A106 there. Keep `assistant-v1` isolated; production migration, memory writes, merge and deploy remain forbidden.
+NEXT_SAFE_ACTION: Keep TZ-A106 blocked. The attempted `assistant-memory-a106` branch failed during migration-history replay and was deleted after evidence capture. Resolve TZ-155 as three separate scopes: exact 38-row metadata recovery preview, independent `20260610123000` history canonicalization, and independent invalid local migration `20260509142000` review. Production migration history, schema and business data remain unchanged.
+
+## TZ-155 review result
+
+TZ155_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains `b22f765583b2cd556a29b9e25c332561f19dd262`.
+TZ155_CORE_IMPACT_FOUND: `YES — A106 non-production environment cannot bootstrap from current production migration history`.
+TZ155_INTEGRATION_CONTRACT_IMPACT: `NO`; Contract 0.3 remains unchanged and no Assistant code was merged.
+TZ155_FAILED_BRANCH: `assistant-memory-a106` ended `MIGRATIONS_FAILED`; evidence was saved without secrets and the branch was deleted to stop billing.
+TZ155_HISTORY_BACKUP: `PASS`; all 76 rows and all 135 local file hashes are outside Git with a verified SHA-256 manifest.
+TZ155_CORRUPTION_RESULT: `38 homogeneous corrupted rows plus one separate unresolved history/local drift case, not 39`.
+TZ155_LOCAL_CHAIN_RESULT: `134/135 parser-valid`; local-only `20260509142000` fails at `unique (lower(name))` and was not changed.
+TZ155_PRODUCTION_IMPACT: `NONE`; no repair, migration SQL, schema write, business-data write, merge or deploy occurred.
+TZ155_ACTION: `STOP`; A106 remains blocked until the owner separates and approves the three migration scopes above.
 
 ## TZ-153 review result
 
