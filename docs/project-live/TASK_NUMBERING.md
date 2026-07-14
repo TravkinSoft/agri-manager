@@ -50,6 +50,7 @@
 | TZ-158 | DATABASE | Prepare exact migration-history recovery | copilot-v1 | DONE | TZ-155,TZ-156,TZ-157 | [task-reports/core/TZ-158.md](task-reports/core/TZ-158.md) | `SELF` |
 | TZ-159 | DATABASE | Canonicalize legacy demo migrations and repeat full replay | copilot-v1 | DONE | TZ-158 | [task-reports/core/TZ-159.md](task-reports/core/TZ-159.md) | `SELF` |
 | TZ-160 | DATABASE | Canonicalize legacy test-user cleanup and repeat full replay | copilot-v1 | DONE | TZ-159 | [task-reports/core/TZ-160.md](task-reports/core/TZ-160.md) | `SELF` |
+| TZ-161 | DATABASE | Close remaining legacy bootstrap blockers and continue full replay | copilot-v1 | DONE | TZ-160 | [task-reports/core/TZ-161.md](task-reports/core/TZ-161.md) | `SELF` |
 
 ## Status values
 

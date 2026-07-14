@@ -260,6 +260,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - The new independent blocker was not modified. Full production parity is still unproved; `READY_FOR_METADATA_REPAIR=NO` and TZ-154/TZ-A106 remain blocked.
 - Production still has 15 users/profiles, 3 companies, no listed legacy demo identities and the original 37-statement history row. Production schema, Auth, history and business data were not changed.
 
+## TZ-161 legacy company cleanup and replay
+
+- TZ-161 status: `PASS_CURRENT_LEGACY_FIX_WITH_REAL_SCHEMA_BLOCKER`; report: [task-reports/core/TZ-161.md](task-reports/core/TZ-161.md).
+- The destructive company block in `20260328150705` is `SUPERSEDED_NOOP`; profile RLS changes remain active and repeat-safe. Production uses the protected company ID for 6 seasons, 99 fields and 7 profiles.
+- All `135/135` local files parse (`2517` statements). The migration passes first and second isolated apply without changing company or business data.
+- The refreshed guarded package passes repair `39`, second repair `0`, rollback `39` and unchanged rows `37/37`.
+- Clean replay advances to `48` migrations / `758` statements and stops at working schema migration `20260413182000`: line 59 calls missing `public.ensure_updated_at_column()` (`SQLSTATE 42883`).
+- Production has that function and the varieties trigger uses it, but the clean repaired history does not create it before use. The working migration was not changed.
+- Full production parity remains unproved; `READY_FOR_METADATA_REPAIR=NO` and TZ-154/TZ-A106 remain blocked. Production history, schema, Auth and business data were not changed.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:

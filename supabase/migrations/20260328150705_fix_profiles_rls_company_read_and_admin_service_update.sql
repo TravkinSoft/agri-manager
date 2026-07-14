@@ -1,5 +1,5 @@
 /*
-  # Fix profiles RLS and clean orphan companies
+  # Fix profiles RLS
 
   ## Problem
   The profiles SELECT policy only allowed `auth.uid() = id`, meaning each user
@@ -15,10 +15,11 @@
   - Add policy: service role can update any profile (needed for invite flow)
   - Add policy: admins can update profiles within their own company
 
-  ### 2. Orphan company cleanup
-  - Remove auto-created companies for invited users (they should belong to the
-    admin's company, not get their own company)
-  - Keep only the main "AgroTech Solutions" company (id = 10000000-...)
+  ### 2. Superseded company cleanup
+  - The original migration deleted every company without an owner profile.
+  - That behavior is unsafe because the retained platform company can own
+    seasons, fields and profiles even when a clean Auth database has no users.
+  - Preserve the RLS changes and skip the obsolete data cleanup.
 
   ## Security
   - Company-scoped reads prevent cross-company data leakage
@@ -30,6 +31,7 @@
 DROP POLICY IF EXISTS "Users can read own profile" ON public.profiles;
 
 -- Allow users to read all profiles in their own company (safe — company-scoped)
+DROP POLICY IF EXISTS "Company members can read profiles in their company" ON public.profiles;
 CREATE POLICY "Company members can read profiles in their company"
   ON public.profiles
   FOR SELECT
@@ -74,12 +76,8 @@ CREATE POLICY "Admins can update company member profiles"
     )
   );
 
--- Clean up orphan companies that were incorrectly created for invited users
--- Keep only the main company (10000000-0000-0000-0000-000000000001)
--- and any company that has an is_owner=true profile (legitimate self-registered companies)
-DELETE FROM public.companies
-WHERE id NOT IN (
-  SELECT DISTINCT company_id
-  FROM public.profiles
-  WHERE is_owner = true AND company_id IS NOT NULL
-);
+DO $superseded_company_cleanup$
+BEGIN
+  RAISE NOTICE '20260328150705: superseded company cleanup skipped';
+END
+$superseded_company_cleanup$;
