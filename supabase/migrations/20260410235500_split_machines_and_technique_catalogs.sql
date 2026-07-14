@@ -27,6 +27,11 @@ create table if not exists public.reference_vehicles (
 create index if not exists idx_reference_vehicles_company_id on public.reference_vehicles(company_id);
 create index if not exists idx_reference_vehicles_company_status on public.reference_vehicles(company_id, status);
 
+alter table public.profiles
+  add column if not exists machine_id uuid null references public.reference_vehicles(id) on delete set null;
+
+create index if not exists idx_profiles_machine_id on public.profiles(machine_id);
+
 alter table public.reference_vehicles enable row level security;
 
 drop policy if exists "Company members can view reference_vehicles" on public.reference_vehicles;
@@ -97,4 +102,3 @@ begin
     (owner_company_id, owner_user_id, 'Amazone опрыскиватель', 'sprayer', 'Amazone', 'free', true, false)
   on conflict do nothing;
 end $$;
-

@@ -359,6 +359,8 @@ for each row execute function public.ensure_updated_at_column();
 -- 5) AGROCHEMISTRY (PRODUCTS table)
 -- =====================================================
 alter table public.products
+  add column if not exists pesticide_category text,
+  add column if not exists fertilizer_type text,
   add column if not exists category text,
   add column if not exists subcategory text,
   add column if not exists concentration text,
@@ -623,4 +625,3 @@ select
   updated_at
 from public.reference_vehicles
 where company_id is null and archived = false;
-

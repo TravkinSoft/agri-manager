@@ -76,6 +76,16 @@ TZ157_ARCHITECTURE: `MINIMAL_LEGACY_COMPATIBILITY`; `transport_models` remains c
 TZ157_PRODUCTION_IMPACT: `NONE`; no migration apply, history repair, schema write or business-data write.
 TZ157_ACTION: `READY_FOR_EXACT_38_ROW_RECOVERY_PREVIEW_ONLY`; TZ-154 and TZ-A106 remain blocked pending separate recovery approval and execution.
 
+## TZ-162 review result
+
+TZ162_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains `b22f765583b2cd556a29b9e25c332561f19dd262`.
+TZ162_CORE_IMPACT_FOUND: `YES - safe migration prerequisites restored, but clean replay found a semantic legacy crop-category blocker`.
+TZ162_INTEGRATION_CONTRACT_IMPACT: `NO`; Contract 0.3 and Assistant code are unchanged.
+TZ162_LOCAL_CHAIN_RESULT: `135/135 parser-valid; replay 64 migrations / 987 statements before SQLSTATE 23514`.
+TZ162_HISTORY_PACKAGE: `PASS_INTERNAL_ONLY - repair 39, second repair 0, rollback 39, unchanged 37/37; not production-ready`.
+TZ162_PRODUCTION_IMPACT: `NONE`; read-only metadata checks only, with no history/schema/business-data write.
+TZ162_ACTION: `STOP_SEMANTIC_REVIEW_REQUIRED`; owner must approve canonical mapping for legacy global crop identities and a plan for 36 absent history-source objects before metadata repair or A106.
+
 ## TZ-156 review result
 
 TZ156_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains `b22f765583b2cd556a29b9e25c332561f19dd262`.

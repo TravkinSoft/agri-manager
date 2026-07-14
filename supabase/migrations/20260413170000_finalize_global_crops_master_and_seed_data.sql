@@ -3,6 +3,38 @@
   Depends on public.crop_categories(slug) being already populated.
 */
 
+-- Canonical prerequisite present in production before this catalog was loaded.
+create table if not exists public.crop_categories (
+  id uuid primary key default gen_random_uuid(),
+  name_ru text not null,
+  name_en text,
+  slug text not null,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists ux_crop_categories_slug
+  on public.crop_categories (lower(slug));
+create index if not exists idx_crop_categories_is_active
+  on public.crop_categories (is_active);
+
+insert into public.crop_categories (id, name_ru, name_en, slug, is_active) values
+  ('2c93e301-985e-4865-bdbb-d7d4b8770fd0', 'Зерновые', 'Cereals', 'cereal', true),
+  ('95fd2a1d-1d3b-473c-af8d-35c5778e0847', 'Покровные культуры', 'Cover crops', 'cover_crop', true),
+  ('52f55700-25db-4f0d-867a-24c555004210', 'Кормовые', 'Forage', 'forage', true),
+  ('62f6ed93-1a9e-486b-95c2-1b486efdcbf4', 'Бобовые', 'Legumes', 'legume', true),
+  ('020889df-2e9a-4900-91e2-2ffeb6790a87', 'Бахчевые', 'Melons', 'melon', true),
+  ('2da5fd74-154c-42fc-8ca1-2d3a45acc295', 'Масличные', 'Oilseeds', 'oilseed', true),
+  ('d1fbc851-f6ea-4c0c-ad8f-1f56dc5a9aba', 'Многолетние травы', 'Perennial grasses', 'perennial_grass', true),
+  ('239ba091-97ec-4594-8de3-7882d7a54575', 'Технические', 'Technical crops', 'technical', true),
+  ('56d39e40-8782-4557-b522-0dd2434fa341', 'Овощные', 'Vegetables', 'vegetable', true)
+on conflict (id) do update set
+  name_ru = excluded.name_ru,
+  name_en = excluded.name_en,
+  slug = excluded.slug,
+  is_active = excluded.is_active;
+
 -- 1) Ensure global crops structure
 alter table public.crops
   add column if not exists name_ru text,
@@ -23,14 +55,47 @@ alter table public.crops
   add column if not exists can_have_seed_reproduction boolean,
   add column if not exists can_be_harvested boolean;
 
+do $$
+declare
+  v_priority_type text;
+begin
+  select data_type
+    into v_priority_type
+  from information_schema.columns
+  where table_schema = 'public'
+    and table_name = 'crops'
+    and column_name = 'priority_level';
+
+  if v_priority_type is distinct from 'text' then
+    alter table public.crops
+      drop constraint if exists crops_priority_level_fk;
+    alter table public.crops
+      alter column priority_level drop default;
+    alter table public.crops
+      alter column priority_level type text
+      using case
+        when priority_level >= 4 then 'high'
+        when priority_level = 3 then 'medium'
+        else 'low'
+      end;
+  end if;
+end $$;
+
+-- Preserve the live schema default while the v3 check protects stored values.
+alter table public.crops
+  alter column priority_level set default '0';
+
 update public.crops
 set name_ru = coalesce(nullif(name_ru, ''), name),
-    slug = coalesce(nullif(slug, ''), regexp_replace(lower(coalesce(name_en, name_ru, name)), '[^a-z0-9]+', '-', 'g')),
-    slug = trim(both '-' from slug)
+    slug = coalesce(nullif(slug, ''), regexp_replace(lower(coalesce(name_en, name_ru, name)), '[^a-z0-9]+', '-', 'g'))
 where name_ru is null
    or btrim(name_ru) = ''
    or slug is null
    or btrim(slug) = '';
+
+update public.crops
+set slug = trim(both '-' from slug)
+where slug is not null;
 
 update public.crops
 set slug = concat('crop-', left(id::text, 8))
@@ -257,4 +322,3 @@ select
   (select count(*) from mapped) as mapped_rows,
   (select count(*) from upd) as updated_rows,
   (select count(*) from ins) as inserted_rows;
-

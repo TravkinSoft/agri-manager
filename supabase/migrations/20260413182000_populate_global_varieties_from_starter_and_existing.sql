@@ -7,6 +7,19 @@
   - Global scope only (company_id is null)
 */
 
+-- The earlier catalog migration that first introduced this helper is not part
+-- of the production history chain. Keep the first tracked caller self-contained
+-- with the exact trigger behavior used in production.
+create or replace function public.ensure_updated_at_column()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
 -- =====================================================
 -- 1) Verify/finalize table structure
 -- =====================================================

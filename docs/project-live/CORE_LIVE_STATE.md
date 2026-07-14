@@ -289,3 +289,13 @@ ASSISTANT_ALLOWED_DATA: server-authenticated results of the eight Contract 0.3 r
 ASSISTANT_BLOCKED_AREAS: production memory writes/migration/deployment; company-wide memory; automatic approval; ERP/warehouse/operation writes; generic SQL; Knowledge Base mutations; migration history; RLS bypass; service-role primary memory runtime; contract edits by assistant
 
 Assistant implementation: `A105_DONE_WITH_SCHEMA_GATE` at `b22f765`; local mocked `26/26`, DB/OpenAI/ERP writes `0`. Contract 0.3 approves only the schema and isolated A106 boundary. A106 real acceptance is blocked because the first owner-approved branch could not replay production migration history and was deleted after evidence capture. Merge/deploy/production writes remain `DISABLED`.
+
+## TZ-162 migration dependency audit and replay
+
+- TZ-162 status: `PASS_SAFE_DEPENDENCIES_WITH_SEMANTIC_BLOCKER`; report: [task-reports/core/TZ-162.md](task-reports/core/TZ-162.md).
+- PostgreSQL 15 parser passes all `135/135` local migrations (`2526` statements). The 76 history rows and 135 local files produced 45 curated chain findings.
+- Exact production `ensure_updated_at_column()` is restored before its first tracked caller and passes an isolated trigger test. The local transport FK ordering, two missing product columns, separate crop-category prerequisite, numeric-to-text crop priority transition and duplicate slug assignment were also repaired from production evidence.
+- Full local replay advances to `64/135` migrations / `987` statements, then stops at `20260413170000`, statement 15, SQLSTATE `23514`: legacy global crop identities lack a proven category mapping before the validated category constraint.
+- This is `SEMANTIC_REVIEW_REQUIRED`; no automatic legacy crop merge, deletion or category assignment was made. `chats` and `chat_messages` exist at stop; `assistant_memories` was not reached.
+- The 39-row package remains internally repeat-safe (`39 -> 0 -> rollback 39`, other rows `37/37`) but is not production-ready. It lacks the new 182000 payload and the 76-row history has 36 additional production object sources absent from history.
+- Production history, schema, Auth, GLBD, warehouse and business data were unchanged. `READY_FOR_METADATA_REPAIR=NO`; TZ-154 and TZ-A106 remain blocked.
