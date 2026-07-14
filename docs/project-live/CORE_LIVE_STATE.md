@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-14
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `81cdbaa`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `62b84832`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -27,12 +27,12 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 - Supabase project: `bhsemlvmkikpntabctml`.
 - GLBD V2 после ТЗ №151: components `425`, product links `1373`, aliases `24`, sources `295`, company links `0`. Components, product links и company scope совпали с pre-import backup.
-- Remote migration history: 76 записей; head `20260712203746` (`glbd_component_model_v2`). TZ-155 proved 38 homogeneous malformed `statements[]` payloads (`20260305200628`–`20260404153413`) plus a separate ambiguous local/history drift at `20260610123000`; no history row was changed.
+- Remote migration history: 76 записей; head `20260712203746` (`glbd_component_model_v2`). TZ-155 proved 38 homogeneous malformed `statements[]` payloads (`20260305200628`-`20260404153413`). TZ-156 resolved the separate `20260610123000` drift as `LOCAL_FILE_IS_CANONICAL`; its history still contains the older two-statement draft. No history row was changed.
 - Восемь ранее отсутствовавших версий `20260623170000`–`20260712203746` уже синхронизированы с remote history без повторного запуска migration SQL.
 - ТЗ №140 синхронизировало 6 проверенных `SUPERSEDED` versions: `20260412234000`, `20260413182000`, `20260417103000`, `20260430110000`, `20260510110000`, `20260521100500`. Выполнялся только официальный history repair; migration SQL не запускался.
 - После ТЗ №140 остаётся 57 старых local-only migration-history позиций из программы аудита ТЗ №135. ТЗ №142 подробно классифицировало 15 из них с неполным результатом: 7 schema-only corrections, 2 schema+data corrections и 6 superseded intents. Ни одна версия не repaired/applied.
 - `db push`: **НЕ РАЗРЕШЁН** до отдельного owner-approved batch plan по старым migration versions.
-- Активные блокеры DB-процесса: для 15 неполных версий есть batch roadmap, но нет owner approval на apply; остальные local-only versions также нельзя repair/apply массово. TZ-155 additionally found invalid local-only migration `20260509142000` (`unique (lower(name))`) and a separate `20260610123000` history drift. Повторное исполнение старого SQL запрещено.
+- Активные блокеры DB-процесса: для 15 неполных версий есть batch roadmap, но нет owner approval на apply; остальные local-only versions также нельзя repair/apply массово. TZ-156 resolved `20260610123000`, but its history metadata is still unrepaired. Invalid local-only migration `20260509142000` (`unique (lower(name))`) remains separate. Повторное исполнение старого SQL запрещено.
 - Последний подтверждённый migration-history backup: `C:\Users\TRAVKIN\Downloads\CodecSaaS\audit-output\TZ-140\backups\migration-history-20260713T161533631Z`; manifest SHA-256 `60dde2ad4d9150c42babf01485c183017611c7bf2245468d8a90c086eb0fb683`. Backup содержит все 70 pre-repair history rows со statements, local/remote inventories, hashes шести файлов и evidence ТЗ №137; это не полный PITR backup бизнес-данных.
 - Post-repair read-only snapshot ТЗ №140: products 1231; fields 100; crop_structure 122; operations 8; warehouses 2; legacy AI 425/1373; GLBD V2 425/1373. Public schema, variety и crop-identity fingerprints совпали с pre-repair snapshot.
 
@@ -110,6 +110,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | №153 | DONE_IN_THIS_COMMIT | Утверждены minimal memory entities, candidate lifecycle, user+company RLS и non-production A106 boundary; production/DB/schema/merge/deploy не менялись. |
 | №154 | BLOCKED | Branch `assistant-memory-a106` создана без production data, но bootstrap остановился на malformed migration-history payload; A106 не запускался. |
 | №155 | BLOCKED_IN_THIS_COMMIT | Evidence и полный history backup сохранены, branch удалена; SQL-aware audit доказал 38 однородных повреждений плюс отдельный drift `20260610123000`, поэтому repair/replay остановлены. |
+| №156 | DONE_IN_THIS_COMMIT | Особая версия `20260610123000` классифицирована как `LOCAL_FILE_IS_CANONICAL`; оба варианта проверены изолированно, production не менялась, metadata repair не выполнялся. |
 
 ## TZ-146 warehouse preflight
 
@@ -206,6 +207,15 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Full local parser preflight found another separate blocker: local-only `20260509142000_personnel_vehicles_master_upgrade.sql:12` uses invalid expression constraint `unique (lower(name))`. It was not changed.
 - Per TZ-155 fail-closed rules, no restored statements pack, repair preview, rollback preview, isolated replay or schema fingerprint comparison was produced. Production migration history, schema and business data remained unchanged.
 - A106 stays blocked. Next owner decision must split exact 38-row metadata recovery, `20260610123000` canonical-history audit and `20260509142000` local migration correction.
+
+## TZ-156 canonical audit for migration 20260610123000
+
+- The local migration contains 3 statements; production history stores an older 2-statement draft. Both parse and execute, but they are not schema-equivalent.
+- The local variant adds `ticket_lines.unit_price numeric(18,4)` and `ticket_lines.amount numeric(18,2)` and contains newer definitions for both V2 weighbridge functions.
+- Read-only production fingerprints prove both columns exist and both current `pg_proc.prosrc` MD5 values exactly match the local function bodies, not history.
+- The valid `E'\n'` in `concat_ws` is not escaped-newline corruption and must not be rewritten.
+- Final classification: `LOCAL_FILE_IS_CANONICAL`. The local migration remains unchanged. Production history requires a future history-only repair, while production schema and business data require no change.
+- TZ-A106 and TZ-154 remain blocked. The next safe DB scopes are an exact 38-row recovery preview and an independent correction for local-only `20260509142000`.
 
 ## Forbidden actions
 
