@@ -1,13 +1,13 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-14T22:41:05+05:00
+LAST_REVIEW_AT: 2026-07-14T23:01:15+05:00
 CORE_BRANCH: `copilot-v1`
 CORE_COMMIT: `SELF` (previous core commit: `8dee404f`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T22:41:05+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T22:41:05+05:00
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T23:01:15+05:00
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T23:01:15+05:00
 LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A105.md` — conversation summary, unresolved-question metadata and candidate-first memory prototype completed locally; mocked QA `26/26`, DB/OpenAI/ERP writes `0`, real memory acceptance blocked by schema/contract gate.
 
 ASSISTANT_CHANGES_FOUND: YES — TZ-A105 adds local-only summary/unresolved-question/memory lifecycle prototypes and requests an additive schema/RLS contract. Core/schema/production were not changed by the Assistant branch.
@@ -16,7 +16,19 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-153 advances the contract from 0.2 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.3`
 INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F0C010E67D9F9F6`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
-NEXT_SAFE_ACTION: Keep TZ-A106 blocked. TZ-159 canonicalized both prior demo blockers and refreshed the 39-row package, but clean replay now fails at independent legacy cleanup `20260327215913`. Do not execute metadata repair until that migration is resolved and all 76 rows reproduce production.
+NEXT_SAFE_ACTION: Keep TZ-A106 blocked. TZ-160 canonicalized the legacy test-user cleanup, but clean replay now fails at independent company cleanup `20260328150705`. Do not execute metadata repair until that migration is resolved and all 76 rows reproduce production.
+
+## TZ-160 review result
+
+TZ160_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains `b22f765583b2cd556a29b9e25c332561f19dd262`.
+TZ160_CORE_IMPACT_FOUND: `YES - test-user cleanup passes safely and exposes the next independent company-cleanup blocker`.
+TZ160_INTEGRATION_CONTRACT_IMPACT: `NO`; Contract 0.3 and Assistant code are unchanged.
+TZ160_CLEANUP_DECISION: `SAFE_CONDITIONAL_CLEANUP`; exact owner gate plus four explicit UUID/email pairs, no company deletion.
+TZ160_LOCAL_RESULT: `PASS`; parser 135/135, no-owner, allowlist, ordinary-user/company, mismatch and second-apply checks pass.
+TZ160_RECOVERY_PACKAGE: `PASS_REFRESHED`; repair 39, second repair 0, rollback 39, unchanged 37/37.
+TZ160_FULL_REPLAY: `FAIL_AFTER_35_MIGRATIONS_520_STATEMENTS`; `20260328150705...sql:80` violates `seasons_company_id_fkey` while deleting a company.
+TZ160_PRODUCTION_IMPACT: `NONE`; read-only metadata checks only, no history/schema/Auth/business-data write, migration apply, branch, merge or deploy.
+TZ160_ACTION: `READY_FOR_METADATA_REPAIR=NO`; TZ-154 and TZ-A106 remain blocked pending a separate audit of `20260328150705` and complete production-parity replay.
 
 ## TZ-159 review result
 

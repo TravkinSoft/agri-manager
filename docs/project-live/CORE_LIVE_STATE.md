@@ -250,6 +250,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - At stop, `chats` and `chat_messages` exist; `assistant_memories` and later schema were not reached. Production parity remains unproved.
 - `READY_FOR_METADATA_REPAIR=NO`; TZ-154 and TZ-A106 remain blocked. Production migration history, schema, Auth and business data were not changed.
 
+## TZ-160 canonical legacy test-user cleanup and replay
+
+- TZ-160 status: `PASS_CLEANUP_FIX_WITH_NEW_REPLAY_BLOCKER`; report: [task-reports/core/TZ-160.md](task-reports/core/TZ-160.md).
+- `20260327215913_cleanup_test_users_v3.sql` is now `SAFE_CONDITIONAL_CLEANUP`: it requires the exact original owner identity and removes only four explicit legacy UUID/email pairs. It never deletes companies or ordinary users.
+- PostgreSQL 15 parses all `135/135` local files (`2516` statements). No-owner, allowlisted-demo, ordinary-user/company, mismatched-identity and second-apply checks pass.
+- The refreshed guarded 39-row package passes repair `39`, second repair `0`, rollback `39` and unchanged rows `37/37`.
+- Clean replay advances to `35` migrations / `520` statements and stops at `20260328150705_fix_profiles_rls_company_read_and_admin_service_update.sql:80`, where deleting a company violates `seasons_company_id_fkey` (`SQLSTATE 23503`).
+- The new independent blocker was not modified. Full production parity is still unproved; `READY_FOR_METADATA_REPAIR=NO` and TZ-154/TZ-A106 remain blocked.
+- Production still has 15 users/profiles, 3 companies, no listed legacy demo identities and the original 37-statement history row. Production schema, Auth, history and business data were not changed.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:
