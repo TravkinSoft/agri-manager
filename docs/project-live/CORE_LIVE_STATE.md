@@ -240,6 +240,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - `READY_FOR_METADATA_REPAIR=NO`: the repaired 76-row history has not completed clean replay or matched the production schema. TZ-154 and TZ-A106 remain blocked.
 - Production migration history, schema, Auth and business data were not changed. No repair, migration SQL, `db push`, Supabase branch, merge or deploy occurred.
 
+## TZ-159 canonical legacy demo migrations and replay
+
+- TZ-159 status: `PASS_DEMO_FIXES_WITH_NEW_REPLAY_BLOCKER`; report: [task-reports/core/TZ-159.md](task-reports/core/TZ-159.md).
+- Legacy versions `20260308153257` and `20260327175004` are canonical `SUPERSEDED_NOOP` files. They no longer depend on an Auth user and cannot recreate obsolete demo fields, warehouses, products or stock.
+- All `135` local migrations parse as PostgreSQL 15 (`2519` statements, errors `0`). Both demo files pass first and second isolated apply with zero objects/data created.
+- The refreshed guarded history package targets exactly `39` rows: first repair `39`, second repair `0`, rollback `39`, unchanged rows `37/37`.
+- Clean replay advances to `29` migrations / `503` statements and stops at `20260327215913_cleanup_test_users_v3.sql:78`: the cleanup requires exactly one pre-existing real `aimbeks@gmail.com` Auth user/profile.
+- At stop, `chats` and `chat_messages` exist; `assistant_memories` and later schema were not reached. Production parity remains unproved.
+- `READY_FOR_METADATA_REPAIR=NO`; TZ-154 and TZ-A106 remain blocked. Production migration history, schema, Auth and business data were not changed.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:
