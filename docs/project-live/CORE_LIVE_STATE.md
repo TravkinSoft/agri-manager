@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-14
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `62b84832`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `cfa226d7`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -32,7 +32,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - ТЗ №140 синхронизировало 6 проверенных `SUPERSEDED` versions: `20260412234000`, `20260413182000`, `20260417103000`, `20260430110000`, `20260510110000`, `20260521100500`. Выполнялся только официальный history repair; migration SQL не запускался.
 - После ТЗ №140 остаётся 57 старых local-only migration-history позиций из программы аудита ТЗ №135. ТЗ №142 подробно классифицировало 15 из них с неполным результатом: 7 schema-only corrections, 2 schema+data corrections и 6 superseded intents. Ни одна версия не repaired/applied.
 - `db push`: **НЕ РАЗРЕШЁН** до отдельного owner-approved batch plan по старым migration versions.
-- Активные блокеры DB-процесса: для 15 неполных версий есть batch roadmap, но нет owner approval на apply; остальные local-only versions также нельзя repair/apply массово. TZ-156 resolved `20260610123000`, but its history metadata is still unrepaired. Invalid local-only migration `20260509142000` (`unique (lower(name))`) remains separate. Повторное исполнение старого SQL запрещено.
+- Активные блокеры DB-процесса: для 15 неполных версий есть batch roadmap, но нет owner approval на apply; остальные local-only versions также нельзя repair/apply массово. TZ-156 resolved `20260610123000`, but its history metadata is still unrepaired. TZ-157 canonicalized local migration `20260509142000`; no migration SQL or history repair was executed. Повторное исполнение старого SQL запрещено.
 - Последний подтверждённый migration-history backup: `C:\Users\TRAVKIN\Downloads\CodecSaaS\audit-output\TZ-140\backups\migration-history-20260713T161533631Z`; manifest SHA-256 `60dde2ad4d9150c42babf01485c183017611c7bf2245468d8a90c086eb0fb683`. Backup содержит все 70 pre-repair history rows со statements, local/remote inventories, hashes шести файлов и evidence ТЗ №137; это не полный PITR backup бизнес-данных.
 - Post-repair read-only snapshot ТЗ №140: products 1231; fields 100; crop_structure 122; operations 8; warehouses 2; legacy AI 425/1373; GLBD V2 425/1373. Public schema, variety и crop-identity fingerprints совпали с pre-repair snapshot.
 
@@ -216,6 +216,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - The valid `E'\n'` in `concat_ws` is not escaped-newline corruption and must not be rewritten.
 - Final classification: `LOCAL_FILE_IS_CANONICAL`. The local migration remains unchanged. Production history requires a future history-only repair, while production schema and business data require no change.
 - TZ-A106 and TZ-154 remain blocked. The next safe DB scopes are an exact 38-row recovery preview and an independent correction for local-only `20260509142000`.
+
+## TZ-157 canonical legacy vehicle migration
+
+- TZ-157 status: `DONE`; report: [task-reports/core/TZ-157.md](task-reports/core/TZ-157.md).
+- Local migration `20260509142000_personnel_vehicles_master_upgrade.sql` no longer uses invalid expression UNIQUE constraints. Case-insensitive uniqueness is implemented with production-named expression indexes.
+- The migration now reproduces only the empty legacy vehicle compatibility schema, personnel checks and vehicle FKs that still exist in production. Superseded global/company seed data, triggers and old catalog behavior are not replayed.
+- PostgreSQL 15 parser passes all `135/135` local migrations (`2524` statements). Isolated first and second apply both pass; valid rows are accepted and case-insensitive duplicate brands/models are rejected.
+- Dependency review confirms `transport_models` remains the canonical catalog, while the empty legacy tables are retained for compatibility reads and later RLS setup.
+- Production database, migration history and business data were not changed. No migration or repair command was run.
+- The local chain is ready for an exact 38-row history-recovery preview only. TZ-154 and TZ-A106 remain blocked until that separate owner-approved recovery is completed.
 
 ## Forbidden actions
 
