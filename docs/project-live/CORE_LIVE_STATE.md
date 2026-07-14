@@ -227,6 +227,19 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Production database, migration history and business data were not changed. No migration or repair command was run.
 - The local chain is ready for an exact 38-row history-recovery preview only. TZ-154 and TZ-A106 remain blocked until that separate owner-approved recovery is completed.
 
+## TZ-158 exact migration-history recovery preview
+
+- TZ-158 status: `PASS_PACKAGE_WITH_REPLAY_BLOCKERS`; report: [task-reports/core/TZ-158.md](task-reports/core/TZ-158.md).
+- TZ-157 commit `8dee404f4bea0fba2ae3b2cf3df7677af7aa8b03` is pushed to `origin/copilot-v1`; `origin/assistant-v1` remains unchanged at `b22f765583b2cd556a29b9e25c332561f19dd262`.
+- The TZ-155 backup and live production history match exactly: `76` rows, `135` local migration hashes and verified manifest SHA-256 `cf525850f9e417e932244f0f86b4b1c7898686d747d6841d6e8d60c480c733b6`.
+- SQL-parser reconstruction produced exactly `38` homogeneous corrupted rows plus the separate canonical `20260610123000` row. The repair/rollback previews target only `schema_migrations.statements` for those `39` existing rows.
+- Local metadata tests pass: first repair `39`, second repair `0`, rollback `39`, unchanged rows `37/37`, and a tampered hash aborts with no partial write.
+- The former `syntax error at or near "\\"` is resolved, but full clean replay stops after `17` migrations / `220` statements at `20260327175004`: a hard-coded missing Auth user violates `products_user_id_fkey`.
+- A separate diagnostic Auth fixture also exposes `20260308153257` multi-row `INSERT ... RETURNING id INTO` as SQLSTATE `P0003`. Neither legacy migration was changed.
+- The remaining legacy local-only cohort is exactly `57`: 30 live-equivalent, 14 partial, 10 evidence-required, 2 not-applicable and 1 not-applied. It cannot be mass-repaired.
+- `READY_FOR_METADATA_REPAIR=NO`: the repaired 76-row history has not completed clean replay or matched the production schema. TZ-154 and TZ-A106 remain blocked.
+- Production migration history, schema, Auth and business data were not changed. No repair, migration SQL, `db push`, Supabase branch, merge or deploy occurred.
+
 ## Forbidden actions
 
 Без отдельного явного owner approval запрещены:

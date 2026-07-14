@@ -1,13 +1,13 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-14T21:21:23+05:00
+LAST_REVIEW_AT: 2026-07-14T22:01:02+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `cfa226d7`)
+CORE_COMMIT: `SELF` (previous core commit: `8dee404f`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T21:21:23+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T21:21:23+05:00
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T22:01:02+05:00
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T22:01:02+05:00
 LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A105.md` — conversation summary, unresolved-question metadata and candidate-first memory prototype completed locally; mocked QA `26/26`, DB/OpenAI/ERP writes `0`, real memory acceptance blocked by schema/contract gate.
 
 ASSISTANT_CHANGES_FOUND: YES — TZ-A105 adds local-only summary/unresolved-question/memory lifecycle prototypes and requests an additive schema/RLS contract. Core/schema/production were not changed by the Assistant branch.
@@ -16,7 +16,18 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-153 advances the contract from 0.2 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.3`
 INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F0C010E67D9F9F6`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
-NEXT_SAFE_ACTION: Keep TZ-A106 blocked. TZ-156 resolved `20260610123000` and TZ-157 canonicalized local migration `20260509142000`; no metadata repair or migration SQL was performed. Next, prepare the exact 38-row recovery preview under a separate owner-approved task. Production migration history, schema and business data remain unchanged.
+NEXT_SAFE_ACTION: Keep TZ-A106 blocked. TZ-158 prepared and locally verified the exact 39-row repair/rollback package, but clean replay now fails at legacy demo-user migration `20260327175004`; diagnostic replay also exposes `20260308153257`. Do not execute metadata repair until those blockers are canonicalized and a full Supabase-compatible replay matches production.
+
+## TZ-158 review result
+
+TZ158_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains `b22f765583b2cd556a29b9e25c332561f19dd262`.
+TZ158_CORE_IMPACT_FOUND: `YES - repaired history removes the backslash parser failure but does not yet bootstrap a clean database`.
+TZ158_INTEGRATION_CONTRACT_IMPACT: `NO`; Contract 0.3 and Assistant code are unchanged.
+TZ158_RECOVERY_PACKAGE: `PASS`; exactly 38 homogeneous rows plus separate `20260610123000`, with guarded 39-row repair and exact rollback.
+TZ158_LOCAL_METADATA_TEST: `PASS`; repair 39, second repair 0, rollback 39, unchanged 37/37, tamper rollback PASS.
+TZ158_FULL_REPLAY: `FAIL`; first clean error is missing hard-coded Auth identity in `20260327175004`; diagnostic fixture reveals multi-row RETURNING in `20260308153257`.
+TZ158_PRODUCTION_IMPACT: `NONE`; no history/schema/Auth/business-data write, migration apply, branch, merge or deploy.
+TZ158_ACTION: `READY_FOR_METADATA_REPAIR=NO`; TZ-154 and TZ-A106 remain blocked pending canonicalization and a full production-parity replay.
 
 ## TZ-157 review result
 

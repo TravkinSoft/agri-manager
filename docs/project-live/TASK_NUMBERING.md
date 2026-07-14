@@ -47,6 +47,7 @@
 | TZ-155 | DATABASE | Prepare corrupted migration-history recovery | copilot-v1 | BLOCKED | TZ-154 | [task-reports/core/TZ-155.md](task-reports/core/TZ-155.md) | `SELF` |
 | TZ-156 | DATABASE | Audit canonical source for migration 20260610123000 | copilot-v1 | DONE | TZ-155 | [task-reports/core/TZ-156.md](task-reports/core/TZ-156.md) | `SELF` |
 | TZ-157 | DATABASE | Canonicalize legacy vehicle migration 20260509142000 | copilot-v1 | DONE | TZ-155,TZ-156 | [task-reports/core/TZ-157.md](task-reports/core/TZ-157.md) | `SELF` |
+| TZ-158 | DATABASE | Prepare exact migration-history recovery | copilot-v1 | DONE | TZ-155,TZ-156,TZ-157 | [task-reports/core/TZ-158.md](task-reports/core/TZ-158.md) | `SELF` |
 
 ## Status values
 
