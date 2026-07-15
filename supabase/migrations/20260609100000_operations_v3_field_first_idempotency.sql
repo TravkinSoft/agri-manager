@@ -60,6 +60,9 @@ create policy "Users can insert company crop structure changes"
     )
   );
 
+alter table public.operations
+  alter column field_id set not null;
+
 commit;
 
 notify pgrst, 'reload schema';

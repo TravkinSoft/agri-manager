@@ -174,6 +174,32 @@ set archived = true, is_active = false
 from tmp_seed_reproduction_map m
 where sr.id = m.old_id;
 
+-- Canonical source for production aliases used by imports and UI matching.
+create table if not exists public.seed_reproduction_aliases (
+  id uuid primary key default gen_random_uuid(),
+  seed_reproduction_id uuid not null references public.seed_reproductions(id) on delete cascade,
+  alias text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_seed_reproduction_aliases_seed_id
+  on public.seed_reproduction_aliases(seed_reproduction_id);
+create unique index if not exists ux_seed_reproduction_aliases_alias_ci
+  on public.seed_reproduction_aliases(lower(alias));
+create unique index if not exists ux_seed_reproduction_aliases_seed_alias
+  on public.seed_reproduction_aliases(seed_reproduction_id, alias);
+
+alter table public.seed_reproductions
+  alter column user_id drop not null;
+
+create index if not exists idx_seed_reproductions_is_active_v2
+  on public.seed_reproductions(is_active);
+create index if not exists idx_seed_reproductions_level_order_v2
+  on public.seed_reproductions(level_order);
+create unique index if not exists ux_seed_reproductions_global_name_active_v2
+  on public.seed_reproductions(lower(name))
+  where company_id is null and archived = false and is_active = true;
+
 notify pgrst, 'reload schema';
 
 commit;

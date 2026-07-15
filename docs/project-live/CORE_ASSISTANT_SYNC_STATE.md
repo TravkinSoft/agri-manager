@@ -16,7 +16,19 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-153 advances the contract from 0.2 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.3`
 INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F0C010E67D9F9F6`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
-NEXT_SAFE_ACTION: Keep TZ-A106 blocked. TZ-161 removed the remaining broad legacy company cleanup, but clean replay now stops at working schema migration `20260413182000`, whose required function is absent from the preceding clean history. Do not execute metadata repair until that provenance is resolved and all 76 rows reproduce production.
+NEXT_SAFE_ACTION: Keep TZ-A106 paused until a separate owner-approved metadata-repair task creates a fresh backup, repeats live hashes, applies only the approved metadata payload and verifies rollback readiness. After that PASS, retry the non-production Supabase branch bootstrap before A106 runtime work.
+
+## TZ-164 review result
+
+TZ164_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime and branch were not changed.
+TZ164_CORE_IMPACT_FOUND: `YES - all ten production baseline sources restored`.
+TZ164_INTEGRATION_CONTRACT_IMPACT: `NO`; Contract 0.3 is unchanged.
+TZ164_PRODUCTION_HEAD_REPLAY: `PASS - 133/133 files, 76/76 tracked versions, 2556 statements`.
+TZ164_FULL_LOCAL_REPLAY: `PASS - 135/135 files, 2643 statements`.
+TZ164_SCHEMA_PARITY: `PASS - zero unexplained semantic differences; function signature/body drift 0`.
+TZ164_HISTORY_PACKAGE: `PASS - repair 39, second repair 0, exact rollback, unchanged 37/37`.
+TZ164_PRODUCTION_IMPACT: `NONE`; no SQL apply, history repair, schema/business-data write, deploy or merge.
+TZ164_ACTION: `READY_FOR_METADATA_REPAIR=YES_TECHNICALLY`; owner approval, fresh backup and live preflight are still mandatory, then Supabase branch bootstrap may resume.
 
 ## TZ-161 review result
 

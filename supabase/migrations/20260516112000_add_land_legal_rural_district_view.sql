@@ -141,4 +141,23 @@ begin
   end if;
 end $$;
 
+drop view if exists public.v_field_legal_breakdown;
+drop index if exists public.idx_cadastral_parcels_company_rural_district;
+drop index if exists public.idx_cadastral_parcels_owner;
+drop index if exists public.ux_field_cadastre_links_identity;
+drop index if exists public.idx_legal_entities_company_name;
+drop index if exists public.ux_seasons_company_year;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.seasons'::regclass
+      and conname = 'seasons_user_id_year_key'
+  ) then
+    alter table public.seasons
+      add constraint seasons_user_id_year_key unique (user_id, year);
+  end if;
+end $$;
+
 commit;

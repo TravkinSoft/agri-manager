@@ -19,6 +19,11 @@ create unique index if not exists ux_crop_categories_slug
 create index if not exists idx_crop_categories_is_active
   on public.crop_categories (is_active);
 
+drop trigger if exists trg_crop_categories_updated_at on public.crop_categories;
+create trigger trg_crop_categories_updated_at
+before update on public.crop_categories
+for each row execute function public.ensure_updated_at_column();
+
 insert into public.crop_categories (id, name_ru, name_en, slug, is_active) values
   ('2c93e301-985e-4865-bdbb-d7d4b8770fd0', 'Зерновые', 'Cereals', 'cereal', true),
   ('95fd2a1d-1d3b-473c-af8d-35c5778e0847', 'Покровные культуры', 'Cover crops', 'cover_crop', true),

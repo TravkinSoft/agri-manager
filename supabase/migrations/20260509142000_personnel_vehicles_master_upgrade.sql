@@ -30,6 +30,9 @@ create table if not exists public.global_vehicle_models (
 create unique index if not exists global_vehicle_models_brand_name_uidx
   on public.global_vehicle_models (brand_id, lower(name));
 
+alter table public.global_vehicle_models
+  alter column default_capacity_kg type numeric;
+
 alter table public.reference_specialists
   add column if not exists personnel_type text not null,
   add column if not exists status text not null;

@@ -25,6 +25,19 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## Current database state
 
+- TZ-164 restored canonical migration sources for all ten production baseline
+  gaps: seven tables, one import function and two triggers. Production-head
+  replay passes `133/133`, the complete local chain passes `135/135`, and the
+  semantic catalog has zero unexplained differences from production.
+- The refreshed guarded metadata package passes repair `39`, second repair `0`
+  and exact rollback with the other `37/37` rows unchanged. A separate full
+  135-row metadata preview also passes, but no history repair was executed.
+- `READY_FOR_METADATA_REPAIR=YES` is a technical readiness result only. A fresh
+  backup, final live hashes and explicit owner approval remain mandatory.
+- Legacy baseline tables still have production RLS disabled; import functions
+  are security-definer with broad execute grants. This is recorded P1 security
+  debt for a separate hardening task, not silently changed during parity work.
+
 - Supabase project: `bhsemlvmkikpntabctml`.
 - GLBD V2 после ТЗ №151: components `425`, product links `1373`, aliases `24`, sources `295`, company links `0`. Components, product links и company scope совпали с pre-import backup.
 - Remote migration history: 76 записей; head `20260712203746` (`glbd_component_model_v2`). TZ-155 proved 38 homogeneous malformed `statements[]` payloads (`20260305200628`-`20260404153413`). TZ-156 resolved the separate `20260610123000` drift as `LOCAL_FILE_IS_CANONICAL`; its history still contains the older two-statement draft. No history row was changed.

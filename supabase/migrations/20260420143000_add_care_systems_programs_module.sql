@@ -54,6 +54,11 @@ create table if not exists public.operation_types (
 
 alter table public.operation_types enable row level security;
 
+drop trigger if exists trg_operation_types_updated_at on public.operation_types;
+create trigger trg_operation_types_updated_at
+before update on public.operation_types
+for each row execute function public.update_updated_at_column();
+
 insert into public.operation_types (
   id, slug, name_ru, name_en, category_slug,
   requires_machine, requires_product, requires_field,

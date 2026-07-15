@@ -138,3 +138,5 @@ where rs.person_id is null
     else 'driver'
   end
   and cp.deleted_at is null;
+
+drop index if exists public.idx_profiles_company_full_name;

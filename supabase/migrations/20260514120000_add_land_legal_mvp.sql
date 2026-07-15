@@ -291,6 +291,71 @@ create policy "Users can delete company field cadastre links"
   for delete to authenticated
   using (company_id = public.get_user_company_id());
 
+-- Production also retained the original ll_* policy names. Preserve those
+-- names in the canonical replay because policy identity is part of the schema.
+drop policy if exists "ll_select_legal_entities" on public.legal_entities;
+create policy "ll_select_legal_entities" on public.legal_entities
+  for select to authenticated using (company_id = public.get_user_company_id());
+drop policy if exists "ll_insert_legal_entities" on public.legal_entities;
+create policy "ll_insert_legal_entities" on public.legal_entities
+  for insert to authenticated with check (company_id = public.get_user_company_id());
+drop policy if exists "ll_update_legal_entities" on public.legal_entities;
+create policy "ll_update_legal_entities" on public.legal_entities
+  for update to authenticated using (company_id = public.get_user_company_id())
+  with check (company_id = public.get_user_company_id());
+drop policy if exists "ll_delete_legal_entities" on public.legal_entities;
+create policy "ll_delete_legal_entities" on public.legal_entities
+  for delete to authenticated using (company_id = public.get_user_company_id());
+
+drop policy if exists "ll_select_cadastral_parcels" on public.cadastral_parcels;
+create policy "ll_select_cadastral_parcels" on public.cadastral_parcels
+  for select to authenticated using (company_id = public.get_user_company_id());
+drop policy if exists "ll_insert_cadastral_parcels" on public.cadastral_parcels;
+create policy "ll_insert_cadastral_parcels" on public.cadastral_parcels
+  for insert to authenticated with check (company_id = public.get_user_company_id());
+drop policy if exists "ll_update_cadastral_parcels" on public.cadastral_parcels;
+create policy "ll_update_cadastral_parcels" on public.cadastral_parcels
+  for update to authenticated using (company_id = public.get_user_company_id())
+  with check (company_id = public.get_user_company_id());
+drop policy if exists "ll_delete_cadastral_parcels" on public.cadastral_parcels;
+create policy "ll_delete_cadastral_parcels" on public.cadastral_parcels
+  for delete to authenticated using (company_id = public.get_user_company_id());
+
+drop policy if exists "ll_select_land_documents" on public.land_documents;
+create policy "ll_select_land_documents" on public.land_documents
+  for select to authenticated using (company_id = public.get_user_company_id());
+drop policy if exists "ll_insert_land_documents" on public.land_documents;
+create policy "ll_insert_land_documents" on public.land_documents
+  for insert to authenticated with check (company_id = public.get_user_company_id());
+drop policy if exists "ll_update_land_documents" on public.land_documents;
+create policy "ll_update_land_documents" on public.land_documents
+  for update to authenticated using (company_id = public.get_user_company_id())
+  with check (company_id = public.get_user_company_id());
+drop policy if exists "ll_delete_land_documents" on public.land_documents;
+create policy "ll_delete_land_documents" on public.land_documents
+  for delete to authenticated using (company_id = public.get_user_company_id());
+
+drop policy if exists "ll_select_field_cadastre_links" on public.field_cadastre_links;
+create policy "ll_select_field_cadastre_links" on public.field_cadastre_links
+  for select to authenticated using (company_id = public.get_user_company_id());
+drop policy if exists "ll_insert_field_cadastre_links" on public.field_cadastre_links;
+create policy "ll_insert_field_cadastre_links" on public.field_cadastre_links
+  for insert to authenticated with check (company_id = public.get_user_company_id());
+drop policy if exists "ll_update_field_cadastre_links" on public.field_cadastre_links;
+create policy "ll_update_field_cadastre_links" on public.field_cadastre_links
+  for update to authenticated using (company_id = public.get_user_company_id())
+  with check (company_id = public.get_user_company_id());
+drop policy if exists "ll_delete_field_cadastre_links" on public.field_cadastre_links;
+create policy "ll_delete_field_cadastre_links" on public.field_cadastre_links
+  for delete to authenticated using (company_id = public.get_user_company_id());
+
+alter table public.cadastral_parcels
+  add constraint cadastral_parcels_area_positive check (declared_area_ha > 0);
+alter table public.field_cadastre_links
+  add constraint field_cadastre_links_area_positive check (area_ha > 0),
+  add constraint field_cadastre_links_confidence_range
+    check (confidence is null or (confidence >= 0 and confidence <= 100));
+
 create or replace view public.v_land_area_mismatches as
 with grouped as (
   select

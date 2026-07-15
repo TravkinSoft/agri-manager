@@ -636,6 +636,9 @@ create trigger update_reference_vehicles_updated_at
 before update on public.reference_vehicles
 for each row execute function public.ensure_updated_at_column();
 
+create unique index if not exists ux_master_pesticide_categories_code_ci
+  on public.master_pesticide_categories(lower(code));
+
 -- Optional compatibility view for "fleet_transport" naming in analytics/import docs
 create or replace view public.fleet_transport as
 select

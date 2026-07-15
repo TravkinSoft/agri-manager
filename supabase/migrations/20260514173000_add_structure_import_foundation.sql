@@ -217,4 +217,7 @@ create policy "Users can delete company field history entries"
   for delete to authenticated
   using (company_id = public.get_user_company_id());
 
+drop trigger if exists trg_field_history_entries_updated_at
+  on public.field_history_entries;
+
 commit;

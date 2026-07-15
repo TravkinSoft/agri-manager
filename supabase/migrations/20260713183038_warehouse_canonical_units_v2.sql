@@ -556,6 +556,7 @@ from public.v_stock_movements_canonical m
 group by m.company_id, m.warehouse_id, m.product_id, m.uom, m.batch_class
 having abs(sum(m.delta_qty)) > 0.000001;
 
+drop view if exists public.v_stock_balance_identity;
 create or replace view public.v_stock_balance_identity as
 select
   sle.company_id, sle.warehouse_id, sle.product_id, sle.variety_id, sle.reproduction_id,

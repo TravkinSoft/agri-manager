@@ -400,3 +400,84 @@ end $$;
 
 comment on column public.reference_vehicles.global_model_id is
   'Legacy vehicle-model link to global_vehicle_models. Keep for compatibility; new fixed-asset import must use transport_model_id.';
+
+-- Canonical production contract for company machine and vehicle assets.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'reference_vehicles'
+      and column_name = 'vehicle_type'
+  ) and not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'reference_vehicles'
+      and column_name = 'type'
+  ) then
+    alter table public.reference_vehicles rename column vehicle_type to type;
+  end if;
+end $$;
+
+alter table public.reference_vehicles
+  drop constraint if exists reference_vehicles_capacity_kg_check,
+  drop constraint if exists reference_vehicles_company_id_plate_number_key,
+  drop constraint if exists reference_vehicles_name_check,
+  drop constraint if exists reference_vehicles_plate_number_check,
+  drop constraint if exists reference_vehicles_vehicle_type_check,
+  drop constraint if exists reference_vehicles_type_check,
+  drop constraint if exists reference_vehicles_status_check,
+  drop constraint if exists reference_vehicles_user_id_fkey;
+
+alter table public.reference_vehicles
+  alter column user_id drop not null,
+  alter column type drop default,
+  alter column capacity_kg drop not null,
+  alter column capacity_kg drop default;
+
+alter table public.reference_vehicles
+  add constraint reference_vehicles_user_id_fkey
+    foreign key (user_id) references auth.users(id) on delete set null,
+  add constraint reference_vehicles_type_check
+    check (type in ('truck', 'grain_truck', 'tractor', 'combine',
+      'tractor_trailer', 'trailer', 'loader', 'sprayer', 'seeder', 'other')),
+  add constraint reference_vehicles_status_check
+    check (status in ('free', 'in_trip', 'loading', 'unloading', 'on_drying'));
+
+drop index if exists public.idx_reference_vehicles_company_status;
+drop index if exists public.reference_vehicles_company_id_plate_number_key;
+
+create index if not exists idx_reference_vehicles_archived
+  on public.reference_vehicles(archived);
+create index if not exists idx_reference_vehicles_status
+  on public.reference_vehicles(status);
+create unique index if not exists uq_reference_vehicles_company_plate_active
+  on public.reference_vehicles(company_id, plate_number)
+  where archived = false;
+
+alter table public.reference_machines
+  drop constraint if exists reference_machines_type_check;
+
+alter table public.reference_machines
+  alter column status drop not null,
+  alter column status drop default;
+
+alter table public.reference_machines
+  add constraint reference_machines_type_check
+    check (type in ('machine', 'drone', 'combine', 'seeder', 'sprayer',
+      'cultivator', 'tractor', 'other'));
+
+create index if not exists idx_reference_machines_active
+  on public.reference_machines(is_active);
+create index if not exists idx_reference_machines_archived
+  on public.reference_machines(archived);
+create index if not exists idx_reference_machines_is_active
+  on public.reference_machines(is_active);
+
+drop trigger if exists update_reference_equipment_updated_at on public.reference_equipment;
+create trigger update_reference_equipment_updated_at
+before update on public.reference_equipment
+for each row execute function public.update_updated_at_column();
+
+drop trigger if exists update_reference_machines_updated_at on public.reference_machines;
+create trigger update_reference_machines_updated_at
+before update on public.reference_machines
+for each row execute function public.update_updated_at_column();

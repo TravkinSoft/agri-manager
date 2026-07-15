@@ -18,9 +18,7 @@ alter table public.operation_materials
       'defoamer',
       'biological',
       'fuel',
-      'organic',
-      'water',
-      'other'
+      'organic'
     )
   );
 

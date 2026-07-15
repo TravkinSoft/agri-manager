@@ -1041,6 +1041,8 @@ begin
 end;
 $$;
 
+drop index if exists public.idx_processing_nodes_company_active;
+
 notify pgrst, 'reload schema';
 
 commit;
