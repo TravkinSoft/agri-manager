@@ -53,16 +53,7 @@ create table if not exists public.agricultural_machine_models (
   brand text not null,
   series text,
   model text not null,
-  full_name text generated always as (
-    btrim(
-      concat_ws(
-        ' ',
-        nullif(btrim(brand), ''),
-        nullif(btrim(series), ''),
-        nullif(btrim(model), '')
-      )
-    )
-  ) stored,
+  full_name text not null,
   power_hp numeric(10,2),
   engine text,
   tank_volume_l numeric(12,2),
@@ -78,19 +69,17 @@ create table if not exists public.agricultural_machine_models (
   archived boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  brand_norm text generated always as (
-    lower(regexp_replace(btrim(brand), '\s+', ' ', 'g'))
-  ) stored,
-  series_norm text generated always as (
-    lower(regexp_replace(coalesce(btrim(series), ''), '\s+', ' ', 'g'))
-  ) stored,
-  model_norm text generated always as (
-    lower(regexp_replace(btrim(model), '\s+', ' ', 'g'))
-  ) stored
+  brand_norm text not null,
+  series_norm text not null default '',
+  model_norm text not null
 );
 
 alter table public.agricultural_machine_models
   add column if not exists user_id uuid,
+  add column if not exists full_name text,
+  add column if not exists brand_norm text,
+  add column if not exists series_norm text not null default '',
+  add column if not exists model_norm text,
   add column if not exists power_hp numeric(10,2),
   add column if not exists engine text,
   add column if not exists tank_volume_l numeric(12,2),
@@ -106,6 +95,22 @@ alter table public.agricultural_machine_models
   add column if not exists archived boolean not null default false,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
+
+update public.agricultural_machine_models
+set
+  full_name = btrim(concat_ws(' ', nullif(btrim(brand), ''), nullif(btrim(series), ''), nullif(btrim(model), ''))),
+  brand_norm = lower(regexp_replace(btrim(brand), '\s+', ' ', 'g')),
+  series_norm = lower(regexp_replace(coalesce(btrim(series), ''), '\s+', ' ', 'g')),
+  model_norm = lower(regexp_replace(btrim(model), '\s+', ' ', 'g'))
+where full_name is null
+   or brand_norm is null
+   or model_norm is null;
+
+alter table public.agricultural_machine_models
+  alter column full_name set not null,
+  alter column brand_norm set not null,
+  alter column series_norm set not null,
+  alter column model_norm set not null;
 
 do $$
 begin
@@ -179,6 +184,11 @@ begin
   if new.brand is null or new.model is null then
     raise exception 'brand and model are required';
   end if;
+
+  new.full_name := btrim(concat_ws(' ', new.brand, new.series, new.model));
+  new.brand_norm := lower(new.brand);
+  new.series_norm := lower(coalesce(new.series, ''));
+  new.model_norm := lower(new.model);
 
   new.updated_at := now();
   return new;

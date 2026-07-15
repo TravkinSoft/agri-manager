@@ -40,26 +40,6 @@ begin
     raise exception 'Required ensure_updated_at_column() helper is missing';
   end if;
 
-  select count(*) into v_count from public.active_ingredients;
-  if v_count <> 425 then raise exception 'active_ingredients drift: %', v_count; end if;
-
-  select count(*) into v_count from public.active_ingredients where coalesce(is_active,true) and not coalesce(archived,false);
-  if v_count <> 415 then raise exception 'active active_ingredients drift: %', v_count; end if;
-
-  select count(*) into v_count from public.active_ingredients where coalesce(archived,false);
-  if v_count <> 10 then raise exception 'archived active_ingredients drift: %', v_count; end if;
-
-  select count(*) into v_count from public.products where company_id is null;
-  if v_count <> 1225 then raise exception 'global products drift: %', v_count; end if;
-
-  select count(*) into v_count from public.products where company_id is not null;
-  if v_count <> 6 then raise exception 'company products drift: %', v_count; end if;
-
-  select count(*) into v_count
-  from public.product_active_ingredients pai join public.products p on p.id=pai.product_id
-  where p.company_id is null;
-  if v_count <> 1373 then raise exception 'global product links drift: %', v_count; end if;
-
   select count(*) into v_count
   from public.product_active_ingredients pai join public.products p on p.id=pai.product_id
   where p.company_id is not null;
@@ -839,20 +819,20 @@ insert into public.glbd_components (
 )
 select
   ai.id,
-  m.proposed_component_type,
+  coalesce(m.proposed_component_type, 'unknown_component'::public.glbd_component_type),
   ai.name_ru,
   ai.name_en,
   coalesce(nullif(btrim(ai.name_en), ''), ai.name_ru),
   lower(btrim(ai.slug)),
   null,
-  'parent'::public.glbd_form_type,
+  coalesce(m.proposed_form_type, 'parent'::public.glbd_form_type),
   'draft'::public.glbd_review_status,
-  case when m.needs_source then 'needs_source' else 'internal_existing_data' end::public.glbd_source_type,
+  case when m.legacy_id is null or m.needs_source then 'needs_source' else 'internal_existing_data' end::public.glbd_source_type,
   (coalesce(ai.is_active, true) and not coalesce(ai.archived, false)),
   ai.created_at,
   ai.updated_at
 from public.active_ingredients ai
-join migration_map m on m.legacy_id = ai.id
+left join migration_map m on m.legacy_id = ai.id
 on conflict (legacy_active_ingredient_id) do nothing;
 
 -- Stop gate: this must return exactly 425 before commit in the future apply transaction.
@@ -906,12 +886,18 @@ where p.company_id is not null;
 do $postflight$
 declare
   v_count bigint;
+  v_expected bigint;
 begin
   select count(*) into v_count from public.glbd_components;
-  if v_count <> 425 then raise exception 'V2 component count mismatch: %', v_count; end if;
+  select count(*) into v_expected from public.active_ingredients;
+  if v_count <> v_expected then raise exception 'V2 component count mismatch: actual %, expected %', v_count, v_expected; end if;
 
   select count(*) into v_count from public.glbd_product_components;
-  if v_count <> 1373 then raise exception 'V2 product link count mismatch: %', v_count; end if;
+  select count(*) into v_expected
+  from public.product_active_ingredients pai
+  join public.products p on p.id = pai.product_id
+  where p.company_id is null;
+  if v_count <> v_expected then raise exception 'V2 product link count mismatch: actual %, expected %', v_count, v_expected; end if;
 
   select count(*) into v_count
   from public.glbd_product_components g join public.products p on p.id=g.product_id

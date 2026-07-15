@@ -69,6 +69,7 @@ on conflict do nothing;
 
 alter table public.products
   add column if not exists product_type text,
+  add column if not exists mode_of_action_type text,
   add column if not exists manufacturer_id uuid,
   add column if not exists formulation_id uuid,
   add column if not exists mode_of_action_type_id uuid;

@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-14
+LAST_UPDATED: 2026-07-15
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `cfa226d7`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `5e577bf`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -299,3 +299,12 @@ Assistant implementation: `A105_DONE_WITH_SCHEMA_GATE` at `b22f765`; local mocke
 - This is `SEMANTIC_REVIEW_REQUIRED`; no automatic legacy crop merge, deletion or category assignment was made. `chats` and `chat_messages` exist at stop; `assistant_memories` was not reached.
 - The 39-row package remains internally repeat-safe (`39 -> 0 -> rollback 39`, other rows `37/37`) but is not production-ready. It lacks the new 182000 payload and the 76-row history has 36 additional production object sources absent from history.
 - Production history, schema, Auth, GLBD, warehouse and business data were unchanged. `READY_FOR_METADATA_REPAIR=NO`; TZ-154 and TZ-A106 remain blocked.
+
+## TZ-163 canonical migration chain completion
+
+- TZ-163 status: `PASS_LOCAL_CHAIN_WITH_NEW_BASELINE_BLOCKERS`; report: [task-reports/core/TZ-163.md](task-reports/core/TZ-163.md).
+- The exact ten-row global English crop mapping is fail-closed, preserves row IDs and links, and touches only `company_id is null` rows. Company crops and production data are unchanged.
+- All 36 requested missing history-source objects are resolved to 14 primary local source versions; full replay passes `135/135` migrations and `2535` statements with zero parser, missing-object, FK or duplicate-object errors.
+- The guarded 39-row package remains exact (`39 -> 0 -> rollback 39`, other rows `37/37`). A separate full 135-row metadata preview also replays, but would insert 59 versions and canonicalize 37 more existing payloads, so it is not approved for production.
+- Exact read-only production comparison found seven production-only tables, one function and two triggers without local canonical sources. Known local-only Warehouse V2/A106 scopes also prevent exact parity.
+- Production history, schema, Auth and business data were not changed. `READY_FOR_METADATA_REPAIR=NO`; TZ-154 and TZ-A106 remain blocked pending a separate canonical baseline task.

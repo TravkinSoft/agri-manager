@@ -138,6 +138,47 @@ begin
   end if;
 end $$;
 
+-- Preserve legacy row IDs while promoting exact English seed aliases to the
+-- canonical global identity loaded below. The guards deliberately fail closed
+-- when the source identity is ambiguous or the canonical slug already belongs
+-- to another active global row.
+with exact_legacy_map(legacy_name_en, canonical_slug, category_slug) as (
+  values
+    ('barley', 'barley', 'cereal'),
+    ('carrot', 'carrot', 'vegetable'),
+    ('corn', 'maize', 'cereal'),
+    ('flax', 'flax-oilseed', 'oilseed'),
+    ('oats', 'oat', 'cereal'),
+    ('peas', 'pea', 'legume'),
+    ('potato', 'potato', 'vegetable'),
+    ('rapeseed', 'rapeseed', 'oilseed'),
+    ('sunflower', 'sunflower', 'oilseed'),
+    ('wheat', 'wheat', 'cereal')
+)
+update public.crops c
+set slug = m.canonical_slug,
+    category_id = cc.id
+from exact_legacy_map m
+join public.crop_categories cc on lower(cc.slug) = m.category_slug
+where c.company_id is null
+  and c.category_id is null
+  and lower(btrim(c.name_en)) = m.legacy_name_en
+  and (
+    select count(*)
+    from public.crops candidate
+    where candidate.company_id is null
+      and candidate.category_id is null
+      and lower(btrim(candidate.name_en)) = m.legacy_name_en
+  ) = 1
+  and not exists (
+    select 1
+    from public.crops existing
+    where existing.id <> c.id
+      and existing.company_id is null
+      and existing.archived = false
+      and lower(existing.slug) = m.canonical_slug
+  );
+
 do $$
 begin
   if not exists (

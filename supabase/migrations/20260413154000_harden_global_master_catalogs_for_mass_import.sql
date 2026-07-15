@@ -83,6 +83,34 @@ on conflict (level) do update
 set name_ru = excluded.name_ru,
     is_active = excluded.is_active;
 
+insert into public.master_crop_categories(code, name_ru, is_active) values
+  ('cereal', 'Зерновые', true),
+  ('cover_crop', 'Покровные культуры', true),
+  ('forage', 'Кормовые', true),
+  ('legume', 'Бобовые', true),
+  ('melon', 'Бахчевые', true),
+  ('oilseed', 'Масличные', true),
+  ('other', 'Другое', true),
+  ('perennial_grass', 'Многолетние травы', true),
+  ('technical', 'Технические', true),
+  ('vegetable', 'Овощные', true)
+on conflict (code) do update
+set name_ru = excluded.name_ru,
+    is_active = excluded.is_active;
+
+insert into public.master_crop_subcategories(code, category_code, name_ru, is_active) values
+  ('annual', 'forage', 'Однолетние', true),
+  ('bulb', 'vegetable', 'Луковичные', true),
+  ('fruit', 'vegetable', 'Плодовые', true),
+  ('leafy', 'vegetable', 'Листовые', true),
+  ('perennial', 'forage', 'Многолетние', true),
+  ('root', 'vegetable', 'Корнеплоды', true),
+  ('tuber', 'vegetable', 'Клубнеплоды', true)
+on conflict (code) do update
+set category_code = excluded.category_code,
+    name_ru = excluded.name_ru,
+    is_active = excluded.is_active;
+
 insert into public.master_pesticide_categories(code, name_ru, is_active) values
   ('herbicide', 'Гербицид', true),
   ('fungicide', 'Фунгицид', true),

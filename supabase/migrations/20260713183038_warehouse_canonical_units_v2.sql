@@ -160,18 +160,23 @@ declare
   item record;
   existing_definition text;
   expected_definition text;
+  legacy_definition text;
 begin
   for item in
     select *
     from (values
       ('public.inventory_batches'::regclass, 'inventory_batches_batch_class_check',
-        $constraint$batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$),
+        $constraint$batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$,
+        $constraint$batch_class in ('commodity','seed','feed','waste','processing','rejected')$constraint$),
       ('public.stock_ledger_entries'::regclass, 'stock_ledger_entries_batch_class_check',
-        $constraint$batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$),
+        $constraint$batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$,
+        $constraint$batch_class in ('commodity','seed','feed','waste','processing','rejected')$constraint$),
       ('public.ticket_lines'::regclass, 'ticket_lines_batch_class_check',
-        $constraint$batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$),
+        $constraint$batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$,
+        $constraint$batch_class is null or batch_class in ('commodity','seed','feed','waste','processing','rejected')$constraint$),
       ('public.field_material_consumptions'::regclass, 'field_material_consumptions_batch_class_check',
-        $constraint$batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$),
+        $constraint$batch_class is null or batch_class in ('commodity','seed','material','feed','waste','processing','rejected')$constraint$,
+        $constraint$batch_class is null or batch_class in ('commodity','seed','feed','waste','processing','rejected')$constraint$),
       ('public.products'::regclass, 'products_density_contract_v2',
         $constraint$density_kg_per_l is null or (
           density_kg_per_l > 0
@@ -179,37 +184,37 @@ begin
           and nullif(trim(density_source), '') is not null
           and lower(trim(density_verification_status)) = 'verified'
           and density_verified_at is not null
-        )$constraint$),
+        )$constraint$, null::text),
       ('public.inventory_transactions'::regclass, 'inventory_transactions_unit_contract_v2',
         $constraint$unit_contract_version is null or (
           unit_contract_version = 2 and base_quantity > 0 and base_uom in ('kg','l','pcs')
           and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
           and nullif(trim(unit_source), '') is not null
-        )$constraint$),
+        )$constraint$, null::text),
       ('public.stock_ledger_entries'::regclass, 'stock_ledger_entries_unit_contract_v2',
         $constraint$unit_contract_version is null or (
           unit_contract_version = 2 and quantity > 0 and uom in ('kg','l','pcs')
           and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
           and nullif(trim(unit_source), '') is not null
-        )$constraint$),
+        )$constraint$, null::text),
       ('public.ticket_lines'::regclass, 'ticket_lines_unit_contract_v2',
         $constraint$unit_contract_version is null or (
           unit_contract_version = 2 and quantity > 0 and uom in ('kg','l','pcs')
           and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
           and nullif(trim(unit_source), '') is not null
-        )$constraint$),
+        )$constraint$, null::text),
       ('public.inventory_batches'::regclass, 'inventory_batches_unit_contract_v2',
         $constraint$unit_contract_version is null or (
           unit_contract_version = 2 and initial_quantity > 0 and current_quantity >= 0 and uom in ('kg','l','pcs')
           and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
           and nullif(trim(unit_source), '') is not null
-        )$constraint$),
+        )$constraint$, null::text),
       ('public.field_material_consumptions'::regclass, 'field_material_consumptions_unit_contract_v2',
         $constraint$unit_contract_version is null or (
           unit_contract_version = 2 and quantity > 0 and uom in ('kg','l','pcs')
           and batch_class in ('commodity','seed','material','feed','waste','processing','rejected')
-        )$constraint$)
-    ) as definitions(table_name, constraint_name, check_expression)
+        )$constraint$, null::text)
+    ) as definitions(table_name, constraint_name, check_expression, legacy_check_expression)
   loop
     select pg_get_constraintdef(c.oid, true)
       into existing_definition
@@ -243,11 +248,39 @@ begin
     where c.conrelid = 'pg_temp.warehouse_units_constraint_probe'::regclass
       and c.conname = item.constraint_name;
 
+    legacy_definition := null;
+    if item.legacy_check_expression is not null then
+      execute format(
+        'alter table pg_temp.warehouse_units_constraint_probe drop constraint %I',
+        item.constraint_name
+      );
+      execute format(
+        'alter table pg_temp.warehouse_units_constraint_probe add constraint %I check (%s)',
+        item.constraint_name,
+        item.legacy_check_expression
+      );
+      select pg_get_constraintdef(c.oid, true)
+        into legacy_definition
+      from pg_constraint c
+      where c.conrelid = 'pg_temp.warehouse_units_constraint_probe'::regclass
+        and c.conname = item.constraint_name;
+    end if;
+
     if existing_definition is distinct from expected_definition then
-      raise exception using
-        message = format('Constraint %s on %s has an unexpected definition', item.constraint_name, item.table_name),
-        detail = format('Existing: %s; expected: %s', existing_definition, expected_definition),
-        hint = 'Stop and review the live constraint. This migration will not replace it silently.';
+      if legacy_definition is not null and existing_definition = legacy_definition then
+        execute format('alter table %s drop constraint %I', item.table_name, item.constraint_name);
+        execute format(
+          'alter table %s add constraint %I check (%s) not valid',
+          item.table_name,
+          item.constraint_name,
+          item.check_expression
+        );
+      else
+        raise exception using
+          message = format('Constraint %s on %s has an unexpected definition', item.constraint_name, item.table_name),
+          detail = format('Existing: %s; expected: %s', existing_definition, expected_definition),
+          hint = 'Stop and review the live constraint. This migration will not replace it silently.';
+      end if;
     end if;
 
     execute 'drop table pg_temp.warehouse_units_constraint_probe';

@@ -171,6 +171,12 @@ ins as (
       and v.company_id is null
       and v.archived = false
   )
+    and exists (
+      select 1
+      from public.profiles p
+      where p.role in ('global_admin','admin')
+        and p.status = 'active'
+    )
   returning id, crop_id
 )
 select
@@ -248,6 +254,12 @@ ins2 as (
       and g.company_id is null
       and g.archived = false
   )
+    and exists (
+      select 1
+      from public.profiles p
+      where p.role in ('global_admin','admin')
+        and p.status = 'active'
+    )
   returning id, crop_id
 )
 select

@@ -65,6 +65,7 @@ create index if not exists idx_stock_ledger_company_wh_identity_class
   on public.stock_ledger_entries(company_id, warehouse_id, product_id, variety_id, reproduction_id, batch_class);
 
 -- 3) Identity view includes class
+drop view if exists public.v_stock_balance_identity;
 create or replace view public.v_stock_balance_identity as
 select
   sle.company_id,
@@ -96,4 +97,3 @@ comment on view public.v_stock_balance_identity is
   'Identity-aware stock balances grouped by warehouse+product+variety+reproduction+batch+batch_class.';
 
 commit;
-

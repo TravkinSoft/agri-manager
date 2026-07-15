@@ -52,6 +52,7 @@
 | TZ-160 | DATABASE | Canonicalize legacy test-user cleanup and repeat full replay | copilot-v1 | DONE | TZ-159 | [task-reports/core/TZ-160.md](task-reports/core/TZ-160.md) | `SELF` |
 | TZ-161 | DATABASE | Close remaining legacy bootstrap blockers and continue full replay | copilot-v1 | DONE | TZ-160 | [task-reports/core/TZ-161.md](task-reports/core/TZ-161.md) | `SELF` |
 | TZ-162 | DATABASE | Restore missing migration dependencies and repeat full replay | copilot-v1 | DONE | TZ-161 | [task-reports/core/TZ-162.md](task-reports/core/TZ-162.md) | `SELF` |
+| TZ-163 | DATABASE | Complete crop mapping and canonical migration chain | copilot-v1 | DONE | TZ-162 | [task-reports/core/TZ-163.md](task-reports/core/TZ-163.md) | `SELF` |
 
 ## Status values
 

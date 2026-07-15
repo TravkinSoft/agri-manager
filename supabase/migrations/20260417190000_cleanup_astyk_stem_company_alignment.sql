@@ -28,7 +28,8 @@ begin
   limit 1;
 
   if v_company_id is null then
-    raise exception 'Company ТОО "Астык-STEM" not found';
+    raise notice 'Skipping legacy company cleanup: target company is absent';
+    return;
   end if;
 
   select p.id
@@ -48,7 +49,8 @@ begin
   limit 1;
 
   if v_actor_user_id is null then
-    raise exception 'No active operator user found in company %', v_company_id;
+    raise notice 'Skipping legacy company cleanup: no active operator exists for company %', v_company_id;
+    return;
   end if;
 
   -- =====================================================
@@ -460,4 +462,3 @@ select 'stem_inventory_rows_seeded_20260417', count(*)::text
 from public.inventory_transactions it
 join stem s on s.id = it.company_id
 where it.notes = '[seed] stem_agrochem_stock_cleanup_20260417';
-

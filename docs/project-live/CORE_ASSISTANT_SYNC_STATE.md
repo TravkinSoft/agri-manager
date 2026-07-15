@@ -1,13 +1,13 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-14T23:15:15+05:00
+LAST_REVIEW_AT: 2026-07-15T00:00:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `8dee404f`)
+CORE_COMMIT: `SELF` (previous core commit: `5e577bf`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-14T23:15:15+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-14T23:15:15+05:00
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-15T00:00:00+05:00
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-15T00:00:00+05:00
 LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A105.md` — conversation summary, unresolved-question metadata and candidate-first memory prototype completed locally; mocked QA `26/26`, DB/OpenAI/ERP writes `0`, real memory acceptance blocked by schema/contract gate.
 
 ASSISTANT_CHANGES_FOUND: YES — TZ-A105 adds local-only summary/unresolved-question/memory lifecycle prototypes and requests an additive schema/RLS contract. Core/schema/production were not changed by the Assistant branch.
@@ -173,6 +173,16 @@ TZ146_ASSISTANT_CHANGES_FOUND: `NO_NEW_CHANGES`
 TZ146_CORE_IMPACT_FOUND: `NO`
 TZ146_INTEGRATION_CONTRACT_IMPACT: `NO`
 TZ146_ACTION: Warehouse preflight continued; no stop condition was triggered.
+
+## TZ-163 review result
+
+TZ163_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains `b22f765583b2cd556a29b9e25c332561f19dd262`.
+TZ163_CORE_IMPACT_FOUND: `YES - local canonical chain now replays fully, but exact production baseline parity is not yet proved`.
+TZ163_INTEGRATION_CONTRACT_IMPACT: `NO`; Contract 0.3 and Assistant code are unchanged.
+TZ163_LOCAL_CHAIN_RESULT: `PASS - 135/135 migrations, 2535 statements, no parser/missing-object/FK/duplicate errors`.
+TZ163_HISTORY_PACKAGE: `PASS_INTERNAL_ONLY - repair 39, second repair 0, rollback 39, unchanged 37/37`.
+TZ163_PRODUCTION_IMPACT: `NONE`; read-only metadata checks only, no history/schema/Auth/business-data write.
+TZ163_ACTION: `A106_REMAINS_BLOCKED`; create canonical sources for seven production-only tables, one function and two triggers before any metadata repair or new Supabase branch.
 
 ## Mandatory rule
 
