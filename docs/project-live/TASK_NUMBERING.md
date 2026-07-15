@@ -54,6 +54,7 @@
 | TZ-162 | DATABASE | Restore missing migration dependencies and repeat full replay | copilot-v1 | DONE | TZ-161 | [task-reports/core/TZ-162.md](task-reports/core/TZ-162.md) | `SELF` |
 | TZ-163 | DATABASE | Complete crop mapping and canonical migration chain | copilot-v1 | DONE | TZ-162 | [task-reports/core/TZ-163.md](task-reports/core/TZ-163.md) | `SELF` |
 | TZ-164 | DATABASE | Restore all production baseline migration sources | copilot-v1 | DONE | TZ-163 | [task-reports/core/TZ-164.md](task-reports/core/TZ-164.md) | `SELF` |
+| TZ-165 | DATABASE / ASSISTANT GOVERNANCE | Execute metadata repair and create A106 Supabase branch | copilot-v1 | BLOCKED | TZ-164 | [task-reports/core/TZ-165.md](task-reports/core/TZ-165.md) | `SELF` |
 
 ## Status values
 

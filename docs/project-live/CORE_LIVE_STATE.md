@@ -25,6 +25,20 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## Current database state
 
+- TZ-165 applied the owner-approved guarded repair to exactly 39
+  `supabase_migrations.schema_migrations.statements` rows. The other 37 rows,
+  production schema and exact counts of all 145 public tables were unchanged;
+  the second repair changed 0 rows and rollback was not required.
+- A new data-less `assistant-memory-a106` branch (`xhlfixtoubejuxnpdzyx`) was
+  created after the repair, but bootstrap failed at history version
+  `20260413182000`: its stored payload calls
+  `public.ensure_updated_at_column()` without creating the helper. Evidence was
+  captured and the failed paid branch was deleted. A106 remains blocked.
+- The next safe database action is a separate owner-approved canonical
+  metadata task for the remaining history payloads and missing versions. It
+  must use the tested 135-row preview, fresh backup and guarded rollback; no
+  production migration SQL is permitted.
+
 - TZ-164 restored canonical migration sources for all ten production baseline
   gaps: seven tables, one import function and two triggers. Production-head
   replay passes `133/133`, the complete local chain passes `135/135`, and the

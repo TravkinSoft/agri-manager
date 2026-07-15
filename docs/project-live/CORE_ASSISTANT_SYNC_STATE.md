@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-153 advances the contract from 0.2 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.3`
 INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F0C010E67D9F9F6`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
-NEXT_SAFE_ACTION: Keep TZ-A106 paused until a separate owner-approved metadata-repair task creates a fresh backup, repeats live hashes, applies only the approved metadata payload and verifies rollback readiness. After that PASS, retry the non-production Supabase branch bootstrap before A106 runtime work.
+NEXT_SAFE_ACTION: Keep TZ-A106 paused. TZ-165 successfully repaired the approved 39 metadata rows, but branch bootstrap exposed a separate canonical-history gap in version `20260413182000`. Before another paid branch is created, approve and execute the tested full 135-row canonical metadata plan with fresh backup, guarded hashes, second-run no-op and rollback verification. Do not run migration SQL in production.
+
+## TZ-165 review result
+
+TZ165_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime and A106 code were not changed.
+TZ165_CORE_IMPACT_FOUND: `YES - 39 migration-history statement payloads repaired successfully`.
+TZ165_METADATA_REPAIR: `PASS - 39 changed, 37 unchanged, second repair 0, schema/data unchanged`.
+TZ165_BRANCH: `assistant-memory-a106 / xhlfixtoubejuxnpdzyx / MIGRATIONS_FAILED / DELETED`.
+TZ165_FIRST_BOOTSTRAP_ERROR: `20260413182000 calls public.ensure_updated_at_column() but its stored history payload does not create it`.
+TZ165_PRODUCTION_IMPACT: `METADATA_ONLY`; production schema, Auth and business data unchanged; no migration SQL, db push, deploy or merge.
+TZ165_ACTION: `A106_REMAINS_BLOCKED`; prepare a separately approved full canonical history metadata repair before retrying Supabase Branching.
 
 ## TZ-164 review result
 
