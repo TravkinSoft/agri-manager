@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-17
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `efee5af`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `c765f59`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -18,12 +18,21 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ174_UTF8_PACKAGE_READY | Production остаётся на точном baseline: 425 компонентов, 1373 глобальные product links, 24 aliases, 295 sources и company links `0`. ТЗ №174 пересобрало тот же 53-row scope как strict UTF-8/NFC review package и ASCII-only SQL с Unicode literals. Изолированные first apply, second-apply NOOP, real helper RU/EN/API/UI smoke и точный rollback PASS. Новый production apply возможен только отдельным ТЗ после fresh backup, live preflight и нового owner approval. Humic acids остаётся HOLD_OUT_OF_SCOPE. |
+| ГЛБД | TZ178_UTF8_PACKAGE_READY | Production остаётся на точном baseline: 425 компонентов, 1373 глобальные product links, 24 aliases, 295 sources и company links `0`. ТЗ №178 добавило воспроизводимый strict-UTF-8/NFC generator и заново пересобрало тот же 53-row scope как ASCII-only SQL с Unicode literals. Изолированные first apply, second-apply NOOP, real helper RU/EN/API/UI smoke и точный rollback PASS. Новый production apply возможен только отдельным ТЗ после fresh backup, live preflight и нового owner approval. Humic acids остаётся HOLD_OUT_OF_SCOPE. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-178 reproducible UTF-8-safe component package
+
+- Production read-only baseline remains exact: `425/24/295/1373`, company links `0`, server/client encoding `UTF8`, Humic acids unchanged and project `ACTIVE_HEALTHY`.
+- The retained TZ-173 failed snapshot contains `64` mojibake values (`61` unique). Root cause remains Windows PowerShell 5.1 ANSI-default decoding of BOM-less UTF-8 before database serialization.
+- `scripts/catalog/rebuild-component-utf8-package.mjs` now enforces strict fatal UTF-8 decoding, rejects BOM input, normalizes NFC, emits ASCII-only SQL with PostgreSQL Unicode literals, verifies task tokens and regenerates/rechecks the SHA-256 manifest.
+- External package path: `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-178/apply-package/`. It preserves all `53` decisions and exact UUIDs; `4655` package text values have mojibake `0`.
+- Production-equivalent PGlite acceptance with the real `component-discovery` helper passed. First apply reached `431/63/318/1373`, all `18127` DB text values were clean, RU/EN/API/UI checks passed, second apply was a true no-op and exact rollback restored the baseline fingerprint and timestamps.
+- Production writes, QA dataset changes, migration, db push, deploy and merge are `0`. `READY_FOR_SELECTIVE_APPLY=YES` technically, subject to a separate TZ-179 with fresh backup, no-drift preflight and explicit owner approval.
 
 ### TZ-177 Assistant QA branch security alignment
 

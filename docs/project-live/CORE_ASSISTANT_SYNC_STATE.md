@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-17T02:10:00+05:00
+LAST_REVIEW_AT: 2026-07-17T03:53:17+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `efee5af`)
+CORE_COMMIT: `SELF` (previous core commit: `c765f59`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-177 synchronized the canonical production catalog security migration only to `assistant-memory-a106`. Real JWT User A/User B/company-admin/global-admin/anon acceptance and tenant isolation pass, while the ERP QA Ground Truth remains exact. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: TZ-178 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. The rebuilt GLBD package is independently ready only for a separately approved production preflight/apply task.
+
+## TZ-178 review result
+
+TZ178_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA dataset, branch and Contract 0.4 were not touched.
+TZ178_CORE_IMPACT_FOUND: `YES - reproducible UTF-8-safe GLBD generator, external package and live-state evidence`.
+TZ178_ROOT_CAUSE: `Windows PowerShell 5.1 default ANSI decoding of BOM-less UTF-8 before database-tool serialization; PostgreSQL UTF8 was not the source`.
+TZ178_PACKAGE: `PASS - exact 53 decisions, Humic excluded, 4655 canonical text values, NFC PASS, mojibake 0, ASCII-only SQL and verified 9-file manifest`.
+TZ178_ISOLATED_ACCEPTANCE: `PASS - real component-discovery helper, first apply, second NOOP, 18127 DB texts clean, RU/EN/API/UI PASS and exact rollback`.
+TZ178_PRODUCTION_IMPACT: `NONE`; production remains ACTIVE_HEALTHY at 425/24/295/1373 with company links 0; writes, migration, db push, deploy and merge are 0.
+TZ178_ACTION: `READY_FOR_SELECTIVE_APPLY_WITH_SEPARATE_OWNER_APPROVAL`; TZ-179 must repeat backup, manifest and live no-drift preflight.
 
 ## TZ-177 review result
 
