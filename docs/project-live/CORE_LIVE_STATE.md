@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-16
+LAST_UPDATED: 2026-07-17
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `55a72a0`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `e405095`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -18,12 +18,22 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ173_SAFE_STOP_ROLLED_BACK | Component Model V2 снова находится на точном baseline: 425 компонентов, 1373 глобальные product links, 24 aliases, 295 sources и company links `0`. ТЗ №173 прошло backup/preflight и временный selective apply, но обязательный catalog smoke выявил mojibake в RU-названиях шести safener-компонентов. Пакет полностью откатан до побайтового исходного состояния; повторное применение запрещено до регенерации UTF-8 пакета и нового owner approval. Humic acids остаётся HOLD_OUT_OF_SCOPE. |
+| ГЛБД | TZ174_UTF8_PACKAGE_READY | Production остаётся на точном baseline: 425 компонентов, 1373 глобальные product links, 24 aliases, 295 sources и company links `0`. ТЗ №174 пересобрало тот же 53-row scope как strict UTF-8/NFC review package и ASCII-only SQL с Unicode literals. Изолированные first apply, second-apply NOOP, real helper RU/EN/API/UI smoke и точный rollback PASS. Новый production apply возможен только отдельным ТЗ после fresh backup, live preflight и нового owner approval. Humic acids остаётся HOLD_OUT_OF_SCOPE. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A106_BRANCH_ONLY_READY_CONTRACT_0_4 | Contract 0.4 approves USER_GLOBAL, role-gated COMPANY and chat-local CONVERSATION memory. Memory Policy V2 is applied only to healthy branch `gsglkmudcwkdetqtocae`; real JWT acceptance is 10/10 plus company-admin isolation. Production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-174 UTF-8-safe component package
+
+- Root cause TZ-173 confirmed: valid BOM-less UTF-8 SQL was decoded by Windows PowerShell 5.1 without explicit `-Encoding UTF8` before it reached PostgreSQL. Production `client_encoding` remained `UTF8` and was not the corruption source.
+- The external package preserves exactly 53 decisions and excludes Humic acids from both SQL scripts. `4012` package text values are NFC-normalized; mojibake is `0`.
+- Human artifacts are strict UTF-8. Apply and rollback SQL are ASCII-only and encode every non-ASCII value with PostgreSQL `U&` literals, making the executable bytes code-page independent.
+- Production-equivalent isolated replay loaded the 425/24/295/1373 snapshot and real GLBD constraints/triggers. First apply reached 431/63/318/1373; all six safeners passed source, alias, product-role, RU/EN search, API JSON and real `component-discovery` UI-helper checks.
+- Component duplicates, alias conflicts, link duplicates and active garbage components are `0`. Second apply is a true no-op. Exact rollback restored fingerprint `16b1932a2481f5ec3d8f84e6fc0038a46f99d3f5997b2f1fefe23a083050187e`, including timestamps.
+- Package path: `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-174/apply-package/` outside Git. Production database, business data, migration history, deploy and master are unchanged.
+- `READY_FOR_NEW_SELECTIVE_APPLY=YES` technically, but a separate owner-approved task with fresh backup and live preflight is mandatory.
 
 ### TZ-173 safe component-source apply stop
 

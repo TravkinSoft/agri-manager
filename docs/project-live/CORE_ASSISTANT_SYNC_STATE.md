@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-16T23:50:00+05:00
+LAST_REVIEW_AT: 2026-07-17T00:24:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `55a72a0`)
+CORE_COMMIT: `SELF` (previous core commit: `e405095`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-173 stopped safely and restored the exact GLBD baseline after RU safener-label encoding failed catalog smoke. Do not retry the TZ-172 package unchanged. Regenerate and independently validate a UTF-8-safe package under separate owner approval, with Humic acids still excluded. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: TZ-174 rebuilt and independently validated the exact GLBD scope as a strict UTF-8/NFC package with ASCII-only executable SQL. Production remains on the restored 425/24/295/1373 baseline. A new selective apply may be prepared only in a separate task with fresh backup, manifest verification, live preflight and explicit owner approval; Humic acids remains excluded. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+
+## TZ-174 review result
+
+TZ174_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, branch and Contract 0.4 were not touched.
+TZ174_CORE_IMPACT_FOUND: `YES - external UTF-8-safe GLBD apply package and live-state evidence only`.
+TZ174_ROOT_CAUSE: `Windows PowerShell 5.1 default ANSI decoding of BOM-less UTF-8 before database-tool serialization; PostgreSQL client_encoding was UTF8`.
+TZ174_PACKAGE: `PASS - exact 53 decisions, Humic excluded, 4012 text values, NFC PASS, mojibake 0, SQL ASCII-only with U& Unicode literals`.
+TZ174_ISOLATED_ACCEPTANCE: `PASS - production snapshot, real GLBD constraints/triggers and component-discovery helper; first apply, second NOOP, RU/EN/API/UI smoke and exact timestamp-preserving rollback`.
+TZ174_PRODUCTION_IMPACT: `NONE`; production remains 425/24/295/1373, company links 0, Humic unchanged; no migration, deploy or merge.
+TZ174_ACTION: `READY_FOR_NEW_SELECTIVE_APPLY_WITH_SEPARATE_OWNER_APPROVAL`; fresh backup and live preflight remain mandatory.
 
 ## TZ-173 review result
 
