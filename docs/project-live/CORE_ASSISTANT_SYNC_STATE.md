@@ -1,13 +1,13 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-15T00:00:00+05:00
+LAST_REVIEW_AT: 2026-07-16T00:00:00+05:00
 CORE_BRANCH: `copilot-v1`
 CORE_COMMIT: `SELF` (previous core commit: `5e577bf`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-15T00:00:00+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-15T00:00:00+05:00
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-16T00:00:00+05:00
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-16T00:00:00+05:00
 LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A105.md` — conversation summary, unresolved-question metadata and candidate-first memory prototype completed locally; mocked QA `26/26`, DB/OpenAI/ERP writes `0`, real memory acceptance blocked by schema/contract gate.
 
 ASSISTANT_CHANGES_FOUND: YES — TZ-A105 adds local-only summary/unresolved-question/memory lifecycle prototypes and requests an additive schema/RLS contract. Core/schema/production were not changed by the Assistant branch.
@@ -16,7 +16,19 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-153 advances the contract from 0.2 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.3`
 INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F0C010E67D9F9F6`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
-NEXT_SAFE_ACTION: Keep TZ-A106 paused. TZ-165 successfully repaired the approved 39 metadata rows, but branch bootstrap exposed a separate canonical-history gap in version `20260413182000`. Before another paid branch is created, approve and execute the tested full 135-row canonical metadata plan with fresh backup, guarded hashes, second-run no-op and rollback verification. Do not run migration SQL in production.
+NEXT_SAFE_ACTION: Start TZ-A106 only on Supabase branch `assistant-memory-a106` (`gsglkmudcwkdetqtocae`). Use user JWT/RLS paths and first prove cross-user and cross-company denial; legacy permissive chat policies are an explicit branch-only acceptance risk. Production memory writes, migration, merge and deploy remain disabled.
+
+## TZ-166 review result
+
+TZ166_ASSISTANT_CHANGES_FOUND: `NO`; `origin/assistant-v1` remains `b22f765583b2cd556a29b9e25c332561f19dd262`.
+TZ166_CORE_IMPACT_FOUND: `YES - production migration metadata is canonical 135/135`.
+TZ166_METADATA_REPAIR: `PASS - 39 preserved, 37 updated, 59 inserted, second repair 0`.
+TZ166_PRODUCTION_IMPACT: `METADATA_ONLY`; production schema, Auth and business data are unchanged; migration SQL was not executed.
+TZ166_BRANCH: `assistant-memory-a106 / gsglkmudcwkdetqtocae / FUNCTIONS_DEPLOYED / ACTIVE_HEALTHY`.
+TZ166_BOOTSTRAP: `PASS - 135/135 migrations, no first error`.
+TZ166_SCHEMA_COMPARISON: `133-version production baseline matches; two explained branch-only scopes are Warehouse Units V2 and Assistant Memory V1; unexplained differences 0`.
+TZ166_RLS_GATE: `A106_REQUIRED`; all four assistant tables have RLS, but real JWT denial must address/verify legacy permissive chat policies on the branch.
+TZ166_ACTION: `A106_MAY_START_ON_ISOLATED_BRANCH_ONLY`; no production memory writes, merge or deploy.
 
 ## TZ-165 review result
 

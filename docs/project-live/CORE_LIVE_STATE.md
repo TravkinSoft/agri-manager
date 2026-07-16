@@ -1,6 +1,6 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-15
+LAST_UPDATED: 2026-07-16
 CORE_BRANCH: `copilot-v1`
 CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `5e577bf`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
@@ -24,6 +24,34 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Travkin Assistant | BLOCKED_BY_MIGRATION_HISTORY_RECOVERY | A105 reviewed at `b22f765`; Contract 0.3 still approves only isolated non-production A106. The first `assistant-memory-a106` branch failed while replaying malformed migration-history payloads and was deleted after evidence capture. Production memory writes, migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-166 canonical history and A106 branch
+
+- Owner-approved metadata repair changed only
+  `supabase_migrations.schema_migrations`: `39` canonical rows were preserved,
+  `37` existing payloads were updated and `59` missing versions were inserted.
+  Remote history is now canonical `135/135`; a second repair changes `0` rows.
+- Fresh backup is verified outside Git at
+  `audit-output/TZ-166/pre-repair-backup/`; manifest SHA-256 is
+  `c905087d55e8ced333e2802bcb51b97c1affaab06803b29db23c6057ceb090a2`.
+- Production schema and business-count fingerprints did not change. No
+  migration SQL, `db push`, deploy or master merge was executed. Production
+  stayed `ACTIVE_HEALTHY`; critical route smoke returned HTTP 200.
+- The new data-less branch `assistant-memory-a106` has reference
+  `gsglkmudcwkdetqtocae`, status `FUNCTIONS_DEPLOYED` and preview project status
+  `ACTIVE_HEALTHY`. Bootstrap processed all `135/135` versions with no error.
+- Production-head replay through version 133 matches production semantically.
+  The full branch additionally contains the explained non-production Warehouse
+  Units V2 and Assistant Memory V1 scopes; unexplained schema differences are
+  zero, but exact branch/production schema equality is therefore false.
+- `chats`, `chat_messages`, `assistant_memories` and
+  `assistant_memory_events` exist on the branch with RLS, indexes, policies and
+  foreign keys. Legacy permissive public chat policies remain a known A106
+  real-JWT acceptance risk and were not changed in this database-only task.
+- TZ-A106 may now start on this isolated branch only. Production memory writes,
+  migration, merge and deploy remain disabled. The two production-history
+  entries for Warehouse V2 and Assistant Memory V1 need a separate owner
+  decision before any future automated production migration run.
 
 - TZ-165 applied the owner-approved guarded repair to exactly 39
   `supabase_migrations.schema_migrations.statements` rows. The other 37 rows,
@@ -310,12 +338,12 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## Assistant readiness
 
-ASSISTANT_CORE_READINESS: `ASSISTANT_MEMORY_SCHEMA_APPROVED_A106_ENVIRONMENT_BLOCKED`
-ASSISTANT_ALLOWED_MODE: `READ_ONLY_FOUNDATION_ONLY_UNTIL_MIGRATION_HISTORY_RECOVERY`
+ASSISTANT_CORE_READINESS: `A106_ISOLATED_BRANCH_READY_WITH_RLS_ACCEPTANCE_GATE`
+ASSISTANT_ALLOWED_MODE: `A106_BRANCH_ONLY_IMPLEMENTATION_AND_REAL_ACCEPTANCE`
 ASSISTANT_ALLOWED_DATA: server-authenticated results of the eight Contract 0.3 read-only tools; own-company own-user chat state; own user-scoped candidate/approved memory in the future isolated A106 environment; code; Project Live; approved architecture text
 ASSISTANT_BLOCKED_AREAS: production memory writes/migration/deployment; company-wide memory; automatic approval; ERP/warehouse/operation writes; generic SQL; Knowledge Base mutations; migration history; RLS bypass; service-role primary memory runtime; contract edits by assistant
 
-Assistant implementation: `A105_DONE_WITH_SCHEMA_GATE` at `b22f765`; local mocked `26/26`, DB/OpenAI/ERP writes `0`. Contract 0.3 approves only the schema and isolated A106 boundary. A106 real acceptance is blocked because the first owner-approved branch could not replay production migration history and was deleted after evidence capture. Merge/deploy/production writes remain `DISABLED`.
+Assistant implementation: `A105_DONE_WITH_SCHEMA_GATE` at `b22f765`; local mocked `26/26`, DB/OpenAI/ERP writes `0`. Contract 0.3 approves only the schema and isolated A106 boundary. TZ-166 created healthy branch `gsglkmudcwkdetqtocae`; A106 may now perform branch-only implementation and real JWT/RLS acceptance. Merge/deploy/production writes remain `DISABLED`.
 
 ## TZ-162 migration dependency audit and replay
 
