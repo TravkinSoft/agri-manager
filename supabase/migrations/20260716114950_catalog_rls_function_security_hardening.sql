@@ -1,5 +1,13 @@
 begin;
 
+-- TZ-170: production intentionally has no Assistant Memory objects and no
+-- pre-existing private schema. Keep security helpers outside exposed schemas,
+-- but make this migration fully self-contained.
+create schema if not exists private authorization postgres;
+alter schema private owner to postgres;
+revoke all on schema private from public, anon, authenticated, service_role;
+grant usage on schema private to authenticated, service_role;
+
 -- TZ-167: these tables are global catalog or internal import state. They must
 -- never inherit company scoping, and anonymous access is not required.
 create or replace function private.is_active_global_admin()
@@ -18,6 +26,7 @@ as $function$
   );
 $function$;
 
+alter function private.is_active_global_admin() owner to postgres;
 revoke all on function private.is_active_global_admin() from public, anon;
 grant execute on function private.is_active_global_admin() to authenticated, service_role;
 
@@ -169,6 +178,7 @@ as $function$
     );
 $function$;
 
+alter function private.can_sync_treatment_program_links(uuid) owner to postgres;
 revoke all on function private.can_sync_treatment_program_links(uuid)
   from public, anon, authenticated;
 

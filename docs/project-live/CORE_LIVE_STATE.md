@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-16
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `8fdc5ac`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `ffe53b0`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -24,6 +24,15 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Travkin Assistant | A106_BRANCH_ONLY_READY_CONTRACT_0_4 | Contract 0.4 approves USER_GLOBAL, role-gated COMPANY and chat-local CONVERSATION memory. Memory Policy V2 is applied only to healthy branch `gsglkmudcwkdetqtocae`; real JWT acceptance is 10/10 plus company-admin isolation. Production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-170 production-safe catalog security candidate
+
+- Root cause of the TZ-168 safe stop is confirmed: security migration `20260716114950_catalog_rls_function_security_hardening.sql` depended on schema `private`, which existed in the TZ-167 branch only because Assistant Memory V1 had created it. Production intentionally has no Assistant Memory objects and no `private` schema.
+- The same unapplied migration version is now self-contained: it creates and owns `private`, revokes `PUBLIC`/anon access, grants only required schema usage, and creates all three private helpers before policies or wrappers reference them.
+- A fresh local PostgreSQL 17.6 environment replayed the exact 133-migration production head (`2556` statements), without Warehouse Units V2 or Assistant Memory. Semantic parity with production tables, columns, constraints, indexes, functions, triggers, views and policies passed with zero unexplained differences.
+- The corrected migration passed atomic rollback, first apply and identical second apply. Final target state is RLS `8/8`, policies `32`, public SECURITY DEFINER functions `27/27` with safe search path, `PUBLIC` execute `0`, anon execute `0` and exactly five authenticated browser/session functions.
+- Local PostgREST 14.15 and signed JWTs passed the unchanged TZ-167 matrix `178/178`; cross-company sync was denied, the private helper was not exposed (`404`), and service-role import passed inside a rolled-back transaction. Business row counts remained unchanged and rollback restored the original target state.
+- Production stayed `ACTIVE_HEALTHY`: migration/history/schema/business data were not changed. `assistant-memory-a106` stayed `ACTIVE_HEALTHY` and was not used or changed. A new owner-approved production apply must be a separate TZ-171 with fresh backup and live preflight.
 
 ### TZ-169 Contract 0.4 and branch-only Memory Policy V2
 

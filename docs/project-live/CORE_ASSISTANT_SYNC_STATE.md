@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-16T13:30:00+05:00
+LAST_REVIEW_AT: 2026-07-16T18:41:20+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `8fdc5ac`)
+CORE_COMMIT: `SELF` (previous core commit: `ffe53b0`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: Sync Contract 0.4 into `assistant-v1`, update the A106 runtime from candidate-first to direct-approved V2, and repeat runtime acceptance on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: TZ-170 is ready for a separate owner-approved TZ-171 production security apply. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+
+## TZ-170 review result
+
+TZ170_ASSISTANT_CHANGES_FOUND: `NO`; `assistant-memory-a106` remained `gsglkmudcwkdetqtocae / ACTIVE_HEALTHY` and was neither used nor changed.
+TZ170_CORE_IMPACT_FOUND: `YES - security migration is now self-contained on the real production baseline`.
+TZ170_ROOT_CAUSE: `TZ-167 inherited private from branch-only Assistant Memory V1; production has no private schema`.
+TZ170_PRODUCTION_EQUIVALENT: `PASS - 133/133 production-head migrations, 2556 statements, no Assistant Memory or Warehouse V2, zero unexplained semantic schema differences`.
+TZ170_SECURITY_ACCEPTANCE: `PASS - atomic rollback, first/second apply, RLS 8/8, policies 32, 27/27 hardened, JWT 178/178, rollback PASS`.
+TZ170_PRODUCTION_IMPACT: `NONE`; no production SQL, migration-history change, schema/business-data write, deploy or merge.
+TZ170_ACTION: `SEPARATE_OWNER_APPROVAL_REQUIRED_FOR_TZ171`; fresh backup and live preflight are mandatory before production apply.
 
 ## TZ-169 review result
 
