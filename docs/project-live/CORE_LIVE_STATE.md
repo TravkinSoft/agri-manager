@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-16
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `5e577bf`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `8fdc5ac`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -24,6 +24,15 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Travkin Assistant | BLOCKED_BY_MIGRATION_HISTORY_RECOVERY | A105 reviewed at `b22f765`; Contract 0.3 still approves only isolated non-production A106. The first `assistant-memory-a106` branch failed while replaying malformed migration-history payloads and was deleted after evidence capture. Production memory writes, migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-168 production security apply safe stop
+
+- Owner-approved migration `20260716114950_catalog_rls_function_security_hardening.sql` was attempted only after a verified backup and exact no-drift preflight.
+- Apply stopped atomically at the first DDL statement with SQLSTATE `3F000`: production has no schema `private`, so `private.is_active_global_admin()` cannot be created.
+- The dependency came from branch-only Assistant Memory V1: the TZ-167 test branch contained `private`, while production intentionally does not contain that Assistant schema scope.
+- Repeat fingerprints prove zero production change: history remains `135`, target migration is absent, target RLS remains `0/8`, policies remain `0`, all 27 definer functions and all business row counts are unchanged.
+- Production and `assistant-memory-a106` remain `ACTIVE_HEALTHY`; six critical routes returned HTTP `200`. JWT/post-apply acceptance was not run because the migration is not installed.
+- Current candidate must not be retried unchanged. A separately approved revision must remove the hidden branch-only schema dependency and repeat isolated production-equivalent acceptance.
 
 ### TZ-167 isolated RLS and function hardening
 

@@ -57,6 +57,7 @@
 | TZ-165 | DATABASE / ASSISTANT GOVERNANCE | Execute metadata repair and create A106 Supabase branch | copilot-v1 | BLOCKED | TZ-164 | [task-reports/core/TZ-165.md](task-reports/core/TZ-165.md) | `SELF` |
 | TZ-166 | DATABASE / ASSISTANT GOVERNANCE | Complete canonical migration history and retry branch bootstrap | copilot-v1 | DONE | TZ-165 | [task-reports/core/TZ-166.md](task-reports/core/TZ-166.md) | `SELF` |
 | TZ-167 | DATABASE SECURITY | Harden catalog RLS and SECURITY DEFINER grants in isolated branch | copilot-v1 | DONE | TZ-166 | [task-reports/core/TZ-167.md](task-reports/core/TZ-167.md) | `SELF` |
+| TZ-168 | DATABASE SECURITY | Apply catalog RLS and function hardening in production | copilot-v1 | BLOCKED | TZ-167 | [task-reports/core/TZ-168.md](task-reports/core/TZ-168.md) | `SELF` |
 
 ## Status values
 

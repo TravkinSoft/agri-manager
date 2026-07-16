@@ -2,7 +2,7 @@
 
 LAST_REVIEW_AT: 2026-07-16T00:00:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `5e577bf`)
+CORE_COMMIT: `SELF` (previous core commit: `8fdc5ac`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -17,6 +17,15 @@ INTEGRATION_CONTRACT_VERSION: `0.3`
 INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F0C010E67D9F9F6`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
 NEXT_SAFE_ACTION: Start TZ-A106 only on Supabase branch `assistant-memory-a106` (`gsglkmudcwkdetqtocae`). Use user JWT/RLS paths and first prove cross-user and cross-company denial; legacy permissive chat policies are an explicit branch-only acceptance risk. Production memory writes, migration, merge and deploy remain disabled.
+
+## TZ-168 review result
+
+TZ168_ASSISTANT_CHANGES_FOUND: `NO`; `assistant-memory-a106` remained `gsglkmudcwkdetqtocae / ACTIVE_HEALTHY` and was not used or changed.
+TZ168_CORE_IMPACT_FOUND: `YES - production catalog security apply is blocked by a hidden branch-only schema dependency`.
+TZ168_APPLY_RESULT: `SAFE_STOP`; SQLSTATE `3F000`, schema `private` absent, transaction rolled back atomically.
+TZ168_PRODUCTION_IMPACT: `NONE`; history `135`, target RLS `0/8`, policies `0`, 27 definer functions and business row counts unchanged.
+TZ168_ASSISTANT_GATE: `UNCHANGED`; A106 remains isolated to its own branch and production Assistant schema/writes remain disabled.
+TZ168_ACTION: `DO_NOT_RETRY_CURRENT_MIGRATION`; prepare a separately approved production-safe helper-schema revision and repeat production-equivalent isolated JWT acceptance.
 
 ## TZ-167 review result
 
