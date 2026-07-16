@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-17T00:24:00+05:00
+LAST_REVIEW_AT: 2026-07-17T02:10:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `e405095`)
+CORE_COMMIT: `SELF` (previous core commit: `efee5af`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,18 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-176 completed the branch-only ERP QA dataset, ledger math, cleanup/reseed and real-JWT tenant isolation. Do not start A107 yet: `assistant-memory-a106` still has RLS disabled on `global_product_aliases` and an ordinary authenticated QA JWT can update aliases. A separate owner-approved branch-only security alignment must reproduce the already-canonical production policy and repeat real-JWT acceptance. Production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: TZ-177 synchronized the canonical production catalog security migration only to `assistant-memory-a106`. Real JWT User A/User B/company-admin/global-admin/anon acceptance and tenant isolation pass, while the ERP QA Ground Truth remains exact. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled.
+
+## TZ-177 review result
+
+TZ177_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime and Contract 0.4 were not changed.
+TZ177_CORE_IMPACT_FOUND: `YES - owner-approved branch-only catalog security alignment and repeated JWT gate`.
+TZ177_BRANCH_APPLY: `PASS - only 20260716114950 applied to gsglkmudcwkdetqtocae; SHA matched; no db push or other migration`.
+TZ177_SECURITY_STATE: `PASS - RLS 8/8, policies 32, functions 27/27, PUBLIC/anon execute 0/0, authenticated execute exactly 5`.
+TZ177_REAL_JWT: `PASS - ordinary and company-admin alias mutations denied, global-admin CRUD allowed, anon denied, cross-company denied`.
+TZ177_DATASET: `UNCHANGED - 8 fields / 1000 ha / 9 crop lines / 5 operations / warehouses 2+1 / ledger 6+1 / exact balances`.
+TZ177_PRODUCTION_IMPACT: `NONE`; production writes 0, schema/Auth/business data/deploy/master unchanged.
+TZ177_ACTION: `A107_MAY_START_BRANCH_ONLY`; production Assistant migration, merge and deploy remain disabled.
 
 ## TZ-176 review result
 
@@ -25,9 +36,9 @@ TZ176_CORE_IMPACT_FOUND: `YES - reproducible branch-only canonical references an
 TZ176_DATASET: `PASS - 8 fields / 1000 ha / 9 crop lines / 5 operations / 2 company-A warehouses / exact 1550 kg + 520 l + 200 l balances`.
 TZ176_REPEAT_SAFETY: `PASS - reference second seed 0, dataset second seed 0, exact cleanup and full reseed PASS`.
 TZ176_REAL_JWT_ISOLATION: `PASS - A/B cross-company ERP, chats and memories all return 0`.
-TZ176_SECURITY_GATE: `BLOCKED - branch global_product_aliases has no RLS and authenticated UPDATE succeeds; no unauthorized schema fix was applied`.
+TZ176_SECURITY_GATE: `RESOLVED_BY_TZ177 - the pre-apply failure remains recorded; repeated branch-only JWT acceptance now passes`.
 TZ176_PRODUCTION_IMPACT: `NONE`; only permitted read-only global reference evidence was used.
-TZ176_ACTION: `A107_BLOCKED_PENDING_OWNER_APPROVED_BRANCH_ALIAS_RLS_ALIGNMENT`.
+TZ176_ACTION: `SUPERSEDED_BY_TZ177_BRANCH_SECURITY_PASS`.
 
 ## TZ-174 review result
 
