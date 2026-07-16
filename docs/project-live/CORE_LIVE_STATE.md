@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-16
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `065fc7b`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `55a72a0`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -18,12 +18,22 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | BLOCKED_54_CLASSIFIED_APPLY_PREVIEW_READY | Component Model V2 содержит 425 компонентов, 1373 глобальные product links, 24 aliases и 295 sources; company links `0`. ТЗ №172 классифицировало 54/54 заблокированных source-строки и изолированно проверило единый selective package: 6 safeners, 23 sources, 39 aliases, 103 exact link normalizations, 41 legacy/parser archives, второй apply NOOP и exact rollback PASS. Production не менялась; применение требует отдельного owner approval, fresh backup и HOLD для Humic acids. |
+| ГЛБД | TZ173_SAFE_STOP_ROLLED_BACK | Component Model V2 снова находится на точном baseline: 425 компонентов, 1373 глобальные product links, 24 aliases, 295 sources и company links `0`. ТЗ №173 прошло backup/preflight и временный selective apply, но обязательный catalog smoke выявил mojibake в RU-названиях шести safener-компонентов. Пакет полностью откатан до побайтового исходного состояния; повторное применение запрещено до регенерации UTF-8 пакета и нового owner approval. Humic acids остаётся HOLD_OUT_OF_SCOPE. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A106_BRANCH_ONLY_READY_CONTRACT_0_4 | Contract 0.4 approves USER_GLOBAL, role-gated COMPANY and chat-local CONVERSATION memory. Memory Policy V2 is applied only to healthy branch `gsglkmudcwkdetqtocae`; real JWT acceptance is 10/10 plus company-admin isolation. Production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-173 safe component-source apply stop
+
+- Fresh external backup and SHA-256 manifest were verified before the approved write. Live preflight passed for 54 blocked rows, 53 apply rows and one excluded Humic-acids HOLD.
+- The exact TZ-172 package applied transactionally and its second apply was a true no-op. Database duplicate, alias, source and link checks passed.
+- Required app-helper smoke failed because six new safener Russian labels were mojibake; EN search passed but RU alias/exact search failed.
+- Failure handling rolled the package back immediately. A guarded timestamp-only restore also reversed trigger-written `updated_at` values.
+- Final byte-for-byte snapshots match the pre-write backup for components, aliases, sources, product links and product identity. Current counts are `425/24/295/1373`, active components `415`, company links `0`, and schema fingerprint is unchanged.
+- Production is `ACTIVE_HEALTHY`; seven critical routes returned HTTP 200. No deploy, migration, master merge or company/business-data change occurred.
+- `READY_FOR_NEXT_GLBD_STAGE=NO`: regenerate and independently validate a UTF-8-safe package in a separate approved task. `Humic acids / Гуминовые кислоты` remains `HOLD_OUT_OF_SCOPE`.
 
 ### TZ-171 production catalog security hardening
 
@@ -197,6 +207,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 | ТЗ | Статус | Результат |
 | --- | --- | --- |
+| №173 | BLOCKED_SAFE_STOP | Approved 53-row GLBD package passed backup/preflight and DB checks, but RU safener-label catalog smoke failed. Exact rollback restored `425/24/295/1373`; Humic acids remains HOLD_OUT_OF_SCOPE. |
 | №136 | DONE | Fix сохранения участка «Пар», commit `e36ab0a` в `origin/copilot-v1`; production release не выполнен. |
 | №138 | DONE | Canonical global varieties migration, commit `4eb2d58` в `origin/copilot-v1`; production release не выполнен. |
 | №139 | DONE | Создана Project Live и handoff foundation, commit `3ef0afe` в `origin/copilot-v1`; app/DB не менялись. |

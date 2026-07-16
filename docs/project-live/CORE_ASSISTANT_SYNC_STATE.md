@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-16T21:10:00+05:00
+LAST_REVIEW_AT: 2026-07-16T23:50:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `065fc7b`)
+CORE_COMMIT: `SELF` (previous core commit: `55a72a0`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-172 blocked GLBD source classification is complete. A separately approved selective GLBD apply may proceed only after owner review, fresh backup and live preflight, excluding the Humic-acids HOLD. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: TZ-173 stopped safely and restored the exact GLBD baseline after RU safener-label encoding failed catalog smoke. Do not retry the TZ-172 package unchanged. Regenerate and independently validate a UTF-8-safe package under separate owner approval, with Humic acids still excluded. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+
+## TZ-173 review result
+
+TZ173_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, branch and Contract 0.4 were not touched.
+TZ173_CORE_IMPACT_FOUND: `YES - owner-approved GLBD selective apply stopped at required catalog smoke and was rolled back exactly`.
+TZ173_PREFLIGHT_AND_APPLY: `PASS - fresh backup, verified manifest, no-drift preflight, one transaction and second-apply NOOP`.
+TZ173_SMOKE: `FAIL - six new safener RU labels were mojibake; EN search passed but RU alias/exact search failed`.
+TZ173_ROLLBACK: `PASS_EXACT - 425/24/295/1373 restored; five business snapshots and schema fingerprint match baseline; Humic unchanged`.
+TZ173_PRODUCTION_IMPACT: `NONE_AFTER_ROLLBACK`; no business/company data change, migration, deploy or merge.
+TZ173_ACTION: `BLOCK_UNCHANGED_RETRY`; regenerate a UTF-8-safe package in a separate task and require fresh approval. Humic acids remains HOLD_OUT_OF_SCOPE.
 
 ## TZ-172 review result
 
