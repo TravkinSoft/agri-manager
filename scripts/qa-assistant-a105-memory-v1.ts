@@ -111,8 +111,8 @@ async function writeAuditArtifacts() {
     ].join("\n"),
     "conversation_summary_validation.csv": [
       "scenario,result,detail",
-      "threshold,PASS,summary created only beyond 20 messages",
-      "recent_messages,PASS,19 prior plus current preserved verbatim",
+      "threshold,PASS,summary created only beyond the 60-message recent window",
+      "recent_messages,PASS,59 prior plus current preserved verbatim",
       "secret_filter,PASS,secret-like message excluded",
       "reload,PASS,summary restored from server metadata",
     ].join("\n"),
@@ -157,41 +157,42 @@ async function writeAuditArtifacts() {
 }
 
 async function main() {
-  await scenario("summary is created only after the 20-message threshold", () => {
+  await scenario("summary is created only beyond the 60-message recent window", () => {
     const atThreshold = buildServerConversationV2({
-      threadId: THREAD, messages: [...conversation(19), row({ id: "current", role: "user", content: "Текущее" })],
+      threadId: THREAD, messages: [...conversation(59), row({ id: "current", role: "user", content: "Текущее" })],
       currentUserMessageId: "current", verifiedUiContext: context,
     });
     assert.equal(atThreshold.summary, null);
     const overThreshold = buildServerConversationV2({
-      threadId: THREAD, messages: [...conversation(20), row({ id: "current", role: "user", content: "Текущее" })],
+      threadId: THREAD, messages: [...conversation(60), row({ id: "current", role: "user", content: "Текущее" })],
       currentUserMessageId: "current", verifiedUiContext: context,
     });
     assert.ok(overThreshold.summary);
   });
 
-  await scenario("the recent 19 prior messages remain verbatim beside the current message", () => {
+  await scenario("the recent 59 prior messages remain verbatim beside the current message", () => {
     const snapshot = buildServerConversationV2({
-      threadId: THREAD, messages: [...conversation(30), row({ id: "current", role: "user", content: "Текущее" })],
+      threadId: THREAD, messages: [...conversation(79), row({ id: "current", role: "user", content: "Текущее" })],
       currentUserMessageId: "current", verifiedUiContext: context,
     });
-    assert.equal(snapshot.history.length, 19);
-    assert.equal(snapshot.history[0].content, "Короткое сообщение 11");
-    assert.equal(snapshot.history[18].content, "Короткое сообщение 29");
+    assert.equal(snapshot.history.length, 59);
+    assert.equal(snapshot.history[0].content, "Короткое сообщение 20");
+    assert.equal(snapshot.history[58].content, "Короткое сообщение 78");
+    assert.equal(snapshot.history.some((message) => message.role === "assistant" && String(message.content).includes("77")), true);
   });
 
   await scenario("summary excludes secret-like messages", () => {
     const secret = ["OPENAI_API_KEY", fakeSecretValue()].join("=");
     const snapshot = buildServerConversationV2({
       threadId: THREAD,
-      messages: [row({ id: "secret", role: "user", content: secret }), ...conversation(22), row({ id: "current", role: "user", content: "Текущее" })],
+      messages: [row({ id: "secret", role: "user", content: secret }), ...conversation(62), row({ id: "current", role: "user", content: "Текущее" })],
       currentUserMessageId: "current", verifiedUiContext: context,
     });
     assert.equal(JSON.stringify(snapshot.summary).includes(secret), false);
   });
 
-  await scenario("short replies do not refresh an existing summary", () => {
-    const baseMessages = conversation(22);
+  await scenario("summary refreshes when another message leaves the recent window", () => {
+    const baseMessages = conversation(62);
     const first = buildServerConversationV2({
       threadId: THREAD, messages: [...baseMessages, row({ id: "current1", role: "user", content: "Текущее" })],
       currentUserMessageId: "current1", verifiedUiContext: context,
@@ -205,17 +206,18 @@ async function main() {
       messages: [...baseMessages, stored, row({ id: "n1", role: "user", content: "Хорошо" }), row({ id: "n2", role: "assistant", content: "Принято" }), row({ id: "current2", role: "user", content: "Дальше" })],
       currentUserMessageId: "current2", verifiedUiContext: context,
     });
-    assert.equal(second.summary?.updatedAt, first.summary?.updatedAt);
+    assert.equal(first.summary?.coveredUntilMessageId, "m2");
+    assert.equal(second.summary?.coveredUntilMessageId, "m4");
   });
 
   await scenario("summary survives reload through server message metadata", () => {
     const initial = buildServerConversationV2({
-      threadId: THREAD, messages: [...conversation(22), row({ id: "current1", role: "user", content: "Текущее" })],
+      threadId: THREAD, messages: [...conversation(62), row({ id: "current1", role: "user", content: "Текущее" })],
       currentUserMessageId: "current1", verifiedUiContext: context,
     });
     const reload = buildServerConversationV2({
       threadId: THREAD,
-      messages: [...conversation(22), row({ id: "stored", role: "assistant", content: "stored", metadata: { technical: true, conversation_summary_v1: initial.summary } }), row({ id: "current2", role: "user", content: "Текущее" })],
+      messages: [...conversation(62), row({ id: "stored", role: "assistant", content: "stored", metadata: { technical: true, conversation_summary_v1: initial.summary } }), row({ id: "current2", role: "user", content: "Текущее" })],
       currentUserMessageId: "current2", verifiedUiContext: context,
     });
     assert.equal(reload.summary?.coveredUntilMessageId, initial.summary?.coveredUntilMessageId);
@@ -321,7 +323,18 @@ async function main() {
 
   await scenario("production memory runtime cannot be enabled by an environment flag", () => {
     assert.equal(isAssistantMemoryV1RuntimeEnabled({ NODE_ENV: "production", ASSISTANT_MEMORY_V1_ENABLED: "1" } as NodeJS.ProcessEnv), false);
-    assert.equal(isAssistantMemoryV1RuntimeEnabled({ NODE_ENV: "development", ASSISTANT_MEMORY_V1_ENABLED: "1" } as NodeJS.ProcessEnv), true);
+    assert.equal(isAssistantMemoryV1RuntimeEnabled({
+      NODE_ENV: "development",
+      ASSISTANT_MEMORY_V1_ENABLED: "1",
+      A106_BRANCH_REF: "gsglkmudcwkdetqtocae",
+      NEXT_PUBLIC_SUPABASE_URL: "https://gsglkmudcwkdetqtocae.supabase.co",
+    } as NodeJS.ProcessEnv), true);
+    assert.equal(isAssistantMemoryV1RuntimeEnabled({
+      NODE_ENV: "development",
+      ASSISTANT_MEMORY_V1_ENABLED: "1",
+      A106_BRANCH_REF: "gsglkmudcwkdetqtocae",
+      NEXT_PUBLIC_SUPABASE_URL: "https://bhsemlvmkikpntabctml.supabase.co",
+    } as NodeJS.ProcessEnv), false);
   });
 
   await scenario("Responses API remains stateless with store false", () => {

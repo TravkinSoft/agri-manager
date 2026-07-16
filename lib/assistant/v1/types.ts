@@ -33,7 +33,7 @@ export type ReadOnlyHistoryMessage = {
 export type ReadOnlyRuntimeDiagnostics = {
   requestedModel: string;
   effectiveModel: string | null;
-  effectiveReasoning: "unsupported";
+  effectiveReasoning: "unsupported" | "low" | "medium" | "high";
   requestedReasoning: "low" | "medium" | "high";
   effectiveTemperature: number | null;
   temperatureSupported: boolean;

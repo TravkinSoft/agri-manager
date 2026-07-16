@@ -1,30 +1,30 @@
 # Assistant Sync State
 
-LAST_SYNC_AT: `2026-07-14T06:00:00+05:00`
+LAST_SYNC_AT: `2026-07-17` (fresh fetch before selective A106 delivery)
 ASSISTANT_BRANCH: `assistant-v1`
-ASSISTANT_BASE_COMMIT: `2152b73f8013b11b1dc37a4ea5c94cf08b4d752c`
-ASSISTANT_COMMIT: `SELF` (TZ-A105 implementation and report commit)
+ASSISTANT_BASE_COMMIT: `b22f765583b2cd556a29b9e25c332561f19dd262`
+ASSISTANT_COMMIT: `A106_DELIVERY_COMMIT_AUTHORIZED`
 
 CORE_BRANCH_REVIEWED: `origin/copilot-v1`
-CORE_COMMIT_REVIEWED: `350d9572833bdc0b3d93fec7958fa2b04aae856e`
-CORE_LIVE_STATE_REVIEWED_AT: `2026-07-14T06:00:00+05:00`
-LATEST_CORE_REPORT_REVIEWED: `TZ-151.md`
-INTEGRATION_CONTRACT_VERSION: `0.2`
-INTEGRATION_CONTRACT_HASH: `20EDC32A8D3540DF9C779C7DF3C8F931E0AA91349327111BF8A924460871C307`
+CORE_COMMIT_REVIEWED: `ffe53b08d7220ef91eae19924b34434e1bd6f02a`
+CORE_LIVE_STATE_REVIEWED_AT: `2026-07-16` (fresh fetch)
+LATEST_CORE_REPORT_REVIEWED: `TZ-169.md`
+INTEGRATION_CONTRACT_VERSION: `0.4`
+INTEGRATION_CONTRACT_HASH: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 
 CORE_PRODUCTION_COMMIT_REVIEWED: `321e45fa681fecff89307545d0ec3fa600b4c982`
 CORE_PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`
-ASSISTANT_ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
-WRITE_CAPABILITY_APPROVED: `NO`
+ASSISTANT_ALLOWED_MODE: `CONTRACT_0_4_ISOLATED_BRANCH_MEMORY_V2_AND_LOCAL_OWNER_VALIDATION`
+WRITE_CAPABILITY_APPROVED: `TEST_BRANCH_ASSISTANT_MEMORY_V2_ONLY; ERP_WRITES_FORBIDDEN`
 
-CORE_CHANGES_SINCE_LAST_SYNC: `TZ-151 imported the approved GLBD alias/source batch. It does not change the Assistant API or contract.`
-CONTRACT_CHANGES_FOUND: `NO; version 0.2 and exact hash unchanged`
+CORE_CHANGES_SINCE_LAST_SYNC: `Contract 0.4 and branch-only Memory Policy V2 migration published; production migration head unchanged.`
+CONTRACT_CHANGES_FOUND: `YES; direct explicit approval, allowlisted model inference, user-global/company scopes, and immediate audited delete are approved on A106 branch.`
 ASSISTANT_API_CONTRACT_CHANGES_FOUND: `NO; exactly eight read-only tools remain approved`
-INCOMPATIBLE_CHANGES_FOUND: `NO`
-OWNER_TASK_OVERRIDE: `The owner explicitly supplied TZ-A105; core TASK_NUMBERING contains only A100-A103, so the registry gap is recorded and core-owned files remain untouched.`
-SYNC_STATUS: `A105_SUMMARY_PASS_MEMORY_SCHEMA_PROPOSAL_REQUIRED`
-SYNC_BLOCKER: `Real memory mutation QA is blocked until Core approves the memory schema/RLS and local write validation.`
-NEXT_SAFE_ACTION: `Review 2026-07-assistant-memory-schema-v1.md; do not apply migration, enable production memory, merge, rebase or deploy.`
+INCOMPATIBLE_CHANGES_FOUND: `NO for the implemented Contract 0.4 branch-only runtime.`
+OWNER_TASK_OVERRIDE: `OWNER_ACCEPTANCE PASS; candidate-first remains superseded; isolated name-memory instability is deferred as a non-blocking UX/memory hardening backlog item.`
+SYNC_STATUS: `A106_COMPLETE_OWNER_ACCEPTANCE_PASS`
+SYNC_BLOCKER: `NONE_FOR_SELECTIVE_A106_COMMIT_AND_PUSH`
+NEXT_SAFE_ACTION: `Push the selective A106 delivery to origin/assistant-v1; do not merge or deploy; do not start A107 until the Core QA Dataset is ready.`
 
 ## Reviewed core sources
 
@@ -65,3 +65,39 @@ After `git fetch origin`, Core commit `350d9572833bdc0b3d93fec7958fa2b04aae856e`
 Conversation summary and unresolved clarification use existing chat message metadata and need no schema change. The current long-term memory table is insufficient for confirmed lifecycle/provenance and lacks tracked authenticated-user RLS policies while the route uses service role. Per A105 and contract 0.2, no migration or real memory mutation was attempted. A contract proposal was created, and the local prototype is disabled by default and always disabled in production.
 
 Mocked memory acceptance is 26/26; prior conversation and read-only suites remain 20/20 and 24/24. Typecheck/build/diff checks pass. A105 produced zero OpenAI calls, Test1 DB writes, ERP writes, production changes, merges, rebases or deploys. Exactly seven `TZ-A105` audit files remain uncommitted.
+
+## A106 compatibility and automated result
+
+After `git fetch origin`, Core commit `2cb147dee0a19ec77f81f7387e1d407ffdacc396`, contract 0.3/hash above, `CORE_LIVE_STATE.md`, `TASK_NUMBERING.md`, and `TZ-166.md` were read with `git show`. No merge or rebase occurred. The exact isolated branch ref is `gsglkmudcwkdetqtocae`; production ref `bhsemlvmkikpntabctml` was not used by the data-plane runtime.
+
+Core's branch bootstrap and memory contract are compatible with the A105 architecture. Summary/unresolved state remains server-owned chat message metadata. Confirmed memory now uses first-class lifecycle/provenance columns and database triggers/events. Runtime database access is request-scoped user JWT; service-role is not used by the A106 assistant query/thread/message/memory paths.
+
+Real JWT legacy-chat security gate passed 8/8. Real A106 acceptance passed 20/20, including reload, independent session, cross-thread isolation, candidate/approve/reject, new-thread retrieval, expiry, delete event, cross-user/company denial, scope spoof denial, and ERP-write denial. The A106 context window now uses one `RECENT_MESSAGES_LIMIT=60`: 59 prior user/final-assistant messages plus current, with older messages summarized and memory/entity/system context separate. The 80-message mocked regression passed 21/21 and verified the assistant can see its own prior final answer and receives only compact structured tool results. Read-only and mocked-memory regressions remain 24/24 and 26/26. Typecheck and build pass; the build retains the known Supabase Realtime dynamic-dependency warning.
+
+Only branch QA chats/messages/memories/events changed during the earlier acceptance. Production connections/writes, ERP mutations, merge, rebase, and deploy are all 0. Automated acceptance made 0 OpenAI calls; the earlier owner-approved REAL handoff made exactly one successful preflight call to requested/effective `gpt-5.6-terra` with reasoning effort `medium`. After the replacement owner policy exposed the compatibility gate, both local ports 3106 and 3107 are stopped so the obsolete candidate-first behavior is not presented for acceptance. Service-role remains absent. Exactly nine audit artifacts remain outside selective Git staging under `audit-output/TZ-A106/`.
+
+The Supabase security advisor reports pre-existing branch-wide findings outside A106 (including RLS-disabled public tables and legacy security-definer surfaces). No unrelated schema change was made. Targeted A106 tables have RLS enabled and passed real JWT isolation. Broader advisor remediation remains a separate Core prerequisite for production review.
+
+Final A106 closure, selective commit `feat(assistant): validate confirmed memory in isolated branch`, and push remain pending the owner's explicit browser result.
+
+## A106 owner memory-policy correction gate
+
+On 2026-07-16 the owner replaced candidate-first memory with immediate approval
+for explicit remember commands, model-inferred durable memory, scoped immediate
+forget/delete, and separate user-global/company/thread scopes. Fresh sync against
+`origin/copilot-v1` commit `8fdc5ac7686106e79211b064c1e1ad804aaaa341`
+found Contract 0.3 unchanged. It explicitly forbids automatic approval and
+company-wide memory and requires a new Core contract version before activation.
+
+No runtime or database mutation change was made under the contradictory
+contract. Proposal
+`contract-proposals/assistant/2026-07-16-owner-memory-behavior-v2.md` requests
+Contract 0.4 plus the required atomic direct-approved insert, provenance,
+user/company scope, RLS, deletion, audit, and model-decision boundaries.
+Production, schema, ERP data, merge, rebase, and deploy remain unchanged.
+
+## A106 Contract 0.4 resync and result
+
+After `git fetch origin`, Core commit `ffe53b08d7220ef91eae19924b34434e1bd6f02a`, Contract 0.4, Core report `TZ-169.md`, and migration `20260716125205_assistant_memory_policy_v2.sql` were read with `git show`; no merge or rebase occurred. Core confirms that migration only on branch `gsglkmudcwkdetqtocae`, with production on the preceding migration head.
+
+The Assistant runtime now follows Memory Policy V2. Real JWT branch acceptance passed 10/10, including direct approved explicit memory without candidates, real-model inference on the six-type allowlist at confidence `>=0.850`, user-global retrieval across new/existing chats, immediate audited delete, A/B isolation, and the ordinary-user company-role denial. Conversation regression is 21/21, read-only regression is 24/24, typecheck/build pass, and the model/tool invariants remain `gpt-5.6-terra`, medium reasoning, Responses `store:false`, recent limit 60, exactly eight read-only ERP tools, ERP writes 0, service role 0, and production connections 0. A106 is ready for repeated manual owner acceptance but remains open and uncommitted.

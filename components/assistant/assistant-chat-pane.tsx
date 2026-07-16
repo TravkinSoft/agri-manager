@@ -227,6 +227,15 @@ type QueryResponsePayload = {
       errorMessage?: string | null;
       missingEnv?: string[];
     };
+    memoryWrite?: {
+      action?: "save" | "delete" | "noop";
+      savedCount?: number;
+      deletedCount?: number;
+      provenance?: string | null;
+      ids?: string[];
+      skippedReason?: string | null;
+      warning?: string | null;
+    };
   };
   debug?: AssistantDebugMetadata;
   error?: string;
@@ -925,6 +934,8 @@ export function AssistantChatPane({
   const [memoryLoaded, setMemoryLoaded] = useState(false);
   const [memoryBusyId, setMemoryBusyId] = useState<string | null>(null);
   const [memoryWarning, setMemoryWarning] = useState<string | null>(null);
+  const memoryLoadAbortRef = useRef<AbortController | null>(null);
+  const memoryLoadSequenceRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const wasOpenRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
@@ -1718,6 +1729,13 @@ export function AssistantChatPane({
       const draftCards: AssistantDraftCard[] = [];
       const toolActivity = Array.isArray(payload.toolActivity) ? payload.toolActivity : [];
       setLastMode(mode);
+      const memoryWrite = meta.memoryWrite;
+      if (
+        (memoryWrite?.action === "save" && Number(memoryWrite.savedCount || 0) > 0) ||
+        (memoryWrite?.action === "delete" && Number(memoryWrite.deletedCount || 0) > 0)
+      ) {
+        window.dispatchEvent(new CustomEvent("travkin:assistant-memory-changed"));
+      }
 
       const responseRenderStartedAt = typeof window !== "undefined" && window.performance ? window.performance.now() : Date.now();
       const answer = String(payload.response || "").trim() || "По системе сейчас данных по этому запросу не найдено.";
@@ -1863,6 +1881,12 @@ export function AssistantChatPane({
 
   const loadPersonalMemory = useCallback(async () => {
     if (!resolvedCompanyId || disabledReason) return;
+    const sequence = memoryLoadSequenceRef.current + 1;
+    memoryLoadSequenceRef.current = sequence;
+    memoryLoadAbortRef.current?.abort();
+    const controller = new AbortController();
+    memoryLoadAbortRef.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 10_000);
     setMemoryLoading(true);
     setMemoryWarning(null);
     try {
@@ -1871,6 +1895,7 @@ export function AssistantChatPane({
         method: "GET",
         headers,
         cache: "no-store",
+        signal: controller.signal,
       });
       const payload = (await response.json().catch(() => ({}))) as {
         memories?: AssistantMemoryRecord[];
@@ -1879,13 +1904,27 @@ export function AssistantChatPane({
         code?: string;
       };
       if (!response.ok) throw new Error(mapAssistantError(payload.code || null, payload.error || null));
-      setMemoryRecords(Array.isArray(payload.memories) ? payload.memories.filter((item) => item.active !== false) : []);
-      setMemoryWarning(payload.warning || null);
-      setMemoryLoaded(true);
+      if (sequence === memoryLoadSequenceRef.current) {
+        setMemoryRecords(Array.isArray(payload.memories) ? payload.memories.filter((item) => item.active !== false) : []);
+        setMemoryWarning(payload.warning || null);
+      }
     } catch (error) {
-      setMemoryWarning(error instanceof Error ? error.message : "Не удалось загрузить память ассиста.");
+      if (sequence === memoryLoadSequenceRef.current) {
+        setMemoryWarning(
+          error instanceof DOMException && error.name === "AbortError"
+            ? "Не удалось загрузить память: сервер не ответил за 10 секунд."
+            : error instanceof Error
+              ? error.message
+              : "Не удалось загрузить память ассистента."
+        );
+      }
     } finally {
-      setMemoryLoading(false);
+      window.clearTimeout(timeoutId);
+      if (sequence === memoryLoadSequenceRef.current) {
+        setMemoryLoaded(true);
+        setMemoryLoading(false);
+        memoryLoadAbortRef.current = null;
+      }
     }
   }, [disabledReason, resolvedCompanyId]);
 
@@ -1899,41 +1938,49 @@ export function AssistantChatPane({
       setMemoryWarning(null);
       try {
         const headers = await getAuthHeaders();
-        const response = await fetch("/api/assistant/memory", {
-          method: "DELETE",
-          headers,
-          body: JSON.stringify({
-            companyId: resolvedCompanyId,
-            memoryId,
-            all,
-          }),
-        });
-        const payload = (await response.json().catch(() => ({}))) as {
-          deactivated?: number;
-          warning?: string | null;
-          error?: string;
-          code?: string;
-        };
-        if (!response.ok) throw new Error(mapAssistantError(payload.code || null, payload.error || null));
+        const ids = all ? memoryRecords.map((memory) => memory.id) : memoryId ? [memoryId] : [];
+        for (const id of ids) {
+          const response = await fetch("/api/assistant/memory", {
+            method: "DELETE",
+            headers,
+            body: JSON.stringify({ companyId: resolvedCompanyId, memoryId: id, confirmed: true }),
+          });
+          const payload = (await response.json().catch(() => ({}))) as {
+            error?: string;
+            code?: string;
+          };
+          if (!response.ok) throw new Error(mapAssistantError(payload.code || null, payload.error || null));
+        }
         if (all) {
           setMemoryRecords([]);
         } else if (memoryId) {
           setMemoryRecords((prev) => prev.filter((item) => item.id !== memoryId));
         }
-        setMemoryWarning(payload.warning || null);
       } catch (error) {
         setMemoryWarning(error instanceof Error ? error.message : "Не удалось обновить память ассиста.");
       } finally {
         setMemoryBusyId(null);
       }
     },
-    [disabledReason, memoryBusyId, memoryRecords.length, resolvedCompanyId]
+    [disabledReason, memoryBusyId, memoryRecords, resolvedCompanyId]
   );
 
   useEffect(() => {
     if (activeTab !== "settings" || memoryLoaded || memoryLoading) return;
     void loadPersonalMemory();
   }, [activeTab, loadPersonalMemory, memoryLoaded, memoryLoading]);
+
+  useEffect(() => {
+    const onMemoryChanged = () => {
+      setMemoryLoaded(false);
+      void loadPersonalMemory();
+    };
+    window.addEventListener("travkin:assistant-memory-changed", onMemoryChanged);
+    return () => {
+      window.removeEventListener("travkin:assistant-memory-changed", onMemoryChanged);
+      memoryLoadAbortRef.current?.abort();
+    };
+  }, [loadPersonalMemory]);
 
   useEffect(() => {
     window.dispatchEvent(

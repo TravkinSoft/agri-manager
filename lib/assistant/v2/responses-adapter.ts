@@ -11,6 +11,7 @@ export type RuntimeModelRequest = {
   tools: PlannerToolSchema[];
   toolChoice: "auto" | "none";
   maxOutputTokens: number;
+  reasoningEffort?: "low" | "medium" | "high";
   fetchImpl: typeof fetch;
   timeoutMs?: number;
 };
@@ -30,6 +31,15 @@ export type RuntimeModelResponse = {
 function clean(value: unknown): string | null {
   const text = String(value ?? "").trim();
   return text.length ? text : null;
+}
+
+function openAiBaseUrl(): string {
+  const configured = clean(process.env.ASSISTANT_OPENAI_BASE_URL);
+  const localA106Mock = process.env.NODE_ENV !== "production" &&
+    process.env.A106_BRANCH_REF === "gsglkmudcwkdetqtocae" &&
+    configured &&
+    /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/i.test(configured);
+  return localA106Mock ? configured.replace(/\/$/, "") : "https://api.openai.com";
 }
 
 function responsesInstructions(messages: Array<Record<string, unknown>>): string | undefined {
@@ -101,6 +111,7 @@ export function buildResponsesRequestBody(params: Omit<RuntimeModelRequest, "fet
     instructions: responsesInstructions(params.messages),
     input: toResponsesInput(params.messages),
     ...(tools.length ? { tools, tool_choice: params.toolChoice } : {}),
+    ...(params.reasoningEffort ? { reasoning: { effort: params.reasoningEffort } } : {}),
     max_output_tokens: params.maxOutputTokens,
     store: false,
   };
@@ -162,8 +173,8 @@ export async function requestRuntimeModel(params: RuntimeModelRequest): Promise<
   const body = params.mode === "responses_v2"
     ? buildResponsesRequestBody(params)
     : buildOpenAiChatCompletionBody({
-        model: params.model,
-        temperature: params.temperature,
+      model: params.model,
+      temperature: params.temperature,
         messages: params.messages,
         tools: params.tools,
         toolChoice: params.toolChoice,
@@ -173,7 +184,7 @@ export async function requestRuntimeModel(params: RuntimeModelRequest): Promise<
   const timeout = setTimeout(() => controller.abort(), Math.max(1, params.timeoutMs ?? 45_000));
   let response: Response;
   try {
-    response = await params.fetchImpl(`https://api.openai.com${endpoint}`, {
+    response = await params.fetchImpl(`${openAiBaseUrl()}${endpoint}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${params.apiKey}` },
       body: JSON.stringify(body),

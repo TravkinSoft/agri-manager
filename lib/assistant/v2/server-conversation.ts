@@ -10,9 +10,12 @@ import {
   normalizeReadOnlyThreadState,
 } from "@/lib/assistant/v1/conversation";
 import type { ReadOnlyHistoryMessage, ReadOnlyThreadState } from "@/lib/assistant/v1/types";
+import {
+  RECENT_PRIOR_MESSAGES_LIMIT,
+  SUMMARY_REFRESH_MESSAGE_DELTA,
+} from "@/lib/assistant/v2/context-limits";
 
-export const A104_MAX_MEANINGFUL_MESSAGES = 20;
-export const A105_SUMMARY_REFRESH_MESSAGE_DELTA = 4;
+export { RECENT_MESSAGES_LIMIT } from "@/lib/assistant/v2/context-limits";
 
 export type AssistantConversationSummary = {
   version: 1;
@@ -87,6 +90,11 @@ function clean(value: unknown, max = 4_000): string | null {
   return text.length > max ? text.slice(0, max) : text;
 }
 
+function verbatimMessageContent(value: unknown): string | null {
+  const text = String(value ?? "");
+  return text.trim().length ? text : null;
+}
+
 function unique(values: Array<string | null>, limit = 8): string[] {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value)))).slice(0, limit);
 }
@@ -158,7 +166,7 @@ function buildConversationSummary(params: {
   const materialTopicChange = classifyTopics(newlyCovered).some((topic) => !params.previous?.topics.includes(topic));
   if (
     params.previous &&
-    newlyCovered.length < A105_SUMMARY_REFRESH_MESSAGE_DELTA &&
+    newlyCovered.length < SUMMARY_REFRESH_MESSAGE_DELTA &&
     !materialTopicChange &&
     params.previous.coveredUntilMessageId &&
     coveredIds.has(params.previous.coveredUntilMessageId)
@@ -287,7 +295,7 @@ function structuredStateFromMessages(
 function isMeaningfulMessage(message: AssistantThreadMessageRecord, currentUserMessageId: string): boolean {
   if (message.id === currentUserMessageId) return false;
   if (message.role !== "user" && message.role !== "assistant") return false;
-  const content = clean(message.content);
+  const content = verbatimMessageContent(message.content);
   if (!content) return false;
   const metadata = message.metadata || {};
   if (
@@ -303,11 +311,28 @@ function isMeaningfulMessage(message: AssistantThreadMessageRecord, currentUserM
   return true;
 }
 
+function referencesForgottenMemory(message: AssistantThreadMessageRecord, forgottenMemoryIds: Set<string>): boolean {
+  if (!forgottenMemoryIds.size || message.role !== "assistant") return false;
+  const policy = message.metadata?.assistant_memory_policy_v2;
+  if (!policy || typeof policy !== "object") return false;
+  const ids = (policy as Record<string, unknown>).memory_ids;
+  return Array.isArray(ids) && ids.some((id) => forgottenMemoryIds.has(String(id)));
+}
+
+function containsForgottenTerm(message: AssistantThreadMessageRecord, forgottenTerms: string[]): boolean {
+  if (!forgottenTerms.length) return false;
+  const content = message.content.toLocaleLowerCase("ru-RU");
+  return forgottenTerms.some((term) => content.includes(term.toLocaleLowerCase("ru-RU")));
+}
+
 export function buildServerConversationV2(params: {
   threadId: string;
   messages: AssistantThreadMessageRecord[];
   currentUserMessageId: string;
   verifiedUiContext: AssistantUiContext;
+  forgottenSourceMessageIds?: string[];
+  forgottenMemoryIds?: string[];
+  forgottenTerms?: string[];
 }): ServerConversationV2 {
   const previousState = structuredStateFromMessages(params.messages, params.threadId);
   const state: ReadOnlyThreadState = {
@@ -320,13 +345,20 @@ export function buildServerConversationV2(params: {
     selectedCropStructureLineId:
       params.verifiedUiContext.selectedCropStructureSectionId || previousState.selectedCropStructureLineId,
   };
+  const forgottenSourceMessageIds = new Set(params.forgottenSourceMessageIds || []);
+  const forgottenMemoryIds = new Set(params.forgottenMemoryIds || []);
+  const forgottenTerms = params.forgottenTerms || [];
   const meaningful = params.messages.filter((message) =>
+    !forgottenSourceMessageIds.has(message.id) &&
+    !referencesForgottenMemory(message, forgottenMemoryIds) &&
+    !containsForgottenTerm(message, forgottenTerms) &&
     isMeaningfulMessage(message, params.currentUserMessageId)
   );
-  const maxHistory = A104_MAX_MEANINGFUL_MESSAGES - 1;
-  const selected = meaningful.slice(-maxHistory);
-  const older = meaningful.slice(0, Math.max(0, meaningful.length - maxHistory));
-  const previousSummary = latestStoredSummary(params.messages, params.threadId);
+  const selected = meaningful.slice(-RECENT_PRIOR_MESSAGES_LIMIT);
+  const older = meaningful.slice(0, Math.max(0, meaningful.length - RECENT_PRIOR_MESSAGES_LIMIT));
+  const previousSummary = forgottenSourceMessageIds.size || forgottenMemoryIds.size || forgottenTerms.length
+    ? null
+    : latestStoredSummary(params.messages, params.threadId);
   const summary = buildConversationSummary({
     threadId: params.threadId,
     olderMessages: older,
@@ -335,9 +367,9 @@ export function buildServerConversationV2(params: {
   });
   const unresolvedQuestion = latestStoredUnresolvedQuestion(params.messages, params.threadId);
   return {
-    history: selected.map((message) => ({ role: message.role, content: clean(message.content) || "" })),
+    history: selected.map((message) => ({ role: message.role, content: verbatimMessageContent(message.content) || "" })),
     state,
-    historyTruncated: meaningful.length > maxHistory,
+    historyTruncated: meaningful.length > RECENT_PRIOR_MESSAGES_LIMIT,
     meaningfulMessageCount: meaningful.length,
     excludedMessageCount: params.messages.length - meaningful.length - 1,
     summary,
@@ -454,6 +486,9 @@ export async function loadServerConversationV2(params: {
   threadId: string;
   currentUserMessageId: string;
   verifiedUiContext: AssistantUiContext;
+  forgottenSourceMessageIds?: string[];
+  forgottenMemoryIds?: string[];
+  forgottenTerms?: string[];
 }): Promise<ServerConversationV2> {
   const messages = await listAssistantThreadMessages({
     supabase: params.supabase,
@@ -467,5 +502,8 @@ export async function loadServerConversationV2(params: {
     messages,
     currentUserMessageId: params.currentUserMessageId,
     verifiedUiContext: params.verifiedUiContext,
+    forgottenSourceMessageIds: params.forgottenSourceMessageIds,
+    forgottenMemoryIds: params.forgottenMemoryIds,
+    forgottenTerms: params.forgottenTerms,
   });
 }

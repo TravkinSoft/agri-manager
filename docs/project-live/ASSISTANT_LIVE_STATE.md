@@ -1,13 +1,13 @@
 # Assistant Live State
 
-LAST_UPDATED: `2026-07-14`
-STATUS: `A105_SUMMARY_PASS_CONFIRMED_MEMORY_LOCAL_PROTOTYPE`
+LAST_UPDATED: `2026-07-17`
+STATUS: `A106_COMPLETE_OWNER_ACCEPTANCE_PASS`
 BRANCH: `assistant-v1`
-BASE_ASSISTANT_COMMIT: `20117c6739f6ebb2c538e33f073822b8eb1985f3`
-CORE_COMMIT_REVIEWED: `350d9572833bdc0b3d93fec7958fa2b04aae856e`
-CONTRACT_VERSION_REVIEWED: `0.2`
-ALLOWED_MODE: `LOCAL_READ_ONLY_DEVELOPMENT_AND_VALIDATION`
-WRITE_CAPABILITY: `NOT_APPROVED_AND_NOT_EXPOSED`
+BASE_ASSISTANT_COMMIT: `b22f765583b2cd556a29b9e25c332561f19dd262`
+CORE_COMMIT_REVIEWED: `ffe53b08d7220ef91eae19924b34434e1bd6f02a`
+CONTRACT_VERSION_REVIEWED: `0.4`
+ALLOWED_MODE: `ISOLATED_BRANCH_MEMORY_ACCEPTANCE_AND_LOCAL_OWNER_VALIDATION`
+WRITE_CAPABILITY: `NON_PRODUCTION_ASSISTANT_QA_ONLY`
 
 RUNTIME: `ASSISTANT_A104_SERVER_CONVERSATION_V2`
 CONVERSATION_HISTORY: `SERVER_VERIFIED_CURRENT_THREAD_MAX_20_USER_ASSISTANT_MESSAGES`
@@ -21,7 +21,7 @@ NAVIGATION_ACTIONS: `NOT_EXPOSED_OR_EXECUTED`
 DRAFT_CARDS: `NOT_GENERATED_OR_CONFIRMABLE`
 LEGACY_CONFIRM_DRAFT: `UNREACHABLE_FROM_ASSISTANT_V1`
 KB_DELETE: `UNREACHABLE_FROM_ASSISTANT_V1`
-DATABASE_SCHEMA: `UNCHANGED`
+DATABASE_SCHEMA: `CORE_BOOTSTRAPPED_BRANCH_135_OF_135_NO_ASSISTANT_LOCAL_MIGRATION`
 PRODUCTION: `NOT_CALLED_OR_CHANGED`
 
 A105_SUMMARY: `STRUCTURED_SERVER_METADATA_AFTER_20_MESSAGES`
@@ -30,9 +30,17 @@ A105_UNRESOLVED: `THREAD_SCOPED_OPEN_RESOLVED_CANCELLED`
 A105_CONFIRMED_MEMORY: `LOCAL_PROTOTYPE_DISABLED_BY_DEFAULT_AND_ALWAYS_DISABLED_IN_PRODUCTION`
 A105_SCHEMA: `INSUFFICIENT; CONTRACT_PROPOSAL_ONLY; NO MIGRATION`
 
+A106_TEST_BRANCH: `gsglkmudcwkdetqtocae`
+A106_RUNTIME_CLIENT: `REQUEST_SCOPED_USER_JWT_NO_SERVICE_ROLE`
+A106_MEMORY_SCHEMA: `FIRST_CLASS_LIFECYCLE_AND_PROVENANCE_ACTIVE_IN_TEST_BRANCH`
+A106_AUTOMATED_ACCEPTANCE: `MEMORY_POLICY_V2_REAL_10_OF_10_PASS`
+A106_OWNER_ACCEPTANCE: `PASS`
+A106_KNOWN_ISSUE: `NAME_MEMORY_MAY_BE_UNSTABLE_IN_ISOLATED_SCENARIOS_DEFERRED_TO_UX_MEMORY_HARDENING`
+A107_READINESS: `WAITING_FOR_CORE_QA_DATASET`
+
 ## A101 runtime
 
-The main `/api/assistant/query` path now uses an isolated read-only runtime. It builds one bounded model conversation from constant rules, server-authenticated actor/company/season/page context, structured focus for the verified thread, at most 19 prior user/assistant messages, and the current user message. The current message plus retained history never exceeds 20 conversation messages; the complete initial input is additionally bounded to 24,000 characters. Client `system` hints and messages with a different thread scope are excluded. History is context only and never a source of live ERP facts.
+The main `/api/assistant/query` path uses an isolated read-only runtime. It builds one bounded model conversation from constant rules, server-authenticated actor/company/season/page context, structured focus for the verified thread, at most 59 prior user/final-assistant messages, and the current user message. The current message plus retained verbatim history never exceeds `RECENT_MESSAGES_LIMIT=60`; summary, confirmed memory, unresolved state, and entity focus are loaded separately. Client `system` hints and messages with a different thread scope are excluded. History is context only and never a source of live ERP facts.
 
 The model receives exactly these tools:
 
@@ -114,16 +122,38 @@ The main panel no longer sends history or thread state. `/api/assistant/query` v
 
 Local development defaults to `responses_v2`; production continues to default to the physically preserved `chat_completions_legacy` adapter. Responses uses `POST /v1/responses` with `store:false`, explicit instructions, ordered input, exact eight function tools, call IDs/results, final text, usage/cached tokens, latency, request ID, and model/error identity. There is no silent adapter or model fallback. The unavailable configured `gpt-5.3` stayed unchanged; real QA used an explicit process-only `gpt-5.4-mini` override.
 
-Supabase remains the conversation source of truth. A separate real probe confirmed linked `previous_response_id` continuity and explicit invalid-ID failure, but provider state is not stored by the application. History is capped at 19 prior meaningful user/assistant messages plus current input; system/tool/debug/technical/client-hint/injection/secret-like rows are excluded. `history_truncated`, stable-prefix hash, dynamic-context size, input/cached tokens, history count, endpoint, request ID, and model identity are recorded. A nullable summary slot is reserved for A105.
+Supabase remains the conversation source of truth. A separate real probe confirmed linked `previous_response_id` continuity and explicit invalid-ID failure, but provider state is not stored by the application. A106 supersedes the original A104 bound: history is capped at 59 prior meaningful user/final-assistant messages plus current input, for `RECENT_MESSAGES_LIMIT=60`; system/tool/debug/technical/client-hint/injection/secret-like rows are excluded. `history_truncated`, stable-prefix hash, dynamic-context size, input/cached tokens, history count, endpoint, request ID, and model identity are recorded. Older messages feed the server-owned summary.
 
 Structured state includes field ID/label, warehouse ID, operation ID, crop-structure-line ID, last intent, last successful tool, and unresolved question. It comes only from matching server metadata, company/RLS-verified UI IDs, or current tool output. Real local acceptance passed 12/12 and mocked acceptance 20/20; the legacy suite remains 24/24. ERP/business writes, foreign rows, schema/migrations, production mutations, merge, rebase, and deploy were zero. Local chat persistence created only the QA user's own test threads/messages.
 
 ## A105 summary and confirmed memory V1
 
-Long threads now produce a versioned structured summary in server-owned assistant message metadata after the transcript exceeds 20 meaningful messages. The model still receives the newest 19 prior messages verbatim plus the current message. Summary refresh is bounded to the initial threshold, four newly covered messages, or a material topic change. Secret-like, technical, system, tool, debug and injection rows are excluded. The summary and structured unresolved-question state are added only by the server context builder and survive reload without client history/state input.
+Long threads produce a versioned structured summary in server-owned assistant message metadata once the transcript exceeds the 60-message recent window. The model receives the newest 59 prior user/final-assistant messages verbatim plus the current message. Summary refresh occurs whenever another meaningful message leaves that window. Secret-like, technical, system, tool, debug and injection rows are excluded. The summary and structured unresolved-question state are added only by the server context builder and survive reload without client history/state input.
 
 Unresolved questions are separately represented with expected clarification, related field/warehouse/operation IDs, appeared time, and open/resolved/cancelled status. The record is keyed to the verified thread and is not inherited by a new thread.
 
 The tracked `assistant_memories` table is insufficient for production confirmed memory and has no tracked authenticated-user RLS policies. A contract proposal requests first-class lifecycle/provenance columns and RLS. No migration was created or applied. The local compatibility API is off by default, forced off in production, user-scope only, candidate-first, confirmation-gated, capped to five approved/unexpired relevant items, and audited on delete. Company memory remains disabled.
 
 Mocked A105 acceptance is 26/26; A104 regression is 20/20; A101 read-only regression is 24/24. Typecheck and build pass. A105 made no OpenAI call, Test1 DB write, ERP write, schema change, production change, merge, rebase or deploy. Real memory QA is intentionally blocked until Core approves the schema/RLS and local memory-write validation.
+
+## A106 real memory acceptance in isolated branch
+
+Core commit `2cb147dee0a19ec77f81f7387e1d407ffdacc396`, Integration Contract `0.3`, `TASK_NUMBERING.md`, and Core report `TZ-166.md` were reviewed with `git show` after `git fetch origin`. No merge or rebase occurred. Core reports the development branch `assistant-memory-a106` (`gsglkmudcwkdetqtocae`) as bootstrapped 135/135 and healthy, with first-class memory lifecycle/provenance columns, RLS, authenticated grants, triggers, and immutable memory events.
+
+Two ordinary active agronomist QA users were created only in the development branch and belong to different companies. All runtime and acceptance operations use their request-scoped JWTs. The assistant memory, query, thread, and message routes no longer instantiate a service-role client. Memory runtime activation is additionally pinned to the exact A106 branch ref and cannot be enabled against the production ref or under `NODE_ENV=production`.
+
+The mandatory legacy chat-policy gate passed 8/8 real JWT probes. Restrictive owner/company policies constrain the inherited permissive policies: own chat/message reads work, while cross-user read, message insert, chat update, company spoofing, and user spoofing return denied or zero rows.
+
+Real acceptance passed 20/20. It persisted a conversation longer than 20 messages, created and reloaded its summary, restored it from a second authenticated session, opened/resolved an unresolved question, proved cross-thread isolation, created candidate memory without auto-approval, explicitly approved and rejected candidates, selected approved/unexpired memory in a new thread, excluded expired/rejected records, deleted an approved memory, and observed the immutable `memory_deleted` event. User B could not read, approve, or delete user A memory, and company/user/thread spoofing was denied.
+
+The model-facing surface remains exactly eight read-only ERP tools. Operations, warehouses, and inventory transactions were 0 before and after the suite; ERP mutations were 0. Production data-plane connections and writes were 0. No OpenAI key was created. The earlier owner-approved REAL handoff reused only the existing ignored key and passed one Responses preflight with requested/effective `gpt-5.6-terra` and reasoning effort `medium`. After the owner replaced the memory lifecycle, port 3106 was no longer running; it is intentionally not restarted with obsolete candidate-first behavior. The next REAL handoff must wait for Contract 0.4, branch-only schema/RLS support, corrected tests, and a fresh safety preflight.
+
+The Supabase branch-wide security advisor still reports pre-existing findings outside the Assistant memory scope, including public tables with RLS disabled and legacy security-definer views/functions. A106 did not auto-remediate them because the task forbids unrelated schema/ERP changes. The four targeted chat/memory tables have RLS enabled and passed real JWT isolation, but the branch-wide advisor findings must be handled by Core before any broader production-readiness claim.
+
+The earlier automated gates remain evidence for the superseded candidate-first behavior: real memory 20/20, read-only 24/24, conversation 21/21, mocked memory 26/26, typecheck/build PASS. They do not accept the new owner policy. Corrected A106 implementation, new ten-scenario acceptance, REAL handoff, selective commit, and push remain blocked until Core publishes the replacement contract and branch schema/RLS boundary.
+
+## A106 Contract 0.4 current state (supersedes the correction blocker above)
+
+Core commit `ffe53b08d7220ef91eae19924b34434e1bd6f02a` publishes Contract 0.4 and reports migration `20260716125205_assistant_memory_policy_v2.sql` applied only to test branch `gsglkmudcwkdetqtocae`. The Assistant runtime now inserts explicit user memory directly as approved, permits only allowlisted model-inferred user-global memory at confidence `>=0.850`, enforces authorized company roles through branch RLS/triggers, and deletes immediately with immutable audit events. Candidate creation/confirmation is disabled.
+
+Real branch acceptance is 10/10 PASS. The model inference scenario used requested/effective `gpt-5.6-terra` with reasoning effort `medium`; there was no mock or fallback. User-global memory crossed new and existing chats, temporary stock was not saved, deletion took effect everywhere, user B could not see/delete user A memory, and an ordinary agronomist could not create company memory. Candidate delta, ERP writes, service-role use, and production connections were all zero. Read-only regression remains 24/24, conversation/recent-60 regression remains 21/21, typecheck and build pass. A106 remains open only for repeated owner browser acceptance; commit/push/merge/deploy remain unperformed.

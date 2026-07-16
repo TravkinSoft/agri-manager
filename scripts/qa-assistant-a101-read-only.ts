@@ -429,7 +429,7 @@ await scenario("история реально в OpenAI payload", async () => {
   assert.equal(sent.some((message) => message.content === "client system hint"), false);
   assert.equal(sent.filter((message) => message.role === "user" && message.content === "А дальше?").length, 1);
   assert.equal(result.runtimeDiagnostics.historyMessageCount, 2);
-  assert.ok(result.runtimeDiagnostics.conversationMessageCount <= 20);
+  assert.ok(result.runtimeDiagnostics.conversationMessageCount <= 60);
 });
 
 await scenario("все allowlisted tools имеют side_effect=none", () => {

@@ -82,9 +82,12 @@ export type ReadOnlyAssistantV1Input = {
   locale?: "ru" | "kz" | "en" | null;
 };
 
-const PROMPT_UPDATED_AT = "2026-07-13T00:00:00.000Z";
+const PROMPT_UPDATED_AT = "2026-07-16T00:00:00.000Z";
 const MAX_TOOL_CALLS = 4;
 const MAX_MODEL_TURNS = 3;
+const COMPACT_TOOL_ROW_LIMIT = 20;
+const COMPACT_TOOL_FIELD_LIMIT = 16;
+const COMPACT_TOOL_TEXT_LIMIT = 320;
 
 const INTENT_BY_TOOL: Record<ReadOnlyModelToolName, AssistantIntentName> = {
   get_current_context: "company_context",
@@ -335,14 +338,43 @@ function updateThreadState(params: {
   return next;
 }
 
-function toolContent(output: AssistantToolOutput): string {
-  const serialized = JSON.stringify({
-    title: output.title,
-    rows: output.rows,
-    summary: output.summary || null,
-    source: output.source,
+function compactToolValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.length <= COMPACT_TOOL_TEXT_LIMIT
+      ? value
+      : `${value.slice(0, COMPACT_TOOL_TEXT_LIMIT)}...`;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, COMPACT_TOOL_FIELD_LIMIT).map(compactToolValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .slice(0, COMPACT_TOOL_FIELD_LIMIT)
+        .map(([key, nested]) => [key, compactToolValue(nested)])
+    );
+  }
+  return value;
+}
+
+function compactToolRow(row: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(row)
+      .slice(0, COMPACT_TOOL_FIELD_LIMIT)
+      .map(([key, value]) => [key, compactToolValue(value)])
+  );
+}
+
+export function buildCompactToolResultContent(output: AssistantToolOutput): string {
+  const rows = Array.isArray(output.rows) ? output.rows : [];
+  return JSON.stringify({
+    title: compactToolValue(output.title),
+    summary: compactToolValue(output.summary || null),
+    source: compactToolValue(output.source),
+    row_count: rows.length,
+    rows: rows.slice(0, COMPACT_TOOL_ROW_LIMIT).map(compactToolRow),
+    rows_truncated: rows.length > COMPACT_TOOL_ROW_LIMIT,
   });
-  return serialized.length <= 12_000 ? serialized : `${serialized.slice(0, 11_900)}...`;
 }
 
 function usageFrom(value: any): Usage {
@@ -411,7 +443,7 @@ function buildResult(params: {
       configuredModel: params.modelConfig.configuredModel,
       actualModel: params.actualModel,
       settingsSource: params.modelConfig.settingsSource,
-      promptVersion: params.diagnostics.runtimeMode === "responses_v2" ? "a104-conversation-v2" : A101_PROMPT_VERSION,
+      promptVersion: params.diagnostics.runtimeMode === "responses_v2" ? "a106-recent-context-v1" : A101_PROMPT_VERSION,
       promptSource: "code_default",
       promptUpdatedAt: PROMPT_UPDATED_AT,
       requestMode: "model_first",
@@ -616,9 +648,14 @@ export async function runReadOnlyAssistantV1(params: {
       diagnostics,
     });
   }
+  const localMockApiKey = process.env.NODE_ENV !== "production" &&
+    process.env.A106_BRANCH_REF === "gsglkmudcwkdetqtocae" &&
+    /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/i.test(String(process.env.ASSISTANT_OPENAI_BASE_URL || ""))
+      ? process.env.ASSISTANT_LOCAL_MOCK_TOKEN
+      : undefined;
   const apiKey = params.dependencies && Object.prototype.hasOwnProperty.call(params.dependencies, "apiKey")
     ? params.dependencies.apiKey
-    : process.env.OPENAI_API_KEY;
+    : process.env.OPENAI_API_KEY || localMockApiKey;
   if (!clean(apiKey)) {
     return buildResult({
       startedAt,
@@ -674,6 +711,7 @@ export async function runReadOnlyAssistantV1(params: {
       tools: toolSchemas,
       toolChoice: modelToolsEnabled ? "auto" : "none",
       maxOutputTokens: 1_200,
+      reasoningEffort: runtimeMode === "responses_v2" ? modelConfig.reasoningEffort : undefined,
       fetchImpl,
       timeoutMs: params.dependencies?.timeoutMs,
     });
@@ -716,6 +754,9 @@ export async function runReadOnlyAssistantV1(params: {
         missingEnv: [],
       };
       break;
+    }
+    if (runtimeMode === "responses_v2") {
+      diagnostics.effectiveReasoning = modelConfig.reasoningEffort;
     }
 
     const choice = data?.choices?.[0]?.message || {};
@@ -844,7 +885,7 @@ export async function runReadOnlyAssistantV1(params: {
         outputs.push(output);
         nextState = updateThreadState({ previous: nextState, name: rawName, args, output, message });
         toolCalls.push({ tool: rawName, params: args, ok: true, rows: output.rows.length, durationMs: Date.now() - toolStartedAt });
-        messages.push({ role: "tool", tool_call_id: call.id, content: toolContent(output) });
+        messages.push({ role: "tool", tool_call_id: call.id, content: buildCompactToolResultContent(output) });
       } catch (error) {
         toolMs += Date.now() - toolStartedAt;
         if (error instanceof ReadOnlyPolicyError) {

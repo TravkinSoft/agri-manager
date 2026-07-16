@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { getAuthenticatedServerClient } from "@/lib/supabase/server-user";
 import { getAssistantPlatformSettings } from "@/lib/assistant/settings-store";
 import { runReadOnlyAssistantV1 } from "@/lib/assistant/v1/engine";
 import {
   buildAssistantLongTermMemoryContext,
-  isAssistantMemoryV1RuntimeEnabled,
+  extractMemoryDeleteIntent,
+  hasExplicitMemoryIntent,
+  isAssistantMemoryV2RuntimeEnabled,
+  listForgottenUserGlobalMemoryContext,
   type AssistantMemoryContext,
   type AssistantMemoryWriteResult,
 } from "@/lib/assistant/memory-store";
+import { processAssistantMemoryPolicyV2 } from "@/lib/assistant/v2/memory-policy";
 import {
   appendAssistantThreadMessage,
   getAssistantThreadById,
@@ -21,6 +24,8 @@ import {
   verifyAssistantUiContextV2,
 } from "@/lib/assistant/v2/server-conversation";
 import { resolveAssistantRuntimeMode } from "@/lib/assistant/v2/runtime-mode";
+import { RECENT_MESSAGES_LIMIT } from "@/lib/assistant/v2/context-limits";
+import { enforceAssistantGreetingPolicy } from "@/lib/assistant/v2/greeting-policy";
 import type { AssistantDebugMetadata, AssistantDebugSettingsSource } from "@/lib/assistant/debug-types";
 import type { AssistantEngineResult, AssistantNavigationAction } from "@/lib/assistant/engine/types";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
@@ -48,8 +53,17 @@ class AssistantRouteRuntimeError extends Error {
 
 function applyExplicitLocalQaModelOverride(settings: AssistantPlatformSettings): AssistantPlatformSettings {
   const override = asString(process.env.ASSISTANT_LOCAL_QA_MODEL_OVERRIDE);
-  if (!override || process.env.NODE_ENV === "production") return settings;
-  return { ...settings, model: override };
+  const reasoningOverride = asString(process.env.REASONING_EFFORT);
+  const localA106Runtime = process.env.NODE_ENV !== "production" &&
+    process.env.A106_BRANCH_REF === "gsglkmudcwkdetqtocae";
+  if (!localA106Runtime) return settings;
+  return {
+    ...settings,
+    ...(override ? { model: override } : {}),
+    ...(reasoningOverride === "low" || reasoningOverride === "medium" || reasoningOverride === "high"
+      ? { reasoningEffort: reasoningOverride }
+      : {}),
+  };
 }
 
 function asString(value: unknown): string | null {
@@ -758,8 +772,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Thread is required", code: "THREAD_REQUIRED" }, { status: 400 });
     }
 
-    const supabase = getServiceClient();
-    const toolSupabase = getAuthenticatedServerClient(request);
+    const supabase = getAuthenticatedServerClient(request);
+    const toolSupabase = supabase;
     let longTermMemory: AssistantMemoryContext = {
       count: 0,
       contextText: null,
@@ -792,17 +806,6 @@ export async function POST(request: NextRequest) {
       ids: [],
       categories: [],
     };
-    if (isAssistantMemoryV1RuntimeEnabled()) {
-      const memoryStartedAt = Date.now();
-      longTermMemory = await buildAssistantLongTermMemoryContext({
-        supabase,
-        companyId,
-        userId: actor.id,
-        query: requestMessage,
-        limit: 5,
-      });
-      memoryReadMs = Date.now() - memoryStartedAt;
-    }
     const runtimeMode = resolveAssistantRuntimeMode();
     const runtimeContextPayload = await verifyAssistantUiContextV2({
       supabase: toolSupabase,
@@ -840,6 +843,55 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    let memoryWrite: AssistantMemoryWriteResult = {
+      savedCount: 0,
+      deletedCount: 0,
+      skippedReason: "memory_runtime_disabled",
+      warning: null,
+      action: "noop",
+      provenance: null,
+      ids: [],
+    };
+    const explicitMemoryIntent = hasExplicitMemoryIntent(requestMessage);
+    const deleteMemoryIntent = Boolean(extractMemoryDeleteIntent(requestMessage));
+    let memoryWriteMs: number | null = 0;
+    if (isAssistantMemoryV2RuntimeEnabled()) {
+      const memoryWriteStartedAt = Date.now();
+      try {
+        memoryWrite = await processAssistantMemoryPolicyV2({
+          supabase,
+          message: requestMessage,
+          sourceMessageId: persistedUserMessage.id,
+          actor: { companyId, userId: actor.id },
+          settings,
+        });
+      } catch (error) {
+        memoryWrite = {
+          savedCount: 0,
+          deletedCount: 0,
+          skippedReason: "memory_policy_rejected",
+          warning: error instanceof Error ? error.message : "Memory Policy V2 failed closed.",
+          action: "noop",
+          provenance: null,
+          ids: [],
+        };
+      }
+      memoryWriteMs = Date.now() - memoryWriteStartedAt;
+
+      const memoryStartedAt = Date.now();
+      longTermMemory = await buildAssistantLongTermMemoryContext({
+        supabase,
+        companyId,
+        userId: actor.id,
+        query: requestMessage,
+        limit: 12,
+      });
+      memoryReadMs = Date.now() - memoryStartedAt;
+    }
+
+    const forgottenMemoryContext = isAssistantMemoryV2RuntimeEnabled()
+      ? await listForgottenUserGlobalMemoryContext({ supabase, userId: actor.id })
+      : { memoryIds: [], sourceMessageIds: [], terms: [], warning: null };
     const serverConversation = await loadServerConversationV2({
       supabase,
       companyId,
@@ -847,6 +899,9 @@ export async function POST(request: NextRequest) {
       threadId,
       currentUserMessageId: persistedUserMessage.id,
       verifiedUiContext: runtimeContextPayload,
+      forgottenMemoryIds: forgottenMemoryContext.memoryIds,
+      forgottenSourceMessageIds: forgottenMemoryContext.sourceMessageIds,
+      forgottenTerms: forgottenMemoryContext.terms,
     });
     const result = await runReadOnlyAssistantV1({
       supabase: toolSupabase,
@@ -886,13 +941,25 @@ export async function POST(request: NextRequest) {
         status
       );
     }
-    const safeAnswer = sanitizeAssistantAnswer(result.answer);
-    const memoryWrite: AssistantMemoryWriteResult = {
-      savedCount: 0,
-      skippedReason: "async_after_response",
-      warning: null,
-    };
-    const memoryWriteMs: number | null = null;
+    let safeAnswer = sanitizeAssistantAnswer(result.answer);
+    if (explicitMemoryIntent) {
+      const confirmedWrite = memoryWrite.action === "save" &&
+        memoryWrite.savedCount > 0 &&
+        (memoryWrite.ids?.length || 0) === memoryWrite.savedCount;
+      safeAnswer = confirmedWrite
+        ? "Запомнил. Сведения сохранены в личную память и будут доступны во всех ваших чатах."
+        : "Не удалось сохранить это в память.";
+    } else if (deleteMemoryIntent) {
+      safeAnswer = memoryWrite.action === "delete" && (memoryWrite.deletedCount || 0) > 0
+        ? "Удалил указанные сведения из памяти."
+        : "Не удалось удалить это из памяти.";
+    }
+    const greetingPolicyResult = enforceAssistantGreetingPolicy({
+      answer: safeAnswer,
+      currentUserMessage: requestMessage,
+      priorMessageCount: serverConversation.meaningfulMessageCount,
+    });
+    safeAnswer = greetingPolicyResult.answer;
     const responseActions: AssistantActionButton[] = [];
     const responseDraftCards: never[] = [];
     const responseNavigationActions: AssistantNavigationAction[] = [];
@@ -932,15 +999,33 @@ export async function POST(request: NextRequest) {
           read_only_runtime: result.runtimeDiagnostics,
           read_only_performance: result.performance,
           server_conversation_v2: {
+            recent_messages_limit: RECENT_MESSAGES_LIMIT,
+            recent_previous_messages_count: serverConversation.history.length,
+            current_user_message_included: true,
             history_truncated: serverConversation.historyTruncated,
             meaningful_message_count: serverConversation.meaningfulMessageCount,
             excluded_message_count: serverConversation.excludedMessageCount,
             summary: serverConversation.summary,
+            greeting_policy: {
+              prior_message_count: greetingPolicyResult.policy.priorMessageCount,
+              current_message_is_greeting: greetingPolicyResult.policy.currentMessageIsGreeting,
+              greeting_allowed: greetingPolicyResult.policy.greetingAllowed,
+              repeated_greeting_removed: greetingPolicyResult.greetingRemoved,
+            },
           },
           conversation_summary_v1: serverConversation.summary,
           unresolved_question_v1: unresolvedQuestion,
           session_id: threadId,
           assistant_runtime_mode: runtimeMode,
+          assistant_memory_policy_v2: {
+            action: memoryWrite.action || "noop",
+            saved_count: memoryWrite.savedCount,
+            deleted_count: memoryWrite.deletedCount || 0,
+            provenance: memoryWrite.provenance || null,
+            memory_ids: memoryWrite.ids || [],
+            skipped_reason: memoryWrite.skippedReason,
+            warning: memoryWrite.warning,
+          },
           assistant_panel: true,
         },
       });
@@ -1022,6 +1107,12 @@ export async function POST(request: NextRequest) {
         readOnlyRuntime: result.runtimeDiagnostics,
         runtimeMode,
         historyTruncated: serverConversation.historyTruncated,
+        greetingPolicy: {
+          priorMessageCount: greetingPolicyResult.policy.priorMessageCount,
+          currentMessageIsGreeting: greetingPolicyResult.policy.currentMessageIsGreeting,
+          greetingAllowed: greetingPolicyResult.policy.greetingAllowed,
+          repeatedGreetingRemoved: greetingPolicyResult.greetingRemoved,
+        },
         summary: {
           active: Boolean(serverConversation.summary),
           coveredMessageCount: serverConversation.summary?.coveredMessageCount || 0,
@@ -1030,6 +1121,15 @@ export async function POST(request: NextRequest) {
           count: longTermMemory.count,
           categories: longTermMemory.categories,
           ids: longTermMemory.ids,
+        },
+        memoryWrite: {
+          action: memoryWrite.action || "noop",
+          savedCount: memoryWrite.savedCount,
+          deletedCount: memoryWrite.deletedCount || 0,
+          provenance: memoryWrite.provenance || null,
+          ids: memoryWrite.ids || [],
+          skippedReason: memoryWrite.skippedReason,
+          warning: memoryWrite.warning,
         },
         conversationMemorySaved: Boolean(persistedAssistantMessageId),
         prompt: {
