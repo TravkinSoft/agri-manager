@@ -25,6 +25,15 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## Current database state
 
+### TZ-167 isolated RLS and function hardening
+
+- A separate data-less branch `core-security-tz167` (`shwhfrceabafxbmaivzk`) bootstrapped all `135/135` canonical migrations and was deleted after acceptance to stop hourly cost. The protected `assistant-memory-a106` branch was not changed.
+- Six global reference tables now have authenticated read plus active-global-admin-only write policies in the candidate migration. Two internal equipment staging/review tables are denied to ordinary/company roles and available only to the active global-admin process. No artificial company scope was introduced.
+- All 27 public `SECURITY DEFINER` functions have deterministic non-writable search paths in the candidate. `PUBLIC`/anon execute is zero; authenticated execution is limited to five proven session/browser functions; import RPCs are service-role only.
+- The browser treatment-program sync now uses a guarded wrapper: company admin/agronomist/director may sync only their own company, global admin/service role retain authorized access, and cross-company calls are denied.
+- Branch acceptance passed first and second migration apply, `178/178` real-JWT checks, service-role control, typecheck, production build and diff check. Exact apply/rollback previews are in `audit-output/TZ-167/`.
+- Production schema, migration history, Auth, business data, deployment and master were not changed. The new migration requires a separate production preflight, backup and explicit owner approval.
+
 ### TZ-166 canonical history and A106 branch
 
 - Owner-approved metadata repair changed only

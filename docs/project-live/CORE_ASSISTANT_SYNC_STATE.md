@@ -18,6 +18,16 @@ INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
 NEXT_SAFE_ACTION: Start TZ-A106 only on Supabase branch `assistant-memory-a106` (`gsglkmudcwkdetqtocae`). Use user JWT/RLS paths and first prove cross-user and cross-company denial; legacy permissive chat policies are an explicit branch-only acceptance risk. Production memory writes, migration, merge and deploy remain disabled.
 
+## TZ-167 review result
+
+TZ167_ASSISTANT_CHANGES_FOUND: `NO`; `assistant-memory-a106` remained `gsglkmudcwkdetqtocae / ACTIVE_HEALTHY` and was not used for Core security testing.
+TZ167_CORE_IMPACT_FOUND: `YES - branch-tested catalog RLS and function-grant candidate`.
+TZ167_TEST_BRANCH: `core-security-tz167 / shwhfrceabafxbmaivzk / 135 of 135 / DELETED_AFTER_PASS`.
+TZ167_SECURITY_RESULT: `PASS - 8 of 8 RLS, 27 of 27 fixed search_path, PUBLIC execute 0, real JWT 178 of 178`.
+TZ167_PRODUCTION_IMPACT: `NONE`; no production migration, Auth/business-data write, deploy or merge.
+TZ167_ASSISTANT_GATE: `UNCHANGED`; A106 remains isolated to its own branch and Contract 0.3.
+TZ167_ACTION: `SEPARATE_OWNER_APPROVAL_REQUIRED_FOR_PRODUCTION_SECURITY_APPLY`.
+
 ## TZ-166 review result
 
 TZ166_ASSISTANT_CHANGES_FOUND: `NO`; `origin/assistant-v1` remains `b22f765583b2cd556a29b9e25c332561f19dd262`.
