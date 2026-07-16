@@ -1,10 +1,10 @@
 # TravkinFlow Core ↔ Assistant Integration Contract
 
-CONTRACT_VERSION: 0.3
-STATUS: ASSISTANT_MEMORY_SCHEMA_APPROVED
-LAST_UPDATED: 2026-07-14
-COMPATIBILITY: Read-only foundation A100-A104 remains approved. TZ-A105 at assistant commit `b22f765583b2cd556a29b9e25c332561f19dd262` is accepted as a schema-gated prototype and design proposal; its branch is not merged. TZ-A106 may implement the approved memory boundary only in an isolated non-production environment. Production migration, memory writes, merge and deployment are not approved.
-ASSISTANT_ACTION_REQUIRED: Before TZ-A106 real acceptance, create a separate Supabase development branch with owner cost approval, sync this contract, and keep the feature QA-only. The production project `bhsemlvmkikpntabctml` is not a memory test environment.
+CONTRACT_VERSION: 0.4
+STATUS: ASSISTANT_MEMORY_POLICY_V2_BRANCH_ACCEPTED
+LAST_UPDATED: 2026-07-16
+COMPATIBILITY: Read-only foundation A100-A104 and the A106 safety boundary remain approved. Contract 0.4 supersedes only the candidate-first memory behavior from 0.3. The owner-memory-behavior-v2 proposal was reviewed from the local `assistant-v1` worktree because it is not present in `origin/assistant-v1`; no merge or rebase occurred. A106 may sync and continue only against Supabase branch `assistant-memory-a106` (`gsglkmudcwkdetqtocae`). Production memory migration, merge and deployment are not approved.
+ASSISTANT_ACTION_REQUIRED: Sync Contract 0.4 into `assistant-v1`, replace the V1 candidate-first prototype with direct-approved Memory Policy V2, preserve all eight read-only ERP tools and repeat A106 runtime acceptance on the isolated branch. Do not start A107 and do not connect the memory runtime to production project `bhsemlvmkikpntabctml`.
 
 ## Назначение
 
@@ -58,54 +58,56 @@ ASSISTANT_ACTION_REQUIRED: Before TZ-A106 real acceptance, create a separate Sup
 
 Каждый tool обязан иметь `side_effect=none`, использовать server-authenticated actor/company/season context и пользовательский JWT/RLS read path. Любой другой tool закрыт по умолчанию.
 
-## Утверждённая память пользователя V1
+## Утверждённая память V2
 
-TZ-A105 одобрен как архитектурная основа со schema gate. Он не разрешает production writes и не включает assistant-код в core. Утверждены следующие сущности:
+Contract 0.4 утверждает три разных уровня памяти. Они не взаимозаменяемы и не могут автоматически повышать scope.
 
-1. `chats` — существующий разговор, всегда с конкретными `user_id` и `company_id`.
-2. `chat_messages` — сообщения разговора. Резюме и незакрытые вопросы хранятся в версионированном `metadata`, а не в новой дублирующей таблице.
-3. `assistant_memories` — существующая user-scoped таблица памяти. `category`, `memory_key` и `value` остаются каноническим содержимым; lifecycle/provenance дополняются first-class полями.
-4. `assistant_memory_events` — единственная новая таблица: content-free неизменяемая история создания candidate, подтверждения, отклонения и удаления. Общий `audit_log` не используется, потому что он company-visible и не обеспечивает приватность личной памяти.
+1. `USER_GLOBAL` — личная долговременная память одного `user_id`: имя, предпочитаемое обращение, язык, стиль, краткость и устойчивые личные рабочие предпочтения. Она доступна этому пользователю во всех старых и новых чатах и не фильтруется по компании.
+2. `COMPANY` — подтверждённые правила хозяйства, внутренняя терминология и устойчивые особенности процессов. Она доступна только внутри одной `company_id`. Создавать, обновлять и удалять её могут только active `company_admin`, `director`, `is_owner=true` или `global_admin` в своей profile-company; обычный сотрудник не создаёт company-wide истину.
+3. `CONVERSATION` — выбранное поле, текущая тема, незакрытый вопрос и временное состояние. Она хранится в versioned `chat_messages.metadata`, принадлежит одному chat/user/company и не попадает в `assistant_memories`.
 
-Для `assistant_memories` разрешено добавить: `source_message_id`, `created_by`, `approved_by`, `memory_type`, `status`, `approved_at`, `rejected_at`, `expires_at`. Дублирующий `content` не создаётся: используется существующий `value`. Три существующие legacy-записи не backfill-ятся автоматически и не участвуют в approved retrieval, пока их `status` не определён отдельным решением.
+`assistant_memories` остаётся каноническим хранилищем USER_GLOBAL и COMPANY. `category`, `memory_key` и `value` сохраняют бизнес-содержимое; `provenance`, `normalized_fact`, `approval_mode`, `source_message_id`, `confidence` и lifecycle-поля являются first-class provenance. `assistant_memory_events` остаётся content-free неизменяемым аудитом без копирования значения памяти.
 
-Conversation summary хранит только устойчивый контекст разговора и указатель на покрытый диапазон сообщений. Unresolved question хранит вопрос, требуемое уточнение, bounded object IDs, время и состояние `open/resolved/cancelled`. Эти записи принадлежат одному chat/user/company и не являются долгосрочной памятью.
+### USER_EXPLICIT
 
-### Разрешённые типы памяти
+- Явная команда «запомни» создаёт одну атомарную запись сразу со `status=approved` и `active=true`.
+- Candidate и второе подтверждение не создаются.
+- Обязательны `provenance=user_explicit`, собственный `source_message_id`, `created_by`, нормализованный факт и audit event.
+- `approved_by` равен текущему пользователю, `approval_mode=direct_user_explicit`, confidence фиксируется как `1.000`.
 
-- язык общения;
-- краткость ответа;
-- уровень объяснения;
-- предпочитаемый формат;
-- подтверждённая роль пользователя;
-- предпочтение источников;
-- устойчивое правило совместной работы.
+### ASSISTANT_INFERRED
 
-Запрещено запоминать secrets/tokens/passwords, временные складские остатки, живые операции и статусы, неподтверждённые утверждения, данные другого пользователя или компании и любые инструкции, отменяющие ACL, RLS, системные правила или права. Полноценная Knowledge Base вынесена в TZ-A107.
+Автоматически разрешены только устойчивые безопасные типы: `name`, `preferred_address`, `language`, `response_style`, `response_brevity`, `durable_work_preference`. Требуются `provenance=assistant_inferred`, собственный `source_message_id`, короткий `normalized_fact`, audit event и confidence не ниже `0.850`. Это прямой approved insert с `approval_mode=model_inferred`; он не выдаётся за явное пользовательское подтверждение.
 
-### Lifecycle и retrieval
+Автоматически запрещено сохранять живые ERP-факты, остатки склада, статусы операций, текущие площади и числа, временные планы, эмоции, предположения, медицинские/финансовые/иные чувствительные сведения без явной необходимости, пароли/ключи/токены, данные других пользователей и ответы самого ассистента как факты. Эти данные не могут маскироваться под разрешённый тип.
 
-- Любая новая запись сначала имеет `candidate`; модель не может сразу создать `approved`.
-- `approved` допускается только после явного подтверждения текущего пользователя и фиксирует `approved_by/approved_at`.
-- `rejected` и expired записи не попадают в контекст.
-- Пользователь может увидеть и явно удалить только свою память; deletion сохраняет content-free audit event.
-- Retrieval выполняется сервером только по `scope=user + current company_id + current user_id + status=approved + unexpired`, сортируется по свежести и ограничивается пятью строками.
-- Company-wide memory отключена и требует отдельной версии контракта.
+### COMPANY memory
+
+Разрешены только `company_rule`, `company_terminology` и `company_process_preference` с `provenance=company_explicit`. Запись и удаление role-gated; чтение ограничено той же компанией. Global admin не получает право подменить `company_id` из request body: разрешена только его собственная profile-company до отдельного server-selected-context контракта.
+
+### Удаление и retrieval
+
+- Команда «забудь/удали из памяти» удаляет собственную USER_GLOBAL запись немедленно, без второго подтверждения, и создаёт content-free `memory_deleted` event.
+- COMPANY deletion использует тот же company role guard.
+- После удаления факт не используется ни в старых, ни в новых чатах.
+- Runtime retrieval выбирает только `status=approved + active=true + unexpired`; USER_GLOBAL фильтруется по `user_id`, COMPANY — по текущей подтверждённой `company_id`.
+- Активные факты дедуплицируются case-insensitive unique indexes по owner/scope/type/key; обновление не может менять ownership, scope, provenance или source message.
+- V1 candidate/rejected QA-записи помечаются `approval_mode=legacy_v1`, не создаются новым runtime и допускают только удаление.
 
 ### RLS и runtime
 
-- Основной runtime использует request-scoped Supabase client с JWT текущего пользователя. Service role не является допустимым основным runtime памяти.
-- `user_id`, `company_id`, `scope`, `created_by` и approval actor выводятся сервером/Auth; значения из request body не считаются доверенными.
-- SELECT/INSERT/UPDATE/DELETE разрешаются только владельцу в текущей компании. Candidate можно перевести только в `approved` или `rejected`; provenance/content/ownership после создания неизменяемы.
-- `assistant_memory_events` доступна владельцу только для SELECT; события пишет database trigger, прямые client INSERT/UPDATE/DELETE запрещены.
-- Для `chats` и `chat_messages` A106 обязан добавить restrictive user+company policies, потому что live audit TZ-153 обнаружил legacy permissive public policies.
-- Обязательны отрицательные тесты: другой user той же компании, другая компания, anon, spoofed IDs, чужое подтверждение и чужое удаление.
+- Основной runtime использует только request-scoped Supabase client с JWT пользователя. Service role не используется как memory runtime.
+- Trigger выводит actor/company из Auth/profile, запрещает spoofed user/company, прямой candidate insert и provenance/type вне allowlist.
+- Пользователь читает, обновляет и удаляет только свою USER_GLOBAL память. Другой user не видит и не мутирует её даже в той же системе.
+- COMPANY mutation ограничена перечисленными ролями и собственной company; другая компания не видит и не мутирует запись.
+- `assistant_memory_events` разрешена клиенту только для SELECT; INSERT/UPDATE/DELETE выполняет database trigger.
+- Authenticated grant ограничен `SELECT/INSERT/UPDATE/DELETE` для memories и `SELECT` для events; `TRUNCATE`, `TRIGGER` и `REFERENCES` клиенту не выдаются.
 
 ### Разрешение для TZ-A106
 
-Разрешены локальная реализация и реальные записи только в assistant chat/memory tables изолированного non-production контура, только QA-пользователем TravkinFlowTest1 и только для memory scenarios. По-прежнему запрещены ERP/warehouse/operation writes, production migration/deploy, company-wide memory и автоматическое approval.
+Branch-only migration `20260716125205_assistant_memory_policy_v2.sql` применена только к `assistant-memory-a106` (`gsglkmudcwkdetqtocae`). Real JWT acceptance Contract 0.4 прошёл 10/10 плюс company-admin/cross-company guard. A106 разрешено синхронизировать с этим контрактом и продолжить branch-only runtime acceptance.
 
-Выбранный контур — отдельная Supabase development branch от TravkinFlow. На момент TZ-153 branch отсутствует; её создание требует отдельного owner cost confirmation. До создания branch A106 может писать код и тесты, но не выполнять real mutation acceptance.
+Не меняются: восемь read-only ERP tools, Responses API, `store:false`, GPT-5.6 Terra, reasoning medium, лимит 60 сообщений, summary/entity state, запрет ERP writes и production isolation. Production migration, merge, deploy и A107 остаются запрещены.
 
 ## Открытые core P0
 
@@ -147,6 +149,14 @@ A101 не делает эти маршруты безопасными: он то
 После изменения контракта assistant sync останавливает текущую реализацию до подтверждения совместимости. SHA-256 рассчитывается по фактическому файлу при sync и записывается в `ASSISTANT_SYNC_STATE.md`.
 
 ## Changelog
+
+### 0.4 — 2026-07-16
+
+- Candidate-first поведение 0.3 заменено USER_EXPLICIT direct-approved и безопасной allowlist-моделью ASSISTANT_INFERRED.
+- Утверждены отдельные scopes USER_GLOBAL, COMPANY и CONVERSATION; USER_GLOBAL действует во всех чатах одного пользователя независимо от компании.
+- Утверждены немедленное удаление собственной памяти, content-free audit, dedupe и company role guard.
+- Branch-only migration применена и проверена реальными JWT на `assistant-memory-a106`; production не менялась.
+- A106 разрешено продолжить после sync Contract 0.4; A107, merge, deploy и production memory migration не разрешены.
 
 ### 0.3 — 2026-07-14
 

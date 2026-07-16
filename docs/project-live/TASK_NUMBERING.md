@@ -28,7 +28,7 @@
 | TZ-A103 | ASSISTANT | Close A102 findings and pass read-only acceptance | assistant-v1 | DONE | TZ-A102 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A103.md` | `20117c6` |
 | TZ-A104 | ASSISTANT | Server Conversation Runtime V2 | assistant-v1 | DONE | TZ-A103 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A104.md` | `2152b73` |
 | TZ-A105 | ASSISTANT | Conversation Summary, Unresolved Questions & Confirmed Memory Prototype | assistant-v1 | DONE_WITH_SCHEMA_GATE | TZ-A104 | `external: origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A105.md` | `b22f765` |
-| TZ-A106 | ASSISTANT | Memory Schema Implementation & Real Acceptance | assistant-v1 | PLANNED | TZ-A105,TZ-153,TZ-166 | `external: pending` | — |
+| TZ-A106 | ASSISTANT | Memory Schema Implementation & Real Acceptance | assistant-v1 | PLANNED | TZ-A105,TZ-169 | `external: pending` | — |
 | TZ-A107 | ASSISTANT | Full Permission-Aware Knowledge Base | assistant-v1 | PLANNED | TZ-A106 | `external: pending` | — |
 | TZ-142 | DATABASE | Audit partially equivalent legacy migrations | copilot-v1 | DONE | TZ-141 | [task-reports/core/TZ-142.md](task-reports/core/TZ-142.md) | `SELF` |
 | TZ-143 | WAREHOUSE | Warehouse units and batch classes correction plan | copilot-v1 | DONE | TZ-142 | [task-reports/core/TZ-143.md](task-reports/core/TZ-143.md) | `SELF` |
@@ -58,6 +58,7 @@
 | TZ-166 | DATABASE / ASSISTANT GOVERNANCE | Complete canonical migration history and retry branch bootstrap | copilot-v1 | DONE | TZ-165 | [task-reports/core/TZ-166.md](task-reports/core/TZ-166.md) | `SELF` |
 | TZ-167 | DATABASE SECURITY | Harden catalog RLS and SECURITY DEFINER grants in isolated branch | copilot-v1 | DONE | TZ-166 | [task-reports/core/TZ-167.md](task-reports/core/TZ-167.md) | `SELF` |
 | TZ-168 | DATABASE SECURITY | Apply catalog RLS and function hardening in production | copilot-v1 | BLOCKED | TZ-167 | [task-reports/core/TZ-168.md](task-reports/core/TZ-168.md) | `SELF` |
+| TZ-169 | CORE / ASSISTANT GOVERNANCE | Contract 0.4 and branch-only Memory Policy V2 | copilot-v1 | DONE | TZ-A105,TZ-166 | [task-reports/core/TZ-169.md](task-reports/core/TZ-169.md) | `SELF` |
 
 ## Status values
 

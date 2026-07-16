@@ -21,9 +21,19 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | ГЛБД | ALIAS_SOURCE_READ_PATH_READY_LOCAL | Component Model V2 содержит 425 компонентов, 1373 глобальные product links, 24 aliases и 295 sources; company links `0`. ТЗ №152 подключило aliases к существующему поиску и knowledge intake, а sources — к ленивой карточке компонента в `copilot-v1`. 54 заблокированные source-строки отсутствуют в production и не используются. Deploy не выполнялся. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
-| Travkin Assistant | BLOCKED_BY_MIGRATION_HISTORY_RECOVERY | A105 reviewed at `b22f765`; Contract 0.3 still approves only isolated non-production A106. The first `assistant-memory-a106` branch failed while replaying malformed migration-history payloads and was deleted after evidence capture. Production memory writes, migration, merge and deploy remain disabled. |
+| Travkin Assistant | A106_BRANCH_ONLY_READY_CONTRACT_0_4 | Contract 0.4 approves USER_GLOBAL, role-gated COMPANY and chat-local CONVERSATION memory. Memory Policy V2 is applied only to healthy branch `gsglkmudcwkdetqtocae`; real JWT acceptance is 10/10 plus company-admin isolation. Production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-169 Contract 0.4 and branch-only Memory Policy V2
+
+- Contract advanced from `0.3` candidate-first to `0.4` direct-approved behavior. The six safe USER_GLOBAL types are name, preferred address, language, response style, response brevity and durable work preference.
+- COMPANY memory is limited to rules, terminology and stable process preferences. Only an active owner, `company_admin`, `director`, or `global_admin` in the actor's own profile-company can mutate it. Ordinary employees can read same-company memory but cannot create company-wide truth.
+- CONVERSATION state remains chat-local in versioned `chat_messages.metadata`; it is not promoted automatically into long-term memory.
+- Migration `20260716125205_assistant_memory_policy_v2.sql` was applied only to `assistant-memory-a106` (`gsglkmudcwkdetqtocae`). Branch history advanced from `135` to `136`; production history stayed `135` and production still has no `assistant_memory_events` table.
+- Real request-scoped JWT tests passed all `10/10` owner scenarios. Additional checks proved company-admin create/update/delete in its own company, cross-company read/update/delete denial, foreign-company spoof denial, and restoration of the temporary QA role to `agronomist`.
+- The test migration preserves five V1 QA rows as `legacy_v1`; one old candidate remains legacy-only and no new candidate was created. Test memories/chats were cleaned up; content-free audit events remain as branch acceptance evidence.
+- A106 may sync Contract 0.4 and continue only on this branch. A107 has not started. Production schema/data/Auth, ERP data, merge and deployment were not changed.
 
 ### TZ-168 production security apply safe stop
 
@@ -356,12 +366,12 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## Assistant readiness
 
-ASSISTANT_CORE_READINESS: `A106_ISOLATED_BRANCH_READY_WITH_RLS_ACCEPTANCE_GATE`
-ASSISTANT_ALLOWED_MODE: `A106_BRANCH_ONLY_IMPLEMENTATION_AND_REAL_ACCEPTANCE`
-ASSISTANT_ALLOWED_DATA: server-authenticated results of the eight Contract 0.3 read-only tools; own-company own-user chat state; own user-scoped candidate/approved memory in the future isolated A106 environment; code; Project Live; approved architecture text
-ASSISTANT_BLOCKED_AREAS: production memory writes/migration/deployment; company-wide memory; automatic approval; ERP/warehouse/operation writes; generic SQL; Knowledge Base mutations; migration history; RLS bypass; service-role primary memory runtime; contract edits by assistant
+ASSISTANT_CORE_READINESS: `A106_CONTRACT_0_4_BRANCH_ACCEPTED`
+ASSISTANT_ALLOWED_MODE: `A106_BRANCH_ONLY_SYNC_IMPLEMENTATION_AND_RUNTIME_ACCEPTANCE`
+ASSISTANT_ALLOWED_DATA: server-authenticated results of the eight read-only tools; own chat-local conversation state; own USER_GLOBAL approved memory across chats; same-company COMPANY memory with Contract 0.4 role guards; code; Project Live; approved architecture text
+ASSISTANT_BLOCKED_AREAS: production memory writes/migration/deployment; unauthorized company memory; ERP/warehouse/operation writes; generic SQL; Knowledge Base mutations/A107; migration history; RLS bypass; service-role primary memory runtime; contract edits by assistant
 
-Assistant implementation: `A105_DONE_WITH_SCHEMA_GATE` at `b22f765`; local mocked `26/26`, DB/OpenAI/ERP writes `0`. Contract 0.3 approves only the schema and isolated A106 boundary. TZ-166 created healthy branch `gsglkmudcwkdetqtocae`; A106 may now perform branch-only implementation and real JWT/RLS acceptance. Merge/deploy/production writes remain `DISABLED`.
+Assistant implementation: A105 candidate-first prototype at `b22f765` is superseded for memory behavior by Contract 0.4. Branch `gsglkmudcwkdetqtocae` now has Memory Policy V2 and real JWT acceptance. A106 may sync and continue branch-only; merge/deploy/production writes remain `DISABLED`, and A107 remains `NOT_STARTED`.
 
 ## TZ-162 migration dependency audit and replay
 

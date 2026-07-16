@@ -1,22 +1,32 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-16T00:00:00+05:00
+LAST_REVIEW_AT: 2026-07-16T13:30:00+05:00
 CORE_BRANCH: `copilot-v1`
 CORE_COMMIT: `SELF` (previous core commit: `8fdc5ac`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-16T00:00:00+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-16T00:00:00+05:00
-LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A105.md` — conversation summary, unresolved-question metadata and candidate-first memory prototype completed locally; mocked QA `26/26`, DB/OpenAI/ERP writes `0`, real memory acceptance blocked by schema/contract gate.
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-16T13:30:00+05:00
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-16T13:30:00+05:00
+LATEST_ASSISTANT_TASK_REPORT: local untracked `assistant-v1:docs/project-live/task-reports/assistant/TZ-A106.md` — V1 candidate-first branch acceptance exists only in the Assistant worktree and is superseded for memory behavior by Contract 0.4. The latest committed Assistant report remains TZ-A105 at `b22f765`.
 
-ASSISTANT_CHANGES_FOUND: YES — TZ-A105 adds local-only summary/unresolved-question/memory lifecycle prototypes and requests an additive schema/RLS contract. Core/schema/production were not changed by the Assistant branch.
-CORE_IMPACT_FOUND: YES — Core must approve storage ownership, RLS, non-production acceptance environment and the only permitted memory write boundary.
-INTEGRATION_CONTRACT_IMPACT: YES — TZ-153 advances the contract from 0.2 to 0.3 and approves user-scoped candidate memory only in isolated non-production A106.
-INTEGRATION_CONTRACT_VERSION: `0.3`
-INTEGRATION_CONTRACT_SHA256: `D198522F103407C92BF34B86E9AC9EB265BF648559FA03AB4F0C010E67D9F9F6`
-CORE_ACTION_REQUIRED: COMPLETED_BY_TZ153 — schema reviewed against live production metadata; minimal entities and RLS contract approved without merge or DB mutation.
-NEXT_SAFE_ACTION: Start TZ-A106 only on Supabase branch `assistant-memory-a106` (`gsglkmudcwkdetqtocae`). Use user JWT/RLS paths and first prove cross-user and cross-company denial; legacy permissive chat policies are an explicit branch-only acceptance risk. Production memory writes, migration, merge and deploy remain disabled.
+ASSISTANT_CHANGES_FOUND: YES — local untracked owner-memory-behavior-v2 proposal and A106 V1 implementation/report were reviewed read-only; `origin/assistant-v1` still points to `b22f765`. No merge or rebase occurred.
+CORE_IMPACT_FOUND: YES — owner decision requires direct-approved USER_GLOBAL memory, safe inferred allowlist, role-gated COMPANY memory and immediate deletion.
+INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.4 and supersedes candidate-first behavior.
+INTEGRATION_CONTRACT_VERSION: `0.4`
+INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
+CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
+NEXT_SAFE_ACTION: Sync Contract 0.4 into `assistant-v1`, update the A106 runtime from candidate-first to direct-approved V2, and repeat runtime acceptance on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+
+## TZ-169 review result
+
+TZ169_PROPOSAL_REVIEWED: `YES_LOCAL_WORKTREE_ONLY`; requested proposal path is untracked in `project-assistant-v1` and absent from `origin/assistant-v1`, SHA-256 `053481AE571BEB4E20A3C67F54437F8A3903EC7B82F59F20C141E5D8E3AFA196`.
+TZ169_CONTRACT: `0.4 / DIRECT_APPROVED_MEMORY_V2`.
+TZ169_BRANCH: `assistant-memory-a106 / gsglkmudcwkdetqtocae / ACTIVE_HEALTHY / history 136`.
+TZ169_MIGRATION: `20260716125205_assistant_memory_policy_v2.sql / BRANCH_ONLY_APPLIED`.
+TZ169_ACCEPTANCE: `PASS - mandatory scenarios 10/10; cross-user and cross-company denied; authorized company-admin own-company lifecycle PASS; QA role restored`.
+TZ169_PRODUCTION_IMPACT: `NONE`; production history remains 135, `assistant_memory_events` remains absent, business data/Auth/schema/deploy unchanged.
+TZ169_ACTION: `A106_MAY_SYNC_AND_RESUME_BRANCH_ONLY`; A107 remains not started, production migration/merge/deploy disabled.
 
 ## TZ-168 review result
 
