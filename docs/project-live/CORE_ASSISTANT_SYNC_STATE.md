@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-16T19:39:19+05:00
+LAST_REVIEW_AT: 2026-07-16T21:10:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `addc1d2`)
+CORE_COMMIT: `SELF` (previous core commit: `065fc7b`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-171 production catalog security hardening is complete. Core may return to GLBD. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: TZ-172 blocked GLBD source classification is complete. A separately approved selective GLBD apply may proceed only after owner review, fresh backup and live preflight, excluding the Humic-acids HOLD. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+
+## TZ-172 review result
+
+TZ172_ASSISTANT_CHANGES_FOUND: `NO`; `origin/assistant-v1` remains `b22f765583b2cd556a29b9e25c332561f19dd262`.
+TZ172_CORE_IMPACT_FOUND: `YES - read-only GLBD classification and guarded selective apply package outside Git`.
+TZ172_CLASSIFICATION: `PASS - 54/54 classified, unclassified 0, owner HOLD 1`.
+TZ172_ISOLATED_ACCEPTANCE: `PASS - first apply, second NOOP, exact rollback, duplicates 0, links preserved 1373, RU/EN search PASS`.
+TZ172_PRODUCTION_IMPACT: `NONE`; no database write, migration, deploy, merge or business-data change.
+TZ172_INTEGRATION_CONTRACT_IMPACT: `NO`; Contract 0.4, Assistant runtime and branch-only memory policy are unchanged.
+TZ172_ACTION: `SEPARATE_OWNER_APPROVAL_REQUIRED_FOR_SELECTIVE_GLBD_APPLY`; Humic acids stays on HOLD.
 
 ## TZ-171 review result
 

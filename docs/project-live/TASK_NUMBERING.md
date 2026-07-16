@@ -61,6 +61,7 @@
 | TZ-169 | CORE / ASSISTANT GOVERNANCE | Contract 0.4 and branch-only Memory Policy V2 | copilot-v1 | DONE | TZ-A105,TZ-166 | [task-reports/core/TZ-169.md](task-reports/core/TZ-169.md) | `SELF` |
 | TZ-170 | DATABASE SECURITY | Remove hidden helper-schema dependency and repeat production-equivalent acceptance | copilot-v1 | DONE | TZ-168,TZ-169 | [task-reports/core/TZ-170.md](task-reports/core/TZ-170.md) | `SELF` |
 | TZ-171 | DATABASE SECURITY | Apply corrected catalog security hardening in production | copilot-v1 | DONE | TZ-170 | [task-reports/core/TZ-171.md](task-reports/core/TZ-171.md) | `SELF` |
+| TZ-172 | GLBD | Classify all 54 blocked component sources | copilot-v1 | DONE | TZ-151,TZ-171 | [task-reports/core/TZ-172.md](task-reports/core/TZ-172.md) | `SELF` |
 
 ## Status values
 

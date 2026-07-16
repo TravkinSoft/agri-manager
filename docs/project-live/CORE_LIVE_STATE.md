@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-16
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `addc1d2`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `065fc7b`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -18,7 +18,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | ALIAS_SOURCE_READ_PATH_READY_LOCAL | Component Model V2 содержит 425 компонентов, 1373 глобальные product links, 24 aliases и 295 sources; company links `0`. ТЗ №152 подключило aliases к существующему поиску и knowledge intake, а sources — к ленивой карточке компонента в `copilot-v1`. 54 заблокированные source-строки отсутствуют в production и не используются. Deploy не выполнялся. |
+| ГЛБД | BLOCKED_54_CLASSIFIED_APPLY_PREVIEW_READY | Component Model V2 содержит 425 компонентов, 1373 глобальные product links, 24 aliases и 295 sources; company links `0`. ТЗ №172 классифицировало 54/54 заблокированных source-строки и изолированно проверило единый selective package: 6 safeners, 23 sources, 39 aliases, 103 exact link normalizations, 41 legacy/parser archives, второй apply NOOP и exact rollback PASS. Production не менялась; применение требует отдельного owner approval, fresh backup и HOLD для Humic acids. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A106_BRANCH_ONLY_READY_CONTRACT_0_4 | Contract 0.4 approves USER_GLOBAL, role-gated COMPANY and chat-local CONVERSATION memory. Memory Policy V2 is applied only to healthy branch `gsglkmudcwkdetqtocae`; real JWT acceptance is 10/10 plus company-admin isolation. Production memory migration, merge and deploy remain disabled. |
@@ -33,6 +33,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Real signed production JWT acceptance passed `178/178`; cross-company access was denied, global-admin CRUD and own-company sync passed, and private helpers remained absent from the Data API (`404`).
 - Complete public-table and target-table row counts are unchanged. Fingerprint differences are limited to the approved RLS, policy, function and grant scope; rollback was not required.
 - Catalog smoke and eight critical production routes passed. Production and `assistant-memory-a106` remain `ACTIVE_HEALTHY`; the assistant branch was not touched. Core may return to GLBD work.
+
+### TZ-172 blocked component source classification
+
+- All `54/54` blocked rows were classified exactly once: attach existing `3`, aliases `33`, safener leaders `6`, biological `0`, keep inactive `10`, garbage `1`, owner review `1`.
+- The owner HOLD is `Humic acids / Гуминовые кислоты`; no production action is generated for it.
+- Six canonical safener identities are source-backed. One related mislabeled Cloquintocet-mexyl legacy component and its six exact links are included to prevent a new visual duplicate.
+- The guarded package plans 6 component inserts, 23 source inserts, 39 alias inserts, 103 exact link normalizations and 41 non-destructive archives. Products and company data are outside scope.
+- Isolated first apply, second-apply NOOP and exact rollback pass. Component, alias, link and source duplicates are zero; garbage/manufacturer components are zero; RU/EN search passes; links remain `1373`.
+- Audit package: `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-172/` outside Git. Production schema, catalog data, business data, migration history, deploy and `master` are unchanged.
+- `READY_FOR_SELECTIVE_APPLY=YES_WITH_OWNER_APPROVAL_AND_HUMIC_HOLD`.
 
 ### TZ-170 production-safe catalog security candidate
 
