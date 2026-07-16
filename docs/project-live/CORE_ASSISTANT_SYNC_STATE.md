@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-16T18:41:20+05:00
+LAST_REVIEW_AT: 2026-07-16T19:39:19+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `ffe53b0`)
+CORE_COMMIT: `SELF` (previous core commit: `addc1d2`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-170 is ready for a separate owner-approved TZ-171 production security apply. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: TZ-171 production catalog security hardening is complete. Core may return to GLBD. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+
+## TZ-171 review result
+
+TZ171_ASSISTANT_CHANGES_FOUND: `NO`; `assistant-memory-a106` remained `gsglkmudcwkdetqtocae / ACTIVE_HEALTHY` and was not used, reset, rebased or changed.
+TZ171_CORE_IMPACT_FOUND: `YES - approved production catalog security hardening is installed`.
+TZ171_PRODUCTION_APPLY: `PASS - only 20260716114950 applied in its explicit transaction; history 136, head 20260716114950`.
+TZ171_SECURITY_ACCEPTANCE: `PASS - RLS 8/8, policies 32, wide writes 0, 27/27 hardened, PUBLIC/anon execute 0/0, JWT 178/178, cross-company denied`.
+TZ171_DATA_AND_SMOKE: `PASS - all public row counts unchanged, catalog reads healthy, temporary QA identities removed, critical routes 8/8 HTTP 200`.
+TZ171_PRODUCTION_IMPACT: `APPROVED_SECURITY_SCHEMA_ONLY`; business data, app deploy and master unchanged; rollback not required.
+TZ171_ACTION: `READY_TO_RETURN_TO_GLBD`; Assistant Contract 0.4 branch-only gate remains unchanged.
 
 ## TZ-170 review result
 

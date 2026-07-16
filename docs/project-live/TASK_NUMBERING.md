@@ -60,7 +60,7 @@
 | TZ-168 | DATABASE SECURITY | Apply catalog RLS and function hardening in production | copilot-v1 | BLOCKED | TZ-167 | [task-reports/core/TZ-168.md](task-reports/core/TZ-168.md) | `SELF` |
 | TZ-169 | CORE / ASSISTANT GOVERNANCE | Contract 0.4 and branch-only Memory Policy V2 | copilot-v1 | DONE | TZ-A105,TZ-166 | [task-reports/core/TZ-169.md](task-reports/core/TZ-169.md) | `SELF` |
 | TZ-170 | DATABASE SECURITY | Remove hidden helper-schema dependency and repeat production-equivalent acceptance | copilot-v1 | DONE | TZ-168,TZ-169 | [task-reports/core/TZ-170.md](task-reports/core/TZ-170.md) | `SELF` |
-| TZ-171 | DATABASE SECURITY | Apply corrected catalog security hardening in production | copilot-v1 | PLANNED | TZ-170 | `external: pending` | — |
+| TZ-171 | DATABASE SECURITY | Apply corrected catalog security hardening in production | copilot-v1 | DONE | TZ-170 | [task-reports/core/TZ-171.md](task-reports/core/TZ-171.md) | `SELF` |
 
 ## Status values
 

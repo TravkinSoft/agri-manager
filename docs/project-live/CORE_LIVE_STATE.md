@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-16
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `ffe53b0`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `addc1d2`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -24,6 +24,15 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Travkin Assistant | A106_BRANCH_ONLY_READY_CONTRACT_0_4 | Contract 0.4 approves USER_GLOBAL, role-gated COMPANY and chat-local CONVERSATION memory. Memory Policy V2 is applied only to healthy branch `gsglkmudcwkdetqtocae`; real JWT acceptance is 10/10 plus company-admin isolation. Production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-171 production catalog security hardening
+
+- Owner-approved migration `20260716114950_catalog_rls_function_security_hardening.sql` was applied to production in its explicit transaction after a fresh verified backup and no-drift live preflight.
+- The isolated CLI apply set contained exactly one pending version. Production history is now `136` with head `20260716114950`; Warehouse Units V2 and Assistant Memory Policy V2 were not applied by this task.
+- Final security state is RLS `8/8`, policies `32`, wide write policies `0`, public SECURITY DEFINER functions `27/27` with safe search paths, and `PUBLIC`/anon execute `0/0`.
+- Real signed production JWT acceptance passed `178/178`; cross-company access was denied, global-admin CRUD and own-company sync passed, and private helpers remained absent from the Data API (`404`).
+- Complete public-table and target-table row counts are unchanged. Fingerprint differences are limited to the approved RLS, policy, function and grant scope; rollback was not required.
+- Catalog smoke and eight critical production routes passed. Production and `assistant-memory-a106` remain `ACTIVE_HEALTHY`; the assistant branch was not touched. Core may return to GLBD work.
 
 ### TZ-170 production-safe catalog security candidate
 
