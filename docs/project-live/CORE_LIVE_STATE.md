@@ -21,9 +21,17 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | ГЛБД | TZ174_UTF8_PACKAGE_READY | Production остаётся на точном baseline: 425 компонентов, 1373 глобальные product links, 24 aliases, 295 sources и company links `0`. ТЗ №174 пересобрало тот же 53-row scope как strict UTF-8/NFC review package и ASCII-only SQL с Unicode literals. Изолированные first apply, second-apply NOOP, real helper RU/EN/API/UI smoke и точный rollback PASS. Новый production apply возможен только отдельным ТЗ после fresh backup, live preflight и нового owner approval. Humic acids остаётся HOLD_OUT_OF_SCOPE. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
-| Travkin Assistant | A106_BRANCH_ONLY_READY_CONTRACT_0_4 | Contract 0.4 approves USER_GLOBAL, role-gated COMPANY and chat-local CONVERSATION memory. Memory Policy V2 is applied only to healthy branch `gsglkmudcwkdetqtocae`; real JWT acceptance is 10/10 plus company-admin isolation. Production memory migration, merge and deploy remain disabled. |
+| Travkin Assistant | A107_BLOCKED_BY_BRANCH_ALIAS_RLS | Contract 0.4 memory acceptance remains valid. TZ-176 created the complete ERP QA dataset only on `gsglkmudcwkdetqtocae` and proved cross-company denial, but the older branch still lets authenticated users update `global_product_aliases`. A107 must wait for separate owner-approved branch security alignment. Production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-176 Assistant QA Dataset V1
+
+- TZ-175 had stopped before writes because the isolated branch lacked canonical Gala/R1/product references. TZ-176 created Gala, R1, three global products and five aliases only on `assistant-memory-a106`; the second reference seed created zero rows.
+- The branch now has two preserved QA tenants, eight company-A fields totalling 1000 ha, nine crop rows, five operations, two company-A warehouses and one isolation warehouse. Canonical ledger balances are 1550 kg ammonium nitrate, 520 l Curamin Foliar and 200 l Phomazin; company B has an isolated 777 kg balance.
+- Dataset second seed is a no-op. Exact cleanup and full reseed passed. Real JWT A/B tests denied cross-company fields, warehouses, operations, ledger, chats and memories in both directions.
+- Acceptance is blocked because `global_product_aliases` on this older branch has RLS disabled and authenticated UPDATE. Production already has the correct global-admin-only mutation policy, but TZ-176 did not authorize branch schema/RLS changes. A107 remains blocked pending a separate owner-approved branch-only security alignment and repeat real-JWT test.
+- Production schema, Auth, business data, migration history, merge and deploy were unchanged. Permitted production access was read-only reference verification only.
 
 ### TZ-174 UTF-8-safe component package
 

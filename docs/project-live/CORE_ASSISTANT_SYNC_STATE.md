@@ -16,7 +16,18 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-174 rebuilt and independently validated the exact GLBD scope as a strict UTF-8/NFC package with ASCII-only executable SQL. Production remains on the restored 425/24/295/1373 baseline. A new selective apply may be prepared only in a separate task with fresh backup, manifest verification, live preflight and explicit owner approval; Humic acids remains excluded. Assistant work remains isolated: sync Contract 0.4 into `assistant-v1`, update A106 to V2 and repeat runtime acceptance only on `assistant-memory-a106`. Do not start A107; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: TZ-176 completed the branch-only ERP QA dataset, ledger math, cleanup/reseed and real-JWT tenant isolation. Do not start A107 yet: `assistant-memory-a106` still has RLS disabled on `global_product_aliases` and an ordinary authenticated QA JWT can update aliases. A separate owner-approved branch-only security alignment must reproduce the already-canonical production policy and repeat real-JWT acceptance. Production memory migration, merge and deploy remain disabled.
+
+## TZ-176 review result
+
+TZ176_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory tables and Contract 0.4 were not changed.
+TZ176_CORE_IMPACT_FOUND: `YES - reproducible branch-only canonical references and ERP QA dataset under scripts/qa`.
+TZ176_DATASET: `PASS - 8 fields / 1000 ha / 9 crop lines / 5 operations / 2 company-A warehouses / exact 1550 kg + 520 l + 200 l balances`.
+TZ176_REPEAT_SAFETY: `PASS - reference second seed 0, dataset second seed 0, exact cleanup and full reseed PASS`.
+TZ176_REAL_JWT_ISOLATION: `PASS - A/B cross-company ERP, chats and memories all return 0`.
+TZ176_SECURITY_GATE: `BLOCKED - branch global_product_aliases has no RLS and authenticated UPDATE succeeds; no unauthorized schema fix was applied`.
+TZ176_PRODUCTION_IMPACT: `NONE`; only permitted read-only global reference evidence was used.
+TZ176_ACTION: `A107_BLOCKED_PENDING_OWNER_APPROVED_BRANCH_ALIAS_RLS_ALIGNMENT`.
 
 ## TZ-174 review result
 
