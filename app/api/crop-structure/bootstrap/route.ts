@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerActorFromSession, resolveCompanyForActor, SessionAuthError } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import {
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+  SessionAuthError,
+} from "@/lib/auth/server-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,9 +22,10 @@ const isMissingCropStructureV4Column = (error: unknown) => {
   );
 };
 
-async function loadCropStructureBootstrap(companyId: string) {
-  const supabase = getServiceClient();
-
+async function loadCropStructureBootstrap(
+  supabase: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>,
+  companyId: string
+) {
   const [fieldsRes, seasonsRes, cropsRes, varietiesRes, reproductionsRes, specialistsRes] = await Promise.all([
     supabase
       .from("fields")
@@ -102,7 +107,8 @@ export async function GET(request: NextRequest) {
     const actor = await getServerActorFromSession(request);
     const requestedCompanyId = request.nextUrl.searchParams.get("companyId");
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
-    const payload = await loadCropStructureBootstrap(companyId);
+    const supabase = await getUserScopedClientFromRequest(request);
+    const payload = await loadCropStructureBootstrap(supabase, companyId);
 
     return NextResponse.json({
       companyId,

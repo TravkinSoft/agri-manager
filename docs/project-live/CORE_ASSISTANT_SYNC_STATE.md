@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-185 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD may continue from the verified Batch 1 baseline; HOLD and 15 unresolved cards require separate evidence and owner approval.
+NEXT_SAFE_ACTION: TZ-186 makes the Core preview read paths compatible with `gsglkmudcwkdetqtocae` without service credentials. A108 may repeat its authenticated browser acceptance after the commit is pushed; production memory migration, merge and deploy remain disabled.
+
+## TZ-186 review result
+
+TZ186_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory schema and Contract 0.4 were not changed.
+TZ186_CORE_IMPACT_FOUND: `YES - branch-preview Core GET paths now use request JWT plus RLS`.
+TZ186_SERVICE_ROLE: `NOT USED - local server ran with service-role env absent`.
+TZ186_BRANCH_GROUND_TRUTH: `9 crop lines / 2 warehouses / 5 operations / 1550 kg nitrate / 520 l Curamin / 200 l Phomazin`.
+TZ186_ISOLATION: `DESIGNED_AND_BRANCH_DATA_CONFIRMED`; endpoint actor/company guards and exact company filters are present; full signed-user browser denial remains an A108 retest gate because QA credentials were intentionally not persisted.
+TZ186_ACCEPTANCE: `TYPECHECK PASS / BUILD PASS / MOJIBAKE 0 / PRODUCTION CONNECTIONS 0 / ERP WRITES 0`.
+TZ186_ACTION: `READY_FOR_A108_RETEST`; A108 must run authenticated functional smoke before final UI acceptance.
 
 ## TZ-185 review result
 

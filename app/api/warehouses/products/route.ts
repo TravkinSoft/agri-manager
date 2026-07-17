@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import {
+  SessionAuthError,
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+} from "@/lib/auth/server-session";
+import { getServiceClient } from "@/lib/supabase/service";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
 
 const READ_ROLES = [
@@ -63,7 +68,7 @@ export async function GET(request: NextRequest) {
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
     const includeArchived = parseIncludeArchived(request.nextUrl.searchParams.get("includeArchived"));
 
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,

@@ -138,6 +138,14 @@ async function createSessionScopedClient(token: string) {
   });
 }
 
+export async function getUserScopedClientFromRequest(request: NextRequest) {
+  const token = parseBearerToken(request);
+  if (!token) {
+    throw new SessionAuthError("Missing authorization token", 401);
+  }
+  return createSessionScopedClient(token);
+}
+
 async function getSessionIdentity(request: NextRequest): Promise<{ userId: string; token: string; email: string | null }> {
   const token = parseBearerToken(request);
   if (!token) {

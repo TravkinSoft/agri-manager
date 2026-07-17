@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import {
+  SessionAuthError,
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+} from "@/lib/auth/server-session";
+import { getServiceClient } from "@/lib/supabase/service";
 import { WAREHOUSE_READ_ROLES, WAREHOUSE_WRITE_ROLES, normalizeWarehouseRow, toNullableText } from "@/app/api/warehouses/_helpers";
 import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
 
@@ -12,7 +17,7 @@ export async function GET(request: NextRequest) {
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
     const includeArchived = String(request.nextUrl.searchParams.get("includeArchived") || "false").toLowerCase() === "true";
 
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,

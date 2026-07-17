@@ -5,7 +5,7 @@ CORE_BRANCH: `copilot-v1`
 CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `65e2d5c`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
-PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
+PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
 
 ## Current system status
 
@@ -24,6 +24,14 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-186 branch-only Core preview reads
+
+- Crop structure, warehouse list/products, warehouse balances and operation-line GET paths now use the signed-in user's Bearer JWT plus RLS instead of requiring a service-role key.
+- Warehouse balances read `stock_ledger_entries` through a new context-aware endpoint with exact resolved `company_id`; the browser no longer reads the non-security-invoker balance view directly.
+- QA branch `gsglkmudcwkdetqtocae` ground truth remains `9` crop rows, `2` warehouses, `5` operations and exact `1550 kg / 520 l / 200 l` balances; company B operations are `0` for its isolated fixture.
+- Typecheck and production build pass. Local no-token smoke returns `401` without the old service-credential error, service-role env is absent, mojibake is `0`, and production/ERP writes are `0`.
+- Full signed-user data/UI acceptance is intentionally deferred to A108 because QA JWTs/passwords were not persisted and no service credential was used to mint or reset access. `READY_FOR_A108_RETEST=YES`.
 
 ### TZ-185 corrected pesticide Batch 1 production apply
 

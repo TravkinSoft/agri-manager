@@ -466,7 +466,7 @@ export default function WarehousesPage() {
             </Link>
           </Button>
         ) : (
-          <Badge variant="secondary">{t("Р РµР¶РёРј С‚РѕР»СЊРєРѕ С‡С‚РµРЅРёРµ", "РўРµРє РѕТ›Сѓ СЂРµР¶РёРјС–", "Read-only mode")}</Badge>
+          <Badge variant="secondary">{t("Режим только чтения", "Тек оқу режимі", "Read-only mode")}</Badge>
         )}
       </div>
 
