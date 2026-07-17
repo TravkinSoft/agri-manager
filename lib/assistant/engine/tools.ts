@@ -68,6 +68,57 @@ function normalizeSearchText(value: unknown): string {
     .trim();
 }
 
+function transliterateCyrillicToLatin(value: unknown): string {
+  const map: Record<string, string> = {
+    а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z", и: "i", й: "i",
+    к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f",
+    х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+  };
+  return normalizeSearchText(value)
+    .split("")
+    .map((character) => map[character] ?? character)
+    .join("");
+}
+
+function differsByAtMostOneCharacter(left: string, right: string): boolean {
+  if (left === right) return true;
+  if (Math.abs(left.length - right.length) > 1) return false;
+  let short = left;
+  let long = right;
+  if (short.length > long.length) [short, long] = [long, short];
+  let shortIndex = 0;
+  let longIndex = 0;
+  let differences = 0;
+  while (shortIndex < short.length && longIndex < long.length) {
+    if (short[shortIndex] === long[longIndex]) {
+      shortIndex += 1;
+      longIndex += 1;
+      continue;
+    }
+    differences += 1;
+    if (differences > 1) return false;
+    if (short.length === long.length) shortIndex += 1;
+    longIndex += 1;
+  }
+  return differences + (long.length - longIndex) <= 1;
+}
+
+function productIdentityMatchesQuery(identity: unknown, query: string | null): boolean {
+  if (!query) return true;
+  const normalizedIdentity = normalizeSearchText(identity);
+  const latinIdentity = transliterateCyrillicToLatin(normalizedIdentity);
+  const identityTokens = latinIdentity.split(" ").filter(Boolean);
+  return buildSearchTerms(query).some((term) => {
+    const normalizedTerm = normalizeSearchText(term);
+    if (!normalizedTerm) return false;
+    if (normalizedIdentity.includes(normalizedTerm)) return true;
+    const latinTerm = transliterateCyrillicToLatin(normalizedTerm);
+    if (latinTerm && latinIdentity.includes(latinTerm)) return true;
+    if (latinTerm.length < 5 || latinTerm.includes(" ")) return false;
+    return identityTokens.some((token) => token.length >= 5 && differsByAtMostOneCharacter(token, latinTerm));
+  });
+}
+
 function parseBoolish(value: unknown): boolean {
   if (typeof value === "boolean") return value;
   const text = normalizeSearchText(value);
@@ -773,7 +824,7 @@ async function buildLookupMaps(
       ? context.supabase.from("warehouses").select("id,name").in("id", ids.warehouses as string[])
       : Promise.resolve({ data: [], error: null } as any),
     (ids.products || []).length
-      ? queryLookupRowsById(context, "products", "id,name,trade_name", ids.products as string[], strictActive)
+      ? queryLookupRowsById(context, "products", "id,name,name_ru,name_kz,name_en,trade_name,unit,base_uom,default_unit,stock_unit", ids.products as string[], strictActive)
       : Promise.resolve({ data: [], error: null } as any),
     (ids.crops || []).length
       ? queryLookupRowsById(context, "crops", "id,name,name_ru,name_kz,name_en,slug", ids.crops as string[], strictActive)
@@ -802,8 +853,25 @@ async function buildLookupMaps(
   (warehousesRes.data || warehousesRes || []).forEach((row: any) => byWarehouse.set(String(row.id), String(row.name || row.id)));
 
   const byProduct = new Map<string, string>();
+  const byProductUnit = new Map<string, string>();
+  const byProductSearchText = new Map<string, string>();
   (productsRes.data || productsRes || []).forEach((row: any) =>
-    byProduct.set(String(row.id), brandName(row) || String(row.id))
+    {
+      const id = String(row.id);
+      byProduct.set(id, brandName(row) || id);
+      byProductSearchText.set(
+        id,
+        uniqueStrings([
+          cleanString(row.trade_name),
+          cleanString(row.name),
+          cleanString(row.name_ru),
+          cleanString(row.name_kz),
+          cleanString(row.name_en),
+        ]).join(" ") || id
+      );
+      const unit = cleanString(row.base_uom) || cleanString(row.stock_unit) || cleanString(row.default_unit) || cleanString(row.unit);
+      if (unit) byProductUnit.set(id, unit);
+    }
   );
 
   const byCrop = new Map<string, string>();
@@ -827,7 +895,7 @@ async function buildLookupMaps(
   const byFuelSource = new Map<string, string>();
   (fuelSourcesRes.data || fuelSourcesRes || []).forEach((row: any) => byFuelSource.set(String(row.id), String(row.name || row.id)));
 
-  return { byWarehouse, byProduct, byCrop, byVariety, byReproduction, byField, byFuelSource };
+  return { byWarehouse, byProduct, byProductUnit, byProductSearchText, byCrop, byVariety, byReproduction, byField, byFuelSource };
 }
 
 async function getWarehouseScope(
@@ -881,6 +949,27 @@ async function resolveBestFieldMatches(
   const code = extractFieldCode(rawQuery);
   const exactQuery = cleanString(rawQuery);
   const byId = new Map<string, { id: string; name: string; displayName: string; area: number; notes: string | null }>();
+
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(query)) {
+    const directRes = await context.supabase
+      .from("fields")
+      .select("id,name,area,notes")
+      .eq("company_id", context.companyId)
+      .eq("archived", false)
+      .eq("id", query)
+      .maybeSingle();
+    if (directRes.error) throw new Error(directRes.error.message);
+    if (!directRes.data) return [];
+    return [{
+      id: String(directRes.data.id),
+      name: String(directRes.data.name || directRes.data.id),
+      displayName: getFieldDisplayName(directRes.data as any) || String(directRes.data.name || directRes.data.id),
+      area: Number(directRes.data.area || 0),
+      notes: cleanString(directRes.data.notes),
+      score: 1_000,
+      reason: "field_id_exact",
+    }];
+  }
 
   const exactTerms = uniqueStrings([exactQuery, code]);
   for (const term of exactTerms) {
@@ -1049,6 +1138,14 @@ async function resolveFieldSelection(
       }
     }
     return { selected: null, candidates: topGroup, ambiguityReason: "multiple_segment_candidates" };
+  }
+
+  if (topGroup.length > 1) {
+    if (selectedFieldIdFromContext) {
+      const contextual = topGroup.find((item) => item.id === selectedFieldIdFromContext);
+      if (contextual) return { selected: contextual, candidates: matches, ambiguityReason: null };
+    }
+    return { selected: null, candidates: topGroup, ambiguityReason: "multiple_partial_matches" };
   }
 
   return { selected: matches[0], candidates: matches, ambiguityReason: null };
@@ -1309,11 +1406,13 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
             warehouse_id: warehouseId,
             warehouse_name: lookup.byWarehouse.get(warehouseId) || warehouseId,
             product_name: lookup.byProduct.get(productId) || productId,
+            product_search_text: lookup.byProductSearchText.get(productId) || lookup.byProduct.get(productId) || productId,
             variety_name: varietyId ? lookup.byVariety.get(varietyId) || "-" : "-",
             reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || "-" : "-",
             batch_id: cleanString(row.batch_id),
             batch_class: cleanString(row.batch_class) || "commodity",
             quantity: Number(row.quantity || 0),
+            uom: lookup.byProductUnit.get(productId) || null,
           };
         });
       } else if (isMissingRelationError(identityRes.error.message)) {
@@ -1338,11 +1437,13 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
               warehouse_id: warehouseId,
               warehouse_name: lookup.byWarehouse.get(warehouseId) || warehouseId,
               product_name: lookup.byProduct.get(productId) || productId,
+              product_search_text: lookup.byProductSearchText.get(productId) || lookup.byProduct.get(productId) || productId,
               variety_name: "-",
               reproduction_name: "-",
               batch_id: null,
               batch_class: "commodity",
               quantity: Number(row.quantity || 0),
+              uom: lookup.byProductUnit.get(productId) || null,
             };
           });
         } else if (isMissingRelationError(fallbackRes.error.message)) {
@@ -1421,11 +1522,13 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
             warehouse_id: row.warehouse_id,
             warehouse_name: lookup.byWarehouse.get(row.warehouse_id) || row.warehouse_id,
             product_name: lookup.byProduct.get(row.product_id) || row.product_id,
+            product_search_text: lookup.byProductSearchText.get(row.product_id) || lookup.byProduct.get(row.product_id) || row.product_id,
             variety_name: row.variety_id ? lookup.byVariety.get(row.variety_id) || "-" : "-",
             reproduction_name: row.reproduction_id ? lookup.byReproduction.get(row.reproduction_id) || "-" : "-",
             batch_id: null,
             batch_class: row.batch_class,
             quantity: Number(row.quantity || 0),
+            uom: lookup.byProductUnit.get(row.product_id) || null,
           }));
         } else {
           throw new Error(fallbackRes.error.message);
@@ -1455,12 +1558,13 @@ const getWarehouseBalancesTool: AssistantToolDefinition = {
           }
           if (!matchesWarehouseScope(row.warehouse_name)) return false;
           if (productTerms.length) {
-            const productBlob = [row.product_name, row.variety_name, row.reproduction_name, row.batch_class].join(" ");
-            return matchesAnyTerm(productBlob, productTerms);
+            const productBlob = [row.product_search_text, row.variety_name, row.reproduction_name, row.batch_class].join(" ");
+            return productIdentityMatchesQuery(productBlob, effectiveProductHint);
           }
           return true;
         })
         .filter((row) => (negativeOnly ? Number(row.quantity || 0) < 0 : Number(row.quantity || 0) > 0))
+        .map(({ product_search_text: _productSearchText, ...row }) => row)
         .slice(0, 200);
 
       logToolEvent(context, "get_warehouse_balances", "success", {
@@ -3101,7 +3205,7 @@ const searchFieldsToolAlias: AssistantToolDefinition = {
     });
     try {
       const output = await getFieldsTool.run(context);
-      const rows = applyTextFilter(output.rows || [], effectiveQuery)
+      let rows = applyTextFilter(output.rows || [], effectiveQuery)
         .sort((a, b) => (effectiveQuery ? 0 : Number((b as any).area_ha || 0) - Number((a as any).area_ha || 0)))
         .map((row, index) =>
           !effectiveQuery && outputType === "list" && index === 0
@@ -3109,6 +3213,47 @@ const searchFieldsToolAlias: AssistantToolDefinition = {
             : row
         )
         .slice(0, 80);
+      if (genericListQuery) {
+        const cropOutput = await getCropStructureToolV2.run({
+          ...context,
+          sessionState: { ...context.sessionState, lastCrop: null },
+          intent: {
+            ...context.intent,
+            parameters: {
+              ...context.intent.parameters,
+              query: null,
+              entityQuery: null,
+              crop: null,
+              crop_alias: null,
+              crop_group: null,
+              variety: null,
+            },
+          },
+        });
+        const cropLinesByField = new Map<string, Array<Record<string, unknown>>>();
+        for (const cropRow of cropOutput.rows || []) {
+          const key = normalizeSearchText(cropRow.field_name);
+          if (!key) continue;
+          const current = cropLinesByField.get(key) || [];
+          current.push({
+            crop_name: cleanString(cropRow.crop_name),
+            variety_name: cleanString(cropRow.variety_name) === "-" ? null : cleanString(cropRow.variety_name),
+            area_ha: Number(cropRow.area_ha || 0),
+          });
+          cropLinesByField.set(key, current);
+        }
+        rows = rows.map((row) => {
+          const cropLines = cropLinesByField.get(normalizeSearchText(row.field_name)) || [];
+          const crops = uniqueStrings(cropLines.map((line) => cleanString(line.crop_name)));
+          const varieties = uniqueStrings(cropLines.map((line) => cleanString(line.variety_name)));
+          return {
+            ...row,
+            crop_name: crops.length ? crops.join(" / ") : null,
+            variety_name: varieties.length ? varieties.join(" / ") : null,
+            crop_lines: cropLines,
+          };
+        });
+      }
       logToolEvent(context, "search_fields", "success", {
         input_args: context.intent.parameters,
         resolved_season: cleanString(context.runtimeContext.season),
@@ -3256,7 +3401,8 @@ function normalizeOperationWorkStatus(row: Record<string, unknown>): string {
 function isActiveOperationRow(row: Record<string, unknown>): boolean {
   const workStatus = normalizeOperationWorkStatus(row);
   const status = normalizeSearchText((row as any).status);
-  return workStatus === "active" && status !== "cancelled" && status !== "archived";
+  if (["planned", "completed", "verified", "cancelled", "archived"].includes(status)) return false;
+  return workStatus === "in_progress" || workStatus === "active" || ["active", "in_progress", "started", "running"].includes(status);
 }
 
 function calculateOperationAreaHa(row: Record<string, unknown>): number {
@@ -3393,6 +3539,7 @@ async function buildOperationRows(
       if (statusFilter === "active" && !isActiveOperationRow(row)) return false;
       if (statusFilter === "in_progress" && workStatus !== "in_progress") return false;
       if (statusFilter === "completed" && workStatus !== "completed") return false;
+      if (statusFilter === "planned" && normalizeSearchText(row.status) !== "planned") return false;
       if (statusFilter === "waiting_materials") {
         const status = normalizeSearchText(row.status);
         if (status !== "waiting_materials") return false;
@@ -3475,7 +3622,7 @@ const getActiveOperationsSummaryToolAlias: AssistantToolDefinition = {
   description: "Active operations summary from canonical UI source",
   domains: ["operations"],
   run: async (context) => {
-    const rows = await buildOperationRows(context, { activeOnly: true });
+    const rows = await buildOperationRows(context, { activeOnly: false });
     return {
       title: "Active operations summary",
       rows: rows.slice(0, 120),
@@ -3847,6 +3994,11 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
   domains: ["warehouses", "inventory"],
   run: async (context) => {
     const searchQuery = parseSearchQuery(context);
+    const normalizedSearchQuery = normalizeSearchText(searchQuery || "");
+    const requestsWarehouseDirectory =
+      /(?:сколько\s+(?:у\s+нас\s+)?склад|какие\s+(?:у\s+нас\s+)?склад|список\s+склад|перечисл\w*\s+склад|warehouse\s+(?:count|list))/iu.test(
+        normalizedSearchQuery
+      );
     const warehouseQueryRaw =
       cleanString(context.intent.parameters.entityQuery) ||
       cleanString(context.intent.parameters.warehouse) ||
@@ -3886,6 +4038,36 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
     });
 
     try {
+      if (requestsWarehouseDirectory) {
+        const directory = await getWarehouseCountToolAlias.run({
+          ...context,
+          intent: {
+            ...context.intent,
+            parameters: {
+              ...context.intent.parameters,
+              entityQuery: null,
+              warehouse: null,
+              warehouse_alias: null,
+            },
+          },
+        });
+        logToolEvent(context, "get_warehouse_stock", "success", {
+          input_args: context.intent.parameters,
+          resolved_season: cleanString(context.runtimeContext.season),
+          query_used: "warehouses (directory mode through get_warehouse_stock)",
+          rows_count: directory.rows.length,
+          rls_acl_result: inferAclResult(context),
+        });
+        return {
+          ...directory,
+          title: "Склады компании",
+          summary: `Активных складов: ${directory.rows.length}.`,
+          source: {
+            ...directory.source,
+            tableOrView: "warehouses (directory mode through get_warehouse_stock)",
+          },
+        };
+      }
       const output = await getWarehouseBalancesTool.run({
         ...context,
         intent: {
@@ -3916,19 +4098,16 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
         const terms = warehouseSpecificTermsSafe.length ? warehouseSpecificTermsSafe : warehouseTerms;
         return terms.every((term) => matchesAnyTerm(warehouseName, [term]));
       };
-      const productTerms = productQuery ? buildSearchTerms(productQuery) : [];
-
       const rows = (output.rows || [])
         .filter((row) => {
           if (!matchesWarehouseScope(row.warehouse_name)) return false;
-          if (productTerms.length) {
-            const productBlob = [row.product_name, row.variety_name, row.reproduction_name, row.batch_class].join(" ");
-            return matchesAnyTerm(productBlob, productTerms);
-          }
           return true;
         })
         .filter((row) => (negativeOnly ? Number(row.quantity || 0) < 0 : true))
         .slice(0, 200);
+      const productNames = Array.from(
+        new Set(rows.map((row) => cleanString(row.product_name)).filter((name): name is string => Boolean(name)))
+      );
 
       logToolEvent(context, "get_warehouse_stock", "success", {
         input_args: context.intent.parameters,
@@ -3942,6 +4121,10 @@ const getWarehouseStockToolAlias: AssistantToolDefinition = {
         ...output,
         title: "Остатки склада",
         rows,
+        summary:
+          productQuery && productNames.length > 1
+            ? `Найдено несколько товаров: ${productNames.join(", ")}. Попросите пользователя уточнить товар.`
+            : output.summary,
         source: {
           ...output.source,
           tableOrView: "v_stock_balance_identity (warehouse_stock)",
@@ -4054,6 +4237,7 @@ const getCropStructureSummaryToolAlias: AssistantToolDefinition = {
           crop_name: item.crop_name,
           area_ha: Number(item.area_ha.toFixed(3)),
           fields_count: item.row_count,
+          field_names: Array.from(item.fields).sort((a, b) => a.localeCompare(b, "ru")),
         }))
         .sort((a, b) => b.area_ha - a.area_ha)
         .slice(0, 120);
@@ -4450,6 +4634,17 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
         if (reproductionName) reproductions.add(reproductionName);
       }
     });
+    const cropLines = allocations.map((row: any) => {
+      const cropId = cleanString(row.crop_id);
+      const varietyId = cleanString(row.variety_id);
+      const reproductionId = cleanString(row.reproduction_id);
+      return {
+        crop_name: cropId ? lookup.byCrop.get(cropId) || lookup.byProduct.get(cropId) || cropId : "Не указано",
+        variety_name: varietyId ? lookup.byVariety.get(varietyId) || varietyId : null,
+        reproduction_name: reproductionId ? lookup.byReproduction.get(reproductionId) || reproductionId : null,
+        area_ha: Number(Number(row.area ?? row.area_ha ?? row.planned_area_ha ?? 0).toFixed(3)),
+      };
+    });
 
     const rawConsumptions = consumptionRes.data || [];
     const consumptionsBySeason = rawConsumptions.filter((row: any) =>
@@ -4552,6 +4747,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
             crops: Array.from(crops).sort(),
             varieties: Array.from(varieties).sort(),
             reproductions: Array.from(reproductions).sort(),
+            crop_lines: cropLines,
           },
           fact: {
             active_operations_count: activeOperations,
@@ -4561,6 +4757,7 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
           crops: Array.from(crops).sort(),
           varieties: Array.from(varieties).sort(),
           reproductions: Array.from(reproductions).sort(),
+          crop_lines: cropLines,
           active_operations_count: activeOperations,
           material_issued_kg: Number(issuedKg.toFixed(3)),
           harvest_net_kg: Number(harvestKg.toFixed(3)),

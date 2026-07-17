@@ -21,7 +21,7 @@ const tools: PlannerToolSchema[] = [
     type: "function",
     function: {
       name: "search_fields",
-      description: "Search company fields by typed name, field number, or area. Never treat a value followed by га/ha as a field number.",
+      description: "Search company fields by typed name, field number, or area. With no filter, return the concise field list with active-season crop and variety. Never treat a value followed by га/ha as a field number.",
       parameters: {
         type: "object",
         properties: {
@@ -72,7 +72,7 @@ const tools: PlannerToolSchema[] = [
     type: "function",
     function: {
       name: "get_warehouse_stock",
-      description: "Read current stock for an explicitly requested product and optional warehouse.",
+      description: "Read current stock for a product and optional warehouse. With no product, read the canonical active warehouse count/list.",
       parameters: {
         type: "object",
         properties: {
@@ -106,11 +106,13 @@ const tools: PlannerToolSchema[] = [
     type: "function",
     function: {
       name: "get_active_operations_summary",
-      description: "Read active operations for the current company and active season.",
+      description: "Read operation rows for the current company and active season. This tool resolves a field name/number itself; never call search_fields first. Use status=all for total/by-field/material/irrigation questions, active for operations running now, completed for finished, and planned for planned operations.",
       parameters: {
         type: "object",
         properties: {
           field_id: { type: "string", description: "Selected field ID for a field-scoped follow-up." },
+          field: { type: "string", description: "Field name, number, or partial name such as 28 or Сад." },
+          status: { type: "string", enum: ["all", "active", "completed", "planned"] },
           season_id: { type: "string" },
           limit: { type: "integer", minimum: 1, maximum: 100 },
         },

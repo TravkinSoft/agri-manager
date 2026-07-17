@@ -54,9 +54,10 @@ export function parseTypedFieldSearchParameters(
       delete result.name;
     }
   } else {
+    const wordMatch = text.match(/(?:^|\s)со\s+слов(?:ом|ами)\s+[«"']?([^»"'?!.;,]+)[»"']?/iu);
     const namedMatch = text.match(/(?:^|\s)назван[\p{L}]*\s+[«"']?([^»"'?!.;,]+)[»"']?/iu);
     const fieldNameMatch = text.match(/(?:^|\s)пол(?:е|я)\s+[«"']?([\p{L}][\p{L}\p{N}\s_-]{0,80})[»"']?/iu);
-    const messageName = cleanName(namedMatch?.[1] || fieldNameMatch?.[1] || "");
+    const messageName = cleanName(wordMatch?.[1] || namedMatch?.[1] || fieldNameMatch?.[1] || "");
     const numberMatch = text.match(/(?:^|\s)(?:пол(?:е|я)|field|№)\s*№?\s*(\d{1,3}(?:-\d{1,3}){0,2})(?!\d)/iu);
     if (messageName) {
       result.name = messageName;
@@ -68,9 +69,10 @@ export function parseTypedFieldSearchParameters(
   }
 
   if (!result.area_ha && !result.number) {
+    const wordMatch = text.match(/(?:^|\s)со\s+слов(?:ом|ами)\s+[«"']?([^»"'?!.;,]+)[»"']?/iu);
     const namedMatch = text.match(/(?:^|\s)назван[\p{L}]*\s+[«"']?([^»"'?!.;,]+)[»"']?/iu);
     const fieldNameMatch = text.match(/(?:^|\s)пол(?:е|я)\s+[«"']?([\p{L}][\p{L}\p{N}\s_-]{0,80})[»"']?/iu);
-    const parsedName = cleanName(namedMatch?.[1] || fieldNameMatch?.[1] || explicitName || "");
+    const parsedName = cleanName(wordMatch?.[1] || namedMatch?.[1] || fieldNameMatch?.[1] || explicitName || "");
     if (parsedName) result.name = parsedName;
   }
 

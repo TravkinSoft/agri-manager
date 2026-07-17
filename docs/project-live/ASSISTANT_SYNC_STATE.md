@@ -1,30 +1,30 @@
 # Assistant Sync State
 
-LAST_SYNC_AT: `2026-07-17` (fresh fetch before selective A106 delivery)
+LAST_SYNC_AT: `2026-07-17` (A107 Core QA dataset gate)
 ASSISTANT_BRANCH: `assistant-v1`
-ASSISTANT_BASE_COMMIT: `b22f765583b2cd556a29b9e25c332561f19dd262`
-ASSISTANT_COMMIT: `A106_DELIVERY_COMMIT_AUTHORIZED`
+ASSISTANT_BASE_COMMIT: `a3f652313daa780909d65ee698d2d6f48d7abb2a`
+ASSISTANT_COMMIT: `A107_DELIVERY_COMMIT_AUTHORIZED`
 
 CORE_BRANCH_REVIEWED: `origin/copilot-v1`
-CORE_COMMIT_REVIEWED: `ffe53b08d7220ef91eae19924b34434e1bd6f02a`
+CORE_COMMIT_REVIEWED: `c765f59f2ac27ea9b6763a70c4e65a2be3d26c95`
 CORE_LIVE_STATE_REVIEWED_AT: `2026-07-16` (fresh fetch)
-LATEST_CORE_REPORT_REVIEWED: `TZ-169.md`
+LATEST_CORE_REPORT_REVIEWED: `TZ-176.md; TZ-177.md`
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_HASH: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 
 CORE_PRODUCTION_COMMIT_REVIEWED: `321e45fa681fecff89307545d0ec3fa600b4c982`
 CORE_PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`
-ASSISTANT_ALLOWED_MODE: `CONTRACT_0_4_ISOLATED_BRANCH_MEMORY_V2_AND_LOCAL_OWNER_VALIDATION`
-WRITE_CAPABILITY_APPROVED: `TEST_BRANCH_ASSISTANT_MEMORY_V2_ONLY; ERP_WRITES_FORBIDDEN`
+ASSISTANT_ALLOWED_MODE: `CONTRACT_0_4_A107_ISOLATED_BRANCH_REAL_ERP_READ_ONLY_ACCEPTANCE`
+WRITE_CAPABILITY_APPROVED: `NO_ERP_WRITES; REQUEST_SCOPED_USER_JWT_READS_ONLY`
 
 CORE_CHANGES_SINCE_LAST_SYNC: `Contract 0.4 and branch-only Memory Policy V2 migration published; production migration head unchanged.`
 CONTRACT_CHANGES_FOUND: `YES; direct explicit approval, allowlisted model inference, user-global/company scopes, and immediate audited delete are approved on A106 branch.`
 ASSISTANT_API_CONTRACT_CHANGES_FOUND: `NO; exactly eight read-only tools remain approved`
 INCOMPATIBLE_CHANGES_FOUND: `NO for the implemented Contract 0.4 branch-only runtime.`
 OWNER_TASK_OVERRIDE: `OWNER_ACCEPTANCE PASS; candidate-first remains superseded; isolated name-memory instability is deferred as a non-blocking UX/memory hardening backlog item.`
-SYNC_STATUS: `A106_COMPLETE_OWNER_ACCEPTANCE_PASS`
-SYNC_BLOCKER: `NONE_FOR_SELECTIVE_A106_COMMIT_AND_PUSH`
-NEXT_SAFE_ACTION: `Push the selective A106 delivery to origin/assistant-v1; do not merge or deploy; do not start A107 until the Core QA Dataset is ready.`
+SYNC_STATUS: `A107_COMPLETE_OWNER_ACCEPTANCE_PASS`
+SYNC_BLOCKER: `NONE_FOR_SELECTIVE_A107_COMMIT_AND_PUSH`
+NEXT_SAFE_ACTION: `Push the selective A107 delivery to origin/assistant-v1; do not merge or deploy production; preview integration may proceed after the push.`
 
 ## Reviewed core sources
 
@@ -101,3 +101,21 @@ Production, schema, ERP data, merge, rebase, and deploy remain unchanged.
 After `git fetch origin`, Core commit `ffe53b08d7220ef91eae19924b34434e1bd6f02a`, Contract 0.4, Core report `TZ-169.md`, and migration `20260716125205_assistant_memory_policy_v2.sql` were read with `git show`; no merge or rebase occurred. Core confirms that migration only on branch `gsglkmudcwkdetqtocae`, with production on the preceding migration head.
 
 The Assistant runtime now follows Memory Policy V2. Real JWT branch acceptance passed 10/10, including direct approved explicit memory without candidates, real-model inference on the six-type allowlist at confidence `>=0.850`, user-global retrieval across new/existing chats, immediate audited delete, A/B isolation, and the ordinary-user company-role denial. Conversation regression is 21/21, read-only regression is 24/24, typecheck/build pass, and the model/tool invariants remain `gpt-5.6-terra`, medium reasoning, Responses `store:false`, recent limit 60, exactly eight read-only ERP tools, ERP writes 0, service role 0, and production connections 0. A106 is ready for repeated manual owner acceptance but remains open and uncommitted.
+
+## A107 Core gate and automated result
+
+After `git fetch origin`, Core commit `c765f59f2ac27ea9b6763a70c4e65a2be3d26c95`, Contract 0.4, `CORE_LIVE_STATE.md`, `CORE_ASSISTANT_SYNC_STATE.md`, and reports `TZ-176.md` and `TZ-177.md` were read with `git show`; no merge or rebase occurred. Core authorizes the QA dataset only on test branch `gsglkmudcwkdetqtocae`.
+
+The runtime is guarded by an exact allowlist before auth, OpenAI, and ERP access. Both Supabase URLs must be valid HTTPS URLs with hostname exactly `gsglkmudcwkdetqtocae.supabase.co`, and `A107_BRANCH_REF` must exactly match the branch ref. Any service-role, database, direct, or admin credential fails closed. The safe build used no dotenv file; the bundle contains zero production-ref/URL matches and positive test-branch matches. Auth preflight reached only the exact allowed hostname with a valid QA User A session.
+
+REAL acceptance passed `45/45` with `100.00%` ERP numeric accuracy, field-search/follow-up/unit accuracy PASS, cross-company leaks `0`, ERP mutations `0`, and production connections `0`. The effective model is `gpt-5.6-terra`, reasoning is `medium`, Responses `store:false`, and the model-facing surface remains exactly eight read-only tools. Typecheck, clean build, diff check, and the `24/24` read-only regression pass. The local REAL runtime remains available at `http://127.0.0.1:3106/fields`. This automated gate originally blocked delivery pending owner acceptance; the final owner result below supersedes that hold.
+
+## A107 owner context-connection retest
+
+The Copilot frontend uses the correct same-origin `/api/assistant/context` endpoint on port 3106. The reported `Failed to fetch` was reproduced after the foreground owner server had exited. The route also retained a legacy service-role client for post-auth context reads. It now applies the exact A107 branch guard before auth and performs company/season reads with the request-scoped QA user JWT under RLS.
+
+A clean build and bundle scan passed (`0/0` production matches, `44/44` branch matches, no service-role or database/admin credentials). The owner runtime is now a hidden detached process with a port readiness gate. Real auth/context preflight and browser reload passed on the exact allowed Supabase hostname. The dashboard and Copilot both resolve the same QA company/season, input submission works, and a REAL read-only query returned 8 fields and 1,000 ha. Production connections and ERP writes remain zero. This correction originally awaited repeated owner acceptance; that gate is now satisfied.
+
+The next owner correction keeps the same eight-tool contract while adding canonical warehouse directory reads, unambiguous canonical/localized/partial/transliterated product matching, and a concise generic eight-field list with crop/variety that clears stale selected-field focus. The Core QA row for Curamin Foliar lacks a Russian localized name; a branch-only dataset proposal was recorded and Core data was not mutated. After quota restoration, the final REAL owner regression passed `7/7`, and the focused follow-up/isolation/write-denial regression passed `6/6`. ERP writes and production connections remained `0`; fallback remained disabled. The owner returned `OWNER_ACCEPTANCE: PASS`.
+
+The owner accepted one non-blocking UX issue: the phrase `Маладээс` can be misclassified as a catalog request. Backlog item `INTENT-UX-001` requires praise/colloquial detection, typo-aware variants, and an explicit subject before any ERP lookup. A107 remains complete and is ready for preview integration after selective push; merge and production deploy remain forbidden.

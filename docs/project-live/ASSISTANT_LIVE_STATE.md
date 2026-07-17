@@ -1,12 +1,12 @@
 # Assistant Live State
 
 LAST_UPDATED: `2026-07-17`
-STATUS: `A106_COMPLETE_OWNER_ACCEPTANCE_PASS`
+STATUS: `A107_COMPLETE_OWNER_ACCEPTANCE_PASS`
 BRANCH: `assistant-v1`
 BASE_ASSISTANT_COMMIT: `b22f765583b2cd556a29b9e25c332561f19dd262`
-CORE_COMMIT_REVIEWED: `ffe53b08d7220ef91eae19924b34434e1bd6f02a`
+CORE_COMMIT_REVIEWED: `c765f59f2ac27ea9b6763a70c4e65a2be3d26c95`
 CONTRACT_VERSION_REVIEWED: `0.4`
-ALLOWED_MODE: `ISOLATED_BRANCH_MEMORY_ACCEPTANCE_AND_LOCAL_OWNER_VALIDATION`
+ALLOWED_MODE: `A107_ISOLATED_BRANCH_REAL_ERP_READ_ONLY_ACCEPTANCE`
 WRITE_CAPABILITY: `NON_PRODUCTION_ASSISTANT_QA_ONLY`
 
 RUNTIME: `ASSISTANT_A104_SERVER_CONVERSATION_V2`
@@ -36,7 +36,7 @@ A106_MEMORY_SCHEMA: `FIRST_CLASS_LIFECYCLE_AND_PROVENANCE_ACTIVE_IN_TEST_BRANCH`
 A106_AUTOMATED_ACCEPTANCE: `MEMORY_POLICY_V2_REAL_10_OF_10_PASS`
 A106_OWNER_ACCEPTANCE: `PASS`
 A106_KNOWN_ISSUE: `NAME_MEMORY_MAY_BE_UNSTABLE_IN_ISOLATED_SCENARIOS_DEFERRED_TO_UX_MEMORY_HARDENING`
-A107_READINESS: `WAITING_FOR_CORE_QA_DATASET`
+A107_READINESS: `COMPLETE_OWNER_ACCEPTANCE_PASS_READY_FOR_PREVIEW_INTEGRATION`
 
 ## A101 runtime
 
@@ -157,3 +157,25 @@ The earlier automated gates remain evidence for the superseded candidate-first b
 Core commit `ffe53b08d7220ef91eae19924b34434e1bd6f02a` publishes Contract 0.4 and reports migration `20260716125205_assistant_memory_policy_v2.sql` applied only to test branch `gsglkmudcwkdetqtocae`. The Assistant runtime now inserts explicit user memory directly as approved, permits only allowlisted model-inferred user-global memory at confidence `>=0.850`, enforces authorized company roles through branch RLS/triggers, and deletes immediately with immutable audit events. Candidate creation/confirmation is disabled.
 
 Real branch acceptance is 10/10 PASS. The model inference scenario used requested/effective `gpt-5.6-terra` with reasoning effort `medium`; there was no mock or fallback. User-global memory crossed new and existing chats, temporary stock was not saved, deletion took effect everywhere, user B could not see/delete user A memory, and an ordinary agronomist could not create company memory. Candidate delta, ERP writes, service-role use, and production connections were all zero. Read-only regression remains 24/24, conversation/recent-60 regression remains 21/21, typecheck and build pass. A106 remains open only for repeated owner browser acceptance; commit/push/merge/deploy remain unperformed.
+
+## A107 real ERP data acceptance
+
+The Core QA dataset gate was reviewed at commit `c765f59f2ac27ea9b6763a70c4e65a2be3d26c95`. A107 runs only against Supabase branch `gsglkmudcwkdetqtocae`. A strict fail-closed runtime guard requires exact HTTPS hostname equality with `gsglkmudcwkdetqtocae.supabase.co` for both public and server Supabase URLs and exact equality for `A107_BRANCH_REF` before auth, OpenAI, or ERP access. Service-role, database, direct, and admin credentials are rejected.
+
+The dotenv-free safe build and recursive `.next` scan passed: production project-ref and production URL matches are `0`; allowed branch-ref and hostname file matches are `44`; no service-role secret was loaded. Auth preflight established a valid QA User A session whose destination hostname was the exact allowed branch host. Production connections and ERP writes remained `0`.
+
+The final REAL run used requested/effective `gpt-5.6-terra`, reasoning effort `medium`, Responses API `store:false`, and exactly eight read-only ERP tools. All `45/45` scenarios passed with `100.00%` numeric accuracy, `100%` unit accuracy, field-search and follow-up PASS, cross-company leaks `0`, and ERP mutations `0`. Typecheck, the `24/24` read-only regression, clean build, and diff check pass. The REAL runtime remains running at `http://127.0.0.1:3106/dashboard`. This automated gate originally held commit/push pending owner acceptance; the final acceptance section below supersedes that hold.
+
+The latest owner corrections add warehouse directory mode to the existing read-only stock tool, multilingual/partial/transliterated product resolution, and a generic eight-field list that ignores stale selected-field focus while including crop and variety. The QA row for Curamin Foliar has no Russian localized value, so no Core data was changed and a branch-only Core dataset proposal was created. After quota restoration, final REAL acceptance passed `7/7`; the focused follow-up/isolation/write-denial regression passed `6/6`; the ERP snapshot remained unchanged. Silent fallback remained disabled. The owner returned `OWNER_ACCEPTANCE: PASS`.
+
+## A107 owner context-connection correction
+
+The failed owner check had two causes. First, the owner runtime was attached to a foreground command session and had exited, while the already loaded page continued reading test-branch QA data directly. Second, `/api/assistant/context` used a service-role client after user authentication, contradicting the A107 no-service-role runtime.
+
+The context route now executes the exact branch allowlist before auth and uses the request-scoped QA user JWT/anon client under RLS. The frontend remains same-origin on `/api/assistant/context`, so there is no CORS or `localhost`/`127.0.0.1` mismatch. The safe owner launcher now starts a hidden detached process and verifies port readiness.
+
+Fresh auth/context preflight and browser verification pass. The dashboard shows 8 fields and 1,000 ha; Copilot loads `Астык-STEM QA · 2026 · agronomist`; the input accepts and sends a query; the REAL read-only response reports 8 fields and 1,000 ha. After a clean reload there are no new frontend/network errors. Production connections and ERP writes remain `0`, service role remains unloaded, and the detached server is running on port 3106. Owner acceptance is `PASS`.
+
+## A107 final owner acceptance
+
+A107 is complete with owner acceptance `PASS` and is ready for selective push to `origin/assistant-v1`, followed by preview integration. The minor phrase-intent issue where `Маладээс` was treated as a product lookup is recorded as non-blocking backlog item `INTENT-UX-001` in `docs/project-live/backlog/assistant-intent-ux-hardening.md`. Merge and production deploy remain forbidden.

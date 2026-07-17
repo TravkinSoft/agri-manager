@@ -26,6 +26,11 @@ import {
 import { resolveAssistantRuntimeMode } from "@/lib/assistant/v2/runtime-mode";
 import { RECENT_MESSAGES_LIMIT } from "@/lib/assistant/v2/context-limits";
 import { enforceAssistantGreetingPolicy } from "@/lib/assistant/v2/greeting-policy";
+import {
+  A107RuntimeGuardError,
+  A107_ALLOWED_BRANCH_REF,
+  assertA107RuntimeGuard,
+} from "@/lib/assistant/v1/a107-runtime-guard";
 import type { AssistantDebugMetadata, AssistantDebugSettingsSource } from "@/lib/assistant/debug-types";
 import type { AssistantEngineResult, AssistantNavigationAction } from "@/lib/assistant/engine/types";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
@@ -54,9 +59,8 @@ class AssistantRouteRuntimeError extends Error {
 function applyExplicitLocalQaModelOverride(settings: AssistantPlatformSettings): AssistantPlatformSettings {
   const override = asString(process.env.ASSISTANT_LOCAL_QA_MODEL_OVERRIDE);
   const reasoningOverride = asString(process.env.REASONING_EFFORT);
-  const localA106Runtime = process.env.NODE_ENV !== "production" &&
-    process.env.A106_BRANCH_REF === "gsglkmudcwkdetqtocae";
-  if (!localA106Runtime) return settings;
+  const localA107Runtime = process.env.A107_BRANCH_REF === A107_ALLOWED_BRANCH_REF;
+  if (!localA107Runtime) return settings;
   return {
     ...settings,
     ...(override ? { model: override } : {}),
@@ -745,6 +749,7 @@ export async function POST(request: NextRequest) {
   const startedAt = Date.now();
 
   try {
+    assertA107RuntimeGuard();
     const actor = await getServerActorFromSession(request);
     ensureAssistantRole(actor);
     role = actor.role;
@@ -1141,6 +1146,12 @@ export async function POST(request: NextRequest) {
       ...(debug ? { debug } : {}),
     });
   } catch (error) {
+    if (error instanceof A107RuntimeGuardError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code, memorySaved: false },
+        { status: 503 }
+      );
+    }
     if (error instanceof AssistantRouteRuntimeError) {
       return NextResponse.json(
         {

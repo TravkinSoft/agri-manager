@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  A107_ALLOWED_BRANCH_REF,
+  isExactA107SupabaseUrl,
+} from "@/lib/assistant/v1/a107-runtime-guard";
 
 export const USER_GLOBAL_MEMORY_TYPES = [
   "name",
@@ -153,8 +157,6 @@ const EXPLICIT_SUFFIX = /^\s*(.+?)(?:\s*[,;:]\s*|\s+)(?:запомни(?:те)?\
 const COMPANY_PREFIX = /^\s*(?:для\s+компании|company(?:-wide)?)(?:\s*[,;:]\s*|\s+)(.+)$/i;
 const DELETE_COMMAND = /(?:^|\s)(?:забудь|не\s+учитывай(?:\s+это)?\s+больше|удали(?:\s+это)?\s+из\s+памяти|forget|remove\s+from\s+memory)(?:\s+|$)(.*)$/i;
 const MEMORY_METADATA_KEY = "assistant_memory_policy_v2";
-const A106_BRANCH_REF = "gsglkmudcwkdetqtocae";
-const PRODUCTION_REF = "bhsemlvmkikpntabctml";
 const A106_DISABLED_SECRET_SENTINEL = "__A106_DISABLED__";
 
 function clean(value: unknown, max = 500): string | null {
@@ -239,15 +241,17 @@ function classifyCompanyFact(value: string): { type: CompanyMemoryType; fact: st
 
 export function isAssistantMemoryV2RuntimeEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   const url = String(env.NEXT_PUBLIC_SUPABASE_URL || env.A106_SUPABASE_URL || "");
-  const explicitlyLocal = env.NODE_ENV !== "production" || env.A106_LOCAL_RUNTIME === "1";
+  const configuredBranchRef = env.A107_BRANCH_REF || env.A106_BRANCH_REF;
+  const explicitlyLocal = env.NODE_ENV !== "production" ||
+    env.A106_LOCAL_RUNTIME === "1" ||
+    configuredBranchRef === A107_ALLOWED_BRANCH_REF;
   const serviceRole = String(env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
   const serviceRoleCredentialAbsent = !serviceRole ||
     (env.A106_LOCAL_RUNTIME === "1" && serviceRole === A106_DISABLED_SECRET_SENTINEL);
   return explicitlyLocal &&
     (env.ASSISTANT_MEMORY_V2_ENABLED === "1" || env.ASSISTANT_MEMORY_V1_ENABLED === "1") &&
-    env.A106_BRANCH_REF === A106_BRANCH_REF &&
-    url.includes(A106_BRANCH_REF) &&
-    !url.includes(PRODUCTION_REF) &&
+    configuredBranchRef === A107_ALLOWED_BRANCH_REF &&
+    isExactA107SupabaseUrl(url) &&
     serviceRoleCredentialAbsent;
 }
 

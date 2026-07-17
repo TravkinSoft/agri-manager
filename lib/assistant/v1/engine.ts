@@ -172,9 +172,14 @@ function normalizedToolArgs(params: {
 }): Record<string, unknown> {
   const { name, rawArgs, message, state, runtimeContext } = params;
   if (name === "search_fields" || name === "get_field_card" || name === "get_field_materials") {
-    const typed = parseTypedFieldSearchParameters(message, rawArgs);
-    const focusLabel = state.selectedFieldLabel || null;
-    const fieldReference = clean(rawArgs.field_id) || typed.number || typed.name || focusLabel || state.selectedFieldId;
+    const genericFieldList =
+      name === "search_fields" &&
+      /(?:какие\s+поля|список\s+полей|перечисл\w*\s+поля|назови\s+(?:все\s+)?поля)/iu.test(message);
+    const typed = parseTypedFieldSearchParameters(genericFieldList ? "" : message, genericFieldList ? {} : rawArgs);
+    const focusLabel = genericFieldList ? null : state.selectedFieldLabel || null;
+    const fieldReference = genericFieldList
+      ? null
+      : clean(rawArgs.field_id) || typed.number || typed.name || focusLabel || state.selectedFieldId;
     const args: Record<string, unknown> = {
       ...typed,
       ...(clean(rawArgs.field_id) ? { field_id: clean(rawArgs.field_id) } : {}),
@@ -228,11 +233,24 @@ function normalizedToolArgs(params: {
     };
   }
   if (name === "get_active_operations_summary") {
+    const typed = parseTypedFieldSearchParameters(message, rawArgs);
+    const explicitField = clean(rawArgs.field) || typed.number || typed.name || (/\bсад(?:ам|ы|ах|ов)?\b/iu.test(message) ? "Сад" : null);
+    const requestedStatus = clean(rawArgs.status)?.toLowerCase() || null;
+    const text = message.toLocaleLowerCase("ru-RU");
+    const status = /\b(?:всего|все)\b/iu.test(text)
+      ? "all"
+      : /заверш|выполн/iu.test(text)
+        ? "completed"
+        : /заплан|планов/iu.test(text)
+          ? "planned"
+          : /актив|идут\s+сейчас|в\s+работе|текущ/iu.test(text)
+            ? "active"
+            : requestedStatus || "all";
     return {
       query: message,
-      status: "active",
-      field_id: clean(rawArgs.field_id) || state.selectedFieldId,
-      field: clean(rawArgs.field) || state.selectedFieldLabel,
+      status,
+      field_id: clean(rawArgs.field_id) || (explicitField ? null : state.selectedFieldId),
+      field: explicitField || state.selectedFieldLabel,
       season: clean(rawArgs.season_id) || runtimeContext.season,
       season_id: clean(rawArgs.season_id),
       output_type: "summary_total",
@@ -245,12 +263,128 @@ function normalizedToolArgs(params: {
   return { query: message, output_type: "filtered_summary" };
 }
 
+function requiredCurrentDataToolCall(params: {
+  message: string;
+  state: ReadOnlyThreadState;
+  turn: number;
+}): any | null {
+  const text = params.message.toLocaleLowerCase("ru-RU");
+  if (/(?:сколько\s+(?:у\s+нас\s+)?склад|какие\s+(?:у\s+нас\s+)?склад|список\s+склад|перечисл\w*\s+склад)/iu.test(text)) {
+    return { id: `readonly-required-warehouse-directory-${params.turn}`, type: "function", function: { name: "get_warehouse_stock", arguments: "{}" } };
+  }
+  if (/(?:остатк.*(?:двум|двух|всем|всех).*склад|(?:двум|двух|всем|всех)\s+склад.*остатк)/iu.test(text)) {
+    return { id: `readonly-required-warehouse-stock-${params.turn}`, type: "function", function: { name: "get_warehouse_stock", arguments: JSON.stringify({ allWarehouses: true }) } };
+  }
+  if (/(?:какие\s+поля|список\s+полей|перечисл\w*\s+поля|назови\s+(?:все\s+)?поля)/iu.test(text)) {
+    return { id: `readonly-required-field-directory-${params.turn}`, type: "function", function: { name: "search_fields", arguments: "{}" } };
+  }
+  const selected = params.state.selectedFieldId || params.state.selectedFieldLabel;
+  if (!selected) return null;
+  if (/материал/iu.test(text)) {
+    return { id: `readonly-required-field-materials-${params.turn}`, type: "function", function: { name: "get_field_materials", arguments: JSON.stringify({ field_id: params.state.selectedFieldId, name: params.state.selectedFieldLabel }) } };
+  }
+  if (/операц|полив/iu.test(text)) {
+    return { id: `readonly-required-field-operations-${params.turn}`, type: "function", function: { name: "get_active_operations_summary", arguments: JSON.stringify({ field_id: params.state.selectedFieldId, field: params.state.selectedFieldLabel, status: "all" }) } };
+  }
+  if (/культур|сорт|площад/iu.test(text)) {
+    return { id: `readonly-required-field-card-${params.turn}`, type: "function", function: { name: "get_field_card", arguments: JSON.stringify({ field_id: params.state.selectedFieldId, name: params.state.selectedFieldLabel }) } };
+  }
+  return null;
+}
+
+function adaptRequestedToolCalls(message: string, calls: any[]): any[] {
+  const isOperationQuestion = /операц|полив/iu.test(message);
+  const isMaterialQuestion = /материал/iu.test(message);
+  const isGenericFieldList = /(?:какие\s+поля|список\s+полей|перечисл\w*\s+поля|назови\s+(?:все\s+)?поля)/iu.test(message);
+  if (isGenericFieldList && calls.length) {
+    return calls.map((call) => ({ ...call, function: { ...call.function, name: "search_fields", arguments: "{}" } })).slice(0, 1);
+  }
+  if (!isOperationQuestion || !calls.length) return calls;
+  const target = isMaterialQuestion ? "get_field_materials" : "get_active_operations_summary";
+  const mapped = calls.map((call) => {
+    const name = clean(call?.function?.name);
+    if (name !== "search_fields" && name !== "get_field_card") return call;
+    return { ...call, function: { ...call.function, name: target } };
+  });
+  const seen = new Set<string>();
+  return mapped.filter((call) => {
+    const name = clean(call?.function?.name) || "unknown";
+    if (seen.has(name)) return false;
+    seen.add(name);
+    return true;
+  });
+}
+
+function ensureWarehouseUnit(answer: string, toolCalls: AssistantEngineResult["toolCalls"], outputs: AssistantToolOutput[]): string {
+  if (!toolCalls.some((call) => call.ok && call.tool === "get_warehouse_stock")) return answer;
+  const units = Array.from(new Set(outputs.flatMap((output) => (output.rows || []).map((row) => clean(row.uom) || clean(row.unit))).filter((unit): unit is string => Boolean(unit))));
+  if (!units.length) return answer;
+  const labels = units.map((unit) => unit.toLowerCase() === "kg" ? "кг" : unit.toLowerCase() === "l" ? "л" : unit);
+  const alreadyPresent = labels.every((label) => new RegExp(`(^|\\s|\\d)${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s|[.,;:)]|$)`, "iu").test(answer));
+  return alreadyPresent ? answer : `${answer.trim()}\n\nЕдиница измерения: ${labels.join(", ")}.`;
+}
+
+function ensureWarehouseDirectoryAnswer(
+  answer: string,
+  message: string,
+  toolCalls: AssistantEngineResult["toolCalls"],
+  outputs: AssistantToolOutput[]
+): string {
+  if (!/(?:сколько\s+(?:у\s+нас\s+)?склад|какие\s+(?:у\s+нас\s+)?склад|список\s+склад|перечисл\w*\s+склад)/iu.test(message)) {
+    return answer;
+  }
+  if (!toolCalls.some((call) => call.ok && call.tool === "get_warehouse_stock")) return answer;
+  const warehouseNames = Array.from(
+    new Set(
+      outputs
+        .flatMap((output) => output.rows || [])
+        .map((row) => clean(row.warehouse_name))
+        .filter((name): name is string => Boolean(name))
+    )
+  );
+  if (!warehouseNames.length) return answer;
+  return `У вас ${warehouseNames.length} активных склада: ${warehouseNames.join(" и ")}.`;
+}
+
+function ensureExactAreaNoMatchAnswer(
+  answer: string,
+  message: string,
+  toolCalls: AssistantEngineResult["toolCalls"]
+): string {
+  const emptyFieldLookup = toolCalls.some(
+    (call) =>
+      call.ok &&
+      (call.tool === "search_fields" || call.tool === "get_field_card") &&
+      call.rows === 0
+  );
+  if (!emptyFieldLookup) return answer;
+  const typed = parseTypedFieldSearchParameters(message);
+  if (typed.area_ha == null) return answer;
+  return `Поле площадью ${typed.area_ha} га не найдено.`;
+}
+
 function explicitNamedMaterial(message: string): string | null {
   const match = String(message || "").match(
     /(?:^|\s)(?:материал(?:а|у|ом|е)?|material)\s+[«"']?([^»"'?!.;,]{2,120})[»"']?/iu
   );
   const product = clean(match?.[1]);
   return product && !/^(?:материал|удобрени[ея])$/iu.test(product) ? product : null;
+}
+
+function plainProductLookupPhrase(message: string): string | null {
+  const value = clean(message);
+  if (!value || value.length < 3 || value.length > 80) return null;
+  if (!/^[\p{L}\p{N}][\p{L}\p{N}\s+./_-]*$/u.test(value)) return null;
+  const normalized = value.toLocaleLowerCase("ru-RU").replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (!tokens.length || tokens.length > 4) return null;
+  if (
+    /^(?:привет|здравствуй(?:те)?|спасибо|благодарю|почему|зачем|как\s+дела|что\s+это|кто\s+ты|why|what|hello|hi|thanks)$/u.test(normalized) ||
+    /(?:^|\s)(?:поле|поля|сад|склад|операц|остат|материал|культур|сорт|площад|урожа|талон|время|уакыт|company|field|warehouse|operation|stock)(?:\s|$)/u.test(normalized)
+  ) {
+    return null;
+  }
+  return value;
 }
 
 function normalizeFieldLabel(value: unknown): string {
@@ -265,6 +399,9 @@ function postProcessFieldSearch(
   message: string,
   args: Record<string, unknown>
 ): AssistantToolOutput {
+  if (/(?:какие\s+поля|список\s+полей|перечисл\w*\s+поля|назови\s+(?:все\s+)?поля)/iu.test(message)) {
+    return output;
+  }
   const typed = parseTypedFieldSearchParameters(message, args);
   let rows = output.rows || [];
   if (typed.name) {
@@ -697,7 +834,9 @@ export async function runReadOnlyAssistantV1(params: {
   let usage: Usage = { promptTokens: null, completionTokens: null, totalTokens: null };
   let modelMs = 0;
   let toolMs = 0;
-  const requiredInventoryProduct = modelToolsEnabled ? explicitNamedMaterial(message) : null;
+  const requiredInventoryProduct = modelToolsEnabled
+    ? explicitNamedMaterial(message) || plainProductLookupPhrase(message)
+    : null;
   let responseStatus: number | null = null;
 
   for (let turn = 0; turn < MAX_MODEL_TURNS; turn += 1) {
@@ -776,6 +915,11 @@ export async function runReadOnlyAssistantV1(params: {
         },
       }];
     }
+    if (!requestedToolCalls.length && modelToolsEnabled && toolCalls.length === 0) {
+      const required = requiredCurrentDataToolCall({ message, state: nextState, turn });
+      if (required) requestedToolCalls = [required];
+    }
+    requestedToolCalls = adaptRequestedToolCalls(message, requestedToolCalls);
     if (!requestedToolCalls.length) {
       finalAnswer = answer;
       llm = { status: "ok", httpStatus: responseStatus, errorCode: null, errorMessage: null, missingEnv: [] };
@@ -928,6 +1072,9 @@ export async function runReadOnlyAssistantV1(params: {
   }
   const successfulTools = toolCalls.filter((call) => call.ok);
   const grounded = successfulTools.length > 0 && successfulTools.length === toolCalls.length;
+  finalAnswer = ensureExactAreaNoMatchAnswer(finalAnswer, message, toolCalls);
+  finalAnswer = ensureWarehouseDirectoryAnswer(finalAnswer, message, toolCalls, outputs);
+  finalAnswer = ensureWarehouseUnit(finalAnswer, toolCalls, outputs);
   return buildResult({
     startedAt,
     answer: finalAnswer || (llm.status === "ok" ? "По текущему запросу ответ не сформирован." : "Не удалось получить безопасный ответ модели."),
