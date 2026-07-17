@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-17
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `8367a3c`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `9ef7634`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -18,12 +18,23 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ179_COMPONENT_PACKAGE_APPLIED | Утверждённый UTF-8 пакет ТЗ №178 применён в production одной транзакцией после fresh backup и no-drift preflight. Итог: 431 компонент, 63 aliases, 318 sources, 1373 global product links, company links `0`; дубли, конфликты, garbage и mojibake `0`. Повторный apply является точным no-op. Humic acids остаётся HOLD_OUT_OF_SCOPE. |
+| ГЛБД | TZ180_PESTICIDE_AUDIT_COMPLETE | Read-only аудит классифицировал все 852 глобальные pesticide-карточки: 776 usable with minor gaps, 76 blocked/review, unclassified `0`. Полностью complete-карточек пока `0`; Batch 1 содержит 45 P0-карточек. Production baseline остаётся 431/63/318/1373, company links `0`. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-180 global pesticide-card completeness audit
+
+- Production read-only preflight passed at `431` components, `63` aliases, `318` sources, `1373` product links and `0` company links; active duplicates and mojibake are `0`.
+- Exact live scope contains `852` global active pesticide cards. All `852` were audited and classified once; duplicate rows and unclassified products are `0`.
+- Readiness is `0` complete, `776` ready with minor gaps, `12` blocked component, `2` blocked identity, `0` independently blocked formulation, `38` blocked source and `24` owner review.
+- Main gaps are regulatory `852`, product source/confidence `850`, component-link source `818`, usage rules `821`, manufacturer `799`, EN alias `789`, missing components `34` and missing formulations `16`.
+- Real catalog-helper search ran `1059` scenarios: `1009` pass and `50` fail across `24` unique cards. Known Curamin/Phomazin RU/EN cases pass and remain fertilizer-scope, outside pesticide counts.
+- External artifacts and verified manifest are at `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-180/`. Two complete runs produced the same fingerprint `2d74a26055cbad5a1466b591dc77ffc2926364ccafa06cf2d26f44f05401f696`.
+- Batch plan is non-overlapping: P0 `45`, P1 `0`, P2 `807`. P1 is zero because all 16 formulation gaps already carry higher-priority P0/owner blockers.
+- Production writes, component-link changes, migrations, deploy and merge are `0`. Next safe action is a source-backed, read-only Batch 1 review package.
 
 ### TZ-179 production selective component apply
 

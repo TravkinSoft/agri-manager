@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-17T15:45:50+05:00
+LAST_REVIEW_AT: 2026-07-17T16:35:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `8367a3c`)
+CORE_COMMIT: `SELF` (previous core commit: `9ef7634`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,18 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-179 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD may continue from the verified production state `431/63/318/1373` with Humic acids still out of scope.
+NEXT_SAFE_ACTION: TZ-180 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD may continue with a read-only Batch 1 pesticide-card review package from the verified production state `431/63/318/1373`.
+
+## TZ-180 review result
+
+TZ180_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA branch, dataset and Contract 0.4 were not touched.
+TZ180_CORE_IMPACT_FOUND: `YES - universal read-only pesticide-card audit script, external evidence package and live-state documentation`.
+TZ180_SCOPE: `852/852 global active pesticide cards`; fertilizers, company-local products and archived technical rows excluded.
+TZ180_CLASSIFICATION: `PASS - complete 0, minor gaps 776, blocked/review 76, unclassified 0, duplicate audit rows 0`.
+TZ180_SEARCH: `1059 scenarios / 1009 pass / 50 fail across 24 cards`; known Curamin/Phomazin RU/EN cases pass outside pesticide scope.
+TZ180_REPRODUCIBILITY: `PASS - two runs produced fingerprint 2d74a26055cbad5a1466b591dc77ffc2926364ccafa06cf2d26f44f05401f696; manifest errors 0`.
+TZ180_PRODUCTION_IMPACT: `NONE`; production writes, component-link changes, migration, deploy and merge are 0.
+TZ180_ACTION: `READY_FOR_BATCH_1_READ_ONLY_REVIEW`; this does not authorize catalog merges or production writes.
 
 ## TZ-179 review result
 

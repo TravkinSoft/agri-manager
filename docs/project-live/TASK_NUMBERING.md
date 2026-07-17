@@ -69,6 +69,7 @@
 | TZ-177 | CORE / ASSISTANT QA | Synchronize production catalog security to Assistant QA branch | copilot-v1 | DONE | TZ-176,TZ-171 | [task-reports/core/TZ-177.md](task-reports/core/TZ-177.md) | `SELF` |
 | TZ-178 | GLBD | Rebuild reproducible UTF-8-safe component package | copilot-v1 | DONE | TZ-172,TZ-173,TZ-174 | [task-reports/core/TZ-178.md](task-reports/core/TZ-178.md) | `SELF` |
 | TZ-179 | GLBD | Production selective apply component package | copilot-v1 | DONE | TZ-178 | [task-reports/core/TZ-179.md](task-reports/core/TZ-179.md) | `SELF` |
+| TZ-180 | GLBD | Global pesticide cards completeness audit V1 | copilot-v1 | DONE | TZ-179 | [task-reports/core/TZ-180.md](task-reports/core/TZ-180.md) | `SELF` |
 
 ## Status values
 
