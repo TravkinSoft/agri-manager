@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-17
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `9ef7634`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `65e2d5c`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -18,12 +18,22 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ180_PESTICIDE_AUDIT_COMPLETE | Read-only аудит классифицировал все 852 глобальные pesticide-карточки: 776 usable with minor gaps, 76 blocked/review, unclassified `0`. Полностью complete-карточек пока `0`; Batch 1 содержит 45 P0-карточек. Production baseline остаётся 431/63/318/1373, company links `0`. |
+| ГЛБД | TZ181_BATCH1_REVIEW_COMPLETE | Все 45 P0-карточек Batch 1 разобраны read-only: 20 safe preview, 10 owner decision, 15 unresolved. Подготовлены 17 source-backed component links, 4 canonical formulation assignments и search read-path preview; production baseline остаётся 431/63/318/1373, company links `0`. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-181 pesticide Batch 1 review
+
+- Exact TZ-180 Batch 1 scope `45/45` reviewed; duplicate and unclassified rows are `0`.
+- Classification: `20 SAFE_AUTO_APPLY`, `10 OWNER_APPROVAL_REQUIRED`, `15 UNRESOLVED`.
+- Safe data preview contains `17` source-backed component links and `4` assignments to existing canonical formulation rows. Component duplicate and alias conflict previews are `0`.
+- Search preview uses existing localized product names and database aliases without creating alias rows. All `50/50` prior failing target scenarios pass; `20` scenarios across ten RU queries require disambiguation because more than one catalog row matches.
+- `Celest Top` and `Селест Топ, КС` are one likely source-backed identity, but merge remains owner-gated and was not executed.
+- External artifacts and verified manifest are at `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-181/`. Two complete runs produced fingerprint `49774e39ff293e24490b0c7ae90d7b23e7c88b10f845eeaf12b6846242a9e580` and byte-identical manifests.
+- Production writes, product merges, component/alias inserts, migrations, deploy and master merge are `0`. Next safe action is owner review of the ten decisions and explicit approval of a selective apply subset; the fifteen unresolved cards remain blocked.
 
 ### TZ-180 global pesticide-card completeness audit
 

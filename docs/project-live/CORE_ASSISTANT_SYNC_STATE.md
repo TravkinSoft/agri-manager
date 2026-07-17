@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-17T16:35:00+05:00
+LAST_REVIEW_AT: 2026-07-17T17:25:44+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `9ef7634`)
+CORE_COMMIT: `SELF` (previous core commit: `65e2d5c`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,20 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-180 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD may continue with a read-only Batch 1 pesticide-card review package from the verified production state `431/63/318/1373`.
+NEXT_SAFE_ACTION: TZ-181 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD may continue only after owner review of the 10 decision cards and explicit approval of a selective safe apply; 15 unresolved cards remain blocked.
+
+## TZ-181 review result
+
+TZ181_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA branch, dataset and Contract 0.4 were not touched.
+TZ181_CORE_IMPACT_FOUND: `YES - universal read-only Batch 1 review script, external evidence package and live-state documentation`.
+TZ181_SCOPE: `45/45 unique TZ-180 BATCH_1_P0 cards`; unclassified and duplicate rows `0`.
+TZ181_CLASSIFICATION: `20 SAFE_AUTO_APPLY / 10 OWNER_APPROVAL_REQUIRED / 15 UNRESOLVED`.
+TZ181_DATA_PREVIEW: `17 source-backed component links / 4 existing canonical formulation assignments`; component duplicate and alias conflict previews `0`.
+TZ181_SEARCH: `50/50 target scenarios expected pass`; 30 direct and 20 scenarios across ten RU queries require disambiguation; new alias rows `0`.
+TZ181_IDENTITY: `Celest Top / Селест Топ, КС` classified as one likely identity, but merge remains owner-gated and executed merges are `0`.
+TZ181_REPRODUCIBILITY: `PASS - two runs produced fingerprint 49774e39ff293e24490b0c7ae90d7b23e7c88b10f845eeaf12b6846242a9e580 and byte-identical manifests`.
+TZ181_PRODUCTION_IMPACT: `NONE`; writes, merges, links, aliases, migration, deploy and master merge are `0`.
+TZ181_ACTION: `READY_FOR_OWNER_REVIEW`; no production apply is authorized.
 
 ## TZ-180 review result
 
