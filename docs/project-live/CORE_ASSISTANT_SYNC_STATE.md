@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-17T03:53:17+05:00
+LAST_REVIEW_AT: 2026-07-17T15:45:50+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `c765f59`)
+CORE_COMMIT: `SELF` (previous core commit: `8367a3c`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-178 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. The rebuilt GLBD package is independently ready only for a separately approved production preflight/apply task.
+NEXT_SAFE_ACTION: TZ-179 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD may continue from the verified production state `431/63/318/1373` with Humic acids still out of scope.
+
+## TZ-179 review result
+
+TZ179_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA branch, dataset and Contract 0.4 were not touched.
+TZ179_CORE_IMPACT_FOUND: `YES - owner-approved production GLBD catalog apply and live-state evidence`.
+TZ179_PRODUCTION_APPLY: `PASS - fresh backup, verified manifests, no-drift preflight and one-transaction apply of 53 approved decisions`.
+TZ179_FINAL_STATE: `431 components / 63 aliases / 318 sources / 1373 global product links / 0 company links`; Humic acids unchanged.
+TZ179_ACCEPTANCE: `PASS - duplicates/conflicts/garbage/mojibake 0, RU/EN/API/UI helper PASS, second apply exact NOOP, six critical routes HTTP 200`.
+TZ179_PRODUCTION_IMPACT: `APPROVED_GLOBAL_CATALOG_DATA_ONLY`; product rows, company/business data, schema, migration history, deploy and master are unchanged.
+TZ179_ACTION: `READY_FOR_NEXT_GLBD_STAGE`; Assistant branch-only gates remain unchanged.
 
 ## TZ-178 review result
 

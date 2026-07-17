@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-17
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `c765f59`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `8367a3c`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138 и локальный складской контракт ТЗ №144. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; основной текущий фокус снова GLBD.
@@ -18,12 +18,22 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ178_UTF8_PACKAGE_READY | Production остаётся на точном baseline: 425 компонентов, 1373 глобальные product links, 24 aliases, 295 sources и company links `0`. ТЗ №178 добавило воспроизводимый strict-UTF-8/NFC generator и заново пересобрало тот же 53-row scope как ASCII-only SQL с Unicode literals. Изолированные first apply, second-apply NOOP, real helper RU/EN/API/UI smoke и точный rollback PASS. Новый production apply возможен только отдельным ТЗ после fresh backup, live preflight и нового owner approval. Humic acids остаётся HOLD_OUT_OF_SCOPE. |
+| ГЛБД | TZ179_COMPONENT_PACKAGE_APPLIED | Утверждённый UTF-8 пакет ТЗ №178 применён в production одной транзакцией после fresh backup и no-drift preflight. Итог: 431 компонент, 63 aliases, 318 sources, 1373 global product links, company links `0`; дубли, конфликты, garbage и mojibake `0`. Повторный apply является точным no-op. Humic acids остаётся HOLD_OUT_OF_SCOPE. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-179 production selective component apply
+
+- Owner-approved пакет ТЗ №178 применён к production project `bhsemlvmkikpntabctml` одной транзакцией после fresh backup, SHA-256 manifest verification и live no-drift preflight.
+- Exact scope: `53` решения (`3` direct attachments, `33` alias decisions, `6` safeners, `10` inactive decisions, `1` rejected source); физически добавлены `39` aliases и `23` source rows. `Humic acids / Гуминовые кислоты` не изменена.
+- Production state: components `431`, aliases `63`, sources `318`, product links `1373`, company links `0`. Product rows и company/business data не менялись.
+- Component duplicates, alias conflicts, active link duplicates, garbage components и mojibake равны `0`. Все шесть safeners проходят RU/EN search, API JSON и реальный UI display helper; inactive rows скрыты от обычного поиска и доступны raw Global Admin catalog read.
+- Повторный apply прошёл как точный no-op: counts и полный SHA-256 fingerprint `d58c6ae8c277bcd350764199cf9ed38c1cf7ed4fe16cff3503c10dc7cfab9bc4` не изменились.
+- Production route smoke вернул HTTP `200` для component catalog, `/references`, `/operations`, `/crop-structure`, `/warehouses/requests` и `/weighbridge`. Rollback не потребовался; production остаётся `ACTIVE_HEALTHY`.
+- Migration, db push, deploy и merge не выполнялись.
 
 ### TZ-178 reproducible UTF-8-safe component package
 
