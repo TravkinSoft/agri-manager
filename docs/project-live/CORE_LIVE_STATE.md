@@ -18,12 +18,22 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ181_BATCH1_REVIEW_COMPLETE | Все 45 P0-карточек Batch 1 разобраны read-only: 20 safe preview, 10 owner decision, 15 unresolved. Подготовлены 17 source-backed component links, 4 canonical formulation assignments и search read-path preview; production baseline остаётся 431/63/318/1373, company links `0`. |
+| ГЛБД | TZ184_BATCH1_PACKAGE_READY | После полного rollback ТЗ №183 пакет Batch 1 пересобран: 4 formulation updates и все 9 затрагиваемых legacy-subcategory rows проходят exact-ID apply, повторный no-op и точный rollback. Production не менялась; baseline остаётся 431/63/318/1373, company links `0`. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-184 corrected pesticide Batch 1 package
+
+- Failed TZ-183 transaction rollback confirmed: production fingerprint remains `bf07323460e43153accf2b4cfc29ed265b2238a45f80493864600c9038b241f2`; Batch 1, HOLD and unresolved rows are unchanged.
+- Exact `products_product_subcategory_check_v1` permits pesticide `NULL` or `herbicide/fungicide/insecticide/acaricide/desiccant/seed_treatment/growth_regulator/other`; the constraint was not changed or relaxed.
+- Four requested formulation cards are exact-ID mapped: Каратэ Зеон `SC/insecticide`, Хакер 300 `SL/herbicide`, Золотой Дракон `SL/herbicide`, Амплего `CS/insecticide`.
+- Full update-target review found nine invalid legacy subcategories. Five additional exact rows are normalized without inventing new business meaning: Ордан/Fунгоцеб to `fungicide`; archived Кассиус, inactive Black Jack and the inactive safe-review row to `NULL`.
+- Production-equivalent PGlite acceptance passed first apply, `0` constraint violations, search `50/50 + 6/6`, second apply with `0` changes and exact rollback fingerprint/timestamps. Component and company links were preserved except the approved Smerch salt cleanup.
+- External package and verified manifest: `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-184/`. Production writes, migration, deploy and merge are `0`.
+- `READY_TO_RETRY_BATCH_1=YES` only through a new numbered owner-approved apply task with fresh backup and live no-drift preflight. TZ-183 must not be rerun.
 
 ### TZ-181 pesticide Batch 1 review
 

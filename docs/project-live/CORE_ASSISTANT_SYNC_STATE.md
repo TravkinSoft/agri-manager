@@ -16,7 +16,18 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-181 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD may continue only after owner review of the 10 decision cards and explicit approval of a selective safe apply; 15 unresolved cards remain blocked.
+NEXT_SAFE_ACTION: TZ-184 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD Batch 1 may continue only through a new numbered owner-approved apply task with fresh backup and live no-drift preflight; TZ-183 must not be rerun and 15 unresolved cards remain blocked.
+
+## TZ-184 review result
+
+TZ184_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA branch, dataset and Contract 0.4 were not touched.
+TZ184_CORE_IMPACT_FOUND: `YES - corrected universal Batch 1 package generator, external evidence and live-state documentation`.
+TZ184_ROLLBACK_STATE: `PASS - failed TZ-183 transaction left production fingerprint and all Batch 1/HOLD/unresolved rows unchanged`.
+TZ184_CONTRACT: `PASS - exact NOT VALID subcategory check audited; no constraint change, relaxation or migration`.
+TZ184_PACKAGE: `PASS - four exact formulation assignments and all nine affected invalid legacy subcategories handled by exact product UUID`.
+TZ184_ACCEPTANCE: `PASS - first apply, constraint violations 0, search 50/50 plus controls 6/6, second apply 0 changes and exact rollback fingerprint/timestamps`.
+TZ184_PRODUCTION_IMPACT: `NONE`; production writes, business-data changes, migration, deploy and merge are 0.
+TZ184_ACTION: `READY_TO_RETRY_BATCH_1_WITH_NEW_OWNER_APPROVAL`; fresh backup and live no-drift preflight are mandatory and TZ-183 must not be rerun.
 
 ## TZ-181 review result
 

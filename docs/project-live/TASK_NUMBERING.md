@@ -71,6 +71,9 @@
 | TZ-179 | GLBD | Production selective apply component package | copilot-v1 | DONE | TZ-178 | [task-reports/core/TZ-179.md](task-reports/core/TZ-179.md) | `SELF` |
 | TZ-180 | GLBD | Global pesticide cards completeness audit V1 | copilot-v1 | DONE | TZ-179 | [task-reports/core/TZ-180.md](task-reports/core/TZ-180.md) | `SELF` |
 | TZ-181 | GLBD | Review 45 problematic pesticide cards | copilot-v1 | DONE | TZ-180 | [task-reports/core/TZ-181.md](task-reports/core/TZ-181.md) | `SELF` |
+| TZ-182 | GLBD | Owner review of ten disputed pesticide cards | copilot-v1 | DONE | TZ-181 | `owner decisions recorded by TZ-184` | N/A (conversation-only owner review) |
+| TZ-183 | GLBD | Selective apply pesticide Batch 1 | copilot-v1 | BLOCKED | TZ-181,TZ-182 | `failure and rollback recorded by TZ-184` | — |
+| TZ-184 | GLBD | Rebuild pesticide Batch 1 formulation updates | copilot-v1 | DONE | TZ-183 | [task-reports/core/TZ-184.md](task-reports/core/TZ-184.md) | `SELF` |
 
 ## Status values
 
