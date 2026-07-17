@@ -18,12 +18,22 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ184_BATCH1_PACKAGE_READY | После полного rollback ТЗ №183 пакет Batch 1 пересобран: 4 formulation updates и все 9 затрагиваемых legacy-subcategory rows проходят exact-ID apply, повторный no-op и точный rollback. Production не менялась; baseline остаётся 431/63/318/1373, company links `0`. |
+| ГЛБД | TZ185_BATCH1_APPLIED | Исправленный Batch 1 применён с owner approval: 20 safe + 7 owner cards, 9 legacy subcategories, 4 formulations, search 50/50, repeat apply 0. Production GLBD теперь 432 components / 100 product aliases / 336 sources / 1389 links; company links `0`. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-185 corrected pesticide Batch 1 production apply
+
+- Fresh backup and 12-file manifest passed at `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-184/backups/pesticide-batch-one-20260717T143023716Z/`; live fingerprint matched the TZ-184 baseline before apply.
+- One approved transaction processed `20` SAFE_AUTO_APPLY and `7` owner-approved physical cards. Product rows updated `11`, legacy subcategories normalized `9/9`, formulations assigned `4/4`, timestamps outside scope `0`.
+- Celest Top is the active survivor; Smerch has glyphosate only with potassium salt as equivalent basis; short Ордан/Фунгоцеб/Кассиус rows are archived and aliased to survivors; Black Jack is inactive but not deleted.
+- HOLD `Дитан/Метамил/Курзат` and all `15` unresolved cards are unchanged. Product duplicates, alias conflicts, active link duplicates and company links lost are `0/0/0/0`.
+- Search is `50/50`, controls `6/6`; second apply is a true no-op with `0` changes. Final fingerprint is `d1a340df99bbe8f7aec4dbd093074d1816fabba874868afc4a24c541547e3eeb`.
+- Final production counts: products `1231`, product aliases `100`, formulations `6`, components `432`, component sources `336`, component links `1389`, legacy links `1372`, company links `0`.
+- Supabase is `ACTIVE_HEALTHY`; six critical routes returned HTTP `200`. Rollback, migration, db push, deploy and merge were not performed.
 
 ### TZ-184 corrected pesticide Batch 1 package
 

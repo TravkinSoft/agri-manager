@@ -1162,6 +1162,7 @@ async function prepare() {
 async function verify() {
   const backupDir = (await readFile(latestPointer, "utf8")).trim();
   const metadata = JSON.parse(await readFile(path.join(backupDir, "backup_metadata.json"), "utf8"));
+  const baselineProducts = JSON.parse(await readFile(path.join(backupDir, "products.json"), "utf8"));
   const packageData = await verifyTz181Package();
   const actions = buildActions(packageData);
   const snapshot = await getSnapshot(packageData, actions);
@@ -1188,9 +1189,41 @@ async function verify() {
   }
   const globalProducts = snapshot.products.filter((row) => row.company_id == null && !row.archived && row.is_active !== false);
   const searchIndex = new Map(globalProducts.map((product) => [product.id, normalizeCatalogName([buildProductSearchText(product), product.name_ru, product.name_en, ...(aliasesByProduct.get(product.id) || [])].filter(Boolean).join(" "))]));
-  const searchCases = packageData.searchRegression.cases.map((test) => ({ ...test, pass: (searchIndex.get(test.expected_product_id) || "").includes(normalizeCatalogName(test.query)) }));
+  const searchCases = packageData.searchRegression.cases.map((test) => {
+    if (test.expected_product_id === BLACK_JACK_ID) {
+      return {
+        ...test,
+        owner_adjusted_expectation: "HIDDEN_INACTIVE",
+        pass: !searchIndex.has(BLACK_JACK_ID),
+      };
+    }
+    return {
+      ...test,
+      owner_adjusted_expectation: "VISIBLE_ACTIVE",
+      pass: (searchIndex.get(test.expected_product_id) || "").includes(normalizeCatalogName(test.query)),
+    };
+  });
   const controls = packageData.searchRegression.control_cases.map((test) => ({ ...test, pass: globalProducts.some((product) => (searchIndex.get(product.id) || "").includes(normalizeCatalogName(test.query)) && normalizeCatalogName(product.trade_name || product.name).includes(normalizeCatalogName(test.expected))) }));
   const companyLinkRows = snapshot.products.filter((row) => row.company_id != null && MERGES.some((merge) => merge.survivorId === row.master_product_id || merge.sourceId === row.master_product_id));
+  const expectedSubcategories = new Map([
+    ...actions.formulationActions.map((action) => [action.product_id, action.subcategory]),
+    ...Object.entries(INACTIVE_SUBCATEGORY_EXPECTATIONS).map(([productId, expectation]) => [productId, expectation.target]),
+    ...MERGES.filter((merge) => merge.currentSubcategory !== merge.targetSubcategory).map((merge) => [merge.sourceId, merge.targetSubcategory]),
+  ]);
+  const normalizedLegacySubcategories = Array.from(expectedSubcategories.entries()).filter(([productId, subcategory]) => productById.get(productId)?.subcategory === subcategory).length;
+  const formulationsUpdated = actions.formulationActions.filter((action) => {
+    const product = productById.get(action.product_id);
+    return product?.formulation_id === action.formulation_id && product?.formulation === action.formulation;
+  }).length;
+  const allowedTimestampIds = new Set([
+    ...actions.formulationActions.map((action) => action.product_id),
+    ...Object.keys(INACTIVE_SUBCATEGORY_EXPECTATIONS),
+    ...MERGES.map((merge) => merge.sourceId),
+    MERGES[0].survivorId,
+  ]);
+  const baselineProductById = new Map(baselineProducts.map((row) => [row.id, row]));
+  const timestampChangedIds = snapshot.products.filter((row) => baselineProductById.get(row.id)?.updated_at !== row.updated_at).map((row) => row.id);
+  const timestampChangesOutsideScope = timestampChangedIds.filter((id) => !allowedTimestampIds.has(id));
   const results = {
     status: "PASS",
     generated_at: new Date().toISOString(),
@@ -1199,6 +1232,13 @@ async function verify() {
     alias_conflicts: aliasConflicts.length,
     link_duplicates: linkDuplicates,
     company_links_lost: Math.max(0, metadata.merge_company_links - companyLinkRows.length),
+    safe_auto_apply: metadata.safe_auto_apply_expected,
+    owner_approved_physical_cards: metadata.owner_approved_cards_expected,
+    cards_changed: metadata.safe_auto_apply_expected + metadata.owner_approved_cards_expected,
+    legacy_subcategories_normalized: normalizedLegacySubcategories,
+    formulations_updated: formulationsUpdated,
+    timestamp_changed_ids: timestampChangedIds,
+    timestamp_changes_outside_scope: timestampChangesOutsideScope,
     hold_unchanged: holdFingerprint === metadata.hold_fingerprint,
     unresolved_unchanged: unresolvedFingerprint === metadata.unresolved_fingerprint,
     search_regression: `${searchCases.filter((row) => row.pass).length}/${searchCases.length}`,
@@ -1209,9 +1249,9 @@ async function verify() {
     black_jack_inactive: productById.get(BLACK_JACK_ID)?.is_active === false && productById.get(BLACK_JACK_ID)?.archived === false,
     fingerprint: snapshot.fingerprint,
   };
-  if (activeTargetDuplicates.length || aliasConflicts.length || linkDuplicates || !results.hold_unchanged || !results.unresolved_unchanged || searchCases.some((row) => !row.pass) || controls.some((row) => !row.pass) || results.safe_links_present !== actions.safeComponentActions.length || !results.celest_top.survivor_active || !results.celest_top.duplicate_archived || results.celest_top.formulation_id !== MERGES[0].formulationId || results.smerch_active_components.length !== 1 || results.smerch_active_components[0].component_id !== SMERCH.glyphosateComponentId || results.smerch_active_components[0].equivalent_basis !== "potassium salt" || !results.black_jack_inactive) {
+  if (activeTargetDuplicates.length || aliasConflicts.length || linkDuplicates || !results.hold_unchanged || !results.unresolved_unchanged || searchCases.some((row) => !row.pass) || controls.some((row) => !row.pass) || results.safe_links_present !== actions.safeComponentActions.length || normalizedLegacySubcategories !== expectedSubcategories.size || formulationsUpdated !== actions.formulationActions.length || timestampChangesOutsideScope.length || !results.celest_top.survivor_active || !results.celest_top.duplicate_archived || results.celest_top.formulation_id !== MERGES[0].formulationId || results.smerch_active_components.length !== 1 || results.smerch_active_components[0].component_id !== SMERCH.glyphosateComponentId || results.smerch_active_components[0].equivalent_basis !== "potassium salt" || !results.black_jack_inactive) {
     results.status = "FAIL";
-    throw new Error(`TZ-183 verification failed: ${JSON.stringify(results)}`);
+    throw new Error(`${TASK} verification failed: ${JSON.stringify(results)}`);
   }
   await writeFile(path.join(backupDir, "post_apply_verification.json"), json(results), "utf8");
   console.log(json(results));

@@ -16,7 +16,18 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-184 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD Batch 1 may continue only through a new numbered owner-approved apply task with fresh backup and live no-drift preflight; TZ-183 must not be rerun and 15 unresolved cards remain blocked.
+NEXT_SAFE_ACTION: TZ-185 does not change the Assistant contract or branch. A107 may start only on `gsglkmudcwkdetqtocae`; production memory migration, merge and deploy remain disabled. GLBD may continue from the verified Batch 1 baseline; HOLD and 15 unresolved cards require separate evidence and owner approval.
+
+## TZ-185 review result
+
+TZ185_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA branch, dataset and Contract 0.4 were not touched.
+TZ185_CORE_IMPACT_FOUND: `YES - owner-approved global pesticide catalog data apply, corrected verifier and live-state evidence`.
+TZ185_BACKUP_PREFLIGHT: `PASS - fresh backup, verified 12-file manifest, exact constraint, no drift, no waiting locks`.
+TZ185_PRODUCTION_APPLY: `PASS - one transaction, 20 safe plus 7 owner cards, 9 legacy subcategories, 4 formulations`.
+TZ185_ACCEPTANCE: `PASS - duplicates/conflicts/company-link loss 0, HOLD/unresolved unchanged, search 50/50, controls 6/6, second apply 0`.
+TZ185_FINAL_STATE: `1231 products / 100 aliases / 6 formulations / 432 components / 336 sources / 1389 links / 1372 legacy links / 0 company links`.
+TZ185_PRODUCTION_IMPACT: `APPROVED_GLOBAL_CATALOG_DATA_ONLY`; company/business data, schema, migration history, deploy and master are unchanged.
+TZ185_ACTION: `READY_FOR_NEXT_CATALOG_BATCH`; unresolved and HOLD cards remain separately gated.
 
 ## TZ-184 review result
 
