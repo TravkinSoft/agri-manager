@@ -1,22 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
+import { getAuthenticatedServerClient } from "@/lib/supabase/server-user";
 import { getAssistantPlatformSettings } from "@/lib/assistant/settings-store";
-import { runAssistantEngine } from "@/lib/assistant/engine/query";
+import { runReadOnlyAssistantV1 } from "@/lib/assistant/v1/engine";
 import {
   buildAssistantLongTermMemoryContext,
-  captureAssistantMemorySignals,
+  extractMemoryDeleteIntent,
+  hasExplicitMemoryIntent,
+  isAssistantMemoryV2RuntimeEnabled,
+  listForgottenUserGlobalMemoryContext,
   type AssistantMemoryContext,
   type AssistantMemoryWriteResult,
 } from "@/lib/assistant/memory-store";
-import { writeAssistantAuditLog } from "@/lib/assistant/audit-log";
-import { buildAssistantDraftCards } from "@/lib/assistant/draft-cards";
+import { processAssistantMemoryPolicyV2 } from "@/lib/assistant/v2/memory-policy";
 import {
   appendAssistantThreadMessage,
   getAssistantThreadById,
   updateAssistantThreadTitle,
 } from "@/lib/assistant/threads-store";
+import {
+  containsPotentialConversationSecret,
+  deriveUnresolvedQuestionV1,
+  loadServerConversationV2,
+  verifyAssistantUiContextV2,
+} from "@/lib/assistant/v2/server-conversation";
+import { resolveAssistantRuntimeMode } from "@/lib/assistant/v2/runtime-mode";
+import { RECENT_MESSAGES_LIMIT } from "@/lib/assistant/v2/context-limits";
+import { enforceAssistantGreetingPolicy } from "@/lib/assistant/v2/greeting-policy";
+import {
+  A107RuntimeGuardError,
+  A107_ALLOWED_BRANCH_REF,
+  assertA107RuntimeGuard,
+} from "@/lib/assistant/v1/a107-runtime-guard";
 import type { AssistantDebugMetadata, AssistantDebugSettingsSource } from "@/lib/assistant/debug-types";
 import type { AssistantEngineResult, AssistantNavigationAction } from "@/lib/assistant/engine/types";
+import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   SessionAuthError,
@@ -26,25 +43,36 @@ import {
 } from "@/lib/auth/server-session";
 
 export const runtime = "nodejs";
-const DEFAULT_ASSISTANT_SEASON = "2026";
+
+class AssistantRouteRuntimeError extends Error {
+  code: string;
+  status: number;
+
+  constructor(code: string, message: string, status: number) {
+    super(message);
+    this.name = "AssistantRouteRuntimeError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
+function applyExplicitLocalQaModelOverride(settings: AssistantPlatformSettings): AssistantPlatformSettings {
+  const override = asString(process.env.ASSISTANT_LOCAL_QA_MODEL_OVERRIDE);
+  const reasoningOverride = asString(process.env.REASONING_EFFORT);
+  const localA107Runtime = process.env.A107_BRANCH_REF === A107_ALLOWED_BRANCH_REF;
+  if (!localA107Runtime) return settings;
+  return {
+    ...settings,
+    ...(override ? { model: override } : {}),
+    ...(reasoningOverride === "low" || reasoningOverride === "medium" || reasoningOverride === "high"
+      ? { reasoningEffort: reasoningOverride }
+      : {}),
+  };
+}
 
 function asString(value: unknown): string | null {
   const text = String(value || "").trim();
   return text.length ? text : null;
-}
-
-function filterProductionChatHistory(history: unknown): Array<{ role?: string; content?: string }> {
-  if (!Array.isArray(history)) return [];
-  return history
-    .filter((message) => {
-      if (!message || typeof message !== "object") return false;
-      const content = asString((message as Record<string, unknown>).content);
-      return !!content && !hasQaDataMarker(content);
-    })
-    .map((message) => ({
-      role: asString((message as Record<string, unknown>).role) || "user",
-      content: asString((message as Record<string, unknown>).content) || "",
-    }));
 }
 
 const INTERNAL_ANSWER_LINE_PATTERNS = [
@@ -230,33 +258,6 @@ function buildDebugPerformanceScore(result: AssistantEngineResult, latencyMs: nu
   if (totalMs <= targetMs) return 100;
   if (totalMs >= targetMs * 3) return 40;
   return clampScore(100 - ((totalMs - targetMs) / (targetMs * 2)) * 60);
-}
-
-function buildRuntimeContextPayload(params: {
-  payload: any;
-  actor: { id: string; role: string };
-  companyId: string;
-  companyName: string | null;
-}): Record<string, unknown> {
-  const raw =
-    params.payload?.runtimeContext && typeof params.payload.runtimeContext === "object"
-      ? { ...(params.payload.runtimeContext as Record<string, unknown>) }
-      : {};
-  const season =
-    asString(raw.season) ||
-    asString(raw.selected_season) ||
-    asString((raw.filters as Record<string, unknown> | undefined)?.season) ||
-    DEFAULT_ASSISTANT_SEASON;
-
-  return {
-    ...raw,
-    companyId: params.companyId,
-    companyName: params.companyName,
-    userId: params.actor.id,
-    userRole: params.actor.role,
-    season,
-    defaultSeason: asString(raw.defaultSeason) || DEFAULT_ASSISTANT_SEASON,
-  };
 }
 
 function generateThreadTitle(message: string): string {
@@ -495,7 +496,15 @@ function buildDebugMetadata(params: {
   requestMessage: string;
   sessionId: string | null;
   threadId: string | null;
-  result: AssistantEngineResult;
+  result: AssistantEngineResult & {
+    runtimeDiagnostics?: {
+      effectiveTemperature?: number | null;
+      effectiveReasoning?: string;
+      requestedReasoning?: string;
+      historyMessageCount?: number;
+      availableTools?: string[];
+    };
+  };
   navigationActions: AssistantNavigationAction[];
   latencyMs: number;
   actor: {
@@ -543,6 +552,9 @@ function buildDebugMetadata(params: {
   if (threadPersistenceError) {
     warnings.push(`Ошибка сохранения истории: ${threadPersistenceError}`);
   }
+  if (result.runtimeDiagnostics?.effectiveReasoning === "unsupported") {
+    warnings.push(`Reasoning setting ${result.runtimeDiagnostics.requestedReasoning || "unknown"} is unsupported in A101 Chat Completions runtime.`);
+  }
 
   return {
     generatedAt: new Date().toISOString(),
@@ -554,8 +566,11 @@ function buildDebugMetadata(params: {
       promptVersion: asString(result.model.promptVersion),
       promptSource: result.model.promptSource,
       promptUpdatedAt: asString(result.model.promptUpdatedAt),
-      temperature: Number.isFinite(Number(settings.temperature)) ? Number(settings.temperature) : null,
-      reasoningEffort: asString(settings.reasoningEffort),
+      temperature:
+        Number.isFinite(Number(result.runtimeDiagnostics?.effectiveTemperature))
+          ? Number(result.runtimeDiagnostics?.effectiveTemperature)
+          : null,
+      reasoningEffort: asString(result.runtimeDiagnostics?.effectiveReasoning) || "unsupported",
       requestMode: result.model.requestMode,
       llmStatus: result.model.llm.status,
       llmHttpStatus: result.model.llm.httpStatus,
@@ -596,7 +611,7 @@ function buildDebugMetadata(params: {
     },
     engine: {
       endpoint: "/api/assistant/query",
-      engineVersion: "assistant-engine-v2",
+      engineVersion: "assistant-a101-read-only-v1",
       intent: asString(result.intent.name),
       expectedAnswerType: asString(result.diagnostics.expectedAnswerType),
       selectedSource: asString(result.diagnostics.selectedSource),
@@ -729,12 +744,12 @@ export async function POST(request: NextRequest) {
   let threadId: string | null = null;
   let sessionId: string | null = null;
   let requestMessage: string | null = null;
-  let shouldWriteAuditLog = true;
   let threadPersistenceError: string | null = null;
   let persistedAssistantMessageId: string | null = null;
   const startedAt = Date.now();
 
   try {
+    assertA107RuntimeGuard();
     const actor = await getServerActorFromSession(request);
     ensureAssistantRole(actor);
     role = actor.role;
@@ -746,192 +761,299 @@ export async function POST(request: NextRequest) {
     if (!requestMessage) {
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
+    if (containsPotentialConversationSecret(requestMessage)) {
+      return NextResponse.json(
+        { error: "Potential secret detected in message", code: "MESSAGE_SECRET_REJECTED", memorySaved: false },
+        { status: 400 }
+      );
+    }
 
     const requestedCompanyId = asString(payload?.companyId) || asString((payload as any)?.runtimeContext?.companyId);
-    try {
-      companyId = resolveCompanyForActor(actor, requestedCompanyId);
-    } catch (error) {
-      if (
-        error instanceof SessionAuthError &&
-        actor.role === "global_admin" &&
-        error.status === 400 &&
-        String(error.message || "").includes("Global admin company context is not selected") &&
-        isUuidLike(requestedCompanyId)
-      ) {
-        companyId = requestedCompanyId;
-      } else {
-        throw error;
-      }
-    }
+    companyId = resolveCompanyForActor(actor, requestedCompanyId);
     chatId = asString(payload?.chatId);
     threadId = asString(payload?.threadId) || chatId;
-    sessionId = asString(payload?.sessionId);
+    sessionId = threadId;
+    if (!threadId) {
+      return NextResponse.json({ error: "Thread is required", code: "THREAD_REQUIRED" }, { status: 400 });
+    }
 
-    const supabase = getServiceClient();
+    const supabase = getAuthenticatedServerClient(request);
+    const toolSupabase = supabase;
     let longTermMemory: AssistantMemoryContext = {
       count: 0,
       contextText: null,
       latestUpdatedAt: null,
       warning: null,
+      ids: [],
+      categories: [],
     };
-    let memoryReadMs: number | null = null;
-    const memoryReadStartedAt = Date.now();
+    let memoryReadMs: number | null = 0;
     const companyPromise = supabase.from("companies").select("name").eq("id", companyId).maybeSingle();
     const settingsPromise = getAssistantPlatformSettings(supabase, actor.id);
-    const memoryPromise = buildAssistantLongTermMemoryContext({
+    const threadPromise = getAssistantThreadById({
       supabase,
       companyId,
       userId: actor.id,
-    })
-      .then((context) => {
-        return { context, warning: null as string | null };
-      })
-      .catch((error) => {
-        return {
-          context: {
-            count: 0,
-            contextText: null,
-            latestUpdatedAt: null,
-            warning: error instanceof Error ? error.message : "Failed to load assistant memory",
-          } satisfies AssistantMemoryContext,
-          warning: error instanceof Error ? error.message : "Failed to load assistant memory",
-        };
-      });
-
-    const [companyRes, settings, memoryReadResult] = await Promise.all([companyPromise, settingsPromise, memoryPromise]);
-    companyName = asString(companyRes.data?.name) || null;
-    shouldWriteAuditLog = !!settings.logging?.enabled;
-    longTermMemory = settings.memoryPolicy?.userMemoryEnabled
-      ? memoryReadResult.context
-      : {
-          count: 0,
-          contextText: null,
-          latestUpdatedAt: null,
-          warning: null,
-        };
-    memoryReadMs = Date.now() - memoryReadStartedAt;
-    const runtimeContextPayload = buildRuntimeContextPayload({
-      payload,
-      actor: { id: actor.id, role: actor.role },
-      companyId,
-      companyName,
+      threadId,
     });
 
-    const productionChatHistory = filterProductionChatHistory(payload?.chatHistory);
+    const [companyRes, storedSettings, thread] = await Promise.all([companyPromise, settingsPromise, threadPromise]);
+    if (!thread) {
+      return NextResponse.json({ error: "Thread not found in current company scope", code: "THREAD_DENIED" }, { status: 404 });
+    }
+    companyName = asString(companyRes.data?.name) || null;
+    const settings = applyExplicitLocalQaModelOverride(storedSettings);
+    longTermMemory = {
+      count: 0,
+      contextText: null,
+      latestUpdatedAt: null,
+      warning: null,
+      ids: [],
+      categories: [],
+    };
+    const runtimeMode = resolveAssistantRuntimeMode();
+    const runtimeContextPayload = await verifyAssistantUiContextV2({
+      supabase: toolSupabase,
+      raw:
+        payload?.runtimeContext && typeof payload.runtimeContext === "object"
+          ? payload.runtimeContext as Record<string, unknown>
+          : null,
+      companyId,
+      companyName,
+      userId: actor.id,
+      userRole: actor.role,
+    });
 
-    const result = await runAssistantEngine({
+    let persistedUserMessage;
+    try {
+      persistedUserMessage = await appendAssistantThreadMessage({
+        supabase,
+        companyId,
+        userId: actor.id,
+        threadId,
+        role: "user",
+        content: requestMessage,
+        metadata: {
+          runtime_context_server: runtimeContextPayload,
+          context_source: "server_verified_ui",
+          assistant_runtime_mode: runtimeMode,
+          assistant_panel: true,
+        },
+      });
+    } catch (error) {
+      throw new AssistantRouteRuntimeError(
+        "USER_MESSAGE_PERSISTENCE_FAILED",
+        error instanceof Error ? error.message : "User message persistence failed",
+        500
+      );
+    }
+
+    let memoryWrite: AssistantMemoryWriteResult = {
+      savedCount: 0,
+      deletedCount: 0,
+      skippedReason: "memory_runtime_disabled",
+      warning: null,
+      action: "noop",
+      provenance: null,
+      ids: [],
+    };
+    const explicitMemoryIntent = hasExplicitMemoryIntent(requestMessage);
+    const deleteMemoryIntent = Boolean(extractMemoryDeleteIntent(requestMessage));
+    let memoryWriteMs: number | null = 0;
+    if (isAssistantMemoryV2RuntimeEnabled()) {
+      const memoryWriteStartedAt = Date.now();
+      try {
+        memoryWrite = await processAssistantMemoryPolicyV2({
+          supabase,
+          message: requestMessage,
+          sourceMessageId: persistedUserMessage.id,
+          actor: { companyId, userId: actor.id },
+          settings,
+        });
+      } catch (error) {
+        memoryWrite = {
+          savedCount: 0,
+          deletedCount: 0,
+          skippedReason: "memory_policy_rejected",
+          warning: error instanceof Error ? error.message : "Memory Policy V2 failed closed.",
+          action: "noop",
+          provenance: null,
+          ids: [],
+        };
+      }
+      memoryWriteMs = Date.now() - memoryWriteStartedAt;
+
+      const memoryStartedAt = Date.now();
+      longTermMemory = await buildAssistantLongTermMemoryContext({
+        supabase,
+        companyId,
+        userId: actor.id,
+        query: requestMessage,
+        limit: 12,
+      });
+      memoryReadMs = Date.now() - memoryStartedAt;
+    }
+
+    const forgottenMemoryContext = isAssistantMemoryV2RuntimeEnabled()
+      ? await listForgottenUserGlobalMemoryContext({ supabase, userId: actor.id })
+      : { memoryIds: [], sourceMessageIds: [], terms: [], warning: null };
+    const serverConversation = await loadServerConversationV2({
       supabase,
+      companyId,
+      userId: actor.id,
+      threadId,
+      currentUserMessageId: persistedUserMessage.id,
+      verifiedUiContext: runtimeContextPayload,
+      forgottenMemoryIds: forgottenMemoryContext.memoryIds,
+      forgottenSourceMessageIds: forgottenMemoryContext.sourceMessageIds,
+      forgottenTerms: forgottenMemoryContext.terms,
+    });
+    const result = await runReadOnlyAssistantV1({
+      supabase: toolSupabase,
       actor,
       companyId,
+      companyName,
       settings,
       input: {
         message: requestMessage,
-        locale: payload?.locale || "ru",
-        chatId: threadId,
-        chatHistory: productionChatHistory,
+        locale: runtimeContextPayload.locale || "ru",
+        threadId,
+        historyThreadId: threadId,
+        history: serverConversation.history,
         runtimeContext: runtimeContextPayload,
-        sessionState: payload?.sessionState || null,
-        longTermMemoryContext: longTermMemory.contextText,
+        threadState: serverConversation.state,
+        historyTruncated: serverConversation.historyTruncated,
+        meaningfulHistoryCount: serverConversation.meaningfulMessageCount,
+        summaryContext: serverConversation.summaryContext,
+        unresolvedQuestionContext: serverConversation.unresolvedQuestionContext,
+        approvedMemoryContext: longTermMemory.contextText,
       },
+      dependencies: { runtimeMode },
     });
-    const safeAnswer = sanitizeAssistantAnswer(result.answer);
-    const memoryWrite: AssistantMemoryWriteResult = {
-      savedCount: 0,
-      skippedReason: "async_after_response",
-      warning: null,
-    };
-    const memoryWriteMs: number | null = null;
-    if (settings.memoryPolicy?.userMemoryEnabled) {
-      void captureAssistantMemorySignals({
-          supabase,
-          companyId,
-          userId: actor.id,
-          message: requestMessage,
-        }).catch(() => undefined);
-    }
-    const attachPendingDraftUi = shouldAttachPendingDraftUi({
-      requestMessage: requestMessage || "",
-      result,
-      previousSessionState: payload?.sessionState || null,
-    });
-    const responseActions = filterProductionActions(
-      buildActionButtons({
-        intentName: result.intent?.name || null,
-        requestMessage: requestMessage || "",
-        navigationActions: result.navigationActions || [],
-        sessionState: attachPendingDraftUi ? result.sessionState : null,
-      })
-    );
-    const responseDraftCards = attachPendingDraftUi
-      ? buildAssistantDraftCards({
-          pendingActionType: result.sessionState.pendingActionType,
-          pendingActionPayloadJson: result.sessionState.pendingActionPayloadJson,
-        })
-      : [];
 
-    if (threadId) {
+    if (result.model.llm.status !== "ok" && result.model.llm.status !== "not_called") {
+      const errorCode = result.model.llm.errorCode || "ASSISTANT_MODEL_RUNTIME_FAILED";
+      const status = result.model.llm.httpStatus === 429
+        ? 429
+        : errorCode === "OPENAI_TIMEOUT"
+          ? 504
+          : result.model.llm.status === "missing_api_key"
+            ? 503
+            : 502;
+      throw new AssistantRouteRuntimeError(
+        errorCode,
+        result.model.llm.errorMessage || "Assistant model runtime failed",
+        status
+      );
+    }
+    let safeAnswer = sanitizeAssistantAnswer(result.answer);
+    if (explicitMemoryIntent) {
+      const confirmedWrite = memoryWrite.action === "save" &&
+        memoryWrite.savedCount > 0 &&
+        (memoryWrite.ids?.length || 0) === memoryWrite.savedCount;
+      safeAnswer = confirmedWrite
+        ? "Запомнил. Сведения сохранены в личную память и будут доступны во всех ваших чатах."
+        : "Не удалось сохранить это в память.";
+    } else if (deleteMemoryIntent) {
+      safeAnswer = memoryWrite.action === "delete" && (memoryWrite.deletedCount || 0) > 0
+        ? "Удалил указанные сведения из памяти."
+        : "Не удалось удалить это из памяти.";
+    }
+    const greetingPolicyResult = enforceAssistantGreetingPolicy({
+      answer: safeAnswer,
+      currentUserMessage: requestMessage,
+      priorMessageCount: serverConversation.meaningfulMessageCount,
+    });
+    safeAnswer = greetingPolicyResult.answer;
+    const responseActions: AssistantActionButton[] = [];
+    const responseDraftCards: never[] = [];
+    const responseNavigationActions: AssistantNavigationAction[] = [];
+    const unresolvedQuestion = deriveUnresolvedQuestionV1({
+      threadId,
+      previous: serverConversation.unresolvedQuestion,
+      nextQuestion: result.threadState.unresolvedQuestion,
+      userMessage: requestMessage,
+      state: result.threadState,
+    });
+
+    try {
+      const assistantThreadMessage = await appendAssistantThreadMessage({
+        supabase,
+        companyId,
+        userId: actor.id,
+        threadId,
+        role: "assistant",
+        content: safeAnswer,
+        metadata: {
+          intent: result.intent?.name || null,
+          mode: result.mode || null,
+          output_type: result.outputType || null,
+          source_hints: result.sourceHints || [],
+          tool_activity: filterProductionToolActivity(result.toolActivity || []),
+          actions: responseActions,
+          draft_cards: responseDraftCards,
+          tool_calls: result.toolCalls || [],
+          navigation_actions: responseNavigationActions,
+          answer_source: result.answerSource,
+          grounded: result.grounded,
+          llm: result.model.llm,
+          prompt_version: result.model.promptVersion,
+          prompt_source: result.model.promptSource,
+          prompt_updated_at: result.model.promptUpdatedAt,
+          read_only_thread_state: result.threadState,
+          read_only_runtime: result.runtimeDiagnostics,
+          read_only_performance: result.performance,
+          server_conversation_v2: {
+            recent_messages_limit: RECENT_MESSAGES_LIMIT,
+            recent_previous_messages_count: serverConversation.history.length,
+            current_user_message_included: true,
+            history_truncated: serverConversation.historyTruncated,
+            meaningful_message_count: serverConversation.meaningfulMessageCount,
+            excluded_message_count: serverConversation.excludedMessageCount,
+            summary: serverConversation.summary,
+            greeting_policy: {
+              prior_message_count: greetingPolicyResult.policy.priorMessageCount,
+              current_message_is_greeting: greetingPolicyResult.policy.currentMessageIsGreeting,
+              greeting_allowed: greetingPolicyResult.policy.greetingAllowed,
+              repeated_greeting_removed: greetingPolicyResult.greetingRemoved,
+            },
+          },
+          conversation_summary_v1: serverConversation.summary,
+          unresolved_question_v1: unresolvedQuestion,
+          session_id: threadId,
+          assistant_runtime_mode: runtimeMode,
+          assistant_memory_policy_v2: {
+            action: memoryWrite.action || "noop",
+            saved_count: memoryWrite.savedCount,
+            deleted_count: memoryWrite.deletedCount || 0,
+            provenance: memoryWrite.provenance || null,
+            memory_ids: memoryWrite.ids || [],
+            skipped_reason: memoryWrite.skippedReason,
+            warning: memoryWrite.warning,
+          },
+          assistant_panel: true,
+        },
+      });
+      persistedAssistantMessageId = assistantThreadMessage.id;
+    } catch (error) {
+      throw new AssistantRouteRuntimeError(
+        "ASSISTANT_MESSAGE_PERSISTENCE_FAILED",
+        error instanceof Error ? error.message : "Assistant message persistence failed",
+        500
+      );
+    }
+
+    if ((thread.title || "").trim() === "Новый чат") {
       try {
-        const thread = await getAssistantThreadById({
+        await updateAssistantThreadTitle({
           supabase,
           companyId,
           userId: actor.id,
           threadId,
+          title: generateThreadTitle(requestMessage),
         });
-        if (thread) {
-          await appendAssistantThreadMessage({
-            supabase,
-            companyId,
-            userId: actor.id,
-            threadId,
-            role: "user",
-            content: requestMessage,
-            metadata: {
-              runtime_context: payload?.runtimeContext || null,
-              runtime_context_server: runtimeContextPayload,
-              session_id: sessionId,
-              assistant_panel: true,
-            },
-          });
-          const assistantThreadMessage = await appendAssistantThreadMessage({
-            supabase,
-            companyId,
-            userId: actor.id,
-            threadId,
-            role: "assistant",
-            content: safeAnswer,
-            metadata: {
-              intent: result.intent?.name || null,
-              mode: result.mode || null,
-              output_type: result.outputType || null,
-              source_hints: result.sourceHints || [],
-              tool_activity: filterProductionToolActivity(result.toolActivity || []),
-              actions: responseActions,
-              draft_cards: responseDraftCards,
-              tool_calls: result.toolCalls || [],
-              navigation_actions: result.navigationActions || [],
-              answer_source: result.answerSource,
-              grounded: result.grounded,
-              llm: result.model.llm,
-              prompt_version: result.model.promptVersion,
-              prompt_source: result.model.promptSource,
-              prompt_updated_at: result.model.promptUpdatedAt,
-              session_id: sessionId,
-              assistant_panel: true,
-            },
-          });
-          persistedAssistantMessageId = assistantThreadMessage.id;
-          if ((thread.title || "").trim() === "Новый чат") {
-            await updateAssistantThreadTitle({
-              supabase,
-              companyId,
-              userId: actor.id,
-              threadId,
-              title: generateThreadTitle(requestMessage),
-            });
-          }
-        }
-      } catch (error) {
-        threadPersistenceError = error instanceof Error ? error.message : "Thread persistence failed";
+      } catch {
+        // The assistant message is already durable; title refresh is non-critical.
       }
     }
 
@@ -950,7 +1072,7 @@ export async function POST(request: NextRequest) {
           sessionId,
           threadId,
           result,
-          navigationActions: result.navigationActions || [],
+          navigationActions: responseNavigationActions,
           latencyMs: Date.now() - startedAt,
           actor: {
             contextCompanyId: actor.contextCompanyId,
@@ -964,38 +1086,15 @@ export async function POST(request: NextRequest) {
         })
       : undefined;
 
-    if (shouldWriteAuditLog) {
-      await writeAssistantAuditLog(supabase, {
-        actor_user_id: actor.id,
-        company_id: companyId,
-        role: actor.role,
-        chat_id: threadId || chatId,
-        session_id: sessionId,
-        intent: result.intent.name,
-        tool_calls: result.toolCalls.map((toolCall) => ({
-          tool: toolCall.tool,
-          ok: toolCall.ok,
-          rows: toolCall.rows || 0,
-          error: toolCall.error || null,
-        })),
-        runtime_context: {
-          ...(payload?.runtimeContext || {}),
-          _server: runtimeContextPayload,
-        },
-        request_excerpt: requestMessage,
-        response_excerpt: safeAnswer,
-        error_text: threadPersistenceError,
-      });
-    }
-
     return NextResponse.json({
       response: safeAnswer,
       sessionState: result.sessionState,
+      threadState: result.threadState,
       threadId,
       messageIds: {
         assistant: persistedAssistantMessageId,
       },
-      navigationActions: result.navigationActions || [],
+      navigationActions: responseNavigationActions,
       actions: responseActions,
       draftCards: responseDraftCards,
       toolActivity: visibleToolActivity,
@@ -1010,6 +1109,34 @@ export async function POST(request: NextRequest) {
         sourceHints: result.sourceHints,
         performance: result.performance,
         llm: result.model.llm,
+        readOnlyRuntime: result.runtimeDiagnostics,
+        runtimeMode,
+        historyTruncated: serverConversation.historyTruncated,
+        greetingPolicy: {
+          priorMessageCount: greetingPolicyResult.policy.priorMessageCount,
+          currentMessageIsGreeting: greetingPolicyResult.policy.currentMessageIsGreeting,
+          greetingAllowed: greetingPolicyResult.policy.greetingAllowed,
+          repeatedGreetingRemoved: greetingPolicyResult.greetingRemoved,
+        },
+        summary: {
+          active: Boolean(serverConversation.summary),
+          coveredMessageCount: serverConversation.summary?.coveredMessageCount || 0,
+        },
+        memory: {
+          count: longTermMemory.count,
+          categories: longTermMemory.categories,
+          ids: longTermMemory.ids,
+        },
+        memoryWrite: {
+          action: memoryWrite.action || "noop",
+          savedCount: memoryWrite.savedCount,
+          deletedCount: memoryWrite.deletedCount || 0,
+          provenance: memoryWrite.provenance || null,
+          ids: memoryWrite.ids || [],
+          skippedReason: memoryWrite.skippedReason,
+          warning: memoryWrite.warning,
+        },
+        conversationMemorySaved: Boolean(persistedAssistantMessageId),
         prompt: {
           version: result.model.promptVersion,
           source: result.model.promptSource,
@@ -1019,23 +1146,22 @@ export async function POST(request: NextRequest) {
       ...(debug ? { debug } : {}),
     });
   } catch (error) {
-    const supabase = getServiceClient();
-    if (actorId && companyId && shouldWriteAuditLog) {
-      await writeAssistantAuditLog(supabase, {
-        actor_user_id: actorId,
-        company_id: companyId,
-        role,
-        chat_id: threadId || chatId,
-        session_id: sessionId,
-        intent: "error",
-        tool_calls: [],
-        runtime_context: {},
-        request_excerpt: requestMessage,
-        response_excerpt: null,
-        error_text: error instanceof Error ? error.message : "Assistant query failed",
-      });
+    if (error instanceof A107RuntimeGuardError) {
+      return NextResponse.json(
+        { error: error.message, code: error.code, memorySaved: false },
+        { status: 503 }
+      );
     }
-
+    if (error instanceof AssistantRouteRuntimeError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.code,
+          memorySaved: false,
+        },
+        { status: error.status }
+      );
+    }
     if (error instanceof SessionAuthError) {
       return NextResponse.json(
         {
@@ -1049,6 +1175,7 @@ export async function POST(request: NextRequest) {
       {
         error: error instanceof Error ? error.message : "Assistant query failed",
         code: "ASSISTANT_QUERY_FAILED",
+        memorySaved: false,
       },
       { status: 500 }
     );

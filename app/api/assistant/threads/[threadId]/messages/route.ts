@@ -5,7 +5,7 @@ import {
   getServerActorFromSession,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import { getAuthenticatedServerClient } from "@/lib/supabase/server-user";
 import {
   appendAssistantThreadMessage,
   listAssistantThreadMessages,
@@ -55,7 +55,7 @@ export async function GET(
     const companyId = resolveCompanyForActor(actor, asText(request.nextUrl.searchParams.get("companyId")));
     const limit = Number(request.nextUrl.searchParams.get("limit") || "300");
 
-    const supabase = getServiceClient();
+    const supabase = getAuthenticatedServerClient(request);
     const messages = await listAssistantThreadMessages({
       supabase,
       companyId,
@@ -101,7 +101,7 @@ export async function POST(
       return NextResponse.json({ error: "Message content is required" }, { status: 400 });
     }
 
-    const supabase = getServiceClient();
+    const supabase = getAuthenticatedServerClient(request);
     const message = await appendAssistantThreadMessage({
       supabase,
       companyId,
@@ -159,7 +159,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Metadata is required" }, { status: 400 });
     }
 
-    const supabase = getServiceClient();
+    const supabase = getAuthenticatedServerClient(request);
     const message = await updateAssistantThreadMessageMetadata({
       supabase,
       companyId,

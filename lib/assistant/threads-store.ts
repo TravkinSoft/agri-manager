@@ -235,11 +235,15 @@ export async function listAssistantThreadMessages(params: {
     .from("chat_messages")
     .select("id,chat_id,role,content,metadata,created_at")
     .eq("chat_id", threadId)
-    .order("created_at", { ascending: true })
+    // Fetch the newest rows, then restore chronological order for consumers.
+    // The old ascending+limit query returned the oldest messages in long threads.
+    .order("created_at", { ascending: false })
     .limit(limit);
   if (res.error) throw new Error(res.error.message);
 
   return (res.data || [])
+    .slice()
+    .reverse()
     .map((row: any) => {
       const messageRow = row as Record<string, unknown>;
       return {
