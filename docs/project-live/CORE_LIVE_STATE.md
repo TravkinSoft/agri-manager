@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-17
+LAST_UPDATED: 2026-07-18
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `65e2d5c`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `5b5a57c`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -18,12 +18,20 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ185_BATCH1_APPLIED | Исправленный Batch 1 применён с owner approval: 20 safe + 7 owner cards, 9 legacy subcategories, 4 formulations, search 50/50, repeat apply 0. Production GLBD теперь 432 components / 100 product aliases / 336 sources / 1389 links; company links `0`. |
+| ГЛБД | TZ187_NEXT_BATCH_PREVIEW_READY | TZ-185 Batch 1 остаётся применённым. TZ-187 read-only проверило оставшиеся 807 карточек и подготовило следующую 50-card alias-партию без production writes; apply требует отдельного owner approval. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-187 next safe pesticide batch preview
+
+- Exact TZ-180 P2 scope `807/807` revalidated against production read-only; Batch 1 overlap, company reads and company writes are `0`.
+- `564` collision-free short formulation aliases were divided into `12` batches no larger than `50` cards. No RU/EN translation, trade-name update, product merge, composition, registration or usage claim was invented.
+- Proposed Batch 1 contains `50` cards and `50` additive aliases. Eight foreign identity collisions are excluded; `243` cards have no proven safe action in this pass.
+- Preview acceptance passed with first apply `50`, second apply `0`, duplicate aliases `0` and exact rollback fingerprint. Two runs produced byte-identical manifest SHA-256 `7486E4BF0D272A4E3EA84673367A996E81F8B811500D7F9ACB1BE588F85579CF`.
+- External evidence: `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-187/`. Production/business data, migration, deploy and merge are unchanged. `READY_FOR_OWNER_REVIEW=YES`; `APPLY_READY=NO`.
 
 ### TZ-186 branch-only Core preview reads
 

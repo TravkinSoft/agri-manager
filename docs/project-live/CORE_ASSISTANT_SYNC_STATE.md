@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-17T17:25:44+05:00
+LAST_REVIEW_AT: 2026-07-18T12:21:56+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `65e2d5c`)
+CORE_COMMIT: `SELF` (previous core commit: `5b5a57c`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,18 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-186 makes the Core preview read paths compatible with `gsglkmudcwkdetqtocae` without service credentials. A108 may repeat its authenticated browser acceptance after the commit is pushed; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: TZ-187 requires owner review before any catalog apply. Independently, A108 may repeat its authenticated browser acceptance after TZ-186; production memory migration, merge and deploy remain disabled.
+
+## TZ-187 review result
+
+TZ187_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, branch dataset and Contract 0.4 were not changed.
+TZ187_CORE_IMPACT_FOUND: `YES - reusable read-only pesticide batch audit and external exact-ID preview`.
+TZ187_SCOPE: `807/807 TZ-180 BATCH_3_P2 cards`; Batch 1 overlap and company reads/writes `0`.
+TZ187_CLASSIFICATION: `564 safe short-form aliases / 8 collisions excluded / 243 no proven safe action`.
+TZ187_BATCHES: `12 batches, maximum 50 cards`; proposed Batch 1 is `50 cards / 50 aliases`.
+TZ187_ACCEPTANCE: `first simulation 50 inserts / second 0 / duplicates 0 / exact rollback / byte-identical rerun`.
+TZ187_PRODUCTION_IMPACT: `NONE`; no product, alias, company-data, schema, migration, deploy or merge change.
+TZ187_ACTION: `READY_FOR_OWNER_REVIEW`; production apply remains blocked pending a new task, fresh backup and no-drift preflight.
 
 ## TZ-186 review result
 

@@ -76,6 +76,7 @@
 | TZ-184 | GLBD | Rebuild pesticide Batch 1 formulation updates | copilot-v1 | DONE | TZ-183 | [task-reports/core/TZ-184.md](task-reports/core/TZ-184.md) | `SELF` |
 | TZ-185 | GLBD | Apply corrected pesticide Batch 1 in production | copilot-v1 | DONE | TZ-181,TZ-182,TZ-184 | [task-reports/core/TZ-185.md](task-reports/core/TZ-185.md) | `SELF` |
 | TZ-186 | CORE / ASSISTANT QA | Load Core preview data through user JWT and RLS | copilot-v1 | DONE | TZ-176,TZ-177 | [task-reports/core/TZ-186.md](task-reports/core/TZ-186.md) | `SELF` |
+| TZ-187 | GLBD | Prepare the next safe pesticide batch | copilot-v1 | DONE | TZ-180,TZ-185 | [task-reports/core/TZ-187.md](task-reports/core/TZ-187.md) | `SELF` |
 
 ## Status values
 
