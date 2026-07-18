@@ -1,22 +1,34 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-18T14:29:27+05:00
+LAST_REVIEW_AT: 2026-07-18T15:55:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `abce1bb9`)
+CORE_COMMIT: `SELF` (previous core commit: `d2b0af1`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
-ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-16T13:30:00+05:00
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-16T13:30:00+05:00
-LATEST_ASSISTANT_TASK_REPORT: local untracked `assistant-v1:docs/project-live/task-reports/assistant/TZ-A106.md` — V1 candidate-first branch acceptance exists only in the Assistant worktree and is superseded for memory behavior by Contract 0.4. The latest committed Assistant report remains TZ-A105 at `b22f765`.
+ASSISTANT_COMMIT_REVIEWED: `164ade7233c27855e1568decfdf729ab12448204`
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-17
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-17
+LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A108.md` and its integration manifest were reviewed; only the manifest-approved preview scope was transferred.
 
-ASSISTANT_CHANGES_FOUND: YES — local untracked owner-memory-behavior-v2 proposal and A106 V1 implementation/report were reviewed read-only; `origin/assistant-v1` still points to `b22f765`. No merge or rebase occurred.
-CORE_IMPACT_FOUND: YES — owner decision requires direct-approved USER_GLOBAL memory, safe inferred allowlist, role-gated COMPANY memory and immediate deletion.
-INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.4 and supersedes candidate-first behavior.
+ASSISTANT_CHANGES_FOUND: YES - verified A108 runtime, UI, QA harnesses, reports and semantic patch were integrated as exact manifest scope. No merge or rebase occurred.
+CORE_IMPACT_FOUND: YES - Core now hosts the verified read-only Assistant runtime only in the test-branch preview.
+INTEGRATION_CONTRACT_IMPACT: NO - Contract 0.4 remains unchanged.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: A108 may repeat browser acceptance after the authenticated Core smoke passed in TZ-189. The next alias batch requires a new owner-approved Core task with fresh backup/preflight; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: Owner may test TZ-192 preview. Production memory migration, master merge and production deploy remain disabled pending a separate numbered approval.
+
+## TZ-192 review result
+
+TZ192_ASSISTANT_SOURCE: `origin/assistant-v1@164ade7233c27855e1568decfdf729ab12448204`; manifest scope `56/56`.
+TZ192_INTEGRATION: `PASS - no merge/rebase; 43 exact additions, 12 clean deltas, package union and semantic patch; conflicts 4/4`.
+TZ192_STATIC_ACCEPTANCE: `TYPECHECK PASS / SAFE BUILD PASS / PRODUCTION BUNDLE REFERENCES 0`.
+TZ192_REGRESSION: `A106 MEMORY 10/10 / GREETING 4/4 / A107 REAL ERP 45/45`.
+TZ192_PREVIEW: `READY - https://agri-manager-4jlutj8ev-travkin-ais-projects.vercel.app` on `gsglkmudcwkdetqtocae`, Preview service role absent.
+TZ192_FUNCTIONAL_SMOKE: `8 fields / 1000 ha / 9 crop lines / 2 warehouses / 5 operations / 1550 kg nitrate / 520 l Curamin / 200 l Phomazin / operation card PASS / Copilot PASS`.
+TZ192_ISOLATION: `company B exposure 0 / ERP writes 0 / production connections 0 / mojibake 0`.
+TZ192_PRODUCTION_IMPACT: `NONE`; no production deploy, master merge, migration or production DB write.
+TZ192_ACTION: `READY_FOR_OWNER_TEST`.
 
 ## TZ-191 review result
 

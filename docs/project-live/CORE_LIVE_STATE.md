@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-18
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `abce1bb9`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `d2b0af1`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -21,9 +21,17 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | ГЛБД | TZ191_ALIAS_BATCH2_APPLIED | TZ-185 product Batch 1 остаётся применённым. TZ-188 и TZ-191 добавили 250 owner-approved short-name aliases: aliases 100→350. Последняя партия: search 200/200, exact ambiguity 0, controls 5/5, second apply 0; company data не изменялись. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
-| Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
+| Travkin Assistant | A108_INTEGRATED_PREVIEW_READY | TZ-192 transferred the verified A108 manifest into Core without merge/rebase and deployed only a `copilot-v1` preview on `gsglkmudcwkdetqtocae`. A106 is `10/10`, A107 is `45/45`, authenticated Core/Assistant smoke passed, service role is absent from Preview, and production remains unchanged. |
 
 ## Current database state
+
+### TZ-192 Travkin Assistant Core preview integration
+
+- Exact A108 scope `56/56` was integrated from `origin/assistant-v1@164ade7233c27855e1568decfdf729ab12448204`; conflicts `4/4` were resolved according to the manifest without merge or rebase.
+- Typecheck and safe build pass. A106 real memory is `10/10`, greeting regression is `4/4`, and A107 real ERP is `45/45` with cross-company leaks `0` and ERP mutations `0`.
+- Final preview `https://agri-manager-4jlutj8ev-travkin-ais-projects.vercel.app` is scoped to test branch `gsglkmudcwkdetqtocae`. Preview service role is absent; production connections and production writes are `0`.
+- Authenticated smoke confirms `8` fields, `1000 ha`, `9` crop lines, `2` warehouses, `5` operations and stock totals `1550 kg / 520 l / 200 l`. Operation details and grounded Copilot response pass; errors, foreign-company data and mojibake are `0`.
+- Production deploy, master merge, migration and production database changes were not performed. `READY_FOR_OWNER_TEST=YES`.
 
 ### TZ-191 unique pesticide search aliases Batch 2
 

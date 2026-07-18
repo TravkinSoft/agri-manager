@@ -81,6 +81,7 @@
 | TZ-189 | CORE / ASSISTANT QA | Fix warehouse balance loading for A108 | copilot-v1 | DONE | TZ-186 | [task-reports/core/TZ-189.md](task-reports/core/TZ-189.md) | `SELF` |
 | TZ-190 | GLBD | Apply 200 pesticide search aliases | copilot-v1 | BLOCKED | TZ-187,TZ-188 | `superseded by owner-corrected TZ-191 package after preflight collision` | — |
 | TZ-191 | GLBD | Rebuild and apply 200 unique pesticide search aliases | copilot-v1 | DONE | TZ-190 | [task-reports/core/TZ-191.md](task-reports/core/TZ-191.md) | `SELF` |
+| TZ-192 | CORE / ASSISTANT QA | Integrate verified Travkin Assistant into Core preview | copilot-v1 | DONE | TZ-186,TZ-189,TZ-A108 | [task-reports/core/TZ-192.md](task-reports/core/TZ-192.md) | `SELF` |
 
 ## Status values
 
