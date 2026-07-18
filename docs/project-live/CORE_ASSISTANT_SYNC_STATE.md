@@ -18,6 +18,17 @@ INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
 NEXT_SAFE_ACTION: Owner may test TZ-192 preview. Production memory migration, master merge and production deploy remain disabled pending a separate numbered approval.
 
+## TZ-194 review result
+
+TZ194_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, test branch and Contract 0.4 were not changed.
+TZ194_CORE_IMPACT_FOUND: `YES - final owner-approved global catalog alias data apply and exact-tail verifier`.
+TZ194_PACKAGE: `PASS - final 112 TZ-187 aliases; Ideal, 3 HOLD, 15 unresolved and company products excluded; remaining aliases 0`.
+TZ194_BACKUP_PREFLIGHT: `PASS - verified manifests, prior TZ-193 rows 200/200, new aliases absent, duplicates/conflicts/exact ambiguities/company targets 0`.
+TZ194_PRODUCTION_APPLY: `PASS - one transaction, 112 global_product_aliases inserts, total aliases 550 -> 662`.
+TZ194_ACCEPTANCE: `PASS - search 112/112, controls 5/5, exact ambiguity 0, second apply 0, ACTIVE_HEALTHY`.
+TZ194_PRODUCTION_IMPACT: `APPROVED_GLOBAL_CATALOG_ALIASES_ONLY`; products, company/business data, schema, migration history, deploy and master are unchanged.
+TZ194_ACTION: `TZ187_SAFE_ALIAS_PACKAGE_COMPLETE`; further alias work requires a new source-backed audit and owner approval.
+
 ## TZ-193 review result
 
 TZ193_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, test branch and Contract 0.4 were not changed.

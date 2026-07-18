@@ -18,12 +18,20 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ193_ALIAS_BATCH3_APPLIED | TZ-185 product Batch 1 остаётся применённым. TZ-188, TZ-191 и TZ-193 добавили 450 owner-approved short-name aliases: aliases 100→550. Последняя партия: search 200/200, exact ambiguity 0, controls 5/5, second apply 0; company data не изменялись. |
+| ГЛБД | TZ194_SAFE_ALIAS_PACKAGE_COMPLETE | TZ-185 product Batch 1 остаётся применённым. TZ-188, TZ-191, TZ-193 и TZ-194 добавили все 562 owner-approved short-name aliases: aliases 100→662. Финальная партия: search 112/112, exact ambiguity 0, controls 5/5, second apply 0; company data не изменялись. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A108_INTEGRATED_PREVIEW_READY | TZ-192 transferred the verified A108 manifest into Core without merge/rebase and deployed only a `copilot-v1` preview on `gsglkmudcwkdetqtocae`. A106 is `10/10`, A107 is `45/45`, authenticated Core/Assistant smoke passed, service role is absent from Preview, and production remains unchanged. |
 
 ## Current database state
+
+### TZ-194 final pesticide search aliases
+
+- The final TZ-187 tail is exactly `112` cards and `112` unique normalized aliases. All `200` preceding TZ-193 aliases were reconfirmed before apply.
+- Ideal aliases, three owner HOLD cards, all 15 unresolved cards and company products are excluded. Fresh backup and preflight passed at `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-194/backups/pesticide-alias-batch-four-20260718T184555786Z/` with duplicates, conflicts and exact ambiguities `0`.
+- One owner-approved transaction inserted `112` aliases; total aliases are `662`. Exact search is `112/112`, controls `5/5`, and second apply inserted `0`.
+- Target products and company products match their pre-apply fingerprints. Product business fields, company data, schema, migration history, deploy and master are unchanged. Supabase remains `ACTIVE_HEALTHY`; rollback was not required.
+- Remaining owner-eligible aliases in the TZ-187 package: `0`. Further aliases require a new source-backed audit package.
 
 ### TZ-193 pesticide search aliases Batch 3
 
@@ -350,6 +358,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 | ТЗ | Статус | Результат |
 | --- | --- | --- |
+| №194 | DONE_IN_THIS_COMMIT | Final 112 TZ-187 aliases applied: search 112/112, exact ambiguity 0, controls 5/5, second apply 0, aliases total 662, company data unchanged, remaining 0. |
 | №193 | DONE_IN_THIS_COMMIT | Owner-approved transaction inserted 200 exact global search aliases; search 200/200, exact ambiguity 0, controls 5/5, second apply 0, company data unchanged, aliases total 550. |
 | №173 | BLOCKED_SAFE_STOP | Approved 53-row GLBD package passed backup/preflight and DB checks, but RU safener-label catalog smoke failed. Exact rollback restored `425/24/295/1373`; Humic acids remains HOLD_OUT_OF_SCOPE. |
 | №136 | DONE | Fix сохранения участка «Пар», commit `e36ab0a` в `origin/copilot-v1`; production release не выполнен. |

@@ -83,6 +83,7 @@
 | TZ-191 | GLBD | Rebuild and apply 200 unique pesticide search aliases | copilot-v1 | DONE | TZ-190 | [task-reports/core/TZ-191.md](task-reports/core/TZ-191.md) | `SELF` |
 | TZ-192 | CORE / ASSISTANT QA | Integrate verified Travkin Assistant into Core preview | copilot-v1 | DONE | TZ-186,TZ-189,TZ-A108 | [task-reports/core/TZ-192.md](task-reports/core/TZ-192.md) | `SELF` |
 | TZ-193 | GLBD | Apply the next 200 pesticide search aliases | copilot-v1 | DONE | TZ-187,TZ-191 | [task-reports/core/TZ-193.md](task-reports/core/TZ-193.md) | `SELF` |
+| TZ-194 | GLBD | Apply the final 112 pesticide search aliases | copilot-v1 | DONE | TZ-187,TZ-193 | [task-reports/core/TZ-194.md](task-reports/core/TZ-194.md) | `SELF` |
 
 ## Status values
 

@@ -5,13 +5,14 @@ import path from "node:path";
 import nextEnv from "@next/env";
 import { createClient } from "@supabase/supabase-js";
 
-const TASK = "TZ-193";
+const TASK = "TZ-194";
 const PROJECT_REF = "bhsemlvmkikpntabctml";
-const APPROVED_SOURCE_COMMIT = "9c34cf78075123932cfc747f2e458b8495444cf7";
+const APPROVED_SOURCE_COMMIT = "d626ef36c96dfc2b10f7fd3ccaaae22b192c616b";
 const EXPECTED_TZ187_MANIFEST_SHA256 = "7486e4bf0d272a4e3ea84673367a996e81f8b811500d7f9acb1be588f85579cf";
 const EXPECTED_BATCH_PLAN_SHA256 = "b2851985a096422e5280476938155586b64b29a937da95a372df42b103f24c24";
-const EXPECTED_CARDS = 200;
-const EXPECTED_ALIASES = 200;
+const EXPECTED_CARDS = 112;
+const EXPECTED_ALIASES = 112;
+const PREVIOUS_TZ193_ALIASES = 200;
 const EXPECTED_SOURCE = "TZ-187 deterministic formulation-suffix alias from trade_name";
 const SOURCE_BATCHES = new Set([6, 7, 8, 9, 10, 11, 12]);
 const PERMANENTLY_EXCLUDED_ALIAS_IDS = new Set([
@@ -172,7 +173,11 @@ async function readApprovedActions() {
     throw new Error("STOP: prior Batch 06 replacements do not match the TZ-191 package");
   }
   const remainingSourceActions = sourceActions.filter((action) => !PREVIOUSLY_APPLIED_BATCH_SIX_ALIAS_IDS.has(action.alias_id));
-  const actions = remainingSourceActions.slice(0, EXPECTED_ALIASES);
+  if (remainingSourceActions.length !== PREVIOUS_TZ193_ALIASES + EXPECTED_ALIASES) {
+    throw new Error(`STOP: expected 312 owner-eligible actions, found ${remainingSourceActions.length}`);
+  }
+  const previousTz193Actions = remainingSourceActions.slice(0, PREVIOUS_TZ193_ALIASES);
+  const actions = remainingSourceActions.slice(PREVIOUS_TZ193_ALIASES);
   for (const action of actions) {
     if (action.action !== "INSERT_GLOBAL_PRODUCT_ALIAS"
       || action.candidate_type !== "SHORT_FORMULATION_ALIAS"
@@ -201,7 +206,8 @@ async function readApprovedActions() {
   return {
     actions,
     previousBatchSixRows,
-    remainingEligibleAfterPackage: remainingSourceActions.length - actions.length,
+    previousTz193Actions,
+    remainingEligibleAfterPackage: remainingSourceActions.length - previousTz193Actions.length - actions.length,
     manifestSha,
     batchPlanRaw,
   };
@@ -240,7 +246,7 @@ begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
 
-create temporary table tz193_alias_batch (
+create temporary table tz194_alias_batch (
   id uuid primary key,
   product_id uuid not null,
   expected_trade_name text not null,
@@ -249,50 +255,50 @@ create temporary table tz193_alias_batch (
   source text not null
 ) on commit drop;
 
-insert into tz193_alias_batch(id,product_id,expected_trade_name,alias,normalized_alias,source)
+insert into tz194_alias_batch(id,product_id,expected_trade_name,alias,normalized_alias,source)
 values
 ${values};
 
-do $tz193_preflight$
+do $tz194_preflight$
 declare
   v_rows integer;
   v_exact integer;
 begin
-  select count(*) into v_rows from tz193_alias_batch;
+  select count(*) into v_rows from tz194_alias_batch;
   if v_rows <> ${EXPECTED_ALIASES} then raise exception '${TASK} expected ${EXPECTED_ALIASES} package rows, got %', v_rows; end if;
 
-  if (select count(distinct product_id) from tz193_alias_batch) <> ${EXPECTED_CARDS} then
+  if (select count(distinct product_id) from tz194_alias_batch) <> ${EXPECTED_CARDS} then
     raise exception '${TASK} package product IDs are not unique';
   end if;
 
-  if (select count(*) from products p join tz193_alias_batch b on b.product_id=p.id
+  if (select count(*) from products p join tz194_alias_batch b on b.product_id=p.id
       where p.company_id is null and p.product_type='pesticide' and p.archived=false and coalesce(p.trade_name,p.name)=b.expected_trade_name) <> ${EXPECTED_CARDS} then
     raise exception '${TASK} target product scope or trade-name baseline drift';
   end if;
 
-  if exists (select 1 from products p join tz193_alias_batch b on b.product_id=p.id where p.company_id is not null) then
+  if exists (select 1 from products p join tz194_alias_batch b on b.product_id=p.id where p.company_id is not null) then
     raise exception '${TASK} company product entered target scope';
   end if;
 
   if exists (
-    select 1 from global_product_aliases a join tz193_alias_batch b on a.id=b.id
+    select 1 from global_product_aliases a join tz194_alias_batch b on a.id=b.id
     where a.product_id<>b.product_id or a.alias<>b.alias or lower(a.normalized_alias)<>lower(b.normalized_alias) or coalesce(a.source,'')<>b.source
   ) then raise exception '${TASK} deterministic alias ID conflict'; end if;
 
   if exists (
-    select 1 from global_product_aliases a join tz193_alias_batch b on a.product_id=b.product_id and lower(a.normalized_alias)=lower(b.normalized_alias)
+    select 1 from global_product_aliases a join tz194_alias_batch b on a.product_id=b.product_id and lower(a.normalized_alias)=lower(b.normalized_alias)
     where a.id<>b.id or a.alias<>b.alias or coalesce(a.source,'')<>b.source
   ) then raise exception '${TASK} same-product alias conflict'; end if;
 
   if exists (
-    select 1 from global_product_aliases a join tz193_alias_batch b on lower(a.normalized_alias)=lower(b.normalized_alias)
+    select 1 from global_product_aliases a join tz194_alias_batch b on lower(a.normalized_alias)=lower(b.normalized_alias)
     where a.product_id<>b.product_id
   ) then raise exception '${TASK} foreign alias collision'; end if;
 
   if exists (
     select 1
     from products p
-    join tz193_alias_batch b on p.id<>b.product_id
+    join tz194_alias_batch b on p.id<>b.product_id
     where p.company_id is null and (
       lower(regexp_replace(replace(coalesce(p.trade_name,''),'ё','е'),'[^[:alnum:]]','','g'))=lower(b.normalized_alias)
       or lower(regexp_replace(replace(coalesce(p.name,''),'ё','е'),'[^[:alnum:]]','','g'))=lower(b.normalized_alias)
@@ -303,38 +309,38 @@ begin
   ) then raise exception '${TASK} foreign product identity collision'; end if;
 
   select count(*) into v_exact
-  from global_product_aliases a join tz193_alias_batch b
+  from global_product_aliases a join tz194_alias_batch b
     on a.id=b.id and a.product_id=b.product_id and a.alias=b.alias
    and lower(a.normalized_alias)=lower(b.normalized_alias) and coalesce(a.source,'')=b.source;
   if v_exact not in (0,${EXPECTED_ALIASES}) then raise exception '${TASK} partial apply state: % exact rows', v_exact; end if;
 end
-$tz193_preflight$;
+$tz194_preflight$;
 
-create temporary table tz193_metrics(metric text primary key, value integer not null) on commit preserve rows;
+create temporary table tz194_metrics(metric text primary key, value integer not null) on commit preserve rows;
 
 with inserted as (
   insert into global_product_aliases(id,product_id,alias,normalized_alias,source)
-  select id,product_id,alias,normalized_alias,source from tz193_alias_batch
+  select id,product_id,alias,normalized_alias,source from tz194_alias_batch
   on conflict do nothing
   returning 1
 )
-insert into tz193_metrics values ('inserted', (select count(*) from inserted));
+insert into tz194_metrics values ('inserted', (select count(*) from inserted));
 
-do $tz193_postcheck$
+do $tz194_postcheck$
 begin
-  if (select count(*) from global_product_aliases a join tz193_alias_batch b
+  if (select count(*) from global_product_aliases a join tz194_alias_batch b
       on a.id=b.id and a.product_id=b.product_id and a.alias=b.alias
      and lower(a.normalized_alias)=lower(b.normalized_alias) and coalesce(a.source,'')=b.source) <> ${EXPECTED_ALIASES} then
     raise exception '${TASK} post-apply exact row count mismatch';
   end if;
-  if (select value from tz193_metrics where metric='inserted') not in (0,${EXPECTED_ALIASES}) then
+  if (select value from tz194_metrics where metric='inserted') not in (0,${EXPECTED_ALIASES}) then
     raise exception '${TASK} inserted count must be 0 or ${EXPECTED_ALIASES}';
   end if;
 end
-$tz193_postcheck$;
+$tz194_postcheck$;
 
 commit;
-select metric,value from tz193_metrics order by metric;
+select metric,value from tz194_metrics order by metric;
 `;
 }
 
@@ -344,42 +350,42 @@ function buildRollbackSql(actions) {
 begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
-create temporary table tz193_alias_batch (
+create temporary table tz194_alias_batch (
   id uuid primary key, product_id uuid not null, expected_trade_name text not null,
   alias text not null, normalized_alias text not null, source text not null
 ) on commit drop;
-insert into tz193_alias_batch(id,product_id,expected_trade_name,alias,normalized_alias,source)
+insert into tz194_alias_batch(id,product_id,expected_trade_name,alias,normalized_alias,source)
 values
 ${values};
 
-do $tz193_rollback_preflight$
+do $tz194_rollback_preflight$
 begin
-  if (select count(*) from global_product_aliases a join tz193_alias_batch b
+  if (select count(*) from global_product_aliases a join tz194_alias_batch b
       on a.id=b.id and a.product_id=b.product_id and a.alias=b.alias
      and lower(a.normalized_alias)=lower(b.normalized_alias) and coalesce(a.source,'')=b.source) <> ${EXPECTED_ALIASES} then
     raise exception '${TASK} rollback requires all ${EXPECTED_ALIASES} exact rows';
   end if;
 end
-$tz193_rollback_preflight$;
+$tz194_rollback_preflight$;
 
-create temporary table tz193_rollback_metrics(metric text primary key, value integer not null) on commit preserve rows;
+create temporary table tz194_rollback_metrics(metric text primary key, value integer not null) on commit preserve rows;
 with removed as (
-  delete from global_product_aliases a using tz193_alias_batch b
+  delete from global_product_aliases a using tz194_alias_batch b
   where a.id=b.id and a.product_id=b.product_id and a.alias=b.alias
     and lower(a.normalized_alias)=lower(b.normalized_alias) and coalesce(a.source,'')=b.source
   returning 1
 )
-insert into tz193_rollback_metrics values ('deleted', (select count(*) from removed));
+insert into tz194_rollback_metrics values ('deleted', (select count(*) from removed));
 
-do $tz193_rollback_postcheck$
+do $tz194_rollback_postcheck$
 begin
-  if (select value from tz193_rollback_metrics where metric='deleted') <> ${EXPECTED_ALIASES} then
+  if (select value from tz194_rollback_metrics where metric='deleted') <> ${EXPECTED_ALIASES} then
     raise exception '${TASK} rollback deleted unexpected row count';
   end if;
 end
-$tz193_rollback_postcheck$;
+$tz194_rollback_postcheck$;
 commit;
-select metric,value from tz193_rollback_metrics order by metric;
+select metric,value from tz194_rollback_metrics order by metric;
 `;
 }
 
@@ -497,12 +503,12 @@ async function writeManifest(directory) {
 
 async function prepare() {
   assertSourceCommit();
-  const { actions, previousBatchSixRows, remainingEligibleAfterPackage, manifestSha, batchPlanRaw } = await readApprovedActions();
+  const { actions, previousBatchSixRows, previousTz193Actions, remainingEligibleAfterPackage, manifestSha, batchPlanRaw } = await readApprovedActions();
   const stamp = new Date().toISOString().replace(/[-:.]/gu, "");
-  const packageDir = path.join(outputDir, "packages", `pesticide-alias-batch-three-${stamp}`);
+  const packageDir = path.join(outputDir, "packages", `pesticide-alias-batch-four-${stamp}`);
   const packageDecision = {
     task: TASK,
-    owner_decision: "Apply the next 200 collision-free aliases after TZ-188 and TZ-191; keep Ideal, HOLD and unresolved cards excluded.",
+    owner_decision: "Apply the final 112 collision-free aliases after TZ-193; keep Ideal, HOLD and unresolved cards excluded.",
     source_batches: Array.from(SOURCE_BATCHES),
     previously_applied_batch_six_rows: previousBatchSixRows.map(({ alias_id, product_id, trade_name, alias, normalized_alias }) => ({ alias_id, product_id, trade_name, alias, normalized_alias })),
     remaining_eligible_after_package: remainingEligibleAfterPackage,
@@ -518,9 +524,17 @@ async function prepare() {
   await writeFile(path.join(packageDir, "tz187_manifest.sha256"), await readFile(path.join(sourceDir, "manifest.sha256")), "utf8");
   const packageManifestSha = await writeManifest(packageDir);
   const state = await snapshot(actions);
+  const previousTz193ExactRows = previousTz193Actions.filter((action) => state.aliases.some((alias) => alias.id === action.alias_id
+    && alias.product_id === action.product_id
+    && alias.alias === action.alias
+    && normalizeCatalogName(alias.normalized_alias) === action.normalized_alias
+    && text(alias.source) === action.source));
+  if (previousTz193ExactRows.length !== PREVIOUS_TZ193_ALIASES) {
+    throw new Error(`STOP: TZ-193 baseline drift, exact rows ${previousTz193ExactRows.length}`);
+  }
   const projectedSearchResults = assertFreshPreflight(actions, state);
 
-  const backupDir = path.join(outputDir, "backups", `pesticide-alias-batch-three-${stamp}`);
+  const backupDir = path.join(outputDir, "backups", `pesticide-alias-batch-four-${stamp}`);
   await mkdir(backupDir, { recursive: true });
   const preflight = {
     task: TASK,
@@ -539,6 +553,7 @@ async function prepare() {
     owner_hold_cards_excluded: OWNER_HOLD_PRODUCT_IDS.size,
     unresolved_cards_excluded: 15,
     previously_applied_batch_six_rows: previousBatchSixRows.length,
+    previous_tz193_aliases_verified: previousTz193ExactRows.length,
     remaining_eligible_after_package: remainingEligibleAfterPackage,
     exact_aliases_before: state.exactRows.length,
     same_product_conflicts: state.sameProductConflicts.length,
