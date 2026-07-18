@@ -5,22 +5,27 @@ import path from "node:path";
 import nextEnv from "@next/env";
 import { createClient } from "@supabase/supabase-js";
 
-const TASK = "TZ-191";
+const TASK = "TZ-193";
 const PROJECT_REF = "bhsemlvmkikpntabctml";
-const APPROVED_SOURCE_COMMIT = "abce1bb9e18fc118c68dfc6add6fb31d05ffe81c";
+const APPROVED_SOURCE_COMMIT = "9c34cf78075123932cfc747f2e458b8495444cf7";
 const EXPECTED_TZ187_MANIFEST_SHA256 = "7486e4bf0d272a4e3ea84673367a996e81f8b811500d7f9acb1be588f85579cf";
 const EXPECTED_BATCH_PLAN_SHA256 = "b2851985a096422e5280476938155586b64b29a937da95a372df42b103f24c24";
 const EXPECTED_CARDS = 200;
 const EXPECTED_ALIASES = 200;
 const EXPECTED_SOURCE = "TZ-187 deterministic formulation-suffix alias from trade_name";
-const SOURCE_BATCHES = new Set([2, 3, 4, 5]);
-const EXCLUDED_ALIAS_IDS = new Set([
+const SOURCE_BATCHES = new Set([6, 7, 8, 9, 10, 11, 12]);
+const PERMANENTLY_EXCLUDED_ALIAS_IDS = new Set([
   "2c21f98f-ba03-5411-8809-4976f67820b9",
   "c700964f-ee49-5255-8cf2-6c4b6de3cabb",
 ]);
-const REPLACEMENT_ALIAS_IDS = new Set([
+const PREVIOUSLY_APPLIED_BATCH_SIX_ALIAS_IDS = new Set([
   "431b124c-1353-5e79-8777-973e8c48f345",
   "8f9d2598-7ad7-59e6-8988-15583b3f6844",
+]);
+const OWNER_HOLD_PRODUCT_IDS = new Set([
+  "146046ab-5edd-455c-9556-6167cdf50486", // Дитан
+  "4cb7a4d5-deb6-4f50-aafe-56121518449f", // Метамил
+  "e8fb92fe-4c03-479c-8148-b0ce5b2de85b", // Курзат
 ]);
 const mode = process.argv[2] || "prepare";
 
@@ -160,17 +165,14 @@ async function readApprovedActions() {
   const sourceActions = batchPlan
     .filter((batch) => SOURCE_BATCHES.has(batch.batch_number))
     .flatMap((batch) => batch.cards.flatMap((card) => card.actions));
-  const batchSixActions = batchPlan
-    .filter((batch) => batch.batch_number === 6)
-    .flatMap((batch) => batch.cards.flatMap((card) => card.actions));
-  if (sourceActions.length !== 200) throw new Error(`STOP: expected 200 source actions, found ${sourceActions.length}`);
-  const excluded = sourceActions.filter((action) => EXCLUDED_ALIAS_IDS.has(action.alias_id));
-  const replacements = batchSixActions.filter((action) => REPLACEMENT_ALIAS_IDS.has(action.alias_id));
-  if (excluded.length !== 2 || excluded.some((action) => action.normalized_alias !== "идеал")) {
-    throw new Error("STOP: owner-approved Ideal exclusions do not match source package");
+  const previousBatchSixRows = sourceActions.filter((action) => PREVIOUSLY_APPLIED_BATCH_SIX_ALIAS_IDS.has(action.alias_id));
+  if (previousBatchSixRows.length !== 2
+    || previousBatchSixRows[0].trade_name !== "Листего Про, ВР"
+    || previousBatchSixRows[1].trade_name !== "Локустин, КС") {
+    throw new Error("STOP: prior Batch 06 replacements do not match the TZ-191 package");
   }
-  if (replacements.length !== 2) throw new Error("STOP: replacement aliases do not match Batch 06");
-  const actions = [...sourceActions.filter((action) => !EXCLUDED_ALIAS_IDS.has(action.alias_id)), ...replacements];
+  const remainingSourceActions = sourceActions.filter((action) => !PREVIOUSLY_APPLIED_BATCH_SIX_ALIAS_IDS.has(action.alias_id));
+  const actions = remainingSourceActions.slice(0, EXPECTED_ALIASES);
   for (const action of actions) {
     if (action.action !== "INSERT_GLOBAL_PRODUCT_ALIAS"
       || action.candidate_type !== "SHORT_FORMULATION_ALIAS"
@@ -185,8 +187,24 @@ async function readApprovedActions() {
     || new Set(actions.map((row) => row.normalized_alias)).size !== EXPECTED_ALIASES) {
     throw new Error("STOP: rebuilt package is not exactly 200 unique products/aliases/normalized aliases");
   }
-  if (actions.some((action) => action.normalized_alias === "идеал")) throw new Error("STOP: Ideal alias remains in rebuilt package");
-  return { actions, excluded, replacements, manifestSha, batchPlanRaw };
+  if (actions.some((action) => PERMANENTLY_EXCLUDED_ALIAS_IDS.has(action.alias_id) || action.normalized_alias === "идеал")) {
+    throw new Error("STOP: Ideal alias entered the package");
+  }
+  if (actions.some((action) => OWNER_HOLD_PRODUCT_IDS.has(action.product_id))) {
+    throw new Error("STOP: owner HOLD card entered the package");
+  }
+  const unresolvedRows = parseCsv(await readFile(path.join(auditRoot, "TZ-181", "unresolved.csv"), "utf8"));
+  const unresolvedProductIds = new Set(unresolvedRows.map((row) => row.product_id));
+  if (unresolvedRows.length !== 15 || actions.some((action) => unresolvedProductIds.has(action.product_id))) {
+    throw new Error("STOP: unresolved TZ-181 card entered the package or unresolved scope drifted");
+  }
+  return {
+    actions,
+    previousBatchSixRows,
+    remainingEligibleAfterPackage: remainingSourceActions.length - actions.length,
+    manifestSha,
+    batchPlanRaw,
+  };
 }
 
 function collisionOwners(products, aliases, action) {
@@ -222,7 +240,7 @@ begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
 
-create temporary table tz191_alias_batch (
+create temporary table tz193_alias_batch (
   id uuid primary key,
   product_id uuid not null,
   expected_trade_name text not null,
@@ -231,50 +249,50 @@ create temporary table tz191_alias_batch (
   source text not null
 ) on commit drop;
 
-insert into tz191_alias_batch(id,product_id,expected_trade_name,alias,normalized_alias,source)
+insert into tz193_alias_batch(id,product_id,expected_trade_name,alias,normalized_alias,source)
 values
 ${values};
 
-do $tz191_preflight$
+do $tz193_preflight$
 declare
   v_rows integer;
   v_exact integer;
 begin
-  select count(*) into v_rows from tz191_alias_batch;
+  select count(*) into v_rows from tz193_alias_batch;
   if v_rows <> ${EXPECTED_ALIASES} then raise exception '${TASK} expected ${EXPECTED_ALIASES} package rows, got %', v_rows; end if;
 
-  if (select count(distinct product_id) from tz191_alias_batch) <> ${EXPECTED_CARDS} then
+  if (select count(distinct product_id) from tz193_alias_batch) <> ${EXPECTED_CARDS} then
     raise exception '${TASK} package product IDs are not unique';
   end if;
 
-  if (select count(*) from products p join tz191_alias_batch b on b.product_id=p.id
+  if (select count(*) from products p join tz193_alias_batch b on b.product_id=p.id
       where p.company_id is null and p.product_type='pesticide' and p.archived=false and coalesce(p.trade_name,p.name)=b.expected_trade_name) <> ${EXPECTED_CARDS} then
     raise exception '${TASK} target product scope or trade-name baseline drift';
   end if;
 
-  if exists (select 1 from products p join tz191_alias_batch b on b.product_id=p.id where p.company_id is not null) then
+  if exists (select 1 from products p join tz193_alias_batch b on b.product_id=p.id where p.company_id is not null) then
     raise exception '${TASK} company product entered target scope';
   end if;
 
   if exists (
-    select 1 from global_product_aliases a join tz191_alias_batch b on a.id=b.id
+    select 1 from global_product_aliases a join tz193_alias_batch b on a.id=b.id
     where a.product_id<>b.product_id or a.alias<>b.alias or lower(a.normalized_alias)<>lower(b.normalized_alias) or coalesce(a.source,'')<>b.source
   ) then raise exception '${TASK} deterministic alias ID conflict'; end if;
 
   if exists (
-    select 1 from global_product_aliases a join tz191_alias_batch b on a.product_id=b.product_id and lower(a.normalized_alias)=lower(b.normalized_alias)
+    select 1 from global_product_aliases a join tz193_alias_batch b on a.product_id=b.product_id and lower(a.normalized_alias)=lower(b.normalized_alias)
     where a.id<>b.id or a.alias<>b.alias or coalesce(a.source,'')<>b.source
   ) then raise exception '${TASK} same-product alias conflict'; end if;
 
   if exists (
-    select 1 from global_product_aliases a join tz191_alias_batch b on lower(a.normalized_alias)=lower(b.normalized_alias)
+    select 1 from global_product_aliases a join tz193_alias_batch b on lower(a.normalized_alias)=lower(b.normalized_alias)
     where a.product_id<>b.product_id
   ) then raise exception '${TASK} foreign alias collision'; end if;
 
   if exists (
     select 1
     from products p
-    join tz191_alias_batch b on p.id<>b.product_id
+    join tz193_alias_batch b on p.id<>b.product_id
     where p.company_id is null and (
       lower(regexp_replace(replace(coalesce(p.trade_name,''),'ё','е'),'[^[:alnum:]]','','g'))=lower(b.normalized_alias)
       or lower(regexp_replace(replace(coalesce(p.name,''),'ё','е'),'[^[:alnum:]]','','g'))=lower(b.normalized_alias)
@@ -285,38 +303,38 @@ begin
   ) then raise exception '${TASK} foreign product identity collision'; end if;
 
   select count(*) into v_exact
-  from global_product_aliases a join tz191_alias_batch b
+  from global_product_aliases a join tz193_alias_batch b
     on a.id=b.id and a.product_id=b.product_id and a.alias=b.alias
    and lower(a.normalized_alias)=lower(b.normalized_alias) and coalesce(a.source,'')=b.source;
   if v_exact not in (0,${EXPECTED_ALIASES}) then raise exception '${TASK} partial apply state: % exact rows', v_exact; end if;
 end
-$tz191_preflight$;
+$tz193_preflight$;
 
-create temporary table tz191_metrics(metric text primary key, value integer not null) on commit preserve rows;
+create temporary table tz193_metrics(metric text primary key, value integer not null) on commit preserve rows;
 
 with inserted as (
   insert into global_product_aliases(id,product_id,alias,normalized_alias,source)
-  select id,product_id,alias,normalized_alias,source from tz191_alias_batch
+  select id,product_id,alias,normalized_alias,source from tz193_alias_batch
   on conflict do nothing
   returning 1
 )
-insert into tz191_metrics values ('inserted', (select count(*) from inserted));
+insert into tz193_metrics values ('inserted', (select count(*) from inserted));
 
-do $tz191_postcheck$
+do $tz193_postcheck$
 begin
-  if (select count(*) from global_product_aliases a join tz191_alias_batch b
+  if (select count(*) from global_product_aliases a join tz193_alias_batch b
       on a.id=b.id and a.product_id=b.product_id and a.alias=b.alias
      and lower(a.normalized_alias)=lower(b.normalized_alias) and coalesce(a.source,'')=b.source) <> ${EXPECTED_ALIASES} then
     raise exception '${TASK} post-apply exact row count mismatch';
   end if;
-  if (select value from tz191_metrics where metric='inserted') not in (0,${EXPECTED_ALIASES}) then
+  if (select value from tz193_metrics where metric='inserted') not in (0,${EXPECTED_ALIASES}) then
     raise exception '${TASK} inserted count must be 0 or ${EXPECTED_ALIASES}';
   end if;
 end
-$tz191_postcheck$;
+$tz193_postcheck$;
 
 commit;
-select metric,value from tz191_metrics order by metric;
+select metric,value from tz193_metrics order by metric;
 `;
 }
 
@@ -326,42 +344,42 @@ function buildRollbackSql(actions) {
 begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '60s';
-create temporary table tz191_alias_batch (
+create temporary table tz193_alias_batch (
   id uuid primary key, product_id uuid not null, expected_trade_name text not null,
   alias text not null, normalized_alias text not null, source text not null
 ) on commit drop;
-insert into tz191_alias_batch(id,product_id,expected_trade_name,alias,normalized_alias,source)
+insert into tz193_alias_batch(id,product_id,expected_trade_name,alias,normalized_alias,source)
 values
 ${values};
 
-do $tz191_rollback_preflight$
+do $tz193_rollback_preflight$
 begin
-  if (select count(*) from global_product_aliases a join tz191_alias_batch b
+  if (select count(*) from global_product_aliases a join tz193_alias_batch b
       on a.id=b.id and a.product_id=b.product_id and a.alias=b.alias
      and lower(a.normalized_alias)=lower(b.normalized_alias) and coalesce(a.source,'')=b.source) <> ${EXPECTED_ALIASES} then
     raise exception '${TASK} rollback requires all ${EXPECTED_ALIASES} exact rows';
   end if;
 end
-$tz191_rollback_preflight$;
+$tz193_rollback_preflight$;
 
-create temporary table tz191_rollback_metrics(metric text primary key, value integer not null) on commit preserve rows;
+create temporary table tz193_rollback_metrics(metric text primary key, value integer not null) on commit preserve rows;
 with removed as (
-  delete from global_product_aliases a using tz191_alias_batch b
+  delete from global_product_aliases a using tz193_alias_batch b
   where a.id=b.id and a.product_id=b.product_id and a.alias=b.alias
     and lower(a.normalized_alias)=lower(b.normalized_alias) and coalesce(a.source,'')=b.source
   returning 1
 )
-insert into tz191_rollback_metrics values ('deleted', (select count(*) from removed));
+insert into tz193_rollback_metrics values ('deleted', (select count(*) from removed));
 
-do $tz191_rollback_postcheck$
+do $tz193_rollback_postcheck$
 begin
-  if (select value from tz191_rollback_metrics where metric='deleted') <> ${EXPECTED_ALIASES} then
+  if (select value from tz193_rollback_metrics where metric='deleted') <> ${EXPECTED_ALIASES} then
     raise exception '${TASK} rollback deleted unexpected row count';
   end if;
 end
-$tz191_rollback_postcheck$;
+$tz193_rollback_postcheck$;
 commit;
-select metric,value from tz191_rollback_metrics order by metric;
+select metric,value from tz193_rollback_metrics order by metric;
 `;
 }
 
@@ -479,15 +497,15 @@ async function writeManifest(directory) {
 
 async function prepare() {
   assertSourceCommit();
-  const { actions, excluded, replacements, manifestSha, batchPlanRaw } = await readApprovedActions();
+  const { actions, previousBatchSixRows, remainingEligibleAfterPackage, manifestSha, batchPlanRaw } = await readApprovedActions();
   const stamp = new Date().toISOString().replace(/[-:.]/gu, "");
-  const packageDir = path.join(outputDir, "packages", `pesticide-alias-batch-two-${stamp}`);
+  const packageDir = path.join(outputDir, "packages", `pesticide-alias-batch-three-${stamp}`);
   const packageDecision = {
     task: TASK,
-    owner_decision: "Exclude both ambiguous Ideal aliases and use two collision-free Batch 06 replacements.",
+    owner_decision: "Apply the next 200 collision-free aliases after TZ-188 and TZ-191; keep Ideal, HOLD and unresolved cards excluded.",
     source_batches: Array.from(SOURCE_BATCHES),
-    excluded: excluded.map(({ alias_id, product_id, trade_name, alias, normalized_alias }) => ({ alias_id, product_id, trade_name, alias, normalized_alias })),
-    replacements: replacements.map(({ alias_id, product_id, trade_name, alias, normalized_alias }) => ({ alias_id, product_id, trade_name, alias, normalized_alias })),
+    previously_applied_batch_six_rows: previousBatchSixRows.map(({ alias_id, product_id, trade_name, alias, normalized_alias }) => ({ alias_id, product_id, trade_name, alias, normalized_alias })),
+    remaining_eligible_after_package: remainingEligibleAfterPackage,
     cards: new Set(actions.map((row) => row.product_id)).size,
     aliases: actions.length,
     normalized_aliases: new Set(actions.map((row) => row.normalized_alias)).size,
@@ -502,7 +520,7 @@ async function prepare() {
   const state = await snapshot(actions);
   const projectedSearchResults = assertFreshPreflight(actions, state);
 
-  const backupDir = path.join(outputDir, "backups", `pesticide-alias-batch-two-${stamp}`);
+  const backupDir = path.join(outputDir, "backups", `pesticide-alias-batch-three-${stamp}`);
   await mkdir(backupDir, { recursive: true });
   const preflight = {
     task: TASK,
@@ -517,8 +535,11 @@ async function prepare() {
     aliases_expected: EXPECTED_ALIASES,
     aliases_in_package: actions.length,
     normalized_aliases: new Set(actions.map((row) => row.normalized_alias)).size,
-    ideal_aliases_excluded: excluded.length,
-    replacement_candidates: replacements.map((row) => ({ product_id: row.product_id, trade_name: row.trade_name, alias: row.alias })),
+    ideal_aliases_excluded: 2,
+    owner_hold_cards_excluded: OWNER_HOLD_PRODUCT_IDS.size,
+    unresolved_cards_excluded: 15,
+    previously_applied_batch_six_rows: previousBatchSixRows.length,
+    remaining_eligible_after_package: remainingEligibleAfterPackage,
     exact_aliases_before: state.exactRows.length,
     same_product_conflicts: state.sameProductConflicts.length,
     foreign_collisions: state.collisions.length,
