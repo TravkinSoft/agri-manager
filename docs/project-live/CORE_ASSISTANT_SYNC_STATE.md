@@ -2,7 +2,7 @@
 
 LAST_REVIEW_AT: 2026-07-19T02:20:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `4e6c7454d182d64b2d24d19c3a50526ee56a6ea1`)
+CORE_COMMIT: `SELF` (previous core commit: `ae21200cec3c9b376f7f24481fffb31a9d6b16e8`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: NO - Contract 0.4 remains unchanged.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: Start A110 in assistant-v1 as read-only GLBD access using the TZ-196 safety matrix. Exclude `READ=NO` and unapplied-preview rows; do not implement agronomic recommendations.
+NEXT_SAFE_ACTION: Start A110 in assistant-v1 as read-only GLBD access using the TZ-196 safety matrix plus the TZ-197 post-apply record. Exclude the ten `BLOCKED_NO_DATA` rows; do not implement agronomic recommendations.
+
+## TZ-197 review result
+
+TZ197_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA branch and Contract 0.4 were not changed.
+TZ197_CORE_IMPACT_FOUND: `YES - owner-approved global GLBD data corrections and source-backed component links`.
+TZ197_PACKAGE: `PASS - frozen TZ-196 manifest; 4 products / 9 actions / guesses 0 / duplicate preview 0 / alias conflicts 0`.
+TZ197_PRODUCTION_APPLY: `PASS - one final transaction; product actions 7/7; component groups 2/2; four sources and four links added`.
+TZ197_ACCEPTANCE: `PASS - BLOCKED/HOLD/company fingerprints unchanged; active duplicates/conflicts 0; RU/EN target search PASS; second apply 0; ACTIVE_HEALTHY`.
+TZ197_ASSISTANT_GATE: `A110 READ-ONLY READY`; ten `BLOCKED_NO_DATA` remain excluded and all agronomic recommendations remain out of scope.
+TZ197_PRODUCTION_IMPACT: `APPROVED_GLOBAL_CATALOG_DATA_ONLY`; no company data, migration, deploy or master merge.
 
 ## TZ-196 review result
 

@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-19
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `4e6c7454d182d64b2d24d19c3a50526ee56a6ea1`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `ae21200cec3c9b376f7f24481fffb31a9d6b16e8`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -18,12 +18,21 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ196_GLBD_V1_READ_AUDIT_COMPLETE | Все 852 pesticide cards получили assistant safety status. Read: 19 READY / 815 PARTIAL / 18 BLOCKED; recommendations: 0 READY / 852 BLOCKED. Production не менялась; 4 source-backed card corrections остаются только apply-preview. |
+| ГЛБД | TZ197_CONFIRMED_GLBD_V1_CORRECTIONS_APPLIED | Все 852 pesticide cards имеют assistant safety status. Девять подтверждённых действий TZ-196 применены: 7 полей карточек и 2 source-backed component groups. Десять `BLOCKED_NO_DATA` и три HOLD остаются без изменений. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
-| Travkin Assistant | A110_READ_ONLY_GATE_READY | TZ-195 preview принят владельцем. TZ-196 разрешает начинать A110 только с safety matrix/blocklist: `READ=NO` и preview-pending rows исключаются; agronomic recommendations запрещены для 852/852 cards. |
+| Travkin Assistant | A110_READ_ONLY_GATE_READY | TZ-195 preview принят владельцем. TZ-197 закрыл preview-pending GLBD actions; A110 может начинать read-only с safety matrix и блокировкой десяти `BLOCKED_NO_DATA`. Agronomic recommendations остаются запрещены. |
 
 ## Current database state
+
+### TZ-197 confirmed GLBD V1 corrections
+
+- Frozen TZ-196 package and manifest passed: `4` products / `9` actions, guesses `0`, duplicate preview `0`, alias conflicts `0`.
+- Fresh full GLBD backup and exact rollback: `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-197/backups/glbd-v1-confirmed-corrections-20260718T225234587Z/`; manifest SHA-256 `53c6ffb37b39264a7b145c7fc4f7217899c7faba3abfcd3a94eefc8da7429b89`.
+- One final transaction applied `9/9` approved actions and four supporting source rows. Component sources are `340`; V2 product-component links are `1393`; products `1231`, components `432`, aliases `662`, legacy links `1372`.
+- The first attempt failed on a pre-existing legacy `NOT VALID` subcategory violation and rolled back fully. The successful transaction temporarily removed and restored the exact same constraint; final schema is unchanged.
+- BLOCKED, HOLD, company products, non-approved target fields and untouched catalog rows match backup. Active product duplicates, active alias conflicts and active link duplicates are `0`.
+- RU/EN target search passes; second apply is a true `0`-change no-op; production is `ACTIVE_HEALTHY`. Deploy, migration and master merge were not performed.
 
 ### TZ-196 final pesticide GLBD V1 readiness
 
