@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-18
+LAST_UPDATED: 2026-07-19
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `d2b0af1`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `26a9813d787d8c9ac00b7a80fe3a24286daa5677`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -21,7 +21,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | ГЛБД | TZ194_SAFE_ALIAS_PACKAGE_COMPLETE | TZ-185 product Batch 1 остаётся применённым. TZ-188, TZ-191, TZ-193 и TZ-194 добавили все 562 owner-approved short-name aliases: aliases 100→662. Финальная партия: search 112/112, exact ambiguity 0, controls 5/5, second apply 0; company data не изменялись. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
-| Travkin Assistant | A108_INTEGRATED_PREVIEW_READY | TZ-192 transferred the verified A108 manifest into Core without merge/rebase and deployed only a `copilot-v1` preview on `gsglkmudcwkdetqtocae`. A106 is `10/10`, A107 is `45/45`, authenticated Core/Assistant smoke passed, service role is absent from Preview, and production remains unchanged. |
+| Travkin Assistant | A109_INTEGRATED_PREVIEW_PENDING | TZ-195 transferred only the verified A109 read-only runtime and QA scope without merge/rebase. A107 is `45/45`, A109 is `12/12`, the critical scope chain is `4/4`, authenticated Core smoke passed on `gsglkmudcwkdetqtocae`, service role is absent, and production remains unchanged. |
 
 ## Current database state
 

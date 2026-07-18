@@ -1,22 +1,32 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-18T15:55:00+05:00
+LAST_REVIEW_AT: 2026-07-19T02:20:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `d2b0af1`)
+CORE_COMMIT: `SELF` (previous core commit: `26a9813d787d8c9ac00b7a80fe3a24286daa5677`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
-ASSISTANT_COMMIT_REVIEWED: `164ade7233c27855e1568decfdf729ab12448204`
-ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-17
-ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-17
-LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A108.md` and its integration manifest were reviewed; only the manifest-approved preview scope was transferred.
+ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
+ASSISTANT_LIVE_STATE_REVIEWED_AT: 2026-07-19
+ASSISTANT_SYNC_STATE_REVIEWED_AT: 2026-07-19
+LATEST_ASSISTANT_TASK_REPORT: `origin/assistant-v1:docs/project-live/task-reports/assistant/TZ-A109.md` was reviewed against A108; only verified A109 runtime and QA changes were transferred.
 
-ASSISTANT_CHANGES_FOUND: YES - verified A108 runtime, UI, QA harnesses, reports and semantic patch were integrated as exact manifest scope. No merge or rebase occurred.
-CORE_IMPACT_FOUND: YES - Core now hosts the verified read-only Assistant runtime only in the test-branch preview.
+ASSISTANT_CHANGES_FOUND: YES - verified A109 context scope, operation status, DATA recovery and typo-resolution changes were integrated. No merge or rebase occurred.
+CORE_IMPACT_FOUND: YES - Core now hosts the A109 read-only Assistant runtime, guarded by the A107/A109 branch-only regression suite.
 INTEGRATION_CONTRACT_IMPACT: NO - Contract 0.4 remains unchanged.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: Owner may test TZ-192 preview. Production memory migration, master merge and production deploy remain disabled pending a separate numbered approval.
+NEXT_SAFE_ACTION: Push TZ-195 to create a test-only Vercel Preview, verify READY and hand the URL to the owner. Master merge and production deploy remain disabled.
+
+## TZ-195 review result
+
+TZ195_ASSISTANT_SOURCE: `origin/assistant-v1@f503f05b54de129b6778fee10e3b6406ec761ced`, one commit after A108.
+TZ195_INTEGRATION: `PASS - no merge/rebase; verified runtime helper/tool/engine changes and two A109 QA harnesses only`.
+TZ195_STATIC_ACCEPTANCE: `TYPECHECK PASS / BRANCH-ONLY BUILD PASS / PRODUCTION URL AND SERVICE-ROLE VALUE MATCHES 0`.
+TZ195_REGRESSION: `A107 REAL ERP 45/45 / A109 REAL 12/12 / CRITICAL CHAIN 4/4 / GREETING 4/4`.
+TZ195_FUNCTIONAL_SMOKE: `9 crop rows / 2 warehouses / 5 operations / 1550 kg nitrate / 520 l Curamin / 200 l Phomazin / operation card PASS / cross-company denied`.
+TZ195_SECURITY: `TEST BRANCH gsglkmudcwkdetqtocae / SERVICE ROLE NO / ERP WRITES 0 / PRODUCTION CONNECTIONS 0`.
+TZ195_DEPLOYMENT: `PREVIEW_PENDING_AFTER_SELECTIVE_PUSH`; production and master are unchanged.
 
 ## TZ-194 review result
 

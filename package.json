@@ -22,6 +22,8 @@
     "qa:assistant:memory-v2:owner": "npx --no-install tsx scripts/qa-assistant-a106-owner-findings.ts",
     "qa:assistant:a107-real-erp": "npx --no-install tsx scripts/qa-assistant-a107-real-erp.ts",
     "qa:assistant:a107-owner-findings": "npx --no-install tsx scripts/qa-assistant-a107-owner-findings.ts",
+    "qa:assistant:a109-context-scope": "npx --no-install tsx scripts/qa-assistant-a109-context-scope.ts",
+    "qa:assistant:a109-real": "npx --no-install tsx scripts/qa-assistant-a109-real.ts",
     "qa:assistant:greeting-policy": "npx --no-install tsx scripts/qa-assistant-a106-greeting-policy.ts",
     "qa:assistant:greeting-policy:real": "npx --no-install tsx scripts/qa-assistant-a106-real-greeting.ts",
     "qa:warehouse:units-v2": "npx tsx scripts/qa-warehouse-canonical-units-v2.ts",

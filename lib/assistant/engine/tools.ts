@@ -63,6 +63,7 @@ function isMissingRelationError(message: string): boolean {
 function normalizeSearchText(value: unknown): string {
   return String(value || "")
     .toLowerCase()
+    .replace(/ё/g, "е")
     .replace(/[.,!?;:()"'`]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -103,7 +104,45 @@ function differsByAtMostOneCharacter(left: string, right: string): boolean {
   return differences + (long.length - longIndex) <= 1;
 }
 
-function productIdentityMatchesQuery(identity: unknown, query: string | null): boolean {
+function normalizeFuzzyToken(value: string): string {
+  return value.replace(/ph/g, "f").replace(/c/g, "k");
+}
+
+function damerauLevenshteinDistance(left: string, right: string): number {
+  const a = normalizeFuzzyToken(left);
+  const b = normalizeFuzzyToken(right);
+  const matrix = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i += 1) matrix[i][0] = i;
+  for (let j = 0; j <= b.length; j += 1) matrix[0][j] = j;
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+      if (
+        i > 1 &&
+        j > 1 &&
+        a[i - 1] === b[j - 2] &&
+        a[i - 2] === b[j - 1]
+      ) {
+        matrix[i][j] = Math.min(matrix[i][j], matrix[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return matrix[a.length][b.length];
+}
+
+function fuzzyProductTokenMatches(identityToken: string, queryToken: string): boolean {
+  const shortest = Math.min(identityToken.length, queryToken.length);
+  if (shortest < 5) return false;
+  const maxDistance = shortest >= 7 ? 2 : 1;
+  return damerauLevenshteinDistance(identityToken, queryToken) <= maxDistance;
+}
+
+export function productIdentityMatchesQuery(identity: unknown, query: string | null): boolean {
   if (!query) return true;
   const normalizedIdentity = normalizeSearchText(identity);
   const latinIdentity = transliterateCyrillicToLatin(normalizedIdentity);
@@ -115,7 +154,11 @@ function productIdentityMatchesQuery(identity: unknown, query: string | null): b
     const latinTerm = transliterateCyrillicToLatin(normalizedTerm);
     if (latinTerm && latinIdentity.includes(latinTerm)) return true;
     if (latinTerm.length < 5 || latinTerm.includes(" ")) return false;
-    return identityTokens.some((token) => token.length >= 5 && differsByAtMostOneCharacter(token, latinTerm));
+    return identityTokens.some(
+      (token) =>
+        token.length >= 5 &&
+        (differsByAtMostOneCharacter(token, latinTerm) || fuzzyProductTokenMatches(token, latinTerm))
+    );
   });
 }
 
@@ -4714,10 +4757,9 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
       });
     });
 
-    const activeOperations = operations.filter((item: any) => {
-      const status = cleanString(item.status)?.toLowerCase() || "";
-      return !["completed", "verified", "cancelled"].includes(status);
-    }).length;
+    const activeOperations = operations.filter((item: any) => isActiveOperationRow(item)).length;
+    const plannedOperations = operations.filter((item: any) => normalizeSearchText(item.status) === "planned").length;
+    const completedOperations = operations.filter((item: any) => normalizeOperationWorkStatus(item) === "completed").length;
 
     logToolEvent(context, "get_field_card", "success", {
       resolved_field_id: fieldId,
@@ -4751,6 +4793,8 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
           },
           fact: {
             active_operations_count: activeOperations,
+            planned_operations_count: plannedOperations,
+            completed_operations_count: completedOperations,
             material_issued_kg: Number(issuedKg.toFixed(3)),
             harvest_net_kg: Number(harvestKg.toFixed(3)),
           },
@@ -4759,6 +4803,8 @@ const getFieldCardToolAlias: AssistantToolDefinition = {
           reproductions: Array.from(reproductions).sort(),
           crop_lines: cropLines,
           active_operations_count: activeOperations,
+          planned_operations_count: plannedOperations,
+          completed_operations_count: completedOperations,
           material_issued_kg: Number(issuedKg.toFixed(3)),
           harvest_net_kg: Number(harvestKg.toFixed(3)),
           debug_meta: {
