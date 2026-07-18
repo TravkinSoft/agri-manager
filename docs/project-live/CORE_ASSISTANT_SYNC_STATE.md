@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-18T12:21:56+05:00
+LAST_REVIEW_AT: 2026-07-18T12:37:01+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `5b5a57c`)
+CORE_COMMIT: `SELF` (previous core commit: `7779b75`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: TZ-187 requires owner review before any catalog apply. Independently, A108 may repeat its authenticated browser acceptance after TZ-186; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: Alias Batch 2 requires a new owner-approved Core task with fresh backup/preflight. Independently, A108 may repeat its authenticated browser acceptance after TZ-186; production memory migration, merge and deploy remain disabled.
+
+## TZ-188 review result
+
+TZ188_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA branch and Contract 0.4 were not changed.
+TZ188_CORE_IMPACT_FOUND: `YES - owner-approved global catalog alias data apply and reusable guarded verifier`.
+TZ188_BACKUP_PREFLIGHT: `PASS - exact 50-card backup, verified manifests, aliases absent, collisions 0, company targets 0`.
+TZ188_PRODUCTION_APPLY: `PASS - one transaction, 50 global_product_aliases inserts, total aliases 100 -> 150`.
+TZ188_ACCEPTANCE: `PASS - search 50/50, controls 5/5, ambiguity 0, duplicates/conflicts 0, second apply 0, routes 6/6`.
+TZ188_PRODUCTION_IMPACT: `APPROVED_GLOBAL_CATALOG_ALIASES_ONLY`; company/business data, product rows, schema, migration history, deploy and master are unchanged.
+TZ188_ACTION: `READY_FOR_ALIAS_BATCH_2_WITH_OWNER_APPROVAL`; a new task must repeat backup and no-drift preflight.
 
 ## TZ-187 review result
 
