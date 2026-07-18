@@ -79,6 +79,8 @@
 | TZ-187 | GLBD | Prepare the next safe pesticide batch | copilot-v1 | DONE | TZ-180,TZ-185 | [task-reports/core/TZ-187.md](task-reports/core/TZ-187.md) | `SELF` |
 | TZ-188 | GLBD | Apply pesticide search aliases Batch 1 | copilot-v1 | DONE | TZ-187 | [task-reports/core/TZ-188.md](task-reports/core/TZ-188.md) | `SELF` |
 | TZ-189 | CORE / ASSISTANT QA | Fix warehouse balance loading for A108 | copilot-v1 | DONE | TZ-186 | [task-reports/core/TZ-189.md](task-reports/core/TZ-189.md) | `SELF` |
+| TZ-190 | GLBD | Apply 200 pesticide search aliases | copilot-v1 | BLOCKED | TZ-187,TZ-188 | `superseded by owner-corrected TZ-191 package after preflight collision` | — |
+| TZ-191 | GLBD | Rebuild and apply 200 unique pesticide search aliases | copilot-v1 | DONE | TZ-190 | [task-reports/core/TZ-191.md](task-reports/core/TZ-191.md) | `SELF` |
 
 ## Status values
 

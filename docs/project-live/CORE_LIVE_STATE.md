@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-18
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `92469a6`)
+CORE_COMMIT: `SELF` (commit, содержащий это обновление Live-state; предыдущий core commit: `abce1bb9`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -18,12 +18,21 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ188_ALIAS_BATCH1_APPLIED | TZ-185 product Batch 1 остаётся применённым. TZ-188 добавило 50 owner-approved short-name aliases: aliases 100→150, search 50/50, controls 5/5, second apply 0; company data не изменялись. |
+| ГЛБД | TZ191_ALIAS_BATCH2_APPLIED | TZ-185 product Batch 1 остаётся применённым. TZ-188 и TZ-191 добавили 250 owner-approved short-name aliases: aliases 100→350. Последняя партия: search 200/200, exact ambiguity 0, controls 5/5, second apply 0; company data не изменялись. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A107_READY_BRANCH_ONLY | TZ-177 applied the canonical catalog security migration only to `gsglkmudcwkdetqtocae`. Real JWT catalog CRUD and tenant-isolation gates pass, and the TZ-176 ERP Ground Truth is unchanged. A107 may start only on this branch; production memory migration, merge and deploy remain disabled. |
 
 ## Current database state
+
+### TZ-191 unique pesticide search aliases Batch 2
+
+- Owner decision removed both exact `Идеал` aliases from the Batch 02-05 package; `Идеал, ВР` and `Идеал, КС` remain separate unchanged cards searchable by their full names and formulations.
+- Collision-free Batch 06 replacements are `Листего Про` and `Локустин`. The rebuilt package is exactly `200` cards / `200` alias IDs / `200` normalized aliases; package manifest SHA-256 is `238ea8dbe29c12469172e9f8dbaf6d9a3c512391a50f437d0c4d550032d35d0d`.
+- Fresh backup and preflight passed at `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-191/backups/pesticide-alias-batch-two-20260718T092501595Z/`; duplicates, conflicts, exact search ambiguities and company targets are `0`.
+- One owner-approved transaction inserted `200` exact rows into `global_product_aliases`; aliases are now `350`. Exact search is `200/200`, controls `5/5`, second apply inserted `0`, routes are `6/6 HTTP 200` and Supabase is `ACTIVE_HEALTHY`.
+- Products and company product fingerprints are unchanged. Trade names, manufacturers, formulations, components, registrations, usage rules, company data, schema and migration history were not changed; deploy and master merge were not performed.
+- The TZ-187 plan has `312` remaining owner-eligible aliases after excluding the two permanently rejected `Идеал` candidates. A later batch requires a new owner-approved task and fresh backup/preflight.
 
 ### TZ-189 warehouse balances for A108
 

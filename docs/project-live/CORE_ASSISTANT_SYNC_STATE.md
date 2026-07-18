@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-18T13:06:49+05:00
+LAST_REVIEW_AT: 2026-07-18T14:29:27+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `92469a6`)
+CORE_COMMIT: `SELF` (previous core commit: `abce1bb9`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,18 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: A108 may repeat browser acceptance after the authenticated Core smoke passed in TZ-189. Alias Batch 2 still requires a new owner-approved Core task with fresh backup/preflight; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: A108 may repeat browser acceptance after the authenticated Core smoke passed in TZ-189. The next alias batch requires a new owner-approved Core task with fresh backup/preflight; production memory migration, merge and deploy remain disabled.
+
+## TZ-191 review result
+
+TZ191_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA branch and Contract 0.4 were not changed.
+TZ191_CORE_IMPACT_FOUND: `YES - owner-approved global catalog alias data apply and hardened exact-identity verifier`.
+TZ191_REBUILT_PACKAGE: `PASS - both Ideal aliases excluded; Листего Про and Локустин replacements; 200 cards / 200 unique normalized aliases`.
+TZ191_BACKUP_PREFLIGHT: `PASS - verified package and backup manifests, aliases absent, duplicates/conflicts/exact ambiguities/company targets 0`.
+TZ191_PRODUCTION_APPLY: `PASS - one transaction, 200 global_product_aliases inserts, total aliases 150 -> 350`.
+TZ191_ACCEPTANCE: `PASS - search 200/200, controls 5/5, exact ambiguity 0, second apply 0, routes 6/6, ACTIVE_HEALTHY`.
+TZ191_PRODUCTION_IMPACT: `APPROVED_GLOBAL_CATALOG_ALIASES_ONLY`; product rows, company/business data, schema, migration history, deploy and master are unchanged.
+TZ191_ACTION: `READY_FOR_NEXT_ALIAS_BATCH_WITH_OWNER_APPROVAL`; `312` owner-eligible TZ-187 aliases remain after permanent Ideal exclusions.
 
 ## TZ-189 review result
 
