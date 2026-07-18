@@ -1,12 +1,12 @@
 # Assistant Live State
 
-LAST_UPDATED: `2026-07-17`
-STATUS: `A107_COMPLETE_OWNER_ACCEPTANCE_PASS`
+LAST_UPDATED: `2026-07-18`
+STATUS: `A108_COMPLETE_OWNER_APPROVAL_PASS`
 BRANCH: `assistant-v1`
-BASE_ASSISTANT_COMMIT: `b22f765583b2cd556a29b9e25c332561f19dd262`
-CORE_COMMIT_REVIEWED: `c765f59f2ac27ea9b6763a70c4e65a2be3d26c95`
+BASE_ASSISTANT_COMMIT: `a71e292e85a1c7d7b7503275174c34f94fa39bd5`
+CORE_COMMIT_REVIEWED: `abce1bb9e18fc118c68dfc6add6fb31d05ffe81c`
 CONTRACT_VERSION_REVIEWED: `0.4`
-ALLOWED_MODE: `A107_ISOLATED_BRANCH_REAL_ERP_READ_ONLY_ACCEPTANCE`
+ALLOWED_MODE: `A108_DETACHED_CORE_PREVIEW_INTEGRATION_VALIDATION`
 WRITE_CAPABILITY: `NON_PRODUCTION_ASSISTANT_QA_ONLY`
 
 RUNTIME: `ASSISTANT_A104_SERVER_CONVERSATION_V2`
@@ -37,6 +37,7 @@ A106_AUTOMATED_ACCEPTANCE: `MEMORY_POLICY_V2_REAL_10_OF_10_PASS`
 A106_OWNER_ACCEPTANCE: `PASS`
 A106_KNOWN_ISSUE: `NAME_MEMORY_MAY_BE_UNSTABLE_IN_ISOLATED_SCENARIOS_DEFERRED_TO_UX_MEMORY_HARDENING`
 A107_READINESS: `COMPLETE_OWNER_ACCEPTANCE_PASS_READY_FOR_PREVIEW_INTEGRATION`
+A108_READINESS: `COMPLETE_OWNER_APPROVAL_PASS_READY_FOR_CORE_PREVIEW_INTEGRATION`
 
 ## A101 runtime
 
@@ -179,3 +180,41 @@ Fresh auth/context preflight and browser verification pass. The dashboard shows 
 ## A107 final owner acceptance
 
 A107 is complete with owner acceptance `PASS` and is ready for selective push to `origin/assistant-v1`, followed by preview integration. The minor phrase-intent issue where `Маладээс` was treated as a product lookup is recorded as non-blocking backlog item `INTENT-UX-001` in `docs/project-live/backlog/assistant-intent-ux-hardening.md`. Merge and production deploy remain forbidden.
+
+## A108 preview integration package
+
+After `git fetch origin`, Assistant commit `a71e292e85a1c7d7b7503275174c34f94fa39bd5` was compared with Core commit `1fbb3998c8dc82ee8e4af0b439b8a32c0b76a034` without merge or rebase. The Assistant delta contains 58 files: 43 added and 15 modified. The selective preview package applies 56 files; the two Core-owned Assistant live/sync state files are retained from Core and updated only on the Assistant branch as handoff documentation. Three paths changed in both branches: `package.json` and the two state documents.
+
+A detached temporary worktree based exactly on the Core commit was created at `C:\Users\TRAVKIN\Downloads\CodecSaaS\project-assistant-a108-preview-temp`. Core package scripts and `@electric-sql/pglite` were preserved while Assistant QA scripts were added. No Assistant migration is transferred; Core already owns the Memory Policy V2 migration required by the test branch.
+
+The initial REAL preview run exposed one semantic integration conflict: the short product-phrase heuristic routed the inflected phrase `поливы` to warehouse stock. The manifest now requires the isolated A108 resolution patch, which excludes praise variants and suffix-inflected irrigation/business subjects from catalog lookup. The rebuilt temporary copy passed typecheck, build, A106 memory `10/10`, A107 REAL ERP `45/45` with numeric accuracy `100%`, greeting `4/4`, and owner warehouses/product/field findings `7/7`. The eight Core page HTTP checks are retained only as transport evidence and no longer count as Core smoke.
+
+The exact per-file transfer and rollback instructions are in `audit-output/TZ-A108/integration-manifest.json`; the value-free environment handoff is in `audit-output/TZ-A108/preview-env-checklist.md`. The REAL temporary runtime remains at `http://127.0.0.1:3106/dashboard`. No commit, push, merge, deploy, production connection, or Core branch mutation was performed for A108.
+
+## A108 owner failure and Core proposal
+
+The owner returned `OWNER_APPROVAL: FAIL`. Authenticated browser validation showed that `/crop-structure` and `/warehouses` render Core error states because their routes require `getServiceClient()` while A108 correctly keeps the service role absent. `/operations` loads its main journal through user-RLS reads, but the operation-card lines route has the same Core service-client dependency. The warehouse observer badge contains literal mojibake already present in the reviewed Core commit.
+
+The affected Core page, service, auth, and API files have no Assistant diff from `1fbb3998c8dc82ee8e4af0b439b8a32c0b76a034`. A108 integration/env wiring is therefore not the cause. No Core code was changed in `assistant-v1`.
+
+Core proposal `contract-proposals/assistant/2026-07-17-a108-core-user-jwt-data-pages.md` requires ordinary routes to use the authenticated request JWT under RLS, forbids service-role fallback, lists the exact route families, corrects the UTF-8 literals, and defines data-level smoke acceptance. HTTP 200 alone is no longer a pass: pages must load expected QA data with no error banner/toast, no permanent spinner, no mojibake, zero foreign rows, zero ERP writes, zero production connections, and no service role.
+
+## A108 resync to Core 5b5a57c
+
+Fresh `git fetch origin` resolved Core to `5b5a57c8b8490340c92b72e2a74a4ca4404d4613`. A new detached preview copy was built from that exact commit after removing the previous temporary worktree. The verified manifest applied exactly 56 selected paths plus its semantic patch; no Core data route or Core state document was overwritten.
+
+The new Core user-JWT implementation fixes crop structure, operation details, and visible mojibake. Authenticated UI/API evidence shows 9 crop-structure rows, 5 operations, operation-lines 200, company-B denial, and mojibake 0. Typecheck/build pass. Fresh A106 memory is 10/10, greeting is 4/4, and A107 is 45/45 with 100% numeric accuracy, zero cross-company leaks, zero ERP mutations, and zero production connections.
+
+A108 remains blocked by one Core-owned balances route. `app/api/warehouses/balances/route.ts` asks PostgREST to embed `varieties:variety_id` and `reproductions:reproduction_id`, but migration `20260510093000_add_batch_class_and_identity_flow.sql` drops those two foreign keys. The authenticated route returns HTTP 400, so `/warehouses` shows an error banner/toast and a false zero state instead of 2 warehouses and the expected balances. Assistant changed neither file nor schema. The updated Core proposal records the required user-JWT-safe explicit lookup fix. The REAL preview remains running at `http://127.0.0.1:3106/operations`; commit, push, merge, deploy, and owner approval remain blocked.
+
+## A108 final Core resync and owner gate
+
+Core commit `abce1bb9e18fc118c68dfc6add6fb31d05ffe81c` resolves the remaining warehouse balances relation error. The previous temporary preview was safely replaced with a fresh detached copy at that exact commit; the manifest again applied exactly 56 files and left Core's balances route unchanged.
+
+Final authenticated Core/UI smoke passes: crop structure 9 rows; warehouses 2; ammonium nitrate 1550 kg; Curamin Foliar 520 l; Phomazin 200 l; operations 5; Field 28 operation card opens; company-B denial; error banner/toast 0; mojibake 0. Typecheck/build and production-deny scans pass. Fresh A106 is 10/10 plus greeting 4/4; fresh A107 is 45/45 with 100% numeric accuracy, zero leaks, zero ERP mutations, and zero production connections.
+
+A108 is `READY_FOR_OWNER_APPROVAL`. The REAL preview stays at `http://127.0.0.1:3106/operations`. Commit, push, merge, and deploy remain forbidden until the owner returns approval.
+
+## A108 final owner approval
+
+The owner returned `OWNER_APPROVAL: PASS`. A108 is complete and the verified selective A108 package is authorized for commit and push to `origin/assistant-v1`. It is ready for Core preview integration. Merge into `copilot-v1` and deploy remain forbidden.

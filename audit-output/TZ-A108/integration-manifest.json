@@ -1,0 +1,837 @@
+{
+  "task": "TZ-A108",
+  "status": "COMPLETE_OWNER_APPROVAL_PASS",
+  "generatedAt": "2026-07-17",
+  "sourceBranch": "assistant-v1",
+  "sourceCommit": "a71e292e85a1c7d7b7503275174c34f94fa39bd5",
+  "targetBase": "origin/copilot-v1",
+  "targetCoreCommit": "abce1bb9e18fc118c68dfc6add6fb31d05ffe81c",
+  "mergeBase": "d19258762bb7eaf2afcca94eb7d611d56eedbd41",
+  "constraints": {
+    "merge": false,
+    "rebase": false,
+    "deploy": false,
+    "productionAccess": false,
+    "pushToCopilotV1": false,
+    "databaseTargetHostname": "gsglkmudcwkdetqtocae.supabase.co",
+    "serviceRoleAllowed": false,
+    "erpWritesAllowed": false
+  },
+  "summary": {
+    "assistantChangedFiles": 58,
+    "newAssistantFiles": 43,
+    "modifiedAssistantFiles": 15,
+    "filesSelectedForTemporaryPreview": 56,
+    "sharedFilesChangedByBothBranches": [
+      "docs/project-live/ASSISTANT_LIVE_STATE.md",
+      "docs/project-live/ASSISTANT_SYNC_STATE.md",
+      "package.json"
+    ],
+    "conflictsFound": 4,
+    "conflictsResolved": 4,
+    "assistantMigrationsToTransfer": [],
+    "databasePrerequisite": "Core already contains 20260716125205_assistant_memory_policy_v2.sql; it remains applied only to test branch gsglkmudcwkdetqtocae."
+  },
+  "conflictPlan": [
+    {
+      "path": "package.json",
+      "resolution": "Preserve Core scripts qa:warehouse:units-v2 and qa:glbd:component-discovery plus @electric-sql/pglite, then add only Assistant QA scripts."
+    },
+    {
+      "path": "docs/project-live/ASSISTANT_LIVE_STATE.md",
+      "resolution": "Keep Core-owned target document unchanged; use the A108 Assistant report as the handoff source."
+    },
+    {
+      "path": "docs/project-live/ASSISTANT_SYNC_STATE.md",
+      "resolution": "Keep Core-owned target document unchanged; use the A108 Assistant report as the handoff source."
+    },
+    {
+      "path": "lib/assistant/v1/engine.ts",
+      "resolution": "Apply the Assistant file, then apply audit-output/TZ-A108/resolutions/lib-assistant-v1-engine.patch so praise variants and suffix-inflected irrigation/business phrases cannot be forced into warehouse lookup."
+    }
+  ],
+  "previewEnvChecklist": [
+    {
+      "name": "NEXT_PUBLIC_SUPABASE_URL",
+      "required": true,
+      "secretValue": false,
+      "rule": "Exact HTTPS test-branch URL."
+    },
+    {
+      "name": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "required": true,
+      "secretValue": true,
+      "rule": "Test-branch anon key; never print."
+    },
+    {
+      "name": "SUPABASE_URL",
+      "required": true,
+      "secretValue": false,
+      "rule": "Same exact HTTPS test-branch URL."
+    },
+    {
+      "name": "SUPABASE_ANON_KEY",
+      "required": true,
+      "secretValue": true,
+      "rule": "Same test-branch anon key; never print."
+    },
+    {
+      "name": "A107_BRANCH_REF",
+      "required": true,
+      "secretValue": false,
+      "rule": "Must equal gsglkmudcwkdetqtocae for the current fail-closed preview guard."
+    },
+    {
+      "name": "A106_BRANCH_REF",
+      "required": true,
+      "secretValue": false,
+      "rule": "Must equal gsglkmudcwkdetqtocae for Memory V2 and Responses adapter branch gating."
+    },
+    {
+      "name": "A106_LOCAL_RUNTIME",
+      "required": true,
+      "secretValue": false,
+      "rule": "Set to 1 only for this isolated local preview validation."
+    },
+    {
+      "name": "ASSISTANT_ACCESS_STRICT",
+      "required": true,
+      "secretValue": false,
+      "rule": "Set to 1."
+    },
+    {
+      "name": "ASSISTANT_RUNTIME_MODE",
+      "required": true,
+      "secretValue": false,
+      "rule": "Set to responses_v2."
+    },
+    {
+      "name": "ASSISTANT_LOCAL_QA_MODEL_OVERRIDE",
+      "required": true,
+      "secretValue": false,
+      "rule": "Set to gpt-5.6-terra for this preview validation."
+    },
+    {
+      "name": "OPENAI_ASSISTANT_MODEL",
+      "required": true,
+      "secretValue": false,
+      "rule": "Set to gpt-5.6-terra."
+    },
+    {
+      "name": "REASONING_EFFORT",
+      "required": true,
+      "secretValue": false,
+      "rule": "Set to medium."
+    },
+    {
+      "name": "ASSISTANT_RESPONSES_STORE",
+      "required": true,
+      "secretValue": false,
+      "rule": "Set to false."
+    },
+    {
+      "name": "ASSISTANT_MEMORY_V2_ENABLED",
+      "required": true,
+      "secretValue": false,
+      "rule": "Set to 1."
+    },
+    {
+      "name": "ASSISTANT_MEMORY_V1_ENABLED",
+      "required": true,
+      "secretValue": false,
+      "rule": "Compatibility gate remains 1 for current runtime."
+    },
+    {
+      "name": "OPENAI_API_KEY",
+      "required": true,
+      "secretValue": true,
+      "rule": "Runtime only after safe bundle scan; never print or copy into the temporary tree."
+    }
+  ],
+  "forbiddenEnv": [
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SECRET_KEY",
+    "SUPABASE_ADMIN_KEY",
+    "SUPABASE_ADMIN_TOKEN",
+    "SUPABASE_ACCESS_TOKEN",
+    "SUPABASE_MANAGEMENT_API_TOKEN",
+    "SUPABASE_DB_URL",
+    "DATABASE_URL",
+    "DIRECT_URL",
+    "POSTGRES_URL",
+    "POSTGRES_PRISMA_URL",
+    "POSTGRES_URL_NON_POOLING",
+    "PGHOST",
+    "PGUSER",
+    "PGPASSWORD",
+    "PGDATABASE"
+  ],
+  "files": [
+    {
+      "path": ".gitignore",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:.gitignore",
+      "purpose": "Ignore local audit, safe-build, and runtime artifacts.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_.gitignore_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "app/api/assistant/context/route.ts",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:app/api/assistant/context/route.ts",
+      "purpose": "Authenticated Assistant company/season context API route.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_app/api/assistant/context/route.ts_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "app/api/assistant/memory/route.ts",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:app/api/assistant/memory/route.ts",
+      "purpose": "User-scoped Memory Policy V2 read/write/delete API route.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_app/api/assistant/memory/route.ts_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "app/api/assistant/query/route.ts",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:app/api/assistant/query/route.ts",
+      "purpose": "Server-owned Assistant query orchestration and persistence route.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_app/api/assistant/query/route.ts_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "app/api/assistant/threads/[threadId]/messages/route.ts",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:app/api/assistant/threads/[threadId]/messages/route.ts",
+      "purpose": "Assistant thread and message API route.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_app/api/assistant/threads/[threadId]/messages/route.ts_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "app/api/assistant/threads/route.ts",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:app/api/assistant/threads/route.ts",
+      "purpose": "Assistant thread and message API route.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_app/api/assistant/threads/route.ts_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "components/assistant/assistant-chat-pane.tsx",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:components/assistant/assistant-chat-pane.tsx",
+      "purpose": "Travkin Assistant UI panel, states, and chat interaction.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_components/assistant/assistant-chat-pane.tsx_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "components/specialist/chat-interface.tsx",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:components/specialist/chat-interface.tsx",
+      "purpose": "Existing specialist surface integration for the Assistant panel.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_components/specialist/chat-interface.tsx_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "docs/project-live/ASSISTANT_LIVE_STATE.md",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/ASSISTANT_LIVE_STATE.md",
+      "purpose": "Assistant branch live-state handoff metadata.",
+      "transferWithoutChanges": false,
+      "conflict": "both_branches_modified",
+      "includeInPreview": false,
+      "integrationMethod": "do_not_transfer_keep_core_owned_state_document_use_A108_handoff_report",
+      "rollback": "none_no_preview_file_change"
+    },
+    {
+      "path": "docs/project-live/ASSISTANT_SYNC_STATE.md",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/ASSISTANT_SYNC_STATE.md",
+      "purpose": "Assistant/Core synchronization metadata.",
+      "transferWithoutChanges": false,
+      "conflict": "both_branches_modified",
+      "includeInPreview": false,
+      "integrationMethod": "do_not_transfer_keep_core_owned_state_document_use_A108_handoff_report",
+      "rollback": "none_no_preview_file_change"
+    },
+    {
+      "path": "docs/project-live/backlog/assistant-intent-ux-hardening.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/backlog/assistant-intent-ux-hardening.md",
+      "purpose": "Accepted non-blocking Assistant backlog evidence.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/backlog/assistant-memory-ux-hardening.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/backlog/assistant-memory-ux-hardening.md",
+      "purpose": "Accepted non-blocking Assistant backlog evidence.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/contract-proposals/assistant/2026-07-16-owner-memory-behavior-v2.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/contract-proposals/assistant/2026-07-16-owner-memory-behavior-v2.md",
+      "purpose": "Assistant-to-Core contract or dataset proposal.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/contract-proposals/assistant/2026-07-17-a107-curamin-localized-alias.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/contract-proposals/assistant/2026-07-17-a107-curamin-localized-alias.md",
+      "purpose": "Assistant-to-Core contract or dataset proposal.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/contract-proposals/assistant/2026-07-assistant-memory-schema-v1.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/contract-proposals/assistant/2026-07-assistant-memory-schema-v1.md",
+      "purpose": "Assistant-to-Core contract or dataset proposal.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/contract-proposals/assistant/2026-07-assistant-p0-core-security.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/contract-proposals/assistant/2026-07-assistant-p0-core-security.md",
+      "purpose": "Assistant-to-Core contract or dataset proposal.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/task-reports/assistant/TZ-A100.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/task-reports/assistant/TZ-A100.md",
+      "purpose": "Assistant task acceptance and audit report.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/task-reports/assistant/TZ-A101.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/task-reports/assistant/TZ-A101.md",
+      "purpose": "Assistant task acceptance and audit report.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/task-reports/assistant/TZ-A102.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/task-reports/assistant/TZ-A102.md",
+      "purpose": "Assistant task acceptance and audit report.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/task-reports/assistant/TZ-A103.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/task-reports/assistant/TZ-A103.md",
+      "purpose": "Assistant task acceptance and audit report.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/task-reports/assistant/TZ-A104.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/task-reports/assistant/TZ-A104.md",
+      "purpose": "Assistant task acceptance and audit report.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/task-reports/assistant/TZ-A105.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/task-reports/assistant/TZ-A105.md",
+      "purpose": "Assistant task acceptance and audit report.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/task-reports/assistant/TZ-A106.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/task-reports/assistant/TZ-A106.md",
+      "purpose": "Assistant task acceptance and audit report.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "docs/project-live/task-reports/assistant/TZ-A107.md",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:docs/project-live/task-reports/assistant/TZ-A107.md",
+      "purpose": "Assistant task acceptance and audit report.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/audit-log.ts",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/audit-log.ts",
+      "purpose": "Assistant audit-event persistence helpers.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_lib/assistant/audit-log.ts_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "lib/assistant/engine/tools.ts",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/engine/tools.ts",
+      "purpose": "Eight-tool read-only ERP implementation and grounding.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_lib/assistant/engine/tools.ts_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "lib/assistant/memory-store.ts",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/memory-store.ts",
+      "purpose": "Memory Policy V2 extraction, lifecycle, and scoped storage.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_lib/assistant/memory-store.ts_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "lib/assistant/threads-store.ts",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/threads-store.ts",
+      "purpose": "Server-owned chats, messages, and thread persistence.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "apply_assistant_delta_from_merge_base",
+      "rollback": "restore_lib/assistant/threads-store.ts_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "lib/assistant/v1/a107-runtime-guard.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v1/a107-runtime-guard.ts",
+      "purpose": "Fail-closed exact test-branch runtime guard.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v1/conversation.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v1/conversation.ts",
+      "purpose": "Conversation prompt and continuity rules.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v1/engine.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v1/engine.ts",
+      "purpose": "Read-only model/tool execution engine.",
+      "transferWithoutChanges": false,
+      "conflict": "preview_acceptance_intent_routing",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit_then_apply_a108_resolution_patch",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v1/field-parameters.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v1/field-parameters.ts",
+      "purpose": "Typed field query parser.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v1/model-preflight.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v1/model-preflight.ts",
+      "purpose": "Requested/effective model availability preflight.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v1/policy.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v1/policy.ts",
+      "purpose": "Central read-only and tenant policy.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v1/tool-schemas.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v1/tool-schemas.ts",
+      "purpose": "Exactly eight model-facing read-only tool schemas.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v1/types.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v1/types.ts",
+      "purpose": "Read-only Assistant runtime types.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v2/context-limits.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v2/context-limits.ts",
+      "purpose": "Recent-60 context limit.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v2/greeting-policy.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v2/greeting-policy.ts",
+      "purpose": "Single-greeting response policy.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v2/memory-policy.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v2/memory-policy.ts",
+      "purpose": "Memory Policy V2 allowlists and decision rules.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v2/responses-adapter.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v2/responses-adapter.ts",
+      "purpose": "OpenAI Responses API adapter with store:false.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v2/runtime-mode.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v2/runtime-mode.ts",
+      "purpose": "Explicit Assistant runtime-mode resolver.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/assistant/v2/server-conversation.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/assistant/v2/server-conversation.ts",
+      "purpose": "Server-owned summaries, entity state, and recent context.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "lib/supabase/server-user.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:lib/supabase/server-user.ts",
+      "purpose": "Request-scoped JWT/anon Supabase client under RLS.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "package.json",
+      "changeType": "modified",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:package.json",
+      "purpose": "Assistant QA command registration while preserving Core commands and dependencies.",
+      "transferWithoutChanges": false,
+      "conflict": "both_branches_modified",
+      "includeInPreview": true,
+      "integrationMethod": "manual_union_add_assistant_qa_scripts_preserve_all_core_scripts_dependencies_and_devDependencies",
+      "rollback": "restore_package.json_from_core_commit_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c"
+    },
+    {
+      "path": "scripts/a106-openai-mock.mjs",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/a106-openai-mock.mjs",
+      "purpose": "Explicit local OpenAI mock for deterministic non-REAL regression only.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/a107-safe-build.ps1",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/a107-safe-build.ps1",
+      "purpose": "Branch-only clean build and bundle-deny harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/a107-safe-runtime.ps1",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/a107-safe-runtime.ps1",
+      "purpose": "Branch-only REAL local runtime launcher.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a101-read-only.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a101-read-only.ts",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a104-conversation-v2.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a104-conversation-v2.ts",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a105-memory-v1.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a105-memory-v1.ts",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a106-greeting-policy.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a106-greeting-policy.ts",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a106-owner-findings.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a106-owner-findings.ts",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a106-real-greeting.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a106-real-greeting.ts",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a106-real-memory.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a106-real-memory.ts",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a106-security-gate.mjs",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a106-security-gate.mjs",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a107-auth-preflight.mjs",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a107-auth-preflight.mjs",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a107-owner-findings.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a107-owner-findings.ts",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    },
+    {
+      "path": "scripts/qa-assistant-a107-real-erp.ts",
+      "changeType": "added",
+      "source": "assistant-v1@a71e292e85a1c7d7b7503275174c34f94fa39bd5:scripts/qa-assistant-a107-real-erp.ts",
+      "purpose": "Assistant regression or security-gate test harness.",
+      "transferWithoutChanges": true,
+      "conflict": "none",
+      "includeInPreview": true,
+      "integrationMethod": "copy_exact_file_from_assistant_commit",
+      "rollback": "delete_the_added_file_from_the_temporary_preview_copy"
+    }
+  ],
+  "validation": {
+    "temporaryCopy": "PASS_DETACHED_AT_abce1bb9e18fc118c68dfc6add6fb31d05ffe81c",
+    "typecheck": "PASS",
+    "build": "PASS",
+    "bundleScan": {
+      "productionRefMatches": 0,
+      "productionUrlMatches": 0,
+      "branchRefFileMatches": 46,
+      "branchUrlFileMatches": 45,
+      "sourceMapFiles": 0,
+      "serviceRoleCredentialMatches": 0
+    },
+    "a106MemoryRegression": "PASS_10_OF_10",
+    "a107RealErpRegression": "PASS_45_OF_45_NUMERIC_100_PERCENT",
+    "greetingRegression": "PASS_4_OF_4",
+    "ownerFindingsRegression": "PASS_COVERED_BY_FRESH_A107_45_OF_45",
+    "coreSmoke": "PASS_9_2_5_1550_520_200_OPERATION_DETAILS_CROSS_COMPANY_MOJIBAKE_0",
+    "authenticatedUiSmoke": "PASS_9_2_5_OPERATION_CARD_NO_ERRORS_MOJIBAKE_0",
+    "coreSmokeCriterion": "Authenticated pages must finish loading real QA data, validate API status/schema, show no error banner/toast or permanent loading state, and contain no mojibake. HTTP 200 shell responses are insufficient.",
+    "crossCompanyLeaks": 0,
+    "erpWrites": 0,
+    "productionConnections": 0,
+    "serviceRoleLoaded": false,
+    "ownerApproval": "PASS",
+    "readyForCorePreviewIntegration": true,
+    "temporaryRuntimeUrl": "http://127.0.0.1:3106/operations",
+    "blockers": []
+  }
+}

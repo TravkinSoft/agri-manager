@@ -1,30 +1,30 @@
 # Assistant Sync State
 
-LAST_SYNC_AT: `2026-07-17` (A107 Core QA dataset gate)
+LAST_SYNC_AT: `2026-07-18` (A108 owner approval and delivery authorization)
 ASSISTANT_BRANCH: `assistant-v1`
-ASSISTANT_BASE_COMMIT: `a3f652313daa780909d65ee698d2d6f48d7abb2a`
-ASSISTANT_COMMIT: `A107_DELIVERY_COMMIT_AUTHORIZED`
+ASSISTANT_BASE_COMMIT: `a71e292e85a1c7d7b7503275174c34f94fa39bd5`
+ASSISTANT_COMMIT: `A108_DELIVERY_COMMIT_AUTHORIZED`
 
 CORE_BRANCH_REVIEWED: `origin/copilot-v1`
-CORE_COMMIT_REVIEWED: `c765f59f2ac27ea9b6763a70c4e65a2be3d26c95`
-CORE_LIVE_STATE_REVIEWED_AT: `2026-07-16` (fresh fetch)
-LATEST_CORE_REPORT_REVIEWED: `TZ-176.md; TZ-177.md`
+CORE_COMMIT_REVIEWED: `abce1bb9e18fc118c68dfc6add6fb31d05ffe81c`
+CORE_LIVE_STATE_REVIEWED_AT: `2026-07-18` (fresh fetch and detached integration base)
+LATEST_CORE_REPORT_REVIEWED: `A108 final authenticated data-level preview smoke`
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_HASH: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 
 CORE_PRODUCTION_COMMIT_REVIEWED: `321e45fa681fecff89307545d0ec3fa600b4c982`
 CORE_PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`
-ASSISTANT_ALLOWED_MODE: `CONTRACT_0_4_A107_ISOLATED_BRANCH_REAL_ERP_READ_ONLY_ACCEPTANCE`
+ASSISTANT_ALLOWED_MODE: `CONTRACT_0_4_A108_DETACHED_CORE_PREVIEW_VALIDATION`
 WRITE_CAPABILITY_APPROVED: `NO_ERP_WRITES; REQUEST_SCOPED_USER_JWT_READS_ONLY`
 
-CORE_CHANGES_SINCE_LAST_SYNC: `Contract 0.4 and branch-only Memory Policy V2 migration published; production migration head unchanged.`
-CONTRACT_CHANGES_FOUND: `YES; direct explicit approval, allowlisted model inference, user-global/company scopes, and immediate audited delete are approved on A106 branch.`
+CORE_CHANGES_SINCE_LAST_SYNC: `124 Core-tree paths changed from the shared merge base; exact Assistant/Core overlap is limited to package.json and the two Assistant state documents.`
+CONTRACT_CHANGES_FOUND: `NO incompatible Assistant contract change found for the A108 package.`
 ASSISTANT_API_CONTRACT_CHANGES_FOUND: `NO; exactly eight read-only tools remain approved`
 INCOMPATIBLE_CHANGES_FOUND: `NO for the implemented Contract 0.4 branch-only runtime.`
-OWNER_TASK_OVERRIDE: `OWNER_ACCEPTANCE PASS; candidate-first remains superseded; isolated name-memory instability is deferred as a non-blocking UX/memory hardening backlog item.`
-SYNC_STATUS: `A107_COMPLETE_OWNER_ACCEPTANCE_PASS`
-SYNC_BLOCKER: `NONE_FOR_SELECTIVE_A107_COMMIT_AND_PUSH`
-NEXT_SAFE_ACTION: `Push the selective A107 delivery to origin/assistant-v1; do not merge or deploy production; preview integration may proceed after the push.`
+OWNER_TASK_OVERRIDE: `OWNER_APPROVAL PASS; selective A108 commit and push to origin/assistant-v1 authorized; merge and deploy forbidden.`
+SYNC_STATUS: `A108_COMPLETE_OWNER_APPROVAL_PASS`
+SYNC_BLOCKER: `NONE`
+NEXT_SAFE_ACTION: `Push the selective A108 delivery to origin/assistant-v1; Core preview integration may proceed separately. Do not merge or deploy.`
 
 ## Reviewed core sources
 
@@ -119,3 +119,37 @@ A clean build and bundle scan passed (`0/0` production matches, `44/44` branch m
 The next owner correction keeps the same eight-tool contract while adding canonical warehouse directory reads, unambiguous canonical/localized/partial/transliterated product matching, and a concise generic eight-field list with crop/variety that clears stale selected-field focus. The Core QA row for Curamin Foliar lacks a Russian localized name; a branch-only dataset proposal was recorded and Core data was not mutated. After quota restoration, the final REAL owner regression passed `7/7`, and the focused follow-up/isolation/write-denial regression passed `6/6`. ERP writes and production connections remained `0`; fallback remained disabled. The owner returned `OWNER_ACCEPTANCE: PASS`.
 
 The owner accepted one non-blocking UX issue: the phrase `Маладээс` can be misclassified as a catalog request. Backlog item `INTENT-UX-001` requires praise/colloquial detection, typo-aware variants, and an explicit subject before any ERP lookup. A107 remains complete and is ready for preview integration after selective push; merge and production deploy remain forbidden.
+
+## A108 compatibility and preview result
+
+Fresh refs were fetched without merge or rebase. Assistant `a71e292e85a1c7d7b7503275174c34f94fa39bd5` and Core `1fbb3998c8dc82ee8e4af0b439b8a32c0b76a034` share merge base `d19258762bb7eaf2afcca94eb7d611d56eedbd41`. The Assistant delta is 58 files; 56 are selected for preview transfer. Core owns the two state documents, while `package.json` is integrated as a dependency/script union. No Assistant migration is copied.
+
+The detached temporary Core worktree passed the clean build and typecheck after the manifest-only application. One REAL semantic conflict in `lib/assistant/v1/engine.ts` was discovered by A107 scenario 18 and resolved through the recorded A108 patch. Final Assistant regressions are A106 memory `10/10`, A107 REAL ERP `45/45`, greeting `4/4`, and owner findings `7/7`. Numeric accuracy is `100%`; cross-company leaks, ERP mutations, production connections, and loaded service-role credentials are `0`. The former Core HTTP smoke `8/8` is invalidated because it checked only status 200 and not rendered data.
+
+Bundle scan found zero disallowed Supabase refs/URLs, positive exact test-branch refs/URLs, zero source maps, and no loaded service-role or database credential. The runtime remains fail-closed to hostname `gsglkmudcwkdetqtocae.supabase.co`. A108 has not committed, pushed, merged, deployed, or changed either the real Core worktree or production.
+
+## A108 owner failure and required Core resync
+
+Owner browser acceptance reproduced Core-owned data failures on `/crop-structure`, `/warehouses`, and the operation-card lines path. The Core routes call `getServiceClient()` and therefore fail in the intentionally service-role-free preview. The warehouse page also contains a corrupted observer-mode literal. Targeted comparison with Core commit `1fbb3998c8dc82ee8e4af0b439b8a32c0b76a034` shows no Assistant change to these pages/routes.
+
+Proposal `contract-proposals/assistant/2026-07-17-a108-core-user-jwt-data-pages.md` requests a Core ordinary-user JWT/RLS route contract, explicit grants/RLS migration only if required, removal of privileged fallback from page routes, and UTF-8 corrections. A108 remains open and blocked until Core supplies a reviewed commit and a data-level preview smoke result. Commit, push, merge, and deploy remain forbidden.
+
+## A108 Core 5b5a57c resync result
+
+`origin/copilot-v1` was fetched and reviewed at `5b5a57c8b8490340c92b72e2a74a4ca4404d4613` without merge or rebase. The old detached preview was removed and replaced with a fresh detached copy at that exact commit. The A108 manifest selected exactly 56 files, with no extras; the Core state docs and new Core data routes stayed byte-owned by Core.
+
+Core's user-JWT work now passes authenticated crop-structure (9 rows), operations (5 rows), operation-lines, company-B denial, and mojibake checks. Build/typecheck pass. A106 is 10/10 plus greeting 4/4; A107 is 45/45 with 100% numeric accuracy, zero leaks, zero ERP mutations, and zero production connections.
+
+The remaining blocker is Core `app/api/warehouses/balances/route.ts`: its PostgREST embeds depend on ledger variety/reproduction foreign keys that migration `20260510093000_add_batch_class_and_identity_flow.sql` explicitly removes. Both browser smoke and Core's `qa/smoke-core-preview-data.ts` reproduce HTTP 400, leaving the warehouse UI in an error/zero state. The contract proposal now specifies explicit same-JWT lookups and focused acceptance. A108 is not ready for owner approval; no commit, push, merge, or deploy is authorized.
+
+## A108 final resync at abce1bb
+
+After `git fetch origin`, the temporary preview was recreated detached at Core `abce1bb9e18fc118c68dfc6add6fb31d05ffe81c`. The exact 56-file manifest and semantic patch applied without overlapping Core's corrected balances route.
+
+Authenticated data/UI smoke now passes all A108 values: 9 crop rows, 2 warehouses, 1550 kg ammonium nitrate, 520 l Curamin Foliar, 200 l Phomazin, 5 operations, operation-card details, company-B denial, and mojibake/error states 0. Typecheck/build pass; A106 is 10/10 plus greeting 4/4; A107 is 45/45 with 100% numeric accuracy, zero cross-company leaks, zero ERP mutations, zero production connections, and no service role.
+
+A108 is ready for owner approval. Runtime remains `http://127.0.0.1:3106/operations`; commit, push, merge, and deploy remain forbidden until approval.
+
+## A108 final owner approval
+
+The owner returned `OWNER_APPROVAL: PASS`. The verified selective A108 package is authorized for commit and push to `origin/assistant-v1`. A108 is complete and ready for Core preview integration. Merge into `copilot-v1` and deploy remain forbidden.

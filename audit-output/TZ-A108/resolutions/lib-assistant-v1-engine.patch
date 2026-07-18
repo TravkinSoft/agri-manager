@@ -1,0 +1,15 @@
+diff --git a/lib/assistant/v1/engine.ts b/lib/assistant/v1/engine.ts
+index be3d8b2..2da5f8b 100644
+--- a/lib/assistant/v1/engine.ts
++++ b/lib/assistant/v1/engine.ts
+@@ -379,8 +379,8 @@ function plainProductLookupPhrase(message: string): string | null {
+   const tokens = normalized.split(" ").filter(Boolean);
+   if (!tokens.length || tokens.length > 4) return null;
+   if (
+-    /^(?:привет|здравствуй(?:те)?|спасибо|благодарю|почему|зачем|как\s+дела|что\s+это|кто\s+ты|why|what|hello|hi|thanks)$/u.test(normalized) ||
+-    /(?:^|\s)(?:поле|поля|сад|склад|операц|остат|материал|культур|сорт|площад|урожа|талон|время|уакыт|company|field|warehouse|operation|stock)(?:\s|$)/u.test(normalized)
++    /^(?:привет|здравствуй(?:те)?|спасибо|благодарю|молодец|маладец|маладээс|почему|зачем|как\s+дела|что\s+это|кто\s+ты|why|what|hello|hi|thanks)$/u.test(normalized) ||
++    /(?:^|\s)(?:поле|поля|сад\p{L}*|склад\p{L}*|операц\p{L}*|полив\p{L}*|остат\p{L}*|материал\p{L}*|культур\p{L}*|сорт\p{L}*|площад\p{L}*|урожа\p{L}*|талон\p{L}*|время|уакыт|company|field|warehouse|operation|stock)(?:\s|$)/u.test(normalized)
+   ) {
+     return null;
+   }
