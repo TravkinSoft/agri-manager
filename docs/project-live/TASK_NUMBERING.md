@@ -85,6 +85,7 @@
 | TZ-193 | GLBD | Apply the next 200 pesticide search aliases | copilot-v1 | DONE | TZ-187,TZ-191 | [task-reports/core/TZ-193.md](task-reports/core/TZ-193.md) | `SELF` |
 | TZ-194 | GLBD | Apply the final 112 pesticide search aliases | copilot-v1 | DONE | TZ-187,TZ-193 | [task-reports/core/TZ-194.md](task-reports/core/TZ-194.md) | `SELF` |
 | TZ-195 | CORE / ASSISTANT QA | Integrate verified A109 into Core preview | copilot-v1 | DONE | TZ-192,TZ-A109 | [task-reports/core/TZ-195.md](task-reports/core/TZ-195.md) | `SELF` |
+| TZ-196 | GLBD / ASSISTANT GOVERNANCE | Finalize remaining pesticide cards and GLBD V1 read safety | copilot-v1 | DONE | TZ-181,TZ-185,TZ-194,TZ-195 | [task-reports/core/TZ-196.md](task-reports/core/TZ-196.md) | `SELF` |
 
 ## Status values
 

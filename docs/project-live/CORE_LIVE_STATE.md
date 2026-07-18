@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-19
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `26a9813d787d8c9ac00b7a80fe3a24286daa5677`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `4e6c7454d182d64b2d24d19c3a50526ee56a6ea1`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -18,12 +18,23 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ194_SAFE_ALIAS_PACKAGE_COMPLETE | TZ-185 product Batch 1 остаётся применённым. TZ-188, TZ-191, TZ-193 и TZ-194 добавили все 562 owner-approved short-name aliases: aliases 100→662. Финальная партия: search 112/112, exact ambiguity 0, controls 5/5, second apply 0; company data не изменялись. |
+| ГЛБД | TZ196_GLBD_V1_READ_AUDIT_COMPLETE | Все 852 pesticide cards получили assistant safety status. Read: 19 READY / 815 PARTIAL / 18 BLOCKED; recommendations: 0 READY / 852 BLOCKED. Production не менялась; 4 source-backed card corrections остаются только apply-preview. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
-| Travkin Assistant | A109_INTEGRATED_PREVIEW_PENDING | TZ-195 transferred only the verified A109 read-only runtime and QA scope without merge/rebase. A107 is `45/45`, A109 is `12/12`, the critical scope chain is `4/4`, authenticated Core smoke passed on `gsglkmudcwkdetqtocae`, service role is absent, and production remains unchanged. |
+| Travkin Assistant | A110_READ_ONLY_GATE_READY | TZ-195 preview принят владельцем. TZ-196 разрешает начинать A110 только с safety matrix/blocklist: `READ=NO` и preview-pending rows исключаются; agronomic recommendations запрещены для 852/852 cards. |
 
 ## Current database state
+
+### TZ-196 final pesticide GLBD V1 readiness
+
+- Exact scope `18/18`: the `15` TZ-181 unresolved cards plus `Дитан`, `Метамил` and `Курзат`; duplicate IDs and unclassified rows are `0`.
+- Source-backed decisions: `1 SAFE_COMPLETE`, `2 SAFE_PARTIAL`, `3 KEEP_SEPARATE`, `2 KEEP_INACTIVE`, `10 BLOCKED_NO_DATA`; other classification buckets are `0`.
+- Dithane M-45, Метамил МЦ and Курзат Р evidence does not prove the incomplete short-name rows, so all three remain separate with no transferred composition.
+- Full safety matrix covers `852/852` global pesticide rows: read `19 READY / 815 PARTIAL / 18 BLOCKED`; recommendations `0 READY / 852 BLOCKED`.
+- A110 may start read-only with the generated matrix and blocklist. Rows marked `READ=NO` or `requires_approved_apply_before_runtime_read=true` must not be exposed.
+- Four card corrections are preview-only. Critical actions have sources `9/9`; guesses, merge actions, duplicate preview and alias conflicts are `0`.
+- Two complete audit runs produced fingerprint `dd5ea71585ac35472eb74db89b7fb831717da30faa99f133affd0c894402f797`. Production writes, schema changes, deploy and master merge are `0`.
+- External evidence: `C:/Users/TRAVKIN/Downloads/CodecSaaS/audit-output/TZ-196/`.
 
 ### TZ-194 final pesticide search aliases
 

@@ -2,7 +2,7 @@
 
 LAST_REVIEW_AT: 2026-07-19T02:20:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `26a9813d787d8c9ac00b7a80fe3a24286daa5677`)
+CORE_COMMIT: `SELF` (previous core commit: `4e6c7454d182d64b2d24d19c3a50526ee56a6ea1`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
@@ -16,7 +16,18 @@ INTEGRATION_CONTRACT_IMPACT: NO - Contract 0.4 remains unchanged.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: Push TZ-195 to create a test-only Vercel Preview, verify READY and hand the URL to the owner. Master merge and production deploy remain disabled.
+NEXT_SAFE_ACTION: Start A110 in assistant-v1 as read-only GLBD access using the TZ-196 safety matrix. Exclude `READ=NO` and unapplied-preview rows; do not implement agronomic recommendations.
+
+## TZ-196 review result
+
+TZ196_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, QA branch and Contract 0.4 were not changed.
+TZ196_CORE_IMPACT_FOUND: `YES - reproducible global pesticide safety matrix and source-backed apply preview`.
+TZ196_SCOPE: `18/18 unique remaining cards; unclassified 0; full GLBD matrix 852/852`.
+TZ196_CLASSIFICATION: `1 SAFE_COMPLETE / 2 SAFE_PARTIAL / 3 KEEP_SEPARATE / 2 KEEP_INACTIVE / 10 BLOCKED_NO_DATA`.
+TZ196_ASSISTANT_READ: `19 READY / 815 PARTIAL / 18 BLOCKED`; two readable rows remain preview-pending and must be excluded from runtime until approved apply.
+TZ196_ASSISTANT_RECOMMENDATIONS: `0 READY / 852 BLOCKED`; registration and usage-rule completion is a later stage.
+TZ196_SAFETY: `critical source coverage 100% / guessed values 0 / merges 0 / production writes 0 / repeated fingerprint PASS`.
+TZ196_ACTION: `A110 MAY START READ-ONLY WITH MATRIX/BLOCKLIST`; production apply requires a separate owner-approved task.
 
 ## TZ-195 review result
 
