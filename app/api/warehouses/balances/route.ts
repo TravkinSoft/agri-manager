@@ -78,9 +78,7 @@ export async function GET(request: NextRequest) {
         occurred_at,
         created_at,
         warehouses:warehouse_id (id,name,name_ru,name_kz,name_en),
-        products:product_id (id,name,trade_name,normalized_name,type,product_type,unit,base_uom),
-        varieties:variety_id (id,name,name_ru,name_kz,name_en),
-        reproductions:reproduction_id (id,name,name_ru,name_kz,name_en,code)
+        products:product_id (id,name,trade_name,normalized_name,type,product_type,unit,base_uom)
       `)
       .eq("company_id", companyId)
       .order("occurred_at", { ascending: true });
@@ -89,13 +87,51 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
+    const ledgerRows = data || [];
+    const varietyIds = Array.from(
+      new Set(ledgerRows.map((row: any) => String(row.variety_id || "").trim()).filter(Boolean))
+    );
+    const reproductionIds = Array.from(
+      new Set(ledgerRows.map((row: any) => String(row.reproduction_id || "").trim()).filter(Boolean))
+    );
+    const [varietyResult, reproductionResult] = await Promise.all([
+      varietyIds.length
+        ? supabase.from("varieties").select("id,name,name_ru,name_kz,name_en").in("id", varietyIds)
+        : Promise.resolve({ data: [], error: null }),
+      reproductionIds.length
+        ? supabase
+            .from("seed_reproductions")
+            .select("id,name,name_ru,name_kz,name_en,code")
+            .in("id", reproductionIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (varietyResult.error || reproductionResult.error) {
+      return NextResponse.json(
+        {
+          error:
+            varietyResult.error?.message ||
+            reproductionResult.error?.message ||
+            "Failed to load warehouse stock identity",
+        },
+        { status: 400 }
+      );
+    }
+
+    const varietyById = new Map(
+      (varietyResult.data || []).map((row: any) => [String(row.id), row] as const)
+    );
+    const reproductionById = new Map(
+      (reproductionResult.data || []).map((row: any) => [String(row.id), row] as const)
+    );
+
     const balances = new Map<string, Record<string, any>>();
-    for (const raw of data || []) {
+    for (const raw of ledgerRows) {
       const row = raw as any;
       const warehouse = relationOne(row.warehouses);
       const product = relationOne(row.products);
-      const variety = relationOne(row.varieties);
-      const reproduction = relationOne(row.reproductions);
+      const variety = varietyById.get(String(row.variety_id || "")) || null;
+      const reproduction = reproductionById.get(String(row.reproduction_id || "")) || null;
       const batchId = String(row.batch_id_text || row.batch_id || "").trim() || null;
       const batchClass = String(row.batch_class || "legacy/unknown");
       const uom = Number(row.unit_contract_version) === 2 ? String(row.uom || "") : legacyUom(row.uom);

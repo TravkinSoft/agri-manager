@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-18T12:37:01+05:00
+LAST_REVIEW_AT: 2026-07-18T13:06:49+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `7779b75`)
+CORE_COMMIT: `SELF` (previous core commit: `92469a6`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `b22f765583b2cd556a29b9e25c332561f19dd262`
@@ -16,7 +16,17 @@ INTEGRATION_CONTRACT_IMPACT: YES — TZ-169 advances the contract from 0.3 to 0.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: Alias Batch 2 requires a new owner-approved Core task with fresh backup/preflight. Independently, A108 may repeat its authenticated browser acceptance after TZ-186; production memory migration, merge and deploy remain disabled.
+NEXT_SAFE_ACTION: A108 may repeat browser acceptance after the authenticated Core smoke passed in TZ-189. Alias Batch 2 still requires a new owner-approved Core task with fresh backup/preflight; production memory migration, merge and deploy remain disabled.
+
+## TZ-189 review result
+
+TZ189_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory schema and Contract 0.4 were not changed.
+TZ189_CORE_IMPACT_FOUND: `YES - warehouse balance GET no longer embeds removed ledger relationships`.
+TZ189_AUTH_PATH: `PASS - existing QA User A real JWT, request-scoped client, exact company id and RLS`.
+TZ189_BRANCH_ACCEPTANCE: `PASS - 9 crop lines / 2 warehouses / 5 operations / 1550 kg nitrate / 520 l Curamin / 200 l Phomazin`.
+TZ189_ISOLATION: `PASS - company B denied; service role NO; production connections 0; ERP writes 0`.
+TZ189_STATIC_ACCEPTANCE: `TYPECHECK PASS / BUILD PASS / ERROR MARKERS 0 / MOJIBAKE 0`.
+TZ189_ACTION: `READY_FOR_A108_RETEST`; next safe step is browser-level A108 acceptance on a branch-only preview.
 
 ## TZ-188 review result
 

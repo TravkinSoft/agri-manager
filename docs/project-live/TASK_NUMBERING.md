@@ -78,6 +78,7 @@
 | TZ-186 | CORE / ASSISTANT QA | Load Core preview data through user JWT and RLS | copilot-v1 | DONE | TZ-176,TZ-177 | [task-reports/core/TZ-186.md](task-reports/core/TZ-186.md) | `SELF` |
 | TZ-187 | GLBD | Prepare the next safe pesticide batch | copilot-v1 | DONE | TZ-180,TZ-185 | [task-reports/core/TZ-187.md](task-reports/core/TZ-187.md) | `SELF` |
 | TZ-188 | GLBD | Apply pesticide search aliases Batch 1 | copilot-v1 | DONE | TZ-187 | [task-reports/core/TZ-188.md](task-reports/core/TZ-188.md) | `SELF` |
+| TZ-189 | CORE / ASSISTANT QA | Fix warehouse balance loading for A108 | copilot-v1 | DONE | TZ-186 | [task-reports/core/TZ-189.md](task-reports/core/TZ-189.md) | `SELF` |
 
 ## Status values
 
