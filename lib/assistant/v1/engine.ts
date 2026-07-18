@@ -23,6 +23,13 @@ import {
   buildBoundedConversation,
   normalizeReadOnlyThreadState,
 } from "@/lib/assistant/v1/conversation";
+import {
+  expectedFieldCountFromHistory,
+  isCompanyWideOperationsRequest,
+  isExplicitFieldFollowUp,
+  isGenericFieldDirectoryRequest,
+  scopeThreadStateForMessage,
+} from "@/lib/assistant/v1/context-scope";
 import { parseTypedFieldSearchParameters } from "@/lib/assistant/v1/field-parameters";
 import {
   ReadOnlyPolicyError,
@@ -82,7 +89,7 @@ export type ReadOnlyAssistantV1Input = {
   locale?: "ru" | "kz" | "en" | null;
 };
 
-const PROMPT_UPDATED_AT = "2026-07-16T00:00:00.000Z";
+const PROMPT_UPDATED_AT = "2026-07-18T00:00:00.000Z";
 const MAX_TOOL_CALLS = 4;
 const MAX_MODEL_TURNS = 3;
 const COMPACT_TOOL_ROW_LIMIT = 20;
@@ -172,9 +179,7 @@ function normalizedToolArgs(params: {
 }): Record<string, unknown> {
   const { name, rawArgs, message, state, runtimeContext } = params;
   if (name === "search_fields" || name === "get_field_card" || name === "get_field_materials") {
-    const genericFieldList =
-      name === "search_fields" &&
-      /(?:какие\s+поля|список\s+полей|перечисл\w*\s+поля|назови\s+(?:все\s+)?поля)/iu.test(message);
+    const genericFieldList = name === "search_fields" && isGenericFieldDirectoryRequest(message);
     const typed = parseTypedFieldSearchParameters(genericFieldList ? "" : message, genericFieldList ? {} : rawArgs);
     const focusLabel = genericFieldList ? null : state.selectedFieldLabel || null;
     const fieldReference = genericFieldList
@@ -235,6 +240,7 @@ function normalizedToolArgs(params: {
   if (name === "get_active_operations_summary") {
     const typed = parseTypedFieldSearchParameters(message, rawArgs);
     const explicitField = clean(rawArgs.field) || typed.number || typed.name || (/\bсад(?:ам|ы|ах|ов)?\b/iu.test(message) ? "Сад" : null);
+    const useSelectedFieldFocus = !explicitField && isExplicitFieldFollowUp(message);
     const requestedStatus = clean(rawArgs.status)?.toLowerCase() || null;
     const text = message.toLocaleLowerCase("ru-RU");
     const status = /\b(?:всего|все)\b/iu.test(text)
@@ -249,8 +255,8 @@ function normalizedToolArgs(params: {
     return {
       query: message,
       status,
-      field_id: clean(rawArgs.field_id) || (explicitField ? null : state.selectedFieldId),
-      field: explicitField || state.selectedFieldLabel,
+      field_id: clean(rawArgs.field_id) || (useSelectedFieldFocus ? state.selectedFieldId : null),
+      field: explicitField || (useSelectedFieldFocus ? state.selectedFieldLabel : null),
       season: clean(rawArgs.season_id) || runtimeContext.season,
       season_id: clean(rawArgs.season_id),
       output_type: "summary_total",
@@ -275,11 +281,25 @@ function requiredCurrentDataToolCall(params: {
   if (/(?:остатк.*(?:двум|двух|всем|всех).*склад|(?:двум|двух|всем|всех)\s+склад.*остатк)/iu.test(text)) {
     return { id: `readonly-required-warehouse-stock-${params.turn}`, type: "function", function: { name: "get_warehouse_stock", arguments: JSON.stringify({ allWarehouses: true }) } };
   }
-  if (/(?:какие\s+поля|список\s+полей|перечисл\w*\s+поля|назови\s+(?:все\s+)?поля)/iu.test(text)) {
+  if (isGenericFieldDirectoryRequest(text)) {
     return { id: `readonly-required-field-directory-${params.turn}`, type: "function", function: { name: "search_fields", arguments: "{}" } };
   }
+  if (isCompanyWideOperationsRequest(text)) {
+    return { id: `readonly-required-company-operations-${params.turn}`, type: "function", function: { name: "get_active_operations_summary", arguments: "{}" } };
+  }
+  const typed = parseTypedFieldSearchParameters(text);
+  const explicitField = typed.number || typed.name || null;
+  if (explicitField) {
+    if (/материал/iu.test(text)) {
+      return { id: `readonly-required-explicit-field-materials-${params.turn}`, type: "function", function: { name: "get_field_materials", arguments: JSON.stringify({ field: explicitField }) } };
+    }
+    if (/операц|полив/iu.test(text)) {
+      return { id: `readonly-required-explicit-field-operations-${params.turn}`, type: "function", function: { name: "get_active_operations_summary", arguments: JSON.stringify({ field: explicitField, status: "all" }) } };
+    }
+    return { id: `readonly-required-explicit-field-card-${params.turn}`, type: "function", function: { name: "get_field_card", arguments: JSON.stringify({ field: explicitField }) } };
+  }
   const selected = params.state.selectedFieldId || params.state.selectedFieldLabel;
-  if (!selected) return null;
+  if (!selected || !isExplicitFieldFollowUp(text)) return null;
   if (/материал/iu.test(text)) {
     return { id: `readonly-required-field-materials-${params.turn}`, type: "function", function: { name: "get_field_materials", arguments: JSON.stringify({ field_id: params.state.selectedFieldId, name: params.state.selectedFieldLabel }) } };
   }
@@ -295,9 +315,14 @@ function requiredCurrentDataToolCall(params: {
 function adaptRequestedToolCalls(message: string, calls: any[]): any[] {
   const isOperationQuestion = /операц|полив/iu.test(message);
   const isMaterialQuestion = /материал/iu.test(message);
-  const isGenericFieldList = /(?:какие\s+поля|список\s+полей|перечисл\w*\s+поля|назови\s+(?:все\s+)?поля)/iu.test(message);
+  const isGenericFieldList = isGenericFieldDirectoryRequest(message);
   if (isGenericFieldList && calls.length) {
     return calls.map((call) => ({ ...call, function: { ...call.function, name: "search_fields", arguments: "{}" } })).slice(0, 1);
+  }
+  if (isCompanyWideOperationsRequest(message) && calls.length) {
+    return calls
+      .map((call) => ({ ...call, function: { ...call.function, name: "get_active_operations_summary", arguments: "{}" } }))
+      .slice(0, 1);
   }
   if (!isOperationQuestion || !calls.length) return calls;
   const target = isMaterialQuestion ? "get_field_materials" : "get_active_operations_summary";
@@ -379,8 +404,8 @@ function plainProductLookupPhrase(message: string): string | null {
   const tokens = normalized.split(" ").filter(Boolean);
   if (!tokens.length || tokens.length > 4) return null;
   if (
-    /^(?:привет|здравствуй(?:те)?|спасибо|благодарю|почему|зачем|как\s+дела|что\s+это|кто\s+ты|why|what|hello|hi|thanks)$/u.test(normalized) ||
-    /(?:^|\s)(?:поле|поля|сад|склад|операц|остат|материал|культур|сорт|площад|урожа|талон|время|уакыт|company|field|warehouse|operation|stock)(?:\s|$)/u.test(normalized)
+    /^(?:привет|здравствуй(?:те)?|спасибо|благодарю|молодец|маладец|маладээс|почему|зачем|как\s+дела|что\s+это|кто\s+ты|why|what|hello|hi|thanks)$/u.test(normalized) ||
+    /(?:^|\s)(?:пол(?:е|я|ю|ем|ей)|сад\p{L}*|склад\p{L}*|операц\p{L}*|полив\p{L}*|остат\p{L}*|материал\p{L}*|культур\p{L}*|сорт\p{L}*|площад\p{L}*|урожа\p{L}*|талон\p{L}*|время|уакыт|company|field|warehouse|operation|stock)(?:\s|$)/u.test(normalized)
   ) {
     return null;
   }
@@ -399,7 +424,7 @@ function postProcessFieldSearch(
   message: string,
   args: Record<string, unknown>
 ): AssistantToolOutput {
-  if (/(?:какие\s+поля|список\s+полей|перечисл\w*\s+поля|назови\s+(?:все\s+)?поля)/iu.test(message)) {
+  if (isGenericFieldDirectoryRequest(message)) {
     return output;
   }
   const typed = parseTypedFieldSearchParameters(message, args);
@@ -425,6 +450,163 @@ function postProcessFieldSearch(
   return { ...output, rows };
 }
 
+function hasFieldDirectoryCountMismatch(params: {
+  message: string;
+  expectedCount: number | null;
+  toolCalls: AssistantEngineResult["toolCalls"];
+}): boolean {
+  if (!isGenericFieldDirectoryRequest(params.message) || params.expectedCount == null) return false;
+  const lastFieldSearch = [...params.toolCalls]
+    .reverse()
+    .find((call) => call.ok && call.tool === "search_fields");
+  return Boolean(lastFieldSearch && lastFieldSearch.rows !== params.expectedCount);
+}
+
+function buildReadOnlyRecoveryToolCall(params: {
+  message: string;
+  state: ReadOnlyThreadState;
+  turn: number;
+  toolCalls: AssistantEngineResult["toolCalls"];
+}): any | null {
+  const required = requiredCurrentDataToolCall({
+    message: params.message,
+    state: params.state,
+    turn: params.turn,
+  });
+  if (required) {
+    return {
+      ...required,
+      id: `readonly-data-recovery-${params.turn}`,
+    };
+  }
+  const previous = [...params.toolCalls].reverse().find((call) => call.ok);
+  if (!previous || !isReadOnlyModelToolName(previous.tool)) return null;
+  return {
+    id: `readonly-data-recovery-${params.turn}`,
+    type: "function",
+    function: {
+      name: previous.tool,
+      arguments: JSON.stringify(previous.params || {}),
+    },
+  };
+}
+
+function formatFallbackNumber(value: unknown): string | null {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return number.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
+}
+
+function fallbackUnit(value: unknown): string | null {
+  const unit = clean(value)?.toLowerCase();
+  if (!unit) return null;
+  if (unit === "kg") return "кг";
+  if (unit === "l") return "л";
+  return unit;
+}
+
+function normalizedOperationStatus(row: Record<string, unknown>): "planned" | "in_progress" | "completed" | "other" {
+  const status = clean(row.status)?.toLowerCase() || "";
+  const workStatus = clean(row.work_status)?.toLowerCase() || "";
+  if (status === "planned") return "planned";
+  if (status === "completed" || status === "verified" || workStatus === "completed") return "completed";
+  if (status === "in_progress" || status === "active" || workStatus === "in_progress" || workStatus === "active") {
+    return "in_progress";
+  }
+  return "other";
+}
+
+function operationStatusLabel(row: Record<string, unknown>): string {
+  const status = normalizedOperationStatus(row);
+  if (status === "planned") return "запланирована";
+  if (status === "in_progress") return "выполняется сейчас";
+  if (status === "completed") return "завершена";
+  return clean(row.status) || clean(row.work_status) || "статус не указан";
+}
+
+function buildToolGroundedFallbackAnswer(params: {
+  message: string;
+  toolCalls: AssistantEngineResult["toolCalls"];
+  outputs: AssistantToolOutput[];
+}): string | null {
+  const successful = params.toolCalls.filter((call) => call.ok);
+  const lastTool = successful[successful.length - 1]?.tool;
+  const output = params.outputs[params.outputs.length - 1];
+  const rows = output?.rows || [];
+  if (!lastTool || !output) return null;
+  if (!rows.length) return "По вашему запросу данных не найдено.";
+
+  if (lastTool === "get_field_land_bank_summary") {
+    const row = rows[0] || {};
+    const totalFields = formatFallbackNumber(row.total_fields);
+    const totalArea = formatFallbackNumber(row.total_area_ha);
+    if (totalFields && totalArea) return `В хозяйстве ${totalFields} полей общей площадью ${totalArea} га.`;
+    if (totalFields) return `В хозяйстве ${totalFields} полей.`;
+  }
+
+  if (lastTool === "search_fields") {
+    const lines = rows.map((row) => {
+      const name = clean(row.field_name) || clean(row.name) || "Поле";
+      const area = formatFallbackNumber(row.area_ha ?? row.area);
+      const crop = clean(row.crop_name);
+      const variety = clean(row.variety_name);
+      const parts = [area ? `${area} га` : null, crop, variety ? `сорт ${variety}` : null].filter(Boolean);
+      return `- ${name}${parts.length ? ` — ${parts.join(", ")}` : ""}`;
+    });
+    return `Поля хозяйства (${rows.length}):\n${lines.join("\n")}`;
+  }
+
+  if (lastTool === "get_field_card") {
+    const row = rows[0] || {};
+    const name = clean(row.field_name) || "Поле";
+    const area = formatFallbackNumber(row.area_ha ?? row.area);
+    const crops = Array.isArray(row.crops) ? row.crops.map(clean).filter(Boolean).join(" / ") : clean(row.crop_name);
+    const varieties = Array.isArray(row.varieties) ? row.varieties.map(clean).filter(Boolean).join(" / ") : clean(row.variety_name);
+    const parts = [area ? `${area} га` : null, crops, varieties ? `сорт ${varieties}` : null].filter(Boolean);
+    const operationParts = [
+      Number(row.planned_operations_count || 0) > 0 ? `${formatFallbackNumber(row.planned_operations_count)} запланирована` : null,
+      Number(row.active_operations_count || 0) > 0 ? `${formatFallbackNumber(row.active_operations_count)} выполняется сейчас` : null,
+      Number(row.completed_operations_count || 0) > 0 ? `${formatFallbackNumber(row.completed_operations_count)} завершена` : null,
+    ].filter(Boolean);
+    return `${name}${parts.length ? ` — ${parts.join(", ")}` : ""}.${operationParts.length ? ` Операции: ${operationParts.join(", ")}.` : ""}`;
+  }
+
+  if (lastTool === "get_active_operations_summary") {
+    const lines = rows.map((row) => {
+      const operation = clean(row.operation_type) || "Операция";
+      const field = clean(row.field_name);
+      const area = formatFallbackNumber(row.area_ha);
+      const status = operationStatusLabel(row);
+      return `- ${operation}${field ? ` — ${field}` : ""}${area ? `, ${area} га` : ""}: ${status}`;
+    });
+    return `Операции (${rows.length}):\n${lines.join("\n")}`;
+  }
+
+  if (lastTool === "get_warehouse_stock") {
+    const productNames = Array.from(new Set(rows.map((row) => clean(row.product_name)).filter(Boolean))) as string[];
+    if (productNames.length === 1) {
+      const totals = new Map<string, number>();
+      rows.forEach((row) => {
+        const unit = fallbackUnit(row.uom ?? row.unit) || "";
+        const quantity = Number(row.quantity || 0);
+        totals.set(unit, (totals.get(unit) || 0) + (Number.isFinite(quantity) ? quantity : 0));
+      });
+      const totalText = Array.from(totals.entries())
+        .map(([unit, quantity]) => `${formatFallbackNumber(quantity)}${unit ? ` ${unit}` : ""}`)
+        .join("; ");
+      const breakdown = rows.map((row) => {
+        const warehouse = clean(row.warehouse_name) || "Склад";
+        const quantity = formatFallbackNumber(row.quantity) || "0";
+        const unit = fallbackUnit(row.uom ?? row.unit);
+        return `- ${warehouse}: ${quantity}${unit ? ` ${unit}` : ""}`;
+      });
+      return `${productNames[0]} — ${totalText}.\n${breakdown.join("\n")}`;
+    }
+  }
+
+  return null;
+}
+
 function updateThreadState(params: {
   previous: ReadOnlyThreadState;
   name: ReadOnlyModelToolName;
@@ -440,6 +622,12 @@ function updateThreadState(params: {
   };
   const rows = output.rows || [];
   if (name === "search_fields" || name === "get_field_card") {
+    if (name === "search_fields" && isGenericFieldDirectoryRequest(message)) {
+      next.selectedFieldId = null;
+      next.selectedFieldLabel = null;
+      next.unresolvedQuestion = null;
+      return next;
+    }
     const typed = parseTypedFieldSearchParameters(message, args);
     const unique = new Map<string, { id: string | null; label: string | null }>();
     rows.forEach((row) => {
@@ -495,11 +683,45 @@ function compactToolValue(value: unknown): unknown {
 }
 
 function compactToolRow(row: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(
+  const compacted = Object.fromEntries(
     Object.entries(row)
       .slice(0, COMPACT_TOOL_FIELD_LIMIT)
       .map(([key, value]) => [key, compactToolValue(value)])
   );
+  if ("operation_id" in row || "operation_type" in row) {
+    compacted.operation_status_label = operationStatusLabel(row);
+  }
+  if ("field_id" in row && ("active_operations_count" in row || "planned_operations_count" in row || "completed_operations_count" in row)) {
+    compacted.operation_counts_summary = {
+      planned: Number(row.planned_operations_count || 0),
+      in_progress: Number(row.active_operations_count || 0),
+      completed: Number(row.completed_operations_count || 0),
+      status_wording: "planned=запланирована; in_progress=выполняется сейчас; completed=завершена",
+    };
+  }
+  return compacted;
+}
+
+function ensureFieldCardOperationStatusAnswer(params: {
+  answer: string;
+  message: string;
+  toolCalls: AssistantEngineResult["toolCalls"];
+  outputs: AssistantToolOutput[];
+}): string {
+  const lastSuccessful = [...params.toolCalls].reverse().find((call) => call.ok);
+  if (lastSuccessful?.tool !== "get_field_card") return params.answer;
+  const output = params.outputs[params.outputs.length - 1];
+  const row = output?.rows?.[0];
+  if (!row) return params.answer;
+  const active = Number(row.active_operations_count || 0);
+  const planned = Number(row.planned_operations_count || 0);
+  if (!(active === 0 && planned > 0)) return params.answer;
+  if (!/(активн|выполняется\s+сейчас|сейчас\s+выполняется)/iu.test(params.answer)) return params.answer;
+  return buildToolGroundedFallbackAnswer({
+    message: params.message,
+    toolCalls: params.toolCalls,
+    outputs: params.outputs,
+  }) || params.answer;
 }
 
 export function buildCompactToolResultContent(output: AssistantToolOutput): string {
@@ -592,7 +814,7 @@ function buildResult(params: {
         : "filtered_summary",
       selectedSource: params.outputs[params.outputs.length - 1]?.source.tableOrView || null,
       selectedTool: params.toolCalls[params.toolCalls.length - 1]?.tool || null,
-      fallbackSource: null,
+      fallbackSource: params.answerSource === "tools" ? "deterministic_tool_result" : null,
       previousRelatedMemory: null,
       consistencyCheck: params.grounded ? "pass" : "skipped",
       contradictionDetected: false,
@@ -625,11 +847,15 @@ export async function runReadOnlyAssistantV1(params: {
   const startedAt = Date.now();
   const message = clean(params.input.message) || "";
   const runtimeContext = normalizeAssistantUiContext(params.input.runtimeContext);
-  const state = normalizeReadOnlyThreadState({
-    threadId: params.input.threadId,
-    state: params.input.threadState,
-    runtimeContext,
-  });
+  const state = scopeThreadStateForMessage(
+    normalizeReadOnlyThreadState({
+      threadId: params.input.threadId,
+      state: params.input.threadState,
+      runtimeContext,
+    }),
+    message
+  );
+  const expectedFieldCount = expectedFieldCountFromHistory(params.input.history);
   const runtimeMode: AssistantRuntimeMode = params.dependencies?.runtimeMode || "chat_completions_legacy";
   const modelConfig = resolveAssistantModelConfig(params.settings);
   const temperatureSupported = assistantModelSupportsCustomTemperature(modelConfig.actualModel);
@@ -834,6 +1060,7 @@ export async function runReadOnlyAssistantV1(params: {
   let usage: Usage = { promptTokens: null, completionTokens: null, totalTokens: null };
   let modelMs = 0;
   let toolMs = 0;
+  let dataRecoveryQueryAttempted = false;
   const requiredInventoryProduct = modelToolsEnabled
     ? explicitNamedMaterial(message) || plainProductLookupPhrase(message)
     : null;
@@ -920,6 +1147,29 @@ export async function runReadOnlyAssistantV1(params: {
       if (required) requestedToolCalls = [required];
     }
     requestedToolCalls = adaptRequestedToolCalls(message, requestedToolCalls);
+    if (!requestedToolCalls.length && modelToolsEnabled && toolCalls.length > 0) {
+      const scopeMismatch = hasFieldDirectoryCountMismatch({
+        message,
+        expectedCount: expectedFieldCount,
+        toolCalls,
+      });
+      if (
+        (scopeMismatch || !answer) &&
+        !dataRecoveryQueryAttempted &&
+        toolCalls.length < MAX_TOOL_CALLS
+      ) {
+        const recoveryCall = buildReadOnlyRecoveryToolCall({
+          message,
+          state: nextState,
+          turn,
+          toolCalls,
+        });
+        if (recoveryCall) {
+          requestedToolCalls = [recoveryCall];
+          dataRecoveryQueryAttempted = true;
+        }
+      }
+    }
     if (!requestedToolCalls.length) {
       finalAnswer = answer;
       llm = { status: "ok", httpStatus: responseStatus, errorCode: null, errorMessage: null, missingEnv: [] };
@@ -1072,12 +1322,27 @@ export async function runReadOnlyAssistantV1(params: {
   }
   const successfulTools = toolCalls.filter((call) => call.ok);
   const grounded = successfulTools.length > 0 && successfulTools.length === toolCalls.length;
+  const unresolvedFieldCountMismatch = hasFieldDirectoryCountMismatch({
+    message,
+    expectedCount: expectedFieldCount,
+    toolCalls,
+  });
   finalAnswer = ensureExactAreaNoMatchAnswer(finalAnswer, message, toolCalls);
   finalAnswer = ensureWarehouseDirectoryAnswer(finalAnswer, message, toolCalls, outputs);
   finalAnswer = ensureWarehouseUnit(finalAnswer, toolCalls, outputs);
+  finalAnswer = ensureFieldCardOperationStatusAnswer({ answer: finalAnswer, message, toolCalls, outputs });
+  const deterministicAnswer =
+    !finalAnswer && grounded && !unresolvedFieldCountMismatch
+      ? buildToolGroundedFallbackAnswer({ message, toolCalls, outputs })
+      : null;
+  const safeAnswer = unresolvedFieldCountMismatch
+    ? "Не удалось получить полный согласованный список полей. Повторите запрос чуть позже."
+    : finalAnswer || deterministicAnswer || (llm.status === "ok"
+      ? "Не удалось сформировать ответ по полученным данным. Повторите запрос чуть позже."
+      : "Сейчас не удалось получить данные. Повторите запрос чуть позже.");
   return buildResult({
     startedAt,
-    answer: finalAnswer || (llm.status === "ok" ? "По текущему запросу ответ не сформирован." : "Не удалось получить безопасный ответ модели."),
+    answer: safeAnswer,
     state: nextState,
     runtimeContext,
     settings: params.settings,
@@ -1088,7 +1353,7 @@ export async function runReadOnlyAssistantV1(params: {
     toolCalls,
     outputs,
     intent: lastIntent,
-    answerSource: grounded ? "model_grounded" : llm.status === "ok" ? "llm_fallback" : "tool_error",
+    answerSource: deterministicAnswer ? "tools" : grounded ? "model_grounded" : llm.status === "ok" ? "llm_fallback" : "tool_error",
     grounded,
     modelMs,
     toolMs,

@@ -1,30 +1,30 @@
 # Assistant Sync State
 
-LAST_SYNC_AT: `2026-07-18` (A108 owner approval and delivery authorization)
+LAST_SYNC_AT: `2026-07-19` (A109 owner acceptance and delivery authorization)
 ASSISTANT_BRANCH: `assistant-v1`
-ASSISTANT_BASE_COMMIT: `a71e292e85a1c7d7b7503275174c34f94fa39bd5`
-ASSISTANT_COMMIT: `A108_DELIVERY_COMMIT_AUTHORIZED`
+ASSISTANT_BASE_COMMIT: `164ade7233c27855e1568decfdf729ab12448204`
+ASSISTANT_COMMIT: `A109_DELIVERY_COMMIT_AUTHORIZED`
 
 CORE_BRANCH_REVIEWED: `origin/copilot-v1`
-CORE_COMMIT_REVIEWED: `abce1bb9e18fc118c68dfc6add6fb31d05ffe81c`
-CORE_LIVE_STATE_REVIEWED_AT: `2026-07-18` (fresh fetch and detached integration base)
-LATEST_CORE_REPORT_REVIEWED: `A108 final authenticated data-level preview smoke`
+CORE_COMMIT_REVIEWED: `d626ef36c96dfc2b10f7fd3ccaaae22b192c616b`
+CORE_LIVE_STATE_REVIEWED_AT: `2026-07-18` (fresh A109 compatibility read)
+LATEST_CORE_REPORT_REVIEWED: `Core A108 integrated preview state and current Contract 0.4`
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_HASH: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 
 CORE_PRODUCTION_COMMIT_REVIEWED: `321e45fa681fecff89307545d0ec3fa600b4c982`
 CORE_PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`
-ASSISTANT_ALLOWED_MODE: `CONTRACT_0_4_A108_DETACHED_CORE_PREVIEW_VALIDATION`
+ASSISTANT_ALLOWED_MODE: `CONTRACT_0_4_A109_LOCAL_TEST_BRANCH_READ_ONLY_VALIDATION`
 WRITE_CAPABILITY_APPROVED: `NO_ERP_WRITES; REQUEST_SCOPED_USER_JWT_READS_ONLY`
 
 CORE_CHANGES_SINCE_LAST_SYNC: `124 Core-tree paths changed from the shared merge base; exact Assistant/Core overlap is limited to package.json and the two Assistant state documents.`
 CONTRACT_CHANGES_FOUND: `NO incompatible Assistant contract change found for the A108 package.`
 ASSISTANT_API_CONTRACT_CHANGES_FOUND: `NO; exactly eight read-only tools remain approved`
 INCOMPATIBLE_CHANGES_FOUND: `NO for the implemented Contract 0.4 branch-only runtime.`
-OWNER_TASK_OVERRIDE: `OWNER_APPROVAL PASS; selective A108 commit and push to origin/assistant-v1 authorized; merge and deploy forbidden.`
-SYNC_STATUS: `A108_COMPLETE_OWNER_APPROVAL_PASS`
+OWNER_TASK_OVERRIDE: `OWNER_ACCEPTANCE PASS; selective A109 commit and push to origin/assistant-v1 authorized; merge and deploy forbidden.`
+SYNC_STATUS: `A109_COMPLETE_OWNER_ACCEPTANCE_PASS`
 SYNC_BLOCKER: `NONE`
-NEXT_SAFE_ACTION: `Push the selective A108 delivery to origin/assistant-v1; Core preview integration may proceed separately. Do not merge or deploy.`
+NEXT_SAFE_ACTION: `Push the selective A109 delivery to origin/assistant-v1; Core integration may proceed separately. Do not merge or deploy.`
 
 ## Reviewed core sources
 
@@ -153,3 +153,15 @@ A108 is ready for owner approval. Runtime remains `http://127.0.0.1:3106/operati
 ## A108 final owner approval
 
 The owner returned `OWNER_APPROVAL: PASS`. The verified selective A108 package is authorized for commit and push to `origin/assistant-v1`. A108 is complete and ready for Core preview integration. Merge into `copilot-v1` and deploy remain forbidden.
+
+## A109 compatibility and acceptance
+
+Current Core commit `d626ef36c96dfc2b10f7fd3ccaaae22b192c616b`, Core Live State, Contract 0.4 and Task Numbering were read after the A109 fetch without merge or rebase. Core reports A108 integrated into the test-branch preview and production unchanged. Contract 0.4 still permits exactly eight request-scoped user-JWT/RLS read-only ERP tools and forbids service-role, ERP mutations, migration/schema changes, merge, deploy and production access.
+
+The Core registry has not added A108/A109 rows, but the owner explicitly supplied the correctly prefixed A109 task. Assistant did not edit the Core-owned registry. A109 changes only Assistant scope classification, DATA self-recovery, postpositive field-number parsing, conservative product typo resolution, local QA harnesses and Assistant-owned state/report files.
+
+Mocked acceptance is `10/10 PASS`; REAL acceptance on `gsglkmudcwkdetqtocae` is `12/12 PASS`, including the mandatory scope chain `4/4`. Requested/effective model is `gpt-5.6-terra`, reasoning is `medium`, and Responses storage is false. Typecheck, safe build and previous regressions pass. ERP writes, production connections, cross-company leaks, service-role and database credentials are zero. A109 remains uncommitted pending owner acceptance; merge and deploy are forbidden.
+
+Owner correction updated the operation-status contract for Field15. `get_field_card` no longer treats planned operations as active; planned/active/completed counts are separate and model-facing compact rows include strict Russian status wording. After rebuilding the safe `.next` bundle, A109 mock is `10/10 PASS`, REAL is `12/12 PASS`, Field15 planned is not rendered as active, and `Какие операции идут сейчас?` returns only Field28 and Сад Южный. Production connections and ERP writes remain `0`; service role remains unloaded.
+
+The owner returned `OWNER_ACCEPTANCE: PASS`. A109 is complete and authorized for selective commit/push. Cleanup warning `assistant_memories.source_message_id` blocking temporary test-message deletion is recorded as non-critical backlog item `MEM-UX-002`; A109 does not change memory logic for it. Merge and deploy remain forbidden.

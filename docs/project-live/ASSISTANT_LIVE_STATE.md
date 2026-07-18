@@ -1,16 +1,16 @@
 # Assistant Live State
 
-LAST_UPDATED: `2026-07-18`
-STATUS: `A108_COMPLETE_OWNER_APPROVAL_PASS`
+LAST_UPDATED: `2026-07-19`
+STATUS: `A109_COMPLETE_OWNER_ACCEPTANCE_PASS`
 BRANCH: `assistant-v1`
-BASE_ASSISTANT_COMMIT: `a71e292e85a1c7d7b7503275174c34f94fa39bd5`
-CORE_COMMIT_REVIEWED: `abce1bb9e18fc118c68dfc6add6fb31d05ffe81c`
+BASE_ASSISTANT_COMMIT: `164ade7233c27855e1568decfdf729ab12448204`
+CORE_COMMIT_REVIEWED: `d626ef36c96dfc2b10f7fd3ccaaae22b192c616b`
 CONTRACT_VERSION_REVIEWED: `0.4`
-ALLOWED_MODE: `A108_DETACHED_CORE_PREVIEW_INTEGRATION_VALIDATION`
-WRITE_CAPABILITY: `NON_PRODUCTION_ASSISTANT_QA_ONLY`
+ALLOWED_MODE: `A109_LOCAL_TEST_BRANCH_READ_ONLY_VALIDATION`
+WRITE_CAPABILITY: `ASSISTANT_QA_TRANSCRIPT_ONLY; ERP_WRITES_FORBIDDEN`
 
 RUNTIME: `ASSISTANT_A104_SERVER_CONVERSATION_V2`
-CONVERSATION_HISTORY: `SERVER_VERIFIED_CURRENT_THREAD_MAX_20_USER_ASSISTANT_MESSAGES`
+CONVERSATION_HISTORY: `SERVER_VERIFIED_RECENT_LIMIT_60; 59_PRIOR_PLUS_CURRENT`
 THREAD_STATE: `THREAD_SCOPED_STRUCTURED_STATE_NO_NEW_TABLE`
 FIELD_SEARCH: `TYPED_NAME_NUMBER_AREA_TOLERANCE_SEASON`
 MODEL_PATH: `EXPLICIT_CHAT_COMPLETIONS_LEGACY_OR_STATELESS_RESPONSES_V2_NO_FALLBACK`
@@ -38,6 +38,7 @@ A106_OWNER_ACCEPTANCE: `PASS`
 A106_KNOWN_ISSUE: `NAME_MEMORY_MAY_BE_UNSTABLE_IN_ISOLATED_SCENARIOS_DEFERRED_TO_UX_MEMORY_HARDENING`
 A107_READINESS: `COMPLETE_OWNER_ACCEPTANCE_PASS_READY_FOR_PREVIEW_INTEGRATION`
 A108_READINESS: `COMPLETE_OWNER_APPROVAL_PASS_READY_FOR_CORE_PREVIEW_INTEGRATION`
+A109_READINESS: `COMPLETE_OWNER_ACCEPTANCE_PASS_READY_FOR_CORE_INTEGRATION`
 
 ## A101 runtime
 
@@ -218,3 +219,21 @@ A108 is `READY_FOR_OWNER_APPROVAL`. The REAL preview stays at `http://127.0.0.1:
 ## A108 final owner approval
 
 The owner returned `OWNER_APPROVAL: PASS`. A108 is complete and the verified selective A108 package is authorized for commit and push to `origin/assistant-v1`. It is ready for Core preview integration. Merge into `copilot-v1` and deploy remain forbidden.
+
+## A109 context scope and recovery
+
+A109 separates company-wide plural scope from explicit single-field follow-up scope. Generic field lists and company operation questions clear stale selected-field focus, while `А культура?`, `А площадь?`, and `А какие там операции?` retain the verified field. `15 полю` is parsed as Field15 and is excluded from product lookup.
+
+An empty DATA response or a generic field list inconsistent with the preceding count triggers one corrected read-only ERP retry. Supported successful tool output has a deterministic user-facing renderer, so technical empty-answer phrases are not exposed. Conservative fuzzy product matching resolves `курмаина`, `курамин`, `фолиар`, and `Curamin` to Curamin Foliar without weakening tenant or write boundaries.
+
+Mocked A109 acceptance is `10/10 PASS`. REAL acceptance is `12/12 PASS`; the mandatory Field15 → field count 8 → all eight fields → company-wide active operations chain is `4/4 PASS`. Typecheck, clean build, read-only `24/24`, conversation `21/21`, and greeting `4/4` pass. The ERP snapshot is unchanged; cross-company leaks, ERP writes, production connections, loaded service-role and database credentials are all `0`.
+
+The fail-closed REAL runtime remains available at `http://127.0.0.1:3109/fields` on Supabase branch `gsglkmudcwkdetqtocae`, requested/effective model `gpt-5.6-terra`, medium reasoning, and Responses `store:false`. A109 is open only for owner acceptance. Commit, push, merge, and deploy have not been performed.
+
+## A109 owner status correction
+
+The owner found a Field15 status contradiction: the field card called its planned operation active, while the company-wide current-operations list correctly excluded Field15. The cause was `get_field_card.active_operations_count` treating planned as active. The Assistant runtime now uses the same active-operation predicate as the company-wide tool, exposes separate planned/active/completed counts, enforces the strict wording `planned=запланирована`, `in_progress=выполняется сейчас`, `completed=завершена`, and falls back to grounded tool text if a Field-card answer contradicts `planned>0` and `active=0`.
+
+Fresh A109 evidence after safe rebuild: mock `10/10 PASS`, REAL `12/12 PASS`, mandatory chain `4/4 PASS`, Field15 planned PASS, company current operations returns only Field28 and Сад Южный, typecheck PASS, safe build PASS, production connections `0`, ERP writes `0`, service role `NO`.
+
+The owner returned `OWNER_ACCEPTANCE: PASS`. A109 is complete and authorized for selective commit and push to `origin/assistant-v1`. The non-critical cleanup warning, where a temporary `chat_messages` row could not be deleted because `assistant_memories.source_message_id` referenced it, is recorded as backlog item `MEM-UX-002` in `docs/project-live/backlog/assistant-memory-ux-hardening.md`. A109 did not change memory logic for this warning. Merge and deploy remain forbidden.
