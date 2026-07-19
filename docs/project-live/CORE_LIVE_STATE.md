@@ -603,3 +603,13 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - The guarded 39-row package remains exact (`39 -> 0 -> rollback 39`, other rows `37/37`). A separate full 135-row metadata preview also replays, but would insert 59 versions and canonicalize 37 more existing payloads, so it is not approved for production.
 - Exact read-only production comparison found seven production-only tables, one function and two triggers without local canonical sources. Known local-only Warehouse V2/A106 scopes also prevent exact parity.
 - Production history, schema, Auth and business data were not changed. `READY_FOR_METADATA_REPAIR=NO`; TZ-154 and TZ-A106 remain blocked pending a separate canonical baseline task.
+
+## TZ-198 Assistant GLBD branch surface
+
+- TZ-198 status: `PASS`; report: [task-reports/core/TZ-198.md](task-reports/core/TZ-198.md).
+- Root cause was missing branch data: the Assistant QA branch had zero global pesticides and zero product-component links; its 21 draft components were hidden from the QA JWT.
+- A hash-verified, reproducible branch-only snapshot now exposes `834` safe cards, `367` linked components and `1382` concentration-bearing links through dedicated `assistant_glbd_*` tables and a security-invoker search view.
+- `READ_READY=19`, `READ_PARTIAL=815`, `BLOCKED_NO_DATA visible=0`, and `recommendation_allowed=0` for all rows.
+- Real QA User A JWT passed RU/EN alias search, glyphosate/component search, formulation search, partial/blocked/no-data/ambiguity cases, write denial and company isolation.
+- Runtime service role, catalog writes, ERP writes, production connections and production writes were all `0/NO`. No migration, deploy or master merge occurred.
+- `READY_FOR_A110_LIVE_RETEST=YES`; A110 remains read-only and may not provide rates, schemes or recommendations.

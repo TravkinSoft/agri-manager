@@ -505,3 +505,13 @@ TZ163_ACTION: `A106_REMAINS_BLOCKED`; create canonical sources for seven product
 ## Mandatory rule
 
 Перед каждым CORE-ТЗ основной поток обязан обновить этот файл фактическими commit/date/report значениями после чтения состояния `origin/assistant-v1`. Если найдено влияние на core или [INTEGRATION_CONTRACT.md](INTEGRATION_CONTRACT.md), текущая задача получает `STOP` до отдельного решения владельца. Автоматический merge или rebase между ветками запрещён.
+
+## TZ-198 review result
+
+TZ198_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_CODE_INTEGRATED`; `origin/assistant-v1` was read-only inspected and no merge/rebase was performed.
+TZ198_CORE_IMPACT_FOUND: `YES - A110 previously had no GLBD data surface in the Assistant QA branch`.
+TZ198_INTEGRATION_CONTRACT_IMPACT: `NO`; the existing read-only, JWT/RLS and no-ERP-write boundaries are preserved.
+TZ198_BRANCH_SURFACE: `PASS - 834 products, 367 components, 1382 links; 19 READ_READY, 815 READ_PARTIAL, 10 BLOCKED_NO_DATA excluded`.
+TZ198_SECURITY_GATE: `PASS - authenticated SELECT only, anon none, real JWT writes denied, cross-company reads zero`.
+TZ198_PRODUCTION_IMPACT: `NONE`; no production connection/write, migration, deploy or merge.
+TZ198_ACTION: `A110_LIVE_RETEST_ALLOWED`; recommendations, rates and treatment schemes remain blocked.
