@@ -515,3 +515,12 @@ TZ198_BRANCH_SURFACE: `PASS - 834 products, 367 components, 1382 links; 19 READ_
 TZ198_SECURITY_GATE: `PASS - authenticated SELECT only, anon none, real JWT writes denied, cross-company reads zero`.
 TZ198_PRODUCTION_IMPACT: `NONE`; no production connection/write, migration, deploy or merge.
 TZ198_ACTION: `A110_LIVE_RETEST_ALLOWED`; recommendations, rates and treatment schemes remain blocked.
+
+## TZ-199 review result
+
+TZ199_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains at accepted A109 commit `f503f05b54de129b6778fee10e3b6406ec761ced`.
+TZ199_CORE_IMPACT_FOUND: `YES - Full Pesticide Card V1 adds branch-only source, registration, usage-rule and safety detail for ten pilot products`.
+TZ199_INTEGRATION_CONTRACT_IMPACT: `NO`; A110 and the existing read-only Assistant contract were not changed.
+TZ199_BRANCH_RESULT: `PASS - ten cards, nine read-allowed, zero recommendation-allowed, authenticated API 10/10, duplicate products/components/rules 0/0/0`.
+TZ199_PRODUCTION_IMPACT: `NONE`; production inventory was read-only, with no production/company write, migration, deploy or merge.
+TZ199_ACTION: `OWNER_PILOT_REVIEW_ALLOWED`; Preview deployment and any production migration remain separate owner-approved tasks.

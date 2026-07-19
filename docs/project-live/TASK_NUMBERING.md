@@ -88,6 +88,7 @@
 | TZ-196 | GLBD / ASSISTANT GOVERNANCE | Finalize remaining pesticide cards and GLBD V1 read safety | copilot-v1 | DONE | TZ-181,TZ-185,TZ-194,TZ-195 | [task-reports/core/TZ-196.md](task-reports/core/TZ-196.md) | `SELF` |
 | TZ-197 | GLBD / ASSISTANT GOVERNANCE | Apply confirmed GLBD V1 corrections | copilot-v1 | DONE | TZ-196 | [task-reports/core/TZ-197.md](task-reports/core/TZ-197.md) | `SELF` |
 | TZ-198 | GLBD / ASSISTANT QA | Provide branch-only read-only GLBD surface for A110 | copilot-v1 | DONE | TZ-196,TZ-197 | [task-reports/core/TZ-198.md](task-reports/core/TZ-198.md) | `SELF` |
+| TZ-199 | GLBD / UI | Full Pesticide Card V1 and ten-card pilot | copilot-v1 | DONE | TZ-198 | [task-reports/core/TZ-199.md](task-reports/core/TZ-199.md) | `SELF` |
 
 ## Status values
 

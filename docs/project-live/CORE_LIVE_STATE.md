@@ -613,3 +613,13 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Real QA User A JWT passed RU/EN alias search, glyphosate/component search, formulation search, partial/blocked/no-data/ambiguity cases, write denial and company isolation.
 - Runtime service role, catalog writes, ERP writes, production connections and production writes were all `0/NO`. No migration, deploy or master merge occurred.
 - `READY_FOR_A110_LIVE_RETEST=YES`; A110 remains read-only and may not provide rates, schemes or recommendations.
+
+## TZ-199 Full Pesticide Card V1 pilot
+
+- TZ-199 status: `PASS_BRANCH_ONLY`; report: [task-reports/core/TZ-199.md](task-reports/core/TZ-199.md).
+- The read-only production inventory confirmed exactly `852` global pesticide cards; production and company data were not changed.
+- Full Pesticide Card V1 reuses the existing product, manufacturer, formulation, alias, component and canonical crop/target model and adds four branch-only detail tables for sources, registrations, usage rules and assistant safety.
+- Ten existing products were loaded in `gsglkmudcwkdetqtocae`: nine are source-backed and read-allowed; `Эксперт` remains blocked; recommendations are disabled for all ten.
+- Branch validation passes with duplicate products/components/rules `0/0/0`, second seed zero mutations, exact cleanup/reseed, RLS on all four new tables and authenticated API smoke `10/10`.
+- Existing global catalog UI now has a full-card dialog. No deploy, master merge, production migration or A110 change occurred.
+- `READY_FOR_OWNER_PILOT_REVIEW=YES`; a test Preview deployment and any production schema decision require separate approval.

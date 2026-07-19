@@ -53,6 +53,10 @@ import {
   GlbdComponentDialog,
   type GlbdComponentCardData,
 } from "@/components/platform/glbd-component-dialog";
+import {
+  FullPesticideCardDialog,
+  type FullPesticideCardData,
+} from "@/components/platform/full-pesticide-card-dialog";
 
 type RowRecord = Record<string, any>;
 type Option = { label: string; value: string };
@@ -295,6 +299,11 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   const [componentError, setComponentError] = useState<string | null>(null);
   const [componentDetail, setComponentDetail] = useState<GlbdComponentCardData | null>(null);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
+  const [pesticideCardOpen, setPesticideCardOpen] = useState(false);
+  const [pesticideCardLoading, setPesticideCardLoading] = useState(false);
+  const [pesticideCardError, setPesticideCardError] = useState<string | null>(null);
+  const [pesticideCard, setPesticideCard] = useState<FullPesticideCardData | null>(null);
+  const [selectedPesticideId, setSelectedPesticideId] = useState<string | null>(null);
 
   const canSubmit = useMemo(() => {
     return config.formFields.every((field) => {
@@ -463,6 +472,33 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     } finally {
       setComponentLoading(false);
     }
+  };
+
+  const loadPesticideCard = async (productId: string) => {
+    if (!user?.id || !productId) return;
+    setSelectedPesticideId(productId);
+    setPesticideCardOpen(true);
+    setPesticideCardLoading(true);
+    setPesticideCardError(null);
+    setPesticideCard(null);
+    try {
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/catalog/pesticide-card/${productId}`, {
+        headers,
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить полную карточку");
+      setPesticideCard(payload as FullPesticideCardData);
+    } catch (error: any) {
+      setPesticideCardError(error?.message || "Не удалось загрузить полную карточку");
+    } finally {
+      setPesticideCardLoading(false);
+    }
+  };
+
+  const retryPesticideCard = () => {
+    if (selectedPesticideId) void loadPesticideCard(selectedPesticideId);
   };
 
   const retryComponentCard = () => {
@@ -834,6 +870,18 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                     ))}
                     <TableCell className={CONSOLE_TABLE_CELL_CLASS}>
                       <div className="flex items-center justify-end gap-2">
+                        {config.entity === "pesticides" ? (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => void loadPesticideCard(row.id)}
+                            className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]"
+                            title="Открыть полную карточку"
+                            aria-label="Открыть полную карточку"
+                          >
+                            <BookOpen className="h-4 w-4" />
+                          </Button>
+                        ) : null}
                         <Button variant="outline" size="icon" onClick={() => openEdit(row)} className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]">
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -903,6 +951,15 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         error={componentError}
         component={componentDetail}
         onRetry={retryComponentCard}
+      />
+
+      <FullPesticideCardDialog
+        open={pesticideCardOpen}
+        onOpenChange={setPesticideCardOpen}
+        loading={pesticideCardLoading}
+        error={pesticideCardError}
+        card={pesticideCard}
+        onRetry={retryPesticideCard}
       />
     </div>
   );
