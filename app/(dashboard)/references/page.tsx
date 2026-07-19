@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -226,6 +226,7 @@ function materialCategory(row: any) {
 export default function ReferencesPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
+  const directCardHandled = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -403,6 +404,15 @@ export default function ReferencesPage() {
       setPesticideCardLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!profile?.id || directCardHandled.current) return;
+    const productId = new URLSearchParams(window.location.search).get("pesticide");
+    if (!productId) return;
+    directCardHandled.current = true;
+    setDomainTab("agrochemistry");
+    void loadPesticideCard(productId);
+  }, [profile?.id]);
 
   const submitCreate = async () => {
     if (!profile?.company_id || !profile?.id || !modalType || saving) return;
