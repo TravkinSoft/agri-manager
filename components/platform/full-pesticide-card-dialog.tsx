@@ -166,7 +166,7 @@ export function FullPesticideCardDialog({
               <TabsTrigger value="registration" className="rounded-none">Регистрация</TabsTrigger>
               <TabsTrigger value="usage" className="rounded-none">Применение</TabsTrigger>
               <TabsTrigger value="sources" className="rounded-none">Источники</TabsTrigger>
-              <TabsTrigger value="safety" className="rounded-none">Готовность</TabsTrigger>
+              <TabsTrigger value="safety" className="rounded-none">Готовность для ассистента</TabsTrigger>
             </TabsList>
 
             <TabsContent value="main" className="mt-4">

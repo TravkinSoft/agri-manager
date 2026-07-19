@@ -1,7 +1,12 @@
 "use client";
 
 import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { BookOpen } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import {
+  FullPesticideCardDialog,
+  type FullPesticideCardData,
+} from "@/components/platform/full-pesticide-card-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -226,6 +231,11 @@ export default function ReferencesPage() {
   const [linkingGlobalId, setLinkingGlobalId] = useState<string | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [pesticideCardOpen, setPesticideCardOpen] = useState(false);
+  const [pesticideCardLoading, setPesticideCardLoading] = useState(false);
+  const [pesticideCardError, setPesticideCardError] = useState<string | null>(null);
+  const [pesticideCard, setPesticideCard] = useState<FullPesticideCardData | null>(null);
+  const [selectedPesticideId, setSelectedPesticideId] = useState<string | null>(null);
 
   const [domainTab, setDomainTab] = useState<DomainTab>("agronomy");
   const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("machines");
@@ -368,6 +378,28 @@ export default function ReferencesPage() {
     setModalType(null);
     setEditingWorkerId(null);
     setForm({});
+  };
+
+  const loadPesticideCard = async (productId: string) => {
+    setSelectedPesticideId(productId);
+    setCatalogOpen(false);
+    setPesticideCardOpen(true);
+    setPesticideCardLoading(true);
+    setPesticideCardError(null);
+    setPesticideCard(null);
+    try {
+      const response = await fetch(`/api/catalog/pesticide-card/${productId}`, {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить полную карточку");
+      setPesticideCard(payload as FullPesticideCardData);
+    } catch (error) {
+      setPesticideCardError(error instanceof Error ? error.message : "Не удалось загрузить полную карточку");
+    } finally {
+      setPesticideCardLoading(false);
+    }
   };
 
   const submitCreate = async () => {
@@ -778,13 +810,27 @@ export default function ReferencesPage() {
                   materialKind(x),
                   materialCategory(x),
                   x.manufacturer || "—",
-                  x.source_scope === "company" ? (
-                    <span className="text-sm text-slate-500">Уже добавлен</span>
-                  ) : (
-                    <Button size="sm" disabled={!!linkingGlobalId} onClick={() => addFromCatalog(x.id)}>
-                      {linkingGlobalId === x.id ? "Добавление..." : "Добавить"}
-                    </Button>
-                  ),
+                  <div key={`${x.id}-actions`} className="flex items-center justify-end gap-2">
+                    {materialKind(x) === "Пестицид" ? (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="outline"
+                        title="Открыть полную карточку"
+                        aria-label={`Открыть полную карточку ${x.trade_name || x.name}`}
+                        onClick={() => void loadPesticideCard(x.id)}
+                      >
+                        <BookOpen className="h-4 w-4" />
+                      </Button>
+                    ) : null}
+                    {x.source_scope === "company" ? (
+                      <span className="text-sm text-slate-500">Уже добавлен</span>
+                    ) : (
+                      <Button size="sm" disabled={!!linkingGlobalId} onClick={() => addFromCatalog(x.id)}>
+                        {linkingGlobalId === x.id ? "Добавление..." : "Добавить"}
+                      </Button>
+                    )}
+                  </div>,
                 ])}
                 loading={catalogLoading}
                 empty={catalogSearch.trim().length < 2 ? "Введите минимум 2 символа для поиска" : "Ничего не найдено"}
@@ -793,6 +839,15 @@ export default function ReferencesPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <FullPesticideCardDialog
+        open={pesticideCardOpen}
+        onOpenChange={setPesticideCardOpen}
+        loading={pesticideCardLoading}
+        error={pesticideCardError}
+        card={pesticideCard}
+        onRetry={() => selectedPesticideId && void loadPesticideCard(selectedPesticideId)}
+      />
 
       <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && closeModal()}>
         <DialogContent>
