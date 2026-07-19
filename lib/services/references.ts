@@ -1681,13 +1681,39 @@ export async function searchAgrochemicalMaster(
     .order("name", { ascending: true })
     .limit(50);
 
-  const [{ data: companyData, error: companyError }, { data: globalData, error: globalError }] = await Promise.all([
-    companyQuery,
-    globalQuery,
-  ]);
+  const aliasQuery = supabase
+    .from("global_product_aliases")
+    .select("product_id")
+    .ilike("alias", pattern)
+    .limit(50);
+
+  const [
+    { data: companyData, error: companyError },
+    { data: globalData, error: globalError },
+    { data: aliasData, error: aliasError },
+  ] = await Promise.all([companyQuery, globalQuery, aliasQuery]);
 
   if (companyError) throw new Error(companyError.message);
   if (globalError) throw new Error(globalError.message);
+  if (aliasError) throw new Error(aliasError.message);
+
+  const aliasProductIds = Array.from(
+    new Set((aliasData || []).map((row: any) => String(row.product_id || "")).filter(Boolean))
+  );
+  const { data: aliasProducts, error: aliasProductsError } = aliasProductIds.length
+    ? await supabase
+        .from("products")
+        .select("*")
+        .in("id", aliasProductIds)
+        .is("company_id", null)
+        .eq("archived", false)
+    : { data: [], error: null };
+  if (aliasProductsError) throw new Error(aliasProductsError.message);
+
+  const globalRowsById = new Map<string, any>();
+  for (const row of [...(globalData || []), ...(aliasProducts || [])]) {
+    globalRowsById.set(String(row.id), row);
+  }
 
   const companyRows = (companyData || [])
     .filter((row: any) => getMaterialProductTypeFromProduct(row) === type)
@@ -1695,7 +1721,7 @@ export async function searchAgrochemicalMaster(
       ...mapAgrochemicalRow(row, language),
       source_scope: "company" as const,
     }));
-  const globalRows = (globalData || [])
+  const globalRows = Array.from(globalRowsById.values())
     .filter((row: any) => getMaterialProductTypeFromProduct(row) === type)
     .map((row: any) => ({
       ...mapAgrochemicalRow(row, language),
