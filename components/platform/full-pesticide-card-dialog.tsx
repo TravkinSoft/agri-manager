@@ -83,6 +83,7 @@ const CLAIM_LABELS: Record<string, string> = {
   composition: "Состав",
   concentration: "Концентрация",
   registration: "Регистрация",
+  usage_rule: "Правила применения",
   usage_rules: "Правила применения",
   restrictions: "Ограничения",
 };
