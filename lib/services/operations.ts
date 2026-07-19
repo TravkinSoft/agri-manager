@@ -364,20 +364,19 @@ export async function createOperation(
   operationData: OperationFormData,
   options?: { idempotencyKey?: string }
 ): Promise<Operation & { material_request?: Record<string, unknown>; offline_queued?: boolean; offline_queue_id?: string }> {
+  const idempotencyKey = options?.idempotencyKey || crypto.randomUUID();
   const headers = await buildAuthHeaders("json");
-  if (options?.idempotencyKey) {
-    headers["Idempotency-Key"] = options.idempotencyKey;
-  }
+  headers["Idempotency-Key"] = idempotencyKey;
   const body = {
     companyId,
     ...operationData,
-    idempotency_key: options?.idempotencyKey,
+    idempotency_key: idempotencyKey,
     responsible_user_id:
       operationData.responsible_user_id && operationData.responsible_user_id !== "none"
         ? operationData.responsible_user_id
         : null,
   };
-  const queueable = Boolean(options?.idempotencyKey);
+  const queueable = true;
   const queueHeaders = { ...headers };
   delete queueHeaders.Authorization;
 
@@ -400,7 +399,7 @@ export async function createOperation(
       headers: queueHeaders,
       body,
       authRequired: true,
-      idempotencyKey: options?.idempotencyKey,
+      idempotencyKey,
     });
     return {
       id: item.id,
@@ -476,7 +475,7 @@ export async function updateOperation(
 
   const { data: currentOperation, error: currentError } = await supabase
     .from("operations")
-    .select("operation_config")
+    .select("company_id,operation_config")
     .eq("id", operationId)
     .maybeSingle();
   if (currentError) {
@@ -507,30 +506,21 @@ export async function updateOperation(
     execution_fact_model: buildExecutionFactModelMetadata(),
   };
 
-  const { data, error } = await supabase
-    .from("operations")
-    .update(payload)
-    .eq("id", operationId)
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(error.message);
+  const companyId = String((currentOperation as any)?.company_id || "").trim();
+  if (!companyId) throw new Error("Operation company context missing for material sync");
+  let materialSource = materials;
+  if (!materialSource) {
+    const { data: currentMaterials, error: currentMaterialsError } = await supabase
+      .from("operation_materials")
+      .select("product_id,batch_id,material_type,unit,planned_rate,actual_rate,planned_quantity,notes")
+      .eq("company_id", companyId)
+      .eq("operation_id", operationId)
+      .order("created_at", { ascending: true });
+    if (currentMaterialsError) throw new Error(currentMaterialsError.message);
+    materialSource = currentMaterials || [];
   }
 
-  if (materials) {
-    const companyId = String((data as any).company_id || "").trim();
-    if (!companyId) {
-      throw new Error("Operation company context missing for material sync");
-    }
-    const { error: deleteError } = await supabase
-      .from("operation_materials")
-      .delete()
-      .eq("company_id", companyId)
-      .eq("operation_id", operationId);
-    if (deleteError) throw new Error(deleteError.message);
-
-    const normalizedRows = materials
+  const normalizedRows = materialSource
       .map((item) => {
         const productId = String(item?.product_id || "").trim();
         const materialType = String(item?.material_type || "").trim();
@@ -539,9 +529,6 @@ export async function updateOperation(
         const storageMaterialType = toStorageMaterialType(item?.component_type || materialType);
         if (!DB_OPERATION_MATERIAL_TYPES.has(storageMaterialType)) return null;
         return {
-          company_id: companyId,
-          operation_id: operationId,
-          operation_line_id: null,
           product_id: productId,
           batch_id: item?.batch_id || null,
           material_type: storageMaterialType,
@@ -558,13 +545,21 @@ export async function updateOperation(
       })
       .filter(Boolean);
 
-    if (normalizedRows.length > 0) {
-      const { error: insertError } = await supabase.from("operation_materials").insert(normalizedRows as any[]);
-      if (insertError) throw new Error(insertError.message);
-    }
-  }
-
-  return data as Operation;
+  const idempotencyKey = crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({
+      companyId,
+      operationPatch: payload,
+      materials: normalizedRows,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+  const result = await parseApiResponse(response);
+  return result.operation as Operation;
 }
 
 export async function archiveOperation(operationId: string): Promise<void> {
@@ -607,45 +602,48 @@ export async function getAssignableSpecialists(companyId: string): Promise<Speci
 }
 
 export async function acceptOperationInWork(operationId: string): Promise<Operation> {
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
+  const { data: operation, error } = await supabase
     .from("operations")
-    .update({
-      work_status: "in_progress",
-      accepted_at: now,
-    })
+    .select("company_id")
     .eq("id", operationId)
-    .select()
     .single();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return data as Operation;
+  if (error || !operation?.company_id) throw new Error(error?.message || "Operation not found");
+  const idempotencyKey = crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/accept`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId: operation.company_id, idempotency_key: idempotencyKey }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation as Operation;
 }
 
 export async function completeOperationWork(
   operationId: string,
   specialistComment: string
 ): Promise<Operation> {
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
+  const { data: operation, error } = await supabase
     .from("operations")
-    .update({
-      work_status: "completed",
-      completed_at: now,
-      specialist_comment: specialistComment || null,
-    })
+    .select("company_id")
     .eq("id", operationId)
-    .select()
     .single();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return data as Operation;
+  if (error || !operation?.company_id) throw new Error(error?.message || "Operation not found");
+  const idempotencyKey = crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/complete`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      companyId: operation.company_id,
+      comment: specialistComment,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation as Operation;
 }
 
 export async function getOperationLines(
@@ -726,10 +724,12 @@ export async function ensureOperationMaterialRequest(
   companyId: string
 ): Promise<Record<string, unknown>> {
   const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/material-request`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ companyId }),
+    body: JSON.stringify({ companyId, idempotency_key: idempotencyKey }),
   });
   const payload = await parseApiResponse(response);
   return (payload.material_request || {}) as Record<string, unknown>;

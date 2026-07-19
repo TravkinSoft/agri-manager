@@ -9,6 +9,11 @@ import {
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { calculatePackagePlan, roundMaterialQuantity } from "@/lib/materials/reconciliation";
 import { resolveWorkTitle } from "@/lib/operations/work-title";
+import {
+  OperationMutationInputError,
+  operationMutationError,
+  requireOperationIdempotency,
+} from "@/lib/server/operation-mutation";
 
 type MaterialRequestItemInput = {
   id?: unknown;
@@ -288,6 +293,7 @@ export async function PATCH(request: NextRequest) {
       allowedRoles: MATERIAL_REQUEST_WAREHOUSE_WRITE_ROLES,
       requestedCompanyId: String(body.companyId || "").trim() || null,
     });
+    const idempotency = requireOperationIdempotency(request, { ...body, requestId, action });
 
     const { data: existing, error: existingError } = await supabase
       .from("warehouse_issue_requests")
@@ -367,133 +373,40 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    const nowIso = new Date().toISOString();
-    const patch: Record<string, unknown> = {
-      updated_at: nowIso,
-    };
-
-    if (action === "preparing") {
-      patch.status = "preparing";
-      patch.warehouse_request_status = "collecting";
-      patch.collecting_at = nowIso;
-      patch.prepared_at = nowIso;
-      if (sourceWarehouseId) patch.source_warehouse_id = sourceWarehouseId;
-    }
-    if (action === "ready") {
-      patch.status = "ready";
-      patch.warehouse_request_status = "ready_for_pickup";
-      patch.ready_at = nowIso;
-      if (sourceWarehouseId) patch.source_warehouse_id = sourceWarehouseId;
-    }
-    if (action === "cancel") {
-      patch.status = "cancelled";
-      patch.warehouse_request_status = "cancelled";
-      patch.cancelled_at = nowIso;
-    }
-
-    let updateResult = await supabase
-      .from("warehouse_issue_requests")
-      .update(patch)
-      .eq("id", requestId)
-      .eq("company_id", companyId)
-      .select("id,status,source_warehouse_id,ready_at,prepared_at,cancelled_at,updated_at")
-      .single();
-
-    if (updateResult.error && isV5WarehouseSchemaError(updateResult.error)) {
-      const fallbackPatch = { ...patch };
-      delete fallbackPatch.warehouse_request_status;
-      delete fallbackPatch.collecting_at;
-      updateResult = await supabase
-        .from("warehouse_issue_requests")
-        .update(fallbackPatch)
-        .eq("id", requestId)
-        .eq("company_id", companyId)
-        .select("id,status,source_warehouse_id,ready_at,prepared_at,cancelled_at,updated_at")
-        .single();
-    }
-
-    if (updateResult.error || !updateResult.data?.id) {
-      return NextResponse.json({ error: updateResult.error?.message || "Failed to update request status" }, { status: 400 });
-    }
-
-    if ((action === "preparing" || action === "ready") && itemsInput.length > 0) {
-      const { data: existingItems, error: existingItemsError } = await supabase
-        .from("warehouse_issue_request_items")
-        .select("id,planned_quantity,required_quantity,unit")
-        .eq("request_id", requestId)
-        .eq("company_id", companyId);
-
-      if (existingItemsError) {
-        return NextResponse.json({ error: existingItemsError.message || "Failed to load request items" }, { status: 400 });
-      }
-
-      const existingById = new Map((existingItems || []).map((row: any) => [String(row.id), row]));
-      for (const raw of itemsInput) {
-        const itemId = String(raw?.itemId || raw?.id || "").trim();
-        if (!itemId) continue;
-        const dbItem = existingById.get(itemId);
-        if (!dbItem) {
-          return NextResponse.json({ error: `Request item ${itemId} not found` }, { status: 404 });
-        }
-        const planned = toNumber(dbItem.planned_quantity ?? dbItem.required_quantity);
-        const readyPlan = readyItemPlans.get(itemId);
-        const packageSize =
-          readyPlan
-            ? readyPlan.packageSize
-            : raw?.packageSize === null || raw?.packageSize === undefined || raw?.packageSize === ""
-            ? null
-            : toNumber(raw.packageSize);
-        const packagePlan = calculatePackagePlan({ plannedQuantity: planned, packageSize });
-        const preparedQuantity =
-          readyPlan
-            ? readyPlan.preparedQuantity
-            : raw?.preparedQuantity === null || raw?.preparedQuantity === undefined || raw?.preparedQuantity === ""
-            ? packagePlan.preparedQuantity
-            : roundMaterialQuantity(Math.max(toNumber(raw.preparedQuantity), 0));
-        const packageCount =
-          readyPlan
-            ? readyPlan.packageCount
-            : raw?.packageCount === null || raw?.packageCount === undefined || raw?.packageCount === ""
-            ? packagePlan.packageCount
-            : Math.max(toNumber(raw.packageCount), 0);
-
-        let itemUpdateResult = await supabase
-          .from("warehouse_issue_request_items")
-          .update({
-            prepared_quantity: preparedQuantity,
-            prepared_unit: dbItem.unit || null,
-            package_size: packageSize,
-            package_count: packageCount,
-            package_unit: dbItem.unit || null,
-            reconciliation_status: action === "ready" ? "prepared" : "pending",
-          })
-          .eq("id", itemId)
-          .eq("company_id", companyId);
-
-        if (itemUpdateResult.error && isV5WarehouseSchemaError(itemUpdateResult.error)) {
-          itemUpdateResult = { error: null } as any;
-        }
-
-        if (itemUpdateResult.error) {
-          return NextResponse.json(
-            { error: itemUpdateResult.error.message || "Failed to update prepared quantities" },
-            { status: 400 }
-          );
-        }
-      }
-    }
-
-    return NextResponse.json({
-      request: {
-        ...updateResult.data,
-        workflow_status: toWorkflowStatus(updateResult.data.status),
-        actor_id: actor.id,
-      },
+    const rpcItems = itemsInput.map((raw) => {
+      const itemId = String(raw?.itemId || raw?.id || "").trim();
+      const readyPlan = readyItemPlans.get(itemId);
+      return {
+        item_id: itemId,
+        prepared_quantity: readyPlan?.preparedQuantity ?? toNumber(raw.preparedQuantity),
+        prepared_unit: null,
+        package_size: readyPlan?.packageSize ?? null,
+        package_count: readyPlan?.packageCount ?? null,
+        package_unit: null,
+      };
+    }).filter((item) => item.item_id);
+    const { data, error } = await supabase.rpc("update_material_request_stage_atomic_v1", {
+      p_company_id: companyId,
+      p_actor_profile_id: actor.id,
+      p_request_id: requestId,
+      p_action: action,
+      p_source_warehouse_id: sourceWarehouseId,
+      p_items: rpcItems,
+      p_idempotency_key: idempotency.key,
+      p_request_fingerprint: idempotency.fingerprint,
     });
+    if (error || !data) {
+      const failure = operationMutationError(error, "Material request stage was not saved");
+      return NextResponse.json({ error: failure.message }, { status: failure.status });
+    }
+    return NextResponse.json(data);
   } catch (error) {
     const sessionError = asMaterialRequestError(error);
     if (sessionError) {
       return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
+    if (error instanceof OperationMutationInputError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },

@@ -222,6 +222,17 @@ function materialRequestsReadyForStart(requests: WarehouseIssueRequest[]): boole
   });
 }
 
+function materialRequestsReconciled(requests: WarehouseIssueRequest[]): boolean {
+  const activeRequests = requests.filter((request) => request.status !== 'cancelled');
+  if (activeRequests.length === 0) return false;
+  return activeRequests.every(
+    (request) =>
+      request.warehouse_request_status === 'closed' &&
+      (request.items || []).length > 0 &&
+      (request.items || []).every((item) => item.reconciliation_status === 'reconciled')
+  );
+}
+
 function materialStatusText(requests: WarehouseIssueRequest[]): string {
   const activeRequests = requests.filter((request) => request.status !== 'cancelled');
   if (activeRequests.length === 0) return 'Материалы не требуются';
@@ -586,11 +597,12 @@ export default function TasksPage() {
     };
     try {
       setBusyKey(`${action}:${operationId}`);
-      const headers = await buildAuthHeaders();
+      const idempotencyKey = crypto.randomUUID();
+      const headers = { ...(await buildAuthHeaders()), 'Idempotency-Key': idempotencyKey };
       const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/${action}`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ companyId: profile.company_id }),
+        body: JSON.stringify({ companyId: profile.company_id, idempotency_key: idempotencyKey }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Действие не выполнено');
@@ -617,7 +629,8 @@ export default function TasksPage() {
 
     try {
       setBusyKey(`progress:${operation.id}`);
-      const headers = await buildAuthHeaders();
+      const idempotencyKey = crypto.randomUUID();
+      const headers = { ...(await buildAuthHeaders()), 'Idempotency-Key': idempotencyKey };
       const response = await fetch(`/api/operations/${encodeURIComponent(operation.id)}/progress`, {
         method: 'POST',
         headers,
@@ -627,6 +640,7 @@ export default function TasksPage() {
           stopReason: progressStopReason.trim() || null,
           weatherNote: progressWeatherNote.trim() || null,
           comment: progressComment.trim() || null,
+          idempotency_key: idempotencyKey,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -715,7 +729,8 @@ export default function TasksPage() {
 
     try {
       setBusyKey(`complete:${operation.id}`);
-      const headers = await buildAuthHeaders();
+      const idempotencyKey = crypto.randomUUID();
+      const headers = { ...(await buildAuthHeaders()), 'Idempotency-Key': idempotencyKey };
       const response = await fetch(`/api/operations/${encodeURIComponent(operation.id)}/complete`, {
         method: 'POST',
         headers,
@@ -725,6 +740,7 @@ export default function TasksPage() {
           actualAreaHa: fallbackArea,
           lineFacts,
           materialFacts,
+          idempotency_key: idempotencyKey,
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -757,6 +773,69 @@ export default function TasksPage() {
       toast({
         title: 'Ошибка',
         description: error?.message || 'Не удалось принять товар',
+        variant: 'destructive',
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  const handleSubmitMaterialReconciliation = async (operation: Operation) => {
+    if (!profile?.company_id) return;
+    try {
+      const requests = (requestsByOperation.get(operation.id) || []).filter((request) => request.status !== 'cancelled');
+      if (requests.length !== 1) {
+        throw new Error('Для операции должна быть ровно одна активная складская заявка.');
+      }
+
+      const request = requests[0];
+      const items = (request.items || []).map((item) => {
+        const material = findOperationMaterialForRequestItem(operation, item);
+        if (!material) {
+          throw new Error(`Материал заявки ${item.product_name || item.product_id} не связан с операцией.`);
+        }
+        const draft = materialFactDraft[material.id] || { consumed: '', returned: '0', loss: '0', actualRate: '' };
+        const consumedQuantity = draft.consumed.trim() ? Number(draft.consumed) : NaN;
+        const returnedQuantity = draft.returned.trim() ? Number(draft.returned) : 0;
+        const lossQuantity = draft.loss.trim() ? Number(draft.loss) : 0;
+        const issuedQuantity = toNumber(item.issued_quantity ?? material.issued_quantity, 0);
+        const values = [consumedQuantity, returnedQuantity, lossQuantity];
+        if (values.some((value) => !Number.isFinite(value) || value < 0)) {
+          throw new Error(`Проверьте расход, возврат и потери: ${item.product_name || 'материал'}.`);
+        }
+        if (Math.abs(consumedQuantity + returnedQuantity + lossQuantity - issuedQuantity) > MATERIAL_QTY_EPS) {
+          throw new Error(
+            `Сверка не сходится для ${item.product_name || 'материала'}: выдано должно равняться расходу, возврату и потерям.`
+          );
+        }
+        return {
+          itemId: item.id,
+          consumedQuantity: Number(consumedQuantity.toFixed(4)),
+          returnedQuantity: Number(returnedQuantity.toFixed(4)),
+          lossQuantity: Number(lossQuantity.toFixed(4)),
+        };
+      });
+
+      setBusyKey(`reconcile:${operation.id}`);
+      await returnWarehouseRequestMaterials({
+        requestId: request.id,
+        companyId: profile.company_id,
+        items,
+        closeWithoutReturn: items.every((item) => item.returnedQuantity <= MATERIAL_QTY_EPS),
+      });
+      toast({
+        title: items.some((item) => item.returnedQuantity > MATERIAL_QTY_EPS)
+          ? 'Возврат передан складу'
+          : 'Расход материалов сверён',
+        description: items.some((item) => item.returnedQuantity > MATERIAL_QTY_EPS)
+          ? 'После приёмки возврата складом операцию можно будет закрыть.'
+          : 'Материалы подтверждены без физического возврата.',
+      });
+      await loadTasks();
+    } catch (error: any) {
+      toast({
+        title: 'Ошибка',
+        description: error?.message || 'Сверка материалов не сохранена',
         variant: 'destructive',
       });
     } finally {
@@ -1429,12 +1508,29 @@ export default function TasksPage() {
                   (() => {
                     const areaStats = operationAreaStats(selectedOperation);
                     const canCloseByArea = areaStats.planned <= 0 || areaStats.completed >= areaStats.planned - 0.000001;
+                    const operationRequests = requestsByOperation.get(selectedOperation.id) || [];
+                    const hasMaterials = operationVisibleMaterials(selectedOperation).length > 0;
+                    const reconciliationReady = !hasMaterials || materialRequestsReconciled(operationRequests);
                     return (
                       <div className="space-y-3 rounded-lg border border-green-700/50 bg-green-950/20 p-4">
                         <h3 className="font-semibold text-white">Закрытие работы</h3>
                         {!canCloseByArea ? (
                           <div className="rounded-md border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">
                             До закрытия осталось сдать {areaStats.remaining.toFixed(2)} га. Сначала внесите прогресс смены.
+                          </div>
+                        ) : null}
+                        {canCloseByArea && hasMaterials && !reconciliationReady ? (
+                          <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">
+                            <div>Перед закрытием передайте фактический расход, возврат и потери на складскую сверку.</div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => handleSubmitMaterialReconciliation(selectedOperation)}
+                              disabled={busyKey === `reconcile:${selectedOperation.id}`}
+                            >
+                              <RotateCcw className="mr-2 h-4 w-4" />
+                              {busyKey === `reconcile:${selectedOperation.id}` ? 'Сохраняем сверку...' : 'Передать сверку материалов'}
+                            </Button>
                           </div>
                         ) : null}
                         <div>
@@ -1444,7 +1540,7 @@ export default function TasksPage() {
                         <Button
                           className="bg-green-600 hover:bg-green-700"
                           onClick={() => handleCompleteOperation(selectedOperation)}
-                          disabled={!canCloseByArea || busyKey === `complete:${selectedOperation.id}`}
+                          disabled={!canCloseByArea || !reconciliationReady || busyKey === `complete:${selectedOperation.id}`}
                         >
                           <CheckCircle className="mr-2 h-4 w-4" />
                           {busyKey === `complete:${selectedOperation.id}` ? 'Закрываем...' : 'Закрыть операцию'}
