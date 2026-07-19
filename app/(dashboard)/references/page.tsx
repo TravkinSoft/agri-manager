@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import {
   addGlobalAgrochemicalToCompany,
   archiveCompanyPerson,
@@ -388,8 +389,9 @@ export default function ReferencesPage() {
     setPesticideCardError(null);
     setPesticideCard(null);
     try {
+      const headers = await buildClientAuthHeaders();
       const response = await fetch(`/api/catalog/pesticide-card/${productId}`, {
-        credentials: "include",
+        headers,
         cache: "no-store",
       });
       const payload = await response.json().catch(() => ({}));
