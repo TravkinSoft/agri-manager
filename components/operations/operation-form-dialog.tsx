@@ -734,8 +734,13 @@ export function OperationFormDialog({
     [impliedPurpose, purposeOptions]
   );
   const selectedCropStructure = useMemo(
-    () => cropStructures.find((item) => item.id === selectedCropStructureId) || null,
-    [cropStructures, selectedCropStructureId]
+    () => {
+      const structure = cropStructures.find((item) => item.id === selectedCropStructureId) || null;
+      // React Hook Form can expose the previous structure for one render after a field change.
+      if (structure && selectedFieldId && structure.field_id !== selectedFieldId) return null;
+      return structure;
+    },
+    [cropStructures, selectedCropStructureId, selectedFieldId]
   );
   const cropNameById = useMemo(
     () => new Map(cropCatalog.map((item) => [item.id, item.name])),
@@ -1317,7 +1322,9 @@ export function OperationFormDialog({
 
   useEffect(() => {
     if (!open || !selectedCropStructure) return;
-    form.setValue("field_id", selectedCropStructure.field_id);
+    if (!selectedFieldId) {
+      form.setValue("field_id", selectedCropStructure.field_id);
+    }
     form.setValue("crop_id", selectedCropStructure.crop_id);
     form.setValue("planned_area_ha", Number(selectedCropStructure.area || 0));
     setOperationTargets((prev) => {
@@ -1359,7 +1366,7 @@ export function OperationFormDialog({
         area_ha: Number(selectedCropStructure.area || 0),
       },
     }));
-  }, [form, open, selectedCropStructure, selectedIrrigationType, selectedIsPotato]);
+  }, [form, open, selectedCropStructure, selectedFieldId, selectedIrrigationType, selectedIsPotato]);
 
   useEffect(() => {
     if (!open || !selectedFieldId || isWholeFieldScope) return;
