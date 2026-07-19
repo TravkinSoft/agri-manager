@@ -89,6 +89,9 @@
 | TZ-197 | GLBD / ASSISTANT GOVERNANCE | Apply confirmed GLBD V1 corrections | copilot-v1 | DONE | TZ-196 | [task-reports/core/TZ-197.md](task-reports/core/TZ-197.md) | `SELF` |
 | TZ-198 | GLBD / ASSISTANT QA | Provide branch-only read-only GLBD surface for A110 | copilot-v1 | DONE | TZ-196,TZ-197 | [task-reports/core/TZ-198.md](task-reports/core/TZ-198.md) | `SELF` |
 | TZ-199 | GLBD / UI | Full Pesticide Card V1 and ten-card pilot | copilot-v1 | DONE | TZ-198 | [task-reports/core/TZ-199.md](task-reports/core/TZ-199.md) | `SELF` |
+| TZ-200 | GLBD / UI | Deploy Full Pesticide Card V1 pilot to preview | copilot-v1 | DONE | TZ-199 | `preview acceptance completed` | `4a80e9a` |
+| TZ-201 | GLBD / UI | Present Full Pesticide Card V1 in agronomic format | copilot-v1 | DONE | TZ-200 | `owner preview accepted` | `193cee7` |
+| TZ-202 | GLBD / EXPORT | Export all pesticide cards for full external research | copilot-v1 | DONE | TZ-201 | [task-reports/core/TZ-202.md](task-reports/core/TZ-202.md) | `SELF` |
 
 ## Status values
 
