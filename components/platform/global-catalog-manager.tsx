@@ -280,7 +280,7 @@ function toArrayValue(value: any): string[] {
 }
 
 export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }) {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
 
   const [rows, setRows] = useState<RowRecord[]>([]);
@@ -960,6 +960,13 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         error={pesticideCardError}
         card={pesticideCard}
         onRetry={retryPesticideCard}
+        adminMode={profile?.role === "global_admin"}
+        onEdit={pesticideCard ? () => {
+          const row = rows.find((item) => item.id === pesticideCard.product.id);
+          if (!row) return;
+          setPesticideCardOpen(false);
+          openEdit(row);
+        } : undefined}
       />
     </div>
   );

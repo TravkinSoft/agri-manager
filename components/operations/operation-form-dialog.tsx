@@ -29,6 +29,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { PesticideCardLink } from "@/components/platform/pesticide-card-link";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -128,6 +129,7 @@ type OperationTypeMaster = {
 type RefOption = { id: string; name: string; hint?: string };
 type ProductOption = {
   id: string;
+  master_product_id?: string | null;
   name: string;
   trade_name?: string | null;
   normalized_name?: string | null;
@@ -1004,7 +1006,7 @@ export function OperationFormDialog({
           .order("name"),
         supabase
           .from("products")
-          .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_rate_unit")
+          .select("id,master_product_id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_rate_unit")
           .eq("company_id", profile.company_id)
           .eq("archived", false)
           .eq("is_active", true)
@@ -1086,6 +1088,7 @@ export function OperationFormDialog({
             Pick<
               ProductOption,
               | "name"
+              | "master_product_id"
               | "trade_name"
               | "normalized_name"
               | "manufacturer"
@@ -1108,6 +1111,7 @@ export function OperationFormDialog({
             (companyProductsRes.data || []).map((row: any) => [
               String(row.id),
               {
+                master_product_id: row.master_product_id ? String(row.master_product_id) : null,
                 name:
                   stripManufacturerPrefixCandidate({
                     id: String(row.id),
@@ -1155,6 +1159,7 @@ export function OperationFormDialog({
           productMetaById.forEach((meta, productId) => {
             grouped.set(productId, {
               id: productId,
+              master_product_id: meta.master_product_id,
               name: meta.name,
               trade_name: meta.trade_name,
               normalized_name: meta.normalized_name,
@@ -1187,6 +1192,7 @@ export function OperationFormDialog({
               grouped.get(productId) ||
               ({
                 id: productId,
+                master_product_id: meta.master_product_id,
                 name: meta.name,
                 trade_name: meta.trade_name,
                 normalized_name: meta.normalized_name,
@@ -1877,6 +1883,10 @@ export function OperationFormDialog({
 
   const renderMaterialRow = (material: OperationMaterialFormData, index: number) => {
     const component = getTankMixComponentDefinition(material.component_type || material.material_type);
+    const selectedProduct = products.find((item) => item.id === material.product_id);
+    const pesticideCardId = productMatchesChemistryGroup(selectedProduct, "pesticides")
+      ? selectedProduct?.master_product_id
+      : null;
     const materialTotal = calculateMaterialTotal(material, preliminaryWaterTotalL);
     const rateBasis = normalizeRateBasisForOperationMaterial(material.rate_basis, usesChemistryMix);
     const rateBasisOptions = usesChemistryMix ? CHEMISTRY_MATERIAL_RATE_BASIS : MATERIAL_RATE_BASIS;
@@ -1915,6 +1925,7 @@ export function OperationFormDialog({
         <div className="md:col-span-2">
           <div className="mb-1 text-xs text-slate-500">Продукт</div>
           {getTankMixComponentDefinition(material.component_type || material.material_type).productRequired ? (
+            <div className="flex items-center gap-1">
             <SearchableSelect
               value={material.product_id || ""}
               onChange={(productId) => {
@@ -1938,6 +1949,8 @@ export function OperationFormDialog({
               placeholder={isPotatoPlanting ? "Выберите удобрение или препарат" : "Выберите продукт"}
               emptyLabel="Материалы компании не найдены"
             />
+            <PesticideCardLink productId={pesticideCardId} />
+            </div>
           ) : (
             <div className="flex h-8 items-center rounded-md border bg-muted/40 px-3 text-xs text-muted-foreground">
               Без складского продукта

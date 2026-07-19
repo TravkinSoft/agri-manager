@@ -49,6 +49,7 @@ export interface Warehouse {
 
 export interface Product {
   id: string;
+  master_product_id?: string | null;
   name: string;
   type: ProductCategory;
   crop_id?: string | null;

@@ -41,6 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
+import { PesticideCardLink } from "@/components/platform/pesticide-card-link";
 import {
   archiveOperation,
   createOperation,
@@ -1259,7 +1260,14 @@ export default function OperationsPage() {
                           const loss = Math.max(issued - consumed - returned, 0);
                           return (
                             <TableRow key={material.id}>
-                              <TableCell className="font-medium">{material.product_name || material.product_id}</TableCell>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-1">
+                                  <span>{material.product_name || material.product_id}</span>
+                                  {String(material.product_type || "").toLowerCase() === "pesticide" ? (
+                                    <PesticideCardLink productId={material.master_product_id} />
+                                  ) : null}
+                                </div>
+                              </TableCell>
                               <TableCell>{getMaterialComponentLabel(material)}</TableCell>
                               <TableCell>{material.planned_rate ?? "—"} {displayRateUnit(material.unit)}</TableCell>
                               <TableCell>{material.actual_rate ?? "—"} {displayRateUnit(material.unit)}</TableCell>

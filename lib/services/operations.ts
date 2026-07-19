@@ -94,6 +94,8 @@ function normalizeOperationMaterials(rows: any[] | null | undefined): OperationM
     product_name: row?.products
       ? buildProductPassport({ ...row.products, id: String(row.product_id || row.products.id || "") }).displayName
       : null,
+    master_product_id: row?.products?.master_product_id || null,
+    product_type: row?.products?.product_type || row?.products?.type || null,
   })) as OperationMaterial[];
 }
 
@@ -243,7 +245,7 @@ export async function getOperations(
       ),
       operation_materials:operation_materials (
         *,
-        products:product_id (name,trade_name)
+        products:product_id (name,trade_name,master_product_id,type,product_type)
       ),
       operation_lines:operation_lines (
         id,
@@ -303,7 +305,7 @@ export async function getSpecialistOperations(
       ),
       operation_materials:operation_materials (
         *,
-        products:product_id (name,trade_name)
+        products:product_id (name,trade_name,master_product_id,type,product_type)
       ),
       operation_lines:operation_lines (
         id,

@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { InventoryTransactionFormDialog } from "@/components/warehouses/inventory-transaction-form-dialog";
+import { PesticideCardLink } from "@/components/platform/pesticide-card-link";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { useToast } from "@/hooks/use-toast";
@@ -161,6 +162,7 @@ export default function WarehousesPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [balances, setBalances] = useState<InventoryBalance[]>([]);
   const [transactions, setTransactions] = useState<InventoryTransactionWithDetails[]>([]);
+  const productById = useMemo(() => new Map(products.map((product) => [product.id, product])), [products]);
 
   const querySignature = searchParams.toString();
   const querySearchValue = (searchParams.get("search") || "").trim();
@@ -676,13 +678,24 @@ export default function WarehousesPage() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {selectedOverview.allItems.map((stockItem) => (
+                          {selectedOverview.allItems.map((stockItem) => {
+                            const product = productById.get(stockItem.product_id);
+                            const isPesticide = String(product?.type || "").toLowerCase() === "pesticide";
+                            return (
                             <TableRow
                               key={`${stockItem.product_id}-${stockItem.variety_id || "no-variety"}-${stockItem.reproduction_id || "no-repro"}-${stockItem.batch_id || "no-batch"}`}
                               className="border-slate-800 hover:bg-slate-900/70"
                             >
                               <TableCell>
-                                <div className="font-medium text-slate-100">{stockItem.identity_name || stockItem.product_name}</div>
+                                <div className="flex items-center gap-1">
+                                  <div className="font-medium text-slate-100">{stockItem.identity_name || stockItem.product_name}</div>
+                                  {isPesticide ? (
+                                    <PesticideCardLink
+                                      productId={product?.master_product_id}
+                                      className="text-slate-400 hover:text-emerald-300"
+                                    />
+                                  ) : null}
+                                </div>
                                 <div className="text-xs text-slate-500">{stockItem.product_type || "-"}</div>
                               </TableCell>
                               <TableCell className="font-mono text-xs text-slate-400">{formatBatchLabel(stockItem.batch_id)}</TableCell>
@@ -692,7 +705,8 @@ export default function WarehousesPage() {
                               </TableCell>
                               <TableCell className="text-slate-400">{formatDateTime(stockItem.last_updated, language as Lang)}</TableCell>
                             </TableRow>
-                          ))}
+                            );
+                          })}
                         </TableBody>
                       </Table>
                     </div>

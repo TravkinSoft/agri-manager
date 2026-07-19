@@ -36,6 +36,7 @@ export type CropCareVariety = {
 
 export type CropCareProduct = {
   id: string;
+  master_product_id: string | null;
   name: string;
   trade_name: string | null;
   normalized_name: string | null;
@@ -1033,6 +1034,7 @@ export async function loadCropCareBootstrap(supabase: SupabaseClient, companyId:
     })),
     products: (productsRes.data || []).map((row: any) => ({
       id: String(row.id),
+      master_product_id: nullableText(row.master_product_id),
       name: productDisplayName(row),
       trade_name: nullableText(row.trade_name),
       normalized_name: nullableText(row.normalized_name),

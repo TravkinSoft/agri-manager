@@ -859,6 +859,7 @@ export default function ReferencesPage() {
         error={pesticideCardError}
         card={pesticideCard}
         onRetry={() => selectedPesticideId && void loadPesticideCard(selectedPesticideId)}
+        adminMode={profile?.role === "global_admin"}
       />
 
       <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && closeModal()}>
