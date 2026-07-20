@@ -707,7 +707,9 @@ function handleRadioOptionKeyDown(
   }
 
   const items = Array.from(
-    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("[data-operation-radio-value]") || []
+    event.currentTarget
+      .closest('[role="radiogroup"]')
+      ?.querySelectorAll<HTMLButtonElement>("[data-operation-radio-value]") || []
   );
   const currentIndex = items.indexOf(event.currentTarget);
   if (currentIndex === -1 || items.length === 0) return;
