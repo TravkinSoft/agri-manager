@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { FieldErrors, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
@@ -691,60 +691,137 @@ function SearchableSelect(props: {
   );
 }
 
-function GroupedWorkSelect(props: {
-  value: string;
-  onChange: (value: string) => void;
+function OperationWorkSelector(props: {
+  categoryValue: string;
+  workValue: string;
+  onCategoryChange: (value: string) => void;
+  onWorkChange: (value: string) => void;
   groups: WorkOptionGroup[];
   disabled?: boolean;
 }) {
-  const { value, onChange, groups, disabled } = props;
-  const [open, setOpen] = useState(false);
-  const options = groups.flatMap((group) => group.options);
-  const selected = options.find((option) => option.id === value);
+  const {
+    categoryValue,
+    workValue,
+    onCategoryChange,
+    onWorkChange,
+    groups,
+    disabled,
+  } = props;
+  const selectorId = useId();
+  const selectedGroup = groups.find((group) => group.id === categoryValue) || null;
+  const headingId = `${selectorId}-heading`;
+  const helpId = `${selectorId}-help`;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          disabled={disabled}
-          className="h-auto min-h-11 w-full justify-between border-slate-700 bg-slate-950/45 px-3 py-2 text-left"
-        >
-          <span className={cn("truncate", selected ? "font-semibold text-slate-100" : "text-slate-500")}>
-            {selected?.label || "Выберите работу"}
-          </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
-        <Command>
-          <CommandInput placeholder="Найти работу..." />
-          <CommandList className="max-h-96 overflow-y-auto overscroll-contain">
-            <CommandEmpty>Подходящие работы не найдены.</CommandEmpty>
-            {groups.map((group) => (
-              <CommandGroup key={group.id} heading={group.label}>
-                {group.options.map((option) => (
-                  <CommandItem
-                    key={option.id}
-                    value={`${option.label} ${group.label}`}
-                    onSelect={() => {
-                      onChange(option.id);
-                      setOpen(false);
-                    }}
-                  >
-                    <Check className={cn("mr-2 h-4 w-4", option.id === value ? "opacity-100" : "opacity-0")} />
-                    <span>{option.label}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            ))}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
+    <section aria-labelledby={headingId}>
+      <div>
+        <h2 id={headingId} className="text-base font-semibold leading-[22px] text-white">
+          Работа *
+        </h2>
+        <p id={helpId} className="mt-1 text-[13px] leading-[18px] text-slate-400">
+          Сначала выберите раздел, затем конкретную работу.
+        </p>
+      </div>
+
+      <fieldset className="mt-3" disabled={disabled} aria-describedby={helpId}>
+        <legend className="sr-only">Раздел работы</legend>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+          {groups.map((group) => {
+            const checked = categoryValue === group.id;
+            return (
+              <label key={group.id} className={cn("relative block", disabled && "cursor-not-allowed opacity-55")}>
+                <input
+                  className="peer sr-only"
+                  type="radio"
+                  name={`${selectorId}-category`}
+                  value={group.id}
+                  checked={checked}
+                  disabled={disabled}
+                  onChange={() => onCategoryChange(group.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      onCategoryChange(group.id);
+                    }
+                  }}
+                />
+                <span
+                  className={cn(
+                    "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
+                    "peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-yellow-300 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[#0b1017]",
+                    checked
+                      ? "border-yellow-400 bg-yellow-400/10 text-yellow-100"
+                      : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
+                    disabled && "cursor-not-allowed"
+                  )}
+                >
+                  <span className="break-words">{group.label}</span>
+                </span>
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+
+      {disabled ? (
+        <p className="mt-3 text-[13px] leading-[18px] text-slate-400">
+          Сначала выберите участок структуры посевов.
+        </p>
+      ) : null}
+
+      <div className="mt-5 border-t border-slate-800/90 pt-5">
+        <div className="mb-3 text-sm font-semibold leading-5 text-slate-200">Конкретная работа</div>
+        {!categoryValue ? (
+          <p className="text-[13px] leading-[18px] text-slate-400">
+            Выберите раздел, и здесь появятся доступные работы.
+          </p>
+        ) : !selectedGroup || selectedGroup.options.length === 0 ? (
+          <p className="text-[13px] leading-[18px] text-slate-400">
+            Для выбранного участка нет доступных работ этого раздела.
+          </p>
+        ) : (
+          <fieldset disabled={disabled}>
+            <legend className="sr-only">Конкретная работа</legend>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {selectedGroup.options.map((option) => {
+                const checked = workValue === option.id;
+                return (
+                  <label key={option.id} className={cn("relative block", disabled && "cursor-not-allowed opacity-55")}>
+                    <input
+                      className="peer sr-only"
+                      type="radio"
+                      name={`${selectorId}-work`}
+                      value={option.id}
+                      checked={checked}
+                      disabled={disabled}
+                      onChange={() => onWorkChange(option.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          onWorkChange(option.id);
+                        }
+                      }}
+                    />
+                    <span
+                      className={cn(
+                        "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
+                        "peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-yellow-300 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[#0b1017]",
+                        checked
+                          ? "border-transparent bg-yellow-400 font-semibold text-slate-950"
+                          : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
+                        disabled && "cursor-not-allowed"
+                      )}
+                    >
+                      <span className="break-words">{option.label}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -2175,6 +2252,46 @@ export function OperationFormDialog({
     });
   };
 
+  const handleCategoryChange = (slug: string) => {
+    const canonical = resolveCanonicalOperationType({ categorySlug: slug });
+    const nextCategory = canonical?.categorySlug || slug;
+    if (nextCategory === categorySlug) return;
+
+    setSubmitError(null);
+    setCategorySlug(nextCategory);
+    setTypeSlug("");
+    form.setValue("operation_category_slug", nextCategory);
+    form.setValue("operation_type_slug", "");
+    form.setValue("operation_type", "");
+
+    form.setValue("machine_id", null);
+    form.setValue("equipment_id", null);
+    form.setValue("transport_id", null);
+    form.setValue("operation_target", null);
+    form.setValue("rate_per_ha", null);
+    form.setValue("spray_volume_per_ha", null);
+    form.setValue("row_spacing_m", null);
+    form.setValue("seed_spacing_cm", null);
+
+    setPurposes([]);
+    setTankMixEnabled(false);
+    setTankMixWaterRate(null);
+    setMaterials([]);
+    setOperationTargets(selectedCropStructure ? [createTargetFromStructure(selectedCropStructure)] : []);
+    setOperationParams((prev) => {
+      const next: Record<string, unknown> = {};
+      ["scope", "irrigation_type", "crop_context"].forEach((key) => {
+        if (key in prev) next[key] = prev[key];
+      });
+      return next;
+    });
+    setStructureChangeMode("none");
+    setStructureChangeCropId("");
+    setStructureChangeVarietyId("none");
+    setStructureChangeReproductionId("none");
+    form.clearErrors(["operation_type", "operation_type_slug"]);
+  };
+
   const handleTypeChange = (slug: string) => {
     const type = types.find((item) => item.slug === slug);
     const canonical = resolveCanonicalOperationType({
@@ -2665,23 +2782,15 @@ export function OperationFormDialog({
 
               <main className="min-h-0 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
 
-            <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-semibold text-white">Работа *</div>
-                  <div className="text-xs text-slate-500">Все доступные работы собраны в одном списке.</div>
-                </div>
-              </div>
-
-              <GroupedWorkSelect
-                value={typeSlug}
-                onChange={handleTypeChange}
+            <section className="py-2">
+              <OperationWorkSelector
+                categoryValue={categorySlug}
+                workValue={typeSlug}
+                onCategoryChange={handleCategoryChange}
+                onWorkChange={handleTypeChange}
                 groups={workGroups}
                 disabled={!selectedCropStructure && !isWholeFieldScope}
               />
-              {!selectedCropStructure && !isWholeFieldScope ? (
-                <div className="mt-2 text-xs text-slate-500">Сначала выберите участок структуры посевов.</div>
-              ) : null}
               {form.formState.errors.operation_type?.message ? (
                 <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
                   {form.formState.errors.operation_type.message}
