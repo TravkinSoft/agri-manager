@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { FieldErrors, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
@@ -692,6 +692,40 @@ function SearchableSelect(props: {
   );
 }
 
+function handleRadioOptionKeyDown(
+  event: ReactKeyboardEvent<HTMLButtonElement>,
+  onValueChange: (value: string) => void
+) {
+  const value = event.currentTarget.dataset.operationRadioValue;
+  if (!value) return;
+
+  if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+    event.preventDefault();
+    onValueChange(value);
+    return;
+  }
+
+  const items = Array.from(
+    event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("[data-operation-radio-value]") || []
+  );
+  const currentIndex = items.indexOf(event.currentTarget);
+  if (currentIndex === -1 || items.length === 0) return;
+
+  let nextIndex: number | null = null;
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % items.length;
+  if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex - 1 + items.length) % items.length;
+  if (event.key === "Home") nextIndex = 0;
+  if (event.key === "End") nextIndex = items.length - 1;
+  if (nextIndex === null) return;
+
+  event.preventDefault();
+  const nextItem = items[nextIndex];
+  const nextValue = nextItem.dataset.operationRadioValue;
+  if (!nextValue) return;
+  onValueChange(nextValue);
+  nextItem.focus();
+}
+
 function OperationWorkSelector(props: {
   categoryValue: string;
   workValue: string;
@@ -743,12 +777,8 @@ function OperationWorkSelector(props: {
                 key={group.id}
                 value={group.id}
                 aria-label={group.label}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    onCategoryChange(group.id);
-                  }
-                }}
+                data-operation-radio-value={group.id}
+                onKeyDown={(event) => handleRadioOptionKeyDown(event, onCategoryChange)}
                 className={cn(
                   "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
@@ -796,12 +826,8 @@ function OperationWorkSelector(props: {
                     key={option.id}
                     value={option.id}
                     aria-label={option.label}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        onWorkChange(option.id);
-                      }
-                    }}
+                    data-operation-radio-value={option.id}
+                    onKeyDown={(event) => handleRadioOptionKeyDown(event, onWorkChange)}
                     className={cn(
                       "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",

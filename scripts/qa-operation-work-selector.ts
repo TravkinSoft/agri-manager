@@ -39,6 +39,9 @@ assert.equal(harvestingSlugs.length, 10, "the pilot must expose 10 harvesting wo
 assert.ok(source.includes("RadioGroupPrimitive.Root"), "the selector must use RadioGroup semantics");
 assert.ok(source.includes("RadioGroupPrimitive.Item"), "each category and work must expose radio semantics");
 assert.ok(source.includes('event.key === "Enter"'), "Enter must select the focused option");
+assert.ok(source.includes('event.key === "ArrowRight"'), "arrow keys must move and select within a group");
+assert.ok(source.includes('event.key === " "'), "Space must select the focused option");
+assert.ok(source.includes("nextItem.focus()"), "keyboard navigation must preserve visible focus");
 assert.ok(source.includes("focus-visible:ring-2"), "keyboard focus must remain visible");
 assert.ok(source.includes("grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4"), "category breakpoints must remain 2/3/4 columns");
 assert.ok(source.includes("grid grid-cols-1 gap-2 sm:grid-cols-2"), "work buttons must remain 1/2 columns");
