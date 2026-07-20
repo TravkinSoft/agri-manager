@@ -782,7 +782,7 @@ function OperationWorkSelector(props: {
                 value={group.id}
                 aria-label={group.label}
                 data-operation-radio-value={group.id}
-                onKeyDown={(event) => handleRadioOptionKeyDown(event, onCategoryChange)}
+                onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onCategoryChange)}
                 className={cn(
                   "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
@@ -831,7 +831,7 @@ function OperationWorkSelector(props: {
                     value={option.id}
                     aria-label={option.label}
                     data-operation-radio-value={option.id}
-                    onKeyDown={(event) => handleRadioOptionKeyDown(event, onWorkChange)}
+                    onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onWorkChange)}
                     className={cn(
                       "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
