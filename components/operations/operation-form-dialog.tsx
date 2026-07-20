@@ -701,6 +701,7 @@ function handleRadioOptionKeyDown(
 
   if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
     event.preventDefault();
+    event.stopPropagation();
     onValueChange(value);
     return;
   }
@@ -719,6 +720,7 @@ function handleRadioOptionKeyDown(
   if (nextIndex === null) return;
 
   event.preventDefault();
+  event.stopPropagation();
   const nextItem = items[nextIndex];
   const nextValue = nextItem.dataset.operationRadioValue;
   if (!nextValue) return;
