@@ -92,6 +92,10 @@ import {
   type OperationPurposeSlug,
   type TankMixComponentType,
 } from "@/lib/operations/operation-engine";
+import {
+  getOperationWorkUiSection,
+  OPERATION_WORK_UI_SECTIONS,
+} from "@/lib/operations/operation-work-ui";
 import { formatCropIdentity, resolveCropIdentity } from "@/lib/operations/crop-identity";
 
 interface OperationFormDialogProps {
@@ -106,13 +110,6 @@ interface OperationFormDialogProps {
   cropStructures: CropStructureWithDetails[];
   specialists: SpecialistAssignee[];
 }
-
-type OperationCategory = {
-  id: string;
-  slug: string;
-  name_ru: string;
-  is_active?: boolean;
-};
 
 type OperationTypeMaster = {
   id: string;
@@ -157,14 +154,7 @@ type VarietyCatalogOption = { id: string; name: string; crop_id: string; archive
 type ReproductionCatalogOption = { id: string; name: string; archived?: boolean | null; is_active?: boolean | null };
 
 type SearchOption = { id: string; label: string; hint?: string };
-type WorkOptionGroup = { id: string; label: string; options: SearchOption[] };
-
-const FALLBACK_CATEGORIES: OperationCategory[] = OPERATION_TYPE_DEFINITIONS.map((definition) => ({
-  id: definition.categorySlug,
-  slug: definition.categorySlug,
-  name_ru: definition.label,
-  is_active: true,
-}));
+type WorkOptionGroup = { id: string; label: string; options: SearchOption[]; directWorkId?: string };
 
 const FALLBACK_TYPES: OperationTypeMaster[] = [
   ...OPERATION_TYPE_DEFINITIONS.map((definition) => ({
@@ -196,32 +186,6 @@ const FALLBACK_TYPES: OperationTypeMaster[] = [
   }),
 ];
 
-const HIDDEN_PLANTING_SUBTYPE_SLUGS = new Set([
-  "seeding_with_fertilizer",
-  "seeding_with_microgranules",
-  "potato_planting",
-  "reseeding",
-]);
-
-const HIDDEN_PILOT_SUBTYPE_SLUGS = new Set([
-  "heavy_disking",
-  "chiseling",
-  "ridge_forming_with_drip_tape",
-  "furrow_cutting",
-  "separate_harvesting",
-  "potato_lifting",
-  "potato_harvesting",
-  "vegetable_harvesting",
-  "grain_harvesting",
-]);
-
-const WORK_GROUP_LABELS: Record<string, string> = {
-  soil_operation: "Работа с почвой",
-  planting: "Посев и посадка",
-  harvesting: "Уборка",
-  service_operation: "Простые полевые работы",
-};
-
 const DEPTH_ENABLED_WORKS = new Set([
   "stubble_peeling",
   "disking",
@@ -239,10 +203,6 @@ const DEPTH_ENABLED_WORKS = new Set([
 ]);
 
 const SEEDING_WORKS = new Set(["seeding", "planting_generic", "overseeding"]);
-
-const HIDDEN_OPERATION_CATEGORY_SLUGS = new Set([
-  "sampling",
-]);
 
 const WHOLE_FIELD_ALLOWED_CATEGORIES = new Set([
   "harvesting",
@@ -604,17 +564,6 @@ function requiresCropStructureForType(type: OperationTypeMaster | null): boolean
   return canonical ? canonical.requiresCropStructure : type.requires_field !== false && type.affects_field_history !== false;
 }
 
-function mergeCanonicalCategories(rows: OperationCategory[]): OperationCategory[] {
-  const bySlug = new Map<string, OperationCategory>();
-  FALLBACK_CATEGORIES.forEach((item) => bySlug.set(item.slug, item));
-  rows.forEach((item) => {
-    const canonical = resolveCanonicalOperationType({ categorySlug: item.slug });
-    if (canonical) return;
-    bySlug.set(item.slug, item);
-  });
-  return Array.from(bySlug.values());
-}
-
 function mergeCanonicalTypes(rows: OperationTypeMaster[]): OperationTypeMaster[] {
   const bySlug = new Map<string, OperationTypeMaster>();
   FALLBACK_TYPES.forEach((item) => bySlug.set(item.slug, item));
@@ -748,6 +697,7 @@ function OperationWorkSelector(props: {
   } = props;
   const selectorId = useId();
   const selectedGroup = groups.find((group) => group.id === categoryValue) || null;
+  const showsConcreteWorks = selectedGroup?.directWorkId == null;
   const headingId = `${selectorId}-heading`;
   const helpId = `${selectorId}-help`;
   const categoryLabelId = `${selectorId}-category-label`;
@@ -760,7 +710,7 @@ function OperationWorkSelector(props: {
           Работа *
         </h2>
         <p id={helpId} className="mt-1 text-[13px] leading-[18px] text-slate-400">
-          Сначала выберите раздел, затем конкретную работу.
+          Выберите раздел. Для почвы, посева и уборки уточните конкретную работу.
         </p>
       </div>
 
@@ -772,7 +722,7 @@ function OperationWorkSelector(props: {
           disabled={disabled}
           aria-labelledby={categoryLabelId}
           aria-describedby={helpId}
-          className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4"
+          className="grid grid-cols-2 gap-2 md:grid-cols-3"
         >
           {groups.map((group) => {
             const checked = categoryValue === group.id;
@@ -805,24 +755,23 @@ function OperationWorkSelector(props: {
         </p>
       ) : null}
 
-      <div className="mt-5 border-t border-slate-800/90 pt-5">
-        <div id={workLabelId} className="mb-3 text-sm font-semibold leading-5 text-slate-200">Конкретная работа</div>
-        {!categoryValue ? (
-          <p className="text-[13px] leading-[18px] text-slate-400">
-            Выберите раздел, и здесь появятся доступные работы.
-          </p>
-        ) : !selectedGroup || selectedGroup.options.length === 0 ? (
-          <p className="text-[13px] leading-[18px] text-slate-400">
-            Для выбранного участка нет доступных работ этого раздела.
-          </p>
-        ) : (
-          <RadioGroupPrimitive.Root
-            value={workValue}
-            onValueChange={onWorkChange}
-            disabled={disabled}
-            aria-labelledby={workLabelId}
-            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
-          >
+      {categoryValue && showsConcreteWorks ? (
+        <div className="mt-5 border-t border-slate-800/90 pt-5">
+          <div id={workLabelId} className="mb-3 text-sm font-semibold leading-5 text-slate-200">
+            Конкретная работа
+          </div>
+          {!selectedGroup || selectedGroup.options.length === 0 ? (
+            <p className="text-[13px] leading-[18px] text-slate-400">
+              Для выбранного участка нет доступных работ этого раздела.
+            </p>
+          ) : (
+            <RadioGroupPrimitive.Root
+              value={workValue}
+              onValueChange={onWorkChange}
+              disabled={disabled}
+              aria-labelledby={workLabelId}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+            >
               {selectedGroup.options.map((option) => {
                 const checked = workValue === option.id;
                 return (
@@ -845,9 +794,10 @@ function OperationWorkSelector(props: {
                   </RadioGroupPrimitive.Item>
                 );
               })}
-          </RadioGroupPrimitive.Root>
-        )}
-      </div>
+            </RadioGroupPrimitive.Root>
+          )}
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -865,7 +815,6 @@ export function OperationFormDialog({
   specialists,
 }: OperationFormDialogProps) {
   const { profile } = useAuth();
-  const [categories, setCategories] = useState<OperationCategory[]>(FALLBACK_CATEGORIES);
   const [types, setTypes] = useState<OperationTypeMaster[]>(FALLBACK_TYPES);
   const [categorySlug, setCategorySlug] = useState("");
   const [typeSlug, setTypeSlug] = useState("");
@@ -1007,75 +956,32 @@ export function OperationFormDialog({
     [cropStructures, selectedFieldId]
   );
   const selectedCropStructureArea = selectedCropStructure ? Number(selectedCropStructure.area || 0) : null;
-  const availableCategories = useMemo(() => {
-    return categories.filter((category) => {
-      if (HIDDEN_OPERATION_CATEGORY_SLUGS.has(category.slug)) return false;
-      if (isWholeFieldScope && !WHOLE_FIELD_ALLOWED_CATEGORIES.has(category.slug)) return false;
-      const expectedSubtypeSlugs = new Set(
-        OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === category.slug).map((item) => item.slug)
-      );
-      const rows = types.filter((item) => {
-        if (item.category_slug !== category.slug) return false;
-        if (expectedSubtypeSlugs.size > 0 && !expectedSubtypeSlugs.has(item.slug)) return false;
-        if (HIDDEN_PILOT_SUBTYPE_SLUGS.has(item.slug)) return false;
-        if (item.category_slug === "planting" && HIDDEN_PLANTING_SUBTYPE_SLUGS.has(item.slug)) return false;
-        return getOperationTemplateAvailability({
-          ...availabilityContext,
-          categorySlug: item.category_slug,
-          typeSlug: item.slug,
-          operationType: item.name_ru,
-        }).allowed;
-      });
-      return rows.length > 0;
-    });
-  }, [availabilityContext, categories, isWholeFieldScope, types]);
+  const visibleCategorySlugs = useMemo(
+    () => new Set<string>(OPERATION_WORK_UI_SECTIONS.map((section) => section.categorySlug)),
+    []
+  );
   const typeOptions = useMemo(() => {
     const rows = types.filter((item) => !categorySlug || item.category_slug === categorySlug);
-    const expectedSubtypeSlugs = new Set(
-      OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === categorySlug).map((item) => item.slug)
-    );
-    const subtypeRows = expectedSubtypeSlugs.size > 0 ? rows.filter((item) => expectedSubtypeSlugs.has(item.slug)) : rows;
-    return subtypeRows.filter((item) => {
-      if (HIDDEN_OPERATION_CATEGORY_SLUGS.has(item.category_slug)) return false;
-      if (isWholeFieldScope && !WHOLE_FIELD_ALLOWED_CATEGORIES.has(item.category_slug)) return false;
-      if (HIDDEN_PILOT_SUBTYPE_SLUGS.has(item.slug)) return false;
-      if (item.category_slug === "planting" && HIDDEN_PLANTING_SUBTYPE_SLUGS.has(item.slug)) return false;
-      return getOperationTemplateAvailability({
-        ...availabilityContext,
-        categorySlug: item.category_slug,
-        typeSlug: item.slug,
-        operationType: item.name_ru,
-      }).allowed;
-    });
-  }, [availabilityContext, types, categorySlug, isWholeFieldScope]);
+    const section = getOperationWorkUiSection(categorySlug);
+    if (!section || section.selection === "direct") return rows;
+    const approvedSlugs = new Set(section.works.map((work) => work.slug));
+    return rows.filter((item) => approvedSlugs.has(item.slug));
+  }, [types, categorySlug]);
   const workGroups = useMemo<WorkOptionGroup[]>(() => {
-    return availableCategories
-      .map((category) => {
-        const expectedSubtypeSlugs = new Set(
-          OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === category.slug).map((item) => item.slug)
-        );
-        const options = types
-          .filter((item) => item.category_slug === category.slug)
-          .filter((item) => expectedSubtypeSlugs.size === 0 || expectedSubtypeSlugs.has(item.slug))
-          .filter((item) => !HIDDEN_PILOT_SUBTYPE_SLUGS.has(item.slug))
-          .filter((item) => !(item.category_slug === "planting" && HIDDEN_PLANTING_SUBTYPE_SLUGS.has(item.slug)))
-          .filter((item) =>
-            getOperationTemplateAvailability({
-              ...availabilityContext,
-              categorySlug: item.category_slug,
-              typeSlug: item.slug,
-              operationType: item.name_ru,
-            }).allowed
-          )
-          .map((item) => ({ id: item.slug, label: item.name_ru }));
-        return {
-          id: category.slug,
-          label: WORK_GROUP_LABELS[category.slug] || category.name_ru,
-          options,
-        };
-      })
-      .filter((group) => group.options.length > 0);
-  }, [availabilityContext, availableCategories, types]);
+    return OPERATION_WORK_UI_SECTIONS.map((section) => {
+      const options = section.works.map((work) => {
+        const type = types.find((item) => item.slug === work.slug && item.category_slug === section.categorySlug);
+        const definition = OPERATION_SUBTYPE_DEFINITIONS.find((item) => item.slug === work.slug);
+        return { id: work.slug, label: type?.name_ru || definition?.label || work.slug };
+      });
+      return {
+        id: section.categorySlug,
+        label: section.label,
+        options,
+        directWorkId: section.directOperationSlug,
+      };
+    });
+  }, [types]);
   const fieldLabelWithArea = (field: Field) => {
     const title = getFieldDisplayName(field).trim();
     const prefixedTitle = title.toLowerCase().startsWith("поле") ? title : `Поле ${title}`;
@@ -1207,7 +1113,6 @@ export function OperationFormDialog({
     if (!open || !profile?.company_id) return;
     (async () => {
       const [
-        catRes,
         typeRes,
         machinesRes,
         equipmentRes,
@@ -1218,7 +1123,6 @@ export function OperationFormDialog({
         varietiesRes,
         reproductionsRes,
       ] = await Promise.all([
-        supabase.from("operation_categories").select("id,slug,name_ru,is_active").eq("is_active", true).order("name_ru"),
         supabase
           .from("operation_types")
           .select("id,slug,name_ru,category_slug,requires_machine,requires_product,requires_field,affects_inventory,affects_field_history,is_active")
@@ -1262,7 +1166,6 @@ export function OperationFormDialog({
         supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code,archived,is_active").order("name"),
       ]);
 
-      if (!catRes.error) setCategories(mergeCanonicalCategories((catRes.data || []) as OperationCategory[]));
       if (!typeRes.error) setTypes(mergeCanonicalTypes((typeRes.data || []) as OperationTypeMaster[]));
       if (!machinesRes.error) {
         setMachines((machinesRes.data || []).map((row: any) => ({
@@ -1643,7 +1546,7 @@ export function OperationFormDialog({
 
   useEffect(() => {
     if (!open) return;
-    if (categorySlug && !availableCategories.some((category) => category.slug === categorySlug)) {
+    if (categorySlug && !visibleCategorySlugs.has(categorySlug) && !isEdit) {
       setCategorySlug("");
       setTypeSlug("");
       form.setValue("operation_category_slug", "");
@@ -1656,7 +1559,7 @@ export function OperationFormDialog({
       form.setValue("operation_type_slug", "");
       form.setValue("operation_type", "");
     }
-  }, [availableCategories, categorySlug, form, open, typeOptions, typeSlug]);
+  }, [categorySlug, form, isEdit, open, typeOptions, typeSlug, visibleCategorySlugs]);
 
   useEffect(() => {
     if (!open) return;
@@ -2282,14 +2185,16 @@ export function OperationFormDialog({
   const handleCategoryChange = (slug: string) => {
     const canonical = resolveCanonicalOperationType({ categorySlug: slug });
     const nextCategory = canonical?.categorySlug || slug;
-    if (nextCategory === categorySlug) return;
+    const section = getOperationWorkUiSection(nextCategory);
+    const directType = section?.selection === "direct" ? section.directOperationSlug || nextCategory : "";
+    if (nextCategory === categorySlug && (!directType || directType === typeSlug)) return;
 
     setSubmitError(null);
     setCategorySlug(nextCategory);
-    setTypeSlug("");
+    setTypeSlug(directType);
     form.setValue("operation_category_slug", nextCategory);
-    form.setValue("operation_type_slug", "");
-    form.setValue("operation_type", "");
+    form.setValue("operation_type_slug", directType);
+    form.setValue("operation_type", section?.selection === "direct" ? section.label : "");
 
     form.setValue("machine_id", null);
     form.setValue("equipment_id", null);
@@ -2321,6 +2226,16 @@ export function OperationFormDialog({
 
   const handleTypeChange = (slug: string) => {
     const type = types.find((item) => item.slug === slug);
+    const availability = getOperationTemplateAvailability({
+      ...availabilityContext,
+      categorySlug: type?.category_slug || categorySlug,
+      typeSlug: slug,
+      operationType: type?.name_ru || "",
+    });
+    if (!availability.allowed) {
+      setSubmitError(availability.reason || "Эта работа недоступна для выбранной культуры.");
+      return;
+    }
     const canonical = resolveCanonicalOperationType({
       categorySlug: type?.category_slug || categorySlug,
       typeSlug: slug,
