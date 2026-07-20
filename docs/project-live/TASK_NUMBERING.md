@@ -94,6 +94,7 @@
 | TZ-202 | GLBD / EXPORT | Export all pesticide cards for full external research | copilot-v1 | DONE | TZ-201 | [task-reports/core/TZ-202.md](task-reports/core/TZ-202.md) | `SELF` |
 | TZ-204 | OPERATIONS / DATABASE | Enforce atomic operation lifecycle and data integrity | copilot-v1 | DONE | TZ-203 | [task-reports/core/TZ-204.md](task-reports/core/TZ-204.md) | `9ff5701` |
 | TZ-207 | OPERATIONS / PILOT | Minimal non-chemical field operations for the real pilot | copilot-v1 | DONE | TZ-204 | [task-reports/core/TZ-207.md](task-reports/core/TZ-207.md) | `SELF` |
+| TZ-209 | OPERATIONS / UI | Final simplified field-work selector | copilot-v1 | DONE | TZ-204,TZ-207,TZ-208 | [task-reports/core/TZ-209.md](task-reports/core/TZ-209.md) | `SELF` |
 
 ## Status values
 

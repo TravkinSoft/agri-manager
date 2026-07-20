@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-20T23:59:00+05:00
+LAST_REVIEW_AT: 2026-07-21T04:30:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `9ff5701ba38a2e7940e08fb4b4243d86eb456033`)
+CORE_COMMIT: `SELF` (previous core commit: `5c48cfdc9eeada004309088407927a0f0bc7ad38`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
@@ -17,6 +17,15 @@ INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
 NEXT_SAFE_ACTION: Start A110 in assistant-v1 as read-only GLBD access using the TZ-196 safety matrix plus the TZ-197 post-apply record. Exclude the ten `BLOCKED_NO_DATA` rows; do not implement agronomic recommendations.
+
+## TZ-209 review result
+
+TZ209_ASSISTANT_CHANGES_FOUND: `NO`; Copilot, Assistant runtime, memory and Contract 0.4 were not changed.
+TZ209_CORE_IMPACT_FOUND: `YES - field-work selector visibility and direct-selection UI only`.
+TZ209_SCOPE: `6 sections / 11 soil works / 3 sowing-planting works / 10 harvest works / 3 direct operations`.
+TZ209_ACCEPTANCE: `PASS - authenticated desktop/mobile Preview smoke, selector assertions and TZ-207 postcheck 16/16`.
+TZ209_LIFECYCLE_IMPACT: `NONE`; atomic operations, warehouse, specialist, weighbridge, field history and calculations are unchanged.
+TZ209_PRODUCTION_IMPACT: `NONE`; test branch only, production writes/deploy and master merge are 0.
 
 ## TZ-207 review result
 
