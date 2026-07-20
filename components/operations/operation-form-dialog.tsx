@@ -156,6 +156,7 @@ type VarietyCatalogOption = { id: string; name: string; crop_id: string; archive
 type ReproductionCatalogOption = { id: string; name: string; archived?: boolean | null; is_active?: boolean | null };
 
 type SearchOption = { id: string; label: string; hint?: string };
+type WorkOptionGroup = { id: string; label: string; options: SearchOption[] };
 
 const FALLBACK_CATEGORIES: OperationCategory[] = OPERATION_TYPE_DEFINITIONS.map((definition) => ({
   id: definition.categorySlug,
@@ -197,7 +198,46 @@ const FALLBACK_TYPES: OperationTypeMaster[] = [
 const HIDDEN_PLANTING_SUBTYPE_SLUGS = new Set([
   "seeding_with_fertilizer",
   "seeding_with_microgranules",
+  "potato_planting",
+  "reseeding",
 ]);
+
+const HIDDEN_PILOT_SUBTYPE_SLUGS = new Set([
+  "heavy_disking",
+  "chiseling",
+  "ridge_forming_with_drip_tape",
+  "furrow_cutting",
+  "separate_harvesting",
+  "potato_lifting",
+  "potato_harvesting",
+  "vegetable_harvesting",
+  "grain_harvesting",
+]);
+
+const WORK_GROUP_LABELS: Record<string, string> = {
+  soil_operation: "Работа с почвой",
+  planting: "Посев и посадка",
+  harvesting: "Уборка",
+  service_operation: "Простые полевые работы",
+};
+
+const DEPTH_ENABLED_WORKS = new Set([
+  "stubble_peeling",
+  "disking",
+  "plowing",
+  "deep_ripping",
+  "cultivation",
+  "interrow_cultivation",
+  "harrowing",
+  "rotary_tilling",
+  "ridge_forming",
+  "hilling",
+  "seeding",
+  "planting_generic",
+  "overseeding",
+]);
+
+const SEEDING_WORKS = new Set(["seeding", "planting_generic", "overseeding"]);
 
 const HIDDEN_OPERATION_CATEGORY_SLUGS = new Set([
   "sampling",
@@ -587,6 +627,10 @@ function mergeCanonicalTypes(rows: OperationTypeMaster[]): OperationTypeMaster[]
     if (canonical && item.slug === canonical.slug) return;
     bySlug.set(item.slug, item);
   });
+  const canonicalSubtypeSlugs = new Set(OPERATION_SUBTYPE_DEFINITIONS.map((item) => item.slug));
+  FALLBACK_TYPES.forEach((item) => {
+    if (canonicalSubtypeSlugs.has(item.slug)) bySlug.set(item.slug, item);
+  });
   return Array.from(bySlug.values());
 }
 
@@ -640,6 +684,63 @@ function SearchableSelect(props: {
                 </CommandItem>
               ))}
             </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function GroupedWorkSelect(props: {
+  value: string;
+  onChange: (value: string) => void;
+  groups: WorkOptionGroup[];
+  disabled?: boolean;
+}) {
+  const { value, onChange, groups, disabled } = props;
+  const [open, setOpen] = useState(false);
+  const options = groups.flatMap((group) => group.options);
+  const selected = options.find((option) => option.id === value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className="h-auto min-h-11 w-full justify-between border-slate-700 bg-slate-950/45 px-3 py-2 text-left"
+        >
+          <span className={cn("truncate", selected ? "font-semibold text-slate-100" : "text-slate-500")}>
+            {selected?.label || "Выберите работу"}
+          </span>
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+        <Command>
+          <CommandInput placeholder="Найти работу..." />
+          <CommandList className="max-h-96 overflow-y-auto overscroll-contain">
+            <CommandEmpty>Подходящие работы не найдены.</CommandEmpty>
+            {groups.map((group) => (
+              <CommandGroup key={group.id} heading={group.label}>
+                {group.options.map((option) => (
+                  <CommandItem
+                    key={option.id}
+                    value={`${option.label} ${group.label}`}
+                    onSelect={() => {
+                      onChange(option.id);
+                      setOpen(false);
+                    }}
+                  >
+                    <Check className={cn("mr-2 h-4 w-4", option.id === value ? "opacity-100" : "opacity-0")} />
+                    <span>{option.label}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ))}
           </CommandList>
         </Command>
       </PopoverContent>
@@ -812,6 +913,8 @@ export function OperationFormDialog({
       const rows = types.filter((item) => {
         if (item.category_slug !== category.slug) return false;
         if (expectedSubtypeSlugs.size > 0 && !expectedSubtypeSlugs.has(item.slug)) return false;
+        if (HIDDEN_PILOT_SUBTYPE_SLUGS.has(item.slug)) return false;
+        if (item.category_slug === "planting" && HIDDEN_PLANTING_SUBTYPE_SLUGS.has(item.slug)) return false;
         return getOperationTemplateAvailability({
           ...availabilityContext,
           categorySlug: item.category_slug,
@@ -831,6 +934,7 @@ export function OperationFormDialog({
     return subtypeRows.filter((item) => {
       if (HIDDEN_OPERATION_CATEGORY_SLUGS.has(item.category_slug)) return false;
       if (isWholeFieldScope && !WHOLE_FIELD_ALLOWED_CATEGORIES.has(item.category_slug)) return false;
+      if (HIDDEN_PILOT_SUBTYPE_SLUGS.has(item.slug)) return false;
       if (item.category_slug === "planting" && HIDDEN_PLANTING_SUBTYPE_SLUGS.has(item.slug)) return false;
       return getOperationTemplateAvailability({
         ...availabilityContext,
@@ -840,6 +944,34 @@ export function OperationFormDialog({
       }).allowed;
     });
   }, [availabilityContext, types, categorySlug, isWholeFieldScope]);
+  const workGroups = useMemo<WorkOptionGroup[]>(() => {
+    return availableCategories
+      .map((category) => {
+        const expectedSubtypeSlugs = new Set(
+          OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === category.slug).map((item) => item.slug)
+        );
+        const options = types
+          .filter((item) => item.category_slug === category.slug)
+          .filter((item) => expectedSubtypeSlugs.size === 0 || expectedSubtypeSlugs.has(item.slug))
+          .filter((item) => !HIDDEN_PILOT_SUBTYPE_SLUGS.has(item.slug))
+          .filter((item) => !(item.category_slug === "planting" && HIDDEN_PLANTING_SUBTYPE_SLUGS.has(item.slug)))
+          .filter((item) =>
+            getOperationTemplateAvailability({
+              ...availabilityContext,
+              categorySlug: item.category_slug,
+              typeSlug: item.slug,
+              operationType: item.name_ru,
+            }).allowed
+          )
+          .map((item) => ({ id: item.slug, label: item.name_ru }));
+        return {
+          id: category.slug,
+          label: WORK_GROUP_LABELS[category.slug] || category.name_ru,
+          options,
+        };
+      })
+      .filter((group) => group.options.length > 0);
+  }, [availabilityContext, availableCategories, types]);
   const fieldLabelWithArea = (field: Field) => {
     const title = getFieldDisplayName(field).trim();
     const prefixedTitle = title.toLowerCase().startsWith("поле") ? title : `Поле ${title}`;
@@ -1346,15 +1478,17 @@ export function OperationFormDialog({
       }
       return [primaryTarget, ...prev.filter((target) => target.crop_structure_id !== selectedCropStructure.id)];
     });
-    const structureRowSpacing = Number((selectedCropStructure as any).row_spacing_m || 0);
-    const structureSeedSpacing = Number((selectedCropStructure as any).seed_spacing_cm || 0);
-    const nextRowSpacing = structureRowSpacing > 0 ? structureRowSpacing : selectedIsPotato ? 0.75 : null;
-    const nextSeedSpacing = structureSeedSpacing > 0 ? structureSeedSpacing : selectedIsPotato ? 32 : null;
-    if (!form.getValues("row_spacing_m") && nextRowSpacing) {
-      form.setValue("row_spacing_m", nextRowSpacing);
-    }
-    if (!form.getValues("seed_spacing_cm") && nextSeedSpacing) {
-      form.setValue("seed_spacing_cm", nextSeedSpacing);
+    if (typeSlug === "potato_planting") {
+      const structureRowSpacing = Number((selectedCropStructure as any).row_spacing_m || 0);
+      const structureSeedSpacing = Number((selectedCropStructure as any).seed_spacing_cm || 0);
+      const nextRowSpacing = structureRowSpacing > 0 ? structureRowSpacing : selectedIsPotato ? 0.75 : null;
+      const nextSeedSpacing = structureSeedSpacing > 0 ? structureSeedSpacing : selectedIsPotato ? 32 : null;
+      if (!form.getValues("row_spacing_m") && nextRowSpacing) {
+        form.setValue("row_spacing_m", nextRowSpacing);
+      }
+      if (!form.getValues("seed_spacing_cm") && nextSeedSpacing) {
+        form.setValue("seed_spacing_cm", nextSeedSpacing);
+      }
     }
     setOperationParams((prev) => ({
       ...prev,
@@ -1366,7 +1500,7 @@ export function OperationFormDialog({
         area_ha: Number(selectedCropStructure.area || 0),
       },
     }));
-  }, [form, open, selectedCropStructure, selectedFieldId, selectedIrrigationType, selectedIsPotato]);
+  }, [form, open, selectedCropStructure, selectedFieldId, selectedIrrigationType, selectedIsPotato, typeSlug]);
 
   useEffect(() => {
     if (!open || !selectedFieldId || isWholeFieldScope) return;
@@ -1394,14 +1528,14 @@ export function OperationFormDialog({
   ]);
 
   useEffect(() => {
-    if (!open || categorySlug !== "planting" || !operationIsPotato) return;
+    if (!open || typeSlug !== "potato_planting" || !operationIsPotato) return;
     if (!form.getValues("row_spacing_m")) {
       form.setValue("row_spacing_m", 0.75);
     }
     if (!form.getValues("seed_spacing_cm")) {
       form.setValue("seed_spacing_cm", 32);
     }
-  }, [categorySlug, form, open, operationIsPotato]);
+  }, [form, open, operationIsPotato, typeSlug]);
 
   useEffect(() => {
     if (!open) return;
@@ -1432,46 +1566,6 @@ export function OperationFormDialog({
     form.setValue("operation_category_slug", inferred.category_slug);
     form.setValue("operation_type_slug", inferred.slug);
   }, [form, open, typeSlug, types]);
-
-  useEffect(() => {
-    if (!open) return;
-    if (!categorySlug || typeSlug) return;
-    if (typeOptions.length !== 1) return;
-    const singleType = typeOptions[0];
-    const canonical = resolveCanonicalOperationType({
-      categorySlug: singleType.category_slug,
-      typeSlug: singleType.slug,
-      operationType: singleType.name_ru,
-    });
-    setCategorySlug(canonical?.categorySlug || singleType.category_slug);
-    setTypeSlug(singleType.slug);
-    form.setValue("operation_category_slug", canonical?.categorySlug || singleType.category_slug);
-    form.setValue("operation_type_slug", singleType.slug);
-    form.setValue("operation_type", singleType.name_ru);
-  }, [categorySlug, form, open, typeOptions, typeSlug]);
-
-  useEffect(() => {
-    if (!open) return;
-    if (categorySlug !== "planting" || typeSlug || !selectedCropStructure) return;
-    const desiredSlug = operationIsPotato ? "potato_planting" : "seeding";
-    const desiredType = typeOptions.find((item) => item.slug === desiredSlug);
-    if (!desiredType) return;
-    setTypeSlug(desiredType.slug);
-    form.setValue("operation_type_slug", desiredType.slug);
-    form.setValue("operation_type", desiredType.name_ru);
-  }, [categorySlug, form, open, operationIsPotato, selectedCropStructure, typeOptions, typeSlug]);
-
-  useEffect(() => {
-    if (!open || categorySlug !== "planting" || !selectedCropStructure) return;
-    const desiredSlug = operationIsPotato ? "potato_planting" : "seeding";
-    if (typeSlug === desiredSlug) return;
-    if (typeSlug !== "potato_planting" && typeSlug !== "seeding") return;
-    const desiredType = typeOptions.find((item) => item.slug === desiredSlug);
-    if (!desiredType) return;
-    setTypeSlug(desiredType.slug);
-    form.setValue("operation_type_slug", desiredType.slug);
-    form.setValue("operation_type", desiredType.name_ru);
-  }, [categorySlug, form, open, operationIsPotato, selectedCropStructure, typeOptions, typeSlug]);
 
   useEffect(() => {
     if (!open) return;
@@ -1516,10 +1610,9 @@ export function OperationFormDialog({
   const usesChemistryMix = isSpraying || isFertigation;
   const supportsMultiTarget = usesChemistryMix;
   const isPotatoPlanting = operationIsPotato && typeSlug === "potato_planting";
-  const compactAutoPlantingType =
-    categorySlug === "planting" &&
-    !!selectedCropStructure &&
-    (typeSlug === "potato_planting" || typeSlug === "seeding");
+  const isSeedWork = SEEDING_WORKS.has(typeSlug);
+  const showDepth = DEPTH_ENABLED_WORKS.has(typeSlug);
+  const isTopRemoval = typeSlug === "haulm_topping";
   const isDripTapeRidge = typeSlug === "ridge_forming_with_drip_tape";
   const isDripTapeCollection = typeSlug === "drip_tape_collection" || typeSlug === "tape_residue_collection";
   const showPurposeEngine = false;
@@ -1527,8 +1620,12 @@ export function OperationFormDialog({
   const showMaterials = (!!canonicalType?.supportsMaterials || isDripTapeRidge) && !isHarvest;
   const showMachine = canonicalType ? canonicalType.requiresMachine || isDripTapeCollection || typeSlug === "haulm_topping" : !!selectedType?.requires_machine;
   const showTransport = canonicalType?.slug === "harvesting" || canonicalType?.slug === "transport";
-  const showField = canonicalType ? canonicalType.requiresCropStructure : true;
-  const cropStructureRequired = isWholeFieldScope ? false : canonicalType ? canonicalType.requiresCropStructure : requiresCropStructureForType(selectedType);
+  const showField = canonicalType ? canonicalType.requiresCropStructure || isTopRemoval : true;
+  const cropStructureRequired = isWholeFieldScope
+    ? false
+    : canonicalType
+      ? canonicalType.requiresCropStructure || isTopRemoval
+      : requiresCropStructureForType(selectedType);
   const totalTargetArea = operationTargets.reduce((sum, target) => sum + Number(target.planned_area_ha || 0), 0);
   const targetCount = operationTargets.filter((target) => Number(target.planned_area_ha || 0) > 0).length;
   const targetFieldCount = new Set(operationTargets.map((target) => target.field_id).filter(Boolean)).size;
@@ -1554,6 +1651,31 @@ export function OperationFormDialog({
       return next.length === prev.length ? prev : next;
     });
   }, [isPotatoPlanting, open, products]);
+
+  useEffect(() => {
+    if (!open || !canonicalType) return;
+    if (!canonicalType.supportsMaterials && !isDripTapeRidge && materials.length > 0) {
+      setMaterials([]);
+    }
+  }, [canonicalType, isDripTapeRidge, materials.length, open]);
+
+  useEffect(() => {
+    if (!open || !isSeedWork || materials.length > 0) return;
+    setMaterials([
+      {
+        component_type: "seed",
+        material_type: "seed",
+        product_id: "",
+        batch_id: null,
+        planned_rate: null,
+        actual_rate: null,
+        rate_basis: "per_ha",
+        planned_quantity: null,
+        unit: "kg",
+        notes: null,
+      },
+    ]);
+  }, [isSeedWork, materials.length, open]);
 
   useEffect(() => {
     if (!open || products.length === 0 || materials.length === 0) return;
@@ -2053,19 +2175,6 @@ export function OperationFormDialog({
     });
   };
 
-  const handleCategoryChange = (slug: string) => {
-    const canonical = resolveCanonicalOperationType({ categorySlug: slug });
-    const nextCategory = canonical?.categorySlug || slug;
-    setSubmitError(null);
-    setCategorySlug(nextCategory);
-    form.setValue("operation_category_slug", nextCategory);
-    setTypeSlug("");
-    form.setValue("operation_type_slug", "");
-    form.setValue("operation_type", "");
-    form.setValue("transport_id", null);
-    form.clearErrors(["operation_type", "operation_type_slug"]);
-  };
-
   const handleTypeChange = (slug: string) => {
     const type = types.find((item) => item.slug === slug);
     const canonical = resolveCanonicalOperationType({
@@ -2081,6 +2190,17 @@ export function OperationFormDialog({
     form.setValue("operation_category_slug", nextCategory);
     form.setValue("operation_type_slug", nextType);
     form.setValue("operation_type", type?.name_ru || canonical?.label || "");
+    setOperationParams((prev) => {
+      const next = { ...prev };
+      if (!DEPTH_ENABLED_WORKS.has(nextType)) delete next.depth_cm;
+      if (nextType !== "haulm_topping") delete next.top_removal_method;
+      return next;
+    });
+    if (!SEEDING_WORKS.has(nextType)) {
+      form.setValue("row_spacing_m", null);
+      form.setValue("seed_spacing_cm", null);
+      form.setValue("rate_per_ha", null);
+    }
     form.clearErrors(["operation_type", "operation_type_slug"]);
   };
 
@@ -2089,7 +2209,7 @@ export function OperationFormDialog({
     setSubmitting(false);
     const hasOperationTypeError = Boolean(errors.operation_type || errors.operation_type_slug);
     if (hasOperationTypeError) {
-      const message = "Выберите производственный блок и работу.";
+      const message = "Выберите работу.";
       form.setError("operation_type", { message });
       setSubmitError(message);
       return;
@@ -2102,7 +2222,7 @@ export function OperationFormDialog({
     if (submitInFlightRef.current) return;
     setSubmitError(null);
     if (!selectedType) {
-      const message = "Выберите производственный блок и работу.";
+      const message = "Выберите работу.";
       form.setError("operation_type", { message });
       setSubmitError(message);
       return;
@@ -2201,6 +2321,19 @@ export function OperationFormDialog({
       const component = getTankMixComponentDefinition(item.component_type);
       return component.productRequired ? String(item.product_id || "").trim().length > 0 : true;
     });
+    if (isSeedWork) {
+      const seedMaterial = materialsForSubmit.find((item) => item.component_type === "seed");
+      if (!seedMaterial?.product_id) {
+        const message = "Выберите семенной или посадочный материал.";
+        setSubmitError(message);
+        return;
+      }
+      if (!seedMaterial.planned_rate || seedMaterial.planned_rate <= 0) {
+        const message = "Укажите норму семенного или посадочного материала.";
+        setSubmitError(message);
+        return;
+      }
+    }
     const inferredPurposesForSubmit = Array.from(
       new Set<OperationPurposeSlug>([
         ...purposes,
@@ -2337,6 +2470,8 @@ export function OperationFormDialog({
     !categorySlug ? "тип работы" : null,
     !selectedType ? "работа" : null,
     !responsibleUserId ? "ответственный" : null,
+    isSeedWork && !materials.some((item) => item.component_type === "seed" && item.product_id) ? "семенной материал" : null,
+    isSeedWork && !materials.some((item) => item.component_type === "seed" && Number(item.planned_rate || 0) > 0) ? "норма" : null,
     isPotatoPlanting && (!seedSpacingCm || seedSpacingCm <= 0) ? "межклубневое расстояние" : null,
     isPotatoPlanting && (!seedRateKgHa || seedRateKgHa <= 0) ? "норма посадки" : null,
     (isIrrigation || isFertigation) && !operationParams.water_norm_mm && !operationParams.water_volume_m3 ? "норма воды" : null,
@@ -2533,79 +2668,25 @@ export function OperationFormDialog({
             <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <div className="text-sm font-semibold text-white">1. Работа</div>
-                  <div className="text-xs text-slate-500">Сначала производственный блок, затем конкретная работа.</div>
+                  <div className="text-sm font-semibold text-white">Работа *</div>
+                  <div className="text-xs text-slate-500">Все доступные работы собраны в одном списке.</div>
                 </div>
-                {selectedType ? (
-                  <span className="rounded-full border border-yellow-400/40 bg-yellow-400/10 px-3 py-1 text-xs font-semibold text-yellow-200">
-                    {selectedType.name_ru}
-                  </span>
-                ) : null}
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {availableCategories.map((category) => {
-                  const active = categorySlug === category.slug;
-                  return (
-                    <button
-                      key={category.id}
-                      type="button"
-                      className={cn(
-                        "min-h-[58px] rounded-xl border px-3 py-2 text-left text-sm font-semibold transition",
-                        active
-                          ? "border-yellow-400 bg-yellow-400 text-slate-950 shadow-[0_0_0_1px_rgba(250,204,21,0.35)]"
-                          : "border-slate-800 bg-slate-950/45 text-slate-200 hover:border-slate-600 hover:bg-slate-900"
-                      )}
-                      onClick={() => handleCategoryChange(category.slug)}
-                    >
-                      <span className="line-clamp-2">{category.name_ru}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Конкретная работа</div>
-                {compactAutoPlantingType && selectedType ? (
-                  <div className="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-3 text-sm font-semibold text-emerald-100">
-                    {selectedType.name_ru}
-                  </div>
-                ) : !categorySlug ? (
-                  <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-3 py-4 text-sm text-slate-500">
-                    Выберите блок выше, и здесь появятся доступные работы.
-                  </div>
-                ) : typeOptions.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-3 py-4 text-sm text-slate-500">
-                    Для выбранного участка нет доступных работ этого блока.
-                  </div>
-                ) : (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {typeOptions.map((type) => {
-                      const active = typeSlug === type.slug;
-                      return (
-                        <button
-                          key={type.id}
-                          type="button"
-                          className={cn(
-                            "rounded-xl border px-3 py-2 text-left text-sm transition",
-                            active
-                              ? "border-yellow-400 bg-yellow-400/15 text-yellow-100"
-                              : "border-slate-800 bg-slate-950/45 text-slate-300 hover:border-slate-600"
-                          )}
-                          onClick={() => handleTypeChange(type.slug)}
-                        >
-                          <span className="font-semibold">{type.name_ru}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {form.formState.errors.operation_type?.message ? (
-                  <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-                    {form.formState.errors.operation_type.message}
-                  </div>
-                ) : null}
-              </div>
+              <GroupedWorkSelect
+                value={typeSlug}
+                onChange={handleTypeChange}
+                groups={workGroups}
+                disabled={!selectedCropStructure && !isWholeFieldScope}
+              />
+              {!selectedCropStructure && !isWholeFieldScope ? (
+                <div className="mt-2 text-xs text-slate-500">Сначала выберите участок структуры посевов.</div>
+              ) : null}
+              {form.formState.errors.operation_type?.message ? (
+                <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                  {form.formState.errors.operation_type.message}
+                </div>
+              ) : null}
 
               {showPurposeEngine ? (
                 <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/35 p-3">
@@ -2637,80 +2718,23 @@ export function OperationFormDialog({
             {selectedCropStructure && categorySlug === "planting" ? (
               <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
                 <div className="mb-3">
-                  <div className="text-sm font-semibold text-white">2. Уточнение посева</div>
-                  <div className="text-xs text-slate-500">Меняйте культуру только если операция должна изменить план участка.</div>
+                  <div className="text-sm font-semibold text-white">Культура из структуры посевов</div>
+                  <div className="text-xs text-slate-500">Культура и сорт подставляются автоматически и не меняют план участка.</div>
                 </div>
-                <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
                   <div>
-                    <div className="mb-1 text-xs font-medium text-slate-400">Культура</div>
-                    <SearchableSelect
-                      value={structureEditorCropId}
-                      onChange={(value) => {
-                        setStructureChangeCropId(value);
-                        setStructureChangeVarietyId("none");
-                      }}
-                      options={cropCatalogOptions}
-                      placeholder="Выберите культуру"
-                      emptyLabel="Культуры не найдены"
-                    />
+                    <div className="text-xs text-slate-500">Культура</div>
+                    <div className="font-medium text-slate-100">{selectedCropIdentity?.cropName || "Не указана"}</div>
                   </div>
                   <div>
-                    <div className="mb-1 text-xs font-medium text-slate-400">Сорт</div>
-                    <SearchableSelect
-                      value={structureEditorVarietyId}
-                      onChange={(value) => {
-                        if (!structureChangeCropId && selectedCropStructure.crop_id) {
-                          setStructureChangeCropId(selectedCropStructure.crop_id);
-                        }
-                        setStructureChangeVarietyId(value);
-                      }}
-                      options={[{ id: "none", label: "Без сорта" }, ...structureChangeVarietyOptions]}
-                      placeholder="Выберите сорт"
-                      emptyLabel="Сорта не найдены"
-                    />
+                    <div className="text-xs text-slate-500">Сорт</div>
+                    <div className="font-medium text-slate-100">{selectedCropIdentity?.varietyName || "Не указан"}</div>
                   </div>
                   <div>
-                    <div className="mb-1 text-xs font-medium text-slate-400">Репродукция</div>
-                    <SearchableSelect
-                      value={structureEditorReproductionId}
-                      onChange={(value) => {
-                        if (!structureChangeCropId && selectedCropStructure.crop_id) {
-                          setStructureChangeCropId(selectedCropStructure.crop_id);
-                        }
-                        setStructureChangeReproductionId(value);
-                      }}
-                      options={[{ id: "none", label: "Без репродукции" }, ...structureChangeReproductionOptions]}
-                      placeholder="Выберите репродукцию"
-                      emptyLabel="Репродукции не найдены"
-                    />
+                    <div className="text-xs text-slate-500">Репродукция</div>
+                    <div className="font-medium text-slate-100">{selectedCropIdentity?.reproductionName || "Не указана"}</div>
                   </div>
                 </div>
-                {structureChangeActive ? (
-                  <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-100">
-                    <div className="font-semibold">План структуры отличается от операции. Что сделать?</div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <Button
-                        type="button"
-                        variant={structureChangeMode === "crop_replace" ? "default" : "outline"}
-                        onClick={() => setStructureChangeMode("crop_replace")}
-                      >
-                        Заменить культуру на участке
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={structureChangeMode === "area_split" ? "default" : "outline"}
-                        onClick={() => setStructureChangeMode("area_split")}
-                      >
-                        Выделить часть площади
-                      </Button>
-                    </div>
-                    {structureChangeMode === "area_split" ? (
-                      <div className="mt-2 text-xs text-yellow-100/80">
-                        Укажите площадь ниже. Она станет новым участком, остаток останется за текущей культурой.
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
               </section>
             ) : null}
 
@@ -2747,7 +2771,42 @@ export function OperationFormDialog({
                   </FormItem>
                 )}
               />
+              {showDepth ? (
+                <FormItem>
+                  <FormLabel>Глубина, см</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={getOperationParam("depth_cm")}
+                      onChange={(event) => updateOperationParam("depth_cm", normalizeNumber(event.target.value))}
+                      placeholder="Необязательно"
+                    />
+                  </FormControl>
+                </FormItem>
+              ) : null}
             </div>
+
+            {isTopRemoval ? (
+              <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+                <div className="mb-2 text-sm font-semibold text-white">Способ удаления ботвы</div>
+                <Select
+                  value={String(operationParams.top_removal_method || "none")}
+                  onValueChange={(value) => updateOperationParam("top_removal_method", value === "none" ? null : value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Необязательно" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Не указывать</SelectItem>
+                    <SelectItem value="mowing">Скашивание</SelectItem>
+                    <SelectItem value="shredding">Измельчение</SelectItem>
+                    <SelectItem value="other_mechanical">Другое механическое удаление</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
 
             {isPotatoPlanting ? (
               <div className="rounded-lg border border-emerald-800/60 bg-emerald-950/20 p-3">

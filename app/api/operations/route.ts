@@ -285,6 +285,7 @@ function normalizeOperationMaterialStorage(
 }
 
 function allowsDefaultOperationLine(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
+  if (String(typeSlug || "").trim().toLowerCase() === "haulm_topping") return true;
   const canonical = resolveCanonicalOperationType({ categorySlug, typeSlug, operationType });
   if (canonical?.requiresCropStructure) return true;
   const category = String(categorySlug || "").trim().toLowerCase();
@@ -293,6 +294,7 @@ function allowsDefaultOperationLine(categorySlug: string | null, typeSlug: strin
 }
 
 function requiresCropStructure(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
+  if (String(typeSlug || "").trim().toLowerCase() === "haulm_topping") return true;
   const canonical = resolveCanonicalOperationType({ categorySlug, typeSlug, operationType });
   if (canonical) return canonical.requiresCropStructure;
 

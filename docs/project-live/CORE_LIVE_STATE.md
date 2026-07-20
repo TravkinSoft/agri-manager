@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-19
+LAST_UPDATED: 2026-07-20
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `ae21200cec3c9b376f7f24481fffb31a9d6b16e8`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `9ff5701ba38a2e7940e08fb4b4243d86eb456033`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -13,10 +13,10 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | --- | --- | --- |
 | Поля | READY | В production 100 company-scoped полей; Field остаётся главным производственным объектом. |
 | Структура посевов | IN_PROGRESS | В production 122 строки. Основной flow и lazy-load больших компаний проверены; fix сохранения участка «Пар» готов в `copilot-v1` по ТЗ №136, но ещё не выпущен в production. |
-| Операции | READY | Создание, роли, материальная сверка и закрытие проверены E2E; формула выдачи и факта контролируется сервером. |
+| Операции | TZ207_PILOT_READY | Atomic lifecycle сохранён. В test branch проверены 13 почвенных работ, посев/посадка/подсев, удаление ботвы и 10 уборочных работ; культивация, посев, посадка и уборка прошли authenticated E2E без дублей. |
 | Склады | FROZEN_PENDING_FUTURE_APPLY | ТЗ №144 локально перевело 15 проблемных writer paths на единый контракт `base_quantity + base_uom + optional mass_kg`, обязательный `batch_class` и доказуемую плотность. ТЗ №148 доказало repeat safety. Commit `c6788b6` отправлен в `origin/copilot-v1`; migration `20260713183038` не применена, backfill не запускался, scope заморожен до отдельного production preflight и approval. Branch-only read blocker `/api/warehouses/balances` закрыт ТЗ №189 без schema/write изменений. |
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
-| Весовая | READY | Талон, gross/tare/net, закрытие, история, PDF и company label проверены. Весовая является источником правды по массе. |
+| Весовая | TZ207_HARVEST_LINK_READY | Талон требует связь с уборочной операцией/строкой, сохраняет crop identity, считает gross/tare/net и создаёт один crop intake. Повторное создание/закрытие не даёт дублей. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
 | ГЛБД | TZ197_CONFIRMED_GLBD_V1_CORRECTIONS_APPLIED | Все 852 pesticide cards имеют assistant safety status. Девять подтверждённых действий TZ-196 применены: 7 полей карточек и 2 source-backed component groups. Десять `BLOCKED_NO_DATA` и три HOLD остаются без изменений. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
@@ -13,6 +14,7 @@ function buildTicketNo(companyId: string): string {
 }
 
 const sameNullable = (a: unknown, b: unknown) => String(a || "") === String(b || "");
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function cleanupCreatedTicket(supabase: ReturnType<typeof getServiceClient>, ticketId: string) {
   await supabase.from("ticket_weighings").delete().eq("ticket_id", ticketId);
@@ -168,6 +170,33 @@ export async function POST(request: NextRequest) {
     } as TicketInput;
     const lines = (Array.isArray(body?.lines) ? body.lines : []) as TicketLineInput[];
     const weighings = (Array.isArray(body?.weighings) ? body.weighings : []) as WeighingInput[];
+    const rawIdempotencyKey = String(request.headers.get("Idempotency-Key") || "").trim();
+    if (rawIdempotencyKey && !UUID_RE.test(rawIdempotencyKey)) {
+      return NextResponse.json({ error: "Idempotency-Key must be a UUID" }, { status: 400 });
+    }
+    const idempotencyKey = rawIdempotencyKey || null;
+    const requestFingerprint = idempotencyKey
+      ? createHash("sha256").update(JSON.stringify({ ticket: rawTicket, lines, weighings })).digest("hex")
+      : null;
+
+    if (idempotencyKey) {
+      const { data: existingTicket, error: existingTicketError } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("id", idempotencyKey)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (existingTicketError) {
+        return NextResponse.json({ error: existingTicketError.message }, { status: 400 });
+      }
+      if (existingTicket?.id) {
+        const existingFingerprint = String((existingTicket as any)?.audit_json?.request_fingerprint || "");
+        if (existingFingerprint !== requestFingerprint) {
+          return NextResponse.json({ error: "Idempotency-Key was already used with another ticket payload" }, { status: 409 });
+        }
+        return NextResponse.json({ ticket: existingTicket, idempotent_replay: true });
+      }
+    }
 
     if (!ticket.ticket_type || !ticket.op_type || !ticket.direction) {
       return NextResponse.json({ error: "ticket_type, op_type and direction are required" }, { status: 400 });
@@ -535,6 +564,9 @@ export async function POST(request: NextRequest) {
       }
     }
     if (isHarvestIncoming) {
+      if (!ticket.linked_operation_id) {
+        return NextResponse.json({ error: "linked_operation_id is required for harvest incoming" }, { status: 400 });
+      }
       if (!ticket.field_id) {
         return NextResponse.json({ error: "field_id is required for harvest incoming" }, { status: 400 });
       }
@@ -593,7 +625,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        if (isFieldIssue && ticket.field_id && row.field_id && String(row.field_id || "") !== String(ticket.field_id || "")) {
+        if ((isFieldIssue || isHarvestIncoming) && ticket.field_id && row.field_id && String(row.field_id || "") !== String(ticket.field_id || "")) {
           return NextResponse.json(
             { error: `operation_line_id ${operationLineId} does not belong to selected field` },
             { status: 400 }
@@ -605,15 +637,22 @@ export async function POST(request: NextRequest) {
     if (ticket.linked_operation_id) {
       const { data: linkedOperation, error: linkedOperationError } = await supabase
         .from("operations")
-        .select("id,field_id,company_id")
+        .select("id,field_id,company_id,operation_category_slug,operation_type_slug")
         .eq("company_id", ticket.company_id)
         .eq("id", ticket.linked_operation_id)
         .maybeSingle();
       if (linkedOperationError || !linkedOperation?.id) {
         return NextResponse.json({ error: "linked_operation_id is invalid for actor company" }, { status: 400 });
       }
-      if (isFieldIssue && ticket.field_id && linkedOperation.field_id && String(linkedOperation.field_id || "") !== String(ticket.field_id || "")) {
+      if ((isFieldIssue || isHarvestIncoming) && ticket.field_id && linkedOperation.field_id && String(linkedOperation.field_id || "") !== String(ticket.field_id || "")) {
         return NextResponse.json({ error: "linked_operation_id does not belong to selected field" }, { status: 400 });
+      }
+      if (
+        isHarvestIncoming &&
+        linkedOperation.operation_category_slug !== "harvesting" &&
+        linkedOperation.operation_type_slug !== "harvesting"
+      ) {
+        return NextResponse.json({ error: "linked_operation_id must reference a harvesting operation" }, { status: 400 });
       }
     }
 
@@ -759,6 +798,14 @@ export async function POST(request: NextRequest) {
       .from("tickets")
       .insert({
         ...ticket,
+        ...(idempotencyKey ? { id: idempotencyKey } : {}),
+        audit_json: idempotencyKey
+          ? {
+              ...(((ticket as any).audit_json || {}) as Record<string, unknown>),
+              idempotency_key: idempotencyKey,
+              request_fingerprint: requestFingerprint,
+            }
+          : (ticket as any).audit_json || null,
         shift_id: ticket.shift_id || activeShiftId,
         ticket_no: ticketNo,
         status: isDirectSupplierReceipt ? "ready_to_close" : "active",

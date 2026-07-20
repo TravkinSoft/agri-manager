@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-19T02:20:00+05:00
+LAST_REVIEW_AT: 2026-07-20T23:59:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `ae21200cec3c9b376f7f24481fffb31a9d6b16e8`)
+CORE_COMMIT: `SELF` (previous core commit: `9ff5701ba38a2e7940e08fb4b4243d86eb456033`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
@@ -17,6 +17,17 @@ INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
 NEXT_SAFE_ACTION: Start A110 in assistant-v1 as read-only GLBD access using the TZ-196 safety matrix plus the TZ-197 post-apply record. Exclude the ten `BLOCKED_NO_DATA` rows; do not implement agronomic recommendations.
+
+## TZ-207 review result
+
+TZ207_ASSISTANT_CHANGES_FOUND: `NO`; Copilot, Assistant runtime, memory and Contract 0.4 were not changed.
+TZ207_CORE_IMPACT_FOUND: `YES - minimal non-chemical field operation selector and harvest-ticket linkage`.
+TZ207_SCOPE: `13 soil works / sowing / planting / undersowing / top removal / 10 harvest works`.
+TZ207_ACCEPTANCE: `PASS - cultivation, sowing, planting and harvest authenticated E2E; retries produced no duplicate operations/tasks/history/intake`.
+TZ207_WAREHOUSE_MATH: `PASS - 40 kg issued = 30 kg consumed + 10 kg returned + 0 kg loss`.
+TZ207_WEIGHBRIDGE: `PASS - 18,500 kg gross - 7,500 kg tare = 11,000 kg net; one linked intake`.
+TZ207_ASSISTANT_IMPACT: `NONE`; A110 gate and read-only GLBD contract remain unchanged.
+TZ207_PRODUCTION_IMPACT: `NONE`; test branch only, production connections/writes/deploy and master merge are 0.
 
 ## TZ-197 review result
 

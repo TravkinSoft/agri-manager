@@ -53,12 +53,36 @@ export async function POST(
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("crop_structure_id")
+      .select("crop_structure_id,operation_category_slug,operation_type_slug")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
     if (operationError || !operation) {
       return NextResponse.json({ error: operationError?.message || "Operation not found" }, { status: 404 });
+    }
+    const isHarvestOperation =
+      operation.operation_category_slug === "harvesting" || operation.operation_type_slug === "harvesting";
+    if (isHarvestOperation) {
+      const { data: harvestTickets, error: harvestTicketsError } = await supabase
+        .from("tickets")
+        .select("id,status")
+        .eq("company_id", companyId)
+        .eq("linked_operation_id", operationId);
+      if (harvestTicketsError) {
+        return NextResponse.json({ error: harvestTicketsError.message }, { status: 400 });
+      }
+      if (!harvestTickets?.length) {
+        return NextResponse.json(
+          { error: "Create and finalize a linked harvest weighbridge ticket before completing the operation" },
+          { status: 409 }
+        );
+      }
+      if (harvestTickets.some((ticket) => !["finalized", "closed"].includes(String(ticket.status || "")))) {
+        return NextResponse.json(
+          { error: "All linked harvest weighbridge tickets must be finalized before completing the operation" },
+          { status: 409 }
+        );
+      }
     }
     const seasonId = await resolveOperationSeasonIdForGuard(supabase, {
       companyId,

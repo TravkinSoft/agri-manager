@@ -1,7 +1,11 @@
 import type { NextRequest } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import {
+  SessionAuthError,
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+} from "@/lib/auth/server-session";
 
 export const WEIGHBRIDGE_READ_ROLES = [
   "global_admin",
@@ -47,7 +51,7 @@ export async function resolveWeighbridgeSession(
   const queryCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
   const requestedCompanyId = options?.requestedCompanyId ?? queryCompanyId;
   const companyId = resolveCompanyForActor(actor, requestedCompanyId);
-  const supabase = getServiceClient();
+  const supabase = await getUserScopedClientFromRequest(request);
 
   await assertActorAccess({
     supabase,

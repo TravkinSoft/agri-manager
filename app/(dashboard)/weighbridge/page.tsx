@@ -37,7 +37,14 @@ type SupplierReceiptLineDraft = {
   unitPrice: string;
   notes: string;
 };
-type LinkedOperationOption = { id: string; field_id: string | null; label: string };
+type LinkedOperationOption = {
+  id: string;
+  field_id: string | null;
+  category_slug: string | null;
+  type_slug: string | null;
+  status: string | null;
+  label: string;
+};
 type LinkedOperationLineOption = {
   id: string;
   operation_id: string;
@@ -538,6 +545,7 @@ export default function WeighbridgeOperationsPage() {
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const createTicketIdempotencyRef = useRef<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
@@ -775,7 +783,7 @@ export default function WeighbridgeOperationsPage() {
         listTickets(profile.company_id, profile.id),
         supabase
           .from("operations")
-          .select("id,field_id,operation_type,date,status")
+          .select("id,field_id,operation_type,operation_category_slug,operation_type_slug,date,status")
           .eq("company_id", profile.company_id)
           .eq("archived", false)
           .order("date", { ascending: false })
@@ -879,6 +887,9 @@ export default function WeighbridgeOperationsPage() {
           return {
             id: String(row.id),
             field_id: fieldId,
+            category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
+            type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
+            status: row.status ? String(row.status) : null,
             label: `${row.operation_type || "Operation"} • ${fieldName} • ${dateText}`,
           };
         })
@@ -1174,12 +1185,18 @@ export default function WeighbridgeOperationsPage() {
   }, [form.operationType, selectedHarvestAllocation, form.cropId, form.varietyId, form.reproductionId]);
 
   const linkedOperationsForField = useMemo(() => {
-    if (form.operationType !== "issue_to_field" || !form.fieldId) return [] as LinkedOperationOption[];
-    return linkedOperations.filter((row) => !row.field_id || row.field_id === form.fieldId);
+    if (!form.fieldId || !["issue_to_field", "harvest_incoming"].includes(form.operationType)) {
+      return [] as LinkedOperationOption[];
+    }
+    return linkedOperations.filter((row) => {
+      if (row.field_id !== form.fieldId) return false;
+      if (form.operationType !== "harvest_incoming") return true;
+      return row.category_slug === "harvesting" || row.type_slug === "harvesting";
+    });
   }, [form.operationType, form.fieldId, linkedOperations]);
 
   useEffect(() => {
-    if (form.operationType === "issue_to_field") {
+    if (form.operationType === "issue_to_field" || form.operationType === "harvest_incoming") {
       if (!form.fieldId) {
         if (form.linkedOperationId || form.linkedOperationLineId) {
           setForm((prev) => ({ ...prev, linkedOperationId: "", linkedOperationLineId: "" }));
@@ -1200,7 +1217,7 @@ export default function WeighbridgeOperationsPage() {
   }, [form.operationType, form.fieldId, form.linkedOperationId, form.linkedOperationLineId, linkedOperationsForField]);
 
   useEffect(() => {
-    if (form.operationType !== "issue_to_field" || !profile?.company_id || !form.linkedOperationId) {
+    if (!["issue_to_field", "harvest_incoming"].includes(form.operationType) || !profile?.company_id || !form.linkedOperationId) {
       setLinkedOperationLinesLoading(false);
       setLinkedOperationLines([]);
       if (form.linkedOperationLineId) {
@@ -1269,6 +1286,12 @@ export default function WeighbridgeOperationsPage() {
     toast,
     varieties,
   ]);
+
+  useEffect(() => {
+    if (!["issue_to_field", "harvest_incoming"].includes(form.operationType)) return;
+    if (!form.linkedOperationId || form.linkedOperationLineId || linkedOperationLines.length !== 1) return;
+    setForm((prev) => ({ ...prev, linkedOperationLineId: linkedOperationLines[0].id }));
+  }, [form.linkedOperationId, form.linkedOperationLineId, form.operationType, linkedOperationLines]);
 
   const linkedOperationLineOptions = useMemo(() => {
     if (!selectedHarvestAllocation) return linkedOperationLines;
@@ -1421,6 +1444,8 @@ export default function WeighbridgeOperationsPage() {
         next.varietyId = prev.varietyId;
         next.reproductionId = prev.reproductionId;
         next.cropStructureAllocationId = prev.cropStructureAllocationId;
+        next.linkedOperationId = prev.linkedOperationId;
+        next.linkedOperationLineId = prev.linkedOperationLineId;
       }
 
       if (operationType === "harvest_incoming" || operationType === "supplier_receipt" || operationType === "transfer_between_warehouses") {
@@ -1486,6 +1511,7 @@ export default function WeighbridgeOperationsPage() {
   const validate = () => {
     if (!profile?.company_id || !profile?.id) return "Нет профиля пользователя";
     if (form.operationType === "harvest_incoming") {
+      if (!form.linkedOperationId) return "Выберите операцию уборки";
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
       if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId) {
@@ -1785,7 +1811,7 @@ export default function WeighbridgeOperationsPage() {
       supplier_receipt_kind: form.operationType === "supplier_receipt" ? form.supplierItemMode : null,
       field_operation_type: isFieldIssue ? "issued_to_field" : null,
       field_material_category: isFieldIssue ? form.fieldMaterialCategory : null,
-      linked_operation_id: isFieldIssue ? form.linkedOperationId || null : null,
+      linked_operation_id: form.operationType === "harvest_incoming" || isFieldIssue ? form.linkedOperationId || null : null,
       disposal_category: form.operationType === "disposal_writeoff" ? form.disposalCategory : null,
       field_id: form.operationType === "supplier_receipt" ? null : form.fieldId || null,
       warehouse_from_id: form.operationType === "supplier_receipt" ? null : form.warehouseFromId || null,
@@ -1822,7 +1848,7 @@ export default function WeighbridgeOperationsPage() {
       batch_class: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.batch_class || null : null,
       variety_id: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierItemMode === "agro_identity") ? form.varietyId || null : null,
       reproduction_id: form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierItemMode === "agro_identity") ? form.reproductionId || null : null,
-      operation_line_id: isFieldIssue ? form.linkedOperationLineId || null : null,
+      operation_line_id: form.operationType === "harvest_incoming" || isFieldIssue ? form.linkedOperationLineId || null : null,
       moisture_percent: form.operationType === "drying" ? toNum(form.moistureIn) : null,
       net_line_weight_kg: form.operationType === "drying" ? toNum(form.dryingOutputKg) : null,
     };
@@ -1854,7 +1880,10 @@ export default function WeighbridgeOperationsPage() {
 
     setSubmitting(true);
     try {
-      const result = await createTicket(ticket, linesToCreate, []);
+      const idempotencyKey = createTicketIdempotencyRef.current || crypto.randomUUID();
+      createTicketIdempotencyRef.current = idempotencyKey;
+      const result = await createTicket(ticket, linesToCreate, [], idempotencyKey);
+      createTicketIdempotencyRef.current = null;
       const createdStatus = String(result?.ticket?.status || "");
       if (isSupplierDirect || createdStatus === "finalized") {
         toast({
@@ -2301,6 +2330,38 @@ export default function WeighbridgeOperationsPage() {
 
             {form.operationType === "harvest_incoming" ? (
               <div className={formSectionClass}>
+                <div className="mb-3 space-y-1">
+                  <Label>Операция уборки *</Label>
+                  <Select
+                    value={form.linkedOperationId}
+                    onValueChange={(value) =>
+                      setForm((prev) => ({ ...prev, linkedOperationId: value, linkedOperationLineId: "" }))
+                    }
+                    disabled={!form.fieldId || linkedOperationsForField.length === 0}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue
+                        placeholder={
+                          !form.fieldId
+                            ? "Сначала выберите поле"
+                            : linkedOperationsForField.length === 0
+                              ? "По полю нет операций уборки"
+                              : "Выберите операцию уборки"
+                        }
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {linkedOperationsForField.map((operation) => (
+                        <SelectItem key={operation.id} value={operation.id}>
+                          {operation.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="text-xs text-slate-400">
+                    Талон и поступление урожая будут связаны с выбранной полевой операцией.
+                  </div>
+                </div>
                 {fieldHarvestOptions.length > 1 ? (
                   <div className="space-y-1">
                     <Label>Посевная строка *</Label>

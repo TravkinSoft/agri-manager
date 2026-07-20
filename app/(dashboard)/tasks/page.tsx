@@ -246,7 +246,10 @@ function materialStatusText(requests: WarehouseIssueRequest[]): string {
   return 'Заявка на складе';
 }
 
-function taskStatusBadge(phase: TaskPhase) {
+function taskStatusBadge(phase: TaskPhase, readyWithoutMaterials = false) {
+  if (readyWithoutMaterials && (phase === 'active' || phase === 'accepted')) {
+    return <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/30">Готово к работе</Badge>;
+  }
   const map: Record<TaskPhase, { label: string; className: string }> = {
     active: { label: 'Новая', className: 'bg-slate-700 text-slate-100' },
     accepted: { label: 'Принята', className: 'bg-blue-500/15 text-blue-200 border border-blue-400/30' },
@@ -971,7 +974,7 @@ export default function TasksPage() {
                 {[cropIdentity.cropName, cropIdentity.varietyName, cropIdentity.reproductionName].filter(Boolean).join(' • ') || 'Культура не указана'}
               </div>
             </div>
-            {taskStatusBadge(phase)}
+            {taskStatusBadge(phase, !hasMaterialRequests && !hasPlannedMaterialsWithoutRequest)}
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950/45 px-2.5 py-2 text-xs text-slate-300">
             {stepText}

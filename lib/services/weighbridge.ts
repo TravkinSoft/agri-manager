@@ -109,8 +109,14 @@ export async function patchTicket(
   return parseJsonOrThrow(response);
 }
 
-export async function createTicket(input: TicketInput, lines: TicketLineInput[], weighings: WeighingInput[] = []) {
+export async function createTicket(
+  input: TicketInput,
+  lines: TicketLineInput[],
+  weighings: WeighingInput[] = [],
+  idempotencyKey?: string
+) {
   const headers = await buildClientAuthHeaders("json");
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch("/api/weighbridge/tickets", {
     method: "POST",
     headers,
