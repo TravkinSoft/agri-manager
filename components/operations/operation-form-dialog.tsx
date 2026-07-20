@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { FieldErrors, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -711,6 +712,8 @@ function OperationWorkSelector(props: {
   const selectedGroup = groups.find((group) => group.id === categoryValue) || null;
   const headingId = `${selectorId}-heading`;
   const helpId = `${selectorId}-help`;
+  const categoryLabelId = `${selectorId}-category-label`;
+  const workLabelId = `${selectorId}-work-label`;
 
   return (
     <section aria-labelledby={headingId}>
@@ -723,45 +726,44 @@ function OperationWorkSelector(props: {
         </p>
       </div>
 
-      <fieldset className="mt-3" disabled={disabled} aria-describedby={helpId}>
-        <legend className="sr-only">Раздел работы</legend>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
+      <div className="mt-3">
+        <div id={categoryLabelId} className="sr-only">Раздел работы</div>
+        <RadioGroupPrimitive.Root
+          value={categoryValue}
+          onValueChange={onCategoryChange}
+          disabled={disabled}
+          aria-labelledby={categoryLabelId}
+          aria-describedby={helpId}
+          className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4"
+        >
           {groups.map((group) => {
             const checked = categoryValue === group.id;
             return (
-              <label key={group.id} className={cn("relative block", disabled && "cursor-not-allowed opacity-55")}>
-                <input
-                  className="peer sr-only"
-                  type="radio"
-                  name={`${selectorId}-category`}
-                  value={group.id}
-                  checked={checked}
-                  disabled={disabled}
-                  onChange={() => onCategoryChange(group.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      event.preventDefault();
-                      onCategoryChange(group.id);
-                    }
-                  }}
-                />
-                <span
-                  className={cn(
-                    "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
-                    "peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-yellow-300 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[#0b1017]",
-                    checked
-                      ? "border-yellow-400 bg-yellow-400/10 text-yellow-100"
-                      : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
-                    disabled && "cursor-not-allowed"
-                  )}
-                >
-                  <span className="break-words">{group.label}</span>
-                </span>
-              </label>
+              <RadioGroupPrimitive.Item
+                key={group.id}
+                value={group.id}
+                aria-label={group.label}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    onCategoryChange(group.id);
+                  }
+                }}
+                className={cn(
+                  "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
+                  checked
+                    ? "border-yellow-400 bg-yellow-400/10 text-yellow-100"
+                    : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
+                  disabled && "cursor-not-allowed opacity-55"
+                )}
+              >
+                <span className="break-words">{group.label}</span>
+              </RadioGroupPrimitive.Item>
             );
           })}
-        </div>
-      </fieldset>
+        </RadioGroupPrimitive.Root>
+      </div>
 
       {disabled ? (
         <p className="mt-3 text-[13px] leading-[18px] text-slate-400">
@@ -770,7 +772,7 @@ function OperationWorkSelector(props: {
       ) : null}
 
       <div className="mt-5 border-t border-slate-800/90 pt-5">
-        <div className="mb-3 text-sm font-semibold leading-5 text-slate-200">Конкретная работа</div>
+        <div id={workLabelId} className="mb-3 text-sm font-semibold leading-5 text-slate-200">Конкретная работа</div>
         {!categoryValue ? (
           <p className="text-[13px] leading-[18px] text-slate-400">
             Выберите раздел, и здесь появятся доступные работы.
@@ -780,45 +782,40 @@ function OperationWorkSelector(props: {
             Для выбранного участка нет доступных работ этого раздела.
           </p>
         ) : (
-          <fieldset disabled={disabled}>
-            <legend className="sr-only">Конкретная работа</legend>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <RadioGroupPrimitive.Root
+            value={workValue}
+            onValueChange={onWorkChange}
+            disabled={disabled}
+            aria-labelledby={workLabelId}
+            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+          >
               {selectedGroup.options.map((option) => {
                 const checked = workValue === option.id;
                 return (
-                  <label key={option.id} className={cn("relative block", disabled && "cursor-not-allowed opacity-55")}>
-                    <input
-                      className="peer sr-only"
-                      type="radio"
-                      name={`${selectorId}-work`}
-                      value={option.id}
-                      checked={checked}
-                      disabled={disabled}
-                      onChange={() => onWorkChange(option.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          onWorkChange(option.id);
-                        }
-                      }}
-                    />
-                    <span
-                      className={cn(
-                        "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
-                        "peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-yellow-300 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-[#0b1017]",
-                        checked
-                          ? "border-transparent bg-yellow-400 font-semibold text-slate-950"
-                          : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
-                        disabled && "cursor-not-allowed"
-                      )}
-                    >
-                      <span className="break-words">{option.label}</span>
-                    </span>
-                  </label>
+                  <RadioGroupPrimitive.Item
+                    key={option.id}
+                    value={option.id}
+                    aria-label={option.label}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        onWorkChange(option.id);
+                      }
+                    }}
+                    className={cn(
+                      "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
+                      checked
+                        ? "border-transparent bg-yellow-400 font-semibold text-slate-950"
+                        : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
+                      disabled && "cursor-not-allowed opacity-55"
+                    )}
+                  >
+                    <span className="break-words">{option.label}</span>
+                  </RadioGroupPrimitive.Item>
                 );
               })}
-            </div>
-          </fieldset>
+          </RadioGroupPrimitive.Root>
         )}
       </div>
     </section>
