@@ -20,6 +20,14 @@ export function isAgrochemicalProductType(value: unknown): boolean {
   );
 }
 
+export function warehouseProductTypeLabel(value: unknown): string {
+  const type = String(value || "").trim().toLowerCase();
+  if (type === "pesticide") return "Пестицид";
+  if (type === "fertilizer") return "Удобрение";
+  if (type === "additive") return "Добавка";
+  return "Другое";
+}
+
 export function warehouseTypeLabel(value: unknown): string {
   const type = String(value || "").trim().toLowerCase();
   if (isAgrochemicalWarehouseType(type)) return "Агрохимический";

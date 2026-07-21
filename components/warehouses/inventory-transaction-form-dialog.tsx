@@ -35,6 +35,7 @@ import {
   Product,
 } from "@/lib/types/warehouse";
 import { localizeUnit } from "@/lib/i18n/helpers";
+import { warehouseProductTypeLabel } from "@/lib/warehouse/warehouse-scope";
 import { useEffect } from "react";
 
 interface InventoryTransactionFormDialogProps {
@@ -191,7 +192,7 @@ export function InventoryTransactionFormDialog({
                       <SelectContent>
                         {products.map((product) => (
                           <SelectItem key={product.id} value={product.id}>
-                            {product.name} ({product.type}) {product.unit ? `- ${localizeUnit(product.unit, "ru")}` : ""}
+                            {product.name} ({warehouseProductTypeLabel(product.type)}) {product.unit ? `- ${localizeUnit(product.unit, "ru")}` : ""}
                           </SelectItem>
                         ))}
                       </SelectContent>

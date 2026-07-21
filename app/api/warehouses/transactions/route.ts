@@ -421,7 +421,6 @@ export async function POST(request: NextRequest) {
     const canonicalPayload = {
       ...normalized.payload,
       quantity: contract.baseQuantity,
-      unit: contract.baseUom,
       base_quantity_kg: contract.massKg,
       ...toStockContractColumns(contract),
     };

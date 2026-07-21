@@ -322,14 +322,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       companyId,
       productId: normalized.payload.product_id,
       quantity: normalized.payload.quantity,
-      inputUom: normalized.payload.input_uom || existing.base_uom || existing.unit,
+      inputUom: normalized.payload.input_uom || existing.base_uom,
       requestedBatchClass: body.batch_class ?? existing.batch_class,
       event: stockEventForMovement(normalized.movementType),
     });
     const canonicalPayload = {
       ...normalized.payload,
       quantity: contract.baseQuantity,
-      unit: contract.baseUom,
       base_quantity_kg: contract.massKg,
       ...toStockContractColumns(contract),
     };
@@ -347,7 +346,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         warehouseId: existing.warehouse_id,
         productId: String(existing.product_id || ""),
         quantity: toNumberSafe(existing.base_quantity ?? existing.quantity),
-        uom: String(existing.base_uom || existing.unit || ""),
+        uom: String(existing.base_uom || ""),
         batchClass: String(existing.batch_class || ""),
       });
 

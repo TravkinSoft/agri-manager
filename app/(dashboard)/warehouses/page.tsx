@@ -35,7 +35,7 @@ import type {
   Warehouse,
   WarehouseReceipt,
 } from "@/lib/types/warehouse";
-import { warehouseTypeLabel } from "@/lib/warehouse/warehouse-scope";
+import { warehouseProductTypeLabel, warehouseTypeLabel } from "@/lib/warehouse/warehouse-scope";
 
 function formatDate(value?: string | null): string {
   if (!value) return "Нет движений";
@@ -220,7 +220,7 @@ export default function WarehousesPage() {
                   <h3 className="mb-3 text-base font-semibold">Текущие остатки</h3>
                   <div className="overflow-x-auto">
                     <Table><TableHeader><TableRow><TableHead>Материал</TableHead><TableHead>Категория</TableHead><TableHead className="text-right">Количество</TableHead><TableHead>Обновлено</TableHead></TableRow></TableHeader>
-                      <TableBody>{selectedSummary.stock.length ? selectedSummary.stock.map((row) => <TableRow key={`${row.product_id}-${row.batch_id || ""}`}><TableCell className="font-medium">{row.product_name}</TableCell><TableCell>{row.product_type}</TableCell><TableCell className="text-right">{Number(row.quantity).toLocaleString("ru-RU")} {localizeUnit(row.unit, language)}</TableCell><TableCell>{formatDate(row.last_updated)}</TableCell></TableRow>) : <TableRow><TableCell colSpan={4} className="text-center text-slate-500">Остатков нет</TableCell></TableRow>}</TableBody>
+                      <TableBody>{selectedSummary.stock.length ? selectedSummary.stock.map((row) => <TableRow key={`${row.product_id}-${row.batch_id || ""}`}><TableCell className="font-medium">{row.product_name}</TableCell><TableCell>{warehouseProductTypeLabel(row.product_type)}</TableCell><TableCell className="text-right">{Number(row.quantity).toLocaleString("ru-RU")} {localizeUnit(row.unit, language)}</TableCell><TableCell>{formatDate(row.last_updated)}</TableCell></TableRow>) : <TableRow><TableCell colSpan={4} className="text-center text-slate-500">Остатков нет</TableCell></TableRow>}</TableBody>
                     </Table>
                   </div>
                 </section>
