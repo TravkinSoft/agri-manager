@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-21
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `5c48cfdc9eeada004309088407927a0f0bc7ad38`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `de0b60f1a0030f855cfb21055504bf9fad3f06fe`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -22,6 +22,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A110_READ_ONLY_GATE_READY | TZ-195 preview принят владельцем. TZ-197 закрыл preview-pending GLBD actions; A110 может начинать read-only с safety matrix и блокировкой десяти `BLOCKED_NO_DATA`. Agronomic recommendations остаются запрещены. |
+
+## TZ-210 Warehousekeeper V1 preview
+
+- TZ-210 status: `PASS_WITH_OWNER_MANUAL_LIFECYCLE_CHECK`; report: [task-reports/core/TZ-210.md](task-reports/core/TZ-210.md).
+- Warehousekeeper navigation is restricted to five work pages and warehouse reads are restricted to `agrochemical` warehouses and pesticide/fertilizer/additive catalog rows.
+- Supplier receipts are branch-only atomic documents: header, lines and ledger `IN` are committed together, seed/harvest categories are rejected, and repeat submission is idempotent.
+- Company-admin warehouse management, warehousekeeper management denial, weighbridge destination visibility and cross-company denial passed authenticated browser/API checks.
+- QA cleanup archived 25 explicitly tagged automated operation artifacts without deletion. The active issue board is intentionally empty; the owner will create one fresh material operation to test issue and return visually.
+- Code commits `57301c4`, `9807d70` and `de0b60f` are on `origin/copilot-v1`; Preview `agri-manager-4hd2usztr-travkin-ais-projects.vercel.app` is READY.
+- Production writes/deploy, master merge and production migrations are `NONE`. TZ-204/TZ-207/TZ-209 operations, specialist, reconciliation, ledger, weighbridge and field-history contracts are unchanged.
 
 ## Current database state
 
