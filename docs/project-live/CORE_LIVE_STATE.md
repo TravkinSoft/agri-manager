@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-21
+LAST_UPDATED: 2026-07-22
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `84bc7f4`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `abf3015`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -17,7 +17,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Склады | FROZEN_PENDING_FUTURE_APPLY | ТЗ №144 локально перевело 15 проблемных writer paths на единый контракт `base_quantity + base_uom + optional mass_kg`, обязательный `batch_class` и доказуемую плотность. ТЗ №148 доказало repeat safety. Commit `c6788b6` отправлен в `origin/copilot-v1`; migration `20260713183038` не применена, backfill не запускался, scope заморожен до отдельного production preflight и approval. Branch-only read blocker `/api/warehouses/balances` закрыт ТЗ №189 без schema/write изменений. |
 | Контрагенты | TZ211_PREVIEW_READY | В test branch доступны 108 глобальных юридических идентичностей. Новые складские приходы выбирают поставщика по названию или БИН/ИНН и атомарно создают/восстанавливают одну company-связь после успешного ledger `IN`. Production не менялась. |
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
-| Весовая | TZ213_WEIGHBRIDGE_V11_PREVIEW_READY | Весовщик выбирает поле, маршрут, транспорт и вес; сервер автоматически привязывает активную уборку и operation line. Gross/tare/net, crop intake, yield, storno и встроенная переработка проверены без двойного учёта. |
+| Весовая | TZ214_WEIGHBRIDGE_V12_PREVIEW_READY | В меню весовщика оставлены Весовая, Склады и Журнал проводок. Урожай всегда принимается на склад с сохранённой автопривязкой к уборке. Вывоз примесей создаёт атомарный ledger OUT по партии; read-only склад показывает принятую, вывезенную и чистую массу, сорность и валовую/чистую урожайность. Текущий processing UI удалён, исторические данные сохранены. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
 | ГЛБД | TZ197_CONFIRMED_GLBD_V1_CORRECTIONS_APPLIED | Все 852 pesticide cards имеют assistant safety status. Девять подтверждённых действий TZ-196 применены: 7 полей карточек и 2 source-backed component groups. Десять `BLOCKED_NO_DATA` и три HOLD остаются без изменений. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
@@ -44,6 +44,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Production writes/deploy, master merge and production migration are `NONE`. Operations, specialist workflow, weighbridge and Assistant runtime are unchanged.
 
 ## Current database state
+
+### TZ-214 weighbridge impurity removals
+
+- Weighman navigation is exactly `Весовая / Склады / Журнал проводок`; warehouse batches are read-only.
+- Harvest remains warehouse-only and preserves the TZ-213 hidden harvest-operation and operation-line resolution.
+- A `10,000 kg` potato batch accepted a `2,000 kg` impurity removal as atomic `WEIGHBRIDGE_IMPURITIES` ledger OUT. The warehouse view showed `8,000 kg` clean mass, `20%` impurities and gross/clean yield `2.0 / 1.6 t/ha`.
+- A `8,001 kg` removal was blocked with the available `8,000 kg` stated to the user. Storno produced one reversing ledger entry and restored `10,000 / 0 / 10,000 kg`, `0%` and `2.0 / 2.0 t/ha`.
+- Finalized-ticket storno is now bound to `auth.uid()` through `void_finalized_weighbridge_ticket_for_session_v1`; PUBLIC and anon execute remain revoked.
+- The legacy processing records remain readable, but the tab, destination, queues and page are removed from current UI. Future module `Доработка зерна` is backlog-only: cleaning, drying, sorting, seed treatment, input/output, losses, moisture and lots.
+- Test-branch migrations `20260721193142` and `20260721201500` were applied only to `gsglkmudcwkdetqtocae`. Production writes, deploy and master merge are `NONE`.
 
 ### TZ-197 confirmed GLBD V1 corrections
 

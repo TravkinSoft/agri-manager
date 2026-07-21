@@ -581,3 +581,12 @@ TZ213_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant code, read-only tools and mem
 TZ213_BRANCH_RESULT: `PASS - authenticated tickets, missing/ambiguous/cross-company denial, 3.5 t/ha yield, storno, completion guard and one-time processing output`.
 TZ213_PRODUCTION_IMPACT: `NONE`; no production connection, write, migration, deploy or master merge.
 TZ213_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from weighbridge and processing mutations.
+
+## TZ-214 review result
+
+TZ214_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; Assistant runtime and read-only contracts were not modified.
+TZ214_CORE_IMPACT_FOUND: `YES - weighman navigation, warehouse batch reads, impurity-removal ticketing, clean-mass math and finalized-ticket session storno were extended in Core`.
+TZ214_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and ERP write boundaries are unchanged.
+TZ214_BRANCH_RESULT: `PASS - 10,000 kg received, 2,000 kg removed, 8,000 kg clean, 20%; 8,001 kg blocked; storno restored the original batch`.
+TZ214_PRODUCTION_IMPACT: `NONE`; no production connection, write, migration, deploy or master merge.
+TZ214_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; future grain handling remains backlog-only under `Доработка зерна`.

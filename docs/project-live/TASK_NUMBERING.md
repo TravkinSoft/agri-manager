@@ -99,6 +99,7 @@
 | TZ-211 | COUNTERPARTIES / WAREHOUSE / DATABASE | Global counterparty catalog and supplier auto-link | copilot-v1 | DONE | TZ-210 | [task-reports/core/TZ-211.md](task-reports/core/TZ-211.md) | `SELF` |
 | TZ-212 | WAREHOUSE / UI / DATABASE | Warehouse balances, transfers, receipts and inventory | copilot-v1 | DONE | TZ-210,TZ-211 | [task-reports/core/TZ-212.md](task-reports/core/TZ-212.md) | `SELF` |
 | TZ-213 | WEIGHBRIDGE / PROCESSING / UI / DATABASE | Weighbridge V1.1 harvest auto-link, yield and embedded processing | copilot-v1 | DONE | TZ-204,TZ-207,TZ-212 | [task-reports/core/TZ-213.md](task-reports/core/TZ-213.md) | `SELF` |
+| TZ-214 | WEIGHBRIDGE / WAREHOUSE / UI / DATABASE | Weighbridge V1.2 harvest impurity removal and clean mass | copilot-v1 | DONE | TZ-204,TZ-212,TZ-213 | [task-reports/core/TZ-214.md](task-reports/core/TZ-214.md) | `SELF` |
 
 ## Status values
 
