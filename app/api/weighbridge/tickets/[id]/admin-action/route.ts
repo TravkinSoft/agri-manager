@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 
 type AdminAction = "void" | "archive" | "force_close";
@@ -40,9 +39,8 @@ export async function POST(
         if (action !== "void") {
           return NextResponse.json({ error: "Закрытый талон можно только аннулировать через storno." }, { status: 400 });
         }
-        const { error: voidError } = await supabase.rpc("void_ticket_with_storno_v2", {
+        const { error: voidError } = await supabase.rpc("void_finalized_weighbridge_ticket_for_session_v1", {
           p_ticket_id: id,
-          p_actor_user_id: actor.id,
           p_reason: reason || "Admin void finalized ticket",
         });
         if (voidError) {
