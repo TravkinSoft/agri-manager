@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRightLeft, ClipboardList, PackagePlus, Search, Warehouse as WarehouseIcon } from "lucide-react";
+import { ArrowRightLeft, ClipboardList, PackagePlus, Search, Settings2, Warehouse as WarehouseIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -79,8 +79,9 @@ export default function WarehousesPage() {
   const [transferOpen, setTransferOpen] = useState(false);
   const [detailBalance, setDetailBalance] = useState<InventoryBalance | null>(null);
 
-  const canOperate = ["warehouse", "warehouse_operator", "company_admin", "global_admin"].includes(String(profile?.role || ""));
-  const canView = canOperate || ["agronomist", "director", "weighman"].includes(String(profile?.role || ""));
+  const canStockOperate = ["warehouse", "warehouse_operator", "global_admin"].includes(String(profile?.role || ""));
+  const canManageWarehouses = ["company_admin", "global_admin"].includes(String(profile?.role || ""));
+  const canView = canStockOperate || canManageWarehouses || ["agronomist", "director", "weighman"].includes(String(profile?.role || ""));
 
   const loadData = async () => {
     if (!profile?.company_id) return;
@@ -96,10 +97,14 @@ export default function WarehousesPage() {
         getProducts(profile.company_id, false, language, "agrochemical"),
         getInventoryBalances(profile.company_id, language),
         getInventoryTransactions(profile.company_id, language),
-        canOperate ? getWarehouseReceipts(profile.company_id) : Promise.resolve([]),
-        canOperate ? getWarehouseIssueRequests(profile.company_id) : Promise.resolve([]),
+        canStockOperate ? getWarehouseReceipts(profile.company_id) : Promise.resolve([]),
+        canStockOperate ? getWarehouseIssueRequests(profile.company_id) : Promise.resolve([]),
       ]);
-      setWarehouses(warehouseRows.filter((row) => isAgrochemicalWarehouseType(row.warehouse_type)));
+      setWarehouses(
+        canManageWarehouses
+          ? warehouseRows
+          : warehouseRows.filter((row) => isAgrochemicalWarehouseType(row.warehouse_type))
+      );
       setProducts(productRows);
       setBalances(balanceRows.filter((row) => ["pesticide", "fertilizer", "additive"].includes(String(row.product_type || "").toLowerCase())));
       setMovements(movementRows);
@@ -141,14 +146,21 @@ export default function WarehousesPage() {
   return (
     <div className="space-y-5">
       <PageHeader title="Склады" description="Фактические остатки, движения и складские документы">
-        {canOperate ? (
-          <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
+          {canManageWarehouses ? (
+            <Button asChild variant="outline">
+              <Link href="/warehouses/manage"><Settings2 className="mr-2 h-4 w-4" />Управление складами</Link>
+            </Button>
+          ) : null}
+          {canStockOperate ? (
+            <>
             <Button asChild variant="outline"><Link href="/warehouses/inventory"><ClipboardList className="mr-2 h-4 w-4" />Инвентаризация</Link></Button>
             <Button onClick={() => setReceiptWarehouseId(warehouses[0]?.id || "")} disabled={warehouses.length === 0}>
               <PackagePlus className="mr-2 h-4 w-4" />Создать приход
             </Button>
-          </div>
-        ) : null}
+            </>
+          ) : null}
+        </div>
       </PageHeader>
 
       {error ? <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert> : null}
@@ -200,7 +212,7 @@ export default function WarehousesPage() {
             <DialogHeader className="shrink-0 border-b border-slate-800 px-5 py-4 text-left">
               <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
                 <div><DialogTitle className="flex items-center gap-2 text-xl"><WarehouseIcon className="h-5 w-5 text-yellow-400" />{selectedSummary.warehouse.name}</DialogTitle><DialogDescription className="mt-1">{warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)} · последнее движение {formatDate(selectedSummary.latest?.operation_datetime || selectedSummary.latest?.created_at)}</DialogDescription></div>
-                {canOperate ? <div className="flex flex-wrap gap-2"><Button onClick={() => setReceiptWarehouseId(selectedSummary.warehouse.id)}><PackagePlus className="mr-2 h-4 w-4" />Приход</Button><Button variant="outline" onClick={() => setTransferOpen(true)}><ArrowRightLeft className="mr-2 h-4 w-4" />Переместить</Button></div> : null}
+                {canStockOperate ? <div className="flex flex-wrap gap-2"><Button onClick={() => setReceiptWarehouseId(selectedSummary.warehouse.id)}><PackagePlus className="mr-2 h-4 w-4" />Приход</Button><Button variant="outline" onClick={() => setTransferOpen(true)}><ArrowRightLeft className="mr-2 h-4 w-4" />Переместить</Button></div> : null}
               </div>
             </DialogHeader>
 
@@ -227,8 +239,8 @@ export default function WarehousesPage() {
         </DialogContent>
       </Dialog>
 
-      {profile?.company_id ? <WarehouseReceiptDialog open={receiptWarehouseId !== null} onOpenChange={(open) => !open && setReceiptWarehouseId(null)} companyId={profile.company_id} warehouses={warehouses} products={products} defaultWarehouseId={receiptWarehouseId} onCreated={async (receipt) => { toast({ title: "Приход проведён", description: `Документ ${receipt.receipt_no} создан, ledger IN записан.` }); await loadData(); }} /> : null}
-      {profile?.company_id ? <WarehouseTransferDialog open={transferOpen} onOpenChange={setTransferOpen} companyId={profile.company_id} sourceWarehouse={selectedSummary?.warehouse || null} warehouses={warehouses} balances={balances} onCreated={async (result) => { toast({ title: "Перемещение проведено", description: `${result.transfer_no}: OUT и IN записаны атомарно.` }); await loadData(); }} /> : null}
+      {profile?.company_id && canStockOperate ? <WarehouseReceiptDialog open={receiptWarehouseId !== null} onOpenChange={(open) => !open && setReceiptWarehouseId(null)} companyId={profile.company_id} warehouses={warehouses} products={products} defaultWarehouseId={receiptWarehouseId} onCreated={async (receipt) => { toast({ title: "Приход проведён", description: `Документ ${receipt.receipt_no} создан, ledger IN записан.` }); await loadData(); }} /> : null}
+      {profile?.company_id && canStockOperate ? <WarehouseTransferDialog open={transferOpen} onOpenChange={setTransferOpen} companyId={profile.company_id} sourceWarehouse={selectedSummary?.warehouse || null} warehouses={warehouses} balances={balances} onCreated={async (result) => { toast({ title: "Перемещение проведено", description: `${result.transfer_no}: OUT и IN записаны атомарно.` }); await loadData(); }} /> : null}
       {profile?.company_id ? <WarehouseStockDetailsDialog open={detailBalance !== null} onOpenChange={(open) => !open && setDetailBalance(null)} companyId={profile.company_id} balance={detailBalance} /> : null}
     </div>
   );

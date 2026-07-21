@@ -62,7 +62,7 @@ export default function WarehouseInventoryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canOperate = ["warehouse", "warehouse_operator", "company_admin", "global_admin"].includes(String(profile?.role || ""));
+  const canOperate = ["warehouse", "warehouse_operator", "global_admin"].includes(String(profile?.role || ""));
 
   const load = async (preferInventoryId?: string) => {
     if (!profile?.company_id) return;
@@ -148,7 +148,7 @@ export default function WarehouseInventoryPage() {
     finally { setSubmitting(false); }
   };
 
-  if (!canOperate) return <Alert variant="destructive"><AlertDescription>Инвентаризация доступна складовщику и администратору компании.</AlertDescription></Alert>;
+  if (!canOperate) return <Alert variant="destructive"><AlertDescription>Инвентаризация доступна только складовщику.</AlertDescription></Alert>;
 
   return <div className="space-y-5">
     <PageHeader title="Инвентаризация" description="Сравнение учётных и фактических остатков склада">

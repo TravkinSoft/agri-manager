@@ -20,7 +20,6 @@ export const MATERIAL_REQUEST_READ_ROLES = [
 
 export const MATERIAL_REQUEST_WAREHOUSE_WRITE_ROLES = [
   "global_admin",
-  "company_admin",
   "warehouse",
   "warehouse_operator",
 ] as const;

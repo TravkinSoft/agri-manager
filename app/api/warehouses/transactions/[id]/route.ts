@@ -21,12 +21,10 @@ const READ_ROLES = [
 
 const WRITE_ROLES = [
   "global_admin",
-  "company_admin",
 ] as const;
 
 const DELETE_ROLES = [
   "global_admin",
-  "company_admin",
 ] as const;
 
 function toNumberSafe(value: unknown): number {

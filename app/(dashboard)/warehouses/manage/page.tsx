@@ -113,8 +113,7 @@ export default function ManageWarehousesPage() {
 
   const canManageWarehouses =
     profile?.role === "company_admin" || profile?.role === "global_admin";
-  const canManageProducts =
-    profile?.role === "company_admin" || profile?.role === "global_admin";
+  const canManageProducts = profile?.role === "global_admin";
 
   const warehouseForm = useForm<WarehouseFormData>({
     resolver: zodResolver(warehouseSchema),
@@ -147,7 +146,7 @@ export default function ManageWarehousesPage() {
       setLoading(true);
       const [warehousesData, productsData, balanceRows] = await Promise.all([
         getWarehouses(profile.company_id, true, language),
-        getProducts(profile.company_id, false, language),
+        canManageProducts ? getProducts(profile.company_id, false, language) : Promise.resolve([]),
         getInventoryBalances(profile.company_id, language),
       ]);
       setWarehouses(warehousesData);
@@ -184,7 +183,7 @@ export default function ManageWarehousesPage() {
 
   useEffect(() => {
     void loadData();
-  }, [language, profile?.company_id, canManageWarehouses]);
+  }, [language, profile?.company_id, canManageProducts, canManageWarehouses]);
 
   const resetWarehouseForm = () => {
     warehouseForm.reset({
@@ -364,7 +363,9 @@ export default function ManageWarehousesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={t("Управление складами и номенклатурой", "Қойма мен номенклатураны басқару", "Warehouses and products")}
+        title={canManageProducts
+          ? t("Управление складами и номенклатурой", "Қойма мен номенклатураны басқару", "Warehouses and products")
+          : t("Управление складами", "Қоймаларды басқару", "Warehouse management")}
         description={t(
           "Админ-управление складами: типы, вместимость, архив и безопасное удаление.",
           "Қоймаларды әкімшілеу: түрлері, сыйымдылығы, мұрағат және қауіпсіз жою.",

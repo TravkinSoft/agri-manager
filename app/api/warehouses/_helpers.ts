@@ -12,8 +12,12 @@ export const WAREHOUSE_READ_ROLES = [
   "director",
 ] as const;
 
-export const WAREHOUSE_WRITE_ROLES = [
+export const WAREHOUSE_ENTITY_WRITE_ROLES = [
   "company_admin",
+  "global_admin",
+] as const;
+
+export const WAREHOUSE_STOCK_WRITE_ROLES = [
   "global_admin",
   "warehouse",
   "warehouse_operator",

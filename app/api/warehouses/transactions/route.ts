@@ -28,7 +28,6 @@ const READ_ROLES = [
 
 const WRITE_ROLES = [
   "global_admin",
-  "company_admin",
   "warehouse",
   "warehouse_operator",
 ] as const;

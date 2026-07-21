@@ -6,7 +6,7 @@ import {
   getUserScopedClientFromRequest,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-import { WAREHOUSE_READ_ROLES, WAREHOUSE_WRITE_ROLES, normalizeWarehouseRow, toNullableText, warehouseVisibleToRole } from "@/app/api/warehouses/_helpers";
+import { WAREHOUSE_ENTITY_WRITE_ROLES, WAREHOUSE_READ_ROLES, normalizeWarehouseRow, toNullableText, warehouseVisibleToRole } from "@/app/api/warehouses/_helpers";
 import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
 
 export async function GET(request: NextRequest) {
@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...WAREHOUSE_WRITE_ROLES],
+      allowedRoles: [...WAREHOUSE_ENTITY_WRITE_ROLES],
     });
 
     const name = String(body.name || "").trim();

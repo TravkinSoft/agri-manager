@@ -10,7 +10,7 @@ import { AGROCHEMICAL_WAREHOUSE_TYPES } from "@/lib/warehouse/warehouse-scope";
 import { COUNTERPARTY_SELECT, normalizeCounterpartyRow } from "@/lib/counterparties/rows";
 
 const READ_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator"] as const;
-const WRITE_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator"] as const;
+const WRITE_ROLES = ["global_admin", "warehouse", "warehouse_operator"] as const;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function contextForRequest(request: NextRequest, requestedCompanyId: string | null) {
@@ -131,7 +131,7 @@ export async function POST(request: NextRequest) {
     if (!supplierCompanyId && !supplierGlobalId) {
       return NextResponse.json({ error: "Выберите поставщика из справочника" }, { status: 400 });
     }
-    const { data, error } = await supabase.rpc("create_warehouse_receipt_atomic_v3", {
+    const { data, error } = await supabase.rpc("create_warehouse_receipt_atomic_v4", {
       p_company_id: companyId,
       p_warehouse_id: String(body.warehouse_id || ""),
       p_supplier_company_counterparty_id: supplierCompanyId,

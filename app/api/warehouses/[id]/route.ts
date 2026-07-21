@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError } from "@/lib/auth/server-session";
 import { getWarehouseDeleteCheck } from "@/lib/server/warehouse-access";
-import { WAREHOUSE_READ_ROLES, WAREHOUSE_WRITE_ROLES, normalizeWarehouseRow, resolveWarehouseForActor, toNullableText } from "@/app/api/warehouses/_helpers";
+import { WAREHOUSE_ENTITY_WRITE_ROLES, WAREHOUSE_READ_ROLES, normalizeWarehouseRow, resolveWarehouseForActor, toNullableText } from "@/app/api/warehouses/_helpers";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -64,7 +64,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...WAREHOUSE_WRITE_ROLES],
+      allowedRoles: [...WAREHOUSE_ENTITY_WRITE_ROLES],
     });
     if (!existing?.id) {
       return NextResponse.json({ error: "Warehouse not found" }, { status: 404 });
@@ -152,7 +152,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...WAREHOUSE_WRITE_ROLES],
+      allowedRoles: [...WAREHOUSE_ENTITY_WRITE_ROLES],
     });
     if (!existing?.id) {
       return NextResponse.json({ error: "Warehouse not found" }, { status: 404 });
@@ -221,4 +221,3 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     );
   }
 }
-

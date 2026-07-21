@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError } from "@/lib/auth/server-session";
 import {
-  WAREHOUSE_WRITE_ROLES,
+  WAREHOUSE_STOCK_WRITE_ROLES,
   resolveWarehouseForActor,
 } from "@/app/api/warehouses/_helpers";
 
@@ -24,7 +24,7 @@ export async function POST(
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...WAREHOUSE_WRITE_ROLES],
+      allowedRoles: [...WAREHOUSE_STOCK_WRITE_ROLES],
     });
     if (!existing?.id) {
       return NextResponse.json({ error: "Склад-источник не найден" }, { status: 404 });
