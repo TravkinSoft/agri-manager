@@ -45,6 +45,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## Current database state
 
+### TZ-215 Company Admin V1
+
+- TZ-215 status: `DONE_WITH_EVIDENCE_LIMITATION`; report: [task-reports/core/TZ-215.md](task-reports/core/TZ-215.md); Preview: `https://agri-manager-irkqy3b0s-travkin-ais-projects.vercel.app`.
+- Company Admin owns warehouse definitions and company reference entities; Warehousekeeper owns physical stock actions. UI and server-side role guards enforce the split.
+- `Агрономия` reads the selected company's active-season crop structure through user JWT/RLS and shows 9 rows, 7 cultures and 1,000 ha without service credentials.
+- Personnel creation no longer writes missing columns; `QA Водитель ТЗ-215` is visible in the weighbridge selector. Company assets use GLBD model IDs and manual material addition is removed.
+- Rollback-only branch verification proved atomic company-product creation, failed-receipt isolation, deduplication and Company Admin denial. Test artifacts after rollback are `0/0/0`.
+- Non-global pilot navigation hides and direct-route guards deny unfinished modules. Production writes/deploy and master merge remain `0/NO/NO`.
+- Four of sixteen requested screenshots were captured; the remaining live states were verified by DOM/route assertions after renderer screenshot timeouts.
+
 ### TZ-214 weighbridge impurity removals
 
 - Weighman navigation is exactly `Весовая / Склады / Журнал проводок`; warehouse batches are read-only.

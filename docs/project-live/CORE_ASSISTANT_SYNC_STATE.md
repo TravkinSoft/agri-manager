@@ -590,3 +590,12 @@ TZ214_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and
 TZ214_BRANCH_RESULT: `PASS - 10,000 kg received, 2,000 kg removed, 8,000 kg clean, 20%; 8,001 kg blocked; storno restored the original batch`.
 TZ214_PRODUCTION_IMPACT: `NONE`; no production connection, write, migration, deploy or master merge.
 TZ214_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; future grain handling remains backlog-only under `Доработка зерна`.
+
+## TZ-215 review result
+
+TZ215_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; Assistant runtime and read-only contracts were not modified.
+TZ215_CORE_IMPACT_FOUND: `YES - company warehouse/reference ownership, receipt linkage, role navigation and route guards changed in Core`.
+TZ215_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and ERP-write boundaries are unchanged.
+TZ215_BRANCH_RESULT: `PASS - role split, 9 crop rows/7 cultures/1000 ha, personnel/driver visibility, GLBD asset ownership and rollback-only atomic receipt checks`.
+TZ215_PRODUCTION_IMPACT: `NONE`; migrations were applied only to branch `gsglkmudcwkdetqtocae`, with no production write/deploy or master merge.
+TZ215_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; evidence pack contains 4/16 screenshots because additional renderer captures timed out, while live DOM/route checks passed.
