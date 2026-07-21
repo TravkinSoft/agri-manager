@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-21T17:30:00+05:00
+LAST_REVIEW_AT: 2026-07-21T19:00:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `de0b60f1a0030f855cfb21055504bf9fad3f06fe`)
+CORE_COMMIT: `SELF` (previous core commit: `84bc7f4`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
@@ -17,6 +17,15 @@ INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
 NEXT_SAFE_ACTION: Start A110 in assistant-v1 as read-only GLBD access using the TZ-196 safety matrix plus the TZ-197 post-apply record. Exclude the ten `BLOCKED_NO_DATA` rows; do not implement agronomic recommendations.
+
+## TZ-211 review result
+
+TZ211_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory and Contract 0.4 were not changed.
+TZ211_CORE_IMPACT_FOUND: `YES - global/company counterparty catalog, supplier search and atomic warehouse receipt supplier linking`.
+TZ211_ACCEPTANCE: `PASS - 108 identities, repeat import 0, Swissgrow cancel/first/repeat/reactivate, injected ledger rollback, role/RLS and company isolation`.
+TZ211_FUTURE_IDEA: `ASSISTANT COUNTERPARTY RESOLVER` is backlog-only; no AI, OCR, internet or controlled-action implementation was added.
+TZ211_TEST_ENVIRONMENT: `Supabase gsglkmudcwkdetqtocae + Vercel Preview only`.
+TZ211_PRODUCTION_IMPACT: `NONE`; production writes/deploy, master merge and production migrations are 0.
 
 ## TZ-210 review result
 

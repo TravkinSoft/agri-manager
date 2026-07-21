@@ -96,6 +96,7 @@
 | TZ-207 | OPERATIONS / PILOT | Minimal non-chemical field operations for the real pilot | copilot-v1 | DONE | TZ-204 | [task-reports/core/TZ-207.md](task-reports/core/TZ-207.md) | `SELF` |
 | TZ-209 | OPERATIONS / UI | Final simplified field-work selector | copilot-v1 | DONE | TZ-204,TZ-207,TZ-208 | [task-reports/core/TZ-209.md](task-reports/core/TZ-209.md) | `SELF` |
 | TZ-210 | WAREHOUSE / UI / DATABASE | Warehousekeeper V1 roles, receipts, warehouses and requests | copilot-v1 | DONE | TZ-204,TZ-207,TZ-209 | [task-reports/core/TZ-210.md](task-reports/core/TZ-210.md) | `SELF` |
+| TZ-211 | COUNTERPARTIES / WAREHOUSE / DATABASE | Global counterparty catalog and supplier auto-link | copilot-v1 | DONE | TZ-210 | [task-reports/core/TZ-211.md](task-reports/core/TZ-211.md) | `SELF` |
 
 ## Status values
 

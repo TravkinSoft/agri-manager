@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-21
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `de0b60f1a0030f855cfb21055504bf9fad3f06fe`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `84bc7f4`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -15,6 +15,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Структура посевов | IN_PROGRESS | В production 122 строки. Основной flow и lazy-load больших компаний проверены; fix сохранения участка «Пар» готов в `copilot-v1` по ТЗ №136, но ещё не выпущен в production. |
 | Операции | TZ209_SIMPLIFIED_SELECTOR_READY | Atomic lifecycle сохранён. Новые планы показывают только 6 утверждённых разделов; почва/посев/уборка дают 11/3/10 конкретных работ, а удобрения/опрыскивание/полив выбираются одним кликом. Исторические операции и TZ-204/TZ-207 lifecycle не изменены. |
 | Склады | FROZEN_PENDING_FUTURE_APPLY | ТЗ №144 локально перевело 15 проблемных writer paths на единый контракт `base_quantity + base_uom + optional mass_kg`, обязательный `batch_class` и доказуемую плотность. ТЗ №148 доказало repeat safety. Commit `c6788b6` отправлен в `origin/copilot-v1`; migration `20260713183038` не применена, backfill не запускался, scope заморожен до отдельного production preflight и approval. Branch-only read blocker `/api/warehouses/balances` закрыт ТЗ №189 без schema/write изменений. |
+| Контрагенты | TZ211_PREVIEW_READY | В test branch доступны 108 глобальных юридических идентичностей. Новые складские приходы выбирают поставщика по названию или БИН/ИНН и атомарно создают/восстанавливают одну company-связь после успешного ledger `IN`. Production не менялась. |
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | TZ207_HARVEST_LINK_READY | Талон требует связь с уборочной операцией/строкой, сохраняет crop identity, считает gross/tare/net и создаёт один crop intake. Повторное создание/закрытие не даёт дублей. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
@@ -32,6 +33,15 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - QA cleanup archived 25 explicitly tagged automated operation artifacts without deletion. The active issue board is intentionally empty; the owner will create one fresh material operation to test issue and return visually.
 - Code commits `57301c4`, `9807d70` and `de0b60f` are on `origin/copilot-v1`; Preview `agri-manager-4hd2usztr-travkin-ais-projects.vercel.app` is READY.
 - Production writes/deploy, master merge and production migrations are `NONE`. TZ-204/TZ-207/TZ-209 operations, specialist, reconciliation, ledger, weighbridge and field-history contracts are unchanged.
+
+## TZ-211 global counterparties preview
+
+- TZ-211 status: `PASS`; report: [task-reports/core/TZ-211.md](task-reports/core/TZ-211.md).
+- The approved supplier source imported `108` identities (`89 KZ / 19 RU`) into test branch `gsglkmudcwkdetqtocae`; duplicate country/tax identities and invalid rows are `0`, repeat import changed `0` rows.
+- Global Admin and Company Admin pages, warehouse supplier select, name/tax search, company isolation and role restrictions passed authenticated checks.
+- Swissgrow first/repeat/reactivation E2E produced three finalized receipts and three ledger rows while preserving exactly one company supplier link. Cancel and injected ledger failure produced no link or ticket.
+- Feature commit `2ebd3d7` and migration-version alignment `84bc7f4` are prepared on `copilot-v1`; Preview `agri-manager-aoax99r7j-travkin-ais-projects.vercel.app` is READY.
+- Production writes/deploy, master merge and production migration are `NONE`. Operations, specialist workflow, weighbridge and Assistant runtime are unchanged.
 
 ## Current database state
 
