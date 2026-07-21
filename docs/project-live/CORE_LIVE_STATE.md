@@ -646,7 +646,7 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 
 ## TZ-212 Warehouses V1.1
 
-- TZ-212 status: `PASS_PREVIEW_PENDING`; report: [task-reports/core/TZ-212.md](task-reports/core/TZ-212.md).
+- TZ-212 status: `PASS`; report: [task-reports/core/TZ-212.md](task-reports/core/TZ-212.md); feature commit: `911d010`; authenticated Preview: `https://agri-manager-gv9r2ahb9-travkin-ais-projects.vercel.app`.
 - Warehouse cards are fully clickable and contain no nested actions. Receipt stays global; warehouse dialogs expose only receipt and atomic transfer actions.
 - Current balances aggregate by warehouse, canonical catalog identity and unit. Lots and receipt provenance remain available in a separate detail dialog.
 - Atomic, idempotent transfers create linked ledger OUT/IN rows, use server timestamps, protect reserved stock and reject quantities above availability.
