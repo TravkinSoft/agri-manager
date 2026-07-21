@@ -1,127 +1,156 @@
 import { NextRequest, NextResponse } from "next/server";
-import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  WEIGHBRIDGE_READ_ROLES,
+  WEIGHBRIDGE_WRITE_ROLES,
+  asSessionErrorResponse,
+  resolveWeighbridgeSession,
+} from "@/app/api/weighbridge/_auth";
+import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 
 const STORED_OUTPUT_TYPES = new Set([
   "cleaned_seed",
   "commodity",
   "forage_fraction",
-  "waste_fraction",
   "treated_seed",
   "calibrated_fraction",
+  "packaged",
+  "reclassified",
   "potato_marketable",
   "potato_seed",
   "potato_small",
-  "potato_rotten",
   "other",
 ]);
 
 const nameOf = (row: any, fallback = "-") =>
   String(row?.name_ru || row?.name || row?.full_name || row?.batch_code || fallback);
 
+const errorMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message?: unknown }).message || "Unknown error");
+  }
+  return "Unknown error";
+};
+
 const batchLabel = (batch: any) => {
   if (!batch) return "Партия";
   const product = nameOf(batch.product || batch.crop, "Продукт");
-  const variety = nameOf(batch.variety, "-");
-  const reproduction = nameOf(batch.reproduction, "-");
-  const code = batch.batch_code ? ` · ${batch.batch_code}` : "";
-  return `${product} / ${variety} / ${reproduction}${code}`;
+  const variety = nameOf(batch.variety, "");
+  const reproduction = nameOf(batch.reproduction, "");
+  const identity = [product, variety, reproduction].filter(Boolean).join(" / ");
+  return `${identity}${batch.batch_code ? ` · ${batch.batch_code}` : ""}`;
 };
 
-async function loadTransformationItems(supabase: ReturnType<typeof getServiceClient>, companyId: string) {
+async function loadTransformationItems(supabase: SupabaseClient, companyId: string) {
   const { data: transformations, error } = await supabase
     .from("batch_transformations")
     .select("*")
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
+  if (error) throw error;
 
-  if (error) throw new Error(error.message);
   const rows = transformations || [];
-  const ids = rows.map((row: any) => row.id);
-  if (ids.length === 0) return [];
+  const ids = rows.map((row: any) => String(row.id));
+  const sourceTicketIds = rows.map((row: any) => String(row.source_ticket_id || "")).filter(Boolean);
 
-  const [
-    { data: inputs, error: inputsError },
-    { data: outputs, error: outputsError },
-    { data: nodes },
-  ] = await Promise.all([
-    supabase.from("batch_transformation_inputs").select("*").in("transformation_id", ids),
-    supabase.from("batch_transformation_outputs").select("*").in("transformation_id", ids),
-    supabase.from("processing_nodes").select("id,name,type").eq("company_id", companyId),
+  const [inputsRes, outputsRes, nodesRes, ticketsRes] = await Promise.all([
+    ids.length
+      ? supabase.from("batch_transformation_inputs").select("*").eq("company_id", companyId).in("transformation_id", ids)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    ids.length
+      ? supabase.from("batch_transformation_outputs").select("*").eq("company_id", companyId).in("transformation_id", ids)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    supabase.from("processing_nodes").select("id,name,type,linked_warehouse_id").eq("company_id", companyId),
+    sourceTicketIds.length
+      ? supabase
+          .from("tickets")
+          .select("id,ticket_no,field_id,net_weight_kg,created_at,processing_node_id,lines:ticket_lines(product_name_snapshot)")
+          .eq("company_id", companyId)
+          .in("id", sourceTicketIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
   ]);
+  if (inputsRes.error) throw inputsRes.error;
+  if (outputsRes.error) throw outputsRes.error;
+  if (nodesRes.error) throw nodesRes.error;
+  if (ticketsRes.error) throw ticketsRes.error;
 
-  if (inputsError) throw new Error(inputsError.message);
-  if (outputsError) throw new Error(outputsError.message);
+  const inputs = inputsRes.data || [];
+  const outputs = outputsRes.data || [];
+  const batchIds = Array.from(new Set([
+    ...inputs.map((row: any) => String(row.batch_id || "")).filter(Boolean),
+    ...outputs.map((row: any) => String(row.output_batch_id || "")).filter(Boolean),
+  ]));
+  const warehouseIds = Array.from(new Set([
+    ...inputs.map((row: any) => String(row.warehouse_from_id || "")).filter(Boolean),
+    ...outputs.map((row: any) => String(row.warehouse_to_id || "")).filter(Boolean),
+  ]));
+  const fieldIds = Array.from(new Set((ticketsRes.data || []).map((row: any) => String(row.field_id || "")).filter(Boolean)));
 
-  const batchIds = Array.from(
-    new Set([
-      ...(inputs || []).map((row: any) => String(row.batch_id || "")).filter(Boolean),
-      ...(outputs || []).map((row: any) => String(row.output_batch_id || "")).filter(Boolean),
-    ])
-  );
-  const warehouseIds = Array.from(
-    new Set([
-      ...(inputs || []).map((row: any) => String(row.warehouse_from_id || "")).filter(Boolean),
-      ...(outputs || []).map((row: any) => String(row.warehouse_to_id || "")).filter(Boolean),
-    ])
-  );
-
-  const [{ data: batches }, { data: warehouses }] = await Promise.all([
+  const [batchesRes, warehousesRes, fieldsRes] = await Promise.all([
     batchIds.length
       ? supabase
           .from("inventory_batches")
-          .select(`
-            id,batch_code,batch_class,product_id,crop_id,variety_id,reproduction_id,
-            product:product_id(name,name_ru,full_name),
-            crop:crop_id(name,name_ru,full_name),
-            variety:variety_id(name,name_ru,full_name),
-            reproduction:reproduction_id(name,name_ru,full_name)
-          `)
+          .select("id,batch_code,batch_class,product_id,crop_id,variety_id,reproduction_id,product:product_id(name,name_ru),crop:crop_id(name,name_ru),variety:variety_id(name,name_ru),reproduction:reproduction_id(name,name_ru)")
+          .eq("company_id", companyId)
           .in("id", batchIds)
-      : Promise.resolve({ data: [] as any[] }),
+      : Promise.resolve({ data: [] as any[], error: null }),
     warehouseIds.length
-      ? supabase.from("warehouses").select("id,name").in("id", warehouseIds)
-      : Promise.resolve({ data: [] as any[] }),
+      ? supabase.from("warehouses").select("id,name").eq("company_id", companyId).in("id", warehouseIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    fieldIds.length
+      ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
   ]);
+  if (batchesRes.error) throw batchesRes.error;
+  if (warehousesRes.error) throw warehousesRes.error;
+  if (fieldsRes.error) throw fieldsRes.error;
 
   const inputByTransformation = new Map<string, any[]>();
-  for (const input of inputs || []) {
-    const key = String(input.transformation_id || "");
+  for (const input of inputs) {
+    const key = String(input.transformation_id);
     inputByTransformation.set(key, [...(inputByTransformation.get(key) || []), input]);
   }
-
   const outputByTransformation = new Map<string, any[]>();
-  for (const output of outputs || []) {
-    const key = String(output.transformation_id || "");
+  for (const output of outputs) {
+    const key = String(output.transformation_id);
     outputByTransformation.set(key, [...(outputByTransformation.get(key) || []), output]);
   }
 
-  const batchMap = new Map((batches || []).map((batch: any) => [String(batch.id), batch]));
-  const warehouseMap = new Map((warehouses || []).map((warehouse: any) => [String(warehouse.id), nameOf(warehouse)]));
-  const nodeMap = new Map((nodes || []).map((node: any) => [String(node.id), nameOf(node)]));
+  const batchMap = new Map((batchesRes.data || []).map((row: any) => [String(row.id), row]));
+  const warehouseMap = new Map((warehousesRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
+  const fieldMap = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
+  const nodeMap = new Map((nodesRes.data || []).map((row: any) => [String(row.id), row]));
+  const ticketMap = new Map((ticketsRes.data || []).map((row: any) => [String(row.id), row]));
 
   return rows.map((row: any) => {
     const firstInput = (inputByTransformation.get(String(row.id)) || [])[0];
     const inputBatch = firstInput ? batchMap.get(String(firstInput.batch_id)) : null;
+    const ticket = row.source_ticket_id ? ticketMap.get(String(row.source_ticket_id)) : null;
+    const node = row.processing_node_id ? nodeMap.get(String(row.processing_node_id)) : null;
     return {
-      id: row.id,
-      company_id: row.company_id,
-      transformation_type: row.transformation_type,
-      status: row.status,
-      processing_node_id: row.processing_node_id,
-      processing_node_name: row.processing_node_id ? nodeMap.get(String(row.processing_node_id)) || null : null,
-      source_ticket_id: row.source_ticket_id || null,
+      id: String(row.id),
+      record_type: "transformation",
+      company_id: String(row.company_id),
+      transformation_type: String(row.transformation_type),
+      status: String(row.status),
+      queue_status: row.status === "completed" ? "completed" : row.status === "voided" ? "voided" : "in_progress",
+      processing_node_id: row.processing_node_id ? String(row.processing_node_id) : null,
+      processing_node_name: node ? nameOf(node) : null,
+      source_ticket_id: row.source_ticket_id ? String(row.source_ticket_id) : null,
+      ticket_no: ticket?.ticket_no ? String(ticket.ticket_no) : null,
+      field_name: ticket?.field_id ? fieldMap.get(String(ticket.field_id)) || null : null,
+      crop_name: String(ticket?.lines?.[0]?.product_name_snapshot || inputBatch?.crop?.name_ru || inputBatch?.crop?.name || "Сырьё"),
       started_at: row.started_at || null,
       completed_at: row.completed_at || null,
       created_at: row.created_at,
       note: row.note || null,
       input_label: inputBatch ? batchLabel(inputBatch) : "Партия",
-      input_weight_kg: Number(firstInput?.input_weight_kg || 0),
+      input_weight_kg: Number(firstInput?.input_weight_kg || ticket?.net_weight_kg || 0),
       source_warehouse_name: firstInput?.warehouse_from_id ? warehouseMap.get(String(firstInput.warehouse_from_id)) || null : null,
       outputs: (outputByTransformation.get(String(row.id)) || []).map((output: any) => ({
-        line_type: output.line_type,
-        batch_class: output.batch_class || "",
+        line_type: String(output.line_type),
+        batch_class: String(output.batch_class || ""),
         warehouse_to_name: output.warehouse_to_id ? warehouseMap.get(String(output.warehouse_to_id)) || null : null,
         output_weight_kg: Number(output.output_weight_kg || 0),
       })),
@@ -129,46 +158,106 @@ async function loadTransformationItems(supabase: ReturnType<typeof getServiceCli
   });
 }
 
+async function loadWaitingTickets(supabase: SupabaseClient, companyId: string, usedTicketIds: Set<string>) {
+  const { data: tickets, error } = await supabase
+    .from("tickets")
+    .select("id,ticket_no,field_id,net_weight_kg,created_at,processing_node_id,batch_id,warehouse_to_id,lines:ticket_lines(product_name_snapshot)")
+    .eq("company_id", companyId)
+    .eq("op_type", "harvest_incoming")
+    .eq("destination_kind", "processing_node")
+    .eq("is_finalized", true)
+    .eq("is_voided", false)
+    .not("processing_node_id", "is", null)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  const rows = (tickets || []).filter((row: any) => !usedTicketIds.has(String(row.id)));
+  const fieldIds = Array.from(new Set(rows.map((row: any) => String(row.field_id || "")).filter(Boolean)));
+  const nodeIds = Array.from(new Set(rows.map((row: any) => String(row.processing_node_id || "")).filter(Boolean)));
+  const [fieldsRes, nodesRes] = await Promise.all([
+    fieldIds.length
+      ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    nodeIds.length
+      ? supabase.from("processing_nodes").select("id,name").eq("company_id", companyId).in("id", nodeIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
+  ]);
+  if (fieldsRes.error) throw fieldsRes.error;
+  if (nodesRes.error) throw nodesRes.error;
+  const fieldMap = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
+  const nodeMap = new Map((nodesRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
+
+  return rows.map((ticket: any) => ({
+    id: `ticket:${ticket.id}`,
+    record_type: "waiting_ticket",
+    company_id: companyId,
+    transformation_type: "cleaning",
+    status: "waiting",
+    queue_status: "waiting",
+    processing_node_id: String(ticket.processing_node_id),
+    processing_node_name: nodeMap.get(String(ticket.processing_node_id)) || null,
+    source_ticket_id: String(ticket.id),
+    ticket_no: String(ticket.ticket_no),
+    field_name: fieldMap.get(String(ticket.field_id)) || null,
+    crop_name: String(ticket.lines?.[0]?.product_name_snapshot || "Сырьё"),
+    started_at: null,
+    completed_at: null,
+    created_at: ticket.created_at,
+    note: null,
+    input_label: String(ticket.lines?.[0]?.product_name_snapshot || "Сырьё"),
+    input_weight_kg: Number(ticket.net_weight_kg || 0),
+    source_warehouse_name: null,
+    outputs: [],
+  }));
+}
+
+async function validateOutputWarehouses(
+  supabase: SupabaseClient,
+  companyId: string,
+  outputs: Array<{ line_type: string; warehouse_to_id: string | null; output_weight_kg: number }>
+) {
+  const ids = Array.from(new Set(outputs.map((row) => row.warehouse_to_id || "").filter(Boolean)));
+  if (ids.length === 0) return;
+  const { data, error } = await supabase
+    .from("warehouses")
+    .select("id,warehouse_type,archived,is_archived")
+    .eq("company_id", companyId)
+    .in("id", ids);
+  if (error) throw error;
+  const byId = new Map((data || []).map((row: any) => [String(row.id), row]));
+  for (const id of ids) {
+    const row: any = byId.get(id);
+    if (!row || row.archived || row.is_archived || !isHarvestWarehouseType(row.warehouse_type)) {
+      throw new Error("Склад результата недоступен для готовой продукции.");
+    }
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
-    const actor = await getServerActorFromSession(request);
-    const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
-    const companyId = resolveCompanyForActor(actor, requestedCompanyId);
-
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId: actor.id,
-      companyId,
-      allowedRoles: ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman", "agronomist"],
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
-
     const items = await loadTransformationItems(supabase, companyId);
-    return NextResponse.json({ items });
+    const usedTicketIds = new Set(items.map((row: any) => String(row.source_ticket_id || "")).filter(Boolean));
+    const waiting = await loadWaitingTickets(supabase, companyId, usedTicketIds);
+    return NextResponse.json({ items: [...waiting, ...items] });
   } catch (error) {
-    if (error instanceof SessionAuthError) {
-      return NextResponse.json({ error: error.message }, { status: error.status });
-    }
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const actor = await getServerActorFromSession(request);
-    const companyId = resolveCompanyForActor(actor, String(body.company_id || "").trim() || null);
-    const input = body.input || {};
-    const outputs = Array.isArray(body.outputs) ? body.outputs : [];
-
-    if (!body.transformation_type || !input.batch_id || !input.warehouse_from_id || Number(input.input_weight_kg || 0) <= 0) {
-      return NextResponse.json({ error: "Заполните тип, входную партию, склад и массу входа" }, { status: 400 });
-    }
-    if (outputs.length === 0) {
-      return NextResponse.json({ error: "Добавьте хотя бы один выход или потерю" }, { status: 400 });
-    }
-
-    const normalizedOutputs = outputs
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+      allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
+      requestedCompanyId: String(body.company_id || "").trim() || null,
+    });
+    const sourceTicketId = String(body.source_ticket_id || "").trim() || null;
+    const outputs = (Array.isArray(body.outputs) ? body.outputs : [])
       .map((output: any) => ({
         line_type: String(output.line_type || "other"),
         batch_class: String(output.batch_class || "commodity"),
@@ -176,24 +265,61 @@ export async function POST(request: NextRequest) {
         output_weight_kg: Number(output.output_weight_kg || 0),
       }))
       .filter((output: any) => output.output_weight_kg > 0);
-
-    if (normalizedOutputs.length === 0) {
-      return NextResponse.json({ error: "Масса выходов/потерь должна быть больше 0" }, { status: 400 });
+    if (outputs.length === 0) {
+      return NextResponse.json({ error: "Укажите выход готового продукта и/или потери." }, { status: 400 });
     }
-
-    for (const output of normalizedOutputs) {
+    for (const output of outputs) {
       if (STORED_OUTPUT_TYPES.has(output.line_type) && !output.warehouse_to_id) {
-        return NextResponse.json({ error: "Для складского выхода нужен склад назначения" }, { status: 400 });
+        return NextResponse.json({ error: "Для готового продукта нужен склад назначения." }, { status: 400 });
       }
     }
+    await validateOutputWarehouses(supabase, companyId, outputs);
 
-    const supabase = getServiceClient();
-    await assertActorAccess({
-      supabase,
-      actorUserId: actor.id,
-      companyId,
-      allowedRoles: ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman"],
-    });
+    let input = body.input || {};
+    let processingNodeId = body.processing_node_id ? String(body.processing_node_id) : null;
+    if (sourceTicketId) {
+      const { data: existing } = await supabase
+        .from("batch_transformations")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("source_ticket_id", sourceTicketId)
+        .maybeSingle();
+      if (existing?.id) return NextResponse.json({ id: String(existing.id), idempotent_replay: true });
+
+      const { data: sourceTicket, error: sourceTicketError } = await supabase
+        .from("tickets")
+        .select("id,batch_id,warehouse_to_id,processing_node_id,net_weight_kg,status,is_finalized,is_voided,destination_kind")
+        .eq("id", sourceTicketId)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (
+        sourceTicketError ||
+        !sourceTicket?.id ||
+        !sourceTicket.is_finalized ||
+        sourceTicket.is_voided ||
+        sourceTicket.destination_kind !== "processing_node" ||
+        !sourceTicket.batch_id ||
+        !sourceTicket.warehouse_to_id ||
+        !sourceTicket.processing_node_id
+      ) {
+        return NextResponse.json({ error: "Исходный талон переработки недоступен или не закрыт." }, { status: 400 });
+      }
+      input = {
+        batch_id: String(sourceTicket.batch_id),
+        warehouse_from_id: String(sourceTicket.warehouse_to_id),
+        input_weight_kg: Number(sourceTicket.net_weight_kg || 0),
+      };
+      processingNodeId = String(sourceTicket.processing_node_id);
+    }
+
+    if (!input.batch_id || !input.warehouse_from_id || Number(input.input_weight_kg || 0) <= 0) {
+      return NextResponse.json({ error: "Не определены партия, склад или масса сырья." }, { status: 400 });
+    }
+
+    const outputTotal = outputs.reduce((sum: number, row: any) => sum + Number(row.output_weight_kg || 0), 0);
+    if (outputTotal > Number(input.input_weight_kg || 0) + 0.0001) {
+      return NextResponse.json({ error: "Готовый продукт и потери не могут превышать массу сырья." }, { status: 400 });
+    }
 
     const { data: batch, error: batchError } = await supabase
       .from("inventory_batches")
@@ -201,30 +327,43 @@ export async function POST(request: NextRequest) {
       .eq("id", input.batch_id)
       .eq("company_id", companyId)
       .maybeSingle();
-
     if (batchError || !batch?.id) {
-      return NextResponse.json({ error: "Входная партия не найдена" }, { status: 400 });
+      return NextResponse.json({ error: "Входная партия не найдена." }, { status: 400 });
     }
 
     const { data: transformation, error: transformationError } = await supabase
       .from("batch_transformations")
       .insert({
+        ...(sourceTicketId ? { id: sourceTicketId } : {}),
         company_id: companyId,
-        processing_node_id: body.processing_node_id || null,
-        transformation_type: body.transformation_type,
+        processing_node_id: processingNodeId,
+        transformation_type: String(body.transformation_type || "cleaning"),
         status: "draft",
-        source_ticket_id: body.source_ticket_id || null,
+        source_ticket_id: sourceTicketId,
         started_at: new Date().toISOString(),
         created_by: actor.id,
         note: body.note || null,
       })
       .select("id")
       .single();
-
     if (transformationError || !transformation?.id) {
-      return NextResponse.json({ error: transformationError?.message || "Не удалось создать трансформацию" }, { status: 400 });
+      if (sourceTicketId && String((transformationError as any)?.code || "") === "23505") {
+        const { data: racedTransformation } = await supabase
+          .from("batch_transformations")
+          .select("id")
+          .eq("company_id", companyId)
+          .eq("source_ticket_id", sourceTicketId)
+          .maybeSingle();
+        if (racedTransformation?.id) {
+          return NextResponse.json({ id: String(racedTransformation.id), idempotent_replay: true });
+        }
+      }
+      return NextResponse.json({ error: transformationError?.message || "Не удалось начать переработку." }, { status: 400 });
     }
 
+    const cleanup = async () => {
+      await supabase.from("batch_transformations").delete().eq("id", transformation.id).eq("company_id", companyId);
+    };
     const { error: inputError } = await supabase.from("batch_transformation_inputs").insert({
       company_id: companyId,
       transformation_id: transformation.id,
@@ -233,13 +372,12 @@ export async function POST(request: NextRequest) {
       input_weight_kg: Number(input.input_weight_kg),
       input_quality_json: body.input_quality_json || {},
     });
-
     if (inputError) {
+      await cleanup();
       return NextResponse.json({ error: inputError.message }, { status: 400 });
     }
-
     const { error: outputsError } = await supabase.from("batch_transformation_outputs").insert(
-      normalizedOutputs.map((output: any) => ({
+      outputs.map((output: any) => ({
         company_id: companyId,
         transformation_id: transformation.id,
         warehouse_to_id: output.warehouse_to_id,
@@ -249,13 +387,26 @@ export async function POST(request: NextRequest) {
         batch_class: output.batch_class,
       }))
     );
-
     if (outputsError) {
+      await cleanup();
       return NextResponse.json({ error: outputsError.message }, { status: 400 });
     }
 
-    return NextResponse.json({ id: transformation.id });
+    if (sourceTicketId) {
+      const { error: linkError } = await supabase
+        .from("tickets")
+        .update({ linked_processing_id: transformation.id })
+        .eq("id", sourceTicketId)
+        .eq("company_id", companyId);
+      if (linkError) {
+        await cleanup();
+        return NextResponse.json({ error: linkError.message }, { status: 400 });
+      }
+    }
+    return NextResponse.json({ id: String(transformation.id) });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
+    const sessionError = asSessionErrorResponse(error);
+    if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }

@@ -17,7 +17,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Склады | FROZEN_PENDING_FUTURE_APPLY | ТЗ №144 локально перевело 15 проблемных writer paths на единый контракт `base_quantity + base_uom + optional mass_kg`, обязательный `batch_class` и доказуемую плотность. ТЗ №148 доказало repeat safety. Commit `c6788b6` отправлен в `origin/copilot-v1`; migration `20260713183038` не применена, backfill не запускался, scope заморожен до отдельного production preflight и approval. Branch-only read blocker `/api/warehouses/balances` закрыт ТЗ №189 без schema/write изменений. |
 | Контрагенты | TZ211_PREVIEW_READY | В test branch доступны 108 глобальных юридических идентичностей. Новые складские приходы выбирают поставщика по названию или БИН/ИНН и атомарно создают/восстанавливают одну company-связь после успешного ledger `IN`. Production не менялась. |
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
-| Весовая | TZ207_HARVEST_LINK_READY | Талон требует связь с уборочной операцией/строкой, сохраняет crop identity, считает gross/tare/net и создаёт один crop intake. Повторное создание/закрытие не даёт дублей. |
+| Весовая | TZ213_WEIGHBRIDGE_V11_PREVIEW_READY | Весовщик выбирает поле, маршрут, транспорт и вес; сервер автоматически привязывает активную уборку и operation line. Gross/tare/net, crop intake, yield, storno и встроенная переработка проверены без двойного учёта. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
 | ГЛБД | TZ197_CONFIRMED_GLBD_V1_CORRECTIONS_APPLIED | Все 852 pesticide cards имеют assistant safety status. Девять подтверждённых действий TZ-196 применены: 7 полей карточек и 2 source-backed component groups. Десять `BLOCKED_NO_DATA` и три HOLD остаются без изменений. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
@@ -653,3 +653,12 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - `/warehouses/inventory` stores snapshots, locks movements, supports save/resume and history, and posts only the required completion adjustment.
 - Authenticated test-branch E2E passed: transfer `10 l`, over-transfer rejected, inventory `990 -> 985 l`, second Celest Top lot `1 l`, Latin/Cyrillic supplier search and canonical material search.
 - Migration `20260721151313` was applied only to Supabase branch `gsglkmudcwkdetqtocae`. Production connections/writes, production deploy and master merge remain `0/NO`.
+
+## TZ-213 Weighbridge V1.1
+
+- TZ-213 status: `PASS`; report: [task-reports/core/TZ-213.md](task-reports/core/TZ-213.md); feature commit and authenticated Preview are recorded after delivery.
+- The permanent shift panel and separate processing/warehouse navigation were removed from the weighman workspace. Shift controls remain in the compact menu.
+- Harvest tickets resolve company, active season, field, crop-structure allocation, harvest operation and operation line on the server. Missing, ambiguous and cross-company contexts fail closed.
+- Authenticated E2E preserved `net = gross - tare`, one crop intake, storno recalculation, open-ticket completion guard and one-time processing output.
+- Primary active harvest net `35,000 kg` over actual area `10 ha` produced preliminary and final yield `3.5 t/ha`; processing output did not increase field yield.
+- Two session-bound wrapper RPCs were applied only to test branch `gsglkmudcwkdetqtocae`. Production connections/writes, production deploy and master merge remain `0/NO`.

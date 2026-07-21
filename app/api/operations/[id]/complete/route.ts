@@ -15,6 +15,7 @@ import {
   operationMutationError,
   requireOperationIdempotency,
 } from "@/lib/server/operation-mutation";
+import { calculateHarvestYieldForOperation } from "@/lib/server/harvest-ticket-context";
 
 function toNonNegativeNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -62,27 +63,73 @@ export async function POST(
     }
     const isHarvestOperation =
       operation.operation_category_slug === "harvesting" || operation.operation_type_slug === "harvesting";
+    let completionComment = comment;
     if (isHarvestOperation) {
       const { data: harvestTickets, error: harvestTicketsError } = await supabase
         .from("tickets")
-        .select("id,status")
+        .select("id,status,is_finalized,is_voided")
         .eq("company_id", companyId)
+        .eq("op_type", "harvest_incoming")
         .eq("linked_operation_id", operationId);
       if (harvestTicketsError) {
         return NextResponse.json({ error: harvestTicketsError.message }, { status: 400 });
       }
-      if (!harvestTickets?.length) {
+      if ((harvestTickets || []).some((ticket: any) =>
+        !ticket.is_voided && !["finalized", "closed"].includes(String(ticket.status || ""))
+      )) {
+        return NextResponse.json(
+          { error: "По уборке имеются открытые весовые талоны" },
+          { status: 409 }
+        );
+      }
+      const finalizedHarvestTickets = (harvestTickets || []).filter((ticket: any) =>
+        !ticket.is_voided && (ticket.is_finalized || ["finalized", "closed"].includes(String(ticket.status || "")))
+      );
+      if (!finalizedHarvestTickets.length) {
         return NextResponse.json(
           { error: "Create and finalize a linked harvest weighbridge ticket before completing the operation" },
           { status: 409 }
         );
       }
-      if (harvestTickets.some((ticket) => !["finalized", "closed"].includes(String(ticket.status || "")))) {
+      const actualAreaByLineId = new Map<string, number>();
+      for (const fact of lineFacts as any[]) {
+        const lineId = String(fact?.line_id || fact?.lineId || fact?.id || "").trim();
+        const area = toNonNegativeNumber(fact?.actual_area_ha ?? fact?.actualAreaHa);
+        if (lineId && area != null) actualAreaByLineId.set(lineId, area);
+      }
+      if (actualArea != null && actualAreaByLineId.size === 0) {
+        const { data: operationLines, error: operationLinesError } = await supabase
+          .from("operation_lines")
+          .select("id")
+          .eq("company_id", companyId)
+          .eq("operation_id", operationId);
+        if (operationLinesError) {
+          return NextResponse.json({ error: operationLinesError.message }, { status: 400 });
+        }
+        if ((operationLines || []).length === 1) {
+          actualAreaByLineId.set(String(operationLines![0].id), actualArea);
+        }
+      }
+
+      const yieldSummary = await calculateHarvestYieldForOperation({
+        supabase,
+        companyId,
+        operationId,
+        actualAreaByLineId,
+      });
+      if (yieldSummary.openTicketCount > 0) {
+        return NextResponse.json({ error: "По уборке имеются открытые весовые талоны" }, { status: 409 });
+      }
+      if (yieldSummary.yieldTPerHa == null) {
         return NextResponse.json(
-          { error: "All linked harvest weighbridge tickets must be finalized before completing the operation" },
+          { error: "Итоговая урожайность не рассчитана: проверьте фактическую площадь и закрытые талоны." },
           { status: 409 }
         );
       }
+      completionComment = [
+        comment,
+        `Итоговая урожайность: ${yieldSummary.yieldTPerHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т/га; масса ${yieldSummary.harvestedMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг; площадь ${yieldSummary.harvestedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 4 })} га.`,
+      ].join("\n");
     }
     const seasonId = await resolveOperationSeasonIdForGuard(supabase, {
       companyId,
@@ -101,7 +148,7 @@ export async function POST(
       p_actual_area_ha: actualArea,
       p_line_facts: lineFacts,
       p_material_facts: materialFacts,
-      p_comment: comment,
+      p_comment: completionComment,
       p_idempotency_key: idempotency.key,
       p_request_fingerprint: idempotency.fingerprint,
     });

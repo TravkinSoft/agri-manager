@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 
-async function getActiveShift(supabase: ReturnType<typeof getServiceClient>, companyId: string) {
+async function getActiveShift(supabase: SupabaseClient, companyId: string) {
   const { data, error } = await supabase
     .from("weighbridge_shifts")
     .select("*")
@@ -77,7 +77,6 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const handoverNote = String(body?.handoverNote || "").trim() || null;
     const closingNote = String(body?.closingNote || "").trim() || null;
-    const force = Boolean(body?.force);
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
       requestedCompanyId: String(body?.companyId || "").trim() || null,
@@ -96,10 +95,10 @@ export async function PATCH(request: NextRequest) {
       .in("status", ["draft", "active", "ready_to_close"]);
     if (unresolvedError) return NextResponse.json({ error: unresolvedError.message }, { status: 400 });
 
-    if ((unresolvedCount || 0) > 0 && !force && !handoverNote) {
+    if ((unresolvedCount || 0) > 0) {
       return NextResponse.json(
-        { error: "There are unresolved tickets. Add handoverNote or use force close." },
-        { status: 400 }
+        { error: "Нельзя закрыть смену, пока есть открытые талоны." },
+        { status: 409 }
       );
     }
 

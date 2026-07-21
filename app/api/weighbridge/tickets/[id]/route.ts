@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 
@@ -275,6 +274,51 @@ export async function PATCH(
       return NextResponse.json({ error: "No patch fields provided" }, { status: 400 });
     }
 
+    let harvestLineSnapshot: {
+      id: string;
+      quantity: number;
+      mass_kg: number | null;
+      net_line_weight_kg: number | null;
+    } | null = null;
+    if (ticket.op_type === "harvest_incoming" && patch.net_weight_kg !== undefined) {
+      const { data: harvestLines, error: harvestLinesError } = await supabase
+        .from("ticket_lines")
+        .select("id,quantity,mass_kg,net_line_weight_kg,uom")
+        .eq("ticket_id", id)
+        .eq("company_id", companyId);
+      if (harvestLinesError) {
+        return NextResponse.json({ error: harvestLinesError.message }, { status: 400 });
+      }
+      if ((harvestLines || []).length !== 1 || String(harvestLines?.[0]?.uom || "").toLowerCase() !== "kg") {
+        return NextResponse.json(
+          { error: "Harvest ticket must contain exactly one kilogram line before closing" },
+          { status: 409 }
+        );
+      }
+
+      const line = harvestLines![0];
+      harvestLineSnapshot = {
+        id: String(line.id),
+        quantity: Number(line.quantity || 0),
+        mass_kg: line.mass_kg == null ? null : Number(line.mass_kg),
+        net_line_weight_kg: line.net_line_weight_kg == null ? null : Number(line.net_line_weight_kg),
+      };
+      const netWeight = Number(patch.net_weight_kg);
+      const { error: lineUpdateError } = await supabase
+        .from("ticket_lines")
+        .update({
+          quantity: netWeight,
+          mass_kg: netWeight,
+          net_line_weight_kg: netWeight,
+        })
+        .eq("id", line.id)
+        .eq("ticket_id", id)
+        .eq("company_id", companyId);
+      if (lineUpdateError) {
+        return NextResponse.json({ error: lineUpdateError.message }, { status: 400 });
+      }
+    }
+
     const { data: updated, error: updateError } = await supabase
       .from("tickets")
       .update(patch)
@@ -283,6 +327,18 @@ export async function PATCH(
       .single();
 
     if (updateError) {
+      if (harvestLineSnapshot) {
+        await supabase
+          .from("ticket_lines")
+          .update({
+            quantity: harvestLineSnapshot.quantity,
+            mass_kg: harvestLineSnapshot.mass_kg,
+            net_line_weight_kg: harvestLineSnapshot.net_line_weight_kg,
+          })
+          .eq("id", harvestLineSnapshot.id)
+          .eq("ticket_id", id)
+          .eq("company_id", companyId);
+      }
       return NextResponse.json({ error: updateError.message }, { status: 400 });
     }
 

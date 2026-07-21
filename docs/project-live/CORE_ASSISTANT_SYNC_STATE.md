@@ -572,3 +572,12 @@ TZ212_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant code, read-only tools and mem
 TZ212_BRANCH_RESULT: `PASS - aggregated balances, atomic transfer, inventory snapshot/lock/adjustment/history, receipt and catalog search passed with real QA JWT`.
 TZ212_PRODUCTION_IMPACT: `NONE`; no production connection, write, migration, deploy or master merge.
 TZ212_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from warehouse mutations.
+
+## TZ-213 review result
+
+TZ213_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains at accepted A109 commit `f503f05b54de129b6778fee10e3b6406ec761ced`.
+TZ213_CORE_IMPACT_FOUND: `YES - weighbridge harvest auto-link, yield accounting, storno guard and embedded processing were extended in Core`.
+TZ213_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant code, read-only tools and memory contracts are unchanged.
+TZ213_BRANCH_RESULT: `PASS - authenticated tickets, missing/ambiguous/cross-company denial, 3.5 t/ha yield, storno, completion guard and one-time processing output`.
+TZ213_PRODUCTION_IMPACT: `NONE`; no production connection, write, migration, deploy or master merge.
+TZ213_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from weighbridge and processing mutations.

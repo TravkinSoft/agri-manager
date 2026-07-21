@@ -8,6 +8,14 @@ export const AGROCHEMICAL_WAREHOUSE_TYPES = [
 
 export const AGROCHEMICAL_PRODUCT_TYPES = ["pesticide", "fertilizer", "additive"] as const;
 
+export const HARVEST_WAREHOUSE_TYPES = [
+  "grain",
+  "seed",
+  "vegetable",
+  "potato_storage",
+  "temporary",
+] as const;
+
 export function isAgrochemicalWarehouseType(value: unknown): boolean {
   return (AGROCHEMICAL_WAREHOUSE_TYPES as readonly string[]).includes(
     String(value || "").trim().toLowerCase()
@@ -16,6 +24,12 @@ export function isAgrochemicalWarehouseType(value: unknown): boolean {
 
 export function isAgrochemicalProductType(value: unknown): boolean {
   return (AGROCHEMICAL_PRODUCT_TYPES as readonly string[]).includes(
+    String(value || "").trim().toLowerCase()
+  );
+}
+
+export function isHarvestWarehouseType(value: unknown): boolean {
+  return (HARVEST_WAREHOUSE_TYPES as readonly string[]).includes(
     String(value || "").trim().toLowerCase()
   );
 }

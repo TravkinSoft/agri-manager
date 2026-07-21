@@ -36,6 +36,7 @@ export interface TicketLineInput {
 
 export interface TicketInput {
   company_id: string;
+  season_id?: string | null;
   ticket_type: string;
   op_type: string;
   direction: TicketDirection;
@@ -43,6 +44,7 @@ export interface TicketInput {
   source_id?: string | null;
   destination_kind: string;
   destination_id?: string | null;
+  processing_node_id?: string | null;
   field_id?: string | null;
   crop_structure_allocation_id?: string | null;
   warehouse_from_id?: string | null;
@@ -85,6 +87,7 @@ export interface WeighingInput {
 export interface WeighbridgeTicket {
   id: string;
   company_id: string;
+  season_id?: string | null;
   company_name?: string | null;
   ticket_no: string;
   ticket_type: string;
@@ -93,6 +96,8 @@ export interface WeighbridgeTicket {
   direction: TicketDirection;
   source_kind: string;
   destination_kind: string;
+  destination_id?: string | null;
+  processing_node_id?: string | null;
   field_id?: string | null;
   warehouse_from_id?: string | null;
   warehouse_to_id?: string | null;

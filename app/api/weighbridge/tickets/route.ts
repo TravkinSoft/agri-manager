@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
-import { getServiceClient } from "@/lib/supabase/service";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
 import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
 import type { StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
+import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context";
+import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -16,14 +18,14 @@ function buildTicketNo(companyId: string): string {
 const sameNullable = (a: unknown, b: unknown) => String(a || "") === String(b || "");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-async function cleanupCreatedTicket(supabase: ReturnType<typeof getServiceClient>, ticketId: string) {
+async function cleanupCreatedTicket(supabase: SupabaseClient, ticketId: string) {
   await supabase.from("ticket_weighings").delete().eq("ticket_id", ticketId);
   await supabase.from("ticket_lines").delete().eq("ticket_id", ticketId);
   await supabase.from("tickets").delete().eq("id", ticketId);
 }
 
 async function resolveActiveSeasonId(
-  supabase: ReturnType<typeof getServiceClient>,
+  supabase: SupabaseClient,
   companyId: string
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -40,7 +42,7 @@ async function resolveActiveSeasonId(
 }
 
 async function resolveActiveShiftId(
-  supabase: ReturnType<typeof getServiceClient>,
+  supabase: SupabaseClient,
   companyId: string
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -222,6 +224,109 @@ export async function POST(request: NextRequest) {
     const isHarvestIncoming =
       String(ticket.direction || "") === "incoming" &&
       String(ticket.op_type || "").toLowerCase() === "harvest_incoming";
+
+    if (isHarvestIncoming) {
+      if (!ticket.field_id || !ticket.crop_structure_allocation_id) {
+        return NextResponse.json(
+          { error: "Выберите поле и участок / культуру для прихода урожая." },
+          { status: 400 }
+        );
+      }
+
+      const harvestContext = await resolveHarvestTicketContext({
+        supabase,
+        companyId,
+        fieldId: String(ticket.field_id),
+        allocationId: String(ticket.crop_structure_allocation_id),
+      });
+      if (harvestContext.status !== "ready" || !harvestContext.operationId || !harvestContext.operationLineId) {
+        return NextResponse.json({ error: harvestContext.message }, { status: 409 });
+      }
+
+      ticket.season_id = harvestContext.seasonId;
+      ticket.linked_operation_id = harvestContext.operationId;
+      for (const line of lines) {
+        line.operation_line_id = harvestContext.operationLineId;
+        line.crop_id = harvestContext.allocation?.cropId || null;
+        line.variety_id = harvestContext.allocation?.varietyId || null;
+        line.reproduction_id = harvestContext.allocation?.reproductionId || null;
+      }
+
+      const destinationKind = String(ticket.destination_kind || "warehouse").trim().toLowerCase();
+      if (destinationKind === "processing_node") {
+        const processingNodeId = String(ticket.processing_node_id || ticket.destination_id || "").trim();
+        const { data: node, error: nodeError } = await supabase
+          .from("processing_nodes")
+          .select("id,company_id,linked_warehouse_id,is_active,archived")
+          .eq("company_id", companyId)
+          .eq("id", processingNodeId)
+          .eq("is_active", true)
+          .eq("archived", false)
+          .maybeSingle();
+        if (nodeError || !node?.id || !node.linked_warehouse_id) {
+          return NextResponse.json(
+            { error: "Выбранная линия переработки недоступна или не связана со складом приёмки." },
+            { status: 400 }
+          );
+        }
+
+        const { data: linkedWarehouse, error: linkedWarehouseError } = await supabase
+          .from("warehouses")
+          .select("id,company_id,warehouse_type,archived,is_archived")
+          .eq("company_id", companyId)
+          .eq("id", node.linked_warehouse_id)
+          .maybeSingle();
+        if (
+          linkedWarehouseError ||
+          !linkedWarehouse?.id ||
+          linkedWarehouse.archived ||
+          linkedWarehouse.is_archived ||
+          !isHarvestWarehouseType(linkedWarehouse.warehouse_type)
+        ) {
+          return NextResponse.json(
+            { error: "Склад приёмки линии переработки не разрешён для урожая." },
+            { status: 400 }
+          );
+        }
+
+        ticket.destination_kind = "processing_node";
+        ticket.destination_id = String(node.id);
+        ticket.processing_node_id = String(node.id);
+        ticket.warehouse_to_id = String(linkedWarehouse.id);
+        for (const line of lines) {
+          line.warehouse_to_id = String(linkedWarehouse.id);
+        }
+      } else if (destinationKind === "warehouse") {
+        const warehouseId = String(ticket.warehouse_to_id || ticket.destination_id || "").trim();
+        const { data: destinationWarehouse, error: destinationWarehouseError } = await supabase
+          .from("warehouses")
+          .select("id,company_id,warehouse_type,archived,is_archived")
+          .eq("company_id", companyId)
+          .eq("id", warehouseId)
+          .maybeSingle();
+        if (
+          destinationWarehouseError ||
+          !destinationWarehouse?.id ||
+          destinationWarehouse.archived ||
+          destinationWarehouse.is_archived ||
+          !isHarvestWarehouseType(destinationWarehouse.warehouse_type)
+        ) {
+          return NextResponse.json(
+            { error: "Выберите активный склад, разрешённый для приёма урожая." },
+            { status: 400 }
+          );
+        }
+        ticket.destination_kind = "warehouse";
+        ticket.destination_id = String(destinationWarehouse.id);
+        ticket.processing_node_id = null;
+        ticket.warehouse_to_id = String(destinationWarehouse.id);
+        for (const line of lines) {
+          line.warehouse_to_id = String(destinationWarehouse.id);
+        }
+      } else {
+        return NextResponse.json({ error: "Выберите направление: на склад или на переработку." }, { status: 400 });
+      }
+    }
     const isDirectWarehouseTransfer =
       isWarehouseTransfer &&
       String(ticket.weigh_method || "").toLowerCase() === "manual_override_with_reason";
@@ -565,7 +670,7 @@ export async function POST(request: NextRequest) {
     }
     if (isHarvestIncoming) {
       if (!ticket.linked_operation_id) {
-        return NextResponse.json({ error: "linked_operation_id is required for harvest incoming" }, { status: 400 });
+        return NextResponse.json({ error: "Уборочная операция не определена автоматически." }, { status: 400 });
       }
       if (!ticket.field_id) {
         return NextResponse.json({ error: "field_id is required for harvest incoming" }, { status: 400 });
@@ -574,7 +679,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "crop_structure_allocation_id is required for harvest incoming" }, { status: 400 });
       }
       if (!ticket.warehouse_to_id) {
-        return NextResponse.json({ error: "warehouse_to_id is required for harvest incoming" }, { status: 400 });
+        return NextResponse.json({ error: "Не определено место приёмки урожая." }, { status: 400 });
       }
       if (!ticket.driver_id) {
         return NextResponse.json({ error: "driver_id is required for harvest incoming" }, { status: 400 });
