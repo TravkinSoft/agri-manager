@@ -643,3 +643,13 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Branch validation passes with duplicate products/components/rules `0/0/0`, second seed zero mutations, exact cleanup/reseed, RLS on all four new tables and authenticated API smoke `10/10`.
 - Existing global catalog UI now has a full-card dialog. No deploy, master merge, production migration or A110 change occurred.
 - `READY_FOR_OWNER_PILOT_REVIEW=YES`; a test Preview deployment and any production schema decision require separate approval.
+
+## TZ-212 Warehouses V1.1
+
+- TZ-212 status: `PASS_PREVIEW_PENDING`; report: [task-reports/core/TZ-212.md](task-reports/core/TZ-212.md).
+- Warehouse cards are fully clickable and contain no nested actions. Receipt stays global; warehouse dialogs expose only receipt and atomic transfer actions.
+- Current balances aggregate by warehouse, canonical catalog identity and unit. Lots and receipt provenance remain available in a separate detail dialog.
+- Atomic, idempotent transfers create linked ledger OUT/IN rows, use server timestamps, protect reserved stock and reject quantities above availability.
+- `/warehouses/inventory` stores snapshots, locks movements, supports save/resume and history, and posts only the required completion adjustment.
+- Authenticated test-branch E2E passed: transfer `10 l`, over-transfer rejected, inventory `990 -> 985 l`, second Celest Top lot `1 l`, Latin/Cyrillic supplier search and canonical material search.
+- Migration `20260721151313` was applied only to Supabase branch `gsglkmudcwkdetqtocae`. Production connections/writes, production deploy and master merge remain `0/NO`.

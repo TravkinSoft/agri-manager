@@ -62,7 +62,7 @@ export interface WarehouseReceiptLineInput {
 
 export interface WarehouseReceiptInput {
   warehouse_id: string;
-  received_at: string;
+  received_at?: string;
   supplier_company_counterparty_id?: string | null;
   supplier_global_counterparty_id?: string | null;
   document_no?: string | null;
@@ -96,11 +96,17 @@ export interface Product {
   id: string;
   master_product_id?: string | null;
   name: string;
+  trade_name?: string | null;
+  normalized_name?: string | null;
+  name_ru?: string | null;
+  name_en?: string | null;
+  product_type?: ProductCategory | string | null;
   type: ProductCategory;
   crop_id?: string | null;
   product_form?: string | null;
   accounting_mode?: ProductAccountingMode | null;
   base_uom?: string | null;
+  stock_unit?: string | null;
   pack_uom?: string | null;
   unit_weight_kg?: number | null;
   units_per_pack?: number | null;
@@ -171,7 +177,94 @@ export interface InventoryBalance {
   product_type: ProductCategory | string;
   unit: string;
   quantity: number;
+  reserved_quantity?: number;
+  available_quantity?: number;
+  product_ids?: string[];
   last_updated: string;
+}
+
+export interface WarehouseStockLot {
+  key: string;
+  batch_id: string | null;
+  batch_label: string;
+  quantity: number;
+  manufactured_at: string | null;
+  expires_at: string | null;
+  supplier: string | null;
+  receipt_no: string | null;
+  received_at: string | null;
+}
+
+export interface WarehouseStockDetails {
+  warehouse_id: string;
+  product_id: string;
+  product_name: string;
+  unit: string;
+  quantity: number;
+  reserved_quantity: number;
+  available_quantity: number;
+  lots: WarehouseStockLot[];
+  movements: InventoryTransactionWithDetails[];
+}
+
+export interface WarehouseTransferInput {
+  destination_warehouse_id: string;
+  product_id: string;
+  quantity: number;
+  notes?: string | null;
+}
+
+export interface WarehouseTransferResult {
+  transfer_id: string;
+  transfer_no: string;
+  posted_at: string;
+  quantity: number;
+  uom: string;
+  reserved_quantity: number;
+  ledger_rows: number;
+  idempotent_replay: boolean;
+}
+
+export type WarehouseInventoryStatus = "in_progress" | "completed" | "cancelled";
+
+export interface WarehouseInventoryItem {
+  id: string;
+  inventory_id: string;
+  company_id: string;
+  product_id: string;
+  product_name_snapshot: string;
+  product_type: string;
+  uom: string;
+  book_quantity: number;
+  actual_quantity: number | null;
+  difference_quantity: number | null;
+  discovered: boolean;
+  adjustment_ledger_entry_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WarehouseInventoryDocument {
+  id: string;
+  company_id: string;
+  inventory_no: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  status: WarehouseInventoryStatus;
+  snapshot_at: string;
+  started_at: string;
+  started_by: string;
+  started_by_name?: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  item_count: number;
+  difference_count: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  items?: WarehouseInventoryItem[];
 }
 
 export interface WarehouseDeleteCheck {

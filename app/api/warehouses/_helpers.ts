@@ -12,7 +12,12 @@ export const WAREHOUSE_READ_ROLES = [
   "director",
 ] as const;
 
-export const WAREHOUSE_WRITE_ROLES = ["company_admin", "global_admin"] as const;
+export const WAREHOUSE_WRITE_ROLES = [
+  "company_admin",
+  "global_admin",
+  "warehouse",
+  "warehouse_operator",
+] as const;
 
 export function normalizeWarehouseRow(row: any) {
   return {

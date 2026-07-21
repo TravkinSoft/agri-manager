@@ -15,6 +15,10 @@ import {
   InventoryTransactionFormData,
   MovementType,
   TransactionDirection,
+  WarehouseInventoryDocument,
+  WarehouseStockDetails,
+  WarehouseTransferInput,
+  WarehouseTransferResult,
 } from "@/lib/types/warehouse";
 
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
@@ -541,4 +545,100 @@ export async function getInventoryBalances(companyId: string, language: Language
   });
   const payload = await parseJsonOrThrow(response);
   return Array.isArray(payload?.balances) ? (payload.balances as InventoryBalance[]) : [];
+}
+
+export async function getWarehouseStockDetails(params: {
+  companyId: string;
+  warehouseId: string;
+  productId: string;
+  unit: string;
+}): Promise<WarehouseStockDetails> {
+  const query = new URLSearchParams({
+    companyId: params.companyId,
+    productId: params.productId,
+    unit: params.unit,
+  });
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/warehouses/${encodeURIComponent(params.warehouseId)}/stock-details?${query.toString()}`,
+    { method: "GET", headers, cache: "no-store" }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.details as WarehouseStockDetails;
+}
+
+export async function createWarehouseTransfer(
+  companyId: string,
+  sourceWarehouseId: string,
+  input: WarehouseTransferInput,
+  idempotencyKey = crypto.randomUUID()
+): Promise<WarehouseTransferResult> {
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(
+    `/api/warehouses/${encodeURIComponent(sourceWarehouseId)}/transfers`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...input, companyId, idempotency_key: idempotencyKey }),
+    }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.transfer as WarehouseTransferResult;
+}
+
+export async function getWarehouseInventories(
+  companyId: string,
+  inventoryId?: string
+): Promise<WarehouseInventoryDocument[]> {
+  const query = new URLSearchParams({ companyId });
+  if (inventoryId) query.set("inventoryId", inventoryId);
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/inventories?${query.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return Array.isArray(payload?.inventories) ? payload.inventories : [];
+}
+
+export async function startWarehouseInventory(params: {
+  companyId: string;
+  warehouseId: string;
+  notes?: string | null;
+  inventoryId?: string;
+}) {
+  const inventoryId = params.inventoryId || crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/warehouses/inventories", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ...params, inventoryId }),
+  });
+  const payload = await parseJsonOrThrow(response);
+  return payload.inventory as Record<string, unknown>;
+}
+
+export async function updateWarehouseInventory(params: {
+  companyId: string;
+  inventoryId: string;
+  action: "save" | "complete" | "cancel";
+  items?: Array<{ item_id?: string; product_id?: string; actual_quantity: number }>;
+}) {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(
+    `/api/warehouses/inventories/${encodeURIComponent(params.inventoryId)}`,
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        companyId: params.companyId,
+        action: params.action,
+        items: params.items || [],
+      }),
+    }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.inventory as Record<string, unknown>;
 }

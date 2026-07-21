@@ -131,10 +131,9 @@ export async function POST(request: NextRequest) {
     if (!supplierCompanyId && !supplierGlobalId) {
       return NextResponse.json({ error: "Выберите поставщика из справочника" }, { status: 400 });
     }
-    const { data, error } = await supabase.rpc("create_warehouse_receipt_atomic_v2", {
+    const { data, error } = await supabase.rpc("create_warehouse_receipt_atomic_v3", {
       p_company_id: companyId,
       p_warehouse_id: String(body.warehouse_id || ""),
-      p_received_at: String(body.received_at || ""),
       p_supplier_company_counterparty_id: supplierCompanyId,
       p_supplier_global_counterparty_id: supplierGlobalId,
       p_document_no: body.document_no == null ? null : String(body.document_no),

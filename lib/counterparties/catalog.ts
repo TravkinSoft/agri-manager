@@ -33,6 +33,52 @@ export function normalizeCounterpartyName(value: unknown): string {
     .replace(/^(тоо|ооо|ао|ип)\s+/u, "");
 }
 
+const CYRILLIC_TO_LATIN: Record<string, string> = {
+  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh", з: "z",
+  и: "i", й: "i", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r",
+  с: "s", т: "t", у: "u", ф: "f", х: "h", ц: "ts", ч: "ch", ш: "sh", щ: "sch",
+  ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
+};
+
+function latinSearchForm(value: unknown): string {
+  return normalizeCounterpartyName(value)
+    .split("")
+    .map((letter) => CYRILLIC_TO_LATIN[letter] ?? letter)
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function phoneticSearchForm(value: string): string {
+  return value.replace(/y/g, "i").replace(/w/g, "v").replace(/ow/g, "ou").replace(/ph/g, "f");
+}
+
+function editDistance(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    let diagonal = previous[0];
+    previous[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const above = previous[j];
+      previous[j] = Math.min(
+        previous[j] + 1,
+        previous[j - 1] + 1,
+        diagonal + (left[i - 1] === right[j - 1] ? 0 : 1),
+      );
+      diagonal = above;
+    }
+  }
+  return previous[right.length];
+}
+
+function fuzzyTokenMatch(query: string, candidate: string): boolean {
+  if (!query || !candidate) return false;
+  if (candidate.includes(query) || query.includes(candidate)) return true;
+  if (Math.min(query.length, candidate.length) < 5) return false;
+  const distance = editDistance(query, candidate);
+  return 1 - distance / Math.max(query.length, candidate.length) >= 0.72;
+}
+
 export function normalizeTaxId(value: unknown): string {
   return String(value || "").trim();
 }
@@ -113,5 +159,10 @@ export function counterpartyMatchesSearch(params: {
   const normalizedName = normalizeCounterpartyName(params.legalName);
   const taxId = normalizeTaxId(params.taxId);
   const numericQuery = rawQuery.replace(/\D/g, "");
-  return normalizedName.includes(normalizedQuery) || (numericQuery.length > 0 && taxId.includes(numericQuery));
+  if (numericQuery.length > 0 && taxId.includes(numericQuery)) return true;
+  if (normalizedName.includes(normalizedQuery)) return true;
+  const queryForms = [latinSearchForm(normalizedQuery), phoneticSearchForm(latinSearchForm(normalizedQuery))];
+  const nameTokens = latinSearchForm(normalizedName).split(" ").filter(Boolean);
+  const nameForms = nameTokens.flatMap((token) => [token, phoneticSearchForm(token)]);
+  return queryForms.some((queryForm) => nameForms.some((nameForm) => fuzzyTokenMatch(queryForm, nameForm)));
 }

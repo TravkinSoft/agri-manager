@@ -563,3 +563,12 @@ TZ199_INTEGRATION_CONTRACT_IMPACT: `NO`; A110 and the existing read-only Assista
 TZ199_BRANCH_RESULT: `PASS - ten cards, nine read-allowed, zero recommendation-allowed, authenticated API 10/10, duplicate products/components/rules 0/0/0`.
 TZ199_PRODUCTION_IMPACT: `NONE`; production inventory was read-only, with no production/company write, migration, deploy or merge.
 TZ199_ACTION: `OWNER_PILOT_REVIEW_ALLOWED`; Preview deployment and any production migration remain separate owner-approved tasks.
+
+## TZ-212 review result
+
+TZ212_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains at accepted A109 commit `f503f05b54de129b6778fee10e3b6406ec761ced`.
+TZ212_CORE_IMPACT_FOUND: `YES - warehouse read/write APIs, transfer and inventory UI, and test-branch-only warehouse schema were extended`.
+TZ212_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant code, read-only tools and memory contracts are unchanged.
+TZ212_BRANCH_RESULT: `PASS - aggregated balances, atomic transfer, inventory snapshot/lock/adjustment/history, receipt and catalog search passed with real QA JWT`.
+TZ212_PRODUCTION_IMPACT: `NONE`; no production connection, write, migration, deploy or master merge.
+TZ212_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from warehouse mutations.
