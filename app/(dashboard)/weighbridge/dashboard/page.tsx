@@ -89,14 +89,13 @@ export default function WeighbridgeDashboardPage() {
           <CardContent className="flex flex-wrap gap-2">
             {isAgronomistObserver ? (
               <div className="text-sm text-slate-600">
-                Для агронома доступен только обзор. Создание/ведение талонов, переработка и другие действия доступны весовщику.
+                Для агронома доступен только обзор. Создание и ведение талонов доступны весовщику.
               </div>
             ) : (
               <>
                 <Button asChild><Link href="/weighbridge">Создать талон</Link></Button>
                 <Button asChild variant="outline"><Link href="/weighbridge">Активные талоны</Link></Button>
                 <Button asChild variant="outline"><Link href="/weighbridge/history">История талонов</Link></Button>
-                <Button asChild variant="outline"><Link href="/processing">Переработка</Link></Button>
               </>
             )}
           </CardContent>

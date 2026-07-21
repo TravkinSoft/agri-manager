@@ -224,6 +224,9 @@ export async function POST(request: NextRequest) {
     const isHarvestIncoming =
       String(ticket.direction || "") === "incoming" &&
       String(ticket.op_type || "").toLowerCase() === "harvest_incoming";
+    const isImpurityRemoval =
+      String(ticket.direction || "") === "outgoing" &&
+      String(ticket.op_type || "").toLowerCase() === "weighbridge_impurities";
 
     if (isHarvestIncoming) {
       if (!ticket.field_id || !ticket.crop_structure_allocation_id) {
@@ -253,50 +256,7 @@ export async function POST(request: NextRequest) {
       }
 
       const destinationKind = String(ticket.destination_kind || "warehouse").trim().toLowerCase();
-      if (destinationKind === "processing_node") {
-        const processingNodeId = String(ticket.processing_node_id || ticket.destination_id || "").trim();
-        const { data: node, error: nodeError } = await supabase
-          .from("processing_nodes")
-          .select("id,company_id,linked_warehouse_id,is_active,archived")
-          .eq("company_id", companyId)
-          .eq("id", processingNodeId)
-          .eq("is_active", true)
-          .eq("archived", false)
-          .maybeSingle();
-        if (nodeError || !node?.id || !node.linked_warehouse_id) {
-          return NextResponse.json(
-            { error: "Выбранная линия переработки недоступна или не связана со складом приёмки." },
-            { status: 400 }
-          );
-        }
-
-        const { data: linkedWarehouse, error: linkedWarehouseError } = await supabase
-          .from("warehouses")
-          .select("id,company_id,warehouse_type,archived,is_archived")
-          .eq("company_id", companyId)
-          .eq("id", node.linked_warehouse_id)
-          .maybeSingle();
-        if (
-          linkedWarehouseError ||
-          !linkedWarehouse?.id ||
-          linkedWarehouse.archived ||
-          linkedWarehouse.is_archived ||
-          !isHarvestWarehouseType(linkedWarehouse.warehouse_type)
-        ) {
-          return NextResponse.json(
-            { error: "Склад приёмки линии переработки не разрешён для урожая." },
-            { status: 400 }
-          );
-        }
-
-        ticket.destination_kind = "processing_node";
-        ticket.destination_id = String(node.id);
-        ticket.processing_node_id = String(node.id);
-        ticket.warehouse_to_id = String(linkedWarehouse.id);
-        for (const line of lines) {
-          line.warehouse_to_id = String(linkedWarehouse.id);
-        }
-      } else if (destinationKind === "warehouse") {
+      if (destinationKind === "warehouse") {
         const warehouseId = String(ticket.warehouse_to_id || ticket.destination_id || "").trim();
         const { data: destinationWarehouse, error: destinationWarehouseError } = await supabase
           .from("warehouses")
@@ -324,7 +284,7 @@ export async function POST(request: NextRequest) {
           line.warehouse_to_id = String(destinationWarehouse.id);
         }
       } else {
-        return NextResponse.json({ error: "Выберите направление: на склад или на переработку." }, { status: 400 });
+        return NextResponse.json({ error: "Урожай можно направить только на склад." }, { status: 400 });
       }
     }
     const isDirectWarehouseTransfer =
@@ -339,6 +299,7 @@ export async function POST(request: NextRequest) {
     const requiresVehicle =
       isShipment ||
       isHarvestIncoming ||
+      isImpurityRemoval ||
       (isSupplierReceipt && supplierReceiptMode !== "direct") ||
       (isWarehouseTransfer && !isDirectWarehouseTransfer) ||
       (isFieldIssue && !isDirectFieldIssue);
@@ -361,6 +322,86 @@ export async function POST(request: NextRequest) {
     }
     if (!lines.length) {
       return NextResponse.json({ error: "At least one ticket line is required" }, { status: 400 });
+    }
+    if (isImpurityRemoval) {
+      const impurityType = String(ticket.audit_json?.impurity_type || "").trim();
+      if (!ticket.batch_id || !ticket.warehouse_from_id) {
+        return NextResponse.json({ error: "Выберите склад и партию урожая." }, { status: 400 });
+      }
+      if (!ticket.vehicle_id || !ticket.driver_id) {
+        return NextResponse.json({ error: "Выберите водителя и машину." }, { status: 400 });
+      }
+      if (!Number.isFinite(Number(ticket.gross_weight_kg)) || Number(ticket.gross_weight_kg) <= 0) {
+        return NextResponse.json({ error: "Укажите брутто." }, { status: 400 });
+      }
+      if (!["soil_and_trash", "nonconforming_crop", "plant_residues", "other"].includes(impurityType)) {
+        return NextResponse.json({ error: "Выберите вид примесей." }, { status: 400 });
+      }
+      if (impurityType === "other" && !String(ticket.notes || "").trim()) {
+        return NextResponse.json({ error: "Для вида «Прочее» добавьте комментарий." }, { status: 400 });
+      }
+      if (lines.length !== 1) {
+        return NextResponse.json({ error: "Вывоз примесей поддерживает одну партию на талон." }, { status: 400 });
+      }
+
+      const [{ data: batch, error: batchError }, { data: warehouse, error: warehouseError }, { data: harvestTicket, error: harvestTicketError }] = await Promise.all([
+        supabase
+          .from("inventory_batches")
+          .select("id,batch_code,product_id,crop_id,variety_id,reproduction_id,batch_class,source_ticket_id,origin_type")
+          .eq("company_id", companyId)
+          .eq("id", ticket.batch_id)
+          .eq("origin_type", "harvest")
+          .maybeSingle(),
+        supabase
+          .from("warehouses")
+          .select("id,warehouse_type,archived,is_archived")
+          .eq("company_id", companyId)
+          .eq("id", ticket.warehouse_from_id)
+          .maybeSingle(),
+        supabase
+          .from("tickets")
+          .select("id,warehouse_to_id,status,is_finalized,is_voided")
+          .eq("company_id", companyId)
+          .eq("batch_id", ticket.batch_id)
+          .eq("op_type", "harvest_incoming")
+          .eq("warehouse_to_id", ticket.warehouse_from_id)
+          .eq("status", "finalized")
+          .eq("is_finalized", true)
+          .eq("is_voided", false)
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (batchError || !batch?.id) {
+        return NextResponse.json({ error: "Партия урожая не найдена в выбранной компании." }, { status: 400 });
+      }
+      if (warehouseError || !warehouse?.id || warehouse.archived || warehouse.is_archived || !isHarvestWarehouseType(warehouse.warehouse_type)) {
+        return NextResponse.json({ error: "Выберите активный склад урожая." }, { status: 400 });
+      }
+      if (harvestTicketError || !harvestTicket?.id) {
+        return NextResponse.json({ error: "Партия не была принята на выбранный склад закрытым талоном урожая." }, { status: 400 });
+      }
+
+      ticket.source_kind = "warehouse";
+      ticket.source_id = String(warehouse.id);
+      ticket.destination_kind = "impurity_removal";
+      ticket.destination_id = null;
+      ticket.warehouse_to_id = null;
+      ticket.processing_node_id = null;
+      ticket.audit_json = { ...(ticket.audit_json || {}), impurity_type: impurityType };
+      const line = lines[0];
+      line.product_id = String(batch.product_id || "");
+      line.crop_id = batch.crop_id ? String(batch.crop_id) : null;
+      line.variety_id = batch.variety_id ? String(batch.variety_id) : null;
+      line.reproduction_id = batch.reproduction_id ? String(batch.reproduction_id) : null;
+      line.batch_id = String(batch.id);
+      line.lot_id = String(batch.batch_code || batch.id);
+      line.batch_class = String(batch.batch_class || "commodity");
+      line.warehouse_from_id = String(warehouse.id);
+      line.warehouse_to_id = null;
+      line.uom = "kg";
+      if (!line.product_id) {
+        return NextResponse.json({ error: "У партии урожая не определена складская номенклатура." }, { status: 400 });
+      }
     }
     if (isWarehouseTransfer) {
       if (!ticket.warehouse_from_id || !ticket.warehouse_to_id) {
@@ -462,6 +503,8 @@ export async function POST(request: NextRequest) {
 
     const stockEvent: StockBusinessEvent = isHarvestIncoming
       ? "harvest_incoming"
+      : isImpurityRemoval
+        ? "manual_writeoff"
       : isSupplierReceipt
         ? "supplier_receipt"
         : isWarehouseTransfer

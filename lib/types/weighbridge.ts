@@ -36,6 +36,8 @@ export interface TicketLineInput {
 
 export interface TicketInput {
   company_id: string;
+  batch_id?: string | null;
+  audit_json?: Record<string, unknown> | null;
   season_id?: string | null;
   ticket_type: string;
   op_type: string;
@@ -87,6 +89,8 @@ export interface WeighingInput {
 export interface WeighbridgeTicket {
   id: string;
   company_id: string;
+  batch_id?: string | null;
+  audit_json?: Record<string, unknown> | null;
   season_id?: string | null;
   company_name?: string | null;
   ticket_no: string;
@@ -148,4 +152,29 @@ export interface WeighbridgeTicket {
     notes?: string | null;
     operation_line_id?: string | null;
   }>;
+}
+
+export interface HarvestBatchSummary {
+  id: string;
+  batchCode: string;
+  warehouseId: string;
+  warehouseName: string;
+  productId: string;
+  productName: string;
+  cropId: string | null;
+  cropName: string;
+  varietyId: string | null;
+  varietyName: string;
+  reproductionId: string | null;
+  reproductionName: string;
+  fieldId: string | null;
+  fieldName: string;
+  operationLineId: string | null;
+  receivedKg: number;
+  removedKg: number;
+  cleanMassKg: number;
+  impurityPercent: number;
+  harvestedAreaHa: number | null;
+  grossYieldTPerHa: number | null;
+  cleanYieldTPerHa: number | null;
 }

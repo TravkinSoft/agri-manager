@@ -1,4 +1,4 @@
-import type { TicketInput, TicketLineInput, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
+import type { HarvestBatchSummary, TicketInput, TicketLineInput, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 
@@ -40,6 +40,16 @@ export async function getWeighbridgeResources(companyId?: string) {
     : "/api/weighbridge/resources";
   const response = await fetch(url, { method: "GET", cache: "no-store", headers });
   return parseJsonOrThrow(response);
+}
+
+export async function listHarvestBatchSummaries(companyId?: string): Promise<HarvestBatchSummary[]> {
+  const headers = await buildClientAuthHeaders("none");
+  const url = companyId
+    ? `/api/weighbridge/harvest-batches?companyId=${encodeURIComponent(companyId)}`
+    : "/api/weighbridge/harvest-batches";
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
+  const payload = await parseJsonOrThrow(response);
+  return (payload.batches || []) as HarvestBatchSummary[];
 }
 
 export async function getActiveShift(companyId?: string, _userId?: string) {

@@ -47,8 +47,7 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
       return [
         { labelKey: "weighbridge", href: "/weighbridge", icon: Scale, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
-        { labelKey: "machines", href: "/machines", icon: Tractor, kind: "route" },
-        { labelKey: "containers", href: "/containers", icon: Package, kind: "route" },
+        { labelKey: "ledger", href: "/ledger", icon: History, kind: "route" },
       ];
     case "fuel_operator":
       return [{ labelKey: "fuel", href: "/fuel", icon: Droplets, kind: "route" }];

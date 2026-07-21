@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function ProcessingRedirectPage() {
-  redirect("/weighbridge?tab=processing");
+  redirect("/weighbridge");
 }

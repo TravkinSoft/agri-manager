@@ -35,6 +35,7 @@ import type {
   WarehouseReceipt,
 } from "@/lib/types/warehouse";
 import { isAgrochemicalWarehouseType, warehouseProductTypeLabel, warehouseTypeLabel } from "@/lib/warehouse/warehouse-scope";
+import { HarvestWarehousesReadonly } from "@/components/weighbridge/harvest-warehouses-readonly";
 
 function formatDate(value?: string | null): string {
   if (!value) return "Нет движений";
@@ -83,6 +84,10 @@ export default function WarehousesPage() {
 
   const loadData = async () => {
     if (!profile?.company_id) return;
+    if (profile.role === "weighman") {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -127,6 +132,10 @@ export default function WarehousesPage() {
 
   if (!canView) {
     return <Alert variant="destructive"><AlertDescription>Доступ к складам запрещён для текущей роли.</AlertDescription></Alert>;
+  }
+
+  if (profile?.role === "weighman" && profile.company_id) {
+    return <HarvestWarehousesReadonly companyId={profile.company_id} />;
   }
 
   return (

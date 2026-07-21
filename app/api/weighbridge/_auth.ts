@@ -74,6 +74,14 @@ export function weighbridgeUserError(message: unknown): string {
   const raw = String(message || "").trim();
   const lower = raw.toLowerCase();
 
+  if (raw.includes("IMPURITY_WEIGHT_EXCEEDS_AVAILABLE|")) {
+    const available = Number(raw.split("IMPURITY_WEIGHT_EXCEEDS_AVAILABLE|")[1]?.split(/\s/)[0]);
+    const label = Number.isFinite(available)
+      ? available.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+      : "0";
+    return `Вес превышает доступную массу партии. Доступно: ${label} кг`;
+  }
+
   if (lower.includes("actor role is not allowed to finalize")) {
     return "У вашей роли нет права закрывать талоны весовой.";
   }

@@ -444,7 +444,7 @@ const ASSISTANT_ROLE_ROUTE_ALLOWLIST: Record<string, string[]> = {
   brigadier: ["/dashboard", "/operations", "/fields", "/fields-map", "/meal-thermoses"],
   warehouse: ["/dashboard", "/warehouses", "/inventory", "/warehouses/transactions", "/warehouses/requests", "/warehouses/manage", "/meal-thermoses"],
   warehouse_operator: ["/dashboard", "/weighbridge", "/warehouses", "/inventory", "/warehouses/transactions", "/warehouses/requests", "/meal-thermoses"],
-  weighman: ["/weighbridge", "/machines", "/warehouses", "/processing", "/containers", "/ledger"],
+  weighman: ["/weighbridge", "/warehouses", "/ledger"],
   legal_operator: ["/dashboard", "/land-legal", "/fields", "/fields-map", "/analytics"],
   fuel_operator: ["/fuel"],
 };

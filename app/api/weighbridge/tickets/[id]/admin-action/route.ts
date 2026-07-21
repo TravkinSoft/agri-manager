@@ -133,10 +133,12 @@ export async function POST(
         return NextResponse.json({ error: patchError.message }, { status: 400 });
       }
 
-      const { error: finalizeError } = await supabase.rpc("finalize_weighbridge_ticket_v2", {
-        p_ticket_id: id,
-        p_actor_user_id: actor.id,
-      });
+      const { error: finalizeError } = ticket.op_type === "weighbridge_impurities"
+        ? await supabase.rpc("finalize_weighbridge_impurity_ticket_for_session_v1", { p_ticket_id: id })
+        : await supabase.rpc("finalize_weighbridge_ticket_v2", {
+            p_ticket_id: id,
+            p_actor_user_id: actor.id,
+          });
       if (finalizeError) {
         return NextResponse.json({ error: finalizeError.message }, { status: 400 });
       }

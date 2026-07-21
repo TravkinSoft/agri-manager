@@ -22,8 +22,6 @@ const WEIGHMAN_ALLOWED_PREFIXES = [
   "/dashboard",
   "/warehouses",
   "/weighbridge",
-  "/processing",
-  "/containers",
   "/ledger",
   "/auth",
 ];
