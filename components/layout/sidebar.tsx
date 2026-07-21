@@ -69,6 +69,7 @@ const GLOBAL_ADMIN_NAV: NavItem[] = [
   { labelKey: "references", href: "/references", icon: BookOpen },
   { labelKey: "users", href: "/users", icon: Users },
   { labelKey: "settings", href: "/settings", icon: Settings },
+  { labelKey: "import", href: "/import", icon: Upload },
 ];
 
 const COMPANY_ADMIN_NAV: NavItem[] = [
@@ -82,7 +83,6 @@ const COMPANY_ADMIN_NAV: NavItem[] = [
   { labelKey: "references", href: "/references", icon: BookOpen },
   { labelKey: "users", href: "/users", icon: Users },
   { labelKey: "settings", href: "/settings", icon: Settings },
-  { labelKey: "import", href: "/import", icon: Upload },
 ];
 
 const AGRONOMIST_NAV: NavItem[] = [
