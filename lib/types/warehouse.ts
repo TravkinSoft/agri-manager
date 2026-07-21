@@ -16,6 +16,7 @@ export type InventoryStatus = "draft" | "confirmed" | "cancelled";
 export type TransactionDirection = "in" | "out";
 export type CapacityUnit = "kg" | "t" | "m3" | "l";
 export type WarehouseType =
+  | "agrochemical"
   | "grain"
   | "vegetable"
   | "seed"
@@ -47,6 +48,49 @@ export interface Warehouse {
   company_id?: string | null;
 }
 
+export interface WarehouseReceiptLineInput {
+  product_id: string;
+  quantity: number;
+  uom: string;
+  lot_number?: string | null;
+  manufactured_at?: string | null;
+  expires_at?: string | null;
+  package_count?: number | null;
+  package_size?: number | null;
+  notes?: string | null;
+}
+
+export interface WarehouseReceiptInput {
+  warehouse_id: string;
+  received_at: string;
+  supplier: string;
+  document_no?: string | null;
+  notes?: string | null;
+  lines: WarehouseReceiptLineInput[];
+}
+
+export interface WarehouseReceipt {
+  id: string;
+  ticket_no: string;
+  status: string;
+  warehouse_to_id: string;
+  supplier?: string | null;
+  supplier_document_no?: string | null;
+  notes?: string | null;
+  created_at: string;
+  finalized_at?: string | null;
+  lines: Array<{
+    id: string;
+    product_id: string;
+    product_name_snapshot?: string | null;
+    product_type?: string | null;
+    quantity: number;
+    uom: string;
+    lot_id?: string | null;
+    quality_json?: Record<string, unknown> | null;
+  }>;
+}
+
 export interface Product {
   id: string;
   master_product_id?: string | null;
@@ -61,6 +105,7 @@ export interface Product {
   units_per_pack?: number | null;
   unit?: string | null;
   description?: string | null;
+  aliases?: string[];
   created_at: string;
   archived: boolean;
   user_id: string;
@@ -170,7 +215,7 @@ export interface WarehouseHistorySnapshot {
 export const warehouseSchema = z.object({
   name: z.string().trim().min(1, "Warehouse name is required"),
   warehouse_type: z
-    .enum(["grain", "vegetable", "seed", "fertilizer", "pesticide", "universal", "potato_storage", "fuel", "temporary"])
+    .enum(["agrochemical", "grain", "vegetable", "seed", "fertilizer", "pesticide", "universal", "potato_storage", "fuel", "temporary"])
     .default("universal"),
   capacity_value: z.coerce.number().min(0).optional().nullable(),
   capacity_unit: z.enum(["kg", "t", "m3", "l"]).optional().nullable(),

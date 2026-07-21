@@ -10,6 +10,7 @@ import { WAREHOUSE_READ_ROLES } from "@/app/api/warehouses/_helpers";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
+import { isAgrochemicalProductType, isAgrochemicalWarehouseType } from "@/lib/warehouse/warehouse-scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,7 +78,7 @@ export async function GET(request: NextRequest) {
         unit_contract_version,
         occurred_at,
         created_at,
-        warehouses:warehouse_id (id,name,name_ru,name_kz,name_en),
+        warehouses:warehouse_id (id,name,name_ru,name_kz,name_en,warehouse_type),
         products:product_id (id,name,trade_name,normalized_name,type,product_type,unit,base_uom)
       `)
       .eq("company_id", companyId)
@@ -87,7 +88,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    const ledgerRows = data || [];
+    const ledgerRows = (data || []).filter((row: any) => {
+      if (actor.role !== "warehouse" && actor.role !== "warehouse_operator") return true;
+      const warehouse = relationOne(row.warehouses) as any;
+      const product = relationOne(row.products) as any;
+      return isAgrochemicalWarehouseType(warehouse?.warehouse_type) &&
+        isAgrochemicalProductType(product?.product_type || product?.type);
+    });
     const varietyIds = Array.from(
       new Set(ledgerRows.map((row: any) => String(row.variety_id || "").trim()).filter(Boolean))
     );

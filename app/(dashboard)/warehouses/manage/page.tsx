@@ -70,6 +70,7 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 
 const WAREHOUSE_TYPES = [
+  { value: "agrochemical", label: "Агрохимический" },
   { value: "grain", label: "Зерновой" },
   { value: "vegetable", label: "Овощной" },
   { value: "seed", label: "Семенной" },
@@ -119,7 +120,7 @@ export default function ManageWarehousesPage() {
     resolver: zodResolver(warehouseSchema),
     defaultValues: {
       name: "",
-      warehouse_type: "universal",
+      warehouse_type: "agrochemical",
       capacity_value: null,
       capacity_unit: null,
       responsible_user_id: null,
@@ -188,7 +189,7 @@ export default function ManageWarehousesPage() {
   const resetWarehouseForm = () => {
     warehouseForm.reset({
       name: "",
-      warehouse_type: "universal",
+      warehouse_type: "agrochemical",
       capacity_value: null,
       capacity_unit: null,
       responsible_user_id: null,
@@ -847,4 +848,3 @@ export default function ManageWarehousesPage() {
     </div>
   );
 }
-

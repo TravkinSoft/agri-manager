@@ -105,22 +105,12 @@ const DIRECTOR_NAV: NavItem[] = [
 const WAREHOUSE_NAV: NavItem[] = [
   { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
-  { labelKey: "inventory_nav", href: "/inventory", icon: Package },
   { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History },
   { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare },
-  { labelKey: "warehouse_catalogs", href: "/warehouses/manage", icon: BookOpen },
-  { labelKey: "meal_thermoses", href: "/meal-thermoses", icon: UtensilsCrossed },
+  { labelKey: "inventory_nav", href: "/inventory", icon: Package },
 ];
 
-const WAREHOUSE_OPERATOR_NAV: NavItem[] = [
-  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
-  { labelKey: "warehouses", href: "/warehouses", icon: Package },
-  { labelKey: "inventory_nav", href: "/inventory", icon: Package },
-  { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History },
-  { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare },
-  { labelKey: "meal_thermoses", href: "/meal-thermoses", icon: UtensilsCrossed },
-];
+const WAREHOUSE_OPERATOR_NAV = WAREHOUSE_NAV;
 
 const WEIGHMAN_NAV: NavItem[] = [
   { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },

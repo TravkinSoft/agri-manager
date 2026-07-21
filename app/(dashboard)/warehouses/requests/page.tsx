@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ClipboardList, PackageCheck } from "lucide-react";
+import { History, PackageCheck } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
@@ -159,13 +159,14 @@ type WarehouseColumnKey =
   | "ready"
   | "handoff"
   | "history";
+type ActiveWarehouseColumnKey = Exclude<WarehouseColumnKey, "history">;
 
 function warehouseColumnKey(row: WarehouseIssueRequest): WarehouseColumnKey {
   const v5Status = String(row.warehouse_request_status || "");
   if (v5Status === "collecting") return "collecting";
   if (v5Status === "ready_for_pickup") return "ready";
   if (v5Status === "picked_up_by_specialist") return "handoff";
-  if (v5Status === "issued") return "history";
+  if (v5Status === "issued") return "handoff";
   if (v5Status === "return_expected") return "handoff";
   if (v5Status === "return_received" || v5Status === "closed") return "history";
   if (v5Status === "cancelled") return "history";
@@ -173,20 +174,18 @@ function warehouseColumnKey(row: WarehouseIssueRequest): WarehouseColumnKey {
   if (row.status === "new" || row.status === "active" || row.status === "preparing") return "collecting";
   if (row.status === "ready") return "ready";
   if (row.status === "received_confirmed") return "handoff";
-  if (row.status === "issued" || row.status === "issued_by_warehouse" || row.status === "partially_issued") return "history";
+  if (row.status === "issued" || row.status === "issued_by_warehouse" || row.status === "partially_issued") return "handoff";
   if (row.status === "cancelled") return "history";
   return "collecting";
 }
 
-const WAREHOUSE_COLUMNS: Array<{ key: WarehouseColumnKey; title: string; description: string }> = [
-  { key: "collecting", title: "К сборке", description: "Новые заявки и подготовка" },
+const WAREHOUSE_COLUMNS: Array<{ key: ActiveWarehouseColumnKey; title: string; description: string }> = [
+  { key: "collecting", title: "Новые и в сборке", description: "Новые заявки и подготовка" },
   { key: "ready", title: "Готово к выдаче", description: "Ждём подтверждение специалиста" },
-  { key: "handoff", title: "К выдаче и возврату", description: "Можно выдать или принять возврат" },
-  { key: "history", title: "История", description: "Выдано, отменено, закрыто" },
+  { key: "handoff", title: "Выдано / возврат", description: "Выдача и приём возврата" },
 ];
 
 export default function WarehouseRequestsPage() {
-  const router = useRouter();
   const { profile } = useAuth();
   const { t, language } = useLanguage();
   const { toast } = useToast();
@@ -196,9 +195,10 @@ export default function WarehouseRequestsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [sourceWarehouseId, setSourceWarehouseId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
-  const [mobileTab, setMobileTab] = useState<"requests" | "preparing" | "ready" | "history" | "stock">("requests");
+  const [mobileTab, setMobileTab] = useState<ActiveWarehouseColumnKey>("collecting");
   const [balanceByWarehouseProduct, setBalanceByWarehouseProduct] = useState<Record<string, number>>({});
   const [issueQtyByItem, setIssueQtyByItem] = useState<Record<string, string>>({});
   const [preparedQtyByItem, setPreparedQtyByItem] = useState<Record<string, string>>({});
@@ -233,10 +233,8 @@ export default function WarehouseRequestsPage() {
       });
       setBalanceByWarehouseProduct(nextBalanceMap);
 
-      if (!selectedId && requestRows.length > 0) {
-        setSelectedId(requestRows[0].id);
-      } else if (selectedId && !requestRows.some((row) => row.id === selectedId)) {
-        setSelectedId(requestRows[0]?.id || null);
+      if (selectedId && !requestRows.some((row) => row.id === selectedId)) {
+        setSelectedId(null);
       }
     } catch (error: any) {
       toast({
@@ -253,7 +251,7 @@ export default function WarehouseRequestsPage() {
     if (profile?.company_id) {
       loadData();
     }
-  }, [profile?.company_id, language]);
+  }, [profile?.company_id, profile?.role, language]);
 
   const filteredRequests = useMemo(() => {
     return requests.filter((row) => {
@@ -279,6 +277,11 @@ export default function WarehouseRequestsPage() {
     });
     return grouped;
   }, [filteredRequests]);
+
+  const historyRequests = useMemo(
+    () => filteredRequests.filter((row) => warehouseColumnKey(row) === "history"),
+    [filteredRequests]
+  );
 
   const selectedRequest = filteredRequests.find((row) => row.id === selectedId) || null;
   const effectiveSourceWarehouseId = sourceWarehouseId || selectedRequest?.source_warehouse_id || "";
@@ -357,29 +360,6 @@ export default function WarehouseRequestsPage() {
       });
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleMobileTab = (tab: "requests" | "preparing" | "ready" | "history" | "stock") => {
-    setMobileTab(tab);
-    if (tab === "stock") {
-      router.push("/inventory");
-      return;
-    }
-    if (tab === "requests") {
-      setStatusFilter("all");
-      return;
-    }
-    if (tab === "preparing") {
-      setStatusFilter("preparing");
-      return;
-    }
-    if (tab === "ready") {
-      setStatusFilter("ready");
-      return;
-    }
-    if (tab === "history") {
-      setStatusFilter("issued");
     }
   };
 
@@ -643,9 +623,13 @@ export default function WarehouseRequestsPage() {
       <PageHeader
         title={t("requests_page_title")}
         description={t("requests_page_desc")}
-      />
+      >
+        <Button variant="outline" onClick={() => setHistoryOpen(true)}>
+          <History className="mr-2 h-4 w-4" /> История заявок
+        </Button>
+      </PageHeader>
 
-      <Card className="rounded-2xl border-slate-800 bg-slate-900/60">
+      <Card className="rounded-md border-slate-800 bg-slate-900/60">
         <CardContent className="grid gap-3 p-3 md:grid-cols-[1fr_260px]">
           <Input
             placeholder={t("search_requests_placeholder")}
@@ -672,30 +656,38 @@ export default function WarehouseRequestsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 xl:grid-cols-4">
+      <div className="grid grid-cols-3 gap-1 rounded-md border border-slate-800 p-1 md:hidden">
+        {WAREHOUSE_COLUMNS.map((column) => (
+          <Button key={column.key} type="button" variant={mobileTab === column.key ? "default" : "ghost"} className="h-11 px-2 text-xs" onClick={() => setMobileTab(column.key)}>
+            {column.title}
+          </Button>
+        ))}
+      </div>
+
+      <div className="grid gap-3 md:h-[calc(100dvh-280px)] md:min-h-[420px] md:grid-cols-3 md:overflow-hidden">
         {WAREHOUSE_COLUMNS.map((column) => {
           const rows = requestsByWarehouseColumn.get(column.key) || [];
           return (
-            <section key={column.key} className="min-h-[260px] rounded-2xl border border-slate-800/80 bg-slate-950/40 p-3">
-              <div className="mb-3 flex items-center justify-between gap-2">
+            <section key={column.key} className={`${mobileTab === column.key ? "flex" : "hidden"} min-h-[260px] min-w-0 flex-col rounded-md border border-slate-800/80 bg-slate-950/40 p-3 md:flex md:min-h-0`}>
+              <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
                 <div>
                   <h2 className="text-base font-semibold text-slate-100">{column.title}</h2>
                   <div className="text-[11px] text-slate-500">{column.description}</div>
                 </div>
                 <Badge className="bg-slate-800 text-slate-200">{rows.length}</Badge>
               </div>
-              <div className="space-y-2">
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                 {loading ? (
-                  <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-4 text-xs text-slate-400">Загрузка...</div>
+                  <div className="rounded-md border border-slate-800 bg-slate-900/70 p-4 text-xs text-slate-400">Загрузка...</div>
                 ) : rows.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/30 p-4 text-xs text-slate-500">Пусто</div>
+                  <div className="rounded-md border border-dashed border-slate-800 bg-slate-900/30 p-4 text-xs text-slate-500">Пусто</div>
                 ) : (
-                  rows.slice(0, 8).map((row) => (
+                  rows.map((row) => (
                     <button
                       key={row.id}
                       type="button"
                       onClick={() => setSelectedId(row.id)}
-                      className={`w-full rounded-xl border p-3 text-left transition ${
+                      className={`w-full rounded-md border p-3 text-left transition ${
                         row.id === selectedId
                           ? "border-yellow-500/80 bg-yellow-500/10 shadow-lg shadow-yellow-950/20"
                           : "border-slate-800 bg-slate-900/70 hover:border-yellow-500/40 hover:bg-slate-900"
@@ -722,103 +714,24 @@ export default function WarehouseRequestsPage() {
                     </button>
                   ))
                 )}
-                {rows.length > 8 ? (
-                  <div className="text-center text-[11px] text-slate-500">+ ещё {rows.length - 8}</div>
-                ) : null}
               </div>
             </section>
           );
         })}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.2fr)]">
-        <Card className="rounded-2xl border-slate-800 bg-slate-900/55">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ClipboardList className="h-5 w-5" />
-              Быстрый список
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="text-sm text-slate-500">{t("loading")}</div>
-            ) : filteredRequests.length === 0 ? (
-              <div className="text-center text-sm text-slate-500">{t("no_issue_requests_found")}</div>
-            ) : (
-              <>
-                <div className="space-y-2 md:hidden">
-                  {filteredRequests.map((row) => (
-                    <button
-                      key={row.id}
-                      type="button"
-                      className={`w-full rounded-lg border p-3 text-left ${row.id === selectedId ? "border-emerald-500/60 bg-emerald-950/30" : "border-slate-700 bg-slate-900/70"}`}
-                      onClick={() => setSelectedId(row.id)}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="text-sm font-semibold text-slate-100">{row.request_number}</div>
-                        <Badge className={statusBadge(row.status)}>{statusLabel(row.status, t)}</Badge>
-                      </div>
-                      <div className="mt-2 text-xs text-slate-400">
-                        <div>{t("field")}: {row.field_name || "-"}</div>
-                        <div>{t("recipient")}: {requestRecipientLabel(row)}</div>
-                        <div>{t("planned_date")}: {row.planned_datetime ? new Date(row.planned_datetime).toLocaleString() : "-"}</div>
-                        <div>{t("items")}: {row.items?.length || 0}</div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-                <div className="hidden md:block">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t("request_number")}</TableHead>
-                        <TableHead>{t("status")}</TableHead>
-                        <TableHead>{t("field")}</TableHead>
-                        <TableHead>{t("recipient")}</TableHead>
-                        <TableHead>{t("planned_date")}</TableHead>
-                        <TableHead>{t("items")}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredRequests.map((row) => (
-                        <TableRow
-                          key={row.id}
-                          className={row.id === selectedId ? "bg-emerald-950/30" : ""}
-                          onClick={() => setSelectedId(row.id)}
-                        >
-                          <TableCell className="font-medium">{row.request_number}</TableCell>
-                          <TableCell>
-                            <Badge className={statusBadge(row.status)}>{statusLabel(row.status, t)}</Badge>
-                          </TableCell>
-                          <TableCell>{row.field_name || "-"}</TableCell>
-                          <TableCell>{requestRecipientLabel(row)}</TableCell>
-                          <TableCell>
-                            {row.planned_datetime ? new Date(row.planned_datetime).toLocaleString() : "-"}
-                          </TableCell>
-                          <TableCell>{row.items?.length || 0}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-2xl border-slate-800 bg-slate-900/55">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <PackageCheck className="h-5 w-5" />
-              Рабочая карточка заявки
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+      <Dialog open={Boolean(selectedRequest)} onOpenChange={(open) => !open && setSelectedId(null)}>
+        <DialogContent className="flex h-[100dvh] max-h-[100dvh] w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none p-0 sm:h-[92vh] sm:max-h-[92vh] sm:w-[min(1180px,calc(100vw-32px))] sm:max-w-[1180px] sm:rounded-lg">
+          <DialogHeader className="shrink-0 border-b border-slate-800 px-5 py-4 text-left">
+            <DialogTitle className="flex items-center gap-2 text-lg"><PackageCheck className="h-5 w-5 text-yellow-400" />Заявка {selectedRequest?.request_number || ""}</DialogTitle>
+            <DialogDescription>{selectedRequest ? `${selectedRequest.field_name || "Поле не указано"} · ${selectedRequest.operation_type || "Операция"} · ${requestRecipientLabel(selectedRequest)}` : ""}</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
             {!selectedRequest ? (
               <div className="text-sm text-slate-500">{t("select_request_from_list")}</div>
             ) : (
               <>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/45 p-4">
+                <div className="border-b border-slate-800 pb-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-xs uppercase tracking-[0.18em] text-slate-500">{selectedRequest.request_number}</div>
@@ -853,7 +766,7 @@ export default function WarehouseRequestsPage() {
                   </div>
                 </div>
 
-                <div className="space-y-2 rounded-xl border border-slate-800 bg-slate-950/35 p-3">
+                <div className="space-y-2 rounded-md border border-slate-800 bg-slate-950/35 p-3">
                   <Label>Склад выдачи</Label>
                   <Select
                     value={sourceWarehouseId}
@@ -880,7 +793,7 @@ export default function WarehouseRequestsPage() {
                 </div>
 
                 {effectiveSourceWarehouseId && stockCheckRows.length > 0 && (
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm">
+                  <div className="rounded-md border border-slate-800 bg-slate-950/40 p-3 text-sm">
                     <div className="mb-2 font-medium text-slate-100">Остаток на выбранном складе</div>
                     <div className="space-y-1">
                       {stockCheckRows.map((row) => (
@@ -1150,54 +1063,47 @@ export default function WarehouseRequestsPage() {
                 )}
               </>
             )}
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-700 bg-slate-950/95 px-2 py-2 shadow md:hidden">
-        <div className="grid grid-cols-5 gap-1 text-[11px]">
-          <Button
-            type="button"
-            variant={mobileTab === "requests" ? "default" : "outline"}
-            className="h-9 px-1"
-            onClick={() => handleMobileTab("requests")}
-          >
-            Заявки
-          </Button>
-          <Button
-            type="button"
-            variant={mobileTab === "preparing" ? "default" : "outline"}
-            className="h-9 px-1"
-            onClick={() => handleMobileTab("preparing")}
-          >
-            Подг.
-          </Button>
-          <Button
-            type="button"
-            variant={mobileTab === "ready" ? "default" : "outline"}
-            className="h-9 px-1"
-            onClick={() => handleMobileTab("ready")}
-          >
-            Готово
-          </Button>
-          <Button
-            type="button"
-            variant={mobileTab === "history" ? "default" : "outline"}
-            className="h-9 px-1"
-            onClick={() => handleMobileTab("history")}
-          >
-            История
-          </Button>
-          <Button
-            type="button"
-            variant={mobileTab === "stock" ? "default" : "outline"}
-            className="h-9 px-1"
-            onClick={() => handleMobileTab("stock")}
-          >
-            Остатки
-          </Button>
-        </div>
-      </div>
+      <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+        <DialogContent className="flex max-h-[86vh] max-w-3xl flex-col overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>История заявок</DialogTitle>
+            <DialogDescription>Закрытые, отменённые и полностью сверенные заявки.</DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+            {historyRequests.length === 0 ? (
+              <div className="rounded-md border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">
+                Завершённых заявок пока нет.
+              </div>
+            ) : (
+              historyRequests.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  className="flex w-full items-start justify-between gap-3 rounded-md border border-slate-800 bg-slate-950/40 p-3 text-left hover:border-yellow-500/40"
+                  onClick={() => {
+                    setHistoryOpen(false);
+                    setSelectedId(row.id);
+                  }}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-100">
+                      {row.field_name || "Поле не указано"} · {row.operation_type || "Операция"}
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-slate-500">
+                      {row.request_number} · {requestMaterialPreview(row)}
+                    </span>
+                  </span>
+                  <Badge className={`${statusBadge(row.status)} shrink-0`}>{statusLabel(row.status, t)}</Badge>
+                </button>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

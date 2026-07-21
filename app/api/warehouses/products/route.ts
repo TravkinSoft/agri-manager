@@ -6,8 +6,8 @@ import {
   getUserScopedClientFromRequest,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
+import { isAgrochemicalProductType } from "@/lib/warehouse/warehouse-scope";
 
 const READ_ROLES = [
   "global_admin",
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("products")
       .select("*")
-      .eq("company_id", companyId)
+      .or(`company_id.eq.${companyId},company_id.is.null`)
       .order("name", { ascending: true });
 
     if (!includeArchived) {
@@ -89,8 +89,41 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+    const rows = data || [];
+    const companyRows = rows.filter((row: any) => String(row.company_id || "") === companyId);
+    const overriddenGlobalIds = new Set(
+      companyRows.map((row: any) => String(row.master_product_id || "")).filter(Boolean)
+    );
+    const deduped = rows.filter(
+      (row: any) => row.company_id != null || !overriddenGlobalIds.has(String(row.id))
+    );
+    const agrochemicalOnly = request.nextUrl.searchParams.get("scope") === "agrochemical";
+    const products = agrochemicalOnly
+      ? deduped.filter((row: any) =>
+          isAgrochemicalProductType(row.product_type || row.type || row.category)
+        )
+      : deduped;
+    const productIds = products.map((row: any) => String(row.id));
+    const { data: aliases } = productIds.length
+      ? await supabase
+          .from("global_product_aliases")
+          .select("product_id,alias")
+          .in("product_id", productIds)
+      : { data: [] as any[] };
+    const aliasesByProduct = new Map<string, string[]>();
+    for (const row of aliases || []) {
+      const key = String((row as any).product_id || "");
+      aliasesByProduct.set(key, [
+        ...(aliasesByProduct.get(key) || []),
+        String((row as any).alias || ""),
+      ]);
+    }
+
     return NextResponse.json({
-      products: data || [],
+      products: products.map((row: any) => ({
+        ...row,
+        aliases: aliasesByProduct.get(String(row.id)) || [],
+      })),
     });
   } catch (error) {
     if (error instanceof SessionAuthError) {
@@ -110,7 +143,7 @@ export async function POST(request: NextRequest) {
     const requestedCompanyId = String(body.companyId || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
 
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,

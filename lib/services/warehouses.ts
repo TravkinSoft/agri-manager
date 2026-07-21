@@ -321,11 +321,13 @@ export async function getWarehouseHistory(
 export async function getProducts(
   companyId: string,
   includeArchived = false,
-  language: Language = "ru"
+  language: Language = "ru",
+  scope?: "agrochemical"
 ): Promise<Product[]> {
   const params = new URLSearchParams();
   params.set("companyId", companyId);
   params.set("includeArchived", includeArchived ? "true" : "false");
+  if (scope) params.set("scope", scope);
   const headers = await buildAuthHeaders("none");
   const response = await fetch(`/api/warehouses/products?${params.toString()}`, {
     method: "GET",
@@ -337,6 +339,34 @@ export async function getProducts(
     ...row,
     name: brandName(row) || row.name,
   })).filter((row) => !hasQaDataMarker(`${row.name} ${row.product_type || ""} ${row.type || ""} ${row.description || ""}`));
+}
+
+export async function getWarehouseReceipts(companyId: string): Promise<import("@/lib/types/warehouse").WarehouseReceipt[]> {
+  const params = new URLSearchParams({ companyId });
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/receipts?${params.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return Array.isArray(payload?.receipts) ? payload.receipts : [];
+}
+
+export async function createWarehouseReceipt(
+  companyId: string,
+  receipt: import("@/lib/types/warehouse").WarehouseReceiptInput,
+  idempotencyKey = crypto.randomUUID()
+): Promise<{ receipt_id: string; receipt_no: string; status: string; idempotent_replay: boolean }> {
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch("/api/warehouses/receipts", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ...receipt, companyId, idempotency_key: idempotencyKey }),
+  });
+  const payload = await parseJsonOrThrow(response);
+  return payload.receipt;
 }
 
 export async function createProduct(

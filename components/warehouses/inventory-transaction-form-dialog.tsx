@@ -45,14 +45,15 @@ interface InventoryTransactionFormDialogProps {
   isEdit?: boolean;
   warehouses: Warehouse[];
   products: Product[];
+  allowedMovementTypes?: Array<InventoryTransactionFormData["movement_type"]>;
 }
 
 const MOVEMENT_LABELS: Record<string, string> = {
-  receipt: "Incoming stock / receipt",
-  issue: "Outgoing stock / issue",
-  transfer: "Internal transfer",
-  writeoff: "Write-off / loss / disposal",
-  adjustment: "Stock adjustment / correction",
+  receipt: "Приход",
+  issue: "Выдача",
+  transfer: "Перемещение между складами",
+  writeoff: "Списание / потери",
+  adjustment: "Ревизия / корректировка",
 };
 
 export function InventoryTransactionFormDialog({
@@ -63,6 +64,7 @@ export function InventoryTransactionFormDialog({
   isEdit = false,
   warehouses,
   products,
+  allowedMovementTypes = ["receipt", "issue", "transfer", "writeoff", "adjustment"],
 }: InventoryTransactionFormDialogProps) {
   const form = useForm<InventoryTransactionFormData>({
     resolver: zodResolver(inventoryTransactionSchema),
@@ -128,9 +130,9 @@ export function InventoryTransactionFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[700px]">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit warehouse operation" : "New warehouse operation"}</DialogTitle>
+          <DialogTitle>{isEdit ? "Изменить складское движение" : "Новое складское движение"}</DialogTitle>
           <DialogDescription>
-            Create stock movement for produce, seeds, fertilizers and pesticides.
+            Перемещение или traceable-корректировка агрохимических остатков.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -141,7 +143,7 @@ export function InventoryTransactionFormDialog({
                 name="operation_datetime"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Date/time *</FormLabel>
+                    <FormLabel>Дата и время *</FormLabel>
                     <FormControl>
                       <Input type="datetime-local" {...field} />
                     </FormControl>
@@ -154,7 +156,7 @@ export function InventoryTransactionFormDialog({
                 name="status"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Status *</FormLabel>
+                    <FormLabel>Статус *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
@@ -162,9 +164,9 @@ export function InventoryTransactionFormDialog({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="draft">draft</SelectItem>
-                        <SelectItem value="confirmed">confirmed</SelectItem>
-                        <SelectItem value="cancelled">cancelled</SelectItem>
+                        <SelectItem value="draft">Черновик</SelectItem>
+                        <SelectItem value="confirmed">Проведено</SelectItem>
+                        <SelectItem value="cancelled">Отменено</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -179,11 +181,11 @@ export function InventoryTransactionFormDialog({
                 name="product_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Item *</FormLabel>
+                    <FormLabel>Материал *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select item" />
+                          <SelectValue placeholder="Выберите материал" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -204,15 +206,15 @@ export function InventoryTransactionFormDialog({
                 name="movement_type"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Operation type *</FormLabel>
+                    <FormLabel>Тип движения *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select operation type" />
+                          <SelectValue placeholder="Выберите тип" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {Object.entries(MOVEMENT_LABELS).map(([value, label]) => (
+                        {Object.entries(MOVEMENT_LABELS).filter(([value]) => allowedMovementTypes.includes(value as InventoryTransactionFormData["movement_type"])).map(([value, label]) => (
                           <SelectItem key={value} value={value}>
                             {label}
                           </SelectItem>
@@ -231,11 +233,11 @@ export function InventoryTransactionFormDialog({
                 name="source_warehouse_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Source warehouse *</FormLabel>
+                    <FormLabel>Склад-источник *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select source warehouse" />
+                          <SelectValue placeholder="Выберите склад" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -258,11 +260,11 @@ export function InventoryTransactionFormDialog({
                 name="destination_warehouse_id"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Destination warehouse *</FormLabel>
+                    <FormLabel>Склад назначения *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select destination warehouse" />
+                          <SelectValue placeholder="Выберите склад" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
@@ -285,16 +287,16 @@ export function InventoryTransactionFormDialog({
                 name="transaction_type"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Adjustment direction *</FormLabel>
+                    <FormLabel>Направление корректировки *</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select direction" />
+                          <SelectValue placeholder="Выберите направление" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="in">Increase stock</SelectItem>
-                        <SelectItem value="out">Decrease stock</SelectItem>
+                        <SelectItem value="in">Увеличить остаток</SelectItem>
+                        <SelectItem value="out">Уменьшить остаток</SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -308,9 +310,9 @@ export function InventoryTransactionFormDialog({
               name="quantity"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Quantity *</FormLabel>
+                  <FormLabel>Количество *</FormLabel>
                   <FormControl>
-                    <Input type="number" step="0.01" min="0" placeholder="Enter quantity" {...field} />
+                    <Input type="number" step="0.01" min="0" placeholder="Введите количество" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -322,10 +324,10 @@ export function InventoryTransactionFormDialog({
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Comment / reason</FormLabel>
+                  <FormLabel>Основание / комментарий</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Reason, document number, additional notes..."
+                      placeholder="Причина, документ или пояснение..."
                       className="min-h-[90px]"
                       {...field}
                     />
@@ -337,10 +339,10 @@ export function InventoryTransactionFormDialog({
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                Отмена
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting ? "Saving..." : isEdit ? "Update operation" : "Create operation"}
+                {form.formState.isSubmitting ? "Сохранение..." : isEdit ? "Сохранить" : "Провести"}
               </Button>
             </DialogFooter>
           </form>

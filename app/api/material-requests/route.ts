@@ -24,6 +24,7 @@ type MaterialRequestItemInput = {
 };
 import { buildProductPassport } from "@/lib/products/product-passport";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import { isAgrochemicalProductType } from "@/lib/warehouse/warehouse-scope";
 
 function toNumber(value: unknown): number {
   const n = Number(value);
@@ -132,7 +133,7 @@ export async function GET(request: NextRequest) {
         .select(`
         *,
         fields:field_id(name),
-        operations:operation_id(operation_type, date, work_status, status, notes),
+        operations:operation_id(operation_type, date, work_status, status, notes, archived),
         source_warehouse:source_warehouse_id(name, name_ru, name_kz, name_en),
         assigned_specialist:assigned_specialist_id(id, full_name, email),
         recipient:recipient_user_id(id, full_name, email),
@@ -171,6 +172,7 @@ export async function GET(request: NextRequest) {
 
     const rows = (data || []).filter((row: any) => {
       const operation = row.operations || {};
+      if (operation.archived === true) return false;
       const qaText = [
         row.request_number,
         row.comment,
@@ -257,6 +259,11 @@ export async function GET(request: NextRequest) {
         fully_issued: totalPlanned > 0 && totalIssued >= totalPlanned,
         items,
       };
+    }).filter((row: any) => {
+      if (actor.role !== "warehouse" && actor.role !== "warehouse_operator") return true;
+      return row.items.length > 0 && row.items.every((item: any) =>
+        isAgrochemicalProductType(item.product_type || item.product_category)
+      );
     });
 
     return NextResponse.json({ requests: rows });

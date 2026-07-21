@@ -6,8 +6,7 @@ import {
   getUserScopedClientFromRequest,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
-import { WAREHOUSE_READ_ROLES, WAREHOUSE_WRITE_ROLES, normalizeWarehouseRow, toNullableText } from "@/app/api/warehouses/_helpers";
+import { WAREHOUSE_READ_ROLES, WAREHOUSE_WRITE_ROLES, normalizeWarehouseRow, toNullableText, warehouseVisibleToRole } from "@/app/api/warehouses/_helpers";
 import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
 
 export async function GET(request: NextRequest) {
@@ -41,6 +40,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       warehouses: (data || [])
         .map(normalizeWarehouseRow)
+        .filter((row) => warehouseVisibleToRole(row, actor.role))
         .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"])),
     });
   } catch (error) {
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     const requestedCompanyId = String(body.companyId || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
 
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,

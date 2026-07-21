@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { SessionAuthError, getServerActorFromSession, getUserScopedClientFromRequest, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { postInventoryTransactionToLedger } from "../_ledger";
 import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
 import { toStockContractColumns, type StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
@@ -23,8 +22,6 @@ const READ_ROLES = [
 const WRITE_ROLES = [
   "global_admin",
   "company_admin",
-  "warehouse",
-  "warehouse_operator",
 ] as const;
 
 const DELETE_ROLES = [
@@ -135,8 +132,7 @@ function applyMovementToBalances(
   }
 }
 
-async function loadConfirmedBalanceMap(companyId: string) {
-  const supabase = getServiceClient();
+async function loadConfirmedBalanceMap(supabase: any, companyId: string) {
   const { data, error } = await supabase
     .from("v_stock_balance_canonical")
     .select("warehouse_id, product_id, quantity, uom, batch_class")
@@ -263,7 +259,7 @@ async function resolveTransaction(
   const actor = await getServerActorFromSession(request);
   const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
   const companyId = resolveCompanyForActor(actor, requestedCompanyId);
-  const supabase = getServiceClient();
+  const supabase = await getUserScopedClientFromRequest(request);
 
   await assertActorAccess({
     supabase,
@@ -339,7 +335,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     };
 
     if (normalized.status === "confirmed") {
-      const balances = await loadConfirmedBalanceMap(companyId);
+      const balances = await loadConfirmedBalanceMap(supabase, companyId);
       const existingMovementType = normalizeMovementType(existing.movement_type, existing.transaction_type);
       const existingDirection = (existing.transaction_type === "in" ? "in" : "out") as TransactionDirection;
       applyMovementToBalances(balances, {
