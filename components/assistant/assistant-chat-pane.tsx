@@ -438,18 +438,19 @@ function matchRoutePath(actualPath: string, expectedPath: string): boolean {
 }
 
 const ASSISTANT_ROLE_ROUTE_ALLOWLIST: Record<string, string[]> = {
-  agronomist: ["/dashboard", "/fields", "/fields-map", "/crop-structure", "/care-systems", "/field-history", "/operations", "/warehouses", "/technique", "/analytics", "/references"],
-  director: ["/dashboard", "/fields", "/fields-map", "/crop-structure", "/care-systems", "/field-history", "/operations", "/warehouses", "/land-legal", "/technique", "/analytics", "/references"],
+  company_admin: ["/dashboard", "/fields", "/crop-structure", "/operations", "/warehouses", "/warehouses/manage", "/weighbridge", "/analytics", "/references", "/users", "/settings"],
+  agronomist: ["/dashboard", "/fields", "/crop-structure", "/operations", "/warehouses", "/analytics", "/references"],
+  director: ["/dashboard", "/fields", "/crop-structure", "/operations", "/warehouses", "/weighbridge", "/analytics", "/references"],
   specialist: ["/dashboard", "/tasks"],
-  brigadier: ["/dashboard", "/operations", "/fields", "/fields-map", "/meal-thermoses"],
-  warehouse: ["/dashboard", "/warehouses", "/inventory", "/warehouses/transactions", "/warehouses/requests", "/warehouses/manage", "/meal-thermoses"],
-  warehouse_operator: ["/dashboard", "/weighbridge", "/warehouses", "/inventory", "/warehouses/transactions", "/warehouses/requests", "/meal-thermoses"],
+  brigadier: ["/dashboard", "/operations", "/fields"],
+  warehouse: ["/dashboard", "/warehouses", "/inventory", "/warehouses/transactions", "/warehouses/requests"],
+  warehouse_operator: ["/dashboard", "/weighbridge", "/warehouses", "/inventory", "/warehouses/transactions", "/warehouses/requests"],
   weighman: ["/weighbridge", "/warehouses", "/ledger"],
-  legal_operator: ["/dashboard", "/land-legal", "/fields", "/fields-map", "/analytics"],
-  fuel_operator: ["/fuel"],
+  legal_operator: ["/dashboard", "/fields", "/analytics"],
+  fuel_operator: ["/dashboard"],
 };
 
-const ASSISTANT_FULL_NAV_ROLES = new Set(["global_admin", "company_admin", "admin"]);
+const ASSISTANT_FULL_NAV_ROLES = new Set(["global_admin"]);
 
 function routePathOnly(route: string | null): string {
   if (!route) return "";

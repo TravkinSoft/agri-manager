@@ -1,11 +1,35 @@
 import type { AppRole } from "@/lib/auth/roles";
-import { isAnyAdmin } from "@/lib/auth/roles";
+
+const HIDDEN_PILOT_PREFIXES = [
+  "/fields-map",
+  "/map",
+  "/land-legal",
+  "/care-systems",
+  "/field-history",
+  "/meal-thermoses",
+  "/fuel",
+  "/import",
+  "/machines",
+  "/technique",
+];
+
+const COMPANY_ADMIN_ALLOWED_PREFIXES = [
+  "/dashboard",
+  "/fields",
+  "/crop-structure",
+  "/operations",
+  "/weighbridge",
+  "/analytics",
+  "/references",
+  "/users",
+  "/settings",
+  "/auth",
+];
 
 const WAREHOUSE_ALLOWED_PREFIXES = [
   "/dashboard",
   "/warehouses",
   "/inventory",
-  "/meal-thermoses",
   "/auth",
 ];
 
@@ -14,7 +38,6 @@ const WAREHOUSE_OPERATOR_ALLOWED_PREFIXES = [
   "/warehouses",
   "/inventory",
   "/weighbridge",
-  "/meal-thermoses",
   "/auth",
 ];
 
@@ -32,27 +55,18 @@ const SPECIALIST_ALLOWED_PREFIXES = [
   "/auth",
 ];
 
-const FUEL_OPERATOR_ALLOWED_PREFIXES = [
-  "/fuel",
-  "/auth",
-];
+const FUEL_OPERATOR_ALLOWED_PREFIXES = ["/dashboard", "/auth"];
 
 const BRIGADIER_ALLOWED_PREFIXES = [
   "/dashboard",
   "/operations",
   "/fields",
-  "/fields-map",
-  "/map",
-  "/meal-thermoses",
   "/auth",
 ];
 
 const LEGAL_OPERATOR_ALLOWED_PREFIXES = [
   "/dashboard",
-  "/land-legal",
   "/fields",
-  "/fields-map",
-  "/map",
   "/analytics",
   "/reports",
   "/auth",
@@ -61,12 +75,8 @@ const LEGAL_OPERATOR_ALLOWED_PREFIXES = [
 const AGRONOMIST_ALLOWED_PREFIXES = [
   "/dashboard",
   "/fields",
-  "/fields-map",
-  "/map",
   "/crop-structure",
-  "/field-history",
   "/operations",
-  "/technique",
   "/analytics",
   "/references",
   "/auth",
@@ -77,16 +87,11 @@ const AGRONOMIST_ALLOWED_EXACT = ["/warehouses"];
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",
   "/fields",
-  "/fields-map",
-  "/map",
   "/crop-structure",
-  "/field-history",
   "/operations",
-  "/technique",
   "/analytics",
   "/warehouses",
   "/weighbridge",
-  "/fuel",
   "/references",
   "/auth",
 ];
@@ -95,18 +100,33 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
   const path = String(pathname || "").toLowerCase();
   if (!path || path === "/") return true;
 
+  if (role === "global_admin") return true;
+
+  if (HIDDEN_PILOT_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+    return false;
+  }
+
   const isWeighbridgeDashboardPath = path === "/weighbridge/dashboard" || path.startsWith("/weighbridge/dashboard/");
   if (isWeighbridgeDashboardPath) {
-    return role === "global_admin" || role === "company_admin";
+    return role === "company_admin";
   }
 
   // Legacy assistant page is deprecated and should be reachable only by global admin.
   if (path === "/specialist" || path.startsWith("/specialist/")) {
-    return role === "global_admin";
+    return false;
   }
 
   if (path === "/platform" || path.startsWith("/platform/")) {
-    return role === "global_admin";
+    return false;
+  }
+
+  if (path === "/warehouses/manage" || path.startsWith("/warehouses/manage/")) {
+    return role === "company_admin";
+  }
+
+  if (role === "company_admin") {
+    if (path === "/warehouses") return true;
+    return COMPANY_ADMIN_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
   }
 
   if (role === "warehouse") {
@@ -147,8 +167,7 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
     return DIRECTOR_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
   }
 
-  // global/company admin keep full company access
-  return isAnyAdmin(role);
+  return false;
 }
 
 export function getDefaultPathForRole(role: AppRole): string {
@@ -156,9 +175,9 @@ export function getDefaultPathForRole(role: AppRole): string {
   if (role === "warehouse") return "/warehouses";
   if (role === "warehouse_operator") return "/warehouses";
   if (role === "weighman") return "/weighbridge";
-  if (role === "fuel_operator") return "/fuel";
+  if (role === "fuel_operator") return "/dashboard";
   if (role === "brigadier") return "/operations";
-  if (role === "legal_operator") return "/land-legal";
+  if (role === "legal_operator") return "/dashboard";
   if (role === "specialist") return "/tasks";
   return "/dashboard";
 }

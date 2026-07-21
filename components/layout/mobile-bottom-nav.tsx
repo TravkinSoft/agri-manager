@@ -3,7 +3,7 @@
 import type { ComponentType, MouseEvent } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, CheckSquare, Droplets, History, LayoutDashboard, Map, Package, Scale, Tractor } from "lucide-react";
+import { Bot, CheckSquare, History, LayoutDashboard, MapPin, Package, Scale, Tractor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { canAccessPath } from "@/lib/auth/role-access";
@@ -50,11 +50,11 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
         { labelKey: "ledger", href: "/ledger", icon: History, kind: "route" },
       ];
     case "fuel_operator":
-      return [{ labelKey: "fuel", href: "/fuel", icon: Droplets, kind: "route" }];
+      return [DASHBOARD_ITEM];
     default:
       return [
         DASHBOARD_ITEM,
-        { labelKey: "field_map", href: "/fields-map", icon: Map, kind: "route" },
+        { labelKey: "fields", href: "/fields", icon: MapPin, kind: "route" },
         { labelKey: "operations", href: "/operations", icon: Tractor, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
       ];
