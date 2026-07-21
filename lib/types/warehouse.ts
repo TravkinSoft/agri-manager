@@ -63,7 +63,8 @@ export interface WarehouseReceiptLineInput {
 export interface WarehouseReceiptInput {
   warehouse_id: string;
   received_at: string;
-  supplier: string;
+  supplier_company_counterparty_id?: string | null;
+  supplier_global_counterparty_id?: string | null;
   document_no?: string | null;
   notes?: string | null;
   lines: WarehouseReceiptLineInput[];

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, PackagePlus, Plus, Trash2 } from "lucide-react";
+import { Building2, CalendarDays, Check, ChevronsUpDown, PackagePlus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -15,8 +15,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import { createWarehouseReceipt } from "@/lib/services/warehouses";
+import { searchSupplierCounterparties } from "@/lib/services/counterparties";
+import type { CounterpartySearchResult } from "@/lib/types/counterparty";
 import type { Product, Warehouse, WarehouseReceiptLineInput } from "@/lib/types/warehouse";
+import { cn } from "@/lib/utils";
 
 interface ReceiptLineDraft extends WarehouseReceiptLineInput {
   key: string;
@@ -58,7 +70,11 @@ export function WarehouseReceiptDialog({
 }: WarehouseReceiptDialogProps) {
   const [warehouseId, setWarehouseId] = useState("");
   const [receivedAt, setReceivedAt] = useState("");
-  const [supplier, setSupplier] = useState("");
+  const [supplierOpen, setSupplierOpen] = useState(false);
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [supplierResults, setSupplierResults] = useState<CounterpartySearchResult[]>([]);
+  const [selectedSupplier, setSelectedSupplier] = useState<CounterpartySearchResult | null>(null);
+  const [suppliersLoading, setSuppliersLoading] = useState(false);
   const [documentNo, setDocumentNo] = useState("");
   const [notes, setNotes] = useState("");
   const [search, setSearch] = useState("");
@@ -74,7 +90,10 @@ export function WarehouseReceiptDialog({
       .slice(0, 16);
     setWarehouseId(defaultWarehouseId || warehouses[0]?.id || "");
     setReceivedAt(local);
-    setSupplier("");
+    setSupplierOpen(false);
+    setSupplierSearch("");
+    setSupplierResults([]);
+    setSelectedSupplier(null);
     setDocumentNo("");
     setNotes("");
     setSearch("");
@@ -82,6 +101,26 @@ export function WarehouseReceiptDialog({
     setIdempotencyKey(crypto.randomUUID());
     setError(null);
   }, [open, defaultWarehouseId, warehouses]);
+
+  useEffect(() => {
+    if (!open || !companyId) return;
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setSuppliersLoading(true);
+      try {
+        const rows = await searchSupplierCounterparties(companyId, supplierSearch);
+        if (!cancelled) setSupplierResults(rows);
+      } catch (cause) {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : "Не удалось загрузить поставщиков");
+      } finally {
+        if (!cancelled) setSuppliersLoading(false);
+      }
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [open, companyId, supplierSearch]);
 
   const visibleProducts = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -105,7 +144,7 @@ export function WarehouseReceiptDialog({
 
   const submit = async () => {
     setError(null);
-    if (!warehouseId || !receivedAt || !supplier.trim()) {
+    if (!warehouseId || !receivedAt || !selectedSupplier) {
       setError("Укажите склад, дату прихода и поставщика.");
       return;
     }
@@ -121,7 +160,8 @@ export function WarehouseReceiptDialog({
         {
           warehouse_id: warehouseId,
           received_at: new Date(receivedAt).toISOString(),
-          supplier: supplier.trim(),
+          supplier_company_counterparty_id: selectedSupplier.company_counterparty_id,
+          supplier_global_counterparty_id: selectedSupplier.global_counterparty_id,
           document_no: documentNo.trim() || null,
           notes: notes.trim() || null,
           lines: lines.map(({ key: _key, ...line }) => ({
@@ -182,8 +222,64 @@ export function WarehouseReceiptDialog({
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Поставщик / от кого получено *</Label>
-              <Input value={supplier} onChange={(event) => setSupplier(event.target.value)} placeholder="Название поставщика" />
+              <Label>Поставщик *</Label>
+              <Popover open={supplierOpen} onOpenChange={setSupplierOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={supplierOpen}
+                    className="h-auto min-h-10 w-full justify-between px-3 py-2 text-left font-normal"
+                  >
+                    <span className={cn("min-w-0 truncate", !selectedSupplier && "text-muted-foreground")}>
+                      {selectedSupplier
+                        ? `${selectedSupplier.legal_name} — ${selectedSupplier.tax_id || "без БИН/ИНН"}`
+                        : "Поиск по названию или БИН/ИНН"}
+                    </span>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[min(560px,calc(100vw-40px))] p-0" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput
+                      value={supplierSearch}
+                      onValueChange={setSupplierSearch}
+                      placeholder="Название или БИН/ИНН"
+                    />
+                    <CommandList className="max-h-72">
+                      <CommandEmpty>
+                        {suppliersLoading
+                          ? "Поиск..."
+                          : "Контрагент не найден в ГЛБД. Обратитесь к администратору компании"}
+                      </CommandEmpty>
+                      <CommandGroup>
+                        {supplierResults.map((row) => (
+                          <CommandItem
+                            key={row.key}
+                            value={row.key}
+                            onSelect={() => {
+                              setSelectedSupplier(row);
+                              setSupplierOpen(false);
+                            }}
+                            className="items-start gap-2 py-2"
+                          >
+                            <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{row.legal_name}</span>
+                              <span className="block text-xs text-muted-foreground">
+                                {row.tax_id || "БИН/ИНН не указан"} — {row.country_name || "Страна не указана"}
+                                {row.source === "company" ? " — уже в компании" : ""}
+                              </span>
+                            </span>
+                            <Check className={cn("h-4 w-4", selectedSupplier?.key === row.key ? "opacity-100" : "opacity-0")} />
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="space-y-2">
               <Label>Номер накладной</Label>

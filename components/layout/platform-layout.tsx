@@ -42,6 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/platform", label: "Обзор", code: "SYS-00" },
       { href: "/platform#companies", labelKey: "companies", code: "CTL-01" },
+      { href: "/platform/catalogs/counterparties", label: "Контрагенты", code: "CTL-02" },
     ],
   },
   {

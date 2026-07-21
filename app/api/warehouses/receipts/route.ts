@@ -7,6 +7,7 @@ import {
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
 import { AGROCHEMICAL_WAREHOUSE_TYPES } from "@/lib/warehouse/warehouse-scope";
+import { COUNTERPARTY_SELECT, normalizeCounterpartyRow } from "@/lib/counterparties/rows";
 
 const READ_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator"] as const;
 const WRITE_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator"] as const;
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
 
     let ticketQuery = supabase
       .from("tickets")
-      .select("id,ticket_no,status,warehouse_to_id,source_id,supplier_document_no,notes,created_at,finalized_at,created_by")
+      .select("id,ticket_no,status,warehouse_to_id,source_id,supplier_id,supplier_document_no,notes,created_at,finalized_at,created_by")
       .eq("company_id", companyId)
       .eq("op_type", "supplier_receipt")
       .eq("receipt_mode", "direct")
@@ -66,6 +67,20 @@ export async function GET(request: NextRequest) {
       : { data: [] as any[], error: null };
     if (lineError) throw new Error(lineError.message);
 
+    const supplierIds = Array.from(new Set((tickets || [])
+      .map((row: any) => String(row.supplier_id || ""))
+      .filter(Boolean)));
+    const { data: supplierRows, error: supplierError } = supplierIds.length
+      ? await supabase.from("counterparties").select(COUNTERPARTY_SELECT).in("id", supplierIds)
+      : { data: [] as any[], error: null };
+    if (supplierError) throw new Error(supplierError.message);
+    const suppliers = new Map(
+      (supplierRows || []).map((row: any) => {
+        const normalized = normalizeCounterpartyRow(row);
+        return [normalized.id, normalized];
+      }),
+    );
+
     const linesByTicket = new Map<string, any[]>();
     for (const line of lines || []) {
       const key = String((line as any).ticket_id);
@@ -75,7 +90,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       receipts: (tickets || []).map((ticket: any) => ({
         ...ticket,
-        supplier: ticket.source_id || null,
+        supplier: suppliers.get(String(ticket.supplier_id || ""))?.legal_name || ticket.source_id || null,
+        supplier_counterparty: suppliers.get(String(ticket.supplier_id || "")) || null,
         lines: linesByTicket.get(String(ticket.id)) || [],
       })),
     });
@@ -110,11 +126,17 @@ export async function POST(request: NextRequest) {
     }
 
     const lines = Array.isArray(body.lines) ? body.lines : [];
-    const { data, error } = await supabase.rpc("create_warehouse_receipt_atomic_v1", {
+    const supplierCompanyId = String(body.supplier_company_counterparty_id || "").trim() || null;
+    const supplierGlobalId = String(body.supplier_global_counterparty_id || "").trim() || null;
+    if (!supplierCompanyId && !supplierGlobalId) {
+      return NextResponse.json({ error: "Выберите поставщика из справочника" }, { status: 400 });
+    }
+    const { data, error } = await supabase.rpc("create_warehouse_receipt_atomic_v2", {
       p_company_id: companyId,
       p_warehouse_id: String(body.warehouse_id || ""),
       p_received_at: String(body.received_at || ""),
-      p_supplier: String(body.supplier || ""),
+      p_supplier_company_counterparty_id: supplierCompanyId,
+      p_supplier_global_counterparty_id: supplierGlobalId,
       p_document_no: body.document_no == null ? null : String(body.document_no),
       p_notes: body.notes == null ? null : String(body.notes),
       p_lines: lines,
