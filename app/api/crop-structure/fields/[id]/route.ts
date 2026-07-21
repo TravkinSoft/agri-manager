@@ -12,7 +12,7 @@ import { getServiceClient } from "@/lib/supabase/service";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const EDIT_ALLOWED_ROLES = ["global_admin", "company_admin", "agronomist"] as const;
+const EDIT_ALLOWED_ROLES = ["global_admin", "agronomist"] as const;
 const CROP_STRUCTURE_BASE_SELECT = "id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
 const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
 

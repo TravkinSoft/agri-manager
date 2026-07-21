@@ -40,7 +40,8 @@ export const vehicleSchema = z.object({
   global_model_id: z.string().uuid().optional().nullable(),
   custom_name: z.string().max(150, "Custom name is too long").optional().or(z.literal("")),
   inventory_number: z.string().max(64, "Inventory number is too long").optional().or(z.literal("")),
-  vehicle_type: z
+  transport_model_id: z.string().uuid().optional().nullable(),
+  type: z
     .enum(["truck", "tractor", "combine", "trailer", "loader", "sprayer", "seeder", "other", "grain_truck", "dump_truck", "tractor_trailer"])
     .default("truck"),
   plate_number: z.string().min(1, "Plate number is required").max(32, "Plate number is too long"),
@@ -153,14 +154,41 @@ export const fertilizerSchema = agrochemicalBaseSchema.extend({
 export type CropFormData = z.input<typeof cropSchema>;
 export type VarietyFormData = z.input<typeof varietySchema>;
 export type SeedReproductionFormData = z.input<typeof seedReproductionSchema>;
-export type MachineFormData = z.input<typeof machineSchema>;
-export type EquipmentFormData = z.input<typeof equipmentSchema>;
+export type MachineFormData = z.input<typeof machineSchema> & {
+  global_machine_model_id?: string | null;
+  full_name?: string | null;
+  brand?: string | null;
+  series?: string | null;
+  category?: string | null;
+  machinery_type?: string | null;
+  inventory_number?: string | null;
+  license_plate?: string | null;
+  manufacture_year?: number | null;
+};
+export type EquipmentFormData = z.input<typeof equipmentSchema> & {
+  global_equipment_model_id?: string | null;
+  full_name?: string | null;
+  brand?: string | null;
+  series?: string | null;
+  model?: string | null;
+  equipment_category?: string | null;
+  inventory_number?: string | null;
+  manufacture_year?: number | null;
+  is_active?: boolean;
+};
 export type SpecialistReferenceFormData = z.input<typeof specialistReferenceSchema>;
 export type CompanyPersonFormData = z.input<typeof companyPersonSchema>;
 export type CompanyPersonRoleType = (typeof companyPersonRoleValues)[number];
 export type CompanyPersonEmploymentType = (typeof companyPersonEmploymentValues)[number];
 export type CompanyPersonStatus = (typeof companyPersonStatusValues)[number];
-export type VehicleFormData = z.input<typeof vehicleSchema>;
+export type VehicleFormData = z.input<typeof vehicleSchema> & {
+  full_name?: string | null;
+  brand?: string | null;
+  series?: string | null;
+  model?: string | null;
+  fleet_type?: string | null;
+  manufacture_year?: number | null;
+};
 export type PesticideFormData = z.input<typeof pesticideSchema>;
 export type FertilizerFormData = z.input<typeof fertilizerSchema>;
 export type PesticideCategory = (typeof pesticideCategoryValues)[number];
@@ -271,7 +299,7 @@ export interface VehicleReference {
   import_source?: string | null;
   import_source_row?: number | null;
   primary_responsible_personnel_id?: string | null;
-  vehicle_type: "truck" | "tractor" | "combine" | "trailer" | "loader" | "sprayer" | "seeder" | "other" | "grain_truck" | "dump_truck" | "tractor_trailer";
+  type: "truck" | "tractor" | "combine" | "trailer" | "loader" | "sprayer" | "seeder" | "other" | "grain_truck" | "dump_truck" | "tractor_trailer";
   plate_number: string;
   capacity_kg: number;
   body_volume_m3: number | null;
@@ -372,6 +400,38 @@ export interface GlobalVehicleModel {
   name: string;
   model_type: "truck" | "tractor" | "combine" | "trailer" | "loader" | "sprayer" | "seeder" | "other";
   default_capacity_kg: number | null;
+  is_active: boolean;
+}
+
+export interface GlobalMachineModel {
+  id: string;
+  full_name: string;
+  category: string;
+  brand: string | null;
+  series: string | null;
+  model: string | null;
+  is_active: boolean;
+}
+
+export interface GlobalEquipmentModel {
+  id: string;
+  name: string;
+  full_name: string | null;
+  category: string | null;
+  equipment_type: string | null;
+  brand: string | null;
+  series: string | null;
+  model: string | null;
+  is_active: boolean;
+}
+
+export interface GlobalTransportModel {
+  id: string;
+  full_name: string;
+  category: string;
+  brand: string | null;
+  series: string | null;
+  model: string | null;
   is_active: boolean;
 }
 

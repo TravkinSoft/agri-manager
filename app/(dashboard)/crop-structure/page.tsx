@@ -315,6 +315,8 @@ export default function CropStructurePage() {
   const tr = (ru: string, kz: string, en: string) => (language === "kz" ? kz : language === "en" ? en : ru);
   const activeCompanyId = profile?.company_id || null;
   const activeProfileId = profile?.id || null;
+  const isGlobalAdmin = profile?.role === "global_admin";
+  const canEditStructure = isGlobalAdmin || profile?.role === "agronomist";
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -564,18 +566,19 @@ export default function CropStructurePage() {
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(CROP_STRUCTURE_VIEW_KEY);
-      if (saved === "cards" || saved === "table" || saved === "map") {
-        setViewMode(saved);
+      if (saved === "cards" || saved === "table" || (saved === "map" && isGlobalAdmin)) {
+        setViewMode(saved as ViewMode);
       }
     } catch {
       // localStorage can be unavailable in hardened browser contexts.
     }
-  }, []);
+  }, [isGlobalAdmin]);
 
   const changeViewMode = (mode: ViewMode) => {
-    setViewMode(mode);
+    const nextMode = mode === "map" && !isGlobalAdmin ? "cards" : mode;
+    setViewMode(nextMode);
     try {
-      window.localStorage.setItem(CROP_STRUCTURE_VIEW_KEY, mode);
+      window.localStorage.setItem(CROP_STRUCTURE_VIEW_KEY, nextMode);
     } catch {
       // View persistence is a convenience; the page should still work without it.
     }
@@ -795,7 +798,7 @@ export default function CropStructurePage() {
   }, [activeCompanyId, seasonId, bootstrappedStructureKey, toast]);
 
   useEffect(() => {
-    if (!activeCompanyId || !seasonId || !selectedFieldId) {
+    if (!isGlobalAdmin || !activeCompanyId || !seasonId || !selectedFieldId) {
       setConsumptions([]);
       return;
     }
@@ -1086,11 +1089,16 @@ export default function CropStructurePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeCompanyId, seasonId, selectedFieldId, cropMap]);
+  }, [activeCompanyId, seasonId, selectedFieldId, cropMap, isGlobalAdmin]);
 
   const openField = (fieldId: string, tab: "dossier" | "editor" | "legal" = "dossier") => {
+    const allowedTab = tab === "editor" && !canEditStructure
+      ? "dossier"
+      : tab === "legal" && !isGlobalAdmin
+        ? "dossier"
+        : tab;
     setSelectedFieldId(fieldId);
-    setFieldDialogTab(tab);
+    setFieldDialogTab(allowedTab);
     setDraftRows((allocByField.get(fieldId) || []).map((item) => ({ ...item })));
   };
 
@@ -1192,7 +1200,7 @@ export default function CropStructurePage() {
   };
 
   const save = async () => {
-    if (!selectedFieldId || !selectedField || !activeCompanyId || !seasonId) return;
+    if (!canEditStructure || !selectedFieldId || !selectedField || !activeCompanyId || !seasonId) return;
     const validation = validateAndNormalizeCropStructureRows({
       rows: draftRows,
       cropsById: cropMap,
@@ -1427,7 +1435,7 @@ export default function CropStructurePage() {
       description: "Для операции нужна сохранённая строка посева по полю.",
       variant: "destructive",
     });
-    openField(field.id, "editor");
+    if (canEditStructure) openField(field.id, "editor");
   };
 
   const handleCreateOperationPlan = async (data: OperationFormData, options?: { idempotencyKey?: string }) => {
@@ -2484,6 +2492,14 @@ export default function CropStructurePage() {
               </SelectContent>
             </Select>
             <div className="ml-auto flex flex-wrap items-center gap-2">
+              {canEditStructure && fields.length ? (
+                <Button
+                  type="button"
+                  onClick={() => openField((fields.find((field) => fieldState(field.id) === "empty") || fields[0]).id, "editor")}
+                >
+                  <Plus className="mr-2 h-4 w-4" />Добавить карточку
+                </Button>
+              ) : null}
               <div className="flex rounded-md border border-slate-200 bg-white p-1">
                 <Button
                   type="button"
@@ -2503,15 +2519,17 @@ export default function CropStructurePage() {
                 >
                   <Table2 className="mr-1.5 h-4 w-4" />Таблица
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={viewMode === "map" ? "default" : "ghost"}
-                  className="h-8 px-3"
-                  onClick={() => changeViewMode("map")}
-                >
-                  <MapIcon className="mr-1.5 h-4 w-4" />Карта
-                </Button>
+                {isGlobalAdmin ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={viewMode === "map" ? "default" : "ghost"}
+                    className="h-8 px-3"
+                    onClick={() => changeViewMode("map")}
+                  >
+                    <MapIcon className="mr-1.5 h-4 w-4" />Карта
+                  </Button>
+                ) : null}
               </div>
               <Button variant="outline" onClick={exportExcel}><Download className="mr-2 h-4 w-4" />Excel</Button>
             </div>
@@ -2535,14 +2553,16 @@ export default function CropStructurePage() {
             <div className="mt-2 text-sm text-slate-500">
               Создайте поля или импортируйте структуру посевов, чтобы заполнить сезон {season?.year || "2026"}.
             </div>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <Button type="button" onClick={() => { window.location.href = "/import"; }}>
-                <Plus className="mr-2 h-4 w-4" />Импортировать структуру
-              </Button>
-              <Button type="button" variant="outline" onClick={() => { window.location.href = "/fields-map"; }}>
-                <MapIcon className="mr-2 h-4 w-4" />Открыть карту полей
-              </Button>
-            </div>
+            {isGlobalAdmin ? (
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                <Button type="button" onClick={() => { window.location.href = "/import"; }}>
+                  <Plus className="mr-2 h-4 w-4" />Импортировать структуру
+                </Button>
+                <Button type="button" variant="outline" onClick={() => { window.location.href = "/fields-map"; }}>
+                  <MapIcon className="mr-2 h-4 w-4" />Открыть карту полей
+                </Button>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}
@@ -2553,7 +2573,7 @@ export default function CropStructurePage() {
         </div>
       ) : null}
       {!loadError && hasFields && viewMode === "table" ? renderTableView() : null}
-      {!loadError && hasFields && viewMode === "map" ? renderMapView() : null}
+      {!loadError && hasFields && viewMode === "map" && isGlobalAdmin ? renderMapView() : null}
       {!loadError && hasFields && !filteredFields.length ? (
         <Card><CardContent className="p-8 text-center text-sm text-slate-500">По заданным фильтрам поля не найдены.</CardContent></Card>
       ) : null}
@@ -2573,12 +2593,16 @@ export default function CropStructurePage() {
               <Button variant={fieldDialogTab === "dossier" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("dossier")}>
                 Агро-контур
               </Button>
-              <Button variant={fieldDialogTab === "editor" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("editor")}>
-                Редактор структуры
-              </Button>
-              <Button variant={fieldDialogTab === "legal" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("legal")}>
-                Юридический контур
-              </Button>
+              {canEditStructure ? (
+                <Button variant={fieldDialogTab === "editor" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("editor")}>
+                  Редактор структуры
+                </Button>
+              ) : null}
+              {isGlobalAdmin ? (
+                <Button variant={fieldDialogTab === "legal" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("legal")}>
+                  Юридический контур
+                </Button>
+              ) : null}
             </div>
             {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
             {fieldDialogTab === "editor" ? renderEditor() : null}
@@ -2586,9 +2610,11 @@ export default function CropStructurePage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={closeField}>Закрыть</Button>
-            <Button onClick={save} disabled={saving}>
-              <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
-            </Button>
+            {canEditStructure && fieldDialogTab === "editor" ? (
+              <Button onClick={save} disabled={saving}>
+                <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
+              </Button>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

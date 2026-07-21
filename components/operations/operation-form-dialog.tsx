@@ -1144,7 +1144,7 @@ export function OperationFormDialog({
           .order("name"),
         supabase
           .from("reference_vehicles")
-          .select("id,name,full_name,brand,series,model,type,vehicle_type,fleet_type,plate_number,license_plate,inventory_number,vin,manufacture_year,transport_model:transport_model_id(id,full_name,category,brand,series,model)")
+          .select("id,name,full_name,brand,series,model,type,fleet_type,plate_number,license_plate,inventory_number,vin,manufacture_year,transport_model:transport_model_id(id,full_name,category,brand,series,model)")
           .eq("company_id", profile.company_id)
           .eq("archived", false)
           .eq("is_active", true)

@@ -26,6 +26,9 @@ import {
   VehicleFormData,
   GlobalVehicleBrand,
   GlobalVehicleModel,
+  GlobalMachineModel,
+  GlobalEquipmentModel,
+  GlobalTransportModel,
 } from "@/lib/types/references";
 
 async function assertCurrentUserIsGlobalAdmin(): Promise<void> {
@@ -687,6 +690,7 @@ export async function createVehicleReference(
     inventory_number: payload.inventory_number || null,
     global_brand_id: payload.global_brand_id || null,
     global_model_id: payload.global_model_id || null,
+    transport_model_id: payload.transport_model_id || null,
     primary_responsible_personnel_id: payload.primary_responsible_personnel_id || null,
     company_id: companyId,
     user_id: userId,
@@ -698,6 +702,39 @@ export async function createVehicleReference(
     .single();
   if (error) throw new Error(error.message);
   return data as VehicleReference;
+}
+
+export async function getGlobalMachineModels(): Promise<GlobalMachineModel[]> {
+  const { data, error } = await supabase
+    .from("agricultural_machine_models")
+    .select("id,full_name,category,brand,series,model,is_active")
+    .eq("is_active", true)
+    .eq("archived", false)
+    .order("full_name");
+  if (error) throw new Error(error.message);
+  return (data || []) as GlobalMachineModel[];
+}
+
+export async function getGlobalEquipmentModels(): Promise<GlobalEquipmentModel[]> {
+  const { data, error } = await supabase
+    .from("equipment_models")
+    .select("id,name,full_name,category,equipment_type,brand,series,model,is_active")
+    .eq("is_active", true)
+    .eq("archived", false)
+    .order("full_name");
+  if (error) throw new Error(error.message);
+  return (data || []) as GlobalEquipmentModel[];
+}
+
+export async function getGlobalTransportModels(): Promise<GlobalTransportModel[]> {
+  const { data, error } = await supabase
+    .from("transport_models")
+    .select("id,full_name,category,brand,series,model,is_active")
+    .eq("is_active", true)
+    .eq("archived", false)
+    .order("full_name");
+  if (error) throw new Error(error.message);
+  return (data || []) as GlobalTransportModel[];
 }
 
 export async function updateVehicleReference(
@@ -994,9 +1031,7 @@ async function syncPersonToSpecialistReference(person: CompanyPerson, actorUserI
     full_name: person.full_name,
     role: person.role_type,
     personnel_type: specialistType,
-    phone: person.phone || null,
     status: person.status === "active" ? "active" : "inactive",
-    note: person.notes || null,
     archived: false,
   };
 
@@ -1163,7 +1198,11 @@ export async function updateCompanyPerson(
 
   const { data, error } = await supabase
     .from("company_people")
-    .update({ ...normalizedPayload, updated_by_user_id: userId })
+    .update({
+      ...normalizedPayload,
+      deleted_at: normalizedPayload.status === "archived" ? new Date().toISOString() : null,
+      updated_by_user_id: userId,
+    })
     .eq("company_id", companyId)
     .eq("id", personId)
     .select()
@@ -1248,13 +1287,10 @@ export async function createSpecialistReference(
 
   const linkedPersonId = await ensureCompanyPersonForSpecialist(companyId, userId, payload);
   const normalizedPayload: Record<string, any> = {
-    ...payload,
+    full_name: payload.full_name,
+    role: payload.role || null,
     personnel_type: payload.personnel_type || "driver",
-    phone: payload.phone || null,
     status: payload.status || "active",
-    note: payload.note || null,
-    machine_id: payload.machine_id || null,
-    equipment_id: payload.equipment_id || null,
   };
   if (linkedPersonId) normalizedPayload.person_id = linkedPersonId;
   const { data, error } = await supabase
@@ -1262,37 +1298,7 @@ export async function createSpecialistReference(
     .insert([{ ...normalizedPayload, company_id: companyId, user_id: userId }])
     .select()
     .single();
-  if (error) {
-    const lowerMessage = error.message?.toLowerCase() || "";
-    if (
-      lowerMessage.includes("machine_id") ||
-      lowerMessage.includes("equipment_id") ||
-      lowerMessage.includes("person_id") ||
-      lowerMessage.includes("schema cache")
-    ) {
-      const fallbackPayload = {
-        full_name: payload.full_name,
-        role: payload.role || null,
-        personnel_type: payload.personnel_type || "driver",
-        phone: payload.phone || null,
-        status: payload.status || "active",
-        note: payload.note || null,
-        company_id: companyId,
-        user_id: userId,
-      };
-      if (linkedPersonId && !lowerMessage.includes("person_id") && !lowerMessage.includes("schema cache")) {
-        (fallbackPayload as any).person_id = linkedPersonId;
-      }
-      const fallback = await supabase
-        .from("reference_specialists")
-        .insert([fallbackPayload])
-        .select()
-        .single();
-      if (fallback.error) throw new Error(fallback.error.message);
-      return fallback.data as SpecialistReference;
-    }
-    throw new Error(error.message);
-  }
+  if (error) throw new Error(error.message);
   if ((payload.assigned_vehicle_ids || []).length > 0) {
     const assignedVehicleIds = payload.assigned_vehicle_ids || [];
     const { error: assignError } = await supabase
@@ -1310,13 +1316,10 @@ export async function updateSpecialistReference(
   payload: SpecialistReferenceFormData
 ): Promise<SpecialistReference> {
   const normalizedPayload = {
-    ...payload,
+    full_name: payload.full_name,
+    role: payload.role || null,
     personnel_type: payload.personnel_type || "driver",
-    phone: payload.phone || null,
     status: payload.status || "active",
-    note: payload.note || null,
-    machine_id: payload.machine_id || null,
-    equipment_id: payload.equipment_id || null,
   };
   const { data, error } = await supabase
     .from("reference_specialists")
@@ -1324,23 +1327,7 @@ export async function updateSpecialistReference(
     .eq("id", id)
     .select()
     .single();
-  if (error) {
-    if (error.message?.toLowerCase().includes("machine_id") || error.message?.toLowerCase().includes("equipment_id")) {
-      const fallbackPayload = {
-        full_name: payload.full_name,
-        role: payload.role || null,
-      };
-      const fallback = await supabase
-        .from("reference_specialists")
-        .update(fallbackPayload)
-        .eq("id", id)
-        .select()
-        .single();
-      if (fallback.error) throw new Error(fallback.error.message);
-      return fallback.data as SpecialistReference;
-    }
-    throw new Error(error.message);
-  }
+  if (error) throw new Error(error.message);
   const updated = data as SpecialistReference;
   if ((updated as any).person_id) {
     const roleType = specialistTypeToRoleType(updated.personnel_type || "driver");
@@ -1349,9 +1336,9 @@ export async function updateSpecialistReference(
       .update({
         full_name: updated.full_name,
         role_type: roleType,
-        phone: updated.phone || null,
+        phone: payload.phone || null,
         status: updated.status === "inactive" ? "inactive" : "active",
-        notes: updated.note || null,
+        notes: payload.note || null,
         updated_by_user_id: (updated as any).user_id || null,
       })
       .eq("id", (updated as any).person_id);
@@ -1478,117 +1465,16 @@ export async function getSeasonAgronomyUsage(
   companyId: string,
   language: Language = "ru"
 ): Promise<SeasonAgronomyUsageRow[]> {
-  const { data: seasonRows, error: seasonError } = await supabase
-    .from("seasons")
-    .select("id,year")
-    .eq("company_id", companyId)
-    .eq("archived", false)
-    .order("year", { ascending: false })
-    .limit(1);
-  if (seasonError) throw new Error(seasonError.message);
-
-  const season = (seasonRows || [])[0] as { id?: string; year?: number | null } | undefined;
-  if (!season?.id) return [];
-
-  const { data: structureRows, error: structureError } = await supabase
-    .from("crop_structure")
-    .select("id,field_id,crop_id,variety_id,reproduction_id,area")
-    .eq("company_id", companyId)
-    .eq("season_id", season.id)
-    .eq("archived", false);
-  if (structureError) throw new Error(structureError.message);
-
-  const rows = (structureRows || []) as any[];
-  if (!rows.length) return [];
-
-  const fieldIds = Array.from(new Set(rows.map((row) => String(row.field_id || "")).filter(Boolean)));
-  const cropIds = Array.from(new Set(rows.map((row) => String(row.crop_id || "")).filter(Boolean)));
-  const varietyIds = Array.from(new Set(rows.map((row) => String(row.variety_id || "")).filter(Boolean)));
-  const reproductionIds = Array.from(new Set(rows.map((row) => String(row.reproduction_id || "")).filter(Boolean)));
-
-  const [fieldsRes, cropsRes, varietiesRes, reproductionsRes] = await Promise.all([
-    fieldIds.length
-      ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds)
-      : Promise.resolve({ data: [], error: null } as any),
-    cropIds.length
-      ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug").in("id", cropIds)
-      : Promise.resolve({ data: [], error: null } as any),
-    varietyIds.length
-      ? supabase.from("varieties").select("id,name,name_ru,name_kz,name_en").in("id", varietyIds)
-      : Promise.resolve({ data: [], error: null } as any),
-    reproductionIds.length
-      ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", reproductionIds)
-      : Promise.resolve({ data: [], error: null } as any),
-  ]);
-  if (fieldsRes.error) throw new Error(fieldsRes.error.message);
-  if (cropsRes.error) throw new Error(cropsRes.error.message);
-  if (varietiesRes.error) throw new Error(varietiesRes.error.message);
-  if (reproductionsRes.error) throw new Error(reproductionsRes.error.message);
-
-  const fieldNameById = new Map<string, string>(
-    (fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "-")])
-  );
-  const cropNameById = new Map<string, string>(
-    (cropsRes.data || []).map((row: any) => [String(row.id), String(localizedName(row, language) || row.name || "-")])
-  );
-  const varietyNameById = new Map<string, string>(
-    (varietiesRes.data || []).map((row: any) => [
-      String(row.id),
-      String(brandName(row) || localizedName(row, language) || row.name || "-"),
-    ])
-  );
-  const reproductionNameById = new Map<string, string>(
-    (reproductionsRes.data || []).map((row: any) => [
-      String(row.id),
-      String(localizedName(row, language, ["name", "code"]) || row.name || row.code || "-"),
-    ])
-  );
-
-  const grouped = new Map<
-    string,
-    SeasonAgronomyUsageRow & { fieldIds: Set<string> }
-  >();
-
-  for (const row of rows) {
-    const cropId = row.crop_id ? String(row.crop_id) : null;
-    const varietyId = row.variety_id ? String(row.variety_id) : null;
-    const reproductionId = row.reproduction_id ? String(row.reproduction_id) : null;
-    const groupKey = [cropId || "none", varietyId || "none", reproductionId || "none"].join("|");
-    const current =
-      grouped.get(groupKey) ||
-      ({
-        season_id: String(season.id),
-        season_year: season.year == null ? null : Number(season.year),
-        crop_id: cropId,
-        crop_name: cropId ? cropNameById.get(cropId) || "-" : "Не указано",
-        variety_id: varietyId,
-        variety_name: varietyId ? varietyNameById.get(varietyId) || null : null,
-        reproduction_id: reproductionId,
-        reproduction_name: reproductionId ? reproductionNameById.get(reproductionId) || null : null,
-        area_ha: 0,
-        field_count: 0,
-        field_names: [],
-        fieldIds: new Set<string>(),
-      } satisfies SeasonAgronomyUsageRow & { fieldIds: Set<string> });
-
-    current.area_ha += Number(row.area || 0);
-    const fieldId = row.field_id ? String(row.field_id) : "";
-    if (fieldId && !current.fieldIds.has(fieldId)) {
-      current.fieldIds.add(fieldId);
-      const fieldName = fieldNameById.get(fieldId);
-      if (fieldName) current.field_names.push(fieldName);
-    }
-    current.field_count = current.fieldIds.size;
-    grouped.set(groupKey, current);
-  }
-
-  return Array.from(grouped.values())
-    .map(({ fieldIds: _fieldIds, ...row }) => ({
-      ...row,
-      area_ha: Number(row.area_ha.toFixed(4)),
-      field_names: row.field_names.sort((a, b) => a.localeCompare(b, "ru")),
-    }))
-    .sort((a, b) => b.area_ha - a.area_ha || a.crop_name.localeCompare(b.crop_name, "ru"));
+  const headers = await getSessionAuthorizationHeader();
+  const params = new URLSearchParams({ companyId, language });
+  const response = await fetch(`/api/references/agronomy?${params.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error || "Failed to load season agronomy");
+  return Array.isArray(payload?.rows) ? payload.rows : [];
 }
 
 export async function getPesticides(
