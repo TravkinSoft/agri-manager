@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerActorFromSession, resolveCompanyForActor, SessionAuthError } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import {
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+  SessionAuthError,
+} from "@/lib/auth/server-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +25,7 @@ export async function GET(request: NextRequest) {
     const language = (["ru", "kz", "en"].includes(request.nextUrl.searchParams.get("language") || "")
       ? request.nextUrl.searchParams.get("language")
       : "ru") as Language;
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
 
     const { data: seasons, error: seasonError } = await supabase
       .from("seasons")

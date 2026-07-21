@@ -229,41 +229,36 @@ async function findProfileByIdOrEmail(params: {
   token: string;
 }): Promise<{ selected: ProfileRow; candidates: ProfileRow[] }> {
   const { userId, userEmail, token } = params;
-  const supabase = getServiceClient();
   const normalizedUserEmail = normalizeEmail(userEmail);
-
   const profileCandidates = new Map<string, ProfileRow>();
-
-  const serviceById = await supabase.from("profiles").select("*").eq("id", userId).limit(1);
-  if (!serviceById.error) addCandidates(profileCandidates, normalizeProfileRows(serviceById.data));
-
-  let allCandidates = Array.from(profileCandidates.values());
-  let selected = pickBestProfile(allCandidates, userId);
-  if (selected) {
-    return {
-      selected,
-      candidates: allCandidates,
-    };
+  let serviceClient: ReturnType<typeof getServiceClient> | null = null;
+  try {
+    serviceClient = getServiceClient();
+  } catch {
+    serviceClient = null;
   }
 
-  const serviceResults = await Promise.all([
-    supabase.from("profiles").select("*").eq("user_id", userId).limit(10),
-    normalizedUserEmail
-      ? supabase.from("profiles").select("*").ilike("email", normalizedUserEmail).limit(50)
-      : Promise.resolve({ data: null, error: null }),
-  ]);
+  if (serviceClient) {
+    const serviceById = await serviceClient.from("profiles").select("*").eq("id", userId).limit(1);
+    if (!serviceById.error) addCandidates(profileCandidates, normalizeProfileRows(serviceById.data));
 
-  serviceResults.forEach((result) => {
-    if (!result.error) addCandidates(profileCandidates, normalizeProfileRows(result.data));
-  });
+    let serviceCandidates = Array.from(profileCandidates.values());
+    let serviceSelected = pickBestProfile(serviceCandidates, userId);
+    if (serviceSelected) return { selected: serviceSelected, candidates: serviceCandidates };
 
-  allCandidates = Array.from(profileCandidates.values());
-  selected = pickBestProfile(allCandidates, userId);
-  if (selected) {
-    return {
-      selected,
-      candidates: allCandidates,
-    };
+    const serviceResults = await Promise.all([
+      serviceClient.from("profiles").select("*").eq("user_id", userId).limit(10),
+      normalizedUserEmail
+        ? serviceClient.from("profiles").select("*").ilike("email", normalizedUserEmail).limit(50)
+        : Promise.resolve({ data: null, error: null }),
+    ]);
+    serviceResults.forEach((result) => {
+      if (!result.error) addCandidates(profileCandidates, normalizeProfileRows(result.data));
+    });
+
+    serviceCandidates = Array.from(profileCandidates.values());
+    serviceSelected = pickBestProfile(serviceCandidates, userId);
+    if (serviceSelected) return { selected: serviceSelected, candidates: serviceCandidates };
   }
 
   const sessionClient = await createSessionScopedClient(token);
@@ -280,8 +275,8 @@ async function findProfileByIdOrEmail(params: {
   });
 
   // Last-resort scan for older environments where filters/aliases are inconsistent.
-  if (!profileCandidates.size && normalizedUserEmail) {
-    const profileScanRes = await supabase.from("profiles").select("*").limit(5000);
+  if (!profileCandidates.size && normalizedUserEmail && serviceClient) {
+    const profileScanRes = await serviceClient.from("profiles").select("*").limit(5000);
     if (!profileScanRes.error && Array.isArray(profileScanRes.data)) {
       const scanned = normalizeProfileRows(profileScanRes.data).filter(
         (row) => normalizeEmail(row.email) === normalizedUserEmail
@@ -290,8 +285,8 @@ async function findProfileByIdOrEmail(params: {
     }
   }
 
-  allCandidates = Array.from(profileCandidates.values());
-  selected = pickBestProfile(allCandidates, userId);
+  const allCandidates = Array.from(profileCandidates.values());
+  const selected = pickBestProfile(allCandidates, userId);
   if (!selected) {
     throw new SessionAuthError("Profile not found for authenticated user", 403);
   }
