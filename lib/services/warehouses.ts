@@ -453,75 +453,15 @@ export async function getInventoryTransactions(
   companyId: string,
   language: Language = "ru"
 ): Promise<InventoryTransactionWithDetails[]> {
-  const { data, error } = await supabase
-    .from("stock_ledger_entries")
-    .select(
-      `
-      *,
-      warehouses:warehouse_id (name, name_ru, name_kz, name_en),
-      products:product_id (name, trade_name, normalized_name, type, product_type, unit, base_uom),
-      profiles:created_by (email),
-      tickets:ticket_id (ticket_no)
-    `
-    )
-    .eq("company_id", companyId)
-    .order("occurred_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-
-  return ((data || []).map((row: any) => {
-    const direction = row.direction === "in" ? "in" : "out";
-    const quantityDelta = Number.isFinite(Number(row.delta_qty_signed))
-      ? Number(row.delta_qty_signed)
-      : direction === "in"
-        ? Math.abs(toNumber(row.quantity))
-        : -Math.abs(toNumber(row.quantity));
-    const warehouseName = localizedName(row.warehouses, language) || "N/A";
-    const product = row.products || {};
-    const movementType = normalizeLedgerMovementType(row.reason_type, direction);
-    const dateIso = row.occurred_at || row.created_at || new Date().toISOString();
-
-    return {
-      id: String(row.id),
-      warehouse_id: String(row.warehouse_id || ""),
-      source_warehouse_id: direction === "out" ? String(row.warehouse_id || "") : null,
-      destination_warehouse_id: direction === "in" ? String(row.warehouse_id || "") : null,
-      product_id: String(row.product_id || ""),
-      quantity: Math.abs(toNumber(row.quantity || quantityDelta)),
-      quantity_delta: quantityDelta,
-      transaction_type: direction,
-      movement_type: movementType,
-      status: "confirmed",
-      operation_datetime: dateIso,
-      date: String(dateIso).slice(0, 10),
-      notes: row.notes || row.reason_type || null,
-      responsible_user_id: row.created_by || null,
-      confirmed_at: dateIso,
-      cancelled_at: null,
-      created_at: row.created_at || dateIso,
-      updated_at: row.created_at || dateIso,
-      user_id: row.created_by || "",
-      company_id: row.company_id || companyId,
-      warehouse_name: warehouseName,
-      source_warehouse_name: direction === "out" ? warehouseName : "-",
-      destination_warehouse_name: direction === "in" ? warehouseName : "-",
-      product_name: brandName(product) || "N/A",
-      product_type: product.product_type || product.type || "N/A",
-      product_unit: row.uom || product.base_uom || product.unit || "kg",
-      created_by_email: row.profiles?.email || "N/A",
-      source_system: "stock_ledger_entries",
-      source_id: row.id || null,
-      ledger_entry_id: row.id || null,
-      movement_source: row.reason_type || null,
-      reason_type: row.reason_type || null,
-      reason_ref_id: row.reason_ref_id || null,
-      ticket_id: row.ticket_id || null,
-      processing_id: row.processing_id || null,
-      document_ref: row.tickets?.ticket_no || row.reason_ref_id || row.ticket_id || row.processing_id || null,
-      is_storno: row.is_storno === true,
-    };
-  }) as InventoryTransactionWithDetails[]).filter(
+  const params = new URLSearchParams({ companyId, language });
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/transactions?${params.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return ((payload?.transactions || []) as InventoryTransactionWithDetails[]).filter(
     (row) =>
       !hasQaDataMarker(
         `${row.warehouse_name} ${row.source_warehouse_name} ${row.destination_warehouse_name} ${row.product_name} ${row.product_type} ${row.notes || ""} ${row.document_ref || ""}`
