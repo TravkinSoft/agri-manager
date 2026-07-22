@@ -2,7 +2,7 @@
 
 LAST_UPDATED: 2026-07-22
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `abf3015`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `b4e1d9e`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -17,7 +17,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Склады | FROZEN_PENDING_FUTURE_APPLY | ТЗ №144 локально перевело 15 проблемных writer paths на единый контракт `base_quantity + base_uom + optional mass_kg`, обязательный `batch_class` и доказуемую плотность. ТЗ №148 доказало repeat safety. Commit `c6788b6` отправлен в `origin/copilot-v1`; migration `20260713183038` не применена, backfill не запускался, scope заморожен до отдельного production preflight и approval. Branch-only read blocker `/api/warehouses/balances` закрыт ТЗ №189 без schema/write изменений. |
 | Контрагенты | TZ211_PREVIEW_READY | В test branch доступны 108 глобальных юридических идентичностей. Новые складские приходы выбирают поставщика по названию или БИН/ИНН и атомарно создают/восстанавливают одну company-связь после успешного ledger `IN`. Production не менялась. |
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
-| Весовая | TZ214_WEIGHBRIDGE_V12_PREVIEW_READY | В меню весовщика оставлены Весовая, Склады и Журнал проводок. Урожай всегда принимается на склад с сохранённой автопривязкой к уборке. Вывоз примесей создаёт атомарный ledger OUT по партии; read-only склад показывает принятую, вывезенную и чистую массу, сорность и валовую/чистую урожайность. Текущий processing UI удалён, исторические данные сохранены. |
+| Весовая | TZ216_WEIGHBRIDGE_V13_PREVIEW_READY | Взвешенная поставка использует один товар и `net_weight_kg` как единственное количество; накладная поддерживает несколько строк с единицами каталога и складом каждой строки. Внутреннее перемещение блокирует одинаковые склады. Покупатели используют общую identity контрагента. Инвентаризацию считает назначенный сотрудник, а ledger-корректировку подтверждает только Company Admin. Автопривязка урожая и вывоз примесей сохранены. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
 | ГЛБД | TZ197_CONFIRMED_GLBD_V1_CORRECTIONS_APPLIED | Все 852 pesticide cards имеют assistant safety status. Девять подтверждённых действий TZ-196 применены: 7 полей карточек и 2 source-backed component groups. Десять `BLOCKED_NO_DATA` и три HOLD остаются без изменений. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
@@ -44,6 +44,16 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 - Production writes/deploy, master merge and production migration are `NONE`. Operations, specialist workflow, weighbridge and Assistant runtime are unchanged.
 
 ## Current database state
+
+### TZ-216 Weighbridge V1.3
+
+- TZ-216 status: `DONE_WITH_EVIDENCE_LIMITATION`; report: [task-reports/core/TZ-216.md](task-reports/core/TZ-216.md); Preview: `https://agri-manager-ns8mu3r5x-travkin-ais-projects.vercel.app`.
+- Weighted receipts now use one item and final net kg as the single warehouse quantity. Invoice receipts remain multi-line and take each line unit from the product catalog.
+- Authenticated UI E2E finalized `WB-8A0F2C-20260722110226-4N8K`: `12,500 - 2,500 = 10,000 kg`; line quantity, canonical mass and ledger IN all equal `10,000 kg`.
+- Internal same-warehouse movement is denied without ledger mutation. Existing manual transfer, harvest/operation linking and impurity-removal contracts remain active.
+- Company Admin buyer references reuse counterparty identities and roles. Inventory assignees can count and submit; only Company Admin approves ledger adjustments or rejects results.
+- Migrations `20260722100549`, `20260722111414`, `20260722111656` and `20260722111820` were applied only to `gsglkmudcwkdetqtocae`. Production connections/writes, production deploy and master merge remain `0/NO/NO`.
+- Browser screenshot capture timed out; live DOM, API, JWT/RLS and database assertions passed. One optional-transport `-` in the print card remains a presentation P1.
 
 ### TZ-215 Company Admin V1
 

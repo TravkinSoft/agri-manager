@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-21T19:00:00+05:00
+LAST_REVIEW_AT: 2026-07-22T11:30:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `84bc7f4`)
+CORE_COMMIT: `SELF` (previous core commit: `b4e1d9e`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
@@ -17,6 +17,15 @@ INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
 NEXT_SAFE_ACTION: Start A110 in assistant-v1 as read-only GLBD access using the TZ-196 safety matrix plus the TZ-197 post-apply record. Exclude the ten `BLOCKED_NO_DATA` rows; do not implement agronomic recommendations.
+
+## TZ-216 review result
+
+TZ216_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains at accepted A109 commit `f503f05b54de129b6778fee10e3b6406ec761ced`.
+TZ216_CORE_IMPACT_FOUND: `YES - weighbridge supplier/invoice/transfer contracts, buyer references and approved inventory lifecycle changed in Core`.
+TZ216_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and ERP-write boundaries are unchanged.
+TZ216_BRANCH_RESULT: `PASS - weighted 12,500 - 2,500 = 10,000 kg, invoice two-line ledger, transfer denial, buyer identity and two-role inventory approval passed`.
+TZ216_PRODUCTION_IMPACT: `NONE`; migrations were applied only to branch `gsglkmudcwkdetqtocae`, with no production connection/write, deploy or master merge.
+TZ216_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from weighbridge, counterparty and inventory mutations.
 
 ## TZ-211 review result
 

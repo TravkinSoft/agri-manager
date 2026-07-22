@@ -101,6 +101,7 @@
 | TZ-213 | WEIGHBRIDGE / PROCESSING / UI / DATABASE | Weighbridge V1.1 harvest auto-link, yield and embedded processing | copilot-v1 | DONE | TZ-204,TZ-207,TZ-212 | [task-reports/core/TZ-213.md](task-reports/core/TZ-213.md) | `SELF` |
 | TZ-214 | WEIGHBRIDGE / WAREHOUSE / UI / DATABASE | Weighbridge V1.2 harvest impurity removal and clean mass | copilot-v1 | DONE | TZ-204,TZ-212,TZ-213 | [task-reports/core/TZ-214.md](task-reports/core/TZ-214.md) | `SELF` |
 | TZ-215 | COMPANY ADMIN / WAREHOUSE / REFERENCES / UI / DATABASE | Company Admin V1 role boundaries, references and pilot cleanup | copilot-v1 | DONE | TZ-210,TZ-212,TZ-214 | [task-reports/core/TZ-215.md](task-reports/core/TZ-215.md) | `SELF` |
+| TZ-216 | WEIGHBRIDGE / WAREHOUSE / COUNTERPARTIES / UI / DATABASE | Weighbridge V1.3 single quantity source, routes and approved inventory | copilot-v1 | DONE | TZ-211,TZ-212,TZ-213,TZ-214,TZ-215 | [task-reports/core/TZ-216.md](task-reports/core/TZ-216.md) | `SELF` |
 
 ## Status values
 
