@@ -152,17 +152,19 @@ export function counterpartyMatchesSearch(params: {
   legalName: unknown;
   taxId: unknown;
   query: unknown;
+  aliases?: unknown[];
+  shortName?: unknown;
 }): boolean {
   const rawQuery = String(params.query || "").trim();
   if (!rawQuery) return true;
   const normalizedQuery = normalizeCounterpartyName(rawQuery);
-  const normalizedName = normalizeCounterpartyName(params.legalName);
+  const candidateNames = [params.legalName, params.shortName, ...(params.aliases || [])].map(normalizeCounterpartyName).filter(Boolean);
   const taxId = normalizeTaxId(params.taxId);
   const numericQuery = rawQuery.replace(/\D/g, "");
   if (numericQuery.length > 0 && taxId.includes(numericQuery)) return true;
-  if (normalizedName.includes(normalizedQuery)) return true;
+  if (candidateNames.some((name) => name.includes(normalizedQuery))) return true;
   const queryForms = [latinSearchForm(normalizedQuery), phoneticSearchForm(latinSearchForm(normalizedQuery))];
-  const nameTokens = latinSearchForm(normalizedName).split(" ").filter(Boolean);
+  const nameTokens = candidateNames.flatMap((name) => latinSearchForm(name).split(" ").filter(Boolean));
   const nameForms = nameTokens.flatMap((token) => [token, phoneticSearchForm(token)]);
   return queryForms.some((queryForm) => nameForms.some((nameForm) => fuzzyTokenMatch(queryForm, nameForm)));
 }

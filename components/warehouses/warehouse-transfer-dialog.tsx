@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { createWarehouseTransfer } from "@/lib/services/warehouses";
+import { getWeighbridgeResources } from "@/lib/services/weighbridge";
 import type { InventoryBalance, Warehouse, WarehouseTransferResult } from "@/lib/types/warehouse";
 
 type Props = {
@@ -45,6 +46,10 @@ export function WarehouseTransferDialog({
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("");
   const [notes, setNotes] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
+  const [driverId, setDriverId] = useState("");
+  const [vehicles, setVehicles] = useState<Array<{ id: string; name: string; plate?: string }>>([]);
+  const [drivers, setDrivers] = useState<Array<{ id: string; name: string }>>([]);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,9 +60,21 @@ export function WarehouseTransferDialog({
     setProductId("");
     setQuantity("");
     setNotes("");
+    setVehicleId("");
+    setDriverId("");
     setIdempotencyKey(crypto.randomUUID());
     setError(null);
   }, [open, sourceWarehouse?.id]);
+
+  useEffect(() => {
+    if (!open || !companyId) return;
+    getWeighbridgeResources(companyId)
+      .then((payload) => {
+        setVehicles(Array.isArray(payload?.vehicles) ? payload.vehicles : []);
+        setDrivers(Array.isArray(payload?.drivers) ? payload.drivers : []);
+      })
+      .catch((cause) => setError(cause instanceof Error ? cause.message : "Не удалось загрузить транспорт"));
+  }, [open, companyId]);
 
   const materials = useMemo(
     () => balances
@@ -72,8 +89,8 @@ export function WarehouseTransferDialog({
   const submit = async () => {
     setError(null);
     const amount = Number(quantity);
-    if (!sourceWarehouse || !destinationId || !selected) {
-      setError("Выберите склад назначения и материал.");
+    if (!sourceWarehouse || !destinationId || !selected || !vehicleId || !driverId) {
+      setError("Выберите склад назначения, материал, машину и водителя.");
       return;
     }
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -93,6 +110,8 @@ export function WarehouseTransferDialog({
           destination_warehouse_id: destinationId,
           product_id: selected.product_id,
           quantity: amount,
+          vehicle_id: vehicleId,
+          driver_id: driverId,
           notes: notes.trim() || null,
         },
         idempotencyKey
@@ -164,6 +183,23 @@ export function WarehouseTransferDialog({
               <span className="w-12 text-sm font-medium">{selected?.unit || "—"}</span>
             </div>
             {selected ? <p className="text-xs text-slate-500">Доступно: {formatQuantity(available)} {selected.unit}</p> : null}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label>Машина *</Label>
+              <Select value={vehicleId} onValueChange={setVehicleId}>
+                <SelectTrigger><SelectValue placeholder="Выберите машину" /></SelectTrigger>
+                <SelectContent>{vehicles.map((vehicle) => <SelectItem key={vehicle.id} value={vehicle.id}>{vehicle.name}{vehicle.plate ? ` (${vehicle.plate})` : ""}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Водитель *</Label>
+              <Select value={driverId} onValueChange={setDriverId}>
+                <SelectTrigger><SelectValue placeholder="Выберите водителя" /></SelectTrigger>
+                <SelectContent>{drivers.map((driver) => <SelectItem key={driver.id} value={driver.id}>{driver.name}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="space-y-2">

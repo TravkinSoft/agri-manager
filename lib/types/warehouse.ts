@@ -211,6 +211,8 @@ export interface WarehouseTransferInput {
   destination_warehouse_id: string;
   product_id: string;
   quantity: number;
+  vehicle_id: string;
+  driver_id: string;
   notes?: string | null;
 }
 
@@ -225,7 +227,7 @@ export interface WarehouseTransferResult {
   idempotent_replay: boolean;
 }
 
-export type WarehouseInventoryStatus = "in_progress" | "completed" | "cancelled";
+export type WarehouseInventoryStatus = "in_progress" | "awaiting_approval" | "approved" | "rejected" | "cancelled";
 
 export interface WarehouseInventoryItem {
   id: string;
@@ -239,6 +241,8 @@ export interface WarehouseInventoryItem {
   actual_quantity: number | null;
   difference_quantity: number | null;
   discovered: boolean;
+  batch_id_text?: string | null;
+  batch_class?: string | null;
   adjustment_ledger_entry_id: string | null;
   created_at: string;
   updated_at: string;
@@ -255,6 +259,18 @@ export interface WarehouseInventoryDocument {
   started_at: string;
   started_by: string;
   started_by_name?: string | null;
+  assigned_to: string;
+  assigned_to_name?: string | null;
+  submitted_at: string | null;
+  submitted_by: string | null;
+  submitted_by_name?: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  approved_by_name?: string | null;
+  rejected_at: string | null;
+  rejected_by: string | null;
+  rejected_by_name?: string | null;
+  rejection_comment: string | null;
   completed_at: string | null;
   completed_by: string | null;
   cancelled_at: string | null;

@@ -51,7 +51,6 @@ export async function GET(request: NextRequest) {
     });
 
     let query = supabase.from("counterparties").select(COUNTERPARTY_SELECT).eq("company_id", companyId);
-    if (type && type !== "all") query = query.eq("counterparty_type", type);
     if (status === "active" || (!status && activeOnly)) {
       query = query.eq("archived", false).eq("is_active", true);
     } else if (status === "archived") {
@@ -62,8 +61,9 @@ export async function GET(request: NextRequest) {
 
     const rows = (data || [])
       .map(normalizeCounterpartyRow)
+      .filter((row) => !type || type === "all" || row.roles.includes(type) || row.counterparty_type === type || (row.counterparty_type === "both" && ["supplier", "buyer"].includes(type)))
       .filter((row) => !isCountryCode(country) || row.country_code === country)
-      .filter((row) => counterpartyMatchesSearch({ legalName: row.legal_name, taxId: row.tax_id, query: search }));
+      .filter((row) => counterpartyMatchesSearch({ legalName: row.legal_name, taxId: row.tax_id, aliases: row.aliases, shortName: row.short_name, query: search }));
     return NextResponse.json({ counterparties: rows });
   } catch (error) {
     if (error instanceof SessionAuthError) {
@@ -88,10 +88,15 @@ export async function POST(request: NextRequest) {
 
     let row: any;
     const globalCounterpartyId = String(body.globalCounterpartyId || "").trim();
+    const type = String(body.type || "supplier").trim().toLowerCase() as CounterpartyType;
+    if (!["supplier", "buyer"].includes(type)) {
+      return NextResponse.json({ error: "Можно добавить роль поставщика или покупателя" }, { status: 400 });
+    }
     if (globalCounterpartyId) {
-      const result = await supabase.rpc("link_global_counterparty_to_company_v1", {
+      const result = await supabase.rpc("link_global_counterparty_role_to_company_v2", {
         p_company_id: companyId,
         p_global_counterparty_id: globalCounterpartyId,
+        p_role: type,
       });
       if (result.error || !result.data?.id) throw new Error(result.error?.message || "Не удалось добавить контрагента");
       row = result.data;
@@ -99,18 +104,17 @@ export async function POST(request: NextRequest) {
       const name = String(body.name || "").trim();
       const taxId = String(body.binIin || "").trim();
       const countryCode = String(body.countryCode || "").trim().toUpperCase();
-      const type = String(body.type || "supplier").trim().toLowerCase() as CounterpartyType;
-      if (!TYPE_VALUES.has(type) || type !== "supplier") {
-        return NextResponse.json({ error: "В текущем контуре можно создавать только поставщика" }, { status: 400 });
-      }
+      if (!TYPE_VALUES.has(type)) return NextResponse.json({ error: "Недопустимая роль контрагента" }, { status: 400 });
       if (!name || !taxId || !isCountryCode(countryCode)) {
         return NextResponse.json({ error: "Укажите юридическое название, БИН/ИНН и страну" }, { status: 400 });
       }
-      const result = await supabase.rpc("create_local_counterparty_v1", {
+      const result = await supabase.rpc("create_local_counterparty_role_v2", {
         p_company_id: companyId,
         p_legal_name: name,
         p_tax_id: taxId,
         p_country_code: countryCode,
+        p_role: type,
+        p_aliases: Array.isArray(body.aliases) ? body.aliases : [],
       });
       if (result.error || !result.data?.id) throw new Error(result.error?.message || "Не удалось создать контрагента");
       row = result.data;

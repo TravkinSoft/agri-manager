@@ -7,6 +7,9 @@ export const COUNTERPARTY_SELECT = [
   "global_counterparty_id",
   "name",
   "counterparty_type",
+  "roles",
+  "aliases",
+  "short_name",
   "bin_iin",
   "country_code",
   "phone",
@@ -17,7 +20,7 @@ export const COUNTERPARTY_SELECT = [
   "first_used_at",
   "created_at",
   "updated_at",
-  "global:global_counterparties(id,legal_name,normalized_name,tax_id,country_code,is_active,archived,created_at,updated_at)",
+  "global:global_counterparties(id,legal_name,normalized_name,tax_id,country_code,aliases,short_name,is_active,archived,created_at,updated_at)",
 ].join(",");
 
 function nestedGlobal(row: any): GlobalCounterparty | null {
@@ -30,6 +33,7 @@ export function normalizeCounterpartyRow(row: any): Counterparty {
   const countryCode = String(global?.country_code || row?.country_code || "") as CounterpartyCountryCode;
   const legalName = String(global?.legal_name || row?.name || "Контрагент");
   const taxId = global?.tax_id == null ? row?.bin_iin ?? null : String(global.tax_id);
+  const globalAliases = global && Array.isArray(global.aliases) ? global.aliases : [];
   return {
     id: String(row.id),
     company_id: String(row.company_id),
@@ -37,6 +41,9 @@ export function normalizeCounterpartyRow(row: any): Counterparty {
     name: legalName,
     legal_name: legalName,
     counterparty_type: String(row.counterparty_type || "other") as Counterparty["counterparty_type"],
+    roles: Array.isArray(row.roles) ? row.roles.map(String) : [],
+    aliases: Array.from(new Set([...globalAliases, ...(Array.isArray(row.aliases) ? row.aliases : [])].map(String).filter(Boolean))),
+    short_name: String(global?.short_name || row.short_name || "").trim() || null,
     bin_iin: taxId,
     tax_id: taxId,
     country_code: countryCode === "KZ" || countryCode === "RU" ? countryCode : null,

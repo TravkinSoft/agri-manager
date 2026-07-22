@@ -14,6 +14,8 @@ export interface GlobalCounterparty {
   normalized_name: string;
   tax_id: string;
   country_code: CounterpartyCountryCode;
+  aliases?: string[];
+  short_name?: string | null;
   is_active: boolean;
   archived: boolean;
   created_at: string;
@@ -27,6 +29,9 @@ export interface Counterparty {
   name: string;
   legal_name: string;
   counterparty_type: CounterpartyType;
+  roles: string[];
+  aliases: string[];
+  short_name: string | null;
   bin_iin: string | null;
   tax_id: string | null;
   country_code: CounterpartyCountryCode | null;
@@ -51,6 +56,9 @@ export interface CounterpartySearchResult {
   country_code: CounterpartyCountryCode | null;
   country_name: string | null;
   source: "company" | "global";
+  roles?: string[];
+  aliases?: string[];
+  short_name?: string | null;
 }
 
 export interface ListCounterpartiesParams {

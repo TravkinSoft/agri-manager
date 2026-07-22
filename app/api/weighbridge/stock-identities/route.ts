@@ -5,7 +5,7 @@ import { brandName, localizedName } from "@/lib/i18n/helpers";
 const batchClassLabel = (value: string | null | undefined) => {
   const key = String(value || "").toLowerCase();
   if (!key) return "Legacy: тип партии не установлен";
-  if (key === "seed") return "Семенной фонд";
+  if (key === "seed") return "Семенная партия";
   if (key === "material") return "Материал";
   if (key === "feed") return "Кормовое";
   if (key === "waste") return "Отход";
@@ -22,8 +22,8 @@ const formatStockQuantity = (value: number, uom: string) => {
   return `${value.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} ${label}`;
 };
 
-const systemNameOf = (row: any, fallback = "-") => localizedName(row, "ru", ["name", "full_name", "title", "code", "slug"]) || fallback;
-const brandNameOf = (row: any, fallback = "-") => brandName(row, ["trade_name", "original_name", "name", "full_name", "title", "normalized_name"]) || fallback;
+const systemNameOf = (row: any, fallback = "") => localizedName(row, "ru", ["name", "full_name", "title", "code", "slug"]) || fallback;
+const brandNameOf = (row: any, fallback = "") => brandName(row, ["trade_name", "original_name", "name", "full_name", "title", "normalized_name"]) || fallback;
 
 const firstSnapshot = (rows: any[], idKey: string, nameKey: string) => {
   const map = new Map<string, string>();
@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
       { data: lineSnapshots },
     ] = await Promise.all([
       productIds.length
-        ? supabase.from("products").select("id,name,trade_name,normalized_name,full_name,type,product_type").in("id", productIds)
+        ? supabase.from("products").select("id,name,trade_name,normalized_name,full_name,type,product_type,stock_unit,base_uom,unit,physical_state,is_seed_material").in("id", productIds)
         : Promise.resolve({ data: [] as any[] }),
       productIds.length
         ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,full_name").in("id", productIds)
@@ -93,6 +93,11 @@ export async function GET(request: NextRequest) {
 
     const productMap = new Map((products || []).map((x: any) => [String(x.id), brandNameOf(x, "")]));
     const productTypeMap = new Map((products || []).map((x: any) => [String(x.id), String(x.product_type || x.type || "").toLowerCase()]));
+    const productMetaMap = new Map((products || []).map((x: any) => [String(x.id), {
+      stock_unit: String(x.stock_unit || x.base_uom || x.unit || "").toLowerCase(),
+      physical_state: String(x.physical_state || "").toLowerCase(),
+      is_seed_material: x.is_seed_material === true,
+    }]));
     for (const crop of cropFallbacks || []) {
       const id = String((crop as any).id || "");
       if (id && !productMap.get(id)) productMap.set(id, systemNameOf(crop, ""));
@@ -113,10 +118,12 @@ export async function GET(request: NextRequest) {
         const batchClass = String(row.batch_class || "");
         const uom = String(row.uom || "legacy/unknown");
         const productName = productMap.get(productId) || productSnapshotMap.get(productId) || "Номенклатура";
-        const varietyName = varietyId ? (varietyMap.get(varietyId) || varietySnapshotMap.get(varietyId) || "-") : "-";
-        const reproductionName = reproductionId ? (reproductionMap.get(reproductionId) || reproductionSnapshotMap.get(reproductionId) || "-") : "-";
+        const varietyName = varietyId ? (varietyMap.get(varietyId) || varietySnapshotMap.get(varietyId) || "") : "";
+        const reproductionName = reproductionId ? (reproductionMap.get(reproductionId) || reproductionSnapshotMap.get(reproductionId) || "") : "";
         const classLabel = batchClassLabel(batchClass);
+        const productMeta = productMetaMap.get(productId);
         const key = [productId, varietyId || "", reproductionId || "", batchId || "", batchClass, uom].join("|");
+        const identityParts = [productName, varietyName, reproductionName, classLabel].filter(Boolean);
 
         return {
           key,
@@ -124,6 +131,9 @@ export async function GET(request: NextRequest) {
           product_id: productId,
           product_name: productName,
           product_type: productTypeMap.get(productId) || "",
+          stock_unit: productMeta?.stock_unit || uom,
+          physical_state: productMeta?.physical_state || "",
+          is_seed_material: productMeta?.is_seed_material === true,
           variety_id: varietyId,
           variety_name: varietyName,
           reproduction_id: reproductionId,
@@ -134,7 +144,7 @@ export async function GET(request: NextRequest) {
           uom,
           is_legacy_invalid: !batchClass || !["kg", "l", "pcs"].includes(uom),
           quantity,
-          label: `${productName} / ${varietyName} / ${reproductionName} / ${classLabel} — ${formatStockQuantity(quantity, uom)}`,
+          label: `${identityParts.join(" • ")} — ${formatStockQuantity(quantity, uom)}`,
         };
       })
       .sort((a: any, b: any) => String(a.label).localeCompare(String(b.label), "ru"));

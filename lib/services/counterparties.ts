@@ -41,8 +41,9 @@ export async function listCounterparties(params: ListCounterpartiesParams): Prom
 export async function searchSupplierCounterparties(
   companyId: string,
   query: string,
+  role: "supplier" | "buyer" = "supplier",
 ): Promise<CounterpartySearchResult[]> {
-  const search = new URLSearchParams({ companyId, q: query });
+  const search = new URLSearchParams({ companyId, q: query, role });
   const response = await fetch(`/api/counterparties/search?${search.toString()}`, {
     method: "GET",
     headers: await authHeaders(),

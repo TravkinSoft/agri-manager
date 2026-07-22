@@ -603,9 +603,19 @@ export async function getWarehouseInventories(
   return Array.isArray(payload?.inventories) ? payload.inventories : [];
 }
 
+export async function getWarehouseInventoryAssignees(companyId: string): Promise<Array<{ id: string; name: string; role: string }>> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/inventories/assignees?companyId=${encodeURIComponent(companyId)}`, {
+    method: "GET", headers, cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return Array.isArray(payload?.assignees) ? payload.assignees : [];
+}
+
 export async function startWarehouseInventory(params: {
   companyId: string;
   warehouseId: string;
+  assignedTo: string;
   notes?: string | null;
   inventoryId?: string;
 }) {
@@ -623,8 +633,9 @@ export async function startWarehouseInventory(params: {
 export async function updateWarehouseInventory(params: {
   companyId: string;
   inventoryId: string;
-  action: "save" | "complete" | "cancel";
+  action: "save" | "submit" | "approve" | "reject" | "cancel";
   items?: Array<{ item_id?: string; product_id?: string; actual_quantity: number }>;
+  comment?: string;
 }) {
   const headers = await buildAuthHeaders("json");
   const response = await fetch(
@@ -636,6 +647,7 @@ export async function updateWarehouseInventory(params: {
         companyId: params.companyId,
         action: params.action,
         items: params.items || [],
+        comment: params.comment || null,
       }),
     }
   );

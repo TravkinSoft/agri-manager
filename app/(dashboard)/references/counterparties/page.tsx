@@ -43,6 +43,7 @@ export default function CounterpartiesPage() {
   const [search, setSearch] = useState("");
   const [country, setCountry] = useState<CounterpartyCountryCode | "all">("all");
   const [status, setStatus] = useState<"active" | "archived" | "all">("active");
+  const [role, setRole] = useState<"supplier" | "buyer">("supplier");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [addMode, setAddMode] = useState<AddMode>("global");
   const [globalSearch, setGlobalSearch] = useState("");
@@ -56,7 +57,7 @@ export default function CounterpartiesPage() {
     if (!companyId) return;
     setLoading(true);
     try {
-      setRows(await listCounterparties({ companyId, status, country, search, activeOnly: false }));
+      setRows(await listCounterparties({ companyId, type: role, status, country, search, activeOnly: false }));
     } catch (cause) {
       toast({
         title: "Не удалось загрузить контрагентов",
@@ -66,7 +67,7 @@ export default function CounterpartiesPage() {
     } finally {
       setLoading(false);
     }
-  }, [companyId, country, search, status, toast]);
+  }, [companyId, country, role, search, status, toast]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void reload(), 180);
@@ -78,7 +79,7 @@ export default function CounterpartiesPage() {
     let cancelled = false;
     const timer = window.setTimeout(async () => {
       try {
-        const results = await searchSupplierCounterparties(companyId, globalSearch);
+        const results = await searchSupplierCounterparties(companyId, globalSearch, role);
         if (!cancelled) setGlobalResults(results.filter((row) => row.source === "global"));
       } catch (cause) {
         if (!cancelled) {
@@ -94,7 +95,7 @@ export default function CounterpartiesPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [addMode, companyId, dialogOpen, globalSearch, toast]);
+  }, [addMode, companyId, dialogOpen, globalSearch, role, toast]);
 
   const resetDialog = () => {
     setAddMode("global");
@@ -122,7 +123,7 @@ export default function CounterpartiesPage() {
         companyId,
         globalCounterpartyId: addMode === "global" ? selectedGlobal?.global_counterparty_id : null,
         name: addMode === "local" ? localName.trim() : selectedGlobal?.legal_name || "",
-        type: "supplier",
+        type: role,
         binIin: addMode === "local" ? localTaxId.trim() : selectedGlobal?.tax_id,
         countryCode: addMode === "local" ? localCountry : selectedGlobal?.country_code,
       });
@@ -163,7 +164,12 @@ export default function CounterpartiesPage() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Контрагенты" description="Поставщики и другие контрагенты вашей компании" />
+      <PageHeader title="Контрагенты" description="Одна организация может быть поставщиком и покупателем без дублирования БИН" />
+
+      <div className="flex border-b border-slate-800">
+        <Button variant={role === "supplier" ? "default" : "ghost"} className="rounded-none" onClick={() => setRole("supplier")}>Поставщики</Button>
+        <Button variant={role === "buyer" ? "default" : "ghost"} className="rounded-none" onClick={() => setRole("buyer")}>Покупатели</Button>
+      </div>
 
       <div className="flex flex-col gap-3 border-y border-slate-800 py-3 lg:flex-row lg:items-center">
         <div className="relative min-w-0 flex-1">
@@ -193,7 +199,7 @@ export default function CounterpartiesPage() {
         </Select>
         {canManage ? (
           <Button onClick={() => { resetDialog(); setDialogOpen(true); }}>
-            <Plus className="mr-2 h-4 w-4" /> Добавить контрагента
+            <Plus className="mr-2 h-4 w-4" /> Добавить {role === "buyer" ? "покупателя" : "поставщика"}
           </Button>
         ) : null}
       </div>
@@ -215,7 +221,7 @@ export default function CounterpartiesPage() {
               <TableRow key={row.id}>
                 <TableCell>
                   <div className="font-medium">{row.legal_name}</div>
-                  <div className="text-xs text-slate-500">{row.source === "global" ? "ГЛБД" : "Локальная запись"}</div>
+                  <div className="text-xs text-slate-500">{row.short_name || row.aliases[0] || (row.source === "global" ? "ГЛБД" : "Локальная запись")}</div>
                 </TableCell>
                 <TableCell className="font-mono">{row.tax_id || "—"}</TableCell>
                 <TableCell>{row.country_name || "—"}</TableCell>
@@ -251,7 +257,7 @@ export default function CounterpartiesPage() {
 
       <Dialog open={dialogOpen} onOpenChange={(next) => { setDialogOpen(next); if (!next) resetDialog(); }}>
         <DialogContent className="sm:max-w-xl">
-          <DialogHeader><DialogTitle>Добавить контрагента</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Добавить {role === "buyer" ? "покупателя" : "поставщика"}</DialogTitle></DialogHeader>
           <div className="flex border-b border-slate-800">
             <Button type="button" variant={addMode === "global" ? "default" : "ghost"} className="rounded-none" onClick={() => setAddMode("global")}>Из ГЛБД</Button>
             <Button type="button" variant={addMode === "local" ? "default" : "ghost"} className="rounded-none" onClick={() => setAddMode("local")}>Локальная запись</Button>

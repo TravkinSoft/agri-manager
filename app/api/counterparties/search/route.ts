@@ -13,7 +13,7 @@ import {
 import { COUNTERPARTY_SELECT, normalizeCounterpartyRow } from "@/lib/counterparties/rows";
 import type { CounterpartySearchResult } from "@/lib/types/counterparty";
 
-const SEARCH_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator"] as const;
+const SEARCH_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman"] as const;
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
       String(request.nextUrl.searchParams.get("companyId") || "").trim() || null,
     );
     const query = String(request.nextUrl.searchParams.get("q") || "").trim();
+    const role = String(request.nextUrl.searchParams.get("role") || "supplier").trim().toLowerCase();
     const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
@@ -36,13 +37,12 @@ export async function GET(request: NextRequest) {
         .from("counterparties")
         .select(COUNTERPARTY_SELECT)
         .eq("company_id", companyId)
-        .eq("counterparty_type", "supplier")
         .eq("archived", false)
         .eq("is_active", true)
         .order("name"),
       supabase
         .from("global_counterparties")
-        .select("id,legal_name,tax_id,country_code")
+        .select("id,legal_name,tax_id,country_code,aliases,short_name")
         .eq("archived", false)
         .eq("is_active", true)
         .order("legal_name"),
@@ -54,7 +54,8 @@ export async function GET(request: NextRequest) {
     const linkedGlobalIds = new Set<string>();
     for (const raw of companyResult.data || []) {
       const row = normalizeCounterpartyRow(raw);
-      if (!counterpartyMatchesSearch({ legalName: row.legal_name, taxId: row.tax_id, query })) continue;
+      if (!row.roles.includes(role) && row.counterparty_type !== role && !(row.counterparty_type === "both" && ["supplier","buyer"].includes(role))) continue;
+      if (!counterpartyMatchesSearch({ legalName: row.legal_name, taxId: row.tax_id, aliases: row.aliases, shortName: row.short_name, query })) continue;
       if (row.global_counterparty_id) linkedGlobalIds.add(row.global_counterparty_id);
       results.push({
         key: `company:${row.id}`,
@@ -65,12 +66,13 @@ export async function GET(request: NextRequest) {
         country_code: row.country_code,
         country_name: row.country_name,
         source: "company",
+        roles: row.roles, aliases: row.aliases, short_name: row.short_name,
       });
     }
     for (const row of globalResult.data || []) {
       const globalId = String(row.id);
       if (linkedGlobalIds.has(globalId)) continue;
-      if (!counterpartyMatchesSearch({ legalName: row.legal_name, taxId: row.tax_id, query })) continue;
+      if (!counterpartyMatchesSearch({ legalName: row.legal_name, taxId: row.tax_id, aliases: row.aliases, shortName: row.short_name, query })) continue;
       const countryCode: "KZ" | "RU" | null = row.country_code === "KZ" || row.country_code === "RU"
         ? row.country_code
         : null;
@@ -83,6 +85,7 @@ export async function GET(request: NextRequest) {
         country_code: countryCode,
         country_name: countryCode ? COUNTERPARTY_COUNTRY_LABELS[countryCode] : null,
         source: "global",
+        aliases: Array.isArray(row.aliases) ? row.aliases : [], short_name: row.short_name || null,
       });
     }
 

@@ -6,7 +6,7 @@ import {
   getUserScopedClientFromRequest,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-import { WAREHOUSE_STOCK_WRITE_ROLES } from "@/app/api/warehouses/_helpers";
+const INVENTORY_ACTION_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman"] as const;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -28,22 +28,28 @@ export async function PATCH(
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...WAREHOUSE_STOCK_WRITE_ROLES],
+      allowedRoles: [...INVENTORY_ACTION_ROLES],
     });
 
     const action = String(body.action || "save");
-    const functionName = action === "complete"
-      ? "complete_warehouse_inventory_v1"
-      : action === "cancel"
-        ? "cancel_warehouse_inventory_v1"
-        : "save_warehouse_inventory_v1";
+    const functionName = action === "submit"
+      ? "submit_warehouse_inventory_v2"
+      : action === "approve"
+        ? "approve_warehouse_inventory_v2"
+        : action === "reject"
+          ? "reject_warehouse_inventory_v2"
+          : action === "cancel"
+            ? "cancel_warehouse_inventory_v2"
+            : "save_warehouse_inventory_v2";
     const parameters = action === "save"
       ? {
           p_company_id: companyId,
           p_inventory_id: inventoryId,
           p_items: Array.isArray(body.items) ? body.items : [],
         }
-      : { p_company_id: companyId, p_inventory_id: inventoryId };
+      : action === "reject"
+        ? { p_company_id: companyId, p_inventory_id: inventoryId, p_comment: String(body.comment || "") }
+        : { p_company_id: companyId, p_inventory_id: inventoryId };
     const { data, error } = await supabase.rpc(functionName, parameters);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ inventory: data });

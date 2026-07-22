@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError } from "@/lib/auth/server-session";
-import {
-  WAREHOUSE_STOCK_WRITE_ROLES,
-  resolveWarehouseForActor,
-} from "@/app/api/warehouses/_helpers";
+import { resolveWarehouseForActor } from "@/app/api/warehouses/_helpers";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const MANUAL_TRANSFER_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman"] as const;
 
 export async function POST(
   request: NextRequest,
@@ -24,7 +22,7 @@ export async function POST(
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...WAREHOUSE_STOCK_WRITE_ROLES],
+      allowedRoles: [...MANUAL_TRANSFER_ROLES],
     });
     if (!existing?.id) {
       return NextResponse.json({ error: "Склад-источник не найден" }, { status: 404 });
@@ -42,6 +40,21 @@ export async function POST(
     if (!UUID_RE.test(destinationWarehouseId) || !UUID_RE.test(productId)) {
       return NextResponse.json({ error: "Выберите склад назначения и материал" }, { status: 400 });
     }
+    if (destinationWarehouseId === sourceWarehouseId) {
+      return NextResponse.json({ error: "Склад назначения должен отличаться от склада-источника" }, { status: 400 });
+    }
+    const vehicleId = String(body.vehicle_id || "").trim();
+    const driverId = String(body.driver_id || "").trim();
+    if (!UUID_RE.test(vehicleId) || !UUID_RE.test(driverId)) {
+      return NextResponse.json({ error: "Для внутреннего перемещения выберите машину и водителя" }, { status: 400 });
+    }
+    const [{ data: destination }, { data: vehicle }, { data: driver }] = await Promise.all([
+      supabase.from("warehouses").select("id").eq("id", destinationWarehouseId).eq("company_id", companyId).eq("archived", false).maybeSingle(),
+      supabase.from("reference_vehicles").select("id").eq("id", vehicleId).eq("company_id", companyId).eq("archived", false).eq("is_active", true).maybeSingle(),
+      supabase.from("reference_specialists").select("id").eq("id", driverId).eq("company_id", companyId).eq("archived", false).eq("status", "active").maybeSingle(),
+    ]);
+    if (!destination?.id) return NextResponse.json({ error: "Склад назначения не найден" }, { status: 400 });
+    if (!vehicle?.id || !driver?.id) return NextResponse.json({ error: "Машина или водитель недоступны выбранной компании" }, { status: 400 });
     if (!Number.isFinite(quantity) || quantity <= 0) {
       return NextResponse.json({ error: "Количество должно быть больше нуля" }, { status: 400 });
     }
@@ -52,7 +65,11 @@ export async function POST(
       p_destination_warehouse_id: destinationWarehouseId,
       p_product_id: productId,
       p_quantity: quantity,
-      p_notes: body.notes == null ? null : String(body.notes),
+      p_notes: [
+        body.notes == null ? "" : String(body.notes).trim(),
+        `Машина: ${vehicleId}`,
+        `Водитель: ${driverId}`,
+      ].filter(Boolean).join("\n"),
       p_idempotency_key: idempotencyKey,
     });
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });

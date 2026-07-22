@@ -8,8 +8,6 @@ import {
 } from "@/lib/auth/server-session";
 import {
   WAREHOUSE_READ_ROLES,
-  WAREHOUSE_STOCK_WRITE_ROLES,
-  resolveWarehouseForActor,
 } from "@/app/api/warehouses/_helpers";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -34,17 +32,24 @@ export async function GET(request: NextRequest) {
 
     let documentQuery = supabase
       .from("warehouse_inventory_documents")
-      .select("id,company_id,inventory_no,warehouse_id,status,snapshot_at,started_at,started_by,completed_at,completed_by,cancelled_at,cancelled_by,item_count,difference_count,notes,created_at,updated_at")
+      .select("id,company_id,inventory_no,warehouse_id,status,snapshot_at,started_at,started_by,assigned_to,submitted_at,submitted_by,approved_at,approved_by,rejected_at,rejected_by,rejection_comment,completed_at,completed_by,cancelled_at,cancelled_by,item_count,difference_count,notes,created_at,updated_at")
       .eq("company_id", companyId)
       .order("started_at", { ascending: false })
       .limit(inventoryId ? 1 : 100);
     if (inventoryId) documentQuery = documentQuery.eq("id", inventoryId);
+    if (["warehouse", "warehouse_operator", "weighman"].includes(actor.role)) {
+      documentQuery = documentQuery.eq("assigned_to", actor.id);
+    }
     const { data: documents, error: documentError } = await documentQuery;
     if (documentError) throw new Error(documentError.message);
 
     const warehouseIds = Array.from(new Set((documents || []).map((row: any) => String(row.warehouse_id))));
     const profileIds = Array.from(new Set((documents || []).flatMap((row: any) => [
       String(row.started_by || ""),
+      String(row.assigned_to || ""),
+      String(row.submitted_by || ""),
+      String(row.approved_by || ""),
+      String(row.rejected_by || ""),
       String(row.completed_by || ""),
       String(row.cancelled_by || ""),
     ]).filter(Boolean)));
@@ -59,7 +64,7 @@ export async function GET(request: NextRequest) {
       documentIds.length
         ? supabase
             .from("warehouse_inventory_items")
-            .select("id,inventory_id,company_id,product_id,product_name_snapshot,product_type,uom,book_quantity,actual_quantity,difference_quantity,discovered,adjustment_ledger_entry_id,created_at,updated_at")
+            .select("id,inventory_id,company_id,product_id,product_name_snapshot,product_type,uom,book_quantity,actual_quantity,difference_quantity,discovered,batch_id_text,batch_class,adjustment_ledger_entry_id,created_at,updated_at")
             .eq("company_id", companyId)
             .in("inventory_id", documentIds)
             .order("product_name_snapshot", { ascending: true })
@@ -91,6 +96,10 @@ export async function GET(request: NextRequest) {
         ...row,
         warehouse_name: warehouseById.get(String(row.warehouse_id)) || "Склад",
         started_by_name: profileById.get(String(row.started_by || "")) || null,
+        assigned_to_name: profileById.get(String(row.assigned_to || "")) || null,
+        submitted_by_name: profileById.get(String(row.submitted_by || "")) || null,
+        approved_by_name: profileById.get(String(row.approved_by || "")) || null,
+        rejected_by_name: profileById.get(String(row.rejected_by || "")) || null,
         items: itemsByDocument.get(String(row.id)) || [],
       })),
     });
@@ -110,21 +119,27 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const warehouseId = String(body.warehouseId || body.warehouse_id || "").trim();
     const inventoryId = String(body.inventoryId || body.inventory_id || "").trim();
-    if (!UUID_RE.test(warehouseId) || !UUID_RE.test(inventoryId)) {
+    const assignedTo = String(body.assignedTo || body.assigned_to || "").trim();
+    if (!UUID_RE.test(warehouseId) || !UUID_RE.test(inventoryId) || !UUID_RE.test(assignedTo)) {
       return NextResponse.json({ error: "Выберите склад" }, { status: 400 });
     }
-    const { actor, companyId, supabase, existing } = await resolveWarehouseForActor(request, warehouseId);
+    const actor = await getServerActorFromSession(request);
+    const companyId = resolveCompanyForActor(actor, String(body.companyId || "").trim() || null);
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...WAREHOUSE_STOCK_WRITE_ROLES],
+      allowedRoles: ["company_admin", "global_admin"],
     });
-    if (!existing?.id) return NextResponse.json({ error: "Склад не найден" }, { status: 404 });
+    const { data: existing, error: warehouseError } = await supabase.from("warehouses").select("id")
+      .eq("id", warehouseId).eq("company_id", companyId).maybeSingle();
+    if (warehouseError || !existing?.id) return NextResponse.json({ error: "Склад не найден" }, { status: 404 });
 
-    const { data, error } = await supabase.rpc("start_warehouse_inventory_v1", {
+    const { data, error } = await supabase.rpc("start_warehouse_inventory_v2", {
       p_company_id: companyId,
       p_warehouse_id: warehouseId,
+      p_assigned_to: assignedTo,
       p_notes: body.notes == null ? null : String(body.notes),
       p_inventory_id: inventoryId,
     });
