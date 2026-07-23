@@ -624,5 +624,5 @@ TZ218_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assist
 TZ218_CORE_IMPACT_FOUND: `YES - operation presentation, progress/completion RPCs, variance review and material planning changed in Core`.
 TZ218_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and ERP-write boundaries are unchanged.
 TZ218_BRANCH_RESULT: `PASS - soil 80/34/46, under-plan 78/80, over-plan 82/80, mixed sowing, multi-field spraying, idempotency and company isolation`.
-TZ218_PRODUCTION_IMPACT: `NONE`; migration was applied only to branch `gsglkmudcwkdetqtocae`, with no production connection/write, production deploy or master merge.
+TZ218_PRODUCTION_IMPACT: `NO_SCHEMA_OR_BUSINESS_DATA_CHANGE`; migration was applied only to branch `gsglkmudcwkdetqtocae`. Two late local sign-in requests reached production Auth and were rejected before session creation; no production read/write, deploy or master merge occurred. Corrected bundle refs are production `0`, test branch `32`.
 TZ218_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from operation mutations.

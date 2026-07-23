@@ -712,5 +712,9 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Seed remains outside the warehouse request and linked to the existing weighbridge issue-to-field contract; agrochemical lines continue through warehouse reconciliation.
 - Migration `20260723132603` was applied only to branch `gsglkmudcwkdetqtocae`; RLS/function grants and repeat apply passed.
 - Typecheck, 142-route build, presentation regression and eight key UI screenshots passed.
-- Production connections/writes, production deploy and master merge remain `0/NO`.
+- Production schema/business-data writes, production deploy and master merge
+  remain `0/NO/NO`. During a late local environment check, two sign-in requests
+  reached production Auth and were rejected before session creation; no
+  production data was read or changed. The corrected build contains `0`
+  production refs and `32` test-branch refs.
 - `READY_FOR_OWNER_PREVIEW_CHECK=YES`.
