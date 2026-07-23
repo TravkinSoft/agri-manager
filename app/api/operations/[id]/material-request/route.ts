@@ -25,7 +25,7 @@ export async function POST(
     const companyId = resolveCompanyForActor(actor, String(body.companyId || "").trim() || null);
     const supabase = await getUserScopedClientFromRequest(request);
     const idempotency = requireOperationIdempotency(request, { ...body, operationId, action: "material_request" });
-    const { data, error } = await supabase.rpc("ensure_operation_material_request_atomic_v1", {
+    const { data, error } = await supabase.rpc("ensure_operation_material_request_atomic_v13", {
       p_company_id: companyId,
       p_actor_profile_id: actor.id,
       p_operation_id: operationId,

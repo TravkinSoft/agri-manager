@@ -149,7 +149,7 @@ export async function POST(
       actionLabel: "Operation completion",
     });
 
-    const { data, error } = await supabase.rpc("finish_operation_atomic_v12", {
+    const { data, error } = await supabase.rpc("finish_operation_atomic_v13", {
       p_company_id: companyId,
       p_actor_profile_id: actor.id,
       p_operation_id: operationId,

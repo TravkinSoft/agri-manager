@@ -142,6 +142,7 @@ export interface OperationMaterial {
   issued_quantity: number;
   consumed_quantity: number | null;
   returned_quantity: number | null;
+  loss_quantity?: number | null;
   notes: string | null;
   product_name?: string | null;
   master_product_id?: string | null;

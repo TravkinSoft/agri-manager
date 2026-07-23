@@ -41,6 +41,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
+import { OperationPlanDetails } from "@/components/operations/operation-plan-details";
 import { PesticideCardLink } from "@/components/platform/pesticide-card-link";
 import {
   archiveOperation,
@@ -57,6 +58,7 @@ import {
 import { getFields } from "@/lib/services/fields";
 import { getCropStructures } from "@/lib/services/crop-structure";
 import { getWarehouseIssueRequests } from "@/lib/services/warehouse-requests";
+import type { WarehouseIssueRequest } from "@/lib/types/warehouse-request";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -123,6 +125,8 @@ function displayStatusBadge(status: OperationDisplayStatus, label: string) {
       ? "bg-emerald-100 text-emerald-800"
       : status === "in_progress"
         ? "bg-blue-100 text-blue-800"
+        : status === "awaiting_reconciliation"
+          ? "bg-amber-100 text-amber-900"
         : status === "accepted"
           ? "bg-cyan-100 text-cyan-800"
           : status === "awaiting_approval"
@@ -175,6 +179,7 @@ export default function OperationsPage() {
   const [operationToArchive, setOperationToArchive] = useState<OperationWithDetails | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [requestStatusByOperationId, setRequestStatusByOperationId] = useState<Record<string, string>>({});
+  const [warehouseRequests, setWarehouseRequests] = useState<WarehouseIssueRequest[]>([]);
   const [operationLinesByOperationId, setOperationLinesByOperationId] = useState<Record<string, OperationLine[]>>({});
   const [linesLoadingByOperationId, setLinesLoadingByOperationId] = useState<Record<string, boolean>>({});
   const [lineDraftByOperationId, setLineDraftByOperationId] = useState<Record<string, OperationLineFormData>>({});
@@ -222,8 +227,10 @@ export default function OperationsPage() {
           if (row.operation_id) map[row.operation_id] = row.status;
         });
         setRequestStatusByOperationId(map);
+        setWarehouseRequests(requestsRes.value);
       } else {
         setRequestStatusByOperationId({});
+        setWarehouseRequests([]);
       }
 
     } catch (error) {
@@ -1003,7 +1010,33 @@ export default function OperationsPage() {
   const selectedOperationEngine = selectedOperation ? getOperationEngine(selectedOperation) : null;
   const selectedOperationPurposes = selectedOperation ? getOperationPurposeLabels(selectedOperation) : [];
   const selectedTankMixComponents = selectedOperation ? getTankMixComponents(selectedOperation) : [];
-  const selectedPresentation = selectedOperation ? buildOperationPresentation(selectedOperation) : null;
+  const selectedPresentation = selectedOperation
+    ? buildOperationPresentation(selectedOperation, {
+        responsibleName:
+          selectedOperation.responsible_name ||
+          (selectedOperation.responsible_user_id
+            ? specialistLabelById[selectedOperation.responsible_user_id]
+            : null),
+      })
+    : null;
+  const selectedWarehouseMaterials = selectedOperation
+    ? warehouseRequests
+        .filter((request) => request.operation_id === selectedOperation.id && request.status !== "cancelled")
+        .flatMap((request) =>
+          (request.items || []).map((item) => ({
+            productId: item.product_id,
+            preparedQuantity: Number(item.prepared_quantity || 0),
+            issuedQuantity: Number(item.issued_quantity || 0),
+            statusLabel: request.status === "ready"
+              ? "Готово к выдаче"
+              : request.status === "issued" || request.status === "issued_by_warehouse"
+                ? "Выдано"
+                : request.status === "received_confirmed"
+                  ? "Принято специалистом"
+                  : "На складе",
+          }))
+        )
+    : [];
 
   return (
     <div className="space-y-4">
@@ -1282,33 +1315,37 @@ export default function OperationsPage() {
                   <TabsTrigger value="history">История</TabsTrigger>
                 </TabsList>
                 <TabsContent value="general" className="space-y-3 text-sm">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div><span className="text-muted-foreground">Работа:</span> {selectedPresentation?.workTitle}</div>
-                    {selectedOperationPurposes.length > 0 ? <div><span className="text-muted-foreground">Цели:</span> {selectedOperationPurposes.join(", ")}</div> : null}
-                    <div><span className="text-muted-foreground">Поле:</span> {selectedOperation.field_name}</div>
-                    {selectedOperation.crop_name ? <div>
-                      <span className="text-muted-foreground">План поля:</span>{" "}
-                      {selectedOperation.crop_name}
-                      {selectedOperation.variety_name ? ` • ${selectedOperation.variety_name}` : ""}
-                      {selectedOperation.reproduction_name ? ` • ${selectedOperation.reproduction_name}` : ""}
-                    </div> : null}
-                    <div><span className="text-muted-foreground">План:</span> {selectedPresentation?.plannedAreaHa.toFixed(2)} га</div>
-                    <div><span className="text-muted-foreground">Факт:</span> {selectedPresentation?.completedAreaHa.toFixed(2)} га</div>
-                    <div><span className="text-muted-foreground">Прогресс:</span> {selectedPresentation?.progressPercent.toFixed(1)}%</div>
+                  {selectedPresentation ? (
+                    <OperationPlanDetails
+                      presentation={selectedPresentation}
+                      warehouseMaterials={selectedWarehouseMaterials}
+                      showExecutionFacts
+                    />
+                  ) : null}
+                  {selectedOperationPurposes.length > 0 ? (
                     <div>
-                      <span className="text-muted-foreground">{selectedPresentation?.isOverPlan ? "Перевыполнение:" : "Осталось:"}</span>{" "}
-                      {selectedPresentation?.isOverPlan
-                        ? `+${selectedPresentation.deviationAreaHa.toFixed(2)} га`
-                        : `${selectedPresentation?.remainingAreaHa.toFixed(2)} га`}
+                      <span className="text-muted-foreground">Цели:</span>{" "}
+                      {selectedOperationPurposes.join(", ")}
                     </div>
-                    {selectedOperation.operation_target ? <div><span className="text-muted-foreground">Способ/назначение:</span> {selectedOperation.operation_target}</div> : null}
-                    {selectedPresentation?.machineName ? <div><span className="text-muted-foreground">Машина:</span> {selectedPresentation.machineName}</div> : null}
-                    {selectedPresentation?.equipmentName ? <div><span className="text-muted-foreground">Оборудование:</span> {selectedPresentation.equipmentName}</div> : null}
-                    {selectedPresentation?.details.map((detail) => (
-                      <div key={detail.key}><span className="text-muted-foreground">{detail.label}:</span> {detail.value}</div>
-                    ))}
-                    {selectedOperation.notes ? <div className="md:col-span-2"><span className="text-muted-foreground">Комментарий агронома:</span> {selectedOperation.notes}</div> : null}
-                  </div>
+                  ) : null}
+                  {selectedPresentation ? (
+                    <div className="grid grid-cols-2 gap-3 rounded-md border bg-muted/20 p-3">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Фактически выполнено</div>
+                        <div className="font-semibold">{selectedPresentation.completedAreaHa.toFixed(2)} га</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          {selectedPresentation.isOverPlan ? "Перевыполнение" : "Осталось"}
+                        </div>
+                        <div className="font-semibold">
+                          {selectedPresentation.isOverPlan
+                            ? `+${selectedPresentation.deviationAreaHa.toFixed(2)} га`
+                            : `${selectedPresentation.remainingAreaHa.toFixed(2)} га`}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="flex gap-2">
                     <Button type="button" variant="outline" onClick={() => { setEditingOperation(selectedOperation); setIsFormOpen(true); }}>
                       Редактировать
@@ -1319,7 +1356,8 @@ export default function OperationsPage() {
                       </Button>
                     ) : null}
                   </div>
-                  {selectedPresentation?.pendingCompletion ? (
+                  {selectedPresentation?.status === "awaiting_approval" &&
+                  selectedPresentation.pendingCompletion ? (
                     <div className="space-y-3 rounded-md border border-violet-300 bg-violet-50 p-4 text-sm">
                       <div className="font-semibold text-violet-950">Результат ожидает подтверждения</div>
                       <div className="grid gap-2 md:grid-cols-2">

@@ -7,7 +7,6 @@ import {
   toWorkflowStatus,
 } from "@/app/api/material-requests/_helpers";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
-import { calculatePackagePlan, roundMaterialQuantity } from "@/lib/materials/reconciliation";
 import { resolveWorkTitle } from "@/lib/operations/work-title";
 import {
   OperationMutationInputError,
@@ -18,9 +17,7 @@ import {
 type MaterialRequestItemInput = {
   id?: unknown;
   itemId?: unknown;
-  packageSize?: unknown;
   preparedQuantity?: unknown;
-  packageCount?: unknown;
 };
 import { buildProductPassport } from "@/lib/products/product-passport";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
@@ -292,7 +289,7 @@ export async function PATCH(request: NextRequest) {
     if (!requestId) {
       return NextResponse.json({ error: "requestId is required" }, { status: 400 });
     }
-    if (!["preparing", "ready", "cancel"].includes(action)) {
+    if (action !== "ready") {
       return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
     }
 
@@ -318,7 +315,7 @@ export async function PATCH(request: NextRequest) {
 
     const readyItemPlans = new Map<
       string,
-      { preparedQuantity: number; packageSize: number | null; packageCount: number | null }
+      { preparedQuantity: number }
     >();
     if (action === "ready") {
       if (!sourceWarehouseId) {
@@ -343,16 +340,10 @@ export async function PATCH(request: NextRequest) {
         if (!raw) {
           return NextResponse.json({ error: `Prepared quantity is required for request item ${item.id}` }, { status: 400 });
         }
-        const planned = toNumber(item.planned_quantity ?? item.required_quantity);
-        const packageSize =
-          raw.packageSize === null || raw.packageSize === undefined || raw.packageSize === ""
-            ? null
-            : toNumber(raw.packageSize);
-        const packagePlan = calculatePackagePlan({ plannedQuantity: planned, packageSize });
         const preparedQuantity =
           raw.preparedQuantity === null || raw.preparedQuantity === undefined || raw.preparedQuantity === ""
-            ? packagePlan.preparedQuantity
-            : roundMaterialQuantity(Math.max(toNumber(raw.preparedQuantity), 0));
+            ? 0
+            : Number(Math.max(toNumber(raw.preparedQuantity), 0).toFixed(4));
         const available = await getWarehouseProductBalance(supabase, companyId, sourceWarehouseId, String(item.product_id || ""));
         if (preparedQuantity > available + 0.000001) {
           return NextResponse.json(
@@ -367,11 +358,6 @@ export async function PATCH(request: NextRequest) {
         }
         readyItemPlans.set(String(item.id), {
           preparedQuantity,
-          packageSize,
-          packageCount:
-            raw.packageCount === null || raw.packageCount === undefined || raw.packageCount === ""
-              ? packagePlan.packageCount
-              : Math.max(toNumber(raw.packageCount), 0),
         });
       }
 
@@ -387,9 +373,6 @@ export async function PATCH(request: NextRequest) {
         item_id: itemId,
         prepared_quantity: readyPlan?.preparedQuantity ?? toNumber(raw.preparedQuantity),
         prepared_unit: null,
-        package_size: readyPlan?.packageSize ?? null,
-        package_count: readyPlan?.packageCount ?? null,
-        package_unit: null,
       };
     }).filter((item) => item.item_id);
     const { data, error } = await supabase.rpc("update_material_request_stage_atomic_v1", {

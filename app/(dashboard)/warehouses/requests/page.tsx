@@ -25,10 +25,11 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
 import { getInventoryBalances, getWarehouses } from "@/lib/services/warehouses";
 import {
-  acceptWarehouseReturnMaterials,
+  adminTransitionWarehouseRequest,
   createIssueTicketFromRequest,
   getWarehouseIssueRequests,
   issueWarehouseRequest,
+  reconcileWarehouseReturn,
   updateWarehouseIssueRequestStatus,
 } from "@/lib/services/warehouse-requests";
 import type { Warehouse } from "@/lib/types/warehouse";
@@ -150,8 +151,8 @@ function requestStepHint(row: WarehouseIssueRequest): string {
   if (status === "ready") return "Склад собрал. Ждём, когда специалист подтвердит получение.";
   if (status === "received_confirmed") return "Специалист подтвердил. Можно отдать товар и списать склад.";
   if (status === "issued" || status === "issued_by_warehouse" || status === "partially_issued") return "Выдача зафиксирована в складе.";
-  if (status === "preparing") return "Сборка начата. Проверьте склад и подготовьте позиции.";
-  return "Проверьте склад, выберите источник и начните сборку.";
+  if (status === "preparing") return "Укажите фактически подготовленное количество и отметьте готовность.";
+  return "Выберите склад, укажите фактически подготовленное количество и отметьте готовность.";
 }
 
 type WarehouseColumnKey =
@@ -202,13 +203,16 @@ export default function WarehouseRequestsPage() {
   const [balanceByWarehouseProduct, setBalanceByWarehouseProduct] = useState<Record<string, number>>({});
   const [issueQtyByItem, setIssueQtyByItem] = useState<Record<string, string>>({});
   const [preparedQtyByItem, setPreparedQtyByItem] = useState<Record<string, string>>({});
-  const [packageSizeByItem, setPackageSizeByItem] = useState<Record<string, string>>({});
+  const [returnQtyByItem, setReturnQtyByItem] = useState<Record<string, string>>({});
+  const [lossQtyByItem, setLossQtyByItem] = useState<Record<string, string>>({});
+  const [adminReason, setAdminReason] = useState("");
 
   const canProcess =
     profile?.role === "warehouse" ||
     profile?.role === "warehouse_operator" ||
-    profile?.role === "company_admin" ||
     profile?.role === "global_admin";
+  const canAdminTransition =
+    profile?.role === "company_admin" || profile?.role === "global_admin";
   const canView =
     profile?.role === "warehouse" ||
     profile?.role === "warehouse_operator" ||
@@ -295,18 +299,22 @@ export default function WarehouseRequestsPage() {
     setSourceWarehouseId(selectedRequest.source_warehouse_id || "");
     const defaults: Record<string, string> = {};
     const preparedDefaults: Record<string, string> = {};
-    const packageDefaults: Record<string, string> = {};
+    const returnDefaults: Record<string, string> = {};
+    const lossDefaults: Record<string, string> = {};
     (selectedRequest.items || []).forEach((item) => {
       const prepared = toQty(item.prepared_quantity, 0);
       const alreadyIssued = toQty(item.issued_quantity, 0);
       const remaining = Math.max(prepared - alreadyIssued, 0);
       defaults[item.id] = remaining > 0 ? remaining.toFixed(2) : "0";
       preparedDefaults[item.id] = prepared > 0 ? prepared.toFixed(2) : "0";
-      packageDefaults[item.id] = item.package_size ? String(item.package_size) : "";
+      returnDefaults[item.id] = "0";
+      lossDefaults[item.id] = "0";
     });
     setIssueQtyByItem(defaults);
     setPreparedQtyByItem(preparedDefaults);
-    setPackageSizeByItem(packageDefaults);
+    setReturnQtyByItem(returnDefaults);
+    setLossQtyByItem(lossDefaults);
+    setAdminReason("");
   }, [selectedRequest?.id]);
 
   const stockCheckRows = useMemo(() => {
@@ -320,7 +328,9 @@ export default function WarehouseRequestsPage() {
       const toIssueRaw = toQty(issueQtyByItem[item.id], remaining);
       const toIssue = Math.max(0, toIssueRaw);
       const missing = Math.max(0, toIssue - available);
-      const stockDeficit = Math.max(0, planned - available);
+      const stockDeficit = Math.max(0, prepared - available);
+      const remainingToPrepare = Math.max(planned - prepared, 0);
+      const preparationDeviation = prepared - planned;
       const exceedsRemaining = toIssue > remaining + 0.000001;
       return {
         item,
@@ -332,12 +342,20 @@ export default function WarehouseRequestsPage() {
         toIssue,
         missing,
         stockDeficit,
+        remainingToPrepare,
+        preparationDeviation,
         preparedExceedsAvailable: prepared > available + 0.000001,
         exceedsRemaining,
         enough: available + 0.000001 >= toIssue,
       };
     });
-  }, [selectedRequest, effectiveSourceWarehouseId, balanceByWarehouseProduct, issueQtyByItem]);
+  }, [
+    selectedRequest,
+    effectiveSourceWarehouseId,
+    balanceByWarehouseProduct,
+    issueQtyByItem,
+    preparedQtyByItem,
+  ]);
 
   const hasStockShortage = stockCheckRows.some((row) => row.toIssue > 0 && !row.enough);
   const hasPreparationStockShortage = stockCheckRows.some((row) => row.preparedExceedsAvailable);
@@ -405,23 +423,9 @@ export default function WarehouseRequestsPage() {
           items: (selectedRequest.items || []).map((item) => ({
             itemId: item.id,
             preparedQuantity: toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0)),
-            packageSize: packageSizeByItem[item.id] ? toQty(packageSizeByItem[item.id], 0) : null,
           })),
         }),
       t("request_marked_ready")
-    );
-  };
-
-  const handleCancel = async () => {
-    if (!selectedRequest || !profile?.company_id) return;
-    await runAction(
-      () =>
-        updateWarehouseIssueRequestStatus({
-          requestId: selectedRequest.id,
-          companyId: profile.company_id!,
-          status: "cancelled",
-        }),
-      t("request_cancelled")
     );
   };
 
@@ -523,41 +527,69 @@ export default function WarehouseRequestsPage() {
     }
   };
 
-  const handleAcceptReturn = async () => {
+  const handleWarehouseReturn = async (closeWithoutReturn = false) => {
     if (!selectedRequest || !profile?.company_id) return;
-
     const items = (selectedRequest.items || [])
-      .map((item) => {
-        const declared = toQty(item.returned_quantity, 0);
-        const received = toQty(item.return_received_quantity, 0);
-        return {
-          itemId: item.id,
-          returnedQuantity: Math.max(declared - received, 0),
-        };
-      })
+      .map((item) => ({
+        itemId: item.id,
+        returnedQuantity: toQty(returnQtyByItem[item.id], 0),
+      }))
       .filter((item) => item.returnedQuantity > 0.000001);
-
-    if (items.length === 0) {
-      await runAction(
-        () =>
-          acceptWarehouseReturnMaterials({
-            requestId: selectedRequest.id,
-            companyId: profile.company_id!,
-            items: [],
-          }),
-        "Возврат уже был принят. Сверка заявки закрыта."
-      );
-      return;
-    }
 
     await runAction(
       () =>
-        acceptWarehouseReturnMaterials({
+        reconcileWarehouseReturn({
           requestId: selectedRequest.id,
           companyId: profile.company_id!,
           items,
+          closeWithoutReturn,
         }),
-      "Возврат принят на склад и отражён в остатках."
+      closeWithoutReturn
+        ? "Заявка закрыта без физического возврата."
+        : "Физический возврат принят на склад и отражён в остатках."
+    );
+  };
+
+  const handleAdminTransition = async (
+    action: "return_to_preparation" | "cancel" | "record_loss"
+  ) => {
+    if (!selectedRequest || !profile?.company_id) return;
+    if (!adminReason.trim()) {
+      toast({
+        title: "Нужна причина",
+        description: "Административное действие нельзя выполнить без причины.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const lossItems = (selectedRequest.items || [])
+      .map((item) => ({
+        itemId: item.id,
+        lossQuantity: toQty(lossQtyByItem[item.id], 0),
+      }))
+      .filter((item) => item.lossQuantity > 0.000001);
+    if (action === "record_loss" && lossItems.length === 0) {
+      toast({
+        title: "Укажите потери",
+        description: "Для подтверждения потерь нужна хотя бы одна положительная строка.",
+        variant: "destructive",
+      });
+      return;
+    }
+    await runAction(
+      () =>
+        adminTransitionWarehouseRequest({
+          requestId: selectedRequest.id,
+          companyId: profile.company_id!,
+          action,
+          reason: adminReason.trim(),
+          items: action === "record_loss" ? lossItems : [],
+        }),
+      action === "cancel"
+        ? "Заявка отменена администратором."
+        : action === "return_to_preparation"
+          ? "Заявка возвращена в подготовку."
+          : "Потери подтверждены администратором."
     );
   };
 
@@ -798,7 +830,7 @@ export default function WarehouseRequestsPage() {
                     <div className="space-y-1">
                       {stockCheckRows.map((row) => (
                         <div key={row.item.id} className={row.enough ? "text-emerald-300" : "text-red-300"}>
-                          {row.item.product_name || "-"}: доступно {row.available.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, к выдаче {row.toIssue.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, осталось по заявке {row.remaining.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}
+                          {row.item.product_name || "-"}: доступно {row.available.toFixed(2)} {localizeUnit(row.item.unit || row.item.product_unit || "", language)}, подготовлено {row.prepared.toFixed(2)}, к выдаче {row.toIssue.toFixed(2)}, осталось подготовить {row.remainingToPrepare.toFixed(2)}
                         </div>
                       ))}
                     </div>
@@ -818,7 +850,7 @@ export default function WarehouseRequestsPage() {
                             )}`
                         )
                         .join("; ")}
-                      . Заявку нельзя подготовить или выдать сверх фактического остатка.
+                      . Подготовленное количество нельзя указать выше фактического остатка.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -826,9 +858,20 @@ export default function WarehouseRequestsPage() {
                 <div className="space-y-2 md:hidden">
                   {(selectedRequest.items || []).map((item) => {
                     const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
+                    const prepared = toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0));
                     const issued = toQty(item.issued_quantity, 0);
-                    const remaining = Math.max(planned - issued, 0);
-                    const editable =
+                    const available = toQty(
+                      balanceByWarehouseProduct[`${effectiveSourceWarehouseId}|${item.product_id}`],
+                      0
+                    );
+                    const remainingToPrepare = Math.max(planned - prepared, 0);
+                    const remainingToIssue = Math.max(prepared - issued, 0);
+                    const preparedEditable =
+                      canProcess &&
+                      (selectedRequest.status === "new" ||
+                        selectedRequest.status === "active" ||
+                        selectedRequest.status === "preparing");
+                    const issueEditable =
                       selectedRequest.status === "ready" || selectedRequest.status === "received_confirmed";
                     return (
                       <div key={item.id} className="rounded-lg border border-slate-700 bg-slate-950/40 p-3 text-sm">
@@ -836,8 +879,15 @@ export default function WarehouseRequestsPage() {
                         <div className="mt-1 text-xs text-slate-500">{productCategoryLabel(item)}</div>
                         <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-400">
                           <div>План: {planned.toFixed(2)}</div>
+                          <div>Доступно: {available.toFixed(2)}</div>
+                          <div>Подготовлено: {prepared.toFixed(2)}</div>
                           <div>Выдано: {issued.toFixed(2)}</div>
-                          <div>Осталось: {remaining.toFixed(2)}</div>
+                          <div>Осталось подготовить: {remainingToPrepare.toFixed(2)}</div>
+                          <div>Осталось выдать: {remainingToIssue.toFixed(2)}</div>
+                          <div>
+                            Отклонение: {prepared - planned > 0 ? "+" : ""}
+                            {(prepared - planned).toFixed(2)}
+                          </div>
                           <div>{t("unit")}: {localizeUnit(item.unit || item.product_unit || "kg", language)}</div>
                         </div>
                         <div className="mt-2 rounded-md border border-slate-800 bg-slate-900/60 p-2 text-xs text-slate-300">
@@ -851,13 +901,37 @@ export default function WarehouseRequestsPage() {
                             ))}
                           </div>
                         </div>
+                        {preparedEditable ? (
+                          <div className="mt-2">
+                            <Label className="mb-1 block text-xs">Подготовлено фактически</Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              max={available}
+                              value={preparedQtyByItem[item.id] ?? prepared.toFixed(2)}
+                              onChange={(event) => {
+                                setPreparedQtyByItem((prev) => ({
+                                  ...prev,
+                                  [item.id]: event.target.value,
+                                }));
+                                setIssueQtyByItem((prev) => ({
+                                  ...prev,
+                                  [item.id]: event.target.value,
+                                }));
+                              }}
+                              disabled={submitting}
+                              className="h-9"
+                            />
+                          </div>
+                        ) : null}
                         <div className="mt-2">
                           <Label className="mb-1 block text-xs">К выдаче</Label>
                           <Input
                             type="number"
                             step="0.01"
                             min={0}
-                            max={remaining}
+                            max={remainingToIssue}
                             value={issueQtyByItem[item.id] ?? "0"}
                             onChange={(e) =>
                               setIssueQtyByItem((prev) => ({
@@ -865,7 +939,7 @@ export default function WarehouseRequestsPage() {
                                 [item.id]: e.target.value,
                               }))
                             }
-                            disabled={!editable || submitting}
+                            disabled={!issueEditable || submitting}
                             className="h-9"
                           />
                         </div>
@@ -880,13 +954,11 @@ export default function WarehouseRequestsPage() {
                         <TableHead>{t("material")}</TableHead>
                         <TableHead>{t("category")}</TableHead>
                         <TableHead className="text-right">План</TableHead>
-                        <TableHead className="text-right">Тара</TableHead>
+                        <TableHead className="text-right">Доступно</TableHead>
                         <TableHead className="text-right">Подготовлено</TableHead>
                         <TableHead className="text-right">Выдано</TableHead>
-                        <TableHead className="text-right">Осталось</TableHead>
-                        <TableHead className="text-right">Возврат</TableHead>
-                        <TableHead className="text-right">Потери</TableHead>
-                        <TableHead className="text-right">Дефицит</TableHead>
+                        <TableHead className="text-right">Осталось подготовить</TableHead>
+                        <TableHead className="text-right">Отклонение</TableHead>
                         <TableHead>Сверка</TableHead>
                         <TableHead className="text-right">К выдаче</TableHead>
                         <TableHead>{t("unit")}</TableHead>
@@ -897,42 +969,23 @@ export default function WarehouseRequestsPage() {
                         const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
                         const prepared = toQty(preparedQtyByItem[item.id], toQty(item.prepared_quantity, 0));
                         const issued = toQty(item.issued_quantity, 0);
-                        const remaining = Math.max(prepared - issued, 0);
-                        const returned = Math.max(
-                          toQty(item.returned_quantity, 0),
-                          toQty(item.return_received_quantity, 0)
-                        );
-                        const loss = toQty(item.loss_quantity, 0);
+                        const remainingToIssue = Math.max(prepared - issued, 0);
+                        const remainingToPrepare = Math.max(planned - prepared, 0);
+                        const preparationDeviation = prepared - planned;
                         const available = toQty(balanceByWarehouseProduct[`${effectiveSourceWarehouseId}|${item.product_id}`], 0);
-                        const shortage = Math.max(toQty(item.shortage_quantity, 0), Math.max(planned - available, 0));
-                        const editable =
+                        const preparedEditable =
+                          canProcess &&
+                          (selectedRequest.status === "new" ||
+                            selectedRequest.status === "active" ||
+                            selectedRequest.status === "preparing");
+                        const issueEditable =
                           selectedRequest.status === "ready" || selectedRequest.status === "received_confirmed";
                         return (
                         <TableRow key={item.id}>
                           <TableCell>{item.product_name || "-"}</TableCell>
                           <TableCell>{productCategoryLabel(item)}</TableCell>
                           <TableCell className="text-right">{planned.toFixed(2)}</TableCell>
-                          <TableCell className="text-right">
-                            <Input
-                              type="number"
-                              step="0.01"
-                              min={0}
-                              value={packageSizeByItem[item.id] ?? ""}
-                              onChange={(e) => {
-                                const value = e.target.value;
-                                setPackageSizeByItem((prev) => ({ ...prev, [item.id]: value }));
-                                const packageSize = toQty(value, 0);
-                                if (packageSize > 0 && planned > 0) {
-                                  const rounded = Math.ceil(planned / packageSize) * packageSize;
-                                  const next = rounded.toFixed(2);
-                                  setPreparedQtyByItem((prev) => ({ ...prev, [item.id]: next }));
-                                  setIssueQtyByItem((prev) => ({ ...prev, [item.id]: next }));
-                                }
-                              }}
-                              disabled={!(selectedRequest.status === "new" || selectedRequest.status === "active" || selectedRequest.status === "preparing") || submitting}
-                              className="ml-auto h-8 w-20"
-                            />
-                          </TableCell>
+                          <TableCell className="text-right">{available.toFixed(2)}</TableCell>
                           <TableCell className="text-right">
                             <Input
                               type="number"
@@ -944,15 +997,16 @@ export default function WarehouseRequestsPage() {
                                 setPreparedQtyByItem((prev) => ({ ...prev, [item.id]: value }));
                                 setIssueQtyByItem((prev) => ({ ...prev, [item.id]: value }));
                               }}
-                              disabled={!(selectedRequest.status === "new" || selectedRequest.status === "active" || selectedRequest.status === "preparing") || submitting}
+                              disabled={!preparedEditable || submitting}
                               className="ml-auto h-8 w-24"
                             />
                           </TableCell>
                           <TableCell className="text-right">{issued.toFixed(2)}</TableCell>
-                          <TableCell className="text-right">{remaining.toFixed(2)}</TableCell>
-                          <TableCell className="text-right">{returned.toFixed(2)}</TableCell>
-                          <TableCell className="text-right">{loss.toFixed(2)}</TableCell>
-                          <TableCell className="text-right">{shortage.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">{remainingToPrepare.toFixed(2)}</TableCell>
+                          <TableCell className="text-right">
+                            {preparationDeviation > 0 ? "+" : ""}
+                            {preparationDeviation.toFixed(2)}
+                          </TableCell>
                           <TableCell>
                             <Badge variant="outline" className="border-slate-700 bg-slate-950 text-slate-200">
                               {reconciliationLabel(item.reconciliation_status)}
@@ -963,7 +1017,7 @@ export default function WarehouseRequestsPage() {
                               type="number"
                               step="0.01"
                               min={0}
-                              max={remaining}
+                              max={remainingToIssue}
                               value={issueQtyByItem[item.id] ?? "0"}
                               onChange={(e) =>
                                 setIssueQtyByItem((prev) => ({
@@ -971,7 +1025,7 @@ export default function WarehouseRequestsPage() {
                                   [item.id]: e.target.value,
                                 }))
                               }
-                              disabled={!editable || submitting}
+                              disabled={!issueEditable || submitting}
                               className="ml-auto h-8 w-24"
                             />
                           </TableCell>
@@ -983,64 +1037,154 @@ export default function WarehouseRequestsPage() {
                 </div>
 
                 {canProcess && (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="space-y-3">
                     {(selectedRequest.status === "new" ||
                       selectedRequest.status === "active" ||
                       selectedRequest.status === "preparing") && (
-                      <>
-                        {selectedRequest.status !== "preparing" ? (
-                          <Button
-                            variant="outline"
-                            onClick={() =>
-                              runAction(
-                                () =>
-                                  updateWarehouseIssueRequestStatus({
-                                    requestId: selectedRequest.id,
-                                    companyId: profile.company_id!,
-                                    status: "preparing",
-                                    sourceWarehouseId,
-                                  }),
-                                "Заявка переведена в подготовку"
-                              )
-                            }
-                            disabled={submitting}
-                          >
-                            Начать сборку
-                          </Button>
-                        ) : null}
-                        <Button onClick={handleReady} disabled={submitting}>Готово к выдаче</Button>
-                        <Button variant="outline" onClick={handleCancel} disabled={submitting}>{t("cancel")}</Button>
-                      </>
+                      <Button onClick={handleReady} disabled={submitting}>
+                        Готово к выдаче
+                      </Button>
                     )}
 
                     {selectedRequest.status === "ready" && (
-                      <>
-                        <div className="rounded-md border border-blue-500/40 bg-blue-950/30 px-3 py-2 text-sm text-blue-100">
-                          Склад собрал товар. Ожидаем, когда специалист нажмёт «Товар принят». До этого «Товар отдан» недоступно.
-                        </div>
-                        <Button variant="outline" onClick={handleCancel} disabled={submitting}>{t("cancel")}</Button>
-                      </>
+                      <div className="rounded-md border border-blue-500/40 bg-blue-950/30 px-3 py-2 text-sm text-blue-100">
+                        Склад собрал товар. Ожидаем, когда специалист нажмёт «Товар принят». До этого «Товар отдан» недоступно.
+                      </div>
                     )}
 
                     {selectedRequest.status === "received_confirmed" && (
-                      <>
+                      <div className="flex flex-wrap gap-2">
                         <Button className="hidden" onClick={handleCreateIssueTicket} disabled={submitting || !effectiveSourceWarehouseId || hasStockShortage}>
                           Создать талон выдачи
                         </Button>
                         <Button onClick={handleIssue} disabled={submitting || !effectiveSourceWarehouseId || hasStockShortage}>
                           Товар отдан
                         </Button>
-                        <Button variant="outline" onClick={handleCancel} disabled={submitting}>{t("cancel")}</Button>
-                      </>
+                      </div>
                     )}
 
-                    {selectedRequest.warehouse_request_status === "return_expected" && (
-                      <Button onClick={handleAcceptReturn} disabled={submitting}>
-                        Принять возврат
-                      </Button>
-                    )}
+                    {["issued_by_warehouse", "issued", "partially_issued"].includes(selectedRequest.status) &&
+                    selectedRequest.warehouse_request_status !== "closed" ? (
+                      <div className="space-y-3 rounded-md border border-amber-500/40 bg-amber-950/20 p-3">
+                        <div>
+                          <div className="font-semibold text-amber-100">Физический возврат на склад</div>
+                          <div className="text-xs text-amber-200/80">
+                            Складовщик указывает только реально принятый возврат. Расход вычисляется автоматически.
+                          </div>
+                        </div>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {(selectedRequest.items || []).map((item) => (
+                            <div key={item.id}>
+                              <Label className="text-xs">
+                                {item.product_name || "Материал"}, возврат
+                              </Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={Math.max(
+                                  toQty(item.issued_quantity, 0) -
+                                    toQty(item.return_received_quantity, 0) -
+                                    toQty(item.loss_quantity, 0),
+                                  0
+                                )}
+                                step="0.01"
+                                value={returnQtyByItem[item.id] ?? "0"}
+                                onChange={(event) =>
+                                  setReturnQtyByItem((prev) => ({
+                                    ...prev,
+                                    [item.id]: event.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button onClick={() => void handleWarehouseReturn(false)} disabled={submitting}>
+                            Принять возврат
+                          </Button>
+                          <Button
+                            variant="outline"
+                            onClick={() => void handleWarehouseReturn(true)}
+                            disabled={submitting}
+                          >
+                            Возврата нет
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 )}
+
+                {canAdminTransition ? (
+                  <div className="space-y-3 rounded-md border border-red-500/40 bg-red-950/15 p-3">
+                    <div>
+                      <div className="font-semibold text-red-100">Административное действие</div>
+                      <div className="text-xs text-red-200/75">
+                        Возврат заявки, отмена и подтверждение потерь всегда записываются с причиной.
+                      </div>
+                    </div>
+                    <Input
+                      value={adminReason}
+                      onChange={(event) => setAdminReason(event.target.value)}
+                      placeholder="Обязательная причина"
+                    />
+                    {!["issued_by_warehouse", "issued", "partially_issued", "received_confirmed", "cancelled"].includes(
+                      selectedRequest.status
+                    ) ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => void handleAdminTransition("return_to_preparation")}
+                          disabled={submitting}
+                        >
+                          Вернуть в подготовку
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          onClick={() => void handleAdminTransition("cancel")}
+                          disabled={submitting}
+                        >
+                          Отменить заявку
+                        </Button>
+                      </div>
+                    ) : null}
+                    {["issued_by_warehouse", "issued", "partially_issued"].includes(
+                      selectedRequest.status
+                    ) ? (
+                      <>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {(selectedRequest.items || []).map((item) => (
+                            <div key={item.id}>
+                              <Label className="text-xs">
+                                {item.product_name || "Материал"}, потери
+                              </Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.01"
+                                value={lossQtyByItem[item.id] ?? "0"}
+                                onChange={(event) =>
+                                  setLossQtyByItem((prev) => ({
+                                    ...prev,
+                                    [item.id]: event.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          ))}
+                        </div>
+                        <Button
+                          variant="destructive"
+                          onClick={() => void handleAdminTransition("record_loss")}
+                          disabled={submitting}
+                        >
+                          Подтвердить потери
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
 
                 {(selectedRequest.status === "issued_by_warehouse" ||
                   selectedRequest.status === "issued" ||
@@ -1056,11 +1200,6 @@ export default function WarehouseRequestsPage() {
                   </div>
                 )}
 
-                {selectedRequest.warehouse_request_status === "return_expected" && (
-                  <div className="rounded-md border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">
-                    Специалист заявил возврат. Примите материал на склад, чтобы завершить сверку и закрыть операцию.
-                  </div>
-                )}
               </>
             )}
           </div>

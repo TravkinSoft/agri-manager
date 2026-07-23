@@ -114,27 +114,13 @@ export async function getRecipientWarehouseIssueRequests(params: {
 export async function updateWarehouseIssueRequestStatus(params: {
   requestId: string;
   companyId: string;
-  status: WarehouseIssueRequestStatus;
+  status: "ready";
   sourceWarehouseId?: string | null;
   items?: Array<{
     itemId: string;
     preparedQuantity?: number | null;
-    packageSize?: number | null;
-    packageCount?: number | null;
   }>;
 }): Promise<void> {
-  const action =
-    params.status === "preparing"
-      ? "preparing"
-      : params.status === "ready"
-        ? "ready"
-        : params.status === "cancelled"
-          ? "cancel"
-          : null;
-  if (!action) {
-    throw new Error(`Unsupported status action for ${params.status}`);
-  }
-
   const headers = await buildAuthHeaders("json");
   const idempotencyKey = crypto.randomUUID();
   headers["Idempotency-Key"] = idempotencyKey;
@@ -144,12 +130,64 @@ export async function updateWarehouseIssueRequestStatus(params: {
     body: JSON.stringify({
       requestId: params.requestId,
       companyId: params.companyId,
-      action,
+      action: "ready",
       sourceWarehouseId: params.sourceWarehouseId || null,
       items: params.items || [],
       idempotency_key: idempotencyKey,
     }),
   });
+  await parseApiResponse(response);
+}
+
+export async function adminTransitionWarehouseRequest(params: {
+  requestId: string;
+  companyId: string;
+  action: "return_to_preparation" | "cancel" | "record_loss";
+  reason: string;
+  items?: Array<{ itemId: string; lossQuantity: number }>;
+}): Promise<void> {
+  const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(
+    `/api/material-requests/${encodeURIComponent(params.requestId)}/admin`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        companyId: params.companyId,
+        action: params.action,
+        reason: params.reason,
+        items: params.items || [],
+        idempotency_key: idempotencyKey,
+      }),
+    }
+  );
+  await parseApiResponse(response);
+}
+
+export async function reconcileWarehouseReturn(params: {
+  requestId: string;
+  companyId: string;
+  items: Array<{ itemId: string; returnedQuantity: number }>;
+  closeWithoutReturn?: boolean;
+}): Promise<void> {
+  const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(
+    `/api/material-requests/${encodeURIComponent(params.requestId)}/warehouse-return`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        companyId: params.companyId,
+        items: params.items,
+        closeWithoutReturn: Boolean(params.closeWithoutReturn),
+        idempotency_key: idempotencyKey,
+      }),
+    }
+  );
   await parseApiResponse(response);
 }
 
