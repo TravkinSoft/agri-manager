@@ -711,7 +711,7 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Authenticated branch E2E passed soil `80 -> 34 -> 46`, under-plan `78/80`, over-plan `82/80`, idempotent progress/finish/approval, mixed sowing logistics, multi-field spraying and company isolation.
 - Seed remains outside the warehouse request and linked to the existing weighbridge issue-to-field contract; agrochemical lines continue through warehouse reconciliation.
 - Migration `20260723132603` was applied only to branch `gsglkmudcwkdetqtocae`; RLS/function grants and repeat apply passed.
-- Typecheck, 142-route build, presentation regression and eight key UI screenshots passed.
+- Typecheck, 142-route build, presentation regression and seven key UI screenshots passed.
 - Production schema/business-data writes, production deploy and master merge
   remain `0/NO/NO`. During a late local environment check, two sign-in requests
   reached production Auth and were rejected before session creation; no
