@@ -26,6 +26,10 @@ const checks: Array<[string, () => void]> = [
     assert.match(tasks, /setProgressComment\(''\)/);
   }],
   ["variance uses common comment", () => assert.match(tasks, /varianceReason:[\s\S]+progressComment\.trim\(\)/)],
+  ["finish confirmation shows signed variance", () => {
+    assert.match(tasks, /isProgress \? 'Останется:' : 'Отклонение от плана:'/);
+    assert.match(tasks, /deviation > 0 \? '\+' : ''/);
+  }],
   ["shift history compact", () => assert.match(tasks, /toLocaleTimeString\('ru-RU'/)],
   ["spraying materials readable", () => assert.match(specialistPlan, /material\.formula \|\| material\.rateLabel/)],
   ["spraying material names mapped", () => {

@@ -1502,8 +1502,13 @@ export default function TasksPage() {
                   <div><span className="text-muted-foreground">За смену:</span> {shiftArea.toFixed(2)} га</div>
                   <div><span className="text-muted-foreground">Станет:</span> {finalArea.toFixed(2)} га</div>
                   <div>
-                    <span className="text-muted-foreground">{deviation > 0 ? 'Перевыполнение:' : 'Останется:'}</span>{' '}
-                    {deviation > 0 ? `+${deviation.toFixed(2)}` : remaining.toFixed(2)} га
+                    <span className="text-muted-foreground">
+                      {isProgress ? 'Останется:' : 'Отклонение от плана:'}
+                    </span>{' '}
+                    {isProgress
+                      ? remaining.toFixed(2)
+                      : `${deviation > 0 ? '+' : ''}${deviation.toFixed(2)}`}{' '}
+                    га
                   </div>
                   <div><span className="text-muted-foreground">Процент:</span> {stats.planned > 0 ? ((finalArea / stats.planned) * 100).toFixed(1) : '0'}%</div>
                 </div>
