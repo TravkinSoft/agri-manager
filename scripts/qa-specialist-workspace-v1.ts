@@ -163,6 +163,14 @@ const checks: Array<[string, () => void]> = [
       assert.doesNotMatch(tasks + plan, /MapLibre|maplibre|geometry/);
     },
   ],
+  [
+    "operation material schema contract",
+    () => {
+      assert.match(tasks, /materialRateBasisFromNotes/);
+      assert.match(tasks, /planned_rate,\s+notes,\s+planned_quantity/);
+      assert.doesNotMatch(tasks, /planned_rate,\s+rate_basis,\s+planned_quantity/);
+    },
+  ],
 ];
 
 for (const [name, check] of checks) {

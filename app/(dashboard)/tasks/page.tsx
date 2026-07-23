@@ -77,6 +77,7 @@ interface OperationMaterial {
   material_type: string | null;
   planned_rate?: number | null;
   rate_basis?: string | null;
+  notes?: string | null;
   planned_quantity: number | null;
   issued_quantity: number | null;
   consumed_quantity: number | null;
@@ -198,6 +199,11 @@ function toNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(numberValue) ? numberValue : fallback;
 }
 
+function materialRateBasisFromNotes(notes: string | null | undefined): string | null {
+  const matched = String(notes || '').match(/(?:^|[;\n]\s*)rate_basis\s*:\s*([a-z0-9_]+)/i);
+  return matched?.[1]?.trim() || null;
+}
+
 function normalizeOperationRow(row: any): Operation {
   const cropStructure = relationOne(row.crop_structure);
   return {
@@ -240,6 +246,7 @@ function normalizeOperationRow(row: any): Operation {
       ? row.operation_materials.map((material: any) => ({
           ...material,
           products: relationOne(material.products),
+          rate_basis: materialRateBasisFromNotes(material.notes),
           planned_quantity: material.planned_quantity == null ? null : toNumber(material.planned_quantity),
           issued_quantity: material.issued_quantity == null ? null : toNumber(material.issued_quantity),
           consumed_quantity: material.consumed_quantity == null ? null : toNumber(material.consumed_quantity),
@@ -551,7 +558,7 @@ export default function TasksPage() {
               material_type,
               product_id,
               planned_rate,
-              rate_basis,
+              notes,
               planned_quantity,
               issued_quantity,
               consumed_quantity,
