@@ -7,6 +7,7 @@ import {
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
 import { AGROCHEMICAL_WAREHOUSE_TYPES } from "@/lib/warehouse/warehouse-scope";
+import { isAgrochemicalProductType, isAgrochemicalWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { COUNTERPARTY_SELECT, normalizeCounterpartyRow } from "@/lib/counterparties/rows";
 
 const READ_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator"] as const;
@@ -126,6 +127,44 @@ export async function POST(request: NextRequest) {
     }
 
     const lines = Array.isArray(body.lines) ? body.lines : [];
+    if (!lines.length) {
+      return NextResponse.json({ error: "Добавьте хотя бы одну строку прихода" }, { status: 400 });
+    }
+    const productIds = Array.from(new Set(lines.map((line: any) => String(line.product_id || "")).filter(Boolean)));
+    const warehouseId = String(body.warehouse_id || "").trim();
+    const [{ data: warehouse }, { data: products, error: productError }] = await Promise.all([
+      supabase
+        .from("warehouses")
+        .select("id,warehouse_type")
+        .eq("id", warehouseId)
+        .eq("company_id", companyId)
+        .eq("archived", false)
+        .eq("is_archived", false)
+        .maybeSingle(),
+      productIds.length
+        ? supabase
+            .from("products")
+            .select("id,type,product_type,category,company_id")
+            .in("id", productIds)
+            .or(`company_id.eq.${companyId},company_id.is.null`)
+        : Promise.resolve({ data: [] as any[], error: null }),
+    ]);
+    if (productError) throw new Error(productError.message);
+    if (!warehouse?.id || !isAgrochemicalWarehouseType(warehouse.warehouse_type)) {
+      return NextResponse.json(
+        { error: "Обычный складской приход разрешён только на агрохимический склад" },
+        { status: 403 }
+      );
+    }
+    if (
+      (products || []).length !== productIds.length ||
+      (products || []).some((product: any) => !isAgrochemicalProductType(product.product_type || product.type || product.category))
+    ) {
+      return NextResponse.json(
+        { error: "Обычный складской приход принимает только пестициды, удобрения и добавки" },
+        { status: 403 }
+      );
+    }
     const supplierCompanyId = String(body.supplier_company_counterparty_id || "").trim() || null;
     const supplierGlobalId = String(body.supplier_global_counterparty_id || "").trim() || null;
     if (!supplierCompanyId && !supplierGlobalId) {
@@ -133,7 +172,7 @@ export async function POST(request: NextRequest) {
     }
     const { data, error } = await supabase.rpc("create_warehouse_receipt_atomic_v4", {
       p_company_id: companyId,
-      p_warehouse_id: String(body.warehouse_id || ""),
+      p_warehouse_id: warehouseId,
       p_supplier_company_counterparty_id: supplierCompanyId,
       p_supplier_global_counterparty_id: supplierGlobalId,
       p_document_no: body.document_no == null ? null : String(body.document_no),

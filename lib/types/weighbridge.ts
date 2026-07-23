@@ -170,6 +170,11 @@ export interface HarvestBatchSummary {
   fieldId: string | null;
   fieldName: string;
   operationLineId: string | null;
+  cropStructureLabel: string;
+  seasonLabel: string;
+  operationName: string;
+  firstReceivedAt: string | null;
+  lastReceivedAt: string | null;
   receivedKg: number;
   removedKg: number;
   cleanMassKg: number;
@@ -177,4 +182,19 @@ export interface HarvestBatchSummary {
   harvestedAreaHa: number | null;
   grossYieldTPerHa: number | null;
   cleanYieldTPerHa: number | null;
+  tickets: Array<{
+    id: string;
+    ticketNo: string;
+    operation: "harvest_incoming" | "weighbridge_impurities";
+    netWeightKg: number;
+    occurredAt: string | null;
+  }>;
+  movements: Array<{
+    id: string;
+    label: string;
+    quantityKg: number;
+    direction: "in" | "out";
+    occurredAt: string | null;
+    ticketNo: string;
+  }>;
 }

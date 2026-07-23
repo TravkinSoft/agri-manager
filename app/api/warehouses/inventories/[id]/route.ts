@@ -6,7 +6,7 @@ import {
   getUserScopedClientFromRequest,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-const INVENTORY_ACTION_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman"] as const;
+const INVENTORY_ACTION_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator"] as const;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -32,6 +32,17 @@ export async function PATCH(
     });
 
     const action = String(body.action || "save");
+    const warehousekeeperAction = action === "save" || action === "submit";
+    const adminAction = action === "approve" || action === "reject" || action === "cancel";
+    if (
+      (["warehouse", "warehouse_operator"].includes(actor.role) && !warehousekeeperAction) ||
+      (["company_admin"].includes(actor.role) && !adminAction)
+    ) {
+      return NextResponse.json(
+        { error: "Текущая роль не может выполнить это действие инвентаризации" },
+        { status: 403 }
+      );
+    }
     const functionName = action === "submit"
       ? "submit_warehouse_inventory_v2"
       : action === "approve"

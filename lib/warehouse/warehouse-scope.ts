@@ -39,7 +39,12 @@ export function warehouseProductTypeLabel(value: unknown): string {
   if (type === "pesticide") return "Пестицид";
   if (type === "fertilizer") return "Удобрение";
   if (type === "additive") return "Добавка";
-  return "Другое";
+  if (type === "crop" || type === "produce") return "Урожай";
+  if (type === "seed") return "Семена";
+  if (type === "organic") return "Органика";
+  if (type === "fuel") return "ГСМ";
+  if (type === "material") return "Материал";
+  return "Категория не указана";
 }
 
 export function warehouseTypeLabel(value: unknown): string {

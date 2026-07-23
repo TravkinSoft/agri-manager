@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
       .order("started_at", { ascending: false })
       .limit(inventoryId ? 1 : 100);
     if (inventoryId) documentQuery = documentQuery.eq("id", inventoryId);
-    if (["warehouse", "warehouse_operator", "weighman"].includes(actor.role)) {
+    if (["warehouse", "warehouse_operator"].includes(actor.role)) {
       documentQuery = documentQuery.eq("assigned_to", actor.id);
     }
     const { data: documents, error: documentError } = await documentQuery;

@@ -11,7 +11,6 @@ import { localizedName } from "@/lib/i18n/helpers";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { buildCatalogIdentityKey, buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
-import { isAgrochemicalProductType, isAgrochemicalWarehouseType } from "@/lib/warehouse/warehouse-scope";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -131,20 +130,14 @@ export async function GET(request: NextRequest) {
       return preferredByIdentity.get(buildCatalogIdentityKey(raw as any)) || raw;
     };
 
-    const ledgerRows = (ledgerResult.data || []).filter((row: any) => {
-      const product = preferredProduct(row.product_id);
-      if (actor.role !== "warehouse" && actor.role !== "warehouse_operator") return true;
-      const warehouse = relationOne(row.warehouses) as any;
-      return isAgrochemicalWarehouseType(warehouse?.warehouse_type) &&
-        isAgrochemicalProductType(product?.product_type || product?.type);
-    });
+    const ledgerRows = ledgerResult.data || [];
 
     const balances = new Map<string, BalanceAccumulator>();
     for (const raw of ledgerRows) {
       const row = raw as any;
       const warehouse = relationOne(row.warehouses);
       const product = preferredProduct(row.product_id);
-      if (!product || !isAgrochemicalProductType(product.product_type || product.type || product.category)) continue;
+      if (!product) continue;
       const uom = canonicalUom(row);
       const identityKey = buildCatalogIdentityKey(product as any);
       const key = `${row.warehouse_id}|${identityKey}|${uom}`;

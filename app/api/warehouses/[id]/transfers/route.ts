@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError } from "@/lib/auth/server-session";
 import { resolveWarehouseForActor } from "@/app/api/warehouses/_helpers";
+import { isAgrochemicalProductType, isAgrochemicalWarehouseType } from "@/lib/warehouse/warehouse-scope";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const MANUAL_TRANSFER_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator", "weighman"] as const;
+const MANUAL_TRANSFER_ROLES = ["global_admin", "warehouse", "warehouse_operator"] as const;
 
 export async function POST(
   request: NextRequest,
@@ -48,13 +49,28 @@ export async function POST(
     if (!UUID_RE.test(vehicleId) || !UUID_RE.test(driverId)) {
       return NextResponse.json({ error: "Для внутреннего перемещения выберите машину и водителя" }, { status: 400 });
     }
-    const [{ data: destination }, { data: vehicle }, { data: driver }] = await Promise.all([
-      supabase.from("warehouses").select("id").eq("id", destinationWarehouseId).eq("company_id", companyId).eq("archived", false).maybeSingle(),
+    const [{ data: destination }, { data: vehicle }, { data: driver }, { data: product }] = await Promise.all([
+      supabase.from("warehouses").select("id,warehouse_type").eq("id", destinationWarehouseId).eq("company_id", companyId).eq("archived", false).maybeSingle(),
       supabase.from("reference_vehicles").select("id").eq("id", vehicleId).eq("company_id", companyId).eq("archived", false).eq("is_active", true).maybeSingle(),
       supabase.from("reference_specialists").select("id").eq("id", driverId).eq("company_id", companyId).eq("archived", false).eq("status", "active").maybeSingle(),
+      supabase.from("products").select("id,type,product_type,category,company_id").eq("id", productId).or(`company_id.eq.${companyId},company_id.is.null`).maybeSingle(),
     ]);
     if (!destination?.id) return NextResponse.json({ error: "Склад назначения не найден" }, { status: 400 });
     if (!vehicle?.id || !driver?.id) return NextResponse.json({ error: "Машина или водитель недоступны выбранной компании" }, { status: 400 });
+    if (!product?.id) return NextResponse.json({ error: "Материал не найден" }, { status: 400 });
+    if (
+      actor.role !== "global_admin" &&
+      (
+        !isAgrochemicalWarehouseType(existing.warehouse_type) ||
+        !isAgrochemicalWarehouseType(destination.warehouse_type) ||
+        !isAgrochemicalProductType(product.product_type || product.type || product.category)
+      )
+    ) {
+      return NextResponse.json(
+        { error: "Складовщик может перемещать только агрохимию между агрохимическими складами" },
+        { status: 403 }
+      );
+    }
     if (!Number.isFinite(quantity) || quantity <= 0) {
       return NextResponse.json({ error: "Количество должно быть больше нуля" }, { status: 400 });
     }

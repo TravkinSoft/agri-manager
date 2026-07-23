@@ -325,13 +325,7 @@ export async function GET(request: NextRequest) {
       .limit(limit);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-    const visibleRows = (data || []).filter((row: any) => {
-      if (actor.role !== "warehouse" && actor.role !== "warehouse_operator") return true;
-      return isAgrochemicalWarehouseType(row.warehouses?.warehouse_type) &&
-        isAgrochemicalProductType(row.products?.product_type || row.products?.type);
-    });
-
-    const transactions = visibleRows.map((row: any) => {
+    const transactions = (data || []).map((row: any) => {
       const direction = row.direction === "in" ? "in" : "out";
       const quantityDelta = Number.isFinite(Number(row.delta_qty_signed))
         ? Number(row.delta_qty_signed)

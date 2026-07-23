@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server";
 import { SessionAuthError, getServerActorFromSession, getUserScopedClientFromRequest, resolveCompanyForActor } from "@/lib/auth/server-session";
-import { isAgrochemicalWarehouseType } from "@/lib/warehouse/warehouse-scope";
 
 export const WAREHOUSE_READ_ROLES = [
   "company_admin",
@@ -52,9 +51,8 @@ export function toNullableText(value: unknown): string | null {
 }
 
 export function warehouseVisibleToRole(row: any, role: string): boolean {
-  if (role === "warehouse" || role === "warehouse_operator") {
-    return isAgrochemicalWarehouseType(row?.warehouse_type);
-  }
+  void row;
+  void role;
   return true;
 }
 

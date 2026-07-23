@@ -21,7 +21,7 @@ export async function POST(
     }
 
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: ["company_admin", "global_admin"],
+      allowedRoles: ["global_admin"],
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
     const { data: ticket, error: ticketError } = await supabase
