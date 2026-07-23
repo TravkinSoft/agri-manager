@@ -169,6 +169,15 @@ const checks: Array<[string, () => void]> = [
       assert.match(tasks, /materialRateBasisFromNotes/);
       assert.match(tasks, /planned_rate,\s+notes,\s+planned_quantity/);
       assert.doesNotMatch(tasks, /planned_rate,\s+rate_basis,\s+planned_quantity/);
+      assert.doesNotMatch(
+        tasks,
+        /spray_volume_per_ha,\s+operation_params,\s+operation_config/
+      );
+      assert.doesNotMatch(
+        tasks,
+        /operation_config,\s+operation_engine_label,\s+operation_engine_type,\s+responsible_name/
+      );
+      assert.match(tasks, /profile\.full_name \|\| profile\.email/);
     },
   ],
   [

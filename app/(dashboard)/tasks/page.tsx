@@ -517,11 +517,7 @@ export default function TasksPage() {
             operation_target,
             rate_per_ha,
             spray_volume_per_ha,
-            operation_params,
             operation_config,
-            operation_engine_label,
-            operation_engine_type,
-            responsible_name,
             planned_area_ha,
             completed_area_ha,
             remaining_area_ha,
@@ -641,6 +637,7 @@ export default function TasksPage() {
       }
       const operationsWithCanonicalIdentity = cleanOperations.map((operation) => ({
         ...operation,
+        responsible_name: operation.responsible_name || profile.full_name || profile.email,
         task_crop_identity: identityByOperationId.get(operation.id) || null,
       }));
       const cleanRequests = (requestsResult || []).filter(
