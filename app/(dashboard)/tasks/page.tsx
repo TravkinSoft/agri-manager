@@ -421,7 +421,10 @@ function operationPresentation(operation: Operation): OperationPresentation {
     crop_name: cropIdentity.cropName || undefined,
     variety_name: cropIdentity.varietyName || undefined,
     reproduction_name: cropIdentity.reproductionName || undefined,
-    materials: operation.operation_materials as any,
+    materials: operationVisibleMaterials(operation).map((material) => ({
+      ...material,
+      product_name: operationMaterialName(material),
+    })) as any,
     operation_lines: operation.operation_lines as any,
     progress_reports: operation.operation_progress || [],
     completion_requests: operation.operation_completion_requests || [],
@@ -685,14 +688,16 @@ export default function TasksPage() {
   );
   const selectedWarehouseMaterials = useMemo(() => {
     if (!selectedOperation) return [];
-    return (requestsByOperation.get(selectedOperation.id) || []).flatMap((request) =>
-      (request.items || []).map((item) => ({
-        productId: item.product_id,
-        preparedQuantity: toNumber(item.prepared_quantity, 0),
-        issuedQuantity: toNumber(item.issued_quantity, 0),
-        statusLabel: materialStatusText([request]),
-      }))
-    );
+    return (requestsByOperation.get(selectedOperation.id) || [])
+      .filter((request) => request.status !== 'cancelled')
+      .flatMap((request) =>
+        (request.items || []).map((item) => ({
+          productId: item.product_id,
+          preparedQuantity: toNumber(item.prepared_quantity, 0),
+          issuedQuantity: toNumber(item.issued_quantity, 0),
+          statusLabel: materialStatusText([request]),
+        }))
+      );
   }, [requestsByOperation, selectedOperation]);
 
   const visibleOperations = useMemo(() => {

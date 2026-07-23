@@ -28,6 +28,10 @@ const checks: Array<[string, () => void]> = [
   ["variance uses common comment", () => assert.match(tasks, /varianceReason:[\s\S]+progressComment\.trim\(\)/)],
   ["shift history compact", () => assert.match(tasks, /toLocaleTimeString\('ru-RU'/)],
   ["spraying materials readable", () => assert.match(specialistPlan, /material\.formula \|\| material\.rateLabel/)],
+  ["spraying material names mapped", () => {
+    assert.match(tasks, /product_name: operationMaterialName\(material\)/);
+    assert.match(tasks, /\.filter\(\(request\) => request\.status !== 'cancelled'\)/);
+  }],
   ["water is system calculation", () => assert.match(specialistPlan, /"liquid_materials", "water", "concentration"/)],
   ["solution total last", () => {
     const water = specialistPlan.indexOf('"liquid_materials", "water", "concentration"');
