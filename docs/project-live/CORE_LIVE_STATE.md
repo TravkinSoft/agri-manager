@@ -692,3 +692,14 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Authenticated E2E preserved `net = gross - tare`, one crop intake, storno recalculation, open-ticket completion guard and one-time processing output.
 - Primary active harvest net `35,000 kg` over actual area `10 ha` produced preliminary and final yield `3.5 t/ha`; processing output did not increase field yield.
 - Two session-bound wrapper RPCs were applied only to test branch `gsglkmudcwkdetqtocae`. Production connections/writes, production deploy and master merge remain `0/NO`.
+
+## TZ-217 Unified Warehouse Page
+
+- TZ-217 status: `PASS`; report: [task-reports/core/TZ-217.md](task-reports/core/TZ-217.md); feature commit: `11775a0`.
+- Warehousekeeper, Weighbridge Operator and Agronomist see the same five active company warehouses, including the empty branch-only fixture. Company Admin also sees one archived warehouse separately.
+- `/warehouses` now starts from warehouse records and presents `warehouse -> aggregated stock/batches -> full harvest batch`; current stock, batches and movements remain separate.
+- Warehousekeeper actions are limited to agrochemical warehouses. Weighbridge Operator and Agronomist are read-only. Company Admin manages warehouse entities but stock movements are denied.
+- Direct forbidden requests for weighbridge writes, ordinary receipts, crop receipts, company-admin movements and foreign company context return `403`.
+- Typecheck, build, 22 contract checks, desktop/mobile functional smoke and eleven screenshots passed.
+- Only one test-branch empty warehouse row was created. No schema change, migration, production connection/write, production deploy or master merge occurred.
+- Future per-role/per-user warehouse ACL is backlog-only at [backlog/warehouse-access-management.md](backlog/warehouse-access-management.md).

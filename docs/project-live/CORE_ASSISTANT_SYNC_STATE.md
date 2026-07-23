@@ -608,3 +608,12 @@ TZ215_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and
 TZ215_BRANCH_RESULT: `PASS - role split, 9 crop rows/7 cultures/1000 ha, personnel/driver visibility, GLBD asset ownership and rollback-only atomic receipt checks`.
 TZ215_PRODUCTION_IMPACT: `NONE`; migrations were applied only to branch `gsglkmudcwkdetqtocae`, with no production write/deploy or master merge.
 TZ215_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; evidence pack contains 4/16 screenshots because additional renderer captures timed out, while live DOM/route checks passed.
+
+## TZ-217 review result
+
+TZ217_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_CODE_INTEGRATED`; Assistant runtime and read-only contracts were not modified.
+TZ217_CORE_IMPACT_FOUND: `YES - warehouse visibility, shared warehouse UI and server role guards changed in Core`.
+TZ217_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and ERP-write boundaries are unchanged.
+TZ217_BRANCH_RESULT: `PASS - five active warehouses match for Warehousekeeper, Weighbridge Operator and Agronomist; Company Admin sees one archived warehouse separately; empty warehouse and full harvest batch verified`.
+TZ217_PRODUCTION_IMPACT: `NONE`; one empty warehouse fixture was added only to branch `gsglkmudcwkdetqtocae`, with no schema change, production connection/write, production deploy or master merge.
+TZ217_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; future individual warehouse ACL remains backlog-only.
