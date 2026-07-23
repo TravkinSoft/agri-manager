@@ -326,13 +326,13 @@ assert.match(tasksSource, /AlertDialog[\s\S]+Принять задачу/, "Acce
 assert.doesNotMatch(tasksSource, />\s*Начать работу\s*</, "H no separate start button");
 assert.doesNotMatch(tasksSource, /Фактический расход|Ввести возврат|Ввести потери/, "P no specialist accounting");
 assert.match(tasksSource, /setProgressAreaDraft\(''\)/, "Z progress area reset");
-assert.match(tasksSource, /setProgressStopReason\(''\)/, "Z stop reason reset");
 assert.match(tasksSource, /setProgressComment\(''\)/, "Z comment reset");
-assert.match(tasksSource, /setProgressWeatherNote\(''\)/, "Z weather reset");
+assert.doesNotMatch(tasksSource, /Причина остановки|Погода|Причина отклонения от плана/, "Z one shift comment");
+assert.match(tasksSource, /completedAreaHa > stats\.remaining/, "Z regular progress cannot exceed remaining area");
 assert.doesNotMatch(warehouseSource, />\s*Тара\s*</, "Q tare removed");
 assert.doesNotMatch(warehouseSource, /Начать сборку/, "R preparation start removed");
 assert.match(warehouseSource, /Готово к выдаче/, "S ready directly");
-assert.match(warehouseSource, /canAdminTransition/, "V/W admin transitions");
+assert.match(warehouseSource, /canAdmin/, "V/W admin transitions");
 assert.doesNotMatch(requestPatchSource, /package_size|package_count|package_unit/, "No package rounding");
 assert.match(completeRoute, /finish_operation_atomic_v13/, "Finish uses v13 atomically");
 assert.match(materialRequestRoute, /ensure_operation_material_request_atomic_v13/, "Seed split request wrapper");

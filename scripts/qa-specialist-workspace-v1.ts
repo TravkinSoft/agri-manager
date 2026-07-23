@@ -105,24 +105,23 @@ const checks: Array<[string, () => void]> = [
   ],
   [
     "Q progress confirmation exists",
-    () => assert.match(tasks, /Подтвердить сдачу прогресса\?/),
+    () => assert.match(tasks, /Сдать прогресс\?/),
   ],
   [
     "R progress form resets",
     () => {
       assert.match(tasks, /setProgressAreaDraft\(''\)/);
-      assert.match(tasks, /setProgressStopReason\(''\)/);
-      assert.match(tasks, /setProgressWeatherNote\(''\)/);
       assert.match(tasks, /setProgressComment\(''\)/);
+      assert.doesNotMatch(tasks, /Причина остановки|Погода|Причина отклонения от плана/);
     },
   ],
   [
     "S under-plan finish is supported",
-    () => assert.match(tasks, /selectedFinalArea < selectedAreaStats\.planned/),
+    () => assert.match(tasks, /Math\.abs\(finalArea - areaStats\.planned\)/),
   ],
   [
     "T over-plan finish is supported",
-    () => assert.match(tasks, /selectedFinalArea > selectedAreaStats\.planned/),
+    () => assert.match(tasks, /Math\.abs\(areaStats\.completed \+ currentShiftArea - areaStats\.planned\)/),
   ],
   [
     "U completed card shows variance",

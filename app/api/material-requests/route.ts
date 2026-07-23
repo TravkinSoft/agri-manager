@@ -181,7 +181,7 @@ export async function GET(request: NextRequest) {
       ].join(" ");
       return !hasQaDataMarker(qaText);
     }).map((row: any) => {
-      const items = (row.items || []).map((item: any) => {
+      const normalizedItems = (row.items || []).map((item: any) => {
         const plannedQty = toNumber(item.planned_quantity ?? item.required_quantity);
         const issuedQty = toNumber(item.issued_quantity);
         const preparedQty = item.prepared_quantity == null ? null : toNumber(item.prepared_quantity);
@@ -222,6 +222,12 @@ export async function GET(request: NextRequest) {
         };
       });
 
+      const items =
+        actor.role === "warehouse" || actor.role === "warehouse_operator"
+          ? normalizedItems.filter((item: any) =>
+              isAgrochemicalProductType(item.product_type || item.product_category)
+            )
+          : normalizedItems;
       const totalPlanned = items.reduce((sum: number, item: any) => sum + toNumber(item.planned_quantity), 0);
       const totalIssued = items.reduce((sum: number, item: any) => sum + toNumber(item.issued_quantity), 0);
 
@@ -258,9 +264,7 @@ export async function GET(request: NextRequest) {
       };
     }).filter((row: any) => {
       if (actor.role !== "warehouse" && actor.role !== "warehouse_operator") return true;
-      return row.items.length > 0 && row.items.every((item: any) =>
-        isAgrochemicalProductType(item.product_type || item.product_category)
-      );
+      return row.items.length > 0;
     });
 
     return NextResponse.json({ requests: rows });

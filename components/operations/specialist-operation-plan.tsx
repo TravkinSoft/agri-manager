@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarDays, MessageSquareText, Tractor } from "lucide-react";
+import { MessageSquareText, Tractor } from "lucide-react";
 import type { OperationPresentation } from "@/lib/operations/operation-presentation";
 
 export type SpecialistWarehouseMaterial = {
@@ -33,7 +33,7 @@ function DetailValue({
   emphasis?: boolean;
 }) {
   return (
-    <div className={emphasis ? "border-t border-slate-700 pt-3" : undefined}>
+    <div>
       <div className="text-[13px] text-slate-500">{label}</div>
       <div
         className={
@@ -78,7 +78,7 @@ export function SpecialistOperationPlan({
   return (
     <div className="space-y-6" data-testid="specialist-operation-plan">
       <section
-        className="grid gap-x-6 gap-y-4 border-b border-slate-800 pb-5 sm:grid-cols-2 xl:grid-cols-4"
+        className="grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4"
         aria-label="Сводка плана"
       >
         <DetailValue
@@ -91,15 +91,14 @@ export function SpecialistOperationPlan({
             presentation.plannedAreaHa
           )} га`}
         />
-        <div>
-          <div className="flex items-center gap-1.5 text-[13px] text-slate-500">
-            <CalendarDays className="h-3.5 w-3.5" />
-            Дата выполнения
-          </div>
-          <div className="mt-1 text-sm font-semibold text-slate-100">
-            {new Date(presentation.date).toLocaleDateString("ru-RU")}
-          </div>
-        </div>
+        <DetailValue
+          label={presentation.isOverPlan ? "Перевыполнение" : "Осталось"}
+          value={`${presentation.isOverPlan ? "+" : ""}${numberText(
+            presentation.isOverPlan
+              ? presentation.deviationAreaHa
+              : presentation.remainingAreaHa
+          )} га`}
+        />
         {presentation.responsibleName ? (
           <DetailValue
             label="Ответственный"
@@ -109,15 +108,15 @@ export function SpecialistOperationPlan({
       </section>
 
       {presentation.planLines.length > 1 ? (
-        <section className="space-y-3 border-b border-slate-800 pb-5">
+        <section className="space-y-3">
           <h3 className="text-base font-semibold text-slate-100">
             Участки обработки
           </h3>
-          <div className="divide-y divide-slate-800 overflow-hidden border-y border-slate-800">
+          <div className="space-y-3">
             {presentation.planLines.map((line, index) => (
               <div
                 key={line.id}
-                className="grid gap-1 py-3 text-sm sm:grid-cols-[32px_minmax(0,1fr)_auto] sm:items-center sm:gap-3"
+                className="grid gap-1 text-sm sm:grid-cols-[32px_minmax(0,1fr)_auto] sm:items-center sm:gap-3"
               >
                 <span className="hidden text-slate-500 sm:block">
                   {index + 1}
@@ -145,7 +144,7 @@ export function SpecialistOperationPlan({
                 </div>
               </div>
             ))}
-            <div className="flex items-center justify-between gap-3 py-3 text-sm font-semibold text-slate-100">
+            <div className="flex items-center justify-between gap-3 pt-1 text-sm font-semibold text-slate-100">
               <span>Итого</span>
               <span>{numberText(presentation.plannedAreaHa)} га</span>
             </div>
@@ -154,7 +153,7 @@ export function SpecialistOperationPlan({
       ) : null}
 
       {generalDetails.length > 0 ? (
-        <section className="grid gap-x-8 gap-y-4 border-b border-slate-800 pb-5 sm:grid-cols-2">
+        <section className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
           {generalDetails.map((detail) => (
             <DetailValue key={detail.key} label={detail.label} value={detail.value} />
           ))}
@@ -162,7 +161,7 @@ export function SpecialistOperationPlan({
       ) : null}
 
       {hasMixture ? (
-        <section className="space-y-4 border-b border-slate-800 pb-5">
+        <section className="space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <h3 className="text-base font-semibold text-slate-100">
               Баковая смесь (расчёт)
@@ -176,7 +175,7 @@ export function SpecialistOperationPlan({
           </div>
 
           {presentation.materialRows.length > 0 ? (
-            <div className="divide-y divide-slate-800 border-y border-slate-800">
+            <div className="space-y-4">
               {presentation.materialRows.map((material) => {
                 const rawMaterial = presentation.materials.find(
                   (item) => item.id === material.id
@@ -187,7 +186,7 @@ export function SpecialistOperationPlan({
                 return (
                   <div
                     key={material.id}
-                    className="grid gap-2 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(180px,0.8fr)_auto] sm:items-center sm:gap-4"
+                    className="grid gap-2 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(180px,0.8fr)_auto] sm:items-center sm:gap-4"
                   >
                     <div>
                       <div className="font-medium text-slate-100">
@@ -211,7 +210,7 @@ export function SpecialistOperationPlan({
             </div>
           ) : null}
 
-          <div className="grid gap-4 rounded-lg bg-slate-900/70 p-4 sm:grid-cols-2">
+          <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
             {["liquid_materials", "water", "concentration"].map((key) => {
               const detail = detailByKey.get(key);
               return detail ? (
@@ -234,9 +233,9 @@ export function SpecialistOperationPlan({
           </div>
         </section>
       ) : presentation.materialRows.length > 0 ? (
-        <section className="space-y-3 border-b border-slate-800 pb-5">
+        <section className="space-y-3">
           <h3 className="text-base font-semibold text-slate-100">Материалы</h3>
-          <div className="divide-y divide-slate-800 border-y border-slate-800">
+          <div className="space-y-4">
             {presentation.materialRows.map((material) => {
               const rawMaterial = presentation.materials.find(
                 (item) => item.id === material.id
@@ -245,7 +244,7 @@ export function SpecialistOperationPlan({
                 ? warehouseByProduct.get(rawMaterial.product_id)
                 : null;
               return (
-                <div key={material.id} className="py-3">
+                <div key={material.id}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="font-medium text-slate-100">
@@ -291,7 +290,7 @@ export function SpecialistOperationPlan({
       ) : null}
 
       {hasAssets ? (
-        <section className="space-y-3 border-b border-slate-800 pb-5">
+        <section className="space-y-3">
           <h3 className="text-base font-semibold text-slate-100">
             Техника и оборудование
           </h3>

@@ -16,7 +16,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/lib/contexts/auth-context';
@@ -149,19 +148,6 @@ type TaskPhase =
   | 'completed';
 type ConfirmationKind = 'progress' | 'finish';
 type TaskTab = 'new' | 'work' | 'completed';
-
-const STOP_REASONS = [
-  'Дождь',
-  'Ветер',
-  'Температура',
-  'Поломка',
-  'Нет материалов',
-  'Ожидание склада',
-  'Состояние поля',
-  'Решение агронома',
-  'Конец смены',
-  'Другое',
-];
 
 function operationHasQaMarker(operation: Operation): boolean {
   return hasQaDataMarker(
@@ -463,12 +449,8 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
-  const [completionComment, setCompletionComment] = useState('Выполнено специалистом');
   const [progressAreaDraft, setProgressAreaDraft] = useState('');
-  const [progressStopReason, setProgressStopReason] = useState('');
-  const [progressWeatherNote, setProgressWeatherNote] = useState('');
   const [progressComment, setProgressComment] = useState('');
-  const [finishVarianceReason, setFinishVarianceReason] = useState('');
   const [confirmationKind, setConfirmationKind] = useState<ConfirmationKind | null>(null);
   const [acceptOperationId, setAcceptOperationId] = useState<string | null>(null);
   const [taskTab, setTaskTab] = useState<TaskTab>('new');
@@ -762,12 +744,8 @@ export default function TasksPage() {
   }, [selectedOperationId, visibleOperations]);
 
   const openOperationDetails = (operation: Operation) => {
-    setCompletionComment('Выполнено специалистом');
     setProgressAreaDraft('');
-    setProgressStopReason('');
-    setProgressWeatherNote('');
     setProgressComment('');
-    setFinishVarianceReason('');
     setConfirmationKind(null);
     setSelectedOperationId(operation.id);
     setMobileDetailOpen(true);
@@ -808,16 +786,12 @@ export default function TasksPage() {
       return;
     }
     const stats = operationAreaStats(operation);
-    if (stats.completed + completedAreaHa < stats.planned - 0.000001 && !progressStopReason.trim()) {
+    if (completedAreaHa > stats.remaining + 0.000001) {
       toast({
-        title: 'Нужна причина остановки',
-        description: 'Выберите причину, почему работа будет продолжена позже.',
+        title: 'Площадь больше остатка',
+        description: `За смену нельзя указать больше оставшейся площади: ${stats.remaining.toFixed(2)} га.`,
         variant: 'destructive',
       });
-      return;
-    }
-    if (progressStopReason === 'Другое' && !progressComment.trim()) {
-      toast({ title: 'Нужен комментарий', description: 'Опишите другую причину остановки.', variant: 'destructive' });
       return;
     }
     setConfirmationKind('progress');
@@ -836,8 +810,8 @@ export default function TasksPage() {
         body: JSON.stringify({
           companyId: profile.company_id,
           completedAreaHa,
-          stopReason: progressStopReason.trim() || null,
-          weatherNote: progressWeatherNote.trim() || null,
+          stopReason: null,
+          weatherNote: null,
           comment: progressComment.trim() || null,
           idempotency_key: idempotencyKey,
         }),
@@ -852,8 +826,6 @@ export default function TasksPage() {
           : undefined,
       });
       setProgressAreaDraft('');
-      setProgressStopReason('');
-      setProgressWeatherNote('');
       setProgressComment('');
       setConfirmationKind(null);
       await loadTasks();
@@ -884,10 +856,10 @@ export default function TasksPage() {
       toast({ title: 'Ошибка', description: 'Итоговая фактическая площадь должна быть больше нуля.', variant: 'destructive' });
       return;
     }
-    if (Math.abs(finalArea - areaStats.planned) > 0.000001 && !finishVarianceReason.trim()) {
+    if (Math.abs(finalArea - areaStats.planned) > 0.000001 && !progressComment.trim()) {
       toast({
-        title: 'Нужна причина отклонения',
-        description: 'Укажите, почему итоговая площадь отличается от плана.',
+        title: 'Нужен комментарий',
+        description: 'При завершении с отклонением объясните итог в общем комментарии.',
         variant: 'destructive',
       });
       return;
@@ -909,9 +881,13 @@ export default function TasksPage() {
         headers,
         body: JSON.stringify({
           companyId: profile.company_id,
-          comment: completionComment.trim() || 'Выполнено специалистом',
+          comment: progressComment.trim() || 'Работа завершена',
           currentShiftAreaHa: currentShiftArea,
-          varianceReason: finishVarianceReason.trim() || null,
+          varianceReason:
+            Math.abs(areaStats.completed + currentShiftArea - areaStats.planned) >
+            0.000001
+              ? progressComment.trim()
+              : null,
           lineFacts: [],
           materialFacts: [],
           idempotency_key: idempotencyKey,
@@ -932,6 +908,8 @@ export default function TasksPage() {
             : 'Операция закрыта',
       });
       setConfirmationKind(null);
+      setProgressAreaDraft('');
+      setProgressComment('');
       if (!waitingReconciliation && !awaitingApproval) {
         setTaskTab('completed');
       }
@@ -1057,12 +1035,9 @@ export default function TasksPage() {
     }
 
     return (
-      <section className="space-y-4 border-t border-slate-800 pt-6" data-testid="shift-progress-form">
+      <section className="space-y-4 pt-2" data-testid="shift-progress-form">
         <div>
           <h3 className="text-base font-semibold text-slate-100">Сдача смены</h3>
-          <p className="mt-1 text-[13px] text-slate-400">
-            Укажите только новую площадь текущей смены. План агронома не изменяется.
-          </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
@@ -1089,7 +1064,7 @@ export default function TasksPage() {
             </div>
           </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 rounded-lg border border-slate-800 bg-slate-900/45 p-4 sm:grid-cols-2">
           <div>
             <Label htmlFor="shift-area" className="text-[13px] text-slate-400">
               Выполнено за смену, га
@@ -1098,6 +1073,7 @@ export default function TasksPage() {
               id="shift-area"
               type="number"
               min={0}
+              max={selectedAreaStats.remaining}
               step="0.01"
               value={progressAreaDraft}
               onChange={(event) => setProgressAreaDraft(event.target.value)}
@@ -1118,35 +1094,6 @@ export default function TasksPage() {
             ) : null}
           </div>
           <div>
-            <Label className="text-[13px] text-slate-400">
-              Причина остановки
-            </Label>
-            <Select value={progressStopReason} onValueChange={setProgressStopReason}>
-              <SelectTrigger className="mt-1 h-12">
-                <SelectValue placeholder="Выберите причину" />
-              </SelectTrigger>
-              <SelectContent>
-                {STOP_REASONS.map((reason) => (
-                  <SelectItem key={reason} value={reason}>
-                    {reason}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="shift-weather" className="text-[13px] text-slate-400">
-              Погода
-            </Label>
-            <Input
-              id="shift-weather"
-              value={progressWeatherNote}
-              onChange={(event) => setProgressWeatherNote(event.target.value)}
-              placeholder="необязательно"
-              className="mt-1 h-12"
-            />
-          </div>
-          <div>
             <Label htmlFor="shift-comment" className="text-[13px] text-slate-400">
               Комментарий
             </Label>
@@ -1154,29 +1101,15 @@ export default function TasksPage() {
               id="shift-comment"
               value={progressComment}
               onChange={(event) => setProgressComment(event.target.value)}
-              placeholder="что важно передать агроному"
-              className="mt-1 h-12"
-            />
-          </div>
-        </div>
-        {selectedHasVariance ? (
-          <div>
-            <Label htmlFor="variance-reason" className="text-[13px] text-slate-400">
-              Причина отклонения от плана
-            </Label>
-            <Input
-              id="variance-reason"
-              value={finishVarianceReason}
-              onChange={(event) => setFinishVarianceReason(event.target.value)}
               placeholder={
-                selectedFinalArea < selectedAreaStats.planned
-                  ? 'например: часть участка недоступна'
-                  : 'например: уточнена фактическая площадь'
+                selectedHasVariance
+                  ? 'Обязателен при завершении с отклонением'
+                  : 'Необязательно'
               }
               className="mt-1 h-12"
             />
           </div>
-        ) : null}
+        </div>
       </section>
     );
   };
@@ -1186,9 +1119,9 @@ export default function TasksPage() {
       return null;
     }
     return (
-      <section className="space-y-3 border-t border-slate-800 pt-6">
+      <section className="space-y-3 pt-2">
         <h3 className="text-base font-semibold text-slate-100">История смен</h3>
-        <div className="divide-y divide-slate-800">
+        <div className="space-y-3">
           {(selectedOperation.operation_progress || [])
             .slice()
             .sort(
@@ -1199,25 +1132,20 @@ export default function TasksPage() {
             .map((report) => (
               <div
                 key={report.id}
-                className="flex flex-wrap items-start justify-between gap-3 py-3 text-sm"
+                className="flex flex-wrap items-start justify-between gap-3 text-sm"
               >
                 <div>
                   <div className="font-medium text-slate-100">
-                    +{Number(report.completed_area_ha).toFixed(2)} га
+                    {new Date(report.reported_at).toLocaleDateString('ru-RU')} · +
+                    {Number(report.completed_area_ha).toFixed(2)} га
                   </div>
-                  {report.stop_reason ? (
-                    <div className="mt-1 text-[13px] text-slate-400">
-                      {report.stop_reason}
-                    </div>
-                  ) : null}
-                  {report.comment ? (
-                    <div className="mt-1 text-[13px] text-slate-500">
-                      {report.comment}
-                    </div>
-                  ) : null}
+                  {report.comment ? <div className="mt-1 text-[13px] text-slate-400">Комментарий: {report.comment}</div> : null}
                 </div>
                 <div className="text-[13px] text-slate-500">
-                  {new Date(report.reported_at).toLocaleString('ru-RU')}
+                  {new Date(report.reported_at).toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
                 </div>
               </div>
             ))}
@@ -1238,7 +1166,7 @@ export default function TasksPage() {
     }
     const deviation = selectedPresentation.deviationAreaHa;
     return (
-      <section className="grid gap-3 border-t border-slate-800 pt-6 sm:grid-cols-3">
+      <section className="grid gap-3 pt-2 sm:grid-cols-3">
         <div>
           <div className="text-[13px] text-slate-500">План</div>
           <div className="mt-1 font-semibold text-slate-100">
@@ -1444,18 +1372,16 @@ export default function TasksPage() {
                     <h2 className="mt-1 text-2xl font-bold text-slate-100 sm:text-[26px]">
                       {selectedPresentation?.workTitle}
                     </h2>
-                    <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-slate-400">
-                      <span className="flex items-center gap-1.5">
-                        <MapPin className="h-4 w-4" />
+                    <div className="mt-2 flex items-center gap-1.5 text-base font-semibold text-slate-200 sm:text-lg">
+                        <MapPin className="h-4 w-4 text-slate-500" />
                         {selectedPresentation?.fieldName}
                         {selectedPresentation?.cropName
                           ? ` · ${selectedPresentation.cropName}`
                           : ''}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <CalendarDays className="h-4 w-4" />
+                    </div>
+                    <div className="mt-2 flex items-center gap-1.5 text-[13px] text-slate-500">
+                        <CalendarDays className="h-3.5 w-3.5" />
                         {formatDate(selectedOperation.date)}
-                      </span>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1560,7 +1486,7 @@ export default function TasksPage() {
             return (
               <>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>{isProgress ? 'Подтвердить сдачу прогресса?' : 'Подтвердить завершение работы?'}</AlertDialogTitle>
+                  <AlertDialogTitle>{isProgress ? 'Сдать прогресс?' : 'Завершить работу?'}</AlertDialogTitle>
                   <AlertDialogDescription>
                     До подтверждения данные не записываются.
                   </AlertDialogDescription>
@@ -1568,25 +1494,19 @@ export default function TasksPage() {
                 <div className="grid grid-cols-2 gap-3 rounded-md bg-muted/40 p-3 text-sm">
                   <div><span className="text-muted-foreground">План:</span> {stats.planned.toFixed(2)} га</div>
                   <div><span className="text-muted-foreground">Выполнено ранее:</span> {stats.completed.toFixed(2)} га</div>
-                  <div><span className="text-muted-foreground">Текущая смена:</span> {shiftArea.toFixed(2)} га</div>
-                  <div><span className="text-muted-foreground">Итого:</span> {finalArea.toFixed(2)} га</div>
+                  <div><span className="text-muted-foreground">За смену:</span> {shiftArea.toFixed(2)} га</div>
+                  <div><span className="text-muted-foreground">Станет:</span> {finalArea.toFixed(2)} га</div>
                   <div>
                     <span className="text-muted-foreground">{deviation > 0 ? 'Перевыполнение:' : 'Останется:'}</span>{' '}
                     {deviation > 0 ? `+${deviation.toFixed(2)}` : remaining.toFixed(2)} га
                   </div>
                   <div><span className="text-muted-foreground">Процент:</span> {stats.planned > 0 ? ((finalArea / stats.planned) * 100).toFixed(1) : '0'}%</div>
                 </div>
-                {isProgress && progressStopReason ? (
-                  <div className="text-sm"><span className="text-muted-foreground">Причина остановки:</span> {progressStopReason}</div>
-                ) : null}
-                {isProgress && progressComment ? (
+                {progressComment ? (
                   <div className="text-sm"><span className="text-muted-foreground">Комментарий:</span> {progressComment}</div>
                 ) : null}
-                {!isProgress && finishVarianceReason ? (
-                  <div className="text-sm"><span className="text-muted-foreground">Причина отклонения:</span> {finishVarianceReason}</div>
-                ) : null}
                 <AlertDialogFooter>
-                  <AlertDialogCancel>Отмена</AlertDialogCancel>
+                  <AlertDialogCancel>Назад</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={(event) => {
                       event.preventDefault();
@@ -1597,9 +1517,7 @@ export default function TasksPage() {
                   >
                     {busyKey
                       ? 'Сохраняем...'
-                      : isProgress
-                        ? 'Подтвердить сдачу'
-                        : 'Подтвердить завершение'}
+                      : 'Подтвердить'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </>

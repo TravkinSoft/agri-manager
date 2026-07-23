@@ -44,12 +44,23 @@ export async function POST(
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("crop_structure_id")
+      .select("crop_structure_id,completed_area_ha,planned_area_ha")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
     if (operationError || !operation) {
       return NextResponse.json({ error: operationError?.message || "Operation not found" }, { status: 404 });
+    }
+    const completedBefore = Number(operation.completed_area_ha || 0);
+    const planned = Number(operation.planned_area_ha || 0);
+    const remaining = Math.max(planned - completedBefore, 0);
+    if (completedArea > remaining + 0.000001) {
+      return NextResponse.json(
+        {
+          error: `За смену нельзя указать больше оставшейся площади: ${remaining.toFixed(2)} га`,
+        },
+        { status: 409 }
+      );
     }
     const seasonId = await resolveOperationSeasonIdForGuard(supabase, {
       companyId,
