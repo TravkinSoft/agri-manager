@@ -189,6 +189,10 @@ function requestHasQaMarker(request: WarehouseIssueRequest): boolean {
   );
 }
 
+function isExplicitQaCompanyName(value: unknown): boolean {
+  return /(?:^|[^a-z0-9])qa(?:$|[^a-z0-9])/i.test(String(value || ''));
+}
+
 function relationOne<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
@@ -501,7 +505,7 @@ export default function TasksPage() {
     if (!profile?.id || !profile.company_id) return;
     setLoading(true);
     try {
-      const [operationsResult, requestsResult, assetCatalog] = await Promise.all([
+      const [operationsResult, requestsResult, assetCatalog, companyResult] = await Promise.all([
         supabase
           .from('operations')
           .select(
@@ -610,16 +614,23 @@ export default function TasksPage() {
           recipientUserId: profile.id,
         }),
         getOperationAssetCatalog(profile.company_id),
+        supabase
+          .from('companies')
+          .select('name')
+          .eq('id', profile.company_id)
+          .maybeSingle(),
       ]);
 
       if (operationsResult.error) throw operationsResult.error;
+      if (companyResult.error) throw companyResult.error;
 
+      const allowQaData = isExplicitQaCompanyName(companyResult.data?.name);
       const cleanOperations = attachOperationAssetRelations(
         (operationsResult.data || []) as any[],
         assetCatalog
       )
         .map(normalizeOperationRow)
-        .filter((operation) => !operationHasQaMarker(operation));
+        .filter((operation) => allowQaData || !operationHasQaMarker(operation));
       let identityByOperationId = new Map<string, TaskCropIdentity>();
       try {
         identityByOperationId = new Map(
@@ -632,7 +643,9 @@ export default function TasksPage() {
         ...operation,
         task_crop_identity: identityByOperationId.get(operation.id) || null,
       }));
-      const cleanRequests = (requestsResult || []).filter((request) => !requestHasQaMarker(request));
+      const cleanRequests = (requestsResult || []).filter(
+        (request) => allowQaData || !requestHasQaMarker(request)
+      );
       setOperations(operationsWithCanonicalIdentity);
       setMaterialRequests(cleanRequests);
 

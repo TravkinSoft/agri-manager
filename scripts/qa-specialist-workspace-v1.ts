@@ -171,6 +171,14 @@ const checks: Array<[string, () => void]> = [
       assert.doesNotMatch(tasks, /planned_rate,\s+rate_basis,\s+planned_quantity/);
     },
   ],
+  [
+    "QA data is scoped to an explicit QA company",
+    () => {
+      assert.match(tasks, /isExplicitQaCompanyName/);
+      assert.match(tasks, /allowQaData \|\| !operationHasQaMarker/);
+      assert.match(tasks, /allowQaData \|\| !requestHasQaMarker/);
+    },
+  ],
 ];
 
 for (const [name, check] of checks) {
