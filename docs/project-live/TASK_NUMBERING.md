@@ -104,6 +104,8 @@
 | TZ-216 | WEIGHBRIDGE / WAREHOUSE / COUNTERPARTIES / UI / DATABASE | Weighbridge V1.3 single quantity source, routes and approved inventory | copilot-v1 | DONE | TZ-211,TZ-212,TZ-213,TZ-214,TZ-215 | [task-reports/core/TZ-216.md](task-reports/core/TZ-216.md) | `SELF` |
 | TZ-217 | WAREHOUSE / WEIGHBRIDGE / UI / AUTHORIZATION | Unified warehouse visibility with role-separated actions | copilot-v1 | DONE | TZ-210,TZ-212,TZ-213,TZ-214,TZ-215,TZ-216 | [task-reports/core/TZ-217.md](task-reports/core/TZ-217.md) | `SELF` |
 | TZ-218 | OPERATIONS / UI / DATABASE | Role-aware operation cards, progress, variance and material routing | copilot-v1 | DONE | TZ-204,TZ-209,TZ-212,TZ-213,TZ-217 | [task-reports/core/TZ-218.md](task-reports/core/TZ-218.md) | `SELF` |
+| TZ-219 | OPERATIONS / UI | Final role-specific operation cards | copilot-v1 | SUPERSEDED | TZ-218 | `implementation checkpoint incorporated into TZ-220` | `0e0aff2` |
+| TZ-220 | OPERATIONS / UI | Specialist task workspace and full work plan | copilot-v1 | DONE | TZ-218,TZ-219 | [task-reports/core/TZ-220.md](task-reports/core/TZ-220.md) | `SELF` |
 
 ## Status values
 

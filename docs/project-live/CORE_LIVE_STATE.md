@@ -718,3 +718,27 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
   production data was read or changed. The corrected build contains `0`
   production refs and `32` test-branch refs.
 - `READY_FOR_OWNER_PREVIEW_CHECK=YES`.
+
+## TZ-220 Specialist Task Workspace
+
+- TZ-220 status: `PASS_WITH_SCREENSHOT_CAPTURE_GAP`; report:
+  [task-reports/core/TZ-220.md](task-reports/core/TZ-220.md).
+- `/tasks` now uses a desktop master-detail workspace and a responsive
+  full-screen task detail with separate New, In progress and Completed tabs.
+- New tasks are read-only until a confirmed Accept action and move directly to
+  In progress without a duplicate Start step.
+- One shared presentation model renders concrete work titles, plots, immutable
+  plan, crop identity, machinery, agronomist comment and type-specific details.
+- Spraying renders the full solution calculation with system-calculated water
+  outside materials and final ready solution last.
+- Shift progress previews cumulative fact and remaining/over-plan variance;
+  under-plan and over-plan paths require reasons before confirmation.
+- Completed work shows plan, fact and deviation without a misleading remaining
+  value.
+- Authenticated QA Preview shows `8` New, `5` In progress and `9` Completed
+  tasks. Automated checks `28/28` and role-card regression `51/51` passed.
+- Typecheck and build passed. Production connections/writes, production deploy
+  and master merge remain `0/NO/NO`.
+- Browser screenshot capture timed out; `0/15` requested screenshots are usable.
+  Authenticated DOM smoke and responsive layout checks passed.
+- `READY_FOR_OWNER_PREVIEW_CHECK=YES`.

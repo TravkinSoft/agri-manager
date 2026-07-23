@@ -626,3 +626,12 @@ TZ218_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and
 TZ218_BRANCH_RESULT: `PASS - soil 80/34/46, under-plan 78/80, over-plan 82/80, mixed sowing, multi-field spraying, idempotency and company isolation`.
 TZ218_PRODUCTION_IMPACT: `NO_SCHEMA_OR_BUSINESS_DATA_CHANGE`; migration was applied only to branch `gsglkmudcwkdetqtocae`. Two late local sign-in requests reached production Auth and were rejected before session creation; no production read/write, deploy or master merge occurred. Corrected bundle refs are production `0`, test branch `32`.
 TZ218_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from operation mutations.
+
+## TZ-220 review result
+
+TZ220_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains at accepted A109 commit `f503f05b54de129b6778fee10e3b6406ec761ced`.
+TZ220_CORE_IMPACT_FOUND: `YES - the Specialist task workspace, operation-plan presentation and read-only schema mapping changed in Core`.
+TZ220_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and ERP-write boundaries are unchanged.
+TZ220_BRANCH_RESULT: `PASS_WITH_SCREENSHOT_CAPTURE_GAP - authenticated status tabs, accept confirmation, type-specific plans, shift math, under/over gates and completed variance passed; 0/15 usable screenshots because browser capture timed out`.
+TZ220_PRODUCTION_IMPACT: `NONE`; no production connection/write, migration, deploy or master merge.
+TZ220_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from Specialist ERP mutations.
