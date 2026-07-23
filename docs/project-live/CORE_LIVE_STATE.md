@@ -703,3 +703,14 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Typecheck, build, 22 contract checks, desktop/mobile functional smoke and eleven screenshots passed.
 - Only one test-branch empty warehouse row was created. No schema change, migration, production connection/write, production deploy or master merge occurred.
 - Future per-role/per-user warehouse ACL is backlog-only at [backlog/warehouse-access-management.md](backlog/warehouse-access-management.md).
+
+## TZ-218 Operations V1.2
+
+- TZ-218 status: `PASS`; report: [task-reports/core/TZ-218.md](task-reports/core/TZ-218.md).
+- Agronomist and Specialist use one operation presentation model for concrete work title, crop identity, immutable plan, cumulative progress, remaining/deviation, role status, saved assets and type-specific details.
+- Authenticated branch E2E passed soil `80 -> 34 -> 46`, under-plan `78/80`, over-plan `82/80`, idempotent progress/finish/approval, mixed sowing logistics, multi-field spraying and company isolation.
+- Seed remains outside the warehouse request and linked to the existing weighbridge issue-to-field contract; agrochemical lines continue through warehouse reconciliation.
+- Migration `20260723132603` was applied only to branch `gsglkmudcwkdetqtocae`; RLS/function grants and repeat apply passed.
+- Typecheck, 142-route build, presentation regression and eight key UI screenshots passed.
+- Production connections/writes, production deploy and master merge remain `0/NO`.
+- `READY_FOR_OWNER_PREVIEW_CHECK=YES`.

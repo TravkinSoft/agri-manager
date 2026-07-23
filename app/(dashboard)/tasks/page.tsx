@@ -7,6 +7,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -15,6 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { useLanguage } from '@/lib/contexts/language-context';
@@ -24,10 +35,23 @@ import { hasQaDataMarker } from '@/lib/utils/qa-data';
 import { resolveWorkTitle } from '@/lib/operations/work-title';
 import { resolveCropIdentity } from '@/lib/operations/crop-identity';
 import {
+  buildOperationPresentation,
+  type OperationPresentation,
+} from '@/lib/operations/operation-presentation';
+import type {
+  OperationCompletionRequest,
+  OperationProgressReport,
+  OperationWithDetails,
+} from '@/lib/types/operation';
+import {
   confirmWarehouseReceipt,
   getRecipientWarehouseIssueRequests,
   returnWarehouseRequestMaterials,
 } from '@/lib/services/warehouse-requests';
+import {
+  attachOperationAssetRelations,
+  getOperationAssetCatalog,
+} from '@/lib/services/operations';
 import type { WarehouseIssueRequest } from '@/lib/types/warehouse-request';
 import {
   CalendarDays,
@@ -81,6 +105,16 @@ interface Operation {
   operation_category_slug?: string | null;
   operation_type_slug?: string | null;
   operation_engine_label?: string | null;
+  operation_engine_type?: string | null;
+  planned_area_ha?: number | null;
+  completed_area_ha?: number | null;
+  remaining_area_ha?: number | null;
+  progress_percent?: number | null;
+  operation_target?: string | null;
+  rate_per_ha?: number | null;
+  spray_volume_per_ha?: number | null;
+  operation_params?: Record<string, unknown> | null;
+  operation_config?: Record<string, unknown> | null;
   date: string;
   notes: string | null;
   status?: string | null;
@@ -89,6 +123,14 @@ interface Operation {
   work_status?: 'active' | 'in_progress' | 'completed' | null;
   accepted_at?: string | null;
   completed_at: string | null;
+  started_at?: string | null;
+  responsible_name?: string | null;
+  machine_id?: string | null;
+  equipment_id?: string | null;
+  transport_id?: string | null;
+  machine?: Record<string, unknown> | Record<string, unknown>[] | null;
+  equipment?: Record<string, unknown> | Record<string, unknown>[] | null;
+  transport?: Record<string, unknown> | Record<string, unknown>[] | null;
   fields?: { name: string | null } | null;
   crop_structure?: {
     crops?: { name: string | null; name_ru?: string | null } | null;
@@ -97,10 +139,26 @@ interface Operation {
   } | null;
   operation_lines?: OperationLine[];
   operation_materials?: OperationMaterial[];
+  operation_progress?: OperationProgressReport[];
+  operation_completion_requests?: OperationCompletionRequest[];
   task_crop_identity?: TaskCropIdentity | null;
 }
 
-type TaskPhase = 'active' | 'accepted' | 'in_progress' | 'completed';
+type TaskPhase = 'active' | 'accepted' | 'in_progress' | 'awaiting_approval' | 'completed';
+type ConfirmationKind = 'progress' | 'finish';
+
+const STOP_REASONS = [
+  'Дождь',
+  'Ветер',
+  'Температура',
+  'Поломка',
+  'Нет материалов',
+  'Ожидание склада',
+  'Состояние поля',
+  'Решение агронома',
+  'Конец смены',
+  'Другое',
+];
 
 function operationHasQaMarker(operation: Operation): boolean {
   return hasQaDataMarker(
@@ -143,6 +201,13 @@ function normalizeOperationRow(row: any): Operation {
   return {
     ...row,
     fields: relationOne(row.fields),
+    machine: relationOne(row.machine),
+    equipment: relationOne(row.equipment),
+    transport: relationOne(row.transport),
+    operation_progress: Array.isArray(row.operation_progress) ? row.operation_progress : [],
+    operation_completion_requests: Array.isArray(row.operation_completion_requests)
+      ? row.operation_completion_requests
+      : [],
     crop_structure: cropStructure
       ? {
           ...cropStructure,
@@ -207,9 +272,30 @@ function getOperationCropIdentity(operation: Operation) {
 }
 
 function getTaskPhase(task: Operation): TaskPhase {
+  if (
+    task.operation_status === 'awaiting_approval' ||
+    task.specialist_task_status === 'awaiting_approval' ||
+    (task.operation_completion_requests || []).some((request) => request.status === 'pending')
+  ) {
+    return 'awaiting_approval';
+  }
   if (task.work_status === 'completed' || task.status === 'completed') return 'completed';
-  if (task.work_status === 'in_progress' || task.status === 'in_progress') return 'in_progress';
-  if (task.status === 'accepted' || task.accepted_at) return 'accepted';
+  if (
+    task.work_status === 'in_progress' ||
+    task.status === 'in_progress' ||
+    task.operation_status === 'in_progress' ||
+    task.operation_status === 'paused' ||
+    task.operation_status === 'ready_to_close' ||
+    task.specialist_task_status === 'in_progress' ||
+    task.specialist_task_status === 'paused' ||
+    task.specialist_task_status === 'ready_to_close'
+  ) return 'in_progress';
+  if (
+    task.status === 'accepted' ||
+    task.operation_status === 'accepted' ||
+    task.specialist_task_status === 'accepted' ||
+    task.accepted_at
+  ) return 'accepted';
   return 'active';
 }
 
@@ -254,6 +340,7 @@ function taskStatusBadge(phase: TaskPhase, readyWithoutMaterials = false) {
     active: { label: 'Новая', className: 'bg-slate-700 text-slate-100' },
     accepted: { label: 'Принята', className: 'bg-blue-500/15 text-blue-200 border border-blue-400/30' },
     in_progress: { label: 'В работе', className: 'bg-amber-500/15 text-amber-200 border border-amber-400/30' },
+    awaiting_approval: { label: 'На подтверждении', className: 'bg-violet-500/15 text-violet-200 border border-violet-400/30' },
     completed: { label: 'Закончена', className: 'bg-emerald-500/15 text-emerald-200 border border-emerald-400/30' },
   };
   const item = map[phase];
@@ -327,7 +414,7 @@ function operationVisibleMaterials(operation: Operation): OperationMaterial[] {
 }
 
 function operationWorkTitle(operation: Operation): string {
-  return resolveWorkTitle({
+  return operationPresentation(operation).workTitle || resolveWorkTitle({
     operationType: operation.operation_type,
     operationTypeSlug: operation.operation_type_slug,
     operationCategorySlug: operation.operation_category_slug,
@@ -346,17 +433,36 @@ function operationLineDefaultArea(operation: Operation): string {
   return area == null ? '' : String(area);
 }
 
+function operationPresentation(operation: Operation): OperationPresentation {
+  const cropIdentity = getOperationCropIdentity(operation);
+  return buildOperationPresentation({
+    ...operation,
+    field_id: null,
+    crop_structure_id: null,
+    responsible_user_id: null,
+    user_id: '',
+    created_at: '',
+    updated_at: '',
+    archived: false,
+    field_name: operation.fields?.name || undefined,
+    crop_name: cropIdentity.cropName || undefined,
+    variety_name: cropIdentity.varietyName || undefined,
+    reproduction_name: cropIdentity.reproductionName || undefined,
+    materials: operation.operation_materials as any,
+    operation_lines: operation.operation_lines as any,
+    progress_reports: operation.operation_progress || [],
+    completion_requests: operation.operation_completion_requests || [],
+  } as OperationWithDetails);
+}
+
 function operationAreaStats(operation: Operation) {
-  const lines = operation.operation_lines || [];
-  const planned = lines.reduce((sum, line) => sum + toNumber(line.planned_area_ha, 0), 0);
-  const completed = lines.reduce((sum, line) => sum + toNumber(line.actual_area_ha, 0), 0);
-  const remaining = Math.max(planned - completed, 0);
-  const percent = planned > 0 ? Math.min((completed / planned) * 100, 100) : 0;
+  const presentation = operationPresentation(operation);
   return {
-    planned,
-    completed,
-    remaining,
-    percent,
+    planned: presentation.plannedAreaHa,
+    completed: presentation.completedAreaHa,
+    remaining: presentation.remainingAreaHa,
+    deviation: presentation.deviationAreaHa,
+    percent: presentation.progressPercent,
   };
 }
 
@@ -377,6 +483,8 @@ export default function TasksPage() {
   const [progressStopReason, setProgressStopReason] = useState('');
   const [progressWeatherNote, setProgressWeatherNote] = useState('');
   const [progressComment, setProgressComment] = useState('');
+  const [finishVarianceReason, setFinishVarianceReason] = useState('');
+  const [confirmationKind, setConfirmationKind] = useState<ConfirmationKind | null>(null);
   const [returnDraftByItemId, setReturnDraftByItemId] = useState<Record<string, string>>({});
   const [historySearch, setHistorySearch] = useState('');
   const [historyFrom, setHistoryFrom] = useState('');
@@ -410,7 +518,7 @@ export default function TasksPage() {
     if (!profile?.id || !profile.company_id) return;
     setLoading(true);
     try {
-      const [operationsResult, requestsResult] = await Promise.all([
+      const [operationsResult, requestsResult, assetCatalog] = await Promise.all([
         supabase
           .from('operations')
           .select(
@@ -419,12 +527,26 @@ export default function TasksPage() {
             operation_type,
             operation_category_slug,
             operation_type_slug,
+            operation_target,
+            rate_per_ha,
+            spray_volume_per_ha,
+            operation_config,
+            planned_area_ha,
+            completed_area_ha,
+            remaining_area_ha,
+            progress_percent,
             date,
             notes,
             status,
+            operation_status,
+            specialist_task_status,
             work_status,
             accepted_at,
+            started_at,
             completed_at,
+            machine_id,
+            equipment_id,
+            transport_id,
             fields(name),
             crop_structure(
               crops(name,name_ru),
@@ -454,6 +576,37 @@ export default function TasksPage() {
               actual_rate,
               unit,
               products(name,trade_name,unit)
+            ),
+            operation_progress:operation_progress(
+              id,
+              operation_id,
+              company_id,
+              reported_by,
+              reported_at,
+              completed_area_ha,
+              remaining_area_ha,
+              progress_percent,
+              status_after_report,
+              stop_reason,
+              comment,
+              weather_note
+            ),
+            operation_completion_requests:operation_completion_requests(
+              id,
+              operation_id,
+              company_id,
+              requested_by,
+              planned_area_ha,
+              actual_area_ha,
+              deviation_area_ha,
+              variance_reason,
+              specialist_comment,
+              material_facts,
+              status,
+              reviewed_by,
+              review_comment,
+              requested_at,
+              reviewed_at
             )
           `
           )
@@ -465,11 +618,15 @@ export default function TasksPage() {
           companyId: profile.company_id,
           recipientUserId: profile.id,
         }),
+        getOperationAssetCatalog(profile.company_id),
       ]);
 
       if (operationsResult.error) throw operationsResult.error;
 
-      const cleanOperations = ((operationsResult.data || []) as any[])
+      const cleanOperations = attachOperationAssetRelations(
+        (operationsResult.data || []) as any[],
+        assetCatalog
+      )
         .map(normalizeOperationRow)
         .filter((operation) => !operationHasQaMarker(operation));
       let identityByOperationId = new Map<string, TaskCropIdentity>();
@@ -531,7 +688,7 @@ export default function TasksPage() {
   const activeOperations = operations.filter((operation) => getTaskPhase(operation) === 'active');
   const currentOperations = operations.filter((operation) => {
     const phase = getTaskPhase(operation);
-    return phase === 'accepted' || phase === 'in_progress';
+    return phase === 'accepted' || phase === 'in_progress' || phase === 'awaiting_approval';
   });
   const completedOperations = operations.filter((operation) => getTaskPhase(operation) === 'completed');
   const receiptHistory = materialRequests.filter((request) => requestNeedsReturnDecision(request, operationById.get(request.operation_id)));
@@ -542,6 +699,10 @@ export default function TasksPage() {
   );
   const selectedOperationCropIdentity = useMemo(
     () => (selectedOperation ? getOperationCropIdentity(selectedOperation) : null),
+    [selectedOperation]
+  );
+  const selectedPresentation = useMemo(
+    () => (selectedOperation ? operationPresentation(selectedOperation) : null),
     [selectedOperation]
   );
 
@@ -584,11 +745,12 @@ export default function TasksPage() {
     setLineFactDraft(lineDraft);
     setMaterialFactDraft(materialDraft);
     setCompletionComment('Выполнено специалистом');
-    const areaStats = operationAreaStats(operation);
-    setProgressAreaDraft(areaStats.remaining > 0 ? String(Number(areaStats.remaining.toFixed(2))) : '');
+    setProgressAreaDraft('');
     setProgressStopReason('');
     setProgressWeatherNote('');
     setProgressComment('');
+    setFinishVarianceReason('');
+    setConfirmationKind(null);
     setSelectedOperationId(operation.id);
   };
 
@@ -622,14 +784,31 @@ export default function TasksPage() {
     }
   };
 
-  const handleReportProgress = async (operation: Operation) => {
-    if (!profile?.company_id) return;
+  const requestProgressConfirmation = (operation: Operation) => {
     const completedAreaHa = Number(progressAreaDraft);
     if (!Number.isFinite(completedAreaHa) || completedAreaHa <= 0) {
       toast({ title: 'Ошибка', description: 'Укажите выполненную площадь за смену.', variant: 'destructive' });
       return;
     }
+    const stats = operationAreaStats(operation);
+    if (stats.completed + completedAreaHa < stats.planned - 0.000001 && !progressStopReason.trim()) {
+      toast({
+        title: 'Нужна причина остановки',
+        description: 'Выберите причину, почему работа будет продолжена позже.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (progressStopReason === 'Другое' && !progressComment.trim()) {
+      toast({ title: 'Нужен комментарий', description: 'Опишите другую причину остановки.', variant: 'destructive' });
+      return;
+    }
+    setConfirmationKind('progress');
+  };
 
+  const handleReportProgress = async (operation: Operation) => {
+    if (!profile?.company_id) return;
+    const completedAreaHa = Number(progressAreaDraft);
     try {
       setBusyKey(`progress:${operation.id}`);
       const idempotencyKey = crypto.randomUUID();
@@ -647,14 +826,7 @@ export default function TasksPage() {
         }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        if (response.status === 409 && payload?.attempted_total_area_ha && payload?.planned_area_ha) {
-          throw new Error(
-            `Выполненная площадь больше плана: план ${payload.planned_area_ha} га, попытка ${payload.attempted_total_area_ha} га.`
-          );
-        }
-        throw new Error(payload?.error || 'Прогресс не сохранён');
-      }
+      if (!response.ok) throw new Error(payload?.error || 'Прогресс не сохранён');
       const progress = payload?.progress;
       toast({
         title: 'Прогресс сохранён',
@@ -674,39 +846,54 @@ export default function TasksPage() {
     }
   };
 
-  const handleCompleteOperation = async (operation: Operation) => {
-    if (!profile?.company_id) return;
+  const requestFinishConfirmation = (operation: Operation) => {
     const areaStats = operationAreaStats(operation);
-    if (areaStats.planned > 0 && areaStats.completed < areaStats.planned - 0.000001) {
+    const currentShiftArea = progressAreaDraft.trim() ? Number(progressAreaDraft) : 0;
+    if (!Number.isFinite(currentShiftArea) || currentShiftArea < 0) {
       toast({
-        title: 'Работа ещё не закрыта по площади',
-        description: `Выполнено ${areaStats.completed.toFixed(2)} из ${areaStats.planned.toFixed(2)} га. Сначала сдайте оставшийся прогресс.`,
+        title: 'Ошибка',
+        description: 'Площадь текущей смены должна быть неотрицательным числом.',
         variant: 'destructive',
       });
       return;
     }
+    const finalArea = areaStats.completed + currentShiftArea;
+    if (finalArea <= 0) {
+      toast({ title: 'Ошибка', description: 'Итоговая фактическая площадь должна быть больше нуля.', variant: 'destructive' });
+      return;
+    }
+    if (Math.abs(finalArea - areaStats.planned) > 0.000001 && !finishVarianceReason.trim()) {
+      toast({
+        title: 'Нужна причина отклонения',
+        description: 'Укажите, почему итоговая площадь отличается от плана.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    setConfirmationKind('finish');
+  };
 
+  const handleCompleteOperation = async (operation: Operation) => {
+    if (!profile?.company_id) return;
+    const areaStats = operationAreaStats(operation);
+    const currentShiftArea = progressAreaDraft.trim() ? Number(progressAreaDraft) : 0;
     const lineFacts = Object.entries(lineFactDraft)
       .filter(([lineId]) => lineId !== '__fallback')
       .map(([lineId, value]) => ({ lineId, actualAreaHa: value.trim() ? Number(value) : null }));
-    const fallbackArea = lineFactDraft.__fallback?.trim() ? Number(lineFactDraft.__fallback) : null;
-    const hasInvalidLine = lineFacts.some((line) => line.actualAreaHa == null || !Number.isFinite(line.actualAreaHa) || line.actualAreaHa <= 0);
-    if ((operation.operation_lines || []).length > 0 && hasInvalidLine) {
-      toast({ title: 'Ошибка', description: 'Укажите фактическую площадь по участку.', variant: 'destructive' });
-      return;
-    }
-    if ((operation.operation_lines || []).length === 0 && (fallbackArea == null || !Number.isFinite(fallbackArea) || fallbackArea <= 0)) {
-      toast({ title: 'Ошибка', description: 'Укажите фактическую площадь.', variant: 'destructive' });
-      return;
-    }
 
-    const materialFacts = operationVisibleMaterials(operation).map((material) => {
+    const operationRequests = requestsByOperation.get(operation.id) || [];
+    const warehouseProductIds = new Set(
+      operationRequests.flatMap((request) => (request.items || []).map((item) => String(item.product_id || '')))
+    );
+    const materialFacts = operationVisibleMaterials(operation)
+      .filter((material) => warehouseProductIds.has(String(material.product_id || '')))
+      .map((material) => {
       const draft = materialFactDraft[material.id] || { consumed: '', returned: '0', loss: '0', actualRate: '' };
       const issued = toNumber(material.issued_quantity, 0);
       const returnedQuantity = draft.returned.trim() ? Number(draft.returned) : 0;
       const consumedQuantity = draft.consumed.trim() ? Number(draft.consumed) : NaN;
       const lossQuantity = draft.loss.trim() ? Number(draft.loss) : 0;
-      const completedArea = areaStats.completed > 0 ? areaStats.completed : fallbackArea || 0;
+      const completedArea = areaStats.completed + currentShiftArea;
       const actualRate = completedArea > 0 ? Number((consumedQuantity / completedArea).toFixed(4)) : null;
       return {
         materialId: material.id,
@@ -716,7 +903,7 @@ export default function TasksPage() {
         lossQuantity,
         issuedQuantity: issued,
       };
-    });
+      });
     const invalidMaterial = materialFacts.find((fact) => {
       const consumedInvalid = fact.consumedQuantity == null || !Number.isFinite(fact.consumedQuantity) || fact.consumedQuantity < 0;
       const returnedInvalid = fact.returnedQuantity == null || !Number.isFinite(fact.returnedQuantity) || fact.returnedQuantity < 0;
@@ -740,7 +927,8 @@ export default function TasksPage() {
         body: JSON.stringify({
           companyId: profile.company_id,
           comment: completionComment.trim() || 'Выполнено специалистом',
-          actualAreaHa: fallbackArea,
+          currentShiftAreaHa: currentShiftArea,
+          varianceReason: finishVarianceReason.trim() || null,
           lineFacts,
           materialFacts,
           idempotency_key: idempotencyKey,
@@ -748,7 +936,12 @@ export default function TasksPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || 'Операция не закрыта');
-      toast({ title: 'Операция закрыта' });
+      const awaitingApproval =
+        payload?.awaiting_agronomist_approval === true ||
+        payload?.status === 'awaiting_approval' ||
+        Boolean(payload?.completion_request);
+      toast({ title: awaitingApproval ? 'Факт отправлен агроному' : 'Операция закрыта' });
+      setConfirmationKind(null);
       setSelectedOperationId(null);
       await loadTasks();
     } catch (error: any) {
@@ -834,6 +1027,11 @@ export default function TasksPage() {
           ? 'После приёмки возврата складом операцию можно будет закрыть.'
           : 'Материалы подтверждены без физического возврата.',
       });
+      setProgressAreaDraft('');
+      setProgressStopReason('');
+      setProgressWeatherNote('');
+      setProgressComment('');
+      setConfirmationKind(null);
       await loadTasks();
     } catch (error: any) {
       toast({
@@ -931,9 +1129,16 @@ export default function TasksPage() {
     const waitingWarehouseIssue = requests.some((request) => request.status === 'received_confirmed' && !request.issued_at);
     const cropIdentity = getOperationCropIdentity(operation);
     const visibleOperationMaterials = operationVisibleMaterials(operation);
-    const hasPlannedMaterialsWithoutRequest = visibleOperationMaterials.length > 0 && requests.length === 0;
-    const canStartOperation = readyForStart && !hasPlannedMaterialsWithoutRequest;
+    const hasAgrochemicalWithoutRequest =
+      requests.length === 0 &&
+      visibleOperationMaterials.some((material) =>
+        ['pesticide', 'fertilizer', 'adjuvant', 'ph_corrector', 'defoamer', 'biological', 'organic', 'other'].includes(
+          String(material.material_type || '')
+        )
+      );
+    const canStartOperation = readyForStart && !hasAgrochemicalWithoutRequest;
     const areaStats = operationAreaStats(operation);
+    const presentation = operationPresentation(operation);
     const stepText =
       phase === 'active'
         ? 'Нужно принять операцию'
@@ -947,6 +1152,8 @@ export default function TasksPage() {
                 ? 'Можно начинать работу'
                 : phase === 'in_progress'
                   ? 'Работа выполняется'
+                  : phase === 'awaiting_approval'
+                    ? 'Факт передан агроному'
                   : isCompleted
                     ? 'Операция закрыта'
                     : materialStatusText(requests);
@@ -968,13 +1175,13 @@ export default function TasksPage() {
         <CardContent className="space-y-2.5 p-3 sm:p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 space-y-1">
-              <div className="truncate text-xs font-semibold uppercase tracking-wide text-yellow-200/90">{operationWorkTitle(operation)}</div>
-              <div className="truncate text-lg font-bold leading-tight text-white">{operation.fields?.name || 'Поле не указано'}</div>
+              <div className="truncate text-base font-bold leading-tight text-white">{presentation.workTitle}</div>
+              <div className="truncate text-[13px] text-slate-300">{operation.fields?.name || 'Поле не указано'}</div>
               <div className="truncate text-xs text-slate-400">
                 {[cropIdentity.cropName, cropIdentity.varietyName, cropIdentity.reproductionName].filter(Boolean).join(' • ') || 'Культура не указана'}
               </div>
             </div>
-            {taskStatusBadge(phase, !hasMaterialRequests && !hasPlannedMaterialsWithoutRequest)}
+            {taskStatusBadge(phase, !hasMaterialRequests && !hasAgrochemicalWithoutRequest)}
           </div>
           <div className="rounded-lg border border-slate-800 bg-slate-950/45 px-2.5 py-2 text-xs text-slate-300">
             {stepText}
@@ -985,13 +1192,11 @@ export default function TasksPage() {
             {formatDate(operation.date)}
           </div>
 
-          {operation.notes ? <div className="line-clamp-2 text-xs text-slate-400">{operation.notes}</div> : null}
-
           {areaStats.planned > 0 ? (
-            <div className="space-y-1 rounded-lg bg-slate-950/45 p-2">
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>Прогресс</span>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between text-[13px] text-slate-300">
                 <span>{areaStats.completed.toFixed(2)} / {areaStats.planned.toFixed(2)} га</span>
+                <span>{areaStats.percent.toFixed(1)}%</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-slate-800">
                 <div
@@ -999,17 +1204,13 @@ export default function TasksPage() {
                   style={{ width: `${Math.max(0, Math.min(areaStats.percent, 100))}%` }}
                 />
               </div>
-              <div className="text-[11px] text-slate-500">Осталось {areaStats.remaining.toFixed(2)} га</div>
+              <div className="text-[13px] text-slate-500">
+                {areaStats.deviation > 0
+                  ? `Перевыполнение +${areaStats.deviation.toFixed(2)} га`
+                  : `Осталось ${areaStats.remaining.toFixed(2)} га`}
+              </div>
             </div>
           ) : null}
-
-          <div className="rounded-lg bg-slate-950/55 p-2.5">
-            <div className="mb-1 text-xs font-semibold text-slate-200">Материалы</div>
-            {renderMaterialPreview(operation, requests)}
-            <div className="mt-2 text-[11px] text-slate-500">
-              {requests.length === 0 && visibleOperationMaterials.length > 0 ? 'Материалы запланированы' : materialStatusText(requests)}
-            </div>
-          </div>
 
           {!isCompleted ? (
             <div className="flex flex-wrap gap-2">
@@ -1050,7 +1251,7 @@ export default function TasksPage() {
                 </Button>
               ) : null}
 
-              {phase === 'accepted' && hasPlannedMaterialsWithoutRequest ? (
+              {phase === 'accepted' && hasAgrochemicalWithoutRequest ? (
                 <Button size="sm" variant="outline" className="w-full sm:w-auto" disabled onClick={(event) => event.stopPropagation()}>
                   Нет заявки склада
                 </Button>
@@ -1282,41 +1483,69 @@ export default function TasksPage() {
       </div>
 
       <Dialog open={Boolean(selectedOperation)} onOpenChange={(open) => !open && setSelectedOperationId(null)}>
-        <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-3xl overflow-y-auto border-slate-700 bg-slate-950 text-slate-100 sm:max-h-[88vh]">
+        <DialogContent className="grid h-[100dvh] w-screen max-w-none grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden border-slate-700 bg-slate-950 p-0 text-slate-100 sm:h-auto sm:max-h-[88vh] sm:w-[calc(100vw-1rem)] sm:max-w-3xl">
           {selectedOperation ? (
             <>
-              <DialogHeader>
-                <DialogTitle className="text-xl text-white">{operationWorkTitle(selectedOperation)}</DialogTitle>
+              <DialogHeader className="border-b border-slate-800 bg-slate-950 px-5 py-4">
+                <div className="flex items-start justify-between gap-3 pr-8">
+                  <div>
+                    <DialogTitle className="text-xl text-white">{selectedPresentation?.workTitle}</DialogTitle>
+                    <div className="mt-1 text-xs text-slate-500">{selectedPresentation?.categoryTitle}</div>
+                  </div>
+                  {taskStatusBadge(getTaskPhase(selectedOperation))}
+                </div>
                 <DialogDescription className="text-slate-400">
                   {selectedOperation.fields?.name || 'Поле не указано'} • {formatDate(selectedOperation.date)}
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="space-y-4">
+              <div className="space-y-4 overflow-y-auto px-4 py-4 sm:px-5">
                 <div className="grid gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-4 md:grid-cols-2">
                   <div>
                     <div className="text-xs text-slate-500">Поле</div>
-                    <div className="font-semibold text-white">{selectedOperation.fields?.name || '-'}</div>
+                    <div className="font-semibold text-white">{selectedOperation.fields?.name || 'Поле не указано'}</div>
                   </div>
-                  <div>
+                  {selectedOperationCropIdentity?.cropName ? <div>
                     <div className="text-xs text-slate-500">Культура</div>
-                    <div className="font-semibold text-white">
-                      {selectedOperationCropIdentity?.cropName || '-'}
-                    </div>
-                  </div>
-                  <div>
+                    <div className="font-semibold text-white">{selectedOperationCropIdentity.cropName}</div>
+                  </div> : null}
+                  {selectedOperationCropIdentity?.varietyName ? <div>
                     <div className="text-xs text-slate-500">Сорт</div>
-                    <div className="text-slate-200">{selectedOperationCropIdentity?.varietyName || '-'}</div>
-                  </div>
-                  <div>
+                    <div className="text-slate-200">{selectedOperationCropIdentity.varietyName}</div>
+                  </div> : null}
+                  {selectedOperationCropIdentity?.reproductionName ? <div>
                     <div className="text-xs text-slate-500">Репродукция</div>
-                    <div className="text-slate-200">{selectedOperationCropIdentity?.reproductionName || '-'}</div>
+                    <div className="text-slate-200">{selectedOperationCropIdentity.reproductionName}</div>
+                  </div> : null}
+                  <div>
+                    <div className="text-xs text-slate-500">Плановая площадь</div>
+                    <div className="text-slate-200">{selectedPresentation?.plannedAreaHa.toFixed(2)} га</div>
                   </div>
+                  {selectedPresentation?.machineName ? <div>
+                    <div className="text-xs text-slate-500">Машина</div>
+                    <div className="text-slate-200">{selectedPresentation.machineName}</div>
+                  </div> : null}
+                  {selectedPresentation?.equipmentName ? <div>
+                    <div className="text-xs text-slate-500">Оборудование</div>
+                    <div className="text-slate-200">{selectedPresentation.equipmentName}</div>
+                  </div> : null}
                 </div>
 
-                {selectedOperation.notes ? (
+                {(selectedPresentation?.details.length || 0) > 0 ? (
+                  <div className="grid gap-3 rounded-lg border border-slate-800 bg-slate-900/70 p-4 md:grid-cols-2">
+                    {selectedPresentation?.details.map((detail) => (
+                      <div key={detail.key}>
+                        <div className="text-xs text-slate-500">{detail.label}</div>
+                        <div className="text-sm font-medium text-slate-100">{detail.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {selectedPresentation?.agronomistComment ? (
                   <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-4 text-sm text-slate-300">
-                    {selectedOperation.notes}
+                    <div className="mb-1 text-xs text-slate-500">Комментарий агронома</div>
+                    {selectedPresentation.agronomistComment}
                   </div>
                 ) : null}
 
@@ -1329,7 +1558,7 @@ export default function TasksPage() {
                           <div>
                             <h3 className="font-semibold text-white">Сдача смены</h3>
                             <div className="text-sm text-slate-400">
-                              Выполнено {areaStats.completed.toFixed(2)} из {areaStats.planned.toFixed(2)} га, осталось {areaStats.remaining.toFixed(2)} га.
+                              Текущая смена добавляется к уже принятому факту, план не изменяется.
                             </div>
                           </div>
                           <Badge className="bg-emerald-500/15 text-emerald-200 border border-emerald-400/30">
@@ -1342,25 +1571,46 @@ export default function TasksPage() {
                             style={{ width: `${Math.max(0, Math.min(areaStats.percent, 100))}%` }}
                           />
                         </div>
+                        <div className="grid grid-cols-3 gap-2 text-xs">
+                          <div><div className="text-slate-500">План</div><div className="font-semibold">{areaStats.planned.toFixed(2)} га</div></div>
+                          <div><div className="text-slate-500">Выполнено ранее</div><div className="font-semibold">{areaStats.completed.toFixed(2)} га</div></div>
+                          <div>
+                            <div className="text-slate-500">{areaStats.deviation > 0 ? 'Перевыполнение' : 'Осталось по плану'}</div>
+                            <div className="font-semibold">
+                              {areaStats.deviation > 0 ? `+${areaStats.deviation.toFixed(2)}` : areaStats.remaining.toFixed(2)} га
+                            </div>
+                          </div>
+                        </div>
                         <div className="grid gap-3 md:grid-cols-2">
                           <div>
                             <Label className="text-xs text-slate-400">Выполнено за смену, га</Label>
                             <Input
                               type="number"
                               min={0}
-                              max={areaStats.remaining || undefined}
                               step="0.01"
                               value={progressAreaDraft}
                               onChange={(event) => setProgressAreaDraft(event.target.value)}
                             />
+                            {Number(progressAreaDraft) > 0 ? (
+                              <div className="mt-1 text-xs text-slate-500">
+                                Итого после сдачи: {(areaStats.completed + Number(progressAreaDraft)).toFixed(2)} га.{' '}
+                                {areaStats.completed + Number(progressAreaDraft) > areaStats.planned
+                                  ? `Перевыполнение +${(areaStats.completed + Number(progressAreaDraft) - areaStats.planned).toFixed(2)} га`
+                                  : `Останется ${Math.max(areaStats.planned - areaStats.completed - Number(progressAreaDraft), 0).toFixed(2)} га`}
+                              </div>
+                            ) : null}
                           </div>
                           <div>
                             <Label className="text-xs text-slate-400">Причина остановки, если работа не закончена</Label>
-                            <Input
+                            <Select
                               value={progressStopReason}
-                              onChange={(event) => setProgressStopReason(event.target.value)}
-                              placeholder="например: дождь, темно, поломка"
-                            />
+                              onValueChange={setProgressStopReason}
+                            >
+                              <SelectTrigger><SelectValue placeholder="Выберите причину" /></SelectTrigger>
+                              <SelectContent>
+                                {STOP_REASONS.map((reason) => <SelectItem key={reason} value={reason}>{reason}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
                           </div>
                           <div>
                             <Label className="text-xs text-slate-400">Погода</Label>
@@ -1379,25 +1629,15 @@ export default function TasksPage() {
                             />
                           </div>
                         </div>
-                        <Button
-                          type="button"
-                          onClick={() => handleReportProgress(selectedOperation)}
-                          disabled={busyKey === `progress:${selectedOperation.id}`}
-                        >
-                          {busyKey === `progress:${selectedOperation.id}` ? 'Сохраняем...' : 'Сдать прогресс'}
-                        </Button>
                       </div>
                     );
                   })()
                 ) : null}
 
-                <div className="space-y-2">
+                {operationVisibleMaterials(selectedOperation).length > 0 ? <div className="space-y-2">
                   <h3 className="font-semibold text-white">Материалы</h3>
-                  {operationVisibleMaterials(selectedOperation).length === 0 ? (
-                    <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-400">Материалы не требуются</div>
-                  ) : (
-                    <div className="space-y-2">
-                      {operationVisibleMaterials(selectedOperation).map((material) => (
+                  <div className="space-y-2">
+                    {operationVisibleMaterials(selectedOperation).map((material) => (
                         <div key={material.id} className="rounded-md border border-slate-800 bg-slate-900/70 p-3">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="font-medium text-white">{operationMaterialName(material)}</div>
@@ -1465,17 +1705,13 @@ export default function TasksPage() {
                             </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                </div> : null}
 
-                <div className="space-y-2">
+                {(requestsByOperation.get(selectedOperation.id) || []).length > 0 ? <div className="space-y-2">
                   <h3 className="font-semibold text-white">Заявки склада</h3>
-                  {(requestsByOperation.get(selectedOperation.id) || []).length === 0 ? (
-                    <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-400">Заявок на склад нет</div>
-                  ) : (
-                    (requestsByOperation.get(selectedOperation.id) || []).map((request) => (
+                  {(requestsByOperation.get(selectedOperation.id) || []).map((request) => (
                       <div key={request.id} className="rounded-md border border-slate-800 bg-slate-900/70 p-3">
                         <div className="mb-2 flex items-center justify-between gap-3">
                           <div className="font-medium text-white">{request.request_number}</div>
@@ -1503,26 +1739,41 @@ export default function TasksPage() {
                           </Button>
                         ) : null}
                       </div>
-                    ))
-                  )}
-                </div>
+                  ))}
+                </div> : null}
+
+                {(selectedOperation.operation_progress || []).length > 0 ? (
+                  <div className="space-y-2">
+                    <h3 className="font-semibold text-white">История смен</h3>
+                    {(selectedOperation.operation_progress || [])
+                      .slice()
+                      .sort((a, b) => new Date(b.reported_at).getTime() - new Date(a.reported_at).getTime())
+                      .map((report) => (
+                        <div key={report.id} className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-800 py-2 text-sm">
+                          <div>
+                            <div className="font-medium text-slate-100">+{Number(report.completed_area_ha).toFixed(2)} га</div>
+                            {report.stop_reason ? <div className="text-xs text-slate-400">{report.stop_reason}</div> : null}
+                            {report.comment ? <div className="text-xs text-slate-500">{report.comment}</div> : null}
+                          </div>
+                          <div className="text-xs text-slate-500">{new Date(report.reported_at).toLocaleString('ru-RU')}</div>
+                        </div>
+                      ))}
+                  </div>
+                ) : null}
 
                 {getTaskPhase(selectedOperation) === 'in_progress' ? (
                   (() => {
                     const areaStats = operationAreaStats(selectedOperation);
-                    const canCloseByArea = areaStats.planned <= 0 || areaStats.completed >= areaStats.planned - 0.000001;
                     const operationRequests = requestsByOperation.get(selectedOperation.id) || [];
-                    const hasMaterials = operationVisibleMaterials(selectedOperation).length > 0;
-                    const reconciliationReady = !hasMaterials || materialRequestsReconciled(operationRequests);
+                    const hasWarehouseMaterials = operationRequests.length > 0;
+                    const reconciliationReady = !hasWarehouseMaterials || materialRequestsReconciled(operationRequests);
+                    const currentShift = progressAreaDraft.trim() ? Number(progressAreaDraft) : 0;
+                    const finalArea = areaStats.completed + (Number.isFinite(currentShift) ? currentShift : 0);
+                    const hasVariance = Math.abs(finalArea - areaStats.planned) > 0.000001;
                     return (
-                      <div className="space-y-3 rounded-lg border border-green-700/50 bg-green-950/20 p-4">
+                      <div className="space-y-3 border-t border-slate-800 pt-4">
                         <h3 className="font-semibold text-white">Закрытие работы</h3>
-                        {!canCloseByArea ? (
-                          <div className="rounded-md border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">
-                            До закрытия осталось сдать {areaStats.remaining.toFixed(2)} га. Сначала внесите прогресс смены.
-                          </div>
-                        ) : null}
-                        {canCloseByArea && hasMaterials && !reconciliationReady ? (
+                        {hasWarehouseMaterials && !reconciliationReady ? (
                           <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-950/30 p-3 text-sm text-amber-100">
                             <div>Перед закрытием передайте фактический расход, возврат и потери на складскую сверку.</div>
                             <Button
@@ -1540,14 +1791,35 @@ export default function TasksPage() {
                           <Label className="text-xs text-slate-400">Комментарий к закрытию</Label>
                           <Input value={completionComment} onChange={(event) => setCompletionComment(event.target.value)} />
                         </div>
-                        <Button
-                          className="bg-green-600 hover:bg-green-700"
-                          onClick={() => handleCompleteOperation(selectedOperation)}
-                          disabled={!canCloseByArea || !reconciliationReady || busyKey === `complete:${selectedOperation.id}`}
-                        >
-                          <CheckCircle className="mr-2 h-4 w-4" />
-                          {busyKey === `complete:${selectedOperation.id}` ? 'Закрываем...' : 'Закрыть операцию'}
-                        </Button>
+                        {hasVariance ? (
+                          <div>
+                            <Label className="text-xs text-slate-400">Причина отклонения от плана</Label>
+                            <Input
+                              value={finishVarianceReason}
+                              onChange={(event) => setFinishVarianceReason(event.target.value)}
+                              placeholder={finalArea < areaStats.planned ? 'например: часть участка недоступна' : 'например: уточнена площадь'}
+                            />
+                          </div>
+                        ) : null}
+                        <div className="sticky bottom-0 -mx-4 flex gap-2 border-t border-slate-800 bg-slate-950 px-4 py-3 sm:-mx-5 sm:px-5">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => requestProgressConfirmation(selectedOperation)}
+                            disabled={busyKey === `progress:${selectedOperation.id}`}
+                          >
+                            Сдать прогресс
+                          </Button>
+                          <Button
+                            className="flex-1 bg-yellow-500 text-slate-950 hover:bg-yellow-400"
+                            onClick={() => requestFinishConfirmation(selectedOperation)}
+                            disabled={!reconciliationReady || busyKey === `complete:${selectedOperation.id}`}
+                          >
+                            <CheckCircle className="mr-2 h-4 w-4" />
+                            Завершить работу
+                          </Button>
+                        </div>
                       </div>
                     );
                   })()
@@ -1557,6 +1829,66 @@ export default function TasksPage() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={Boolean(confirmationKind && selectedOperation)} onOpenChange={(open) => !open && setConfirmationKind(null)}>
+        <AlertDialogContent>
+          {selectedOperation && confirmationKind ? (() => {
+            const stats = operationAreaStats(selectedOperation);
+            const shiftArea = progressAreaDraft.trim() ? Number(progressAreaDraft) : 0;
+            const finalArea = stats.completed + (Number.isFinite(shiftArea) ? shiftArea : 0);
+            const remaining = Math.max(stats.planned - finalArea, 0);
+            const deviation = finalArea - stats.planned;
+            const isProgress = confirmationKind === 'progress';
+            return (
+              <>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{isProgress ? 'Подтвердить сдачу прогресса?' : 'Подтвердить завершение работы?'}</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    До подтверждения данные не записываются.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="grid grid-cols-2 gap-3 rounded-md bg-muted/40 p-3 text-sm">
+                  <div><span className="text-muted-foreground">План:</span> {stats.planned.toFixed(2)} га</div>
+                  <div><span className="text-muted-foreground">Выполнено ранее:</span> {stats.completed.toFixed(2)} га</div>
+                  <div><span className="text-muted-foreground">Текущая смена:</span> {shiftArea.toFixed(2)} га</div>
+                  <div><span className="text-muted-foreground">Итого:</span> {finalArea.toFixed(2)} га</div>
+                  <div>
+                    <span className="text-muted-foreground">{deviation > 0 ? 'Перевыполнение:' : 'Останется:'}</span>{' '}
+                    {deviation > 0 ? `+${deviation.toFixed(2)}` : remaining.toFixed(2)} га
+                  </div>
+                  <div><span className="text-muted-foreground">Процент:</span> {stats.planned > 0 ? ((finalArea / stats.planned) * 100).toFixed(1) : '0'}%</div>
+                </div>
+                {isProgress && progressStopReason ? (
+                  <div className="text-sm"><span className="text-muted-foreground">Причина остановки:</span> {progressStopReason}</div>
+                ) : null}
+                {isProgress && progressComment ? (
+                  <div className="text-sm"><span className="text-muted-foreground">Комментарий:</span> {progressComment}</div>
+                ) : null}
+                {!isProgress && finishVarianceReason ? (
+                  <div className="text-sm"><span className="text-muted-foreground">Причина отклонения:</span> {finishVarianceReason}</div>
+                ) : null}
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Отмена</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={(event) => {
+                      event.preventDefault();
+                      if (isProgress) void handleReportProgress(selectedOperation);
+                      else void handleCompleteOperation(selectedOperation);
+                    }}
+                    disabled={Boolean(busyKey)}
+                  >
+                    {busyKey
+                      ? 'Сохраняем...'
+                      : isProgress
+                        ? 'Подтвердить сдачу'
+                        : 'Подтвердить завершение'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </>
+            );
+          })() : null}
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

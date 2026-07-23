@@ -864,7 +864,7 @@ export async function POST(request: NextRequest) {
     }
 
     const mutationStarted = Date.now();
-    const { data: mutationResult, error: mutationError } = await supabase.rpc("create_operation_plan_atomic_v1", {
+    const { data: mutationResult, error: mutationError } = await supabase.rpc("create_operation_plan_atomic_v12", {
       p_company_id: companyId,
       p_actor_profile_id: actor.id,
       p_operation: {

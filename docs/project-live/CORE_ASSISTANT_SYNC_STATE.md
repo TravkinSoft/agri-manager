@@ -617,3 +617,12 @@ TZ217_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and
 TZ217_BRANCH_RESULT: `PASS - five active warehouses match for Warehousekeeper, Weighbridge Operator and Agronomist; Company Admin sees one archived warehouse separately; empty warehouse and full harvest batch verified`.
 TZ217_PRODUCTION_IMPACT: `NONE`; one empty warehouse fixture was added only to branch `gsglkmudcwkdetqtocae`, with no schema change, production connection/write, production deploy or master merge.
 TZ217_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; future individual warehouse ACL remains backlog-only.
+
+## TZ-218 review result
+
+TZ218_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; `origin/assistant-v1` remains at accepted A109 commit `f503f05b54de129b6778fee10e3b6406ec761ced`.
+TZ218_CORE_IMPACT_FOUND: `YES - operation presentation, progress/completion RPCs, variance review and material planning changed in Core`.
+TZ218_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and ERP-write boundaries are unchanged.
+TZ218_BRANCH_RESULT: `PASS - soil 80/34/46, under-plan 78/80, over-plan 82/80, mixed sowing, multi-field spraying, idempotency and company isolation`.
+TZ218_PRODUCTION_IMPACT: `NONE`; migration was applied only to branch `gsglkmudcwkdetqtocae`, with no production connection/write, production deploy or master merge.
+TZ218_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from operation mutations.

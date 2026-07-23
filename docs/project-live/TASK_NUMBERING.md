@@ -103,6 +103,7 @@
 | TZ-215 | COMPANY ADMIN / WAREHOUSE / REFERENCES / UI / DATABASE | Company Admin V1 role boundaries, references and pilot cleanup | copilot-v1 | DONE | TZ-210,TZ-212,TZ-214 | [task-reports/core/TZ-215.md](task-reports/core/TZ-215.md) | `SELF` |
 | TZ-216 | WEIGHBRIDGE / WAREHOUSE / COUNTERPARTIES / UI / DATABASE | Weighbridge V1.3 single quantity source, routes and approved inventory | copilot-v1 | DONE | TZ-211,TZ-212,TZ-213,TZ-214,TZ-215 | [task-reports/core/TZ-216.md](task-reports/core/TZ-216.md) | `SELF` |
 | TZ-217 | WAREHOUSE / WEIGHBRIDGE / UI / AUTHORIZATION | Unified warehouse visibility with role-separated actions | copilot-v1 | DONE | TZ-210,TZ-212,TZ-213,TZ-214,TZ-215,TZ-216 | [task-reports/core/TZ-217.md](task-reports/core/TZ-217.md) | `SELF` |
+| TZ-218 | OPERATIONS / UI / DATABASE | Role-aware operation cards, progress, variance and material routing | copilot-v1 | DONE | TZ-204,TZ-209,TZ-212,TZ-213,TZ-217 | [task-reports/core/TZ-218.md](task-reports/core/TZ-218.md) | `SELF` |
 
 ## Status values
 

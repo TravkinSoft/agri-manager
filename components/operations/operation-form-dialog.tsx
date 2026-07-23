@@ -146,6 +146,7 @@ type ProductOption = {
   application_unit?: string | null;
   default_rate_type?: string | null;
   default_rate_unit?: string | null;
+  aliases?: string[];
   availableQty: number;
   warehouseNames: string[];
 };
@@ -304,6 +305,7 @@ function productMetadataText(product: ProductOption | undefined): string {
     product.subcategory,
     product.pesticide_category,
     product.fertilizer_type,
+    ...(product.aliases || []),
   ]
     .filter(Boolean)
     .join(" ")
@@ -582,6 +584,28 @@ function mergeCanonicalTypes(rows: OperationTypeMaster[]): OperationTypeMaster[]
     if (canonicalSubtypeSlugs.has(item.slug)) bySlug.set(item.slug, item);
   });
   return Array.from(bySlug.values());
+}
+
+async function loadOperationCatalogProducts(companyId: string) {
+  const { data, error } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (error || !accessToken) {
+    return { data: [] as any[], error: new Error("Сессия не найдена") };
+  }
+  const response = await fetch(
+    `/api/warehouses/products?companyId=${encodeURIComponent(companyId)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { data: [] as any[], error: new Error(payload?.error || "Не удалось загрузить каталог материалов") };
+  }
+  return {
+    data: Array.isArray(payload?.products)
+      ? payload.products.filter((row: any) => row.is_active !== false && !row.archived)
+      : [],
+    error: null,
+  };
 }
 
 function SearchableSelect(props: {
@@ -1041,12 +1065,13 @@ export function OperationFormDialog({
       products.map((item) => ({
         id: item.id,
         label: operationProductTradeName(item) || item.name,
-        hint:
+        hint: `${item.aliases?.length ? `Также: ${item.aliases.slice(0, 5).join(", ")} • ` : ""}${
           Number(item.availableQty || 0) > 0
             ? `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Есть на складе: ${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${formatStorageUnit(item.unit)}${
                 item.warehouseNames.length > 0 ? ` • ${item.warehouseNames.slice(0, 2).join(", ")}` : ""
               }`
-            : `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Нет на складе • Можно планировать`,
+            : `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Нет на складе • Можно планировать`
+        }`,
       })),
     [products]
   );
@@ -1149,13 +1174,7 @@ export function OperationFormDialog({
           .eq("archived", false)
           .eq("is_active", true)
           .order("name"),
-        supabase
-          .from("products")
-          .select("id,master_product_id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_rate_unit")
-          .eq("company_id", profile.company_id)
-          .eq("archived", false)
-          .eq("is_active", true)
-          .order("name"),
+        loadOperationCatalogProducts(profile.company_id!),
         supabase
           .from("v_stock_balance_identity")
           .select("product_id,warehouse_id,quantity")
@@ -1250,6 +1269,7 @@ export function OperationFormDialog({
               | "application_unit"
               | "default_rate_type"
               | "default_rate_unit"
+              | "aliases"
             >
           >(
             (companyProductsRes.data || []).map((row: any) => [
@@ -1286,6 +1306,7 @@ export function OperationFormDialog({
                 application_unit: row.application_unit ? String(row.application_unit) : null,
                 default_rate_type: row.default_rate_type ? String(row.default_rate_type) : null,
                 default_rate_unit: row.default_rate_unit ? String(row.default_rate_unit) : null,
+                aliases: Array.isArray(row.aliases) ? row.aliases.map(String) : [],
               },
             ])
           );
@@ -1322,6 +1343,7 @@ export function OperationFormDialog({
               application_unit: meta.application_unit,
               default_rate_type: meta.default_rate_type,
               default_rate_unit: meta.default_rate_unit,
+              aliases: meta.aliases,
               availableQty: 0,
               warehouseNames: [],
             });
@@ -1355,6 +1377,7 @@ export function OperationFormDialog({
                 application_unit: meta.application_unit,
                 default_rate_type: meta.default_rate_type,
                 default_rate_unit: meta.default_rate_unit,
+                aliases: meta.aliases,
                 availableQty: 0,
                 warehouseNames: [],
               } satisfies ProductOption);

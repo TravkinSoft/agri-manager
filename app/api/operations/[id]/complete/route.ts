@@ -45,7 +45,14 @@ export async function POST(
       : Array.isArray(body.material_facts)
         ? body.material_facts
         : [];
-    const actualArea = toNonNegativeNumber(body.actualAreaHa ?? body.actual_area_ha);
+    const currentShiftArea =
+      toNonNegativeNumber(
+        body.currentShiftAreaHa ??
+          body.current_shift_area_ha ??
+          body.completedAreaHa ??
+          body.completed_area_ha
+      ) ?? 0;
+    const varianceReason = String(body.varianceReason || body.variance_reason || "").trim() || null;
 
     const actor = await getServerActorFromSession(request);
     const companyId = resolveCompanyForActor(actor, String(body.companyId || "").trim() || null);
@@ -54,7 +61,7 @@ export async function POST(
 
     const { data: operation, error: operationError } = await supabase
       .from("operations")
-      .select("crop_structure_id,operation_category_slug,operation_type_slug")
+      .select("crop_structure_id,operation_category_slug,operation_type_slug,completed_area_ha,planned_area_ha")
       .eq("id", operationId)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -97,7 +104,8 @@ export async function POST(
         const area = toNonNegativeNumber(fact?.actual_area_ha ?? fact?.actualAreaHa);
         if (lineId && area != null) actualAreaByLineId.set(lineId, area);
       }
-      if (actualArea != null && actualAreaByLineId.size === 0) {
+      const finalActualArea = Number(operation.completed_area_ha || 0) + currentShiftArea;
+      if (finalActualArea > 0 && actualAreaByLineId.size === 0) {
         const { data: operationLines, error: operationLinesError } = await supabase
           .from("operation_lines")
           .select("id")
@@ -107,7 +115,7 @@ export async function POST(
           return NextResponse.json({ error: operationLinesError.message }, { status: 400 });
         }
         if ((operationLines || []).length === 1) {
-          actualAreaByLineId.set(String(operationLines![0].id), actualArea);
+          actualAreaByLineId.set(String(operationLines![0].id), finalActualArea);
         }
       }
 
@@ -141,12 +149,12 @@ export async function POST(
       actionLabel: "Operation completion",
     });
 
-    const { data, error } = await supabase.rpc("complete_operation_atomic_v1", {
+    const { data, error } = await supabase.rpc("finish_operation_atomic_v12", {
       p_company_id: companyId,
       p_actor_profile_id: actor.id,
       p_operation_id: operationId,
-      p_actual_area_ha: actualArea,
-      p_line_facts: lineFacts,
+      p_shift_completed_area_ha: currentShiftArea,
+      p_variance_reason: varianceReason,
       p_material_facts: materialFacts,
       p_comment: completionComment,
       p_idempotency_key: idempotency.key,

@@ -168,7 +168,7 @@ function normalizeOperationRow(op: any): OperationWithDetails {
         : Number.isFinite(plannedAreaFromConfig) && plannedAreaFromConfig > 0
           ? plannedAreaFromConfig
           : null,
-    actual_area_ha: actualAreaFromLines,
+    actual_area_ha: Number(op.completed_area_ha ?? actualAreaFromLines ?? 0),
     crop_id: primaryLine?.crop_id || (config as any).crop_id || null,
     operation_engine_type: String((config as any).operation_engine_type || canonicalType?.slug || op.operation_type_slug || ""),
     operation_engine_label: String((config as any).operation_engine_label || canonicalType?.label || op.operation_type || ""),
@@ -179,9 +179,131 @@ function normalizeOperationRow(op: any): OperationWithDetails {
     crop_name: cropIdentity.cropName || "-",
     variety_name: cropIdentity.varietyName || "-",
     reproduction_name: cropIdentity.reproductionName || "-",
+    responsible_name:
+      relationOne(op.responsible_profile)?.full_name ||
+      relationOne(op.responsible_profile)?.email ||
+      null,
+    machine_name:
+      relationOne(op.machine)?.full_name ||
+      relationOne(op.machine)?.name ||
+      null,
+    equipment_name:
+      relationOne(op.equipment)?.full_name ||
+      relationOne(op.equipment)?.name ||
+      null,
+    transport_name:
+      relationOne(op.transport)?.full_name ||
+      relationOne(op.transport)?.name ||
+      null,
     materials: normalizeOperationMaterials(op.operation_materials),
+    progress_reports: Array.isArray(op.operation_progress)
+      ? op.operation_progress.map((row: any) => ({
+          ...row,
+          reporter_name:
+            relationOne(row.reported_by_profile)?.full_name ||
+            relationOne(row.reported_by_profile)?.email ||
+            null,
+        }))
+      : [],
+    completion_requests: Array.isArray(op.operation_completion_requests)
+      ? op.operation_completion_requests.map((row: any) => ({
+          ...row,
+          requester_name:
+            relationOne(row.requested_by_profile)?.full_name ||
+            relationOne(row.requested_by_profile)?.email ||
+            null,
+          reviewer_name:
+            relationOne(row.reviewed_by_profile)?.full_name ||
+            relationOne(row.reviewed_by_profile)?.email ||
+            null,
+        }))
+      : [],
     ...parseOperationDraftDetails(op.notes),
   } as OperationWithDetails;
+}
+
+const OPERATION_DETAILS_SELECT = `
+  *,
+  fields:field_id (name),
+  responsible_profile:responsible_user_id (id,full_name,email,role),
+  crop_structure:crop_structure_id (
+    crops:crop_id (name,name_ru,name_kz,name_en,slug),
+    varieties:variety_id (name),
+    seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+  ),
+  operation_materials:operation_materials (
+    *,
+    products:product_id (name,trade_name,master_product_id,type,product_type)
+  ),
+  operation_progress:operation_progress (
+    *,
+    reported_by_profile:reported_by (id,full_name,email)
+  ),
+  operation_completion_requests:operation_completion_requests (
+    *,
+    requested_by_profile:requested_by (id,full_name,email),
+    reviewed_by_profile:reviewed_by (id,full_name,email)
+  ),
+  operation_lines:operation_lines (
+    id,
+    company_id,
+    operation_id,
+    field_id,
+    crop_id,
+    variety_id,
+    reproduction_id,
+    planned_area_ha,
+    actual_area_ha,
+    row_count,
+    row_spacing_m,
+    seed_spacing_cm,
+    calculated_plants_per_ha,
+    calculated_total_plants,
+    completed_by,
+    completed_at,
+    notes,
+    created_at,
+    updated_at,
+    fields:field_id (name),
+    crops:crop_id (name,name_ru,name_kz,name_en,slug),
+    varieties:variety_id (name),
+    reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+  )
+`;
+
+export type OperationAssetCatalog = {
+  machines: Array<Record<string, any>>;
+  equipment: Array<Record<string, any>>;
+  vehicles: Array<Record<string, any>>;
+};
+
+export async function getOperationAssetCatalog(companyId: string): Promise<OperationAssetCatalog> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/references/company-assets?companyId=${encodeURIComponent(companyId)}`,
+    { method: "GET", headers, cache: "no-store" }
+  );
+  const payload = await parseApiResponse(response);
+  return {
+    machines: Array.isArray(payload.machines) ? payload.machines : [],
+    equipment: Array.isArray(payload.equipment) ? payload.equipment : [],
+    vehicles: Array.isArray(payload.vehicles) ? payload.vehicles : [],
+  };
+}
+
+export function attachOperationAssetRelations<T extends Record<string, any>>(
+  rows: T[],
+  catalog: OperationAssetCatalog
+): T[] {
+  const machines = new Map(catalog.machines.map((row) => [String(row.id), row]));
+  const equipment = new Map(catalog.equipment.map((row) => [String(row.id), row]));
+  const vehicles = new Map(catalog.vehicles.map((row) => [String(row.id), row]));
+  return rows.map((row) => ({
+    ...row,
+    machine: row.machine_id ? machines.get(String(row.machine_id)) || null : null,
+    equipment: row.equipment_id ? equipment.get(String(row.equipment_id)) || null : null,
+    transport: row.transport_id ? vehicles.get(String(row.transport_id)) || null : null,
+  }));
 }
 
 function isProductionOperation(row: OperationWithDetails): boolean {
@@ -235,44 +357,7 @@ export async function getOperations(
 ): Promise<OperationWithDetails[]> {
   let query = supabase
     .from("operations")
-    .select(`
-      *,
-      fields:field_id (name),
-      crop_structure:crop_structure_id (
-        crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name),
-        seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
-      ),
-      operation_materials:operation_materials (
-        *,
-        products:product_id (name,trade_name,master_product_id,type,product_type)
-      ),
-      operation_lines:operation_lines (
-        id,
-        company_id,
-        operation_id,
-        field_id,
-        crop_id,
-        variety_id,
-        reproduction_id,
-        planned_area_ha,
-        actual_area_ha,
-        row_count,
-        row_spacing_m,
-        seed_spacing_cm,
-        calculated_plants_per_ha,
-        calculated_total_plants,
-        completed_by,
-        completed_at,
-        notes,
-        created_at,
-        updated_at,
-        fields:field_id (name),
-        crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name),
-        reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
-      )
-    `)
+    .select(OPERATION_DETAILS_SELECT)
     .eq("company_id", companyId)
     .order("date", { ascending: false });
 
@@ -280,69 +365,42 @@ export async function getOperations(
     query = query.eq("archived", false);
   }
 
-  const { data, error } = await query;
+  const [{ data, error }, assets] = await Promise.all([
+    query,
+    getOperationAssetCatalog(companyId),
+  ]);
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return (data || []).map((op: any) => normalizeOperationRow(op)).filter(isProductionOperation);
+  return attachOperationAssetRelations((data || []) as Record<string, any>[], assets)
+    .map((op: any) => normalizeOperationRow(op))
+    .filter(isProductionOperation);
 }
 
 export async function getSpecialistOperations(
   companyId: string,
   specialistId: string
 ): Promise<OperationWithDetails[]> {
-  const { data, error } = await supabase
-    .from("operations")
-    .select(`
-      *,
-      fields:field_id (name),
-      crop_structure:crop_structure_id (
-        crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name),
-        seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
-      ),
-      operation_materials:operation_materials (
-        *,
-        products:product_id (name,trade_name,master_product_id,type,product_type)
-      ),
-      operation_lines:operation_lines (
-        id,
-        company_id,
-        operation_id,
-        field_id,
-        crop_id,
-        variety_id,
-        reproduction_id,
-        planned_area_ha,
-        actual_area_ha,
-        row_count,
-        row_spacing_m,
-        seed_spacing_cm,
-        calculated_plants_per_ha,
-        calculated_total_plants,
-        completed_by,
-        completed_at,
-        notes,
-        created_at,
-        updated_at,
-        fields:field_id (name),
-        crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name),
-        reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
-      )
-    `)
-    .eq("company_id", companyId)
-    .eq("responsible_user_id", specialistId)
-    .eq("archived", false)
-    .order("date", { ascending: true });
+  const [{ data, error }, assets] = await Promise.all([
+    supabase
+      .from("operations")
+      .select(OPERATION_DETAILS_SELECT)
+      .eq("company_id", companyId)
+      .eq("responsible_user_id", specialistId)
+      .eq("archived", false)
+      .order("date", { ascending: true }),
+    getOperationAssetCatalog(companyId),
+  ]);
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return (data || []).map((op: any) => normalizeOperationRow(op)).filter(isProductionOperation);
+  return attachOperationAssetRelations((data || []) as Record<string, any>[], assets)
+    .map((op: any) => normalizeOperationRow(op))
+    .filter(isProductionOperation);
 }
 
 export async function getOperation(operationId: string): Promise<Operation | null> {
