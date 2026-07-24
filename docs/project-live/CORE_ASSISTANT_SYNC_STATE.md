@@ -635,3 +635,12 @@ TZ220_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and
 TZ220_BRANCH_RESULT: `PASS_WITH_SCREENSHOT_CAPTURE_GAP - authenticated status tabs, accept confirmation, type-specific plans, shift math, under/over gates and completed variance passed; 0/15 usable screenshots because browser capture timed out`.
 TZ220_PRODUCTION_IMPACT: `NONE`; no production connection/write, migration, deploy or master merge.
 TZ220_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from Specialist ERP mutations.
+
+## TZ-221 review result
+
+TZ221_ASSISTANT_CHANGES_FOUND: `NO_NEW_ASSISTANT_BRANCH_CHANGES`; the task changed only Core Specialist and Warehousekeeper presentation and guarded role actions.
+TZ221_CORE_IMPACT_FOUND: `YES - Specialist shift UI, operation-plan presentation and Warehousekeeper request workspace changed in Core`.
+TZ221_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and ERP-write boundaries are unchanged.
+TZ221_BRANCH_RESULT: `PASS - role regressions 33/33, 28/28 and 51/51; authenticated desktop and 390x844 mobile smoke; screenshots 15/15`.
+TZ221_PRODUCTION_IMPACT: `NONE`; test branch only, with zero production connection/write, no production deploy and no master merge.
+TZ221_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from Specialist and Warehousekeeper ERP mutations.

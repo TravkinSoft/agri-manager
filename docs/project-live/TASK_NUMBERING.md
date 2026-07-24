@@ -106,6 +106,7 @@
 | TZ-218 | OPERATIONS / UI / DATABASE | Role-aware operation cards, progress, variance and material routing | copilot-v1 | DONE | TZ-204,TZ-209,TZ-212,TZ-213,TZ-217 | [task-reports/core/TZ-218.md](task-reports/core/TZ-218.md) | `SELF` |
 | TZ-219 | OPERATIONS / UI | Final role-specific operation cards | copilot-v1 | SUPERSEDED | TZ-218 | `implementation checkpoint incorporated into TZ-220` | `0e0aff2` |
 | TZ-220 | OPERATIONS / UI | Specialist task workspace and full work plan | copilot-v1 | DONE | TZ-218,TZ-219 | [task-reports/core/TZ-220.md](task-reports/core/TZ-220.md) | `SELF` |
+| TZ-221 | OPERATIONS / WAREHOUSE / UI | Final Specialist and Warehousekeeper workspaces | copilot-v1 | DONE | TZ-218,TZ-220 | [task-reports/core/TZ-221.md](task-reports/core/TZ-221.md) | `SELF` |
 
 ## Status values
 

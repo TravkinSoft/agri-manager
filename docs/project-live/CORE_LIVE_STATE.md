@@ -742,3 +742,27 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Browser screenshot capture timed out; `0/15` requested screenshots are usable.
   Authenticated DOM smoke and responsive layout checks passed.
 - `READY_FOR_OWNER_PREVIEW_CHECK=YES`.
+
+## TZ-221 Final Specialist and Warehousekeeper UI
+
+- TZ-221 status: `PASS`; report:
+  [task-reports/core/TZ-221.md](task-reports/core/TZ-221.md).
+- Specialist and Warehousekeeper now use the same responsive master-detail
+  workspace with a compact selectable list, one full record and a sticky
+  primary action.
+- Specialist work cards use clear category, work, field/crop and summary
+  hierarchy. Shift reporting is reduced to area plus one common comment;
+  progress and finish confirmations preserve cumulative and variance guards.
+- Spraying shows material formulas, water, concentration and final ready
+  solution in agronomic order without treating water as a material.
+- Warehousekeeper uses status tabs and direct preparation rows without tare,
+  Start assembly or cancellation. Preparation remaining/deviation math and
+  the Specialist handoff are visible in the full request.
+- Seeds and planting material are excluded from Warehousekeeper requests.
+- Automated regressions passed `33/33`, `28/28` and `51/51`; typecheck and
+  build passed.
+- Authenticated desktop and `390x844` mobile smoke passed. The complete
+  screenshot set is `15/15`.
+- Test branch is `gsglkmudcwkdetqtocae`; production connections/writes,
+  production deploy and master merge remain `0/0/NO/NO`.
+- `READY_FOR_OWNER_PREVIEW_CHECK=YES`.
