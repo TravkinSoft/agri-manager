@@ -13,12 +13,16 @@ import {
   Database,
   Settings,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import { Button } from "@/components/ui/button";
+import {
+  loadPlatformRuntimeStatus,
+  type PlatformRuntimeStatus,
+} from "@/lib/platform/platform-status-client";
 
 type NavItem = {
   href: string;
@@ -107,7 +111,8 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { profile, loading } = useAuth();
   const { t } = useLanguage();
-  const environment = process.env.NODE_ENV === "production" ? "production" : "local";
+  const [runtimeStatus, setRuntimeStatus] = useState<PlatformRuntimeStatus | null>(null);
+  const [runtimeError, setRuntimeError] = useState(false);
 
   useEffect(() => {
     if (loading) return;
@@ -117,9 +122,34 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
     }
   }, [loading, profile?.role, router]);
 
+  useEffect(() => {
+    if (loading || profile?.role !== "global_admin") return;
+    let active = true;
+    void loadPlatformRuntimeStatus()
+      .then((status) => {
+        if (!active) return;
+        setRuntimeStatus(status);
+        setRuntimeError(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setRuntimeStatus(null);
+        setRuntimeError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [loading, profile?.role]);
+
   if (loading || profile?.role !== "global_admin") {
     return null;
   }
+
+  const environment = runtimeStatus?.runtime.environment || (runtimeError ? "error" : "loading");
+  const branch = runtimeStatus?.runtime.branch || (runtimeError ? "unknown" : "loading");
+  const database = runtimeStatus?.runtime.database || (runtimeError ? "unknown" : "loading");
+  const season = runtimeStatus?.runtime.season || "2026";
+  const selectedCompany = runtimeStatus?.companies.selected || null;
 
   return (
     <div className="min-h-screen bg-[#e8ebef] text-[#111827]">
@@ -136,12 +166,27 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2 font-mono text-[10px] uppercase text-slate-300">
             <span className="border border-slate-400/25 px-2 py-0.5">env:{environment}</span>
+            <span className="border border-slate-400/25 px-2 py-0.5">db:{database}</span>
+            <span className="border border-slate-400/25 px-2 py-0.5">branch:{branch}</span>
             <span className="border border-slate-400/25 px-2 py-0.5">role:global_admin</span>
-            <span className="border border-slate-400/25 px-2 py-0.5">season:2026</span>
+            <span className="border border-slate-400/25 px-2 py-0.5">season:{season}</span>
             <span className="max-w-[240px] truncate border border-slate-400/25 px-2 py-0.5">route:{pathname}</span>
           </div>
         </div>
       </header>
+      <div
+        className={cn(
+          "border-b px-4 py-1.5 font-mono text-[11px]",
+          selectedCompany
+            ? "border-emerald-800/30 bg-emerald-50 text-emerald-900"
+            : "border-amber-700/30 bg-amber-50 text-amber-900"
+        )}
+        role="status"
+      >
+        {selectedCompany
+          ? `Контекст компании: ${selectedCompany.name}`
+          : "Компания не выбрана. Сначала выберите компанию на главной странице платформы."}
+      </div>
       <div className="grid w-full grid-cols-1 gap-3 px-3 py-3 sm:px-4 lg:grid-cols-[268px_minmax(0,1fr)]">
         <aside className="h-fit border border-[#9aa8ba] bg-[#f6f7f9] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
           <div className="border-b border-[#9aa8ba] bg-[#d7dde6] px-2 py-1.5 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-[#18324f]">
@@ -188,7 +233,9 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
               <span>Движок знаний: V0</span>
               <span>Паспорт продукта: V1</span>
               <span>RLS: draft ожидает</span>
-              <span>Ветка production: master</span>
+              <span>Среда: {environment}</span>
+              <span>База: {database}</span>
+              <span>Ветка: {branch}</span>
             </div>
           </div>
           <Button

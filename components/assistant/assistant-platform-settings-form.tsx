@@ -583,6 +583,7 @@ export function AssistantPlatformSettingsForm() {
   const runTest = async (prompt?: string) => {
     const message = String(prompt ?? testInput).trim();
     if (!message || testing) return;
+    if (!activeKnowledgeCompanyId) return;
 
     const userMessage: TestMessage = { id: toMessageId(), role: "user", content: message };
     setTestMessages((prev) => [...prev, userMessage]);
@@ -598,12 +599,12 @@ export function AssistantPlatformSettingsForm() {
         body: JSON.stringify({
           message,
           threadId: testThreadId,
-          companyId: profile?.company_id || null,
+          companyId: activeKnowledgeCompanyId,
           sessionState: testSessionState,
           runtimeContext: {
             currentPage: "assistant-settings-test",
             currentRoute: "/platform/assistant/settings",
-            companyId: profile?.company_id || null,
+            companyId: activeKnowledgeCompanyId,
             season: testSessionState.lastSeason || null,
             locale: "ru",
           },
@@ -1524,12 +1525,18 @@ export function AssistantPlatformSettingsForm() {
             ))}
           </div>
 
+          {!activeKnowledgeCompanyId ? (
+            <div className="border border-amber-500/40 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+              Сначала выберите компанию
+            </div>
+          ) : null}
+
           <div className="flex gap-2">
             <Input
               value={testInput}
               onChange={(e) => setTestInput(e.target.value)}
               placeholder="Введите тестовый запрос…"
-              disabled={testing}
+              disabled={testing || !activeKnowledgeCompanyId}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -1537,7 +1544,11 @@ export function AssistantPlatformSettingsForm() {
                 }
               }}
             />
-            <Button type="button" onClick={() => void runTest()} disabled={testing || !testInput.trim()}>
+            <Button
+              type="button"
+              onClick={() => void runTest()}
+              disabled={testing || !activeKnowledgeCompanyId || !testInput.trim()}
+            >
               {testing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />}
               Отправить тест
             </Button>

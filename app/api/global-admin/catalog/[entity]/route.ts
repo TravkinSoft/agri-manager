@@ -795,25 +795,6 @@ async function resolvePesticideCategoryIdBySlug(supabase: any, slugOrId: string 
   return data?.id || null;
 }
 
-async function assertGlobalAdmin(userId: string) {
-  const supabase = getServiceClient();
-  const { data: profile, error } = await supabase
-    .from("profiles")
-    .select("id, role, status")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error || !profile?.id) throw new Error("Профиль пользователя не найден");
-  if (String(profile.role || "").toLowerCase() !== "global_admin") {
-    throw new Error("Доступ только для глобального администратора");
-  }
-  if (String(profile.status || "active") !== "active") {
-    throw new Error("Профиль глобального администратора неактивен");
-  }
-
-  return supabase;
-}
-
 async function assertGlobalAdminRequest(request: NextRequest) {
   const actor = await getServerActorFromSession(request, { ignoreImpersonation: true });
   if (actor.role !== "global_admin") {
@@ -1287,10 +1268,28 @@ export async function GET(
       entity === "fertilizers" ||
       entity === "growth_regulators";
     let glbdIndex: GlbdComponentSearchEntry[] | undefined;
-    let matchingProductIds: string[] = [];
+    const matchingProductIdSet = new Set<string>();
 
     if (entity === "active_ingredients" || componentProductEntity) {
       glbdIndex = await loadGlbdComponentSearchIndex(supabase);
+    }
+
+    if (search && productEntity) {
+      const aliasMatches = await Promise.all(
+        expandProductSearchTerms(search).map((term) =>
+          supabase
+            .from("global_product_aliases")
+            .select("product_id")
+            .ilike("alias", `%${term}%`)
+            .limit(1000)
+        )
+      );
+      for (const result of aliasMatches) {
+        if (result.error) throw new Error(result.error.message);
+        for (const row of result.data || []) {
+          if (row.product_id) matchingProductIdSet.add(String(row.product_id));
+        }
+      }
     }
 
     if (search && componentProductEntity && glbdIndex) {
@@ -1309,12 +1308,13 @@ export async function GET(
           .select("product_id")
           .in("active_ingredient_id", legacyIngredientIds);
         if (matchedLinksError) throw new Error(matchedLinksError.message);
-        matchingProductIds = Array.from(
-          new Set((matchedLinks || []).map((link: any) => link.product_id).filter(Boolean))
-        );
+        for (const link of matchedLinks || []) {
+          if (link.product_id) matchingProductIdSet.add(String(link.product_id));
+        }
       }
     }
 
+    const matchingProductIds = Array.from(matchingProductIdSet);
     let query = supabase.from(config.table).select(config.select);
     query = config.scopeWhere(query);
     query = query.eq("archived", false);
@@ -1414,7 +1414,9 @@ export async function GET(
     }
 
     if (search && (entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators")) {
-      hydratedRows = hydratedRows.filter((row: any) => productSearchMatches(row, search));
+      hydratedRows = hydratedRows.filter(
+        (row: any) => matchingProductIdSet.has(String(row?.id || "")) || productSearchMatches(row, search)
+      );
     }
 
     const rows = hydratedRows.map((row: any) => (config.normalizeRow ? config.normalizeRow(row) : row));
