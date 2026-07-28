@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import type { InventorySnapshot } from "@/lib/services/dashboard";
 import { useLanguage } from "@/lib/contexts/language-context";
+import { localizeMaterialType } from "@/lib/i18n/helpers";
 
 interface InventorySnapshotTableProps {
   data: InventorySnapshot[];
@@ -22,13 +23,7 @@ const typeColors: Record<string, string> = {
 };
 
 export function InventorySnapshotTable({ data }: InventorySnapshotTableProps) {
-  const { t } = useLanguage();
-  const typeLabel = (value: string) => {
-    if (value === "seed") return t("type_seed");
-    if (value === "fertilizer") return t("type_fertilizer");
-    if (value === "pesticide") return t("type_pesticide");
-    return value;
-  };
+  const { t, language } = useLanguage();
 
   return (
     <Card className="overflow-hidden">
@@ -49,7 +44,7 @@ export function InventorySnapshotTable({ data }: InventorySnapshotTableProps) {
                       variant="secondary"
                       className={typeColors[item.productType] || ""}
                     >
-                      {typeLabel(item.productType)}
+                      {localizeMaterialType(item.productType, language)}
                     </Badge>
                     <div className="text-sm font-medium text-slate-900">{item.quantity.toFixed(2)}</div>
                   </div>
@@ -76,7 +71,7 @@ export function InventorySnapshotTable({ data }: InventorySnapshotTableProps) {
                           variant="secondary"
                           className={typeColors[item.productType] || ""}
                         >
-                          {typeLabel(item.productType)}
+                          {localizeMaterialType(item.productType, language)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">

@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-22
+LAST_UPDATED: 2026-07-28
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; previous core commit: `b4e1d9e`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; TZ-234 core commit: `efd356e9cc9acb2558a04ed0f3c0845c3d26fdad`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -23,6 +23,27 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A110_READ_ONLY_GATE_READY | TZ-195 preview принят владельцем. TZ-197 закрыл preview-pending GLBD actions; A110 может начинать read-only с safety matrix и блокировкой десяти `BLOCKED_NO_DATA`. Agronomic recommendations остаются запрещены. |
+
+## TZ-234 Work audit remediation
+
+- TZ-234 status: `PASS_WITH_DEFERRED_COPILOT_P1`; report:
+  [task-reports/core/TZ-234.md](task-reports/core/TZ-234.md).
+- Date-only values no longer pass through UTC serialization. Analytics uses the
+  current 2026 season and distinguishes API failure from real zero values.
+- Reconciliation atomically closes the operation and warehouse request.
+  `WR-2026-000035` is closed and Поле7 history shows the reconciled
+  `Celest Top - 5 л` fact.
+- Prepare/issue stock guards, signed ledger math, visible negative availability,
+  explicit target selection, machinery compatibility, Catalog Identity dedupe,
+  rate reset, notification persistence and early weighbridge validation passed.
+- QA migration `20260727224833` was applied only to
+  `gsglkmudcwkdetqtocae`; six incomplete legacy crop identities are review
+  candidates and are not auto-corrected.
+- Typecheck, QA build and automated regression passed `41/41`; authenticated
+  browser regression covered analytics, operation planning, field history,
+  warehouse request, weighbridge and notification persistence.
+- Production fingerprint is unchanged, production writes are `0`, and neither
+  production deploy nor master merge occurred.
 
 ## TZ-210 Warehousekeeper V1 preview
 

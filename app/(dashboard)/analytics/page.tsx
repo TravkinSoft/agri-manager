@@ -32,7 +32,7 @@ import {
 } from "@/lib/services/analytics";
 import { supabase } from "@/lib/supabase/client";
 import { useLanguage } from "@/lib/contexts/language-context";
-import { localizeUnit } from "@/lib/i18n/helpers";
+import { localizeMaterialType, localizeOperationType, localizeUnit } from "@/lib/i18n/helpers";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { selectCurrentSeason } from "@/lib/seasons/current-season";
 import { formatDateOnly } from "@/lib/dates/date-only";
@@ -157,7 +157,6 @@ export default function AnalyticsPage() {
             <p className="font-semibold text-red-600">
               {t("Не удалось загрузить данные", "Деректерді жүктеу мүмкін болмады", "Failed to load data")}
             </p>
-            {loadError ? <p className="mt-2 text-xs text-slate-500">{loadError}</p> : null}
           </CardContent>
         </Card>
       ) : state === "no-season" ? (
@@ -287,7 +286,7 @@ export default function AnalyticsPage() {
                   <TableBody>
                     {operationsSummary.map((summary, index) => (
                       <TableRow key={index}>
-                        <TableCell className="font-medium">{summary.operationType}</TableCell>
+                        <TableCell className="font-medium">{localizeOperationType(summary.operationType, language)}</TableCell>
                         <TableCell className="text-right">{summary.totalRecords}</TableCell>
                         <TableCell>
                           {summary.lastDate ? formatDateOnly(summary.lastDate, language === "en" ? "en-US" : language === "kz" ? "kk-KZ" : "ru-RU") : "-"}
@@ -332,13 +331,7 @@ export default function AnalyticsPage() {
                                 : "bg-orange-100 text-orange-800 hover:bg-orange-100"
                             }
                           >
-                            {summary.productType === "seed"
-                              ? t("семена", "тұқым", "seed")
-                              : summary.productType === "fertilizer"
-                              ? t("удобрение", "тыңайтқыш", "fertilizer")
-                              : summary.productType === "pesticide"
-                              ? t("пестицид", "пестицид", "pesticide")
-                              : summary.productType}
+                            {localizeMaterialType(summary.productType, language)}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">

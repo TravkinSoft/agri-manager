@@ -1973,6 +1973,7 @@ export default function CropStructurePage() {
         allocation,
         facts,
         key: allocationKey(allocation, index),
+        reviewRequired: Boolean(allocation.identity_review_required),
         materialRows,
         operationSummary,
         operationsForAllocation,
@@ -2048,7 +2049,9 @@ export default function CropStructurePage() {
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-slate-100">{item.title}</div>
-                        <div className="mt-1 text-xs text-slate-500">{fmtHa(item.plannedArea)}</div>
+                        <div className={`mt-1 text-xs ${item.reviewRequired ? "font-medium text-amber-300" : "text-slate-500"}`}>
+                          {item.reviewRequired ? "Требуется уточнить сорт и репродукцию" : fmtHa(item.plannedArea)}
+                        </div>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">{item.operationsForAllocation.length} оп.</span>
@@ -2065,6 +2068,11 @@ export default function CropStructurePage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-lg font-semibold text-white">{selectedItem.title}</div>
+                    {selectedItem.reviewRequired ? (
+                      <div className="mt-1 text-xs font-medium text-amber-300">
+                        До оформления урожая уточните культуру, сорт и репродукцию.
+                      </div>
+                    ) : null}
                     <div className="mt-1 text-sm text-slate-400">
                       {fmtHa(selectedItem.plannedArea)} · операций {selectedItem.operationsForAllocation.length} · материалов {selectedItem.materialRows.length}
                     </div>

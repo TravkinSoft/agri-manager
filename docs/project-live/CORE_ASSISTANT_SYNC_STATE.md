@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-22T11:30:00+05:00
+LAST_REVIEW_AT: 2026-07-28T00:00:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (previous core commit: `b4e1d9e`)
+CORE_COMMIT: `SELF` (TZ-234 core commit: `efd356e9cc9acb2558a04ed0f3c0845c3d26fdad`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
@@ -17,6 +17,25 @@ INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
 NEXT_SAFE_ACTION: Start A110 in assistant-v1 as read-only GLBD access using the TZ-196 safety matrix plus the TZ-197 post-apply record. Exclude the ten `BLOCKED_NO_DATA` rows; do not implement agronomic recommendations.
+
+## TZ-234 review result
+
+TZ234_ASSISTANT_CHANGES_FOUND: `LOCAL_PRESENTATION_ONLY`; the server context
+error mapper no longer exposes service-role, credential or secret names to end
+users.
+
+TZ234_CORE_IMPACT_FOUND: `YES - operation, warehouse, analytics, crop identity,
+field history, notification and weighbridge contracts were hardened`.
+
+TZ234_INTEGRATION_CONTRACT_IMPACT: `NO`; Contract 0.4, read-only GLBD rules,
+memory behavior and ERP-write boundaries are unchanged.
+
+TZ234_COPILOT_P1: `DEFERRED`; reconciling the standard context endpoint's
+server-data dependency with the branch runtime guard requires a separate
+Assistant architecture task.
+
+TZ234_TEST_ENVIRONMENT: `gsglkmudcwkdetqtocae and Vercel Preview only`;
+production writes, production deploy and master merge are `0/NO/NO`.
 
 ## TZ-216 review result
 

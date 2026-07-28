@@ -8,15 +8,16 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RecentOperation } from "@/lib/services/dashboard";
-import { format } from "date-fns";
 import { useLanguage } from "@/lib/contexts/language-context";
+import { formatDateOnly } from "@/lib/dates/date-only";
 
 interface RecentOperationsTableProps {
   data: RecentOperation[];
 }
 
 export function RecentOperationsTable({ data }: RecentOperationsTableProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const locale = language === "en" ? "en-US" : language === "kz" ? "kk-KZ" : "ru-RU";
 
   return (
     <Card className="overflow-hidden">
@@ -31,7 +32,7 @@ export function RecentOperationsTable({ data }: RecentOperationsTableProps) {
             <div className="space-y-2 md:hidden">
               {data.map((item) => (
                 <div key={item.id} className="rounded-lg border border-slate-200 p-3">
-                  <div className="mb-1 text-xs text-slate-500">{format(new Date(item.date), "MMM dd, yyyy")}</div>
+                  <div className="mb-1 text-xs text-slate-500">{formatDateOnly(item.date, locale)}</div>
                   <div className="text-sm font-semibold text-slate-900">{item.operationType}</div>
                   <div className="mt-1 text-sm text-slate-700">{item.fieldName}</div>
                   <div className="text-xs text-slate-500">{item.cropName || "-"}</div>
@@ -54,7 +55,7 @@ export function RecentOperationsTable({ data }: RecentOperationsTableProps) {
                   {data.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell className="font-medium">
-                        {format(new Date(item.date), "MMM dd, yyyy")}
+                        {formatDateOnly(item.date, locale)}
                       </TableCell>
                       <TableCell>{item.fieldName}</TableCell>
                       <TableCell>{item.cropName || "-"}</TableCell>
