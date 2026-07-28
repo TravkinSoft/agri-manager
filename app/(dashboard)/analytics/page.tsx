@@ -33,6 +33,11 @@ import {
 import { supabase } from "@/lib/supabase/client";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
+import { useAuth } from "@/lib/contexts/auth-context";
+import { selectCurrentSeason } from "@/lib/seasons/current-season";
+import { formatDateOnly } from "@/lib/dates/date-only";
+
+type AnalyticsState = "loading" | "loaded" | "error" | "no-season";
 
 export default function AnalyticsPage() {
   const [seasons, setSeasons] = useState<Array<{ id: string; name: string; year: number }>>([]);
@@ -46,45 +51,56 @@ export default function AnalyticsPage() {
   const [cropReport, setCropReport] = useState<CropStructureReport[]>([]);
   const [operationsSummary, setOperationsSummary] = useState<OperationsSummary[]>([]);
   const [inventorySummary, setInventorySummary] = useState<InventorySummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [state, setState] = useState<AnalyticsState>("loading");
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const { profile } = useAuth();
   const { language } = useLanguage();
   const t = (ru: string, kz: string, en: string) =>
     language === "ru" ? ru : language === "kz" ? kz : en;
 
   useEffect(() => {
     async function loadSeasons() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!profile?.company_id) return;
+      setState("loading");
+      setLoadError(null);
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("seasons")
-        .select("id, name, year")
-        .eq("user_id", user.id)
+        .select("id,name,year,archived")
+        .eq("company_id", profile.company_id)
         .eq("archived", false)
         .order("year", { ascending: false });
 
-      setSeasons(data || []);
-      if (data && data.length > 0) {
-        setSelectedSeasonId(data[0].id);
+      if (error) {
+        setLoadError(error.message);
+        setState("error");
+        return;
       }
+      const rows = (data || []).map((row: any) => ({
+        id: String(row.id),
+        name: String(row.name || row.year),
+        year: Number(row.year),
+        archived: Boolean(row.archived),
+      }));
+      const current = selectCurrentSeason(rows, 2026);
+      setSeasons(rows);
+      setSelectedSeasonId(current?.id || "");
+      if (!current) setState("no-season");
     }
 
-    loadSeasons();
-  }, []);
+    void loadSeasons();
+  }, [profile?.company_id]);
 
   useEffect(() => {
     async function loadAnalytics() {
-      setLoading(true);
+      if (!selectedSeasonId) return;
+      setState("loading");
+      setLoadError(null);
       try {
         const [summary, crop, operations, inventory] = await Promise.all([
-          selectedSeasonId ? getSeasonSummary(selectedSeasonId) : Promise.resolve({
-            totalFields: 0,
-            totalPlantedArea: 0,
-            totalExpectedYield: 0,
-            totalOperations: 0,
-          }),
-          selectedSeasonId ? getCropStructureReport(selectedSeasonId) : Promise.resolve([]),
-          getOperationsSummary(),
+          getSeasonSummary(selectedSeasonId),
+          getCropStructureReport(selectedSeasonId),
+          getOperationsSummary(selectedSeasonId),
           getInventorySummary(),
         ]);
 
@@ -92,10 +108,10 @@ export default function AnalyticsPage() {
         setCropReport(crop);
         setOperationsSummary(operations);
         setInventorySummary(inventory);
+        setState("loaded");
       } catch (error) {
-        console.error("Error loading analytics:", error);
-      } finally {
-        setLoading(false);
+        setLoadError(error instanceof Error ? error.message : "Не удалось загрузить данные");
+        setState("error");
       }
     }
 
@@ -131,10 +147,25 @@ export default function AnalyticsPage() {
         </Card>
       </div>
 
-      {loading ? (
+      {state === "loading" ? (
         <div className="text-center py-12">
           <p className="text-slate-500">{t("Загрузка аналитики...", "Аналитика жүктелуде...", "Loading analytics...")}</p>
         </div>
+      ) : state === "error" ? (
+        <Card className="border-red-500/40">
+          <CardContent className="py-8 text-center">
+            <p className="font-semibold text-red-600">
+              {t("Не удалось загрузить данные", "Деректерді жүктеу мүмкін болмады", "Failed to load data")}
+            </p>
+            {loadError ? <p className="mt-2 text-xs text-slate-500">{loadError}</p> : null}
+          </CardContent>
+        </Card>
+      ) : state === "no-season" ? (
+        <Card>
+          <CardContent className="py-8 text-center text-sm text-slate-500">
+            {t("Нет активного сезона.", "Белсенді маусым жоқ.", "No active season.")}
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-6">
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -259,9 +290,7 @@ export default function AnalyticsPage() {
                         <TableCell className="font-medium">{summary.operationType}</TableCell>
                         <TableCell className="text-right">{summary.totalRecords}</TableCell>
                         <TableCell>
-                          {summary.lastDate
-                            ? new Date(summary.lastDate).toLocaleDateString()
-                            : "-"}
+                          {summary.lastDate ? formatDateOnly(summary.lastDate, language === "en" ? "en-US" : language === "kz" ? "kk-KZ" : "ru-RU") : "-"}
                         </TableCell>
                       </TableRow>
                     ))}

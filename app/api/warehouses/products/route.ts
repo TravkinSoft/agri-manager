@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth/server-session";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
 import { isAgrochemicalProductType } from "@/lib/warehouse/warehouse-scope";
+import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
 
 const READ_ROLES = [
   "global_admin",
@@ -93,11 +94,12 @@ export async function GET(request: NextRequest) {
       (row: any) => row.company_id != null || !overriddenGlobalIds.has(String(row.id))
     );
     const agrochemicalOnly = request.nextUrl.searchParams.get("scope") === "agrochemical";
-    const products = agrochemicalOnly
+    const scopedProducts = agrochemicalOnly
       ? deduped.filter((row: any) =>
           isAgrochemicalProductType(row.product_type || row.type || row.category)
         )
       : deduped;
+    const products = dedupeProductsForSelect(scopedProducts);
     const productIds = products.map((row: any) => String(row.id));
     const { data: aliases } = productIds.length
       ? await supabase

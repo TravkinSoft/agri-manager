@@ -179,6 +179,9 @@ export interface InventoryBalance {
   quantity: number;
   reserved_quantity?: number;
   available_quantity?: number;
+  deficit_quantity?: number;
+  stock_status?: "available" | "deficit" | string;
+  reservations?: WarehouseStockReservation[];
   product_ids?: string[];
   last_updated: string;
 }
@@ -203,8 +206,21 @@ export interface WarehouseStockDetails {
   quantity: number;
   reserved_quantity: number;
   available_quantity: number;
+  deficit_quantity: number;
+  stock_status: "available" | "deficit" | string;
+  reservations: WarehouseStockReservation[];
   lots: WarehouseStockLot[];
   movements: InventoryTransactionWithDetails[];
+}
+
+export interface WarehouseStockReservation {
+  request_id: string;
+  request_number: string;
+  operation_id: string | null;
+  operation: string | null;
+  field: string | null;
+  quantity: number;
+  status: string;
 }
 
 export interface WarehouseTransferInput {

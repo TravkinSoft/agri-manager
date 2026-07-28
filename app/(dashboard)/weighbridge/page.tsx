@@ -27,6 +27,7 @@ import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { createWarehouseTransfer } from "@/lib/services/warehouses";
 import { isWeighedFieldMaterial, isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
+import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
 
 type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "impurity_removal" | "drying";
@@ -861,7 +862,7 @@ export default function WeighbridgeOperationsPage() {
         return Array.from(map.values());
       };
 
-      const productRows = dedupeByName(
+      const productRows = dedupeProductsForSelect(
         (productsRes.data || []).filter((row: any) =>
           !hasQaDataMarker(`${brandName(row) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
         )
@@ -1207,18 +1208,24 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
     const exists = fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId);
-    if (!exists && form.operationType === "issue_to_field" && fieldHarvestOptions.length > 1) {
-      setForm((prev) => ({ ...prev, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "" }));
-      return;
-    }
-    if (!exists) {
-      const first = fieldHarvestOptions.find((x) => !x.isIncomplete) || fieldHarvestOptions[0];
+    if (!exists && fieldHarvestOptions.length === 1 && !fieldHarvestOptions[0].isIncomplete) {
+      const first = fieldHarvestOptions[0];
       setForm((prev) => ({
         ...prev,
         cropStructureAllocationId: first.allocationId,
         cropId: first.cropId,
         varietyId: first.varietyId,
         reproductionId: first.reproductionId,
+      }));
+      return;
+    }
+    if (!exists) {
+      setForm((prev) => ({
+        ...prev,
+        cropStructureAllocationId: "",
+        cropId: "",
+        varietyId: "",
+        reproductionId: "",
       }));
     }
   }, [form.operationType, form.fieldId, fieldHarvestOptions, form.cropStructureAllocationId]);
@@ -1761,88 +1768,7 @@ export default function WeighbridgeOperationsPage() {
     return null;
   };
 
-  const legacyValidate = () => {
-    if (!profile?.company_id || !profile?.id) return "Нет профиля пользователя";
-    if (form.operationType === "harvest_incoming") {
-      if (!form.driverId) return "Выберите водителя";
-      if (!form.vehicleId) return "Выберите машину";
-      if (!form.fieldId || !form.warehouseToId || !form.cropStructureAllocationId || !form.cropId) {
-        return "Заполните поле, склад и культуру";
-      }
-      const hasLinkedCombo = fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId);
-      if (!hasLinkedCombo) return "Выбранные культура/сорт/репродукция не связаны с полем в структуре посева";
-      if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
-    } else if (form.operationType === "supplier_receipt") {
-      if (!form.supplierId) return "Выберите поставщика";
-      if (!form.warehouseToId) return "Выберите склад назначения";
-      if (form.supplierReceiptMode === "weighbridge") {
-        if (!form.driverId) return "Выберите водителя";
-        if (!form.vehicleId) return "Выберите машину";
-        if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
-      } else if (!toNum(form.quantityKg) || Number(form.quantityKg) <= 0) {
-        return "Укажите количество по накладной";
-      }
-      if (form.supplierItemMode === "generic" && !form.productId) return "Выберите номенклатуру";
-      if (form.supplierItemMode === "agro_identity") {
-        if (!form.cropId || !form.varietyId || !form.reproductionId) return "Для агро-продукции укажите культуру, сорт и репродукцию";
-        if (!form.supplierLot.trim()) return "Укажите партию поставщика";
-      }
-    } else if (form.operationType === "issue_to_field") {
-      if (form.fieldId && fieldHarvestOptions.length > 1 && !form.cropStructureAllocationId) return "Выберите посевную строку поля";
-      if (form.fieldId && !selectedHarvestAllocation) return "Для отпуска в поле нужна посевная строка активного сезона";
-      if (form.linkedOperationLineId && !form.linkedOperationId) return "Сначала выберите операцию, затем строку операции";
-      if (!form.warehouseFromId) return "Выберите склад-источник";
-      if (!form.fieldId) return "Выберите поле";
-      if (!form.fieldMaterialCategory) return "Выберите категорию материала";
-      if (!form.stockIdentityKey || !selectedTransferStock) return "Выберите материал из остатков склада";
-      if (form.fieldIssueMode === "weighbridge") {
-        if (!form.driverId) return "Выберите водителя";
-        if (!form.vehicleId) return "Выберите машину";
-        if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
-      } else {
-        const qty = toNum(form.quantityKg);
-        if (!qty || qty <= 0) return "Укажите количество отпуска в поле";
-        if (qty > Number(selectedTransferStock.quantity || 0)) return "Количество больше доступного остатка";
-      }
-      if (isSeedIssueOperation(form.fieldMaterialCategory)) {
-        if (!selectedHarvestAllocation) return "Для посева нужна структура посевов выбранного поля";
-        if (!selectedTransferStock.variety_id || !selectedTransferStock.reproduction_id) {
-          return "Для посева выберите семенную партию с сортом и репродукцией";
-        }
-        const cropMatches = selectedTransferStock.product_name
-          .toLowerCase()
-          .includes(selectedHarvestAllocation.cropName.toLowerCase());
-        if (
-          !cropMatches ||
-          selectedTransferStock.variety_id !== selectedHarvestAllocation.varietyId ||
-          selectedTransferStock.reproduction_id !== selectedHarvestAllocation.reproductionId
-        ) {
-          return "Семенная партия не соответствует культуре, сорту или репродукции поля";
-        }
-      }
-      return null;
-    } else if (form.operationType === "transfer_between_warehouses") {
-      if (!form.warehouseFromId || !form.warehouseToId) return "Выберите склад-источник и склад назначения";
-      if (form.warehouseFromId === form.warehouseToId) return "Склад-источник и склад назначения не должны совпадать";
-      if (!form.stockIdentityKey || !selectedTransferStock) return "Выберите остаток из склада-источника";
-      if (form.transferMode === "weighbridge") {
-        if (!form.driverId) return "Выберите водителя";
-        if (!form.vehicleId) return "Выберите машину";
-        if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
-      } else {
-        const qty = toNum(form.quantityKg);
-        if (!qty || qty <= 0) return "Укажите количество перемещения";
-        if (qty > Number(selectedTransferStock.quantity || 0)) return "Количество больше доступного остатка";
-      }
-    } else {
-      if (!form.driverId) return "Выберите водителя";
-      if (!form.vehicleId) return "Выберите машину";
-      if (!form.productId || !toNum(form.quantityKg) || Number(form.quantityKg) <= 0) return "Заполните номенклатуру и количество";
-    }
-    if (form.operationType === "disposal_writeoff" && (!form.warehouseFromId || !form.disposalReason.trim())) return "Для списания укажите склад и причину";
-    if (form.operationType === "drying" && (!form.warehouseFromId || !form.warehouseToId || !form.processingPointId || !toNum(form.dryingOutputKg))) return "Для сушки заполните все обязательные поля";
-    return null;
-  };
+  const currentValidationError = loading ? "Данные ещё загружаются" : validate();
 
   const create = async () => {
     if (!canOperate || submitting) return;
@@ -2058,7 +1984,12 @@ export default function WeighbridgeOperationsPage() {
         });
       }
       if (!isSupplierDirect && createdStatus !== "finalized") {
-        toast({ title: "Талон создан", description: "Талон добавлен в активные" });
+        toast({
+          title: "Талон создан",
+          description: result?.ticket?.ticket_no
+            ? `Талон ${result.ticket.ticket_no} добавлен в активные`
+            : "Талон добавлен в активные",
+        });
       }
       setForm((prev) => ({
         ...INITIAL_FORM,
@@ -2826,477 +2757,22 @@ export default function WeighbridgeOperationsPage() {
 
             {canOperate ? (
               <div className="sticky bottom-0 z-10 -mx-4 border-t border-slate-800 bg-[#101724]/95 px-4 pt-3 backdrop-blur">
-                <Button className="h-11 w-full text-base font-semibold" onClick={create} disabled={submitting}>
+                <Button
+                  className="h-11 w-full text-base font-semibold"
+                  onClick={create}
+                  disabled={
+                    submitting ||
+                    Boolean(currentValidationError) ||
+                    (!activeShift && !isSupplierDirect)
+                  }
+                >
                   {submitting ? "Создание..." : "Создать талон"}
                 </Button>
                 {loading ? <div className="mt-1 text-xs text-amber-300">Данные ещё загружаются. Повторите через пару секунд.</div> : null}
                 {!loading && !activeShift && !isSupplierDirect ? <div className="mt-1 text-xs text-amber-300">Смена закрыта: откройте её через меню ⋯.</div> : null}
-              </div>
-            ) : null}
-          </CardContent>
-          <CardContent className="hidden">
-            <div className="grid gap-1.5 md:grid-cols-1">
-              <div className="rounded-md border bg-slate-900 px-2 py-1.5 text-white">
-                <div className="text-xs uppercase tracking-wide text-slate-300">LIVE</div>
-                <div className="mt-1 text-xl font-semibold leading-none">{liveWeightKg.toLocaleString("ru-RU")} кг</div>
-              </div>
-              <div className="hidden rounded-md border bg-slate-50 p-3 text-sm">
-                <div className="text-xs text-slate-500">Текущий талон</div>
-                <div className="mt-1 font-medium">{activeTicket?.ticket_no || "—"}</div>
-              </div>
-              <div className="hidden rounded-md border bg-slate-50 p-3 text-sm">
-                <div className="text-xs text-slate-500">Следующее действие</div>
-                <div className="mt-1 font-medium">{nextActionLabel}</div>
-              </div>
-            </div>
-            {!canOperate ? <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Режим наблюдения: доступен только просмотр.</div> : null}
-            <div className="space-y-1">
-              <Label>Тип операции</Label>
-              <div className="grid gap-1 md:grid-cols-2">{(["harvest_incoming", "supplier_receipt", "issue_to_field", "transfer_between_warehouses", "disposal_writeoff", "drying"] as OperationType[]).map((type) => <Button key={type} size="sm" type="button" variant={form.operationType === type ? "default" : "outline"} className={form.operationType === type ? "h-8 border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700" : "h-8"} onClick={() => setForm((p) => ({ ...INITIAL_FORM, operationType: type }))}>{opMeta(type).title}</Button>)}</div>
-            </div>
-
-            {form.operationType === "harvest_incoming" ? (
-              <div className="space-y-1">
-                <Label>Номенклатура урожая *</Label>
-                <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
-                  Номенклатура урожая определяется автоматически по структуре посевов и не редактируется вручную.
-                </div>
-                {/* manual harvest nomenclature selector removed intentionally */}
-                {/* <Select value={form.harvestProductId} onValueChange={(v) => setForm((p) => ({ ...p, harvestProductId: v }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Автоподбор или выберите вручную" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {harvestProducts.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select> */}
-              </div>
-            ) : null}
-
-            {form.operationType === "supplier_receipt" ? (
-              <div className="space-y-2 rounded-md border border-blue-100 bg-blue-50/50 p-2">
-                <div className="grid gap-2 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Поставщик *</Label>
-                    <Select value={form.supplierId} onValueChange={(v) => setForm((p) => ({ ...p, supplierId: v }))}>
-                      <SelectTrigger className="h-8"><SelectValue placeholder="Выберите поставщика" /></SelectTrigger>
-                      <SelectContent>
-                        {suppliers.length === 0 ? <SelectItem value="__empty" disabled>Поставщики не добавлены</SelectItem> : null}
-                        {suppliers.map((s) => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Документ поставщика</Label>
-                    <Input className="h-8" value={form.supplierDocumentNo} onChange={(e) => setForm((p) => ({ ...p, supplierDocumentNo: e.target.value }))} placeholder="Накладная / ТТН" />
-                  </div>
-                </div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Тип приёмки *</Label>
-                    <div className="grid grid-cols-2 gap-1">
-                      <Button type="button" size="sm" variant={form.supplierReceiptMode === "weighbridge" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "weighbridge" }))}>Через весовую</Button>
-                      <Button type="button" size="sm" variant={form.supplierReceiptMode === "direct" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierReceiptMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>По накладной</Button>
-                    </div>
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Тип продукции *</Label>
-                    <div className="grid grid-cols-2 gap-1">
-                      <Button type="button" size="sm" variant={form.supplierItemMode === "generic" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierItemMode: "generic", cropId: "", varietyId: "", reproductionId: "", supplierLot: "", harvestYear: "" }))}>Обычная поставка</Button>
-                      <Button type="button" size="sm" variant={form.supplierItemMode === "agro_identity" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, supplierItemMode: "agro_identity", productId: "" }))}>Семена / Агро</Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="grid gap-3 md:grid-cols-2">
-              {(form.operationType === "harvest_incoming" || form.operationType === "issue_to_field") && <div className="space-y-2"><Label>Поле *</Label><Select value={form.fieldId} onValueChange={(v) => setForm((p) => ({ ...p, fieldId: v, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "", linkedOperationId: "", linkedOperationLineId: "" }))}><SelectTrigger><SelectValue placeholder="Выберите поле" /></SelectTrigger><SelectContent>{fields.map((f) => <SelectItem key={f.id} value={f.id}>{f.name} • {f.area.toFixed(2)} га</SelectItem>)}</SelectContent></Select></div>}
-              {form.operationType !== "harvest_incoming" && form.operationType !== "supplier_receipt" && <div className="space-y-2"><Label>Склад-источник *</Label><Select value={form.warehouseFromId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseFromId: v, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}><SelectTrigger><SelectValue placeholder="Выберите склад" /></SelectTrigger><SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent></Select></div>}
-              {(form.operationType === "harvest_incoming" || form.operationType === "supplier_receipt" || form.operationType === "transfer_between_warehouses" || form.operationType === "drying") && <div className="space-y-2"><Label>{form.operationType === "drying" ? "Склад после сушки *" : "Склад назначения *"}</Label><Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}><SelectTrigger><SelectValue placeholder="Выберите склад" /></SelectTrigger><SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent></Select></div>}
-              {form.operationType === "drying" && <div className="space-y-2"><Label>Точка сушки *</Label><Select value={form.processingPointId} onValueChange={(v) => setForm((p) => ({ ...p, processingPointId: v }))}><SelectTrigger><SelectValue placeholder="Выберите точку" /></SelectTrigger><SelectContent>{processingPoints.map((x) => <SelectItem key={x.id} value={x.id}>{x.name}</SelectItem>)}</SelectContent></Select></div>}
-            </div>
-
-            {form.operationType === "harvest_incoming" ? <div className="space-y-1.5">{fieldHarvestOptions.length > 1 ? <div className="space-y-1"><Label>Посевная строка *</Label><Select value={form.cropStructureAllocationId} onValueChange={(v) => setForm((p) => ({ ...p, cropStructureAllocationId: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Выберите строку структуры посевов" /></SelectTrigger><SelectContent>{fieldHarvestOptions.map((x) => <SelectItem key={x.allocationId} value={x.allocationId}>{x.cropName} / {x.varietyName} / {x.reproductionName} • {x.areaHa.toFixed(2)} га</SelectItem>)}</SelectContent></Select></div> : null}<div className="grid gap-2 md:grid-cols-3"><div className="space-y-1"><Label>Культура *</Label><Input className="h-8" value={selectedHarvestAllocation?.cropName || crops.find((c) => c.id === form.cropId)?.name || ""} readOnly placeholder="Авто из структуры посевов" /></div><div className="space-y-1"><Label>Сорт *</Label><Input className="h-8" value={selectedHarvestAllocation?.varietyName || ""} readOnly placeholder="Авто из структуры посевов" /></div><div className="space-y-1"><Label>Репродукция *</Label><Input className="h-8" value={selectedHarvestAllocation?.reproductionName || ""} readOnly placeholder="Авто из структуры посевов" /></div></div><div className="rounded-md border bg-slate-50 px-2 py-1.5 text-xs"><div className="text-slate-700">Партия: {(selectedHarvestAllocation?.cropName || crops.find((c) => c.id === form.cropId)?.name || "—")} / {(selectedHarvestAllocation?.varietyName || "—")} / {(selectedHarvestAllocation?.reproductionName || "—")}</div><div className="text-slate-600">Поле: {fields.find((f) => f.id === form.fieldId)?.name || "—"} • Склад: {warehouses.find((w) => w.id === form.warehouseToId)?.name || "—"}</div></div>{form.fieldId && harvestIncompleteFields[form.fieldId] ? <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">В структуре посевов для этого поля не указан сорт/репродукция.</div> : null}{form.fieldId && fieldHarvestOptions.length === 0 && !harvestIncompleteFields[form.fieldId] ? <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">Для этого поля нет структуры посевов в активном сезоне.</div> : null}</div> : form.operationType === "supplier_receipt" ? (
-              <div className="space-y-2">
-                {form.supplierItemMode === "generic" ? (
-                  <div className="space-y-2">
-                    <div className="grid gap-2 md:grid-cols-5">
-                      <div className="space-y-1"><Label>Номенклатура *</Label><Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v, quantityUom: inferProductUnit(productById.get(v)) }))}><SelectTrigger className="h-8"><SelectValue placeholder="Удобрения, СЗР, ГСМ..." /></SelectTrigger><SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div>
-                      <div className="space-y-1"><Label>{form.supplierReceiptMode === "direct" || supplierReceiptUsesMultipleLines ? "Количество *" : "Количество"}</Label><Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder={form.supplierReceiptMode === "weighbridge" && !supplierReceiptUsesMultipleLines ? "опц. для нескольких строк" : ""} /></div>
-                      <div className="space-y-1"><Label>Ед. *</Label><Select value={form.quantityUom} onValueChange={(v) => setForm((p) => ({ ...p, quantityUom: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Ед." /></SelectTrigger><SelectContent>{["kg","g","l","ml","pcs"].map((unit) => <SelectItem key={unit} value={unit}>{unitLabel(unit)}</SelectItem>)}</SelectContent></Select></div>
-                      <div className="space-y-1"><Label>Склад строки *</Label><Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Склад" /></SelectTrigger><SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent></Select></div>
-                    </div>
-                    <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs text-slate-300" onClick={() => setShowSupplierExtraFields((v) => !v)}>
-                      {showSupplierExtraFields ? "Скрыть дополнительные данные" : "Показать номер партии / цену"}
-                    </Button>
-                    {showSupplierExtraFields ? <div className="grid gap-2 md:grid-cols-2"><div className="space-y-1"><Label>Партия / номер партии</Label><Input className="h-8" value={form.supplierLot} onChange={(e) => setForm((p) => ({ ...p, supplierLot: e.target.value }))} placeholder="необязательно" /></div><div className="space-y-1"><Label>Цена</Label><Input className="h-8" value={form.unitPrice} onChange={(e) => setForm((p) => ({ ...p, unitPrice: e.target.value }))} placeholder="необязательно" /></div></div> : null}
-                    {supplierReceiptLines.map((line) => (
-                      <div key={line.localId} className="grid gap-2 rounded-md border border-slate-700 bg-slate-950/40 p-2 md:grid-cols-[1fr_110px_90px_160px_auto]">
-                        <div className="space-y-1">
-                          <Label>Номенклатура *</Label>
-                          <Select
-                            value={line.productId}
-                            onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, productId: v, uom: inferProductUnit(productById.get(v)) } : item))}
-                          >
-                            <SelectTrigger className="h-8"><SelectValue placeholder="Выберите товар" /></SelectTrigger>
-                            <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Количество *</Label>
-                          <Input className="h-8" value={line.quantityKg} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, quantityKg: e.target.value } : item))} />
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Ед. *</Label>
-                          <Select value={line.uom} onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, uom: v } : item))}>
-                            <SelectTrigger className="h-8"><SelectValue placeholder="Ед." /></SelectTrigger>
-                            <SelectContent>{["kg","g","l","m","roll","pcs","pack"].map((unit) => <SelectItem key={unit} value={unit}>{unitLabel(unit)}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label>Склад *</Label>
-                          <Select value={line.warehouseToId || form.warehouseToId} onValueChange={(v) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, warehouseToId: v } : item))}>
-                            <SelectTrigger className="h-8"><SelectValue placeholder="Склад" /></SelectTrigger>
-                            <SelectContent>{warehouses.map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
-                          </Select>
-                        </div>
-                        {showSupplierExtraFields ? (
-                          <>
-                            <div className="space-y-1 md:col-span-2">
-                              <Label>Партия / номер партии</Label>
-                              <Input className="h-8" value={line.supplierLot} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, supplierLot: e.target.value } : item))} placeholder="необязательно" />
-                            </div>
-                            <div className="space-y-1">
-                              <Label>Цена</Label>
-                              <Input className="h-8" value={line.unitPrice} onChange={(e) => setSupplierReceiptLines((prev) => prev.map((item) => item.localId === line.localId ? { ...item, unitPrice: e.target.value } : item))} placeholder="необязательно" />
-                            </div>
-                          </>
-                        ) : null}
-                        <div className="flex items-end">
-                          <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => setSupplierReceiptLines((prev) => prev.filter((item) => item.localId !== line.localId))}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="flex items-center justify-between gap-2">
-                      <Button type="button" size="sm" variant="outline" className="h-8" onClick={() => setSupplierReceiptLines((prev) => [...prev, createSupplierReceiptLineDraft(form.warehouseToId)])}>
-                        + Добавить строку поставки
-                      </Button>
-                      {supplierReceiptGenericLineDrafts.length > 1 ? <div className="text-xs text-slate-400">Итого по строкам: {supplierReceiptGenericLineTotal.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div> : null}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="grid gap-2 md:grid-cols-3">
-                      <div className="space-y-1"><Label>Культура *</Label><Select value={form.cropId} onValueChange={(v) => setForm((p) => ({ ...p, cropId: v, varietyId: "" }))}><SelectTrigger className="h-8"><SelectValue placeholder="Культура" /></SelectTrigger><SelectContent>{crops.map((c) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select></div>
-                      <div className="space-y-1"><Label>Сорт *</Label><Select value={form.varietyId} onValueChange={(v) => setForm((p) => ({ ...p, varietyId: v }))} disabled={!form.cropId}><SelectTrigger className="h-8"><SelectValue placeholder={form.cropId ? "Выберите сорт" : "Сначала культура"} /></SelectTrigger><SelectContent>{supplierVarietyOptions.length === 0 ? <SelectItem value="__empty" disabled>Для культуры сорта не найдены</SelectItem> : null}{supplierVarietyOptions.map((v) => <SelectItem key={v.id} value={v.id}>{v.name}</SelectItem>)}</SelectContent></Select></div>
-                      <div className="space-y-1"><Label>Репродукция *</Label><Select value={form.reproductionId} onValueChange={(v) => setForm((p) => ({ ...p, reproductionId: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Выберите репродукцию" /></SelectTrigger><SelectContent>{reproductions.length === 0 ? <SelectItem value="__empty" disabled>Репродукции не найдены</SelectItem> : null}{reproductions.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}</SelectContent></Select></div>
-                    </div>
-                    <div className="grid gap-2 md:grid-cols-3">
-                      <div className="space-y-1"><Label>Партия поставщика *</Label><Input className="h-8" value={form.supplierLot} onChange={(e) => setForm((p) => ({ ...p, supplierLot: e.target.value }))} /></div>
-                      <div className="space-y-1"><Label>Год урожая</Label><Input className="h-8" value={form.harvestYear} onChange={(e) => setForm((p) => ({ ...p, harvestYear: e.target.value }))} /></div>
-                      {form.supplierReceiptMode === "direct" ? <div className="space-y-1"><Label>Количество (кг) *</Label><Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} /></div> : null}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : form.operationType === "issue_to_field" ? (
-              <div className="space-y-2">
-                <div className="space-y-1">
-                  <Label>Режим выдачи *</Label>
-                  <div className="grid grid-cols-2 gap-1">
-                    <Button type="button" size="sm" variant={form.fieldIssueMode === "weighbridge" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
-                    <Button type="button" size="sm" variant={form.fieldIssueMode === "direct" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручная выдача</Button>
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <Label>Операция по полю *</Label>
-                  <div className="grid grid-cols-3 gap-1">
-                    {(Object.keys(fieldMaterialCategoryLabels) as FieldMaterialCategory[]).map((type) => (
-                      <Button
-                        key={type}
-                        type="button"
-                        size="sm"
-                        variant={form.fieldMaterialCategory === type ? "default" : "outline"}
-                        className="h-8"
-                        onClick={() => setForm((p) => ({ ...p, fieldMaterialCategory: type, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}
-                      >
-                        {fieldMaterialCategoryLabels[type]}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="grid gap-2 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Связанная операция (опционально)</Label>
-                    <Select
-                      value={form.linkedOperationId}
-                      onValueChange={(value) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          linkedOperationId: value,
-                          linkedOperationLineId: "",
-                        }))
-                      }
-                      disabled={!form.fieldId || linkedOperationsForField.length === 0}
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue
-                          placeholder={
-                            !form.fieldId
-                              ? "Сначала выберите поле"
-                              : linkedOperationsForField.length === 0
-                                ? "По полю нет открытых операций"
-                                : "Выберите операцию"
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {linkedOperationsForField.length === 0 ? (
-                          <SelectItem value="__empty_operation" disabled>
-                            Операции не найдены
-                          </SelectItem>
-                        ) : null}
-                        {linkedOperationsForField.map((operation) => (
-                          <SelectItem key={operation.id} value={operation.id}>
-                            {operation.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {form.linkedOperationId ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-slate-600"
-                        onClick={() =>
-                          setForm((prev) => ({
-                            ...prev,
-                            linkedOperationId: "",
-                            linkedOperationLineId: "",
-                          }))
-                        }
-                      >
-                        Сбросить связь с операцией
-                      </Button>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-1">
-                    <Label>Строка операции (опционально)</Label>
-                    <Select
-                      value={form.linkedOperationLineId}
-                      onValueChange={(value) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          linkedOperationLineId: value,
-                        }))
-                      }
-                      disabled={!form.linkedOperationId || linkedOperationLinesLoading || linkedOperationLineOptions.length === 0}
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue
-                          placeholder={
-                            !form.linkedOperationId
-                              ? "Сначала выберите операцию"
-                              : linkedOperationLinesLoading
-                                ? "Загрузка строк операции..."
-                                : linkedOperationLineOptions.length === 0
-                                  ? "В операции нет строк"
-                                  : "Выберите строку операции"
-                          }
-                        />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {linkedOperationLineOptions.length === 0 ? (
-                          <SelectItem value="__empty_operation_line" disabled>
-                            Строки операции не найдены
-                          </SelectItem>
-                        ) : null}
-                        {linkedOperationLineOptions.map((line) => (
-                          <SelectItem key={line.id} value={line.id}>
-                            {line.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {form.linkedOperationLineId ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-xs text-slate-600"
-                        onClick={() =>
-                          setForm((prev) => ({
-                            ...prev,
-                            linkedOperationLineId: "",
-                          }))
-                        }
-                      >
-                        Сбросить строку операции
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-
-                {fieldHarvestOptions.length > 1 ? (
-                  <div className="space-y-1">
-                    <Label>Посевная строка / участок поля *</Label>
-                    <Select
-                      value={form.cropStructureAllocationId}
-                      onValueChange={(v) => setForm((p) => ({ ...p, cropStructureAllocationId: v, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue placeholder="Выберите культуру/сорт/репродукцию/площадь" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {fieldHarvestOptions.map((x) => (
-                          <SelectItem key={x.allocationId} value={x.allocationId}>
-                            {x.cropName} / {x.varietyName} / {x.reproductionName} — {x.areaHa.toFixed(2)} га
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                {!loading && activeShift && currentValidationError ? (
+                  <div className="mt-1 text-xs text-amber-300">{currentValidationError}</div>
                 ) : null}
-
-                {selectedHarvestAllocation ? (
-                  <div className="rounded-md border bg-emerald-50 px-2 py-1.5 text-xs text-emerald-900">
-                    Посевная строка: {selectedHarvestAllocation.cropName} / {selectedHarvestAllocation.varietyName} / {selectedHarvestAllocation.reproductionName} • {selectedHarvestAllocation.areaHa.toFixed(2)} га
-                  </div>
-                ) : form.fieldId ? (
-                  <div className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
-                    Для поля не найдена полная структура посевов активного сезона.
-                  </div>
-                ) : null}
-
-                <div className="grid gap-2 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Материал из склада *</Label>
-                    <Select
-                      value={form.stockIdentityKey}
-                      onValueChange={(v) => {
-                        const selected = fieldIssueStockOptions.find((item) => item.key === v);
-                        setForm((p) => ({
-                          ...p,
-                          stockIdentityKey: v,
-                          productId: selected?.product_id || "",
-                          varietyId: selected?.variety_id || "",
-                          reproductionId: selected?.reproduction_id || "",
-                        }));
-                      }}
-                      disabled={!form.warehouseFromId || !selectedHarvestAllocation || stockIdentityLoading}
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue placeholder={!form.warehouseFromId ? "Сначала выберите склад" : !selectedHarvestAllocation ? "Сначала выберите посевную строку" : stockIdentityLoading ? "Загрузка остатков..." : "Выберите материал"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {fieldIssueStockOptions.length === 0 ? <SelectItem value="__empty" disabled>{stockIdentityLoading ? "Загрузка..." : "Подходящих остатков нет"}</SelectItem> : null}
-                        {fieldIssueStockOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {form.fieldIssueMode === "direct" ? (
-                    <div className="space-y-1">
-                      <Label>Количество (кг) *</Label>
-                      <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} />
-                    </div>
-                  ) : (
-                    <div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-xs text-slate-300">
-                      Количество будет рассчитано при закрытии: нетто = брутто - тара.
-                    </div>
-                  )}
-                </div>
-
-                {isSeedIssueOperation(form.fieldMaterialCategory) && selectedTransferStock && selectedHarvestAllocation && (
-                  selectedTransferStock.variety_id !== selectedHarvestAllocation.varietyId ||
-                  selectedTransferStock.reproduction_id !== selectedHarvestAllocation.reproductionId ||
-                  !selectedTransferStock.product_name.toLowerCase().includes(selectedHarvestAllocation.cropName.toLowerCase())
-                ) ? (
-                  <div className="rounded-md border border-red-300 bg-red-50 px-2 py-1.5 text-xs text-red-900">
-                    Семенная партия не совпадает со структурой поля. Такой отпуск будет заблокирован.
-                  </div>
-                ) : null}
-              </div>
-            ) : form.operationType === "transfer_between_warehouses" ? (
-              <div className="space-y-2">
-                <div className="space-y-1">
-                  <Label>Режим перемещения *</Label>
-                  <div className="grid grid-cols-2 gap-1">
-                    <Button type="button" size="sm" variant={form.transferMode === "weighbridge" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, transferMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
-                    <Button type="button" size="sm" variant={form.transferMode === "direct" ? "default" : "outline"} className="h-8" onClick={() => setForm((p) => ({ ...p, transferMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручное перемещение</Button>
-                  </div>
-                </div>
-                <div className="grid gap-2 md:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label>Остаток склада *</Label>
-                    <Select
-                      value={form.stockIdentityKey}
-                      onValueChange={(v) => {
-                        const selected = stockIdentityOptions.find((item) => item.key === v);
-                        setForm((p) => ({
-                          ...p,
-                          stockIdentityKey: v,
-                          productId: selected?.product_id || "",
-                          varietyId: selected?.variety_id || "",
-                          reproductionId: selected?.reproduction_id || "",
-                        }));
-                      }}
-                      disabled={!form.warehouseFromId || stockIdentityLoading}
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue placeholder={!form.warehouseFromId ? "Сначала выберите склад-источник" : stockIdentityLoading ? "Загрузка остатков..." : "Выберите остаток"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {stockIdentityOptions.length === 0 ? <SelectItem value="__empty" disabled>{stockIdentityLoading ? "Загрузка..." : "В этом складе нет доступных остатков"}</SelectItem> : null}
-                        {stockIdentityOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                    {selectedTransferStock ? <div className="text-xs text-slate-500">Доступно: {selectedTransferStock.label.split("—").pop()?.trim()}</div> : null}
-                  </div>
-                  {form.transferMode === "direct" ? (
-                    <div className="space-y-1">
-                      <Label>Количество (кг) *</Label>
-                      <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} />
-                    </div>
-                  ) : (
-                    <div className="rounded-md border bg-slate-50 px-2 py-1.5 text-xs text-slate-600">
-                      Количество будет рассчитано при закрытии: нетто = брутто - тара.
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : <div className="grid gap-2 md:grid-cols-2"><div className="space-y-1"><Label>Номенклатура *</Label><Select value={form.productId} onValueChange={(v) => setForm((p) => ({ ...p, productId: v }))}><SelectTrigger className="h-8"><SelectValue placeholder="Выберите номенклатуру" /></SelectTrigger><SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent></Select></div><div className="space-y-1"><Label>Количество (кг) *</Label><Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} /></div></div>}
-
-            {form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct" ? null : <div className="grid gap-3 md:grid-cols-2">
-              <div className="space-y-2"><Label>Водитель (специалист){(form.operationType === "transfer_between_warehouses" && form.transferMode === "direct") || (form.operationType === "issue_to_field" && form.fieldIssueMode === "direct") ? "" : " *"}</Label><Select value={form.driverId} onValueChange={(v) => setForm((p) => ({ ...p, driverId: v }))}><SelectTrigger><SelectValue placeholder="Выберите водителя" /></SelectTrigger><SelectContent>{selectableDrivers.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent></Select></div>
-              <div className="space-y-2"><Label>Машина{(form.operationType === "transfer_between_warehouses" && form.transferMode === "direct") || (form.operationType === "issue_to_field" && form.fieldIssueMode === "direct") ? "" : " *"}</Label><Select value={form.vehicleId} onValueChange={(v) => setForm((p) => ({ ...p, vehicleId: v }))}><SelectTrigger><SelectValue placeholder="Выберите машину" /></SelectTrigger><SelectContent>{vehicles.map((v) => <SelectItem key={v.id} value={v.id}>{v.name} ({v.plate})</SelectItem>)}</SelectContent></Select></div>
-            </div>}
-
-            {form.operationType === "harvest_incoming" || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") || (form.operationType === "transfer_between_warehouses" && form.transferMode === "weighbridge") || (form.operationType === "issue_to_field" && form.fieldIssueMode === "weighbridge") ? <div className="grid gap-2 md:grid-cols-2"><div className="space-y-1"><Label>Брутто (кг) *</Label><Input className="h-8" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} /></div><div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-xs"><div className="font-medium text-slate-200">Тара указывается только при закрытии талона</div><div className="mt-1 text-slate-400">Формула: нетто = брутто - тара</div></div></div> : null}
-            {form.operationType === "drying" ? <div className="grid gap-3 md:grid-cols-3"><div className="space-y-2"><Label>Масса после сушки (кг) *</Label><Input value={form.dryingOutputKg} onChange={(e) => setForm((p) => ({ ...p, dryingOutputKg: e.target.value }))} /></div><div className="space-y-2"><Label>Влажность до (%)</Label><Input value={form.moistureIn} onChange={(e) => setForm((p) => ({ ...p, moistureIn: e.target.value }))} /></div><div className="space-y-2"><Label>Влажность после (%)</Label><Input value={form.moistureOut} onChange={(e) => setForm((p) => ({ ...p, moistureOut: e.target.value }))} /></div></div> : null}
-            {form.operationType === "disposal_writeoff" ? <div className="space-y-2"><Label>Причина списания *</Label><Input value={form.disposalReason} onChange={(e) => setForm((p) => ({ ...p, disposalReason: e.target.value }))} /></div> : null}
-            <div className="space-y-1">
-              <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs" onClick={() => setCommentOpen((v) => !v)}>
-                {commentOpen ? "− Комментарий" : "+ Комментарий"}
-              </Button>
-              {commentOpen ? <Textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={2} /> : null}
-            </div>
-            {canOperate ? (
-              <div className="space-y-1 pt-0.5">
-                <Button className="h-8 w-full" onClick={create} disabled={submitting}>
-                  {submitting ? "Создание..." : "Создать талон"}
-                </Button>
-                {loading ? <div className="text-xs text-amber-700">Данные ещё загружаются. Если нажать сейчас, сайт попросит повторить через пару секунд.</div> : null}
-                {!loading && !activeShift && !isSupplierDirect ? <div className="text-xs text-amber-700">Смена закрыта: откройте смену сверху, затем создайте талон.</div> : null}
               </div>
             ) : null}
           </CardContent>

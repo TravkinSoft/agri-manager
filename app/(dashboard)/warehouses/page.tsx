@@ -377,7 +377,7 @@ export default function WarehousesPage() {
                     <div><div className="text-slate-500">Партий</div><div className="mt-1 font-semibold">{selectedSummary.batches.length}</div></div>
                     <div><div className="text-slate-500">Текущий остаток</div><div className="mt-1 font-semibold">{unitBreakdown(selectedSummary.stock, "quantity")}</div></div>
                     <div><div className="text-slate-500">Зарезервировано</div><div className="mt-1 font-semibold text-amber-300">{unitBreakdown(selectedSummary.stock, "reserved_quantity")}</div></div>
-                    <div><div className="text-slate-500">Доступно</div><div className="mt-1 font-semibold text-emerald-300">{unitBreakdown(selectedSummary.stock, "available_quantity")}</div></div>
+                    <div><div className="text-slate-500">Доступно</div><div className={`mt-1 font-semibold ${selectedSummary.stock.some((row) => Number(row.available_quantity ?? row.quantity) < 0) ? "text-red-300" : "text-emerald-300"}`}>{unitBreakdown(selectedSummary.stock, "available_quantity")}</div></div>
                     <div><div className="text-slate-500">Последнее движение</div><div className="mt-1 font-semibold">{formatDate(selectedSummary.latest?.operation_datetime || selectedSummary.latest?.created_at)}</div></div>
                   </div>
                 </section>
@@ -414,7 +414,10 @@ export default function WarehousesPage() {
                               <TableCell className="font-medium">{row.product_name}</TableCell>
                               <TableCell>{warehouseProductTypeLabel(row.product_type)}</TableCell>
                               <TableCell className="text-right">{quantity(row.quantity)} {localizeUnit(row.unit, language)}</TableCell>
-                              <TableCell className="text-right text-emerald-300">{quantity(Number(row.available_quantity ?? row.quantity))} {localizeUnit(row.unit, language)}</TableCell>
+                              <TableCell className={`text-right ${Number(row.available_quantity ?? row.quantity) < 0 ? "font-semibold text-red-300" : "text-emerald-300"}`}>
+                                {quantity(Number(row.available_quantity ?? row.quantity))} {localizeUnit(row.unit, language)}
+                                {Number(row.deficit_quantity || 0) > 0 ? <div className="text-xs">Дефицит {quantity(Number(row.deficit_quantity))} {localizeUnit(row.unit, language)}</div> : null}
+                              </TableCell>
                               <TableCell className="text-right text-amber-300">{quantity(Number(row.reserved_quantity || 0))} {localizeUnit(row.unit, language)}</TableCell>
                             </TableRow>
                           );

@@ -16,6 +16,7 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 import { getFieldDisplayName } from "@/lib/fields/display";
 import {
   isFallowCrop,
@@ -83,6 +84,8 @@ type Allocation = {
   irrigation_type?: IrrigationType | null;
   row_spacing_m?: number | null;
   seed_spacing_cm?: number | null;
+  identity_review_required?: boolean;
+  identity_review_reason?: string | null;
 };
 type Consumption = {
   id: string;
@@ -205,12 +208,19 @@ const standardReproductionLabel = (item: Reproduction | null | undefined) => {
 };
 const CROP_STRUCTURE_BASE_SELECT = "id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
 const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
+const CROP_STRUCTURE_REVIEW_SELECT = `${CROP_STRUCTURE_V4_SELECT},identity_review_required,identity_review_reason`;
+const isMissingIdentityReviewColumn = (error: unknown) => {
+  const message = String((error as any)?.message || error || "").toLowerCase();
+  return message.includes("identity_review_required") || message.includes("identity_review_reason");
+};
 const isMissingCropStructureV4Column = (error: unknown) => {
   const message = String((error as any)?.message || error || "").toLowerCase();
   return (
     message.includes("irrigation_type") ||
     message.includes("row_spacing_m") ||
     message.includes("seed_spacing_cm") ||
+    message.includes("identity_review_required") ||
+    message.includes("identity_review_reason") ||
     message.includes("schema cache")
   );
 };
@@ -227,6 +237,12 @@ const allocationFromRow = (row: any): Allocation => ({
   irrigation_type: normalizeIrrigationType(row.irrigation_type),
   row_spacing_m: row.row_spacing_m == null ? null : Number(row.row_spacing_m || 0),
   seed_spacing_cm: row.seed_spacing_cm == null ? null : Number(row.seed_spacing_cm || 0),
+  identity_review_required:
+    row.identity_review_required === true ||
+    !row.crop_id ||
+    !row.variety_id ||
+    !row.reproduction_id,
+  identity_review_reason: row.identity_review_reason || null,
 });
 const buildAllocationMap = (rows: unknown[]) => {
   const map = new Map<string, Allocation[]>();
@@ -771,10 +787,18 @@ export default function CropStructurePage() {
       try {
         let res: any = await supabase
           .from("crop_structure")
-          .select(CROP_STRUCTURE_V4_SELECT)
+          .select(CROP_STRUCTURE_REVIEW_SELECT)
           .eq("company_id", activeCompanyId)
           .eq("season_id", seasonId)
           .eq("archived", false);
+        if (res.error && isMissingIdentityReviewColumn(res.error)) {
+          res = await supabase
+            .from("crop_structure")
+            .select(CROP_STRUCTURE_V4_SELECT)
+            .eq("company_id", activeCompanyId)
+            .eq("season_id", seasonId)
+            .eq("archived", false);
+        }
         if (res.error && isMissingCropStructureV4Column(res.error)) {
           res = await supabase
             .from("crop_structure")
@@ -1388,7 +1412,7 @@ export default function CropStructurePage() {
       operation_params: {
         irrigation_type: normalizeIrrigationType(allocation.irrigation_type),
       },
-      date: new Date().toISOString().slice(0, 10),
+      date: todayDateOnlyLocal(),
       notes: "",
     });
     setOperationSourceLabel(
@@ -1410,7 +1434,7 @@ export default function CropStructurePage() {
       operation_params: {
         scope: "whole_field",
       },
-      date: new Date().toISOString().slice(0, 10),
+      date: todayDateOnlyLocal(),
       notes: "",
     });
     setOperationSourceLabel(`План по полю: ${field.name} • Всё поле • ${fmtHa(Number(field.area || 0))}`);
@@ -1787,6 +1811,11 @@ export default function CropStructurePage() {
             {rows.length ? rows.map((allocation) => (
               <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2 text-sm">
                 <div className="truncate font-semibold text-slate-100">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                {allocation.identity_review_required ? (
+                  <div className="mt-1 text-xs font-medium text-amber-300">
+                    Требуется уточнить культуру, сорт и репродукцию до оформления урожая.
+                  </div>
+                ) : null}
                 <div className="text-xs text-slate-400">{fmtHa(Number(allocation.area || 0))}</div>
               </div>
             )) : (
@@ -1814,6 +1843,11 @@ export default function CropStructurePage() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-base font-semibold text-white">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                      {allocation.identity_review_required ? (
+                        <div className="mt-1 text-xs font-medium text-amber-300">
+                          Требуется уточнить identity урожая
+                        </div>
+                      ) : null}
                       <div className="mt-1 text-xs text-slate-400">
                         {fmtHa(plannedArea)} · операций {operationsForAllocation.length} · материалов {facts.rows.length}
                       </div>

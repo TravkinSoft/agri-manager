@@ -76,6 +76,7 @@ function statusLabel(status: string): string {
   if (status === "ready") return "Готово к выдаче";
   if (status === "received_confirmed") return "Подтверждено специалистом";
   if (status === "partially_issued") return "Частично выдано";
+  if (status === "closed") return "Закрыто";
   if (status === "issued" || status === "issued_by_warehouse") return "Выдано";
   if (status === "cancelled") return "Отменено";
   return status;
@@ -88,6 +89,9 @@ function statusClass(status: string): string {
   }
   if (status === "issued" || status === "issued_by_warehouse") {
     return "border-violet-400/30 bg-violet-500/15 text-violet-200";
+  }
+  if (status === "closed") {
+    return "border-emerald-500/40 bg-emerald-500/15 text-emerald-200";
   }
   if (status === "partially_issued") {
     return "border-amber-400/30 bg-amber-500/15 text-amber-200";
@@ -689,8 +693,8 @@ export default function WarehouseRequestsPage() {
                           {row.operation_type || "Полевая работа"}
                         </div>
                       </div>
-                      <Badge className={`${statusClass(row.status)} shrink-0`}>
-                        {statusLabel(row.status)}
+                      <Badge className={`${statusClass(row.workflow_status || row.status)} shrink-0`}>
+                        {statusLabel(row.workflow_status || row.status)}
                       </Badge>
                     </div>
                     <div className="mt-1 truncate text-sm font-semibold text-slate-200">
@@ -728,8 +732,8 @@ export default function WarehouseRequestsPage() {
                       <h2 className="text-xl font-bold text-slate-100 sm:text-2xl">
                         Заявка {selectedRequest.request_number}
                       </h2>
-                      <Badge className={statusClass(selectedRequest.status)}>
-                        {statusLabel(selectedRequest.status)}
+                      <Badge className={statusClass(selectedRequest.workflow_status || selectedRequest.status)}>
+                        {statusLabel(selectedRequest.workflow_status || selectedRequest.status)}
                       </Badge>
                     </div>
                     <div className="mt-2 text-[13px] font-semibold uppercase text-yellow-300">
@@ -1113,7 +1117,7 @@ export default function WarehouseRequestsPage() {
                   </div>
                 ) : (
                   <div className="text-sm text-slate-400">
-                    {statusLabel(selectedRequest.status)}
+                    {statusLabel(selectedRequest.workflow_status || selectedRequest.status)}
                   </div>
                 )}
               </footer>

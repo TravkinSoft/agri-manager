@@ -11,6 +11,11 @@ export const dynamic = "force-dynamic";
 
 const CROP_STRUCTURE_BASE_SELECT = "id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
 const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
+const CROP_STRUCTURE_REVIEW_SELECT = `${CROP_STRUCTURE_V4_SELECT},identity_review_required,identity_review_reason`;
+const isMissingIdentityReviewColumn = (error: unknown) => {
+  const message = String((error as any)?.message || error || "").toLowerCase();
+  return message.includes("identity_review_required") || message.includes("identity_review_reason");
+};
 
 const isMissingCropStructureV4Column = (error: unknown) => {
   const message = String((error as any)?.message || error || "").toLowerCase();
@@ -18,6 +23,8 @@ const isMissingCropStructureV4Column = (error: unknown) => {
     message.includes("irrigation_type") ||
     message.includes("row_spacing_m") ||
     message.includes("seed_spacing_cm") ||
+    message.includes("identity_review_required") ||
+    message.includes("identity_review_reason") ||
     message.includes("schema cache")
   );
 };
@@ -71,10 +78,19 @@ async function loadCropStructureBootstrap(
   if (activeSeasonId) {
     let cropStructureRes: any = await supabase
       .from("crop_structure")
-      .select(CROP_STRUCTURE_V4_SELECT)
+      .select(CROP_STRUCTURE_REVIEW_SELECT)
       .eq("company_id", companyId)
       .eq("season_id", activeSeasonId)
       .eq("archived", false);
+
+    if (cropStructureRes.error && isMissingIdentityReviewColumn(cropStructureRes.error)) {
+      cropStructureRes = await supabase
+        .from("crop_structure")
+        .select(CROP_STRUCTURE_V4_SELECT)
+        .eq("company_id", companyId)
+        .eq("season_id", activeSeasonId)
+        .eq("archived", false);
+    }
 
     if (cropStructureRes.error && isMissingCropStructureV4Column(cropStructureRes.error)) {
       cropStructureRes = await supabase

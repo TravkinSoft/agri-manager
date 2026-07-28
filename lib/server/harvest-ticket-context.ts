@@ -13,6 +13,8 @@ export type HarvestTicketContext = {
     varietyId: string | null;
     reproductionId: string | null;
     areaHa: number;
+    identityReviewRequired: boolean;
+    identityReviewReason: string | null;
   } | null;
   operationId: string | null;
   operationLineId: string | null;
@@ -188,15 +190,28 @@ export async function resolveHarvestTicketContext(params: {
     return empty("missing", "В компании нет активного сезона.");
   }
 
-  const { data: allocation, error: allocationError } = await supabase
+  let { data: allocation, error: allocationError } = await supabase
     .from("crop_structure")
-    .select("id,company_id,season_id,field_id,crop_id,variety_id,reproduction_id,area,archived")
+    .select("id,company_id,season_id,field_id,crop_id,variety_id,reproduction_id,area,archived,identity_review_required,identity_review_reason")
     .eq("id", allocationId)
     .eq("company_id", companyId)
     .eq("season_id", activeSeason.id)
     .eq("field_id", fieldId)
     .eq("archived", false)
     .maybeSingle();
+  if (allocationError && /identity_review_/i.test(allocationError.message || "")) {
+    const fallback = await supabase
+      .from("crop_structure")
+      .select("id,company_id,season_id,field_id,crop_id,variety_id,reproduction_id,area,archived")
+      .eq("id", allocationId)
+      .eq("company_id", companyId)
+      .eq("season_id", activeSeason.id)
+      .eq("field_id", fieldId)
+      .eq("archived", false)
+      .maybeSingle();
+    allocation = fallback.data as any;
+    allocationError = fallback.error;
+  }
   if (allocationError) throw allocationError;
   if (!allocation?.id || !allocation.crop_id) {
     return empty("invalid", "Участок не относится к выбранному полю или активному сезону.");
@@ -209,7 +224,25 @@ export async function resolveHarvestTicketContext(params: {
     varietyId: allocation.variety_id ? String(allocation.variety_id) : null,
     reproductionId: allocation.reproduction_id ? String(allocation.reproduction_id) : null,
     areaHa: Number(allocation.area || 0),
+    identityReviewRequired: Boolean((allocation as any).identity_review_required),
+    identityReviewReason: (allocation as any).identity_review_reason
+      ? String((allocation as any).identity_review_reason)
+      : null,
   };
+  if (
+    allocationValue.identityReviewRequired ||
+    !allocationValue.varietyId ||
+    !allocationValue.reproductionId
+  ) {
+    return {
+      ...empty(
+        "invalid",
+        "Для выбранной строки структуры посевов требуется проверить культуру, сорт и репродукцию."
+      ),
+      seasonId: String(activeSeason.id),
+      allocation: allocationValue,
+    };
+  }
 
   const { data: operations, error: operationsError } = await supabase
     .from("operations")

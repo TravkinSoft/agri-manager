@@ -4,19 +4,18 @@ import { SessionAuthError } from "@/lib/auth/server-session";
 import { WAREHOUSE_READ_ROLES, resolveWarehouseForActor } from "@/app/api/warehouses/_helpers";
 import { buildCatalogIdentityKey, buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
+import { calculateStockMath, signedLedgerQuantity } from "@/lib/warehouse/stock-math";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function signedQuantity(row: any): number {
-  const delta = Number(row.delta_qty_signed);
-  if (Number.isFinite(delta)) return delta;
-  const quantity = Number(row.quantity || 0);
-  return row.direction === "in" ? quantity : -quantity;
+  return signedLedgerQuantity(row);
 }
 
 function isOpenRequest(row: any): boolean {
-  return ["new", "active", "preparing", "ready", "received_confirmed"].includes(String(row.status || "")) &&
-    !["issued", "closed", "return_received", "cancelled"].includes(String(row.warehouse_request_status || ""));
+  const canonical = String(row.warehouse_request_status || "");
+  if (canonical) return ["pending", "collecting", "ready_for_pickup"].includes(canonical);
+  return ["new", "active", "preparing", "ready"].includes(String(row.status || ""));
 }
 
 export async function GET(
@@ -66,7 +65,7 @@ export async function GET(
         .order("occurred_at", { ascending: true }),
       supabase
         .from("warehouse_issue_requests")
-        .select("id,status,warehouse_request_status,source_warehouse_id,warehouse_issue_request_items(product_id,actual_product_id,prepared_quantity,issued_quantity,unit,prepared_unit,issued_unit)")
+        .select("id,request_number,status,warehouse_request_status,source_warehouse_id,operation_id,field_id,operations:operation_id(operation_type),fields:field_id(name),warehouse_issue_request_items(product_id,actual_product_id,prepared_quantity,issued_quantity,unit,prepared_unit,issued_unit)")
         .eq("company_id", companyId)
         .eq("source_warehouse_id", warehouseId),
     ]);
@@ -83,6 +82,7 @@ export async function GET(
     });
     const quantity = ledger.reduce((sum: number, row: any) => sum + signedQuantity(row), 0);
     let reserved = 0;
+    const reservations: Array<Record<string, unknown>> = [];
     for (const row of requestResult.data || []) {
       if (!isOpenRequest(row)) continue;
       for (const item of (row as any).warehouse_issue_request_items || []) {
@@ -92,7 +92,25 @@ export async function GET(
         } catch {
           continue;
         }
-        reserved += Math.max(Number(item.prepared_quantity || 0) - Number(item.issued_quantity || 0), 0);
+        const reservation = Math.max(Number(item.prepared_quantity || 0) - Number(item.issued_quantity || 0), 0);
+        reserved += reservation;
+        if (reservation > 0.000001) {
+          const operation = Array.isArray((row as any).operations)
+            ? (row as any).operations[0]
+            : (row as any).operations;
+          const field = Array.isArray((row as any).fields)
+            ? (row as any).fields[0]
+            : (row as any).fields;
+          reservations.push({
+            request_id: String((row as any).id),
+            request_number: String((row as any).request_number || (row as any).id),
+            operation_id: (row as any).operation_id || null,
+            operation: operation?.operation_type || null,
+            field: field?.name || null,
+            quantity: Number(reservation.toFixed(3)),
+            status: String((row as any).warehouse_request_status || (row as any).status || "pending"),
+          });
+        }
       }
     }
 
@@ -226,15 +244,19 @@ export async function GET(
         updated_at: row.created_at,
       }));
 
+    const stock = calculateStockMath(quantity, reserved);
     return NextResponse.json({
       details: {
         warehouse_id: warehouseId,
         product_id: productId,
         product_name: buildProductDisplayLabel(selected as any),
         unit,
-        quantity: Number(quantity.toFixed(3)),
-        reserved_quantity: Number(reserved.toFixed(3)),
-        available_quantity: Number(Math.max(quantity - reserved, 0).toFixed(3)),
+        quantity: Number(stock.onHand.toFixed(3)),
+        reserved_quantity: Number(stock.reserved.toFixed(3)),
+        available_quantity: Number(stock.available.toFixed(3)),
+        deficit_quantity: Number(stock.deficit.toFixed(3)),
+        stock_status: stock.deficit > 0.000001 ? "deficit" : "available",
+        reservations,
         lots,
         movements,
       },

@@ -27,6 +27,7 @@
     "qa:assistant:greeting-policy": "npx --no-install tsx scripts/qa-assistant-a106-greeting-policy.ts",
     "qa:assistant:greeting-policy:real": "npx --no-install tsx scripts/qa-assistant-a106-real-greeting.ts",
     "qa:warehouse:units-v2": "npx tsx scripts/qa-warehouse-canonical-units-v2.ts",
+    "qa:core:tz234": "npx --no-install tsx scripts/qa-tz234-regression.ts",
     "qa:glbd:component-discovery": "npx tsx scripts/qa-glbd-component-discovery.ts",
     "cleanup:users": "node scripts/cleanup-users-keep-admin.mjs",
     "import:structure2026:dry": "node scripts/import-structure-2026.mjs --mode dry-run",

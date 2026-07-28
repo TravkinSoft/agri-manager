@@ -82,9 +82,22 @@ export function WarehouseStockDetailsDialog({ open, onOpenChange, companyId, bal
           <div className="space-y-6">
             <div className="grid grid-cols-3 gap-3 border-y border-slate-800 py-4 text-sm">
               <div><div className="text-slate-500">Всего</div><div className="mt-1 font-semibold">{quantity(details.quantity, details.unit)}</div></div>
-              <div><div className="text-slate-500">Доступно</div><div className="mt-1 font-semibold text-emerald-300">{quantity(details.available_quantity, details.unit)}</div></div>
+              <div><div className="text-slate-500">Доступно</div><div className={`mt-1 font-semibold ${details.available_quantity < 0 ? "text-red-300" : "text-emerald-300"}`}>{quantity(details.available_quantity, details.unit)}</div>{details.deficit_quantity > 0 ? <div className="text-xs text-red-300">Дефицит {quantity(details.deficit_quantity, details.unit)}</div> : null}</div>
               <div><div className="text-slate-500">Зарезервировано</div><div className="mt-1 font-semibold text-amber-300">{quantity(details.reserved_quantity, details.unit)}</div></div>
             </div>
+
+            <section>
+              <h3 className="mb-2 font-semibold">Резервы</h3>
+              <div className="space-y-2">
+                {details.reservations.length ? details.reservations.map((reservation) => (
+                  <div key={`${reservation.request_id}-${reservation.quantity}`} className="grid gap-1 border-t border-slate-800 py-2 text-sm sm:grid-cols-[150px_1fr_120px]">
+                    <span className="font-medium">{reservation.request_number}</span>
+                    <span>{[reservation.operation, reservation.field].filter(Boolean).join(" · ") || "Операция не указана"}</span>
+                    <span className="text-right text-amber-300">{quantity(reservation.quantity, details.unit)}</span>
+                  </div>
+                )) : <div className="text-sm text-slate-500">Активных резервов нет</div>}
+              </div>
+            </section>
 
             <section>
               <h3 className="mb-2 font-semibold">Партии</h3>

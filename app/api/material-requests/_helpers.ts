@@ -37,6 +37,7 @@ export type WorkflowStatus =
   | "preparing"
   | "ready"
   | "issued"
+  | "closed"
   | "partially_issued"
   | "cancelled";
 
@@ -51,6 +52,12 @@ export function toWorkflowStatus(rawStatus: unknown): WorkflowStatus {
   if (normalized === "partially_issued") return "partially_issued";
   if (normalized === "cancelled") return "cancelled";
   if (normalized === "received_confirmed") return "issued";
+  if (normalized === "pending") return "active";
+  if (normalized === "collecting") return "preparing";
+  if (normalized === "ready_for_pickup") return "ready";
+  if (normalized === "picked_up_by_specialist") return "issued";
+  if (normalized === "return_expected") return "issued";
+  if (normalized === "return_received" || normalized === "closed") return "closed";
   return "active";
 }
 

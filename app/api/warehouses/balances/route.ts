@@ -11,6 +11,7 @@ import { localizedName } from "@/lib/i18n/helpers";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { buildCatalogIdentityKey, buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
 import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
+import { calculateStockMath } from "@/lib/warehouse/stock-math";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,15 @@ type BalanceAccumulator = {
   reserved_quantity: number;
   available_quantity: number;
   last_updated: string;
+  reservations: Array<{
+    request_id: string;
+    request_number: string;
+    operation_id: string | null;
+    operation: string | null;
+    field: string | null;
+    quantity: number;
+    status: string;
+  }>;
 };
 
 function relationOne<T>(value: T | T[] | null | undefined): T | null {
@@ -54,8 +64,9 @@ function canonicalUom(row: any): string {
 }
 
 function isOpenRequest(row: any): boolean {
-  return ["new", "active", "preparing", "ready", "received_confirmed"].includes(String(row.status || "")) &&
-    !["issued", "closed", "return_received", "cancelled"].includes(String(row.warehouse_request_status || ""));
+  const canonical = String(row.warehouse_request_status || "");
+  if (canonical) return ["pending", "collecting", "ready_for_pickup"].includes(canonical);
+  return ["new", "active", "preparing", "ready"].includes(String(row.status || ""));
 }
 
 export async function GET(request: NextRequest) {
@@ -97,7 +108,7 @@ export async function GET(request: NextRequest) {
         .eq("archived", false),
       supabase
         .from("warehouse_issue_requests")
-        .select("id,status,warehouse_request_status,source_warehouse_id,warehouse_issue_request_items(id,product_id,actual_product_id,prepared_quantity,issued_quantity,unit,prepared_unit,issued_unit)")
+        .select("id,request_number,status,warehouse_request_status,source_warehouse_id,operation_id,field_id,operations:operation_id(operation_type),fields:field_id(name),warehouse_issue_request_items(id,product_id,actual_product_id,prepared_quantity,issued_quantity,unit,prepared_unit,issued_unit)")
         .eq("company_id", companyId),
     ]);
 
@@ -167,6 +178,7 @@ export async function GET(request: NextRequest) {
         reserved_quantity: 0,
         available_quantity: signedQuantity,
         last_updated: occurredAt,
+        reservations: [],
       });
     }
 
@@ -188,19 +200,44 @@ export async function GET(request: NextRequest) {
         if (!balance) continue;
         const prepared = Number(item.prepared_quantity || 0);
         const issued = Number(item.issued_quantity || 0);
-        balance.reserved_quantity += Math.max(prepared - issued, 0);
+        const reservation = Math.max(prepared - issued, 0);
+        balance.reserved_quantity += reservation;
+        if (reservation > 0.000001) {
+          const operation = relationOne((requestRow as any).operations) as any;
+          const field = relationOne((requestRow as any).fields) as any;
+          balance.reservations.push({
+            request_id: String((requestRow as any).id),
+            request_number: String((requestRow as any).request_number || (requestRow as any).id),
+            operation_id: (requestRow as any).operation_id
+              ? String((requestRow as any).operation_id)
+              : null,
+            operation: operation?.operation_type || null,
+            field: field?.name || null,
+            quantity: Number(reservation.toFixed(3)),
+            status: String(
+              (requestRow as any).warehouse_request_status ||
+                (requestRow as any).status ||
+                "pending"
+            ),
+          });
+        }
       }
     }
 
     const rows = Array.from(balances.values())
       .filter((row) => Math.abs(Number(row.quantity || 0)) > 0.000001)
-      .map((row) => ({
-        ...row,
-        quantity: Number(Number(row.quantity || 0).toFixed(3)),
-        reserved_quantity: Number(Number(row.reserved_quantity || 0).toFixed(3)),
-        available_quantity: Number(Math.max(Number(row.quantity || 0) - Number(row.reserved_quantity || 0), 0).toFixed(3)),
-        product_ids: Array.from(row.product_ids),
-      }))
+      .map((row) => {
+        const stock = calculateStockMath(row.quantity, row.reserved_quantity);
+        return {
+          ...row,
+          quantity: Number(stock.onHand.toFixed(3)),
+          reserved_quantity: Number(stock.reserved.toFixed(3)),
+          available_quantity: Number(stock.available.toFixed(3)),
+          deficit_quantity: Number(stock.deficit.toFixed(3)),
+          stock_status: stock.deficit > 0.000001 ? "deficit" : "available",
+          product_ids: Array.from(row.product_ids),
+        };
+      })
       .filter(
         (row) =>
           !hasQaDataMarker(

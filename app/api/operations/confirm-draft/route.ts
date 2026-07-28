@@ -9,6 +9,7 @@ import {
   getServerActorFromSession,
   resolveCompanyForActor,
 } from '@/lib/auth/server-session';
+import { isDateOnly } from '@/lib/dates/date-only';
 
 type ConfirmDraftRequest = {
   draft: OperationDraft;
@@ -43,13 +44,6 @@ function normalizePayload(payload: any): ConfirmDraftRequest {
     confirmToken: typeof payload?.confirmToken === 'string' ? payload.confirmToken : undefined,
     chatMessageId: typeof payload?.chatMessageId === 'string' ? payload.chatMessageId : undefined,
   };
-}
-
-function normalizeDate(date: string): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date;
-  const parsed = new Date(date);
-  if (Number.isNaN(parsed.getTime())) return date;
-  return parsed.toISOString().slice(0, 10);
 }
 
 function toNumber(raw: unknown): number {
@@ -562,8 +556,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid operation type' }, { status: 400 });
     }
 
-    const normalizedDate = normalizeDate(draft.date);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    const normalizedDate = String(draft.date || '').trim();
+    if (!isDateOnly(normalizedDate)) {
       return NextResponse.json(
         { error: 'Invalid date format. Use YYYY-MM-DD' },
         { status: 400 }

@@ -98,7 +98,7 @@ export interface WarehouseIssueRequest {
   comment: string | null;
   status: WarehouseIssueRequestStatus;
   warehouse_request_status?: WarehouseRequestV5Status | null;
-  workflow_status?: "active" | "preparing" | "ready" | "issued" | "partially_issued" | "cancelled";
+  workflow_status?: "active" | "preparing" | "ready" | "issued" | "closed" | "partially_issued" | "cancelled";
   confirm_token: string | null;
   created_at: string;
   updated_at: string;

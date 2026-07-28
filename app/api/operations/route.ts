@@ -23,6 +23,11 @@ import {
   resolveCanonicalOperationType,
   toStorageMaterialType,
 } from "@/lib/operations/operation-engine";
+import { isDateOnly } from "@/lib/dates/date-only";
+import {
+  isMachineryCompatible,
+  machineryCompatibilityMessage,
+} from "@/lib/operations/machinery-compatibility";
 
 const CREATE_ALLOWED_ROLES = ["global_admin", "company_admin", "agronomist"] as const;
 const WHOLE_FIELD_ALLOWED_CATEGORIES = new Set([
@@ -211,13 +216,6 @@ function toPlainRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function normalizeDate(value: string): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toISOString().slice(0, 10);
-}
-
 const MATERIAL_TYPES = new Set([
   "seed",
   "fertilizer",
@@ -362,7 +360,10 @@ export async function POST(request: NextRequest) {
 
     const dateRaw = String(body.date || "").trim();
     if (!dateRaw) return NextResponse.json({ error: "date is required" }, { status: 400 });
-    const operationDate = normalizeDate(dateRaw);
+    if (!isDateOnly(dateRaw)) {
+      return NextResponse.json({ error: "date must use YYYY-MM-DD" }, { status: 400 });
+    }
+    const operationDate = dateRaw;
 
     const plannedArea = toNullableNumber(body.planned_area_ha);
     if (plannedArea != null && plannedArea < 0) {
@@ -456,6 +457,8 @@ export async function POST(request: NextRequest) {
       !rowSpacingM &&
       !seedSpacingCm &&
       operationTemplate !== "potato_planting" &&
+      canonicalCategorySlug !== "harvesting" &&
+      operationTypeSlug !== "harvesting" &&
       allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType);
 
     if (cropStructureId && !deferCropStructureReadForFastPath) {
@@ -568,19 +571,48 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const requestedTargets = Array.isArray(body.targets)
-      ? body.targets
-          .map((target) => ({
-            field_id: toNullableUuid(target?.field_id),
-            crop_structure_id: toNullableUuid(target?.crop_structure_id),
-            crop_id: toNullableUuid(target?.crop_id),
-            variety_id: toNullableUuid(target?.variety_id),
-            reproduction_id: toNullableUuid(target?.reproduction_id),
-            planned_area_ha: toNullableNumber(target?.planned_area_ha),
-            notes: toNullableText(target?.notes),
-          }))
-          .filter((target) => target.field_id && target.planned_area_ha != null && target.planned_area_ha > 0)
-      : [];
+    if (
+      (canonicalCategorySlug === "harvesting" || operationTypeSlug === "harvesting") &&
+      (!resolvedCropId || !resolvedVarietyId || !resolvedReproductionId)
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Для уборки заполните культуру, сорт и репродукцию в структуре посевов",
+          code: "CROP_IDENTITY_REVIEW_REQUIRED",
+        },
+        { status: 409 }
+      );
+    }
+
+    const rawTargets = Array.isArray(body.targets) ? body.targets : [];
+    const requestedTargets = rawTargets.map((target) => ({
+      field_id: toNullableUuid(target?.field_id),
+      crop_structure_id: toNullableUuid(target?.crop_structure_id),
+      crop_id: toNullableUuid(target?.crop_id),
+      variety_id: toNullableUuid(target?.variety_id),
+      reproduction_id: toNullableUuid(target?.reproduction_id),
+      planned_area_ha: toNullableNumber(target?.planned_area_ha),
+      notes: toNullableText(target?.notes),
+    }));
+    if (
+      requestedTargets.some(
+        (target) =>
+          !target.field_id ||
+          !target.crop_structure_id ||
+          target.planned_area_ha == null ||
+          target.planned_area_ha <= 0
+      )
+    ) {
+      return NextResponse.json(
+        { error: "Each target requires an explicit field, crop structure and positive area" },
+        { status: 400 }
+      );
+    }
+    const requestedTargetIds = requestedTargets.map((target) => String(target.crop_structure_id));
+    if (new Set(requestedTargetIds).size !== requestedTargetIds.length) {
+      return NextResponse.json({ error: "Duplicate operation target is not allowed" }, { status: 409 });
+    }
     const targetStructureIds = Array.from(
       new Set(requestedTargets.map((target) => target.crop_structure_id).filter(Boolean) as string[])
     );
@@ -609,6 +641,13 @@ export async function POST(request: NextRequest) {
     if (mismatchedTarget) {
       return NextResponse.json({ error: "target crop_structure_id must belong to target field_id" }, { status: 400 });
     }
+    const oversizedTarget = requestedTargets.find((target) => {
+      const structure = target.crop_structure_id ? targetStructuresById.get(target.crop_structure_id) : null;
+      return structure && Number(target.planned_area_ha || 0) > Number(structure.area || 0) + 0.0001;
+    });
+    if (oversizedTarget) {
+      return NextResponse.json({ error: "target planned area exceeds crop structure area" }, { status: 400 });
+    }
     const normalizedTargets = requestedTargets.map((target) => {
       const structure = target.crop_structure_id ? targetStructuresById.get(target.crop_structure_id) : null;
       const area = Number(target.planned_area_ha || 0);
@@ -625,6 +664,55 @@ export async function POST(request: NextRequest) {
     const targetsPlannedArea = normalizedTargets.reduce((sum, target) => sum + Number(target.planned_area_ha || 0), 0);
     const effectivePlannedArea =
       targetsPlannedArea > 0 ? Number(targetsPlannedArea.toFixed(4)) : plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
+
+    const machineId = toNullableUuid(body.machine_id);
+    const equipmentId = toNullableUuid(body.equipment_id);
+    if (machineId) {
+      const { data: machine, error: machineError } = await supabase
+        .from("reference_machines")
+        .select("id,type,category,machine_category,machinery_type,global_model:global_machine_model_id(category)")
+        .eq("id", machineId)
+        .eq("company_id", companyId)
+        .eq("archived", false)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (machineError || !machine?.id) {
+        return NextResponse.json({ error: "Selected machine is unavailable" }, { status: 400 });
+      }
+      if (
+        !isMachineryCompatible({
+          operationCategory: canonicalCategorySlug,
+          operationType: operationTypeSlug,
+          assetKind: "machine",
+          asset: machine,
+        })
+      ) {
+        return NextResponse.json({ error: machineryCompatibilityMessage("machine") }, { status: 409 });
+      }
+    }
+    if (equipmentId) {
+      const { data: equipmentRow, error: equipmentError } = await supabase
+        .from("reference_equipment")
+        .select("id,category,equipment_category,global_model:global_equipment_model_id(category,equipment_type)")
+        .eq("id", equipmentId)
+        .eq("company_id", companyId)
+        .eq("archived", false)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (equipmentError || !equipmentRow?.id) {
+        return NextResponse.json({ error: "Selected equipment is unavailable" }, { status: 400 });
+      }
+      if (
+        !isMachineryCompatible({
+          operationCategory: canonicalCategorySlug,
+          operationType: operationTypeSlug,
+          assetKind: "equipment",
+          asset: equipmentRow,
+        })
+      ) {
+        return NextResponse.json({ error: machineryCompatibilityMessage("equipment") }, { status: 409 });
+      }
+    }
     const isPotatoPlantingTemplate = operationTemplate === "potato_planting";
     const seedRateKgHa = toNullableNumber(body.rate_per_ha);
     if (isPotatoPlantingTemplate && (!resolvedSeedSpacingCm || resolvedSeedSpacingCm <= 0)) {
@@ -759,8 +847,8 @@ export async function POST(request: NextRequest) {
       operation_category_slug: canonicalCategorySlug,
       operation_type_slug: storageOperationTypeSlug,
       operation_type: storageOperationType,
-      machine_id: toNullableUuid(body.machine_id),
-      equipment_id: toNullableUuid(body.equipment_id),
+      machine_id: machineId,
+      equipment_id: equipmentId,
       transport_id: toNullableUuid(body.transport_id),
       operation_target: toNullableText(body.operation_target),
       rate_per_ha: toNullableNumber(body.rate_per_ha),

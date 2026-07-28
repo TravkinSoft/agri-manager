@@ -22,6 +22,8 @@ type MaterialRequestItemInput = {
 import { buildProductPassport } from "@/lib/products/product-passport";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { isAgrochemicalProductType } from "@/lib/warehouse/warehouse-scope";
+import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
+import { calculateStockMath } from "@/lib/warehouse/stock-math";
 
 function toNumber(value: unknown): number {
   const n = Number(value);
@@ -43,6 +45,56 @@ async function getWarehouseProductBalance(
 
   if (error) throw error;
   return (data || []).reduce((sum: number, row: any) => sum + toNumber(row.quantity), 0);
+}
+
+async function getWarehouseProductReservations(params: {
+  supabase: any;
+  companyId: string;
+  warehouseId: string;
+  productId: string;
+  unit: string | null;
+  excludeRequestId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from("warehouse_issue_requests")
+    .select("id,request_number,status,warehouse_request_status,warehouse_issue_request_items(product_id,actual_product_id,prepared_quantity,issued_quantity,unit,prepared_unit,issued_unit)")
+    .eq("company_id", params.companyId)
+    .eq("source_warehouse_id", params.warehouseId)
+    .in("warehouse_request_status", ["pending", "collecting", "ready_for_pickup"]);
+  if (error) throw error;
+
+  let reserved = 0;
+  const reservations: Array<{ request_id: string; request_number: string; quantity: number }> = [];
+  for (const requestRow of data || []) {
+    if (String((requestRow as any).id) === params.excludeRequestId) continue;
+    let requestReserved = 0;
+    for (const item of (requestRow as any).warehouse_issue_request_items || []) {
+      if (String(item.actual_product_id || item.product_id || "") !== params.productId) continue;
+      if (params.unit) {
+        try {
+          const itemUnit = normalizeStockUom(
+            item.prepared_unit || item.issued_unit || item.unit
+          ).baseUom;
+          if (itemUnit !== normalizeStockUom(params.unit).baseUom) continue;
+        } catch {
+          continue;
+        }
+      }
+      requestReserved += Math.max(
+        Number(item.prepared_quantity || 0) - Number(item.issued_quantity || 0),
+        0
+      );
+    }
+    if (requestReserved > 0.000001) {
+      reserved += requestReserved;
+      reservations.push({
+        request_id: String((requestRow as any).id),
+        request_number: String((requestRow as any).request_number || (requestRow as any).id),
+        quantity: Number(requestReserved.toFixed(4)),
+      });
+    }
+  }
+  return { reserved, reservations };
 }
 
 function workflowToRawStatuses(status: string): string[] {
@@ -233,7 +285,7 @@ export async function GET(request: NextRequest) {
 
       return {
         ...row,
-        workflow_status: toWorkflowStatus(row.status),
+        workflow_status: toWorkflowStatus(row.warehouse_request_status || row.status),
         field_name: row.fields?.name || "-",
         operation_type: resolveWorkTitle({
           operationType: row.operations?.operation_type || null,
@@ -348,13 +400,35 @@ export async function PATCH(request: NextRequest) {
           raw.preparedQuantity === null || raw.preparedQuantity === undefined || raw.preparedQuantity === ""
             ? 0
             : Number(Math.max(toNumber(raw.preparedQuantity), 0).toFixed(4));
-        const available = await getWarehouseProductBalance(supabase, companyId, sourceWarehouseId, String(item.product_id || ""));
-        if (preparedQuantity > available + 0.000001) {
+        const productId = String(item.product_id || "");
+        const onHand = await getWarehouseProductBalance(
+          supabase,
+          companyId,
+          sourceWarehouseId,
+          productId
+        );
+        const reservationState = await getWarehouseProductReservations({
+          supabase,
+          companyId,
+          warehouseId: sourceWarehouseId,
+          productId,
+          unit: item.unit || null,
+          excludeRequestId: requestId,
+        });
+        const stock = calculateStockMath(onHand, reservationState.reserved);
+        if (preparedQuantity > stock.available + 0.000001) {
           return NextResponse.json(
             {
-              error: `Insufficient stock for product ${item.product_id}. Available: ${available}, requested preparation: ${preparedQuantity}`,
+              error: `Недостаточно доступного остатка. Материал: ${item.product_id}; запрошено: ${preparedQuantity}; остаток: ${stock.onHand}; резерв: ${stock.reserved}; доступно: ${stock.available}; дефицит: ${Math.max(preparedQuantity - stock.available, 0)}`,
               product_id: item.product_id,
-              available_quantity: available,
+              requested_quantity: Number(item.planned_quantity ?? item.required_quantity ?? 0),
+              on_hand_quantity: stock.onHand,
+              reserved_quantity: stock.reserved,
+              available_quantity: stock.available,
+              deficit_quantity: Number(
+                Math.max(preparedQuantity - stock.available, 0).toFixed(4)
+              ),
+              reservations: reservationState.reservations,
               requested_prepared_quantity: preparedQuantity,
             },
             { status: 409 }

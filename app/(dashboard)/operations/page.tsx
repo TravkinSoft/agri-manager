@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Archive, ChevronDown, ChevronUp, Pencil, Plus } from "lucide-react";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -517,7 +518,7 @@ export default function OperationsPage() {
     return keys.sort((a, b) => a.localeCompare(b, "ru"));
   }, [operations]);
   const countLabel = (value: number) => (loading || authLoading ? "..." : String(value));
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayDateOnlyLocal();
   const waitingMaterialsCount = operations.filter((operation) => {
     const requestStatus = String(requestStatusByOperationId[operation.id] || "").toLowerCase();
     return requestStatus && !["issued", "received", "completed", "closed", "cancelled"].includes(requestStatus);

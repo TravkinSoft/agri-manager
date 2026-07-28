@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { listTickets } from "@/lib/services/weighbridge";
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 
 function isActiveStatus(status: string | null | undefined) {
   const s = String(status || "").toLowerCase();
@@ -48,7 +49,7 @@ export default function WeighbridgeDashboardPage() {
   if (authLoading || isOperationalRole) return null;
 
   const metrics = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayDateOnlyLocal();
     const active = tickets.filter((t) => isActiveStatus(t.status)).length;
     const awaitingSecond = tickets.filter(
       (t) =>

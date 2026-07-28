@@ -97,6 +97,12 @@ import {
   OPERATION_WORK_UI_SECTIONS,
 } from "@/lib/operations/operation-work-ui";
 import { formatCropIdentity, resolveCropIdentity } from "@/lib/operations/crop-identity";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
+import {
+  isMachineryCompatible,
+  type MachineryAssetLike,
+} from "@/lib/operations/machinery-compatibility";
+import { patchMaterialWithRateReset } from "@/lib/operations/material-rate-reset";
 
 interface OperationFormDialogProps {
   open: boolean;
@@ -124,7 +130,7 @@ type OperationTypeMaster = {
   is_active?: boolean;
 };
 
-type RefOption = { id: string; name: string; hint?: string };
+type RefOption = { id: string; name: string; hint?: string; asset?: MachineryAssetLike };
 type ProductOption = {
   id: string;
   master_product_id?: string | null;
@@ -628,6 +634,7 @@ function SearchableSelect(props: {
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={placeholder}
           disabled={disabled}
           className="w-full justify-between"
         >
@@ -884,7 +891,7 @@ export function OperationFormDialog({
       row_spacing_m: null,
       seed_spacing_cm: null,
       operation_params: null,
-      date: new Date().toISOString().slice(0, 10),
+      date: todayDateOnlyLocal(),
       responsible_user_id: null,
       notes: "",
       materials: [],
@@ -1057,8 +1064,34 @@ export function OperationFormDialog({
     [specialists]
   );
 
-  const machineOptions = useMemo(() => machines.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [machines]);
-  const equipmentOptions = useMemo(() => equipment.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [equipment]);
+  const machineOptions = useMemo(
+    () =>
+      machines
+        .filter((item) =>
+          isMachineryCompatible({
+            operationCategory: canonicalType?.categorySlug || categorySlug,
+            operationType: canonicalType?.slug || typeSlug,
+            assetKind: "machine",
+            asset: item.asset || item,
+          })
+        )
+        .map((item) => ({ id: item.id, label: item.name, hint: item.hint })),
+    [canonicalType?.categorySlug, canonicalType?.slug, categorySlug, machines, typeSlug]
+  );
+  const equipmentOptions = useMemo(
+    () =>
+      equipment
+        .filter((item) =>
+          isMachineryCompatible({
+            operationCategory: canonicalType?.categorySlug || categorySlug,
+            operationType: canonicalType?.slug || typeSlug,
+            assetKind: "equipment",
+            asset: item.asset || item,
+          })
+        )
+        .map((item) => ({ id: item.id, label: item.name, hint: item.hint })),
+    [canonicalType?.categorySlug, canonicalType?.slug, categorySlug, equipment, typeSlug]
+  );
   const transportOptions = useMemo(() => transports.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [transports]);
   const productOptions = useMemo(
     () =>
@@ -1191,6 +1224,7 @@ export function OperationFormDialog({
           id: String(row.id),
           name: buildAssetSelectorLabel(row, "machine"),
           hint: buildAssetSelectorHint(row),
+          asset: row,
         })));
       }
       if (!equipmentRes.error) {
@@ -1198,6 +1232,7 @@ export function OperationFormDialog({
           id: String(row.id),
           name: buildAssetSelectorLabel(row, "equipment"),
           hint: buildAssetSelectorHint(row),
+          asset: row,
         })));
       }
       if (!transportRes.error) {
@@ -1442,7 +1477,7 @@ export function OperationFormDialog({
       row_spacing_m: initial.row_spacing_m ?? null,
       seed_spacing_cm: initial.seed_spacing_cm ?? null,
       operation_params: initial.operation_params || null,
-      date: String(initial.date || new Date().toISOString().slice(0, 10)),
+      date: String(initial.date || todayDateOnlyLocal()),
       responsible_user_id: initial.responsible_user_id || null,
       notes: String(initial.notes || ""),
       purposes: Array.isArray(initial.purposes) ? initial.purposes : [],
@@ -1835,20 +1870,37 @@ export function OperationFormDialog({
 
   const addOperationTarget = () => {
     const used = new Set(operationTargets.map((target) => target.crop_structure_id).filter(Boolean));
-    const nextStructure =
-      cropStructures.find((item) => !item.archived && item.id !== selectedCropStructureId && !used.has(item.id)) ||
-      cropStructures.find((item) => !item.archived && !used.has(item.id));
-    if (!nextStructure) {
+    const candidates = cropStructures.filter((item) => !item.archived && !used.has(item.id));
+    if (candidates.length === 0) {
       setSubmitError("Нет доступных участков для добавления.");
       return;
     }
     setSubmitError(null);
-    setOperationTargets((prev) => [...prev, createTargetFromStructure(nextStructure)]);
+    setOperationTargets((prev) => [
+      ...prev,
+      candidates.length === 1
+        ? createTargetFromStructure(candidates[0])
+        : {
+            key: createTargetKey(),
+            field_id: "",
+            crop_structure_id: null,
+            crop_id: null,
+            variety_id: null,
+            reproduction_id: null,
+            planned_area_ha: 0,
+            notes: null,
+          },
+    ]);
   };
 
   const updateOperationTargetStructure = (key: string, cropStructureId: string) => {
     const structure = cropStructures.find((item) => item.id === cropStructureId);
     if (!structure) return;
+    if (operationTargets.some((target) => target.key !== key && target.crop_structure_id === cropStructureId)) {
+      setSubmitError("Этот участок уже добавлен в операцию.");
+      return;
+    }
+    setSubmitError(null);
     setOperationTargets((prev) =>
       prev.map((target) =>
         target.key === key
@@ -1928,7 +1980,11 @@ export function OperationFormDialog({
   };
 
   const updateMaterial = (index: number, patch: Partial<OperationMaterialFormData>) => {
-    setMaterials((prev) => prev.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+    setMaterials((prev) =>
+      prev.map((row, rowIndex) =>
+        rowIndex === index ? patchMaterialWithRateReset(row, patch) : row
+      )
+    );
   };
 
   const removeMaterial = (index: number) => {
@@ -2152,7 +2208,13 @@ export function OperationFormDialog({
             value={material.planned_rate ?? ""}
             onChange={(event) => updateMaterial(index, { planned_rate: normalizeNumber(event.target.value) })}
             placeholder={formatRateUnit(material.unit || getDefaultUnitForComponent(component.slug), rateBasis)}
+            aria-describedby={material.product_id && material.planned_rate == null ? `material-rate-help-${index}` : undefined}
           />
+          {material.product_id && material.planned_rate == null ? (
+            <div id={`material-rate-help-${index}`} className="mt-1 text-[11px] text-amber-300">
+              Укажите норму для выбранного материала
+            </div>
+          ) : null}
         </div>
         <div>
           <div className="mb-1 text-xs text-slate-500">Итого</div>
@@ -2335,16 +2397,34 @@ export function OperationFormDialog({
     }
     const targetsForSubmit =
       supportsMultiTarget && operationTargets.length > 0
-        ? operationTargets
-            .map(({ key: _key, ...target }) => ({
-              ...target,
-              planned_area_ha: Number(target.planned_area_ha || 0),
-            }))
-            .filter((target) => target.field_id && target.planned_area_ha > 0)
+        ? operationTargets.map(({ key: _key, ...target }) => ({
+            ...target,
+            planned_area_ha: Number(target.planned_area_ha || 0),
+          }))
         : [];
     if (supportsMultiTarget && targetsForSubmit.length === 0) {
       const message = "Добавьте хотя бы один участок обработки.";
       setSubmitError(message);
+      return;
+    }
+    if (
+      supportsMultiTarget &&
+      targetsForSubmit.some(
+        (target) =>
+          !target.field_id ||
+          !target.crop_structure_id ||
+          !Number.isFinite(target.planned_area_ha) ||
+          target.planned_area_ha <= 0
+      )
+    ) {
+      setSubmitError("Для каждого участка явно выберите строку структуры посевов и площадь.");
+      return;
+    }
+    if (
+      supportsMultiTarget &&
+      new Set(targetsForSubmit.map((target) => target.crop_structure_id)).size !== targetsForSubmit.length
+    ) {
+      setSubmitError("Один участок нельзя добавить дважды.");
       return;
     }
     if (isPotatoPlanting && (!data.seed_spacing_cm || data.seed_spacing_cm <= 0)) {
@@ -2694,7 +2774,15 @@ export function OperationFormDialog({
                         <SearchableSelect
                           value={target.crop_structure_id || ""}
                           onChange={(value) => updateOperationTargetStructure(target.key, value)}
-                          options={targetOptions}
+                          options={targetOptions.filter(
+                            (option) =>
+                              option.id === target.crop_structure_id ||
+                              !operationTargets.some(
+                                (candidate) =>
+                                  candidate.key !== target.key &&
+                                  candidate.crop_structure_id === option.id
+                              )
+                          )}
                           placeholder="Выберите участок"
                           emptyLabel="Участки не найдены"
                           disabled={lockedContext && index === 0}
@@ -3196,7 +3284,7 @@ export function OperationFormDialog({
                       name="spray_volume_per_ha"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Норма вылива, л/га</FormLabel>
+                          <FormLabel>Норма расхода рабочей жидкости, л/га</FormLabel>
                           <FormControl>
                             <Input
                               type="number"
@@ -3260,12 +3348,12 @@ export function OperationFormDialog({
                         <div className="font-semibold text-slate-100">{formatOperationNumber(operationAreaForCalculation)} га</div>
                       </div>
                       <div>
-                        <div className="text-slate-500">Норма вылива</div>
+                        <div className="text-slate-500">Норма рабочей жидкости</div>
                         <div className="font-semibold text-slate-100">{solutionRateLHa ? `${formatOperationNumber(solutionRateLHa)} л/га` : "—"}</div>
                       </div>
                       <div>
-                        <div className="text-slate-500">Итого раствора</div>
-                        <div className="font-semibold text-slate-100">{totalSolutionL != null ? `${formatOperationNumber(totalSolutionL)} л` : "—"}</div>
+                        <div className="text-slate-500">Жидкие материалы</div>
+                        <div className="font-semibold text-slate-100">{formatOperationNumber(liquidProductsTotalL)} л</div>
                       </div>
                       <div>
                         <div className="text-slate-500">Концентрация</div>
@@ -3291,6 +3379,12 @@ export function OperationFormDialog({
                         <span className="font-semibold text-slate-100">{formatOperationNumber(calculatedWaterTotalL)} л</span>
                       </div>
                     ) : null}
+                    <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm">
+                      <span className="font-semibold text-emerald-100">Итого готового раствора</span>
+                      <span className="font-bold text-emerald-100">
+                        {totalSolutionL != null ? `${formatOperationNumber(totalSolutionL)} л` : "—"}
+                      </span>
+                    </div>
                   </div>
                 ) : null}
               </div>

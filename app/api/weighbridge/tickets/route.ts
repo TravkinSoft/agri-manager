@@ -753,8 +753,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "gross_weight_kg is required and must be positive for harvest incoming" }, { status: 400 });
       }
       for (const line of lines) {
-        if (!line.crop_id) {
-          return NextResponse.json({ error: "crop_id is required for harvest incoming lines" }, { status: 400 });
+        if (!line.crop_id || !line.variety_id || !line.reproduction_id) {
+          return NextResponse.json(
+            { error: "crop_id, variety_id and reproduction_id are required for harvest incoming lines" },
+            { status: 400 }
+          );
         }
         const lineQty = Number(line.quantity || 0);
         if (!Number.isFinite(lineQty) || lineQty <= 0) {
