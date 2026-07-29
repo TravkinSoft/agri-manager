@@ -47,7 +47,7 @@ async function loadCropStructureBootstrap(
       .eq("archived", false)
       .order("year", { ascending: false }),
     supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,company_id,archived,is_active"),
-    supabase.from("varieties").select("id,name,crop_id,company_id,archived,is_active"),
+      supabase.from("varieties").select("id,name,name_ru,name_kz,name_en,crop_id,company_id,archived,is_active"),
     supabase
       .from("seed_reproductions")
       .select("id,name,name_ru,name_kz,name_en,code,company_id,archived,is_active,level_order")

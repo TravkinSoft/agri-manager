@@ -5,6 +5,11 @@ export type CropIdentity = {
   slug?: string | null;
 };
 
+export type VarietyIdentity = {
+  id?: string | null;
+  crop_id?: string | null;
+};
+
 export type CropStructureSeedAttributes = {
   crop_id: string | null;
   variety_id: string | null;
@@ -40,6 +45,7 @@ export function normalizeCropStructureSeedAttributes<T extends CropStructureSeed
 export function validateAndNormalizeCropStructureRows<T extends CropStructureSeedAttributes>(params: {
   rows: T[];
   cropsById: ReadonlyMap<string, CropIdentity>;
+  varietiesById?: ReadonlyMap<string, VarietyIdentity>;
   fieldArea: number;
   areaEpsilon?: number;
 }): CropStructureRowsValidation<T> {
@@ -68,6 +74,36 @@ export function validateAndNormalizeCropStructureRows<T extends CropStructureSee
         message: "Заполните культуру, сорт, репродукцию и площадь.",
       };
     }
+    if (
+      !isFallowCrop(crop) &&
+      row.variety_id &&
+      params.varietiesById &&
+      params.varietiesById.get(row.variety_id)?.crop_id !== row.crop_id
+    ) {
+      return {
+        ok: false,
+        rows: normalizedRows,
+        rowIndex: index,
+        message: "Выбранный сорт не относится к указанной культуре.",
+      };
+    }
+  }
+
+  const identityKeys = new Set<string>();
+  for (let index = 0; index < normalizedRows.length; index += 1) {
+    const row = normalizedRows[index];
+    const crop = row.crop_id ? params.cropsById.get(row.crop_id) : null;
+    if (isFallowCrop(crop)) continue;
+    const key = `${row.crop_id || ""}:${row.variety_id || ""}:${row.reproduction_id || ""}`;
+    if (identityKeys.has(key)) {
+      return {
+        ok: false,
+        rows: normalizedRows,
+        rowIndex: index,
+        message: "Одинаковая культура, сорт и репродукция уже добавлены для этого поля.",
+      };
+    }
+    identityKeys.add(key);
   }
 
   const totalArea = normalizedRows.reduce((sum, row) => sum + Number(row.area || 0), 0);

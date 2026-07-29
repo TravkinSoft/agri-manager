@@ -141,7 +141,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const requestedRows = parseRows(body.rows);
     const supabase = getServiceClient();
 
-    const [fieldRes, seasonRes, existingRes] = await Promise.all([
+    const [fieldRes, seasonRes, existingRes, activeSeasonsRes] = await Promise.all([
       supabase.from("fields").select("id,company_id,area,archived").eq("id", fieldId).eq("company_id", companyId).maybeSingle(),
       supabase.from("seasons").select("id,company_id,archived").eq("id", seasonId).eq("company_id", companyId).maybeSingle(),
       supabase
@@ -151,13 +151,26 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         .eq("field_id", fieldId)
         .eq("season_id", seasonId)
         .eq("archived", false),
+      supabase
+        .from("seasons")
+        .select("id,year,archived")
+        .eq("company_id", companyId)
+        .eq("archived", false)
+        .order("year", { ascending: false }),
     ]);
 
-    const lookupError = fieldRes.error || seasonRes.error || existingRes.error;
+    const lookupError = fieldRes.error || seasonRes.error || existingRes.error || activeSeasonsRes.error;
     if (lookupError) throw new Error(lookupError.message);
     if (!fieldRes.data || fieldRes.data.archived) throw new SessionAuthError("Field is not available", 404);
     if (!seasonRes.data) throw new SessionAuthError("Season is not available", 404);
     if (seasonRes.data.archived) throw new SessionAuthError("Closed season is read-only", 409);
+    const currentYear = new Date().getFullYear();
+    const currentSeason =
+      (activeSeasonsRes.data || []).find((row: any) => Number(row.year) === currentYear) ||
+      (activeSeasonsRes.data || [])[0];
+    if (!currentSeason?.id || String(currentSeason.id) !== seasonId) {
+      throw new SessionAuthError("Only the current season crop structure can be edited", 409);
+    }
 
     const cropIds = Array.from(new Set(requestedRows.map((row) => row.crop_id).filter((id): id is string => Boolean(id))));
     const varietyIds = Array.from(new Set(requestedRows.map((row) => row.variety_id).filter((id): id is string => Boolean(id))));
@@ -207,6 +220,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const validation = validateAndNormalizeCropStructureRows({
       rows: requestedRows,
       cropsById,
+      varietiesById,
       fieldArea: Number(fieldRes.data.area || 0),
     });
     if (!validation.ok) {

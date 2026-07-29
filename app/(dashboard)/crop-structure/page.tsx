@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
+import { CatalogIdentityCombobox } from "@/components/crop-structure/catalog-identity-combobox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
@@ -23,6 +24,11 @@ import {
   normalizeCropStructureSeedAttributes,
   validateAndNormalizeCropStructureRows,
 } from "@/lib/crop-structure/fallow";
+import {
+  buildReproductionOptions,
+  buildVarietyOptions,
+  catalogIdentitySearchValue,
+} from "@/lib/crop-structure/catalog-identity";
 import { createOperation } from "@/lib/services/operations";
 import type { OperationFormData, SpecialistAssignee } from "@/lib/types/operation";
 import type { CropStructureWithDetails } from "@/lib/types/crop-structure";
@@ -47,7 +53,17 @@ type Crop = {
   archived?: boolean | null;
   is_active?: boolean | null;
 };
-type Variety = { id: string; name: string; crop_id: string; company_id?: string | null; archived?: boolean | null; is_active?: boolean | null };
+type Variety = {
+  id: string;
+  name: string;
+  name_ru?: string | null;
+  name_kz?: string | null;
+  name_en?: string | null;
+  crop_id: string;
+  company_id?: string | null;
+  archived?: boolean | null;
+  is_active?: boolean | null;
+};
 type Reproduction = {
   id: string;
   name: string;
@@ -425,30 +441,58 @@ export default function CropStructurePage() {
     selectedCropId && !globalCropIds.has(selectedCropId) && cropMap.get(selectedCropId)
       ? [...globalCrops, cropMap.get(selectedCropId) as Crop].sort((a, b) => cropLabel(a).localeCompare(cropLabel(b), "ru"))
       : globalCrops;
-  const globalVarieties = useMemo(() => allVarieties.filter(isVisibleCatalogItem), [allVarieties, activeCompanyId]);
+  const selectedVarietyIds = useMemo(
+    () =>
+      Array.from(allocByField.values())
+        .flat()
+        .concat(draftRows)
+        .map((row) => row.variety_id)
+        .filter((id): id is string => Boolean(id)),
+    [allocByField, draftRows]
+  );
+  const selectedReproductionIds = useMemo(
+    () =>
+      Array.from(allocByField.values())
+        .flat()
+        .concat(draftRows)
+        .map((row) => row.reproduction_id)
+        .filter((id): id is string => Boolean(id)),
+    [allocByField, draftRows]
+  );
+  const globalVarieties = useMemo(
+    () =>
+      Array.from(
+        buildVarietyOptions({
+          rows: allVarieties,
+          companyId: activeCompanyId || "",
+          canonicalCropId: (cropId) => displayCropId(cropId) || cropId,
+          selectedIds: selectedVarietyIds,
+        }).values()
+      ).flat(),
+    [allVarieties, activeCompanyId, cropCatalog.aliasById, selectedVarietyIds]
+  );
   const globalReproductions = useMemo(
     () =>
-      allReproductions
-        .filter(isVisibleCatalogItem)
+      (buildReproductionOptions({
+        rows: allReproductions,
+        companyId: activeCompanyId || "",
+        selectedIds: selectedReproductionIds,
+      }) as Reproduction[])
         .sort((a, b) => Number(a.level_order || 0) - Number(b.level_order || 0) || standardReproductionLabel(a).localeCompare(standardReproductionLabel(b), "ru")),
-    [allReproductions, activeCompanyId]
+    [allReproductions, activeCompanyId, selectedReproductionIds]
   );
   const varietyMap = useMemo(() => new Map(globalVarieties.map((item) => [item.id, item])), [globalVarieties]);
   const reproductionMap = useMemo(() => new Map(globalReproductions.map((item) => [item.id, item])), [globalReproductions]);
-  const varietiesByCrop = useMemo(() => {
-    const map = new Map<string, Variety[]>();
-    for (const variety of globalVarieties) {
-      const cropIds = [variety.crop_id];
-      const visibleCropId = displayCropId(variety.crop_id);
-      if (visibleCropId && visibleCropId !== variety.crop_id) {
-        cropIds.push(visibleCropId);
-      }
-      for (const cropId of cropIds) {
-        map.set(cropId, [...(map.get(cropId) || []), variety]);
-      }
-    }
-    return map;
-  }, [globalVarieties, cropCatalog.aliasById]);
+  const varietiesByCrop = useMemo(
+    () =>
+      buildVarietyOptions({
+        rows: globalVarieties,
+        companyId: activeCompanyId || "",
+        canonicalCropId: (cropId) => displayCropId(cropId) || cropId,
+        selectedIds: selectedVarietyIds,
+      }) as Map<string, Variety[]>,
+    [globalVarieties, activeCompanyId, cropCatalog.aliasById, selectedVarietyIds]
+  );
 
   useEffect(() => {
     if (!selectedField) {
@@ -1138,7 +1182,8 @@ export default function CropStructurePage() {
       const old = next[index];
       let merged = { ...old, ...patch };
       if (patch.crop_id && patch.crop_id !== old.crop_id) {
-        merged.variety_id = null;
+        const availableVarieties = varietiesByCrop.get(displayCropId(patch.crop_id) || patch.crop_id) || [];
+        merged.variety_id = availableVarieties.length === 1 ? availableVarieties[0].id : null;
       }
       merged = normalizeCropStructureSeedAttributes(
         merged,
@@ -1228,6 +1273,7 @@ export default function CropStructurePage() {
     const validation = validateAndNormalizeCropStructureRows({
       rows: draftRows,
       cropsById: cropMap,
+      varietiesById: varietyMap,
       fieldArea: selectedField.area,
       areaEpsilon: EPS,
     });
@@ -2307,17 +2353,42 @@ export default function CropStructurePage() {
                   <>
                     <div className="col-span-12 md:col-span-2">
                       <Label className={editorLabelClass}>Сорт *</Label>
-                      <Select value={row.variety_id || "none"} onValueChange={(value) => patchDraft(index, { variety_id: value === "none" ? null : value })}>
-                        <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите сорт" /></SelectTrigger>
-                        <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{vars.map((variety) => <SelectItem key={variety.id} value={variety.id}>{variety.name}</SelectItem>)}</SelectContent>
-                      </Select>
+                      <CatalogIdentityCombobox
+                        value={row.variety_id}
+                        options={vars.map((variety) => ({
+                          id: variety.id,
+                          label: localizedName(variety as never, language, ["name"]) || variety.name,
+                          searchValue: catalogIdentitySearchValue(variety),
+                          legacy: variety.archived === true || variety.is_active === false,
+                        }))}
+                        placeholder="Выберите сорт"
+                        searchPlaceholder="Поиск сорта..."
+                        emptyMessage={row.crop_id ? "Для выбранной культуры нет доступных сортов" : "Сначала выберите культуру"}
+                        className={editorControlClass}
+                        disabled={!row.crop_id || vars.length === 0}
+                        onChange={(value) => patchDraft(index, { variety_id: value })}
+                      />
+                      {row.crop_id && vars.length === 0 ? (
+                        <div className="mt-1 text-[11px] text-amber-300">Для выбранной культуры нет доступных сортов</div>
+                      ) : null}
                     </div>
                     <div className="col-span-12 md:col-span-2">
                       <Label className={editorLabelClass}>Репродукция *</Label>
-                      <Select value={row.reproduction_id || "none"} onValueChange={(value) => patchDraft(index, { reproduction_id: value === "none" ? null : value })}>
-                        <SelectTrigger className={editorControlClass}><SelectValue placeholder="Репродукция" /></SelectTrigger>
-                        <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{globalReproductions.map((item) => <SelectItem key={item.id} value={item.id}>{standardReproductionLabel(item)}</SelectItem>)}</SelectContent>
-                      </Select>
+                      <CatalogIdentityCombobox
+                        value={row.reproduction_id}
+                        options={globalReproductions.map((item) => ({
+                          id: item.id,
+                          label: standardReproductionLabel(item),
+                          searchValue: catalogIdentitySearchValue(item),
+                          legacy: item.archived === true || item.is_active === false,
+                        }))}
+                        placeholder="Выберите репродукцию"
+                        searchPlaceholder="Поиск репродукции..."
+                        emptyMessage="Доступные репродукции не найдены"
+                        className={editorControlClass}
+                        disabled={globalReproductions.length === 0}
+                        onChange={(value) => patchDraft(index, { reproduction_id: value })}
+                      />
                     </div>
                   </>
                 ) : null}
