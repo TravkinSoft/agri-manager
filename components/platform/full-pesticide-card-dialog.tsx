@@ -39,7 +39,7 @@ export function FullPesticideCardDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto rounded-none border border-[#9ca3af] bg-white p-0 text-black shadow-xl sm:w-full">
+      <DialogContent className="max-h-[calc(100vh-1rem)] w-[calc(100vw-1rem)] max-w-4xl overflow-y-auto rounded-none border border-[#9ca3af] bg-white p-0 text-black shadow-xl sm:w-full">
         <DialogHeader className="border-b border-[#c7c7c7] bg-white px-4 py-4 text-left sm:px-6">
           <DialogTitle className="pr-8 text-xl font-semibold leading-tight tracking-normal text-black sm:text-2xl">
             {card?.product.tradeName || "Карточка пестицида"}
