@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BookOpen, ChevronDown, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
@@ -280,8 +281,12 @@ function toArrayValue(value: any): string[] {
 }
 
 export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }) {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const pesticideIdFromUrl = config.entity === "pesticides" ? searchParams.get("pesticide") : null;
 
   const [rows, setRows] = useState<RowRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -483,7 +488,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     setPesticideCard(null);
     try {
       const headers = await buildClientAuthHeaders();
-      const response = await fetch(`/api/catalog/pesticide-card/${productId}`, {
+      const response = await fetch(`/api/global-admin/pesticide-card/${productId}`, {
         headers,
         cache: "no-store",
       });
@@ -500,6 +505,37 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   const retryPesticideCard = () => {
     if (selectedPesticideId) void loadPesticideCard(selectedPesticideId);
   };
+
+  const openPesticideCard = (productId: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("pesticide", productId);
+    router.push(`${pathname}?${params.toString()}`);
+  };
+
+  const handlePesticideCardOpenChange = (open: boolean) => {
+    if (open) {
+      setPesticideCardOpen(true);
+      return;
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("pesticide");
+    setPesticideCardOpen(false);
+    setSelectedPesticideId(null);
+    setPesticideCard(null);
+    router.push(params.size ? `${pathname}?${params.toString()}` : pathname);
+  };
+
+  useEffect(() => {
+    if (config.entity !== "pesticides" || !user?.id) return;
+    if (!pesticideIdFromUrl) {
+      setPesticideCardOpen(false);
+      setSelectedPesticideId(null);
+      setPesticideCard(null);
+      return;
+    }
+    if (selectedPesticideId === pesticideIdFromUrl && pesticideCardOpen) return;
+    void loadPesticideCard(pesticideIdFromUrl);
+  }, [config.entity, user?.id, pesticideIdFromUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const retryComponentCard = () => {
     if (selectedComponentId) void loadComponentCard(selectedComponentId);
@@ -874,7 +910,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                           <Button
                             variant="outline"
                             size="icon"
-                            onClick={() => void loadPesticideCard(row.id)}
+                            onClick={() => openPesticideCard(row.id)}
                             className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]"
                             title="Открыть полную карточку"
                             aria-label="Открыть полную карточку"
@@ -955,18 +991,11 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
       <FullPesticideCardDialog
         open={pesticideCardOpen}
-        onOpenChange={setPesticideCardOpen}
+        onOpenChange={handlePesticideCardOpenChange}
         loading={pesticideCardLoading}
         error={pesticideCardError}
         card={pesticideCard}
         onRetry={retryPesticideCard}
-        adminMode={profile?.role === "global_admin"}
-        onEdit={pesticideCard ? () => {
-          const row = rows.find((item) => item.id === pesticideCard.product.id);
-          if (!row) return;
-          setPesticideCardOpen(false);
-          openEdit(row);
-        } : undefined}
       />
     </div>
   );
