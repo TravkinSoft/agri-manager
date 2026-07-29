@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 
 export async function GET(
   request: NextRequest,
@@ -245,17 +246,11 @@ export async function PATCH(
           : Number(ticket.tare_weight_kg);
 
     if (nextGross != null && nextTare != null) {
-      if (!(nextGross > 0)) {
-        return NextResponse.json({ error: "Брутто должно быть больше нуля." }, { status: 400 });
+      const weightValidation = validateHarvestWeights(nextGross, nextTare);
+      if (!weightValidation.ok) {
+        return NextResponse.json({ error: weightValidation.message }, { status: 400 });
       }
-      if (nextTare > nextGross) {
-        return NextResponse.json({ error: "Тара не может быть больше брутто." }, { status: 400 });
-      }
-      const nextNet = nextGross - nextTare;
-      if (!(nextNet > 0)) {
-        return NextResponse.json({ error: "Нетто должно быть больше нуля." }, { status: 400 });
-      }
-      patch.net_weight_kg = nextNet;
+      patch.net_weight_kg = weightValidation.net;
     }
 
     if (body?.notes !== undefined) {
@@ -274,49 +269,24 @@ export async function PATCH(
       return NextResponse.json({ error: "No patch fields provided" }, { status: 400 });
     }
 
-    let harvestLineSnapshot: {
-      id: string;
-      quantity: number;
-      mass_kg: number | null;
-      net_line_weight_kg: number | null;
-    } | null = null;
     if (ticket.op_type === "harvest_incoming" && patch.net_weight_kg !== undefined) {
-      const { data: harvestLines, error: harvestLinesError } = await supabase
-        .from("ticket_lines")
-        .select("id,quantity,mass_kg,net_line_weight_kg,uom")
-        .eq("ticket_id", id)
-        .eq("company_id", companyId);
-      if (harvestLinesError) {
-        return NextResponse.json({ error: harvestLinesError.message }, { status: 400 });
+      const { error: atomicUpdateError } = await supabase.rpc("set_harvest_ticket_weights_for_session_v1", {
+        p_ticket_id: id,
+        p_patch: patch,
+      });
+      if (atomicUpdateError) {
+        return NextResponse.json({ error: atomicUpdateError.message }, { status: 400 });
       }
-      if ((harvestLines || []).length !== 1 || String(harvestLines?.[0]?.uom || "").toLowerCase() !== "kg") {
-        return NextResponse.json(
-          { error: "Harvest ticket must contain exactly one kilogram line before closing" },
-          { status: 409 }
-        );
+      const { data: updated, error: updatedError } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("id", id)
+        .eq("company_id", companyId)
+        .single();
+      if (updatedError || !updated?.id) {
+        return NextResponse.json({ error: updatedError?.message || "Ticket not found after update" }, { status: 400 });
       }
-
-      const line = harvestLines![0];
-      harvestLineSnapshot = {
-        id: String(line.id),
-        quantity: Number(line.quantity || 0),
-        mass_kg: line.mass_kg == null ? null : Number(line.mass_kg),
-        net_line_weight_kg: line.net_line_weight_kg == null ? null : Number(line.net_line_weight_kg),
-      };
-      const netWeight = Number(patch.net_weight_kg);
-      const { error: lineUpdateError } = await supabase
-        .from("ticket_lines")
-        .update({
-          quantity: netWeight,
-          mass_kg: netWeight,
-          net_line_weight_kg: netWeight,
-        })
-        .eq("id", line.id)
-        .eq("ticket_id", id)
-        .eq("company_id", companyId);
-      if (lineUpdateError) {
-        return NextResponse.json({ error: lineUpdateError.message }, { status: 400 });
-      }
+      return NextResponse.json({ ticket: updated });
     }
 
     const { data: updated, error: updateError } = await supabase
@@ -327,18 +297,6 @@ export async function PATCH(
       .single();
 
     if (updateError) {
-      if (harvestLineSnapshot) {
-        await supabase
-          .from("ticket_lines")
-          .update({
-            quantity: harvestLineSnapshot.quantity,
-            mass_kg: harvestLineSnapshot.mass_kg,
-            net_line_weight_kg: harvestLineSnapshot.net_line_weight_kg,
-          })
-          .eq("id", harvestLineSnapshot.id)
-          .eq("ticket_id", id)
-          .eq("company_id", companyId);
-      }
       return NextResponse.json({ error: updateError.message }, { status: 400 });
     }
 

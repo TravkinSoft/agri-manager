@@ -44,6 +44,7 @@ const STATUS_PRIORITY = new Map([
   ["active", 1],
   ["accepted", 1],
   ["planned", 2],
+  ["completed", 3],
 ]);
 
 function normalizedOperationStatus(row: any): string {
@@ -243,6 +244,19 @@ export async function resolveHarvestTicketContext(params: {
       allocation: allocationValue,
     };
   }
+  const readyWithoutOperation = (message: string): HarvestTicketContext => ({
+    status: "ready",
+    message,
+    seasonId: String(activeSeason.id),
+    allocation: allocationValue,
+    operationId: null,
+    operationLineId: null,
+    operationStatus: null,
+    harvestedMassKg: 0,
+    harvestedAreaHa: 0,
+    yieldTPerHa: null,
+    yieldStatus: "not_available",
+  });
 
   const { data: operations, error: operationsError } = await supabase
     .from("operations")
@@ -260,51 +274,9 @@ export async function resolveHarvestTicketContext(params: {
     .filter((row: any) => STATUS_PRIORITY.has(row.resolvedStatus));
 
   if (candidates.length === 0) {
-    const completedOperations = normalizedOperations.filter((row: any) => row.resolvedStatus === "completed");
-    if (completedOperations.length === 1) {
-      const completedOperation = completedOperations[0];
-      const { data: completedLines, error: completedLinesError } = await supabase
-        .from("operation_lines")
-        .select("id,operation_id,company_id,field_id,crop_id,variety_id,reproduction_id,actual_area_ha,planned_area_ha")
-        .eq("company_id", companyId)
-        .eq("field_id", fieldId)
-        .eq("operation_id", completedOperation.id);
-      if (completedLinesError) throw completedLinesError;
-      const completedLineCandidates = (completedLines || []).filter((line: any) => {
-        if (String(line.crop_id || "") !== allocationValue.cropId) return false;
-        if (line.variety_id && !sameNullable(line.variety_id, allocationValue.varietyId)) return false;
-        if (line.reproduction_id && !sameNullable(line.reproduction_id, allocationValue.reproductionId)) return false;
-        return true;
-      });
-      if (completedLineCandidates.length === 1) {
-        const yieldSummary = await calculateHarvestYieldForOperation({
-          supabase,
-          companyId,
-          operationId: String(completedOperation.id),
-        });
-        const lineYield = yieldSummary.lineResults.find(
-          (line) => line.operationLineId === String(completedLineCandidates[0].id)
-        );
-        return {
-          status: "missing",
-          message: "Уборка по выбранному участку уже завершена. Новый талон создать нельзя.",
-          seasonId: String(activeSeason.id),
-          allocation: allocationValue,
-          operationId: String(completedOperation.id),
-          operationLineId: String(completedLineCandidates[0].id),
-          operationStatus: "completed",
-          harvestedMassKg: lineYield?.harvestedMassKg || 0,
-          harvestedAreaHa: lineYield?.harvestedAreaHa || 0,
-          yieldTPerHa: lineYield?.yieldTPerHa ?? null,
-          yieldStatus: lineYield?.yieldTPerHa == null ? "not_available" : "final",
-        };
-      }
-    }
-    return {
-      ...empty("missing", "По выбранному участку нет активной уборки. Попросите агронома создать или активировать план уборки."),
-      seasonId: String(activeSeason.id),
-      allocation: allocationValue,
-    };
+    return readyWithoutOperation(
+      "Источник урожая определён по структуре посевов. Подходящая операция уборки не найдена; талон будет сохранён без связи с операцией."
+    );
   }
 
   const bestPriority = Math.min(...candidates.map((row: any) => STATUS_PRIORITY.get(row.resolvedStatus) ?? 99));
@@ -329,21 +301,17 @@ export async function resolveHarvestTicketContext(params: {
   });
 
   if (bestOperations.length !== 1 || lineCandidates.length !== 1) {
-    return {
-      ...empty("ambiguous", "Для выбранного участка найдено несколько активных уборок. Агроном должен оставить одну актуальную операцию."),
-      seasonId: String(activeSeason.id),
-      allocation: allocationValue,
-    };
+    return readyWithoutOperation(
+      "Источник урожая определён по структуре посевов. Однозначная операция уборки не определена; талон будет сохранён без связи с операцией."
+    );
   }
 
   const operation = bestOperations[0];
   const operationLine = lineCandidates[0];
   if (String(operationLine.operation_id) !== String(operation.id)) {
-    return {
-      ...empty("ambiguous", "Для выбранного участка найдено несколько активных уборок. Агроном должен оставить одну актуальную операцию."),
-      seasonId: String(activeSeason.id),
-      allocation: allocationValue,
-    };
+    return readyWithoutOperation(
+      "Источник урожая определён по структуре посевов. Операция уборки не совпадает с выбранным участком и не будет привязана."
+    );
   }
 
   const yieldSummary = await calculateHarvestYieldForOperation({

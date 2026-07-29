@@ -28,6 +28,7 @@ import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { createWarehouseTransfer } from "@/lib/services/warehouses";
 import { isWeighedFieldMaterial, isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
+import { automaticHarvestAllocation, findHarvestProductForAllocation, validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 
 type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "impurity_removal" | "drying";
@@ -82,6 +83,9 @@ type ProductOption = Option & {
   stockUnit?: string;
   physicalState?: string;
   isSeedMaterial?: boolean;
+  cropId?: string | null;
+  varietyId?: string | null;
+  reproductionId?: string | null;
 };
 type StockIdentityOption = {
   key: string;
@@ -817,7 +821,7 @@ export default function WeighbridgeOperationsPage() {
         getWeighbridgeResources(profile.company_id),
         supabase
           .from("products")
-          .select("id,name,trade_name,normalized_name,company_id,type,product_type,unit,default_unit,base_uom,pack_uom,package_unit,product_form,formulation,category,subcategory,stock_unit,physical_state,is_seed_material")
+          .select("id,name,trade_name,normalized_name,company_id,type,product_type,unit,default_unit,base_uom,pack_uom,package_unit,product_form,formulation,category,subcategory,stock_unit,physical_state,is_seed_material,crop_id,variety_id,seed_reproduction_id")
           .or(`company_id.eq.${profile.company_id},company_id.is.null`)
           .eq("archived", false)
           .order("name"),
@@ -906,6 +910,9 @@ export default function WeighbridgeOperationsPage() {
           stockUnit: String(r.stock_unit || ""),
           physicalState: String(r.physical_state || ""),
           isSeedMaterial: r.is_seed_material === true,
+          cropId: r.crop_id ? String(r.crop_id) : null,
+          varietyId: r.variety_id ? String(r.variety_id) : null,
+          reproductionId: r.seed_reproduction_id ? String(r.seed_reproduction_id) : null,
         }))
       );
       setCrops(cropRows.map((r: any) => ({ id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Культура") })));
@@ -1208,8 +1215,9 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
     const exists = fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId);
-    if (!exists && fieldHarvestOptions.length === 1 && !fieldHarvestOptions[0].isIncomplete) {
-      const first = fieldHarvestOptions[0];
+    const automaticAllocation = automaticHarvestAllocation(fieldHarvestOptions);
+    if (!exists && automaticAllocation) {
+      const first = automaticAllocation;
       setForm((prev) => ({
         ...prev,
         cropStructureAllocationId: first.allocationId,
@@ -1671,6 +1679,20 @@ export default function WeighbridgeOperationsPage() {
       if (harvestContext.status !== "ready") {
         return harvestContext.message || "Активная уборка не определена";
       }
+      const cropName = crops.find((crop) => crop.id === selectedHarvestAllocation.cropId)?.name || "";
+      if (
+        !findHarvestProductForAllocation(
+          products,
+          {
+            cropId: selectedHarvestAllocation.cropId,
+            varietyId: selectedHarvestAllocation.varietyId,
+            reproductionId: selectedHarvestAllocation.reproductionId,
+          },
+          [cropName]
+        )
+      ) {
+        return "Для выбранной культуры не найдена совместимая складская номенклатура урожая";
+      }
       if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
     } else if (form.operationType === "supplier_receipt") {
       if (!form.supplierId) return "Выберите контрагента";
@@ -1798,18 +1820,17 @@ export default function WeighbridgeOperationsPage() {
 
     const meta = opMeta(form.operationType);
     const cropName = crops.find((c) => c.id === form.cropId)?.name || "";
-    const cropNorm = normName(cropName);
-    const harvestProduct =
-      products.find(
-        (p) =>
-          ["produce", "crop", "harvest"].includes(String(p.type || "").toLowerCase()) &&
-          (normName(p.name) === cropNorm ||
-            normName(p.name).includes(cropNorm) ||
-            cropNorm.includes(normName(p.name)))
-      ) ||
-      products.find((p) => normName(p.name) === cropNorm) ||
-      products.find((p) => normName(p.name).includes(cropNorm) || cropNorm.includes(normName(p.name))) ||
-      products.find((p) => ["produce", "crop", "harvest"].includes(String(p.type || "").toLowerCase()));
+    const harvestProduct = selectedHarvestAllocation
+      ? findHarvestProductForAllocation(
+          products,
+          {
+            cropId: selectedHarvestAllocation.cropId,
+            varietyId: selectedHarvestAllocation.varietyId,
+            reproductionId: selectedHarvestAllocation.reproductionId,
+          },
+          [cropName]
+        )
+      : null;
     const isFieldIssue = form.operationType === "issue_to_field";
     const isShipment = form.operationType === "shipment_outbound";
     const isDisposal = form.operationType === "disposal_writeoff";
@@ -2045,8 +2066,12 @@ export default function WeighbridgeOperationsPage() {
       : Number(activeTicket.gross_weight_kg || 0);
     const t = isDirectQuantityTicket ? 0 : Number(closingTare || 0);
     if (!Number.isFinite(g) || g <= 0) return toast({ title: "Ошибка", description: "Брутто не заполнено", variant: "destructive" });
-    if (!isDirectQuantityTicket && (!Number.isFinite(t) || t < 0)) return toast({ title: "Ошибка", description: "Укажите тару", variant: "destructive" });
-    if (t > g) return toast({ title: "Ошибка", description: "Тара больше брутто", variant: "destructive" });
+    if (!isDirectQuantityTicket) {
+      const weightValidation = validateHarvestWeights(g, t);
+      if (!weightValidation.ok) {
+        return toast({ title: "Ошибка", description: weightValidation.message, variant: "destructive" });
+      }
+    }
     if (!(await siteConfirm({ title: "Закрыть талон", description: "После закрытия будет создано движение по складу.", actionLabel: "Закрыть" }))) return;
 
     setFinalizing(true);

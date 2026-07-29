@@ -7,6 +7,7 @@ import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/we
 import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
 import type { StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
 import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context";
+import { isHarvestProductForAllocation } from "@/lib/weighbridge/harvest-contract";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 
@@ -243,14 +244,72 @@ export async function POST(request: NextRequest) {
         fieldId: String(ticket.field_id),
         allocationId: String(ticket.crop_structure_allocation_id),
       });
-      if (harvestContext.status !== "ready" || !harvestContext.operationId || !harvestContext.operationLineId) {
+      if (harvestContext.status !== "ready") {
         return NextResponse.json({ error: harvestContext.message }, { status: 409 });
+      }
+      if (lines.length !== 1 || !lines[0]?.product_id) {
+        return NextResponse.json(
+          { error: "Приход урожая должен содержать одну складскую номенклатуру." },
+          { status: 400 }
+        );
+      }
+
+      const [{ data: crop, error: cropError }, { data: harvestProduct, error: harvestProductError }] =
+        await Promise.all([
+          supabase
+            .from("crops")
+            .select("id,name,name_ru,name_kz,name_en")
+            .eq("id", harvestContext.allocation?.cropId || "")
+            .maybeSingle(),
+          supabase
+            .from("products")
+            .select("id,name,trade_name,normalized_name,type,product_type,crop_id,variety_id,seed_reproduction_id")
+            .eq("id", lines[0].product_id)
+            .or(`company_id.eq.${companyId},company_id.is.null`)
+            .eq("archived", false)
+            .maybeSingle(),
+        ]);
+      if (cropError || !crop?.id || harvestProductError || !harvestProduct?.id) {
+        return NextResponse.json(
+          { error: "Не удалось подтвердить культуру и складскую номенклатуру урожая." },
+          { status: 400 }
+        );
+      }
+      const allocationIdentity = {
+        cropId: String(harvestContext.allocation?.cropId || ""),
+        varietyId: harvestContext.allocation?.varietyId || null,
+        reproductionId: harvestContext.allocation?.reproductionId || null,
+      };
+      const cropNames = [crop.name, crop.name_ru, crop.name_kz, crop.name_en]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+      if (
+        !isHarvestProductForAllocation(
+          {
+            id: String(harvestProduct.id),
+            name: harvestProduct.name,
+            tradeName: harvestProduct.trade_name,
+            normalizedName: harvestProduct.normalized_name,
+            type: harvestProduct.type,
+            productType: harvestProduct.product_type,
+            cropId: harvestProduct.crop_id,
+            varietyId: harvestProduct.variety_id,
+            reproductionId: harvestProduct.seed_reproduction_id,
+          },
+          allocationIdentity,
+          cropNames
+        )
+      ) {
+        return NextResponse.json(
+          { error: "Складская номенклатура не соответствует культуре, сорту или репродукции урожая." },
+          { status: 409 }
+        );
       }
 
       ticket.season_id = harvestContext.seasonId;
-      ticket.linked_operation_id = harvestContext.operationId;
+      ticket.linked_operation_id = harvestContext.operationId || null;
       for (const line of lines) {
-        line.operation_line_id = harvestContext.operationLineId;
+        line.operation_line_id = harvestContext.operationLineId || null;
         line.crop_id = harvestContext.allocation?.cropId || null;
         line.variety_id = harvestContext.allocation?.varietyId || null;
         line.reproduction_id = harvestContext.allocation?.reproductionId || null;
@@ -730,9 +789,6 @@ export async function POST(request: NextRequest) {
       }
     }
     if (isHarvestIncoming) {
-      if (!ticket.linked_operation_id) {
-        return NextResponse.json({ error: "Уборочная операция не определена автоматически." }, { status: 400 });
-      }
       if (!ticket.field_id) {
         return NextResponse.json({ error: "field_id is required for harvest incoming" }, { status: 400 });
       }
