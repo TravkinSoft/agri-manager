@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-28
+LAST_UPDATED: 2026-07-29
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; TZ-234 core commit: `efd356e9cc9acb2558a04ed0f3c0845c3d26fdad`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; TZ-237 feature commits: `a9d4f0a`, `908a78e`, `70767a7`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -19,10 +19,28 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Ledger | LOCAL_READY | Новые ledger/balance views разделяют остатки по `product + warehouse + batch identity + base_uom + batch_class`; смешение `kg/l/pcs` блокируется. Legacy-строки читаются как доказанная единица или `legacy/unknown`, без автоматического kg/commodity fallback. Production migration не применена. |
 | Весовая | TZ216_WEIGHBRIDGE_V13_PREVIEW_READY | Взвешенная поставка использует один товар и `net_weight_kg` как единственное количество; накладная поддерживает несколько строк с единицами каталога и складом каждой строки. Внутреннее перемещение блокирует одинаковые склады. Покупатели используют общую identity контрагента. Инвентаризацию считает назначенный сотрудник, а ledger-корректировку подтверждает только Company Admin. Автопривязка урожая и вывоз примесей сохранены. |
 | Crop Care | LIMITED | Schema/API foundation присутствует; полный production workflow и данные компании не закрыты отдельным end-to-end acceptance. |
-| ГЛБД | TZ197_CONFIRMED_GLBD_V1_CORRECTIONS_APPLIED | Все 852 pesticide cards имеют assistant safety status. Девять подтверждённых действий TZ-196 применены: 7 полей карточек и 2 source-backed component groups. Десять `BLOCKED_NO_DATA` и три HOLD остаются без изменений. |
+| ГЛБД | TZ237_HUMAN_PESTICIDE_CARD_QA_READY | Все 852 pesticide cards строятся через единый human read model. Existing Global Admin UI показывает одну агрономическую таблицу, raw fallback без догадок и честный статус отсутствующего регламента. QA safe mapping добавил 910 crop и 1 target link; production не менялась. |
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A110_READ_ONLY_GATE_READY | TZ-195 preview принят владельцем. TZ-197 закрыл preview-pending GLBD actions; A110 может начинать read-only с safety matrix и блокировкой десяти `BLOCKED_NO_DATA`. Agronomic recommendations остаются запрещены. |
+
+## TZ-237 Human pesticide cards
+
+- TZ-237 status: `PASS`; report:
+  [task-reports/core/TZ-237.md](task-reports/core/TZ-237.md).
+- Existing Global Admin pesticide catalog now uses a dedicated authenticated
+  human read model and one compact two-column agronomic table. No new page was
+  created.
+- All `852/852` cards build successfully; `744` have usage rules and `108`
+  show an honest missing-regulation message without invented values.
+- QA-only safe mapping changed `911` usage-rule rows: crop links
+  `783 -> 1,693`, target links `57 -> 58`; repeat apply changed `0`.
+- Automated regression passed `45/45`; real coverage passed `852/852`; manual
+  browser review passed `30/30`.
+- The dialog has no internal scroll at `1366x768` or `1920x1080`.
+- QA migration `20260729143000` was applied only to
+  `gsglkmudcwkdetqtocae`. Production fingerprint remained unchanged; no
+  production deploy, master merge or Assistant snapshot occurred.
 
 ## TZ-234 Work audit remediation
 

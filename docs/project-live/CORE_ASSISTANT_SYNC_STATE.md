@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-28T00:00:00+05:00
+LAST_REVIEW_AT: 2026-07-29T00:00:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (TZ-234 core commit: `efd356e9cc9acb2558a04ed0f3c0845c3d26fdad`)
+CORE_COMMIT: `SELF` (TZ-237 feature commits: `a9d4f0a`, `908a78e`, `70767a7`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
@@ -16,7 +16,31 @@ INTEGRATION_CONTRACT_IMPACT: NO - Contract 0.4 remains unchanged.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: Start A110 in assistant-v1 as read-only GLBD access using the TZ-196 safety matrix plus the TZ-197 post-apply record. Exclude the ten `BLOCKED_NO_DATA` rows; do not implement agronomic recommendations.
+NEXT_SAFE_ACTION: Complete owner agronomist visual review of TZ-237 in QA. Do not refresh the Assistant snapshot or enable agronomic recommendations without a separate approved task.
+
+## TZ-237 review result
+
+TZ237_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory and Contract 0.4
+were not changed.
+
+TZ237_CORE_IMPACT_FOUND: `YES - dedicated human pesticide read model, Global
+Admin card presentation, QA-only safe crop/target links and two review SELECT
+policies`.
+
+TZ237_INTEGRATION_CONTRACT_IMPACT: `NO`; internal canonical/raw readiness flags
+are preserved, raw display values do not become recommendation-ready, and no
+Assistant tool contract changed.
+
+TZ237_ACCEPTANCE: `PASS - 852/852 card coverage, 45/45 automated regression,
+30/30 manual UI review, security 401/403/200, typecheck/build and two viewport
+checks`.
+
+TZ237_TEST_ENVIRONMENT: `gsglkmudcwkdetqtocae and Vercel Preview only`;
+production writes, production deploy, master merge and Assistant snapshot are
+`0/NO/NO/NO`.
+
+TZ237_ACTION: `OWNER_AGRONOMIST_VISUAL_REVIEW_ALLOWED`; production release and
+Assistant snapshot remain explicitly blocked.
 
 ## TZ-234 review result
 
