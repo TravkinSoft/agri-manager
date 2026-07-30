@@ -21,9 +21,6 @@ export type WarehouseRequestV5Status =
   | "closed"
   | "cancelled";
 
-export type WarehouseIssueMode = "whole_package" | "measured" | "mixed";
-export type WarehousePackageSource = "batch" | "product" | "manual" | "measured";
-
 export interface WarehouseIssueAllocation {
   id: string;
   request_id: string;
@@ -33,12 +30,6 @@ export interface WarehouseIssueAllocation {
   batch_id_text: string | null;
   batch_class: string;
   batch_label: string;
-  issue_mode: Exclude<WarehouseIssueMode, "mixed">;
-  package_source: WarehousePackageSource;
-  package_size: number | null;
-  package_count: number | null;
-  package_unit: string | null;
-  manual_package_reason: string | null;
   prepared_quantity: number;
   issued_quantity: number;
 }
@@ -70,12 +61,6 @@ export interface WarehouseIssueRequestItem {
   loss_reason?: string | null;
   loss_comment?: string | null;
   return_comment?: string | null;
-  package_size?: number | null;
-  package_count?: number | null;
-  package_unit?: string | null;
-  issue_mode?: WarehouseIssueMode | null;
-  package_source?: WarehousePackageSource | null;
-  package_reason?: string | null;
   allocations?: WarehouseIssueAllocation[];
   reconciliation_status?:
     | "not_required"

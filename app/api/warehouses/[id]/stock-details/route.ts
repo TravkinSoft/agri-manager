@@ -45,7 +45,7 @@ export async function GET(
 
     const { data: catalogRows, error: catalogError } = await supabase
       .from("products")
-      .select("id,master_product_id,name,trade_name,normalized_name,manufacturer,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,base_uom,package_size,package_unit,company_id,archived,is_active")
+      .select("id,master_product_id,name,trade_name,normalized_name,manufacturer,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,base_uom,company_id,archived,is_active")
       .or(`company_id.eq.${companyId},company_id.is.null`)
       .eq("archived", false);
     if (catalogError) throw new Error(catalogError.message);
@@ -177,7 +177,7 @@ export async function GET(
     const { data: batches, error: batchError } = uuidBatchIds.length
       ? await supabase
           .from("inventory_batches")
-          .select("id,product_id,source_ticket_id,batch_code,supplier_lot,lot_number,supplier_id,package_size,package_unit,created_at")
+          .select("id,product_id,source_ticket_id,batch_code,supplier_lot,lot_number,supplier_id,created_at")
           .in("id", uuidBatchIds)
       : { data: [] as any[], error: null };
     if (batchError) throw new Error(batchError.message);
@@ -240,8 +240,6 @@ export async function GET(
         const line = ticket ? lineByTicket.get(String(ticket.id)) : null;
         const quality = (line?.quality_json || {}) as Record<string, unknown>;
         const lotReserved = reservedByBatch.get(row.key) || 0;
-        const packageSize = batch?.package_size ?? selected.package_size ?? null;
-        const packageUnit = batch?.package_unit ?? selected.package_unit ?? null;
         return {
           key: row.key,
           batch_id: row.batchId,
@@ -252,10 +250,6 @@ export async function GET(
           available_quantity: Number(
             Math.max(row.quantity - lotReserved, 0).toFixed(3)
           ),
-          package_size:
-            packageSize == null ? null : Number(Number(packageSize).toFixed(4)),
-          package_unit: packageUnit ? String(packageUnit) : null,
-          package_source: batch?.package_size != null ? "batch" : selected.package_size != null ? "product" : null,
           manufactured_at: quality.manufactured_at ? String(quality.manufactured_at) : null,
           expires_at: quality.expires_at ? String(quality.expires_at) : null,
           supplier: supplierById.get(String(batch?.supplier_id || ticket?.supplier_id || "")) || null,
@@ -277,12 +271,6 @@ export async function GET(
         available_quantity: Number(
           Math.max(unassigned - unassignedReserved, 0).toFixed(3)
         ),
-        package_size:
-          selected.package_size == null
-            ? null
-            : Number(Number(selected.package_size).toFixed(4)),
-        package_unit: selected.package_unit ? String(selected.package_unit) : null,
-        package_source: selected.package_size != null ? "product" : null,
         manufactured_at: null,
         expires_at: null,
         supplier: null,
@@ -332,13 +320,6 @@ export async function GET(
         available_quantity: Number(stock.available.toFixed(3)),
         deficit_quantity: Number(stock.deficit.toFixed(3)),
         stock_status: stock.deficit > 0.000001 ? "deficit" : "available",
-        product_package_size:
-          selected.package_size == null
-            ? null
-            : Number(Number(selected.package_size).toFixed(4)),
-        product_package_unit: selected.package_unit
-          ? String(selected.package_unit)
-          : null,
         reservations,
         lots,
         movements,

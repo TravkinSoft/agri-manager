@@ -787,6 +787,26 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Production migrations/writes/deploy and master merge remain `0/0/NO/NO`.
 - `READY_FOR_FATHER_CONTROLLED_QA_PILOT=YES`; `READY_FOR_PRODUCTION=NO`.
 
+## TZ-239 Quantity-Only Warehouse Issue
+
+- TZ-239 status: `PASS`; report:
+  [task-reports/core/TZ-239.md](task-reports/core/TZ-239.md).
+- Package size, package count, whole-package/measured mode and manual package
+  reasons were removed from the Warehousekeeper and Specialist UI contracts.
+- The Warehousekeeper now enters one direct issue quantity. The agronomist plan
+  stays immutable, over-plan issue is allowed only within available stock, and
+  expected return is `max(issued - planned, 0)`.
+- Existing package columns and historic metadata remain untouched but are
+  ignored by the active UI and APIs.
+- Retained QA lifecycle `OP-2026-000067 / WR-2026-000037` remains reconciled:
+  plan `1 l`, issued `5 l`, consumed `1.2 l`, returned `3.8 l`, loss `0`.
+- QA migration `20260730140942` adds quantity-only prepare/issue RPCs and
+  revokes authenticated execution of package-aware RPCs without changing
+  business rows.
+- Typecheck, build, `43/43` automated checks, no-stock and production read-only
+  checks passed.
+- Production migrations/writes/deploy and master merge remain `0/0/NO/NO`.
+
 ## TZ-220 Specialist Task Workspace
 
 - TZ-220 status: `PASS_WITH_SCREENSHOT_CAPTURE_GAP`; report:

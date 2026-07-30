@@ -740,23 +740,6 @@ export default function TasksPage() {
               0
             )
           ),
-          packageLabel:
-            (item.allocations || [])
-              .map((allocation) =>
-                allocation.issue_mode === 'whole_package' &&
-                allocation.package_size != null &&
-                allocation.package_count != null
-                  ? `${formatQty(
-                      allocation.package_count,
-                      'уп.'
-                    )} × ${formatQty(
-                      allocation.package_size,
-                      allocation.package_unit || item.unit
-                    )}`
-                  : null
-              )
-              .filter(Boolean)
-              .join(', ') || null,
           statusLabel: materialStatusText([request]),
         }))
       );

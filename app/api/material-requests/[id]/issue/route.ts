@@ -52,7 +52,7 @@ export async function POST(
     }
 
     if (["issued", "issued_by_warehouse"].includes(String(requestRow.status || ""))) {
-      const { data, error } = await supabase.rpc("issue_package_aware_material_request_atomic_v1", {
+      const { data, error } = await supabase.rpc("issue_material_request_atomic_v2", {
         p_company_id: companyId,
         p_actor_profile_id: actor.id,
         p_request_id: requestId,
@@ -201,7 +201,7 @@ export async function POST(
       return NextResponse.json({ error: "Set at least one issue quantity greater than zero" }, { status: 400 });
     }
 
-    const { data, error } = await supabase.rpc("issue_package_aware_material_request_atomic_v1", {
+    const { data, error } = await supabase.rpc("issue_material_request_atomic_v2", {
       p_company_id: companyId,
       p_actor_profile_id: actor.id,
       p_request_id: requestId,

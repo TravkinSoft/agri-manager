@@ -1,6 +1,5 @@
 import { supabase } from "@/lib/supabase/client";
 import type { WarehouseIssueRequest, WarehouseIssueRequestStatus } from "@/lib/types/warehouse-request";
-import type { WarehouseIssueMode } from "@/lib/types/warehouse-request";
 
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
   const { data, error } = await supabase.auth.getSession();
@@ -65,15 +64,9 @@ function normalizeRequestRow(row: any): WarehouseIssueRequest {
         return_received_quantity: item.return_received_quantity == null ? null : toNumber(item.return_received_quantity),
         shortage_quantity: item.shortage_quantity == null ? null : toNumber(item.shortage_quantity),
         loss_quantity: item.loss_quantity == null ? null : toNumber(item.loss_quantity),
-        package_size: item.package_size == null ? null : toNumber(item.package_size),
-        package_count: item.package_count == null ? null : toNumber(item.package_count),
         allocations: Array.isArray(item.allocations)
           ? item.allocations.map((allocation: any) => ({
               ...allocation,
-              package_size:
-                allocation.package_size == null ? null : toNumber(allocation.package_size),
-              package_count:
-                allocation.package_count == null ? null : toNumber(allocation.package_count),
               prepared_quantity: toNumber(allocation.prepared_quantity),
               issued_quantity: toNumber(allocation.issued_quantity),
             }))
@@ -135,17 +128,13 @@ export async function updateWarehouseIssueRequestStatus(params: {
   sourceWarehouseId?: string | null;
   items?: Array<{
     itemId: string;
+    preparedQuantity: number;
     allocations: Array<{
       batchId?: string | null;
       batchIdText?: string | null;
       batchClass: string;
       batchLabel: string;
-      issueMode: Exclude<WarehouseIssueMode, "mixed">;
       quantity: number;
-      packageSize?: number | null;
-      packageCount?: number | null;
-      packageUnit?: string | null;
-      manualPackageReason?: string | null;
     }>;
   }>;
 }): Promise<void> {

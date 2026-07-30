@@ -5,9 +5,7 @@ import {
   CalendarDays,
   CheckCircle2,
   PackageCheck,
-  Plus,
   Search,
-  Trash2,
   UserRound,
   Warehouse as WarehouseIcon,
   X,
@@ -46,31 +44,18 @@ import {
 import type {
   Warehouse,
   WarehouseStockDetails,
-  WarehouseStockLot,
 } from "@/lib/types/warehouse";
 import type {
   WarehouseIssueRequest,
   WarehouseIssueRequestItem,
 } from "@/lib/types/warehouse-request";
 import {
-  calculateWholePackageQuantity,
-  packageStatusLabel,
-  validatePackageAwareItem,
-  type MaterialIssueMode,
-} from "@/lib/warehouse/package-aware-issue";
+  allocateQuantityAcrossLots,
+  materialIssueStatusLabel,
+  validateMaterialIssue,
+} from "@/lib/warehouse/material-issue";
 
 type WarehouseTab = "new" | "ready" | "issued" | "history";
-
-type AllocationDraft = {
-  key: string;
-  batchKey: string;
-  issueMode: MaterialIssueMode;
-  packageSize: string;
-  packageCount: string;
-  packageUnit: string;
-  measuredQuantity: string;
-  manualPackageReason: string;
-};
 
 const WAREHOUSE_TABS: Array<{ key: WarehouseTab; title: string }> = [
   { key: "new", title: "Новые" },
@@ -97,38 +82,6 @@ function toQty(value: unknown, fallback = 0): number {
 
 function numberText(value: number): string {
   return value.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
-}
-
-function allocationQuantity(draft: AllocationDraft): number {
-  if (draft.issueMode === "measured") {
-    return Math.max(toQty(draft.measuredQuantity, 0), 0);
-  }
-  return Math.max(
-    toQty(draft.packageSize, 0) * toQty(draft.packageCount, 0),
-    0
-  );
-}
-
-function defaultAllocationDraft(params: {
-  lot: WarehouseStockLot;
-  plannedQuantity: number;
-  unit: string;
-}): AllocationDraft {
-  const packageSize = toQty(params.lot.package_size, 0);
-  const wholePackage = packageSize > 0;
-  const calculated = wholePackage
-    ? calculateWholePackageQuantity(params.plannedQuantity, packageSize)
-    : null;
-  return {
-    key: crypto.randomUUID(),
-    batchKey: params.lot.key,
-    issueMode: wholePackage ? "whole_package" : "measured",
-    packageSize: wholePackage ? String(packageSize) : "",
-    packageCount: calculated ? String(calculated.packageCount) : "",
-    packageUnit: params.lot.package_unit || params.unit,
-    measuredQuantity: wholePackage ? "" : String(params.plannedQuantity),
-    manualPackageReason: "",
-  };
 }
 
 function statusLabel(status: string): string {
@@ -301,9 +254,9 @@ export default function WarehouseRequestsPage() {
     Record<string, WarehouseStockDetails>
   >({});
   const [stockDetailsLoading, setStockDetailsLoading] = useState(false);
-  const [allocationsByItem, setAllocationsByItem] = useState<
-    Record<string, AllocationDraft[]>
-  >({});
+  const [preparedByItem, setPreparedByItem] = useState<Record<string, string>>(
+    {}
+  );
   const [returnByItem, setReturnByItem] = useState<Record<string, string>>({});
   const [lossByItem, setLossByItem] = useState<Record<string, string>>({});
   const [adminReason, setAdminReason] = useState("");
@@ -420,7 +373,18 @@ export default function WarehouseRequestsPage() {
     if (!selectedRequest) return;
     setSourceWarehouseId(selectedRequest.source_warehouse_id || "");
     setStockDetailsByItem({});
-    setAllocationsByItem({});
+    setPreparedByItem(
+      Object.fromEntries(
+        selectedRequest.items.map((item) => {
+          const planned = toQty(
+            item.planned_quantity ?? item.required_quantity,
+            0
+          );
+          const prepared = toQty(item.prepared_quantity, planned);
+          return [item.id, String(prepared)];
+        })
+      )
+    );
     setReturnByItem(
       Object.fromEntries((selectedRequest.items || []).map((item) => [item.id, "0"]))
     );
@@ -472,75 +436,7 @@ export default function WarehouseRequestsPage() {
     )
       .then((entries) => {
         if (cancelled) return;
-        const detailsMap = Object.fromEntries(entries);
-        setStockDetailsByItem(detailsMap);
-        setAllocationsByItem((previous) => {
-          const next: Record<string, AllocationDraft[]> = {};
-          for (const item of selectedRequest.items) {
-            const details = detailsMap[item.id];
-            const existing = item.allocations || [];
-            if (existing.length > 0) {
-              next[item.id] = existing.map((allocation) => ({
-                key: allocation.id,
-                batchKey: `${allocation.batch_class}:${
-                  allocation.batch_id_text || "__unassigned__"
-                }`,
-                issueMode: allocation.issue_mode,
-                packageSize:
-                  allocation.package_size == null
-                    ? ""
-                    : String(allocation.package_size),
-                packageCount:
-                  allocation.package_count == null
-                    ? ""
-                    : String(allocation.package_count),
-                packageUnit: allocation.package_unit || item.unit,
-                measuredQuantity:
-                  allocation.issue_mode === "measured"
-                    ? String(allocation.prepared_quantity)
-                    : "",
-                manualPackageReason: allocation.manual_package_reason || "",
-              }));
-              continue;
-            }
-            if (previous[item.id]?.length) {
-              next[item.id] = previous[item.id];
-              continue;
-            }
-            const planned = toQty(
-              item.planned_quantity ?? item.required_quantity,
-              0
-            );
-            const firstLot =
-              details.lots.find((lot) => lot.available_quantity > 0.000001) ||
-              details.lots[0] || {
-                key: "commodity:__unassigned__",
-                batch_id: null,
-                batch_class: "commodity",
-                batch_label: "Партия не указана",
-                quantity: 0,
-                reserved_quantity: 0,
-                available_quantity: 0,
-                package_size: details.product_package_size,
-                package_unit: details.product_package_unit,
-                package_source:
-                  details.product_package_size != null ? "product" : null,
-                manufactured_at: null,
-                expires_at: null,
-                supplier: null,
-                receipt_no: null,
-                received_at: null,
-              };
-            next[item.id] = [
-              defaultAllocationDraft({
-                lot: firstLot,
-                plannedQuantity: planned,
-                unit: item.unit,
-              }),
-            ];
-          }
-          return next;
-        });
+        setStockDetailsByItem(Object.fromEntries(entries));
       })
       .catch((error: any) => {
         if (cancelled) return;
@@ -576,27 +472,6 @@ export default function WarehouseRequestsPage() {
         0
       );
       const details = stockDetailsByItem[item.id] || null;
-      const drafts = allocationsByItem[item.id] || [];
-      const draftAllocations = drafts.map((draft) => {
-        const lot = details?.lots.find((candidate) => candidate.key === draft.batchKey);
-        return {
-          batchId: lot?.batch_id || null,
-          batchIdText: lot?.batch_id || null,
-          batchClass: lot?.batch_class || "commodity",
-          batchLabel: lot?.batch_label || "Партия не указана",
-          issueMode: draft.issueMode,
-          quantity: allocationQuantity(draft),
-          availableQuantity: toQty(lot?.available_quantity, 0),
-          packageSize: toQty(draft.packageSize, 0) || null,
-          packageCount: toQty(draft.packageCount, 0) || null,
-          packageUnit: draft.packageUnit || unit,
-          packageSource:
-            draft.issueMode === "measured"
-              ? ("measured" as const)
-              : lot?.package_source || ("manual" as const),
-          manualPackageReason: draft.manualPackageReason || null,
-        };
-      });
       const lifecycleStatus = String(
         selectedRequest.warehouse_request_status || selectedRequest.status || ""
       );
@@ -607,55 +482,54 @@ export default function WarehouseRequestsPage() {
         "active",
         "preparing",
       ].includes(lifecycleStatus);
-      const validation = validatePackageAwareItem({
-        plannedQuantity: planned,
-        itemUnit: item.unit,
-        allocations: draftAllocations,
-      });
-      if (
-        validation.preparedQuantity + 0.000001 < planned &&
-        drafts.length > 0
-      ) {
-        validation.errors.push(
-          `Подготовлено меньше плана на ${numberText(
-            planned - validation.preparedQuantity
-          )} ${unit}.`
-        );
-        validation.valid = false;
-      }
-      if (!preparingNow) {
-        validation.errors = [];
-        validation.valid = true;
-      }
       const prepared = preparingNow
-        ? validation.preparedQuantity
+        ? Math.max(
+            toQty(
+              preparedByItem[item.id],
+              toQty(item.prepared_quantity, planned)
+            ),
+            0
+          )
         : Math.max(toQty(item.prepared_quantity, 0), 0);
-      const issued = toQty(item.issued_quantity, 0);
       const available = details
         ? toQty(details.available_quantity, 0)
         : effectiveWarehouseId
           ? toQty(balances[`${effectiveWarehouseId}|${item.product_id}`], 0)
           : 0;
+      const validation = validateMaterialIssue({
+        plannedQuantity: planned,
+        preparedQuantity: prepared,
+        availableQuantity: available,
+        unit: item.unit,
+      });
+      if (!preparingNow) {
+        validation.errors = [];
+        validation.valid = true;
+      }
+      const lotDistribution = allocateQuantityAcrossLots({
+        quantity: prepared,
+        lots: (details?.lots || []).map((lot) => ({
+          batchId: lot.batch_id,
+          batchIdText: lot.batch_id,
+          batchClass: lot.batch_class,
+          batchLabel: lot.batch_label,
+          availableQuantity: lot.available_quantity,
+        })),
+      });
+      const issued = toQty(item.issued_quantity, 0);
       const expectedReturn = preparingNow
         ? validation.expectedReturnQuantity
         : toQty(item.expected_return_quantity, Math.max(prepared - planned, 0));
-      const issueModes = drafts.length
-        ? drafts.map((draft) => draft.issueMode)
-        : item.issue_mode === "whole_package"
-          ? ["whole_package" as const]
-          : ["measured" as const];
       const rowStatus =
         lifecycleStatus === "closed" ||
         item.reconciliation_status === "reconciled"
           ? "Сверка завершена"
           : lifecycleStatus === "return_expected"
             ? `Ожидается возврат ${numberText(expectedReturn)} ${unit}`
-            : packageStatusLabel({
-                plannedQuantity: planned,
+            : materialIssueStatusLabel({
                 preparedQuantity: prepared,
                 availableQuantity: available,
                 expectedReturnQuantity: expectedReturn,
-                issueModes,
                 unit,
               });
       return {
@@ -666,8 +540,7 @@ export default function WarehouseRequestsPage() {
         issued,
         available,
         details,
-        drafts,
-        draftAllocations,
+        allocations: lotDistribution.allocations,
         expectedReturn,
         validation,
         status: rowStatus,
@@ -678,14 +551,15 @@ export default function WarehouseRequestsPage() {
           !preparingNow ||
           (Boolean(details) &&
             validation.valid &&
+            lotDistribution.deficitQuantity <= 0.000001 &&
             prepared <= available + 0.000001),
       };
     });
   }, [
-    allocationsByItem,
     balances,
     effectiveWarehouseId,
     language,
+    preparedByItem,
     selectedRequest,
     stockDetailsByItem,
   ]);
@@ -717,79 +591,6 @@ export default function WarehouseRequestsPage() {
     }
   };
 
-  const updateAllocationDraft = (
-    itemId: string,
-    allocationKey: string,
-    patch: Partial<AllocationDraft>
-  ) => {
-    setAllocationsByItem((previous) => ({
-      ...previous,
-      [itemId]: (previous[itemId] || []).map((draft) =>
-        draft.key === allocationKey ? { ...draft, ...patch } : draft
-      ),
-    }));
-  };
-
-  const selectAllocationLot = (
-    item: WarehouseIssueRequestItem,
-    allocationKey: string,
-    lotKey: string
-  ) => {
-    const details = stockDetailsByItem[item.id];
-    const lot = details?.lots.find((candidate) => candidate.key === lotKey);
-    if (!lot) return;
-    const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
-    const currentDraft = (allocationsByItem[item.id] || []).find(
-      (candidate) => candidate.key === allocationKey
-    );
-    const next = defaultAllocationDraft({
-      lot,
-      plannedQuantity: planned,
-      unit: item.unit,
-    });
-    updateAllocationDraft(item.id, allocationKey, {
-      ...next,
-      key: currentDraft?.key || allocationKey,
-    });
-  };
-
-  const addAllocationDraft = (item: WarehouseIssueRequestItem) => {
-    const details = stockDetailsByItem[item.id];
-    if (!details) return;
-    const used = new Set(
-      (allocationsByItem[item.id] || []).map((draft) => draft.batchKey)
-    );
-    const lot = details.lots.find((candidate) => !used.has(candidate.key));
-    if (!lot) {
-      toast({
-        title: "Других партий нет",
-        description: "Все доступные партии этого материала уже выбраны.",
-      });
-      return;
-    }
-    const planned = toQty(item.planned_quantity ?? item.required_quantity, 0);
-    setAllocationsByItem((previous) => ({
-      ...previous,
-      [item.id]: [
-        ...(previous[item.id] || []),
-        defaultAllocationDraft({
-          lot,
-          plannedQuantity: planned,
-          unit: item.unit,
-        }),
-      ],
-    }));
-  };
-
-  const removeAllocationDraft = (itemId: string, allocationKey: string) => {
-    setAllocationsByItem((previous) => ({
-      ...previous,
-      [itemId]: (previous[itemId] || []).filter(
-        (draft) => draft.key !== allocationKey
-      ),
-    }));
-  };
-
   const handleReady = async () => {
     if (!selectedRequest || !profile?.company_id) return;
     if (!effectiveWarehouseId) {
@@ -813,7 +614,7 @@ export default function WarehouseRequestsPage() {
         title: "Проверьте позиции",
         description:
           stockRows.flatMap((row) => row.validation.errors)[0] ||
-          "Для каждой позиции выберите партию и корректный способ выдачи.",
+          "Для каждой позиции укажите количество в пределах доступного остатка.",
         variant: "destructive",
       });
       return;
@@ -827,17 +628,13 @@ export default function WarehouseRequestsPage() {
           sourceWarehouseId: effectiveWarehouseId,
           items: stockRows.map((row) => ({
             itemId: row.item.id,
-            allocations: row.draftAllocations.map((allocation) => ({
+            preparedQuantity: row.prepared,
+            allocations: row.allocations.map((allocation) => ({
               batchId: allocation.batchId,
               batchIdText: allocation.batchIdText,
               batchClass: allocation.batchClass,
               batchLabel: allocation.batchLabel,
-              issueMode: allocation.issueMode,
               quantity: Number(allocation.quantity.toFixed(4)),
-              packageSize: allocation.packageSize,
-              packageCount: allocation.packageCount,
-              packageUnit: allocation.packageUnit,
-              manualPackageReason: allocation.manualPackageReason,
             })),
           })),
         }),
@@ -1213,322 +1010,106 @@ export default function WarehouseRequestsPage() {
                   <h3 className="text-base font-semibold text-slate-100">
                     Позиции заявки
                   </h3>
-                  <div className="hidden grid-cols-[minmax(145px,1.1fr)_90px_minmax(250px,1.8fr)_90px_90px_110px_minmax(130px,0.9fr)] gap-3 border-b border-slate-800 pb-2 text-[12px] text-slate-500 md:grid">
+                  <div className="hidden grid-cols-[minmax(180px,1.4fr)_110px_100px_130px_120px_minmax(160px,1fr)] gap-3 border-b border-slate-800 pb-2 text-[12px] text-slate-500 md:grid">
                     <span>Материал</span>
                     <span>Плановая потребность</span>
-                    <span>Упаковка</span>
                     <span>Доступно</span>
-                    <span>Подготовлено</span>
+                    <span>К выдаче</span>
                     <span>Ожидаемый возврат</span>
                     <span>Статус</span>
                   </div>
                   <div className="space-y-2 md:space-y-0">
-                    {stockRows.map((row) => {
-                      const lots = row.details?.lots || [];
-                      return (
-                        <div
-                          key={row.item.id}
-                          className="grid gap-3 rounded-lg border border-slate-800 p-3 text-sm md:grid-cols-[minmax(145px,1.1fr)_90px_minmax(250px,1.8fr)_90px_90px_110px_minmax(130px,0.9fr)] md:items-start md:rounded-none md:border-x-0 md:border-t-0 md:px-0 md:py-3"
-                        >
-                          <div className="min-w-0">
-                            <div className="font-semibold text-slate-100">
-                              {row.item.product_name || "Материал"}
-                            </div>
-                            <div className="mt-1 text-[12px] text-slate-500">
-                              {productCategoryLabel(row.item)}
-                            </div>
+                    {stockRows.map((row) => (
+                      <div
+                        key={row.item.id}
+                        className="grid gap-3 rounded-lg border border-slate-800 p-3 text-sm md:grid-cols-[minmax(180px,1.4fr)_110px_100px_130px_120px_minmax(160px,1fr)] md:items-center md:rounded-none md:border-x-0 md:border-t-0 md:px-0 md:py-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-100">
+                            {row.item.product_name || "Материал"}
                           </div>
-                          <div>
-                            <span className="mr-1 text-[12px] text-slate-500 md:hidden">
-                              План:
-                            </span>
-                            {numberText(row.planned)} {row.unit}
-                          </div>
-                          <div className="space-y-2">
-                            <div className="text-[12px] text-slate-500 md:hidden">
-                              Упаковка
-                            </div>
-                            {preparing && canProcess ? (
-                              <>
-                                {row.drafts.map((draft) => {
-                                  const lot = lots.find(
-                                    (candidate) => candidate.key === draft.batchKey
-                                  );
-                                  const hasKnownPackage =
-                                    lot?.package_size != null &&
-                                    Number(lot.package_size) > 0;
-                                  return (
-                                    <div
-                                      key={draft.key}
-                                      className="space-y-2 rounded-md border border-slate-800 bg-slate-900/45 p-2"
-                                    >
-                                      <div className="flex gap-2">
-                                        <Select
-                                          value={draft.batchKey}
-                                          onValueChange={(value) =>
-                                            selectAllocationLot(
-                                              row.item,
-                                              draft.key,
-                                              value
-                                            )
-                                          }
-                                        >
-                                          <SelectTrigger className="h-9 min-w-0 flex-1">
-                                            <SelectValue placeholder="Выберите партию" />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {lots.length > 0 ? (
-                                              lots.map((candidate) => (
-                                                <SelectItem
-                                                  key={candidate.key}
-                                                  value={candidate.key}
-                                                >
-                                                  {candidate.batch_label} ·{" "}
-                                                  {numberText(
-                                                    candidate.available_quantity
-                                                  )}{" "}
-                                                  {row.unit}
-                                                </SelectItem>
-                                              ))
-                                            ) : (
-                                              <SelectItem
-                                                value="commodity:__unassigned__"
-                                              >
-                                                Партия не указана · 0 {row.unit}
-                                              </SelectItem>
-                                            )}
-                                          </SelectContent>
-                                        </Select>
-                                        {row.drafts.length > 1 ? (
-                                          <Button
-                                            type="button"
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-9 w-9 shrink-0"
-                                            onClick={() =>
-                                              removeAllocationDraft(
-                                                row.item.id,
-                                                draft.key
-                                              )
-                                            }
-                                            aria-label="Убрать партию"
-                                          >
-                                            <Trash2 className="h-4 w-4" />
-                                          </Button>
-                                        ) : null}
-                                      </div>
-                                      <Select
-                                        value={draft.issueMode}
-                                        onValueChange={(value) =>
-                                          updateAllocationDraft(
-                                            row.item.id,
-                                            draft.key,
-                                            {
-                                              issueMode:
-                                                value as MaterialIssueMode,
-                                            }
-                                          )
-                                        }
-                                      >
-                                        <SelectTrigger className="h-9">
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="whole_package">
-                                            Целая упаковка
-                                          </SelectItem>
-                                          <SelectItem value="measured">
-                                            Отмеренное количество
-                                          </SelectItem>
-                                        </SelectContent>
-                                      </Select>
-                                      {draft.issueMode === "whole_package" ? (
-                                        <>
-                                          <div className="grid grid-cols-2 gap-2">
-                                            <div>
-                                              <Label className="text-[11px] text-slate-500">
-                                                Размер
-                                              </Label>
-                                              <Input
-                                                type="number"
-                                                min={0}
-                                                step="0.0001"
-                                                value={draft.packageSize}
-                                                disabled={
-                                                  submitting || hasKnownPackage
-                                                }
-                                                onChange={(event) =>
-                                                  updateAllocationDraft(
-                                                    row.item.id,
-                                                    draft.key,
-                                                    {
-                                                      packageSize:
-                                                        event.target.value,
-                                                    }
-                                                  )
-                                                }
-                                                className="mt-1 h-9"
-                                              />
-                                            </div>
-                                            <div>
-                                              <Label className="text-[11px] text-slate-500">
-                                                Упаковок
-                                              </Label>
-                                              <Input
-                                                type="number"
-                                                min={1}
-                                                step={1}
-                                                value={draft.packageCount}
-                                                disabled={submitting}
-                                                onChange={(event) =>
-                                                  updateAllocationDraft(
-                                                    row.item.id,
-                                                    draft.key,
-                                                    {
-                                                      packageCount:
-                                                        event.target.value,
-                                                    }
-                                                  )
-                                                }
-                                                className="mt-1 h-9"
-                                              />
-                                            </div>
-                                          </div>
-                                          {!hasKnownPackage ? (
-                                            <Input
-                                              value={draft.manualPackageReason}
-                                              onChange={(event) =>
-                                                updateAllocationDraft(
-                                                  row.item.id,
-                                                  draft.key,
-                                                  {
-                                                    manualPackageReason:
-                                                      event.target.value,
-                                                  }
-                                                )
-                                              }
-                                              placeholder="Почему размер введён вручную"
-                                              className="h-9"
-                                            />
-                                          ) : null}
-                                        </>
-                                      ) : (
-                                        <div>
-                                          <Label className="text-[11px] text-slate-500">
-                                            Количество, {row.unit}
-                                          </Label>
-                                          <Input
-                                            type="number"
-                                            min={0}
-                                            step="0.0001"
-                                            value={draft.measuredQuantity}
-                                            disabled={submitting}
-                                            onChange={(event) =>
-                                              updateAllocationDraft(
-                                                row.item.id,
-                                                draft.key,
-                                                {
-                                                  measuredQuantity:
-                                                    event.target.value,
-                                                }
-                                              )
-                                            }
-                                            className="mt-1 h-9"
-                                          />
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                                {lots.length > row.drafts.length ? (
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9"
-                                    onClick={() => addAllocationDraft(row.item)}
-                                  >
-                                    <Plus className="mr-1.5 h-4 w-4" />
-                                    Добавить партию
-                                  </Button>
-                                ) : null}
-                              </>
-                            ) : (
-                              <div className="space-y-1 text-slate-300">
-                                {(row.item.allocations || []).length > 0
-                                  ? (row.item.allocations || []).map(
-                                      (allocation) => (
-                                        <div key={allocation.id}>
-                                          {allocation.issue_mode ===
-                                          "whole_package"
-                                            ? `${numberText(
-                                                toQty(
-                                                  allocation.package_size,
-                                                  0
-                                                )
-                                              )} ${
-                                                allocation.package_unit ||
-                                                row.unit
-                                              } × ${numberText(
-                                                toQty(
-                                                  allocation.package_count,
-                                                  0
-                                                )
-                                              )}`
-                                            : `Отмерено ${numberText(
-                                                allocation.prepared_quantity
-                                              )} ${row.unit}`}
-                                        </div>
-                                      )
-                                    )
-                                  : "Не указана"}
-                              </div>
-                            )}
-                          </div>
-                          <div className={row.exceedsStock ? "text-red-300" : ""}>
-                            <span className="mr-1 text-[12px] text-slate-500 md:hidden">
-                              Доступно:
-                            </span>
-                            {numberText(row.available)} {row.unit}
-                          </div>
-                          <div>
-                            <span className="mr-1 text-[12px] text-slate-500 md:hidden">
-                              Подготовлено:
-                            </span>
-                            {numberText(row.prepared)} {row.unit}
-                          </div>
-                          <div className="text-amber-200">
-                            <span className="mr-1 text-[12px] text-slate-500 md:hidden">
-                              Ожидаемый возврат:
-                            </span>
-                            {numberText(row.expectedReturn)} {row.unit}
-                          </div>
-                          <div
-                            className={
-                              row.exceedsStock
-                                ? "text-red-300"
-                                : row.expectedReturn > 0.000001
-                                  ? "text-amber-200"
-                                  : "text-emerald-300"
-                            }
-                          >
-                            {row.status}
-                            {row.validation.errors.length > 0 ? (
-                              <div className="mt-1 text-[11px] leading-4 text-red-300">
-                                {row.validation.errors[0]}
-                              </div>
-                            ) : null}
+                          <div className="mt-1 text-[12px] text-slate-500">
+                            {productCategoryLabel(row.item)}
                           </div>
                         </div>
-                      );
-                    })}
+                        <div>
+                          <span className="mr-1 text-[12px] text-slate-500 md:hidden">
+                            Плановая потребность:
+                          </span>
+                          {numberText(row.planned)} {row.unit}
+                        </div>
+                        <div className={row.exceedsStock ? "text-red-300" : ""}>
+                          <span className="mr-1 text-[12px] text-slate-500 md:hidden">
+                            Доступно:
+                          </span>
+                          {numberText(row.available)} {row.unit}
+                        </div>
+                        <div>
+                          <Label
+                            htmlFor={`prepared-${row.item.id}`}
+                            className="mb-1 block text-[12px] text-slate-500 md:hidden"
+                          >
+                            К выдаче
+                          </Label>
+                          {preparing && canProcess ? (
+                            <div className="relative max-w-40">
+                              <Input
+                                id={`prepared-${row.item.id}`}
+                                type="number"
+                                min={0}
+                                step="0.0001"
+                                value={preparedByItem[row.item.id] ?? ""}
+                                onChange={(event) =>
+                                  setPreparedByItem((previous) => ({
+                                    ...previous,
+                                    [row.item.id]: event.target.value,
+                                  }))
+                                }
+                                className="h-10 pr-10"
+                                disabled={submitting || stockDetailsLoading}
+                              />
+                              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">
+                                {row.unit}
+                              </span>
+                            </div>
+                          ) : (
+                            <span>
+                              {numberText(row.prepared)} {row.unit}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-slate-200">
+                          <span className="mr-1 text-[12px] text-slate-500 md:hidden">
+                            Ожидаемый возврат:
+                          </span>
+                          {numberText(row.expectedReturn)} {row.unit}
+                        </div>
+                        <div
+                          className={
+                            row.exceedsStock
+                              ? "text-red-300"
+                              : row.expectedReturn > 0.000001
+                                ? "text-slate-200"
+                                : "text-emerald-300"
+                          }
+                        >
+                          {row.status}
+                          {row.validation.errors.length > 0 ? (
+                            <div className="mt-1 text-[11px] leading-4 text-red-300">
+                              {row.validation.errors[0]}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </section>
 
                 {hasStockProblem ? (
                   <Alert variant="destructive">
                     <AlertDescription>
-                      {stockRows.find((row) => row.exceedsStock)?.status ||
+                      {stockRows.find((row) => row.exceedsStock)?.validation
+                        .errors[0] ||
                         "Подготовленное количество превышает доступный остаток."}
                     </AlertDescription>
                   </Alert>

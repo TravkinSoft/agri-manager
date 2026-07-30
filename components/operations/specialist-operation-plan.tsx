@@ -8,7 +8,6 @@ export type SpecialistWarehouseMaterial = {
   preparedQuantity: number;
   issuedQuantity: number;
   expectedReturnQuantity: number;
-  packageLabel: string | null;
   statusLabel: string;
 };
 
@@ -197,9 +196,6 @@ export function SpecialistOperationPlan({
                       {warehouse ? (
                         <div className="mt-1 text-[13px] text-slate-400">
                           {warehouse.statusLabel}
-                          {warehouse.packageLabel
-                            ? ` · ${warehouse.packageLabel}`
-                            : ""}
                           {` · ожидаемый возврат ${numberText(
                             warehouse.expectedReturnQuantity
                           )} ${material.unit}`}
@@ -287,9 +283,6 @@ export function SpecialistOperationPlan({
                         Выдано: {numberText(warehouse.issuedQuantity)}{" "}
                         {material.unit}
                       </span>
-                      {warehouse.packageLabel ? (
-                        <span>Упаковка: {warehouse.packageLabel}</span>
-                      ) : null}
                       <span>
                         Ожидаемый возврат:{" "}
                         {numberText(warehouse.expectedReturnQuantity)}{" "}

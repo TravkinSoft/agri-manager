@@ -17,6 +17,7 @@ import {
 type MaterialRequestItemInput = {
   id?: unknown;
   itemId?: unknown;
+  preparedQuantity?: unknown;
   allocations?: unknown;
 };
 import { buildProductPassport } from "@/lib/products/product-passport";
@@ -49,7 +50,7 @@ function workflowToRawStatuses(status: string): string[] {
 
 function isV5WarehouseSchemaError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
-  return /warehouse_request_status|collecting_at|prepared_quantity|received_quantity|expected_consumed_quantity|shortage_quantity|package_size|package_count|reconciliation_status|substitution_status|planned_product_id|actual_product_id|schema cache|column/i.test(message);
+  return /warehouse_request_status|collecting_at|prepared_quantity|received_quantity|expected_consumed_quantity|shortage_quantity|reconciliation_status|substitution_status|planned_product_id|actual_product_id|schema cache|column/i.test(message);
 }
 
 export async function GET(request: NextRequest) {
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
           return_comment,
           batch_id,
           created_at,
-          products:product_id(name, trade_name, normalized_name, type, unit, base_uom, package_size, package_unit)
+          products:product_id(name, trade_name, normalized_name, type, unit, base_uom)
     `;
     const reconciliationItemSelect = `
           ${legacyItemSelect},
@@ -96,9 +97,6 @@ export async function GET(request: NextRequest) {
           received_unit,
           expected_consumed_quantity,
           shortage_quantity,
-          package_size,
-          package_count,
-          package_unit,
           reconciliation_status,
           substitution_status,
           planned_product_id,
@@ -107,9 +105,6 @@ export async function GET(request: NextRequest) {
           substitution_requested_by,
           substitution_approved_by,
           substitution_approved_at,
-          issue_mode,
-          package_source,
-          package_reason,
           allocations:warehouse_issue_request_item_allocations(
             id,
             request_id,
@@ -119,12 +114,6 @@ export async function GET(request: NextRequest) {
             batch_id_text,
             batch_class,
             batch_label,
-            issue_mode,
-            package_source,
-            package_size,
-            package_count,
-            package_unit,
-            manual_package_reason,
             prepared_quantity,
             issued_quantity
           )
@@ -204,19 +193,9 @@ export async function GET(request: NextRequest) {
         const returnReceivedQty = item.return_received_quantity == null ? null : toNumber(item.return_received_quantity);
         const shortageQty = item.shortage_quantity == null ? null : toNumber(item.shortage_quantity);
         const lossQty = item.loss_quantity == null ? null : toNumber(item.loss_quantity);
-        const packageSize = item.package_size == null ? null : toNumber(item.package_size);
-        const packageCount = item.package_count == null ? null : toNumber(item.package_count);
         const allocations = Array.isArray(item.allocations)
           ? item.allocations.map((allocation: any) => ({
               ...allocation,
-              package_size:
-                allocation.package_size == null
-                  ? null
-                  : toNumber(allocation.package_size),
-              package_count:
-                allocation.package_count == null
-                  ? null
-                  : toNumber(allocation.package_count),
               prepared_quantity: toNumber(allocation.prepared_quantity),
               issued_quantity: toNumber(allocation.issued_quantity),
             }))
@@ -237,8 +216,6 @@ export async function GET(request: NextRequest) {
           return_received_quantity: returnReceivedQty,
           shortage_quantity: shortageQty,
           loss_quantity: lossQty,
-          package_size: packageSize,
-          package_count: packageCount,
           allocations,
           product_name: passport?.displayName || brandName(item.products) || "-",
           product_type: item.products?.type || item.product_category || "-",
@@ -366,6 +343,7 @@ export async function PATCH(request: NextRequest) {
 
     const rpcItems = itemsInput.map((raw) => {
       const itemId = String(raw?.itemId || raw?.id || "").trim();
+      const preparedQuantity = Number(toNumber(raw?.preparedQuantity).toFixed(4));
       const allocations = Array.isArray(raw?.allocations)
         ? raw.allocations.map((value) => {
             const allocation = (value || {}) as Record<string, unknown>;
@@ -377,25 +355,13 @@ export async function PATCH(request: NextRequest) {
               batch_class: String(allocation.batchClass || "").trim(),
               batch_label:
                 String(allocation.batchLabel || "").trim() || "Партия не указана",
-              issue_mode: String(allocation.issueMode || "").trim(),
               quantity: Number(toNumber(allocation.quantity).toFixed(4)),
-              package_size:
-                allocation.packageSize == null
-                  ? null
-                  : Number(toNumber(allocation.packageSize).toFixed(4)),
-              package_count:
-                allocation.packageCount == null
-                  ? null
-                  : Number(toNumber(allocation.packageCount).toFixed(0)),
-              package_unit:
-                String(allocation.packageUnit || "").trim() || null,
-              manual_package_reason:
-                String(allocation.manualPackageReason || "").trim() || null,
             };
           })
         : [];
       return {
         item_id: itemId,
+        prepared_quantity: preparedQuantity,
         allocations,
       };
     }).filter((item) => item.item_id);
@@ -405,8 +371,25 @@ export async function PATCH(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (
+      rpcItems.some(
+        (item) =>
+          item.prepared_quantity <= 0 ||
+          Math.abs(
+            item.allocations.reduce(
+              (sum, allocation) => sum + toNumber(allocation.quantity),
+              0
+            ) - item.prepared_quantity
+          ) > 0.0001
+      )
+    ) {
+      return NextResponse.json(
+        { error: "Prepared quantity must be positive and match stock allocations" },
+        { status: 400 }
+      );
+    }
 
-    const { data, error } = await supabase.rpc("prepare_package_aware_material_request_atomic_v1", {
+    const { data, error } = await supabase.rpc("prepare_material_request_atomic_v1", {
       p_company_id: companyId,
       p_actor_profile_id: actor.id,
       p_request_id: requestId,
