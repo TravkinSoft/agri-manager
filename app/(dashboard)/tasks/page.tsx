@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/lib/contexts/auth-context';
@@ -37,6 +38,7 @@ import type {
 import {
   confirmWarehouseReceipt,
   getRecipientWarehouseIssueRequests,
+  returnWarehouseRequestMaterials,
 } from '@/lib/services/warehouse-requests';
 import {
   attachOperationAssetRelations,
@@ -96,6 +98,7 @@ interface TaskCropIdentity {
 
 interface Operation {
   id: string;
+  operation_number?: string | null;
   operation_type: string;
   operation_category_slug?: string | null;
   operation_type_slug?: string | null;
@@ -126,7 +129,14 @@ interface Operation {
   machine?: Record<string, unknown> | Record<string, unknown>[] | null;
   equipment?: Record<string, unknown> | Record<string, unknown>[] | null;
   transport?: Record<string, unknown> | Record<string, unknown>[] | null;
-  fields?: { name: string | null } | null;
+  fields?: {
+    name: string | null;
+    field_code?: string | null;
+    is_test_data?: boolean | null;
+    test_run_code?: string | null;
+  } | null;
+  is_test_data?: boolean | null;
+  test_run_code?: string | null;
   crop_structure?: {
     crops?: { name: string | null; name_ru?: string | null } | null;
     varieties?: { name: string | null } | null;
@@ -148,13 +158,22 @@ type TaskPhase =
   | 'completed';
 type ConfirmationKind = 'progress' | 'finish';
 type TaskTab = 'new' | 'work' | 'completed';
+type MaterialFactDraft = {
+  consumed: string;
+  returned: string;
+  loss: string;
+};
 
 function operationHasQaMarker(operation: Operation): boolean {
   return hasQaDataMarker(
     [
       operation.operation_type,
+      operation.operation_number,
       operation.notes,
+      operation.test_run_code,
       operation.fields?.name,
+      operation.fields?.field_code,
+      operation.fields?.test_run_code,
       operation.crop_structure?.crops?.name,
       operation.crop_structure?.crops?.name_ru,
       operation.crop_structure?.varieties?.name,
@@ -461,6 +480,11 @@ export default function TasksPage() {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [historyFrom, setHistoryFrom] = useState('');
   const [historyTo, setHistoryTo] = useState('');
+  const [isQaCompany, setIsQaCompany] = useState(false);
+  const [showTestData, setShowTestData] = useState(false);
+  const [materialFactDrafts, setMaterialFactDrafts] = useState<
+    Record<string, MaterialFactDraft>
+  >({});
 
   const isTaskRole = profile?.role === 'specialist' || profile?.role === 'brigadier';
 
@@ -496,6 +520,7 @@ export default function TasksPage() {
           .select(
             `
             id,
+            operation_number,
             operation_type,
             operation_category_slug,
             operation_type_slug,
@@ -516,10 +541,12 @@ export default function TasksPage() {
             accepted_at,
             started_at,
             completed_at,
+            is_test_data,
+            test_run_code,
             machine_id,
             equipment_id,
             transport_id,
-            fields(name),
+            fields(name,field_code,is_test_data,test_run_code),
             crop_structure(
               crops(name,name_ru),
               varieties(name),
@@ -593,6 +620,7 @@ export default function TasksPage() {
         getRecipientWarehouseIssueRequests({
           companyId: profile.company_id,
           recipientUserId: profile.id,
+          includeTestData: showTestData,
         }),
         getOperationAssetCatalog(profile.company_id),
         supabase
@@ -606,12 +634,19 @@ export default function TasksPage() {
       if (companyResult.error) throw companyResult.error;
 
       const allowQaData = isExplicitQaCompanyName(companyResult.data?.name);
+      setIsQaCompany(allowQaData);
       const cleanOperations = attachOperationAssetRelations(
         (operationsResult.data || []) as any[],
         assetCatalog
       )
         .map(normalizeOperationRow)
-        .filter((operation) => allowQaData || !operationHasQaMarker(operation));
+        .filter(
+          (operation) =>
+            (allowQaData && showTestData) ||
+            (!operation.is_test_data &&
+              !operation.fields?.is_test_data &&
+              !operationHasQaMarker(operation))
+        );
       let identityByOperationId = new Map<string, TaskCropIdentity>();
       try {
         identityByOperationId = new Map(
@@ -626,7 +661,9 @@ export default function TasksPage() {
         task_crop_identity: identityByOperationId.get(operation.id) || null,
       }));
       const cleanRequests = (requestsResult || []).filter(
-        (request) => allowQaData || !requestHasQaMarker(request)
+        (request) =>
+          (allowQaData && showTestData) ||
+          (!request.is_test_data && !requestHasQaMarker(request))
       );
       setOperations(operationsWithCanonicalIdentity);
       setMaterialRequests(cleanRequests);
@@ -644,7 +681,7 @@ export default function TasksPage() {
 
   useEffect(() => {
     if (profile?.id && profile.company_id) void loadTasks();
-  }, [profile?.id, profile?.company_id, language]);
+  }, [profile?.id, profile?.company_id, language, showTestData]);
 
   const requestsByOperation = useMemo(() => {
     const map = new Map<string, WarehouseIssueRequest[]>();
@@ -695,6 +732,31 @@ export default function TasksPage() {
           productId: item.product_id,
           preparedQuantity: toNumber(item.prepared_quantity, 0),
           issuedQuantity: toNumber(item.issued_quantity, 0),
+          expectedReturnQuantity: toNumber(
+            item.expected_return_quantity,
+            Math.max(
+              toNumber(item.issued_quantity, 0) -
+                toNumber(item.planned_quantity ?? item.required_quantity, 0),
+              0
+            )
+          ),
+          packageLabel:
+            (item.allocations || [])
+              .map((allocation) =>
+                allocation.issue_mode === 'whole_package' &&
+                allocation.package_size != null &&
+                allocation.package_count != null
+                  ? `${formatQty(
+                      allocation.package_count,
+                      'уп.'
+                    )} × ${formatQty(
+                      allocation.package_size,
+                      allocation.package_unit || item.unit
+                    )}`
+                  : null
+              )
+              .filter(Boolean)
+              .join(', ') || null,
           statusLabel: materialStatusText([request]),
         }))
       );
@@ -869,6 +931,14 @@ export default function TasksPage() {
       });
       return;
     }
+    if (materialFactErrors.length > 0) {
+      toast({
+        title: 'Проверьте материалы',
+        description: materialFactErrors[0],
+        variant: 'destructive',
+      });
+      return;
+    }
     setConfirmationKind('finish');
   };
 
@@ -879,6 +949,73 @@ export default function TasksPage() {
 
     try {
       setBusyKey(`complete:${operation.id}`);
+      for (const request of selectedRequests) {
+        const issuedItems = (request.items || []).filter(
+          (item) => toNumber(item.issued_quantity, 0) > 0.000001
+        );
+        if (issuedItems.length === 0) continue;
+        const requestStatus = String(
+          request.warehouse_request_status || request.status || ''
+        );
+        if (
+          ['reconciled', 'return_accepted', 'closed'].includes(requestStatus)
+        ) {
+          continue;
+        }
+        const items = issuedItems.map((item) => {
+          const draft = materialFactDrafts[item.id];
+          return {
+            itemId: item.id,
+            consumedQuantity: Number(draft.consumed),
+            returnedQuantity: Number(draft.returned),
+            lossQuantity: Number(draft.loss),
+          };
+        });
+        await returnWarehouseRequestMaterials({
+          requestId: request.id,
+          companyId: profile.company_id,
+          items,
+          closeWithoutReturn: items.every(
+            (item) =>
+              item.returnedQuantity <= 0.000001 &&
+              (item.lossQuantity || 0) <= 0.000001
+          ),
+        });
+      }
+
+      const factsByProduct = new Map<
+        string,
+        { consumed: number; returned: number; loss: number }
+      >();
+      selectedIssuedItems.forEach(({ item }) => {
+        const draft = materialFactDrafts[item.id];
+        const current = factsByProduct.get(item.product_id) || {
+          consumed: 0,
+          returned: 0,
+          loss: 0,
+        };
+        factsByProduct.set(item.product_id, {
+          consumed: current.consumed + Number(draft.consumed),
+          returned: current.returned + Number(draft.returned),
+          loss: current.loss + Number(draft.loss),
+        });
+      });
+      const materialFacts = (operation.operation_materials || [])
+        .filter((material) => material.product_id)
+        .map((material) => {
+          const fact = factsByProduct.get(String(material.product_id)) || {
+            consumed: toNumber(material.consumed_quantity, 0),
+            returned: toNumber(material.returned_quantity, 0),
+            loss: toNumber(material.loss_quantity, 0),
+          };
+          return {
+            material_id: material.id,
+            product_id: material.product_id,
+            consumed_quantity: Number(fact.consumed.toFixed(4)),
+            returned_quantity: Number(fact.returned.toFixed(4)),
+            loss_quantity: Number(fact.loss.toFixed(4)),
+          };
+        });
       const idempotencyKey = crypto.randomUUID();
       const headers = { ...(await buildAuthHeaders()), 'Idempotency-Key': idempotencyKey };
       const response = await fetch(`/api/operations/${encodeURIComponent(operation.id)}/complete`, {
@@ -894,7 +1031,7 @@ export default function TasksPage() {
               ? progressComment.trim()
               : null,
           lineFacts: [],
-          materialFacts: [],
+          materialFacts,
           idempotency_key: idempotencyKey,
         }),
       });
@@ -975,9 +1112,14 @@ export default function TasksPage() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="truncate text-[13px] font-semibold uppercase text-yellow-300">
-              {presentation.workTitle}
+              {operation.operation_number
+                ? `${operation.operation_number} · ${presentation.workTitle}`
+                : presentation.workTitle}
             </div>
             <div className="mt-1 truncate text-base font-semibold text-slate-100">
+              {operation.fields?.field_code
+                ? `${operation.fields.field_code} · `
+                : ''}
               {presentation.fieldName}
               {identity.cropName ? ` · ${identity.cropName}` : ''}
             </div>
@@ -994,8 +1136,9 @@ export default function TasksPage() {
           </span>
         </div>
         {requests.length > 0 ? (
-          <div className="mt-2 truncate text-[13px] text-slate-500">
-            {materialStatusText(requests)}
+          <div className="mt-2 space-y-0.5 truncate text-[13px] text-slate-500">
+            <div>{requests.map((request) => request.request_number).join(', ')}</div>
+            <div>{materialStatusText(requests)}</div>
           </div>
         ) : null}
       </button>
@@ -1003,11 +1146,15 @@ export default function TasksPage() {
   };
 
   const selectedPhase = selectedOperation ? getTaskPhase(selectedOperation) : null;
-  const selectedRequests = selectedOperation
-    ? (requestsByOperation.get(selectedOperation.id) || []).filter(
-        (request) => request.status !== 'cancelled'
-      )
-    : [];
+  const selectedRequests = useMemo(
+    () =>
+      selectedOperation
+        ? (requestsByOperation.get(selectedOperation.id) || []).filter(
+            (request) => request.status !== 'cancelled'
+          )
+        : [],
+    [requestsByOperation, selectedOperation]
+  );
   const selectedReadyRequest =
     selectedRequests.find((request) => request.status === 'ready') || null;
   const selectedReadyForProgress =
@@ -1027,6 +1174,87 @@ export default function TasksPage() {
   const selectedHasVariance =
     selectedAreaStats != null &&
     Math.abs(selectedFinalArea - selectedAreaStats.planned) > 0.000001;
+  const selectedIssuedItems = useMemo(
+    () =>
+      selectedRequests.flatMap((request) =>
+        (request.items || [])
+          .filter((item) => toNumber(item.issued_quantity, 0) > 0.000001)
+          .map((item) => ({ request, item }))
+      ),
+    [selectedRequests]
+  );
+
+  useEffect(() => {
+    if (!selectedOperation) {
+      setMaterialFactDrafts({});
+      return;
+    }
+    setMaterialFactDrafts(
+      Object.fromEntries(
+        selectedIssuedItems.map(({ item }) => {
+          const issued = toNumber(item.issued_quantity, 0);
+          const planned = toNumber(
+            item.planned_quantity ?? item.required_quantity,
+            issued
+          );
+          const expectedReturn = toNumber(
+            item.expected_return_quantity,
+            Math.max(issued - planned, 0)
+          );
+          return [
+            item.id,
+            {
+              consumed: String(Math.max(issued - expectedReturn, 0)),
+              returned: String(expectedReturn),
+              loss: '0',
+            },
+          ];
+        })
+      )
+    );
+  }, [selectedOperation?.id, selectedIssuedItems]);
+
+  const materialFactErrors = useMemo(() => {
+    const errors: string[] = [];
+    selectedIssuedItems.forEach(({ item }) => {
+      const draft = materialFactDrafts[item.id];
+      const issued = toNumber(item.issued_quantity, 0);
+      const consumed = Number(draft?.consumed);
+      const returned = Number(draft?.returned);
+      const loss = Number(draft?.loss);
+      if (
+        !draft ||
+        ![consumed, returned, loss].every(
+          (value) => Number.isFinite(value) && value >= 0
+        )
+      ) {
+        errors.push(`${item.product_name || 'Материал'}: заполните факт.`);
+        return;
+      }
+      if (Math.abs(issued - consumed - returned - loss) > 0.0001) {
+        errors.push(
+          `${item.product_name || 'Материал'}: выдано должно равняться расходу, возврату и потерям.`
+        );
+      }
+    });
+    return errors;
+  }, [materialFactDrafts, selectedIssuedItems]);
+
+  const updateMaterialFact = (
+    itemId: string,
+    key: keyof MaterialFactDraft,
+    value: string
+  ) => {
+    setMaterialFactDrafts((previous) => ({
+      ...previous,
+      [itemId]: {
+        consumed: previous[itemId]?.consumed || '0',
+        returned: previous[itemId]?.returned || '0',
+        loss: previous[itemId]?.loss || '0',
+        [key]: value,
+      },
+    }));
+  };
 
   const renderProgressForm = () => {
     if (
@@ -1115,6 +1343,75 @@ export default function TasksPage() {
             />
           </div>
         </div>
+        {selectedIssuedItems.length > 0 ? (
+          <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-900/45 p-4">
+            <div>
+              <h4 className="font-semibold text-slate-100">Факт по материалам</h4>
+              <p className="mt-1 text-[13px] text-slate-500">
+                Расход + возврат + потери должны точно равняться выданному количеству.
+              </p>
+            </div>
+            {selectedIssuedItems.map(({ request, item }) => {
+              const draft = materialFactDrafts[item.id] || {
+                consumed: '',
+                returned: '',
+                loss: '',
+              };
+              return (
+                <div
+                  key={item.id}
+                  className="grid gap-3 border-t border-slate-800 pt-3 sm:grid-cols-[minmax(150px,1.2fr)_repeat(3,minmax(90px,0.7fr))]"
+                >
+                  <div>
+                    <div className="font-medium text-slate-100">
+                      {item.product_name || 'Материал'}
+                    </div>
+                    <div className="mt-1 text-[12px] text-slate-500">
+                      {request.request_number} · выдано{' '}
+                      {formatQty(item.issued_quantity, item.unit)}
+                    </div>
+                  </div>
+                  {(
+                    [
+                      ['consumed', 'Израсходовано'],
+                      ['returned', 'Вернуть'],
+                      ['loss', 'Потери'],
+                    ] as Array<[keyof MaterialFactDraft, string]>
+                  ).map(([key, label]) => (
+                    <div key={key}>
+                      <Label
+                        htmlFor={`material-${item.id}-${key}`}
+                        className="text-[12px] text-slate-500"
+                      >
+                        {label}, {item.unit}
+                      </Label>
+                      <Input
+                        id={`material-${item.id}-${key}`}
+                        type="number"
+                        min={0}
+                        step="0.0001"
+                        value={draft[key]}
+                        onChange={(event) =>
+                          updateMaterialFact(item.id, key, event.target.value)
+                        }
+                        className="mt-1 h-10"
+                      />
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+            {materialFactErrors.length > 0 ? (
+              <div className="text-[13px] text-red-300">
+                {materialFactErrors[0]}
+              </div>
+            ) : (
+              <div className="text-[13px] text-emerald-300">
+                Материальный баланс сходится.
+              </div>
+            )}
+          </div>
+        ) : null}
       </section>
     );
   };
@@ -1286,10 +1583,26 @@ export default function TasksPage() {
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="text-[28px] font-bold text-slate-100 sm:text-[30px]">Мои задачи</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          Утверждённые планы, сменный прогресс и история выполнения
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-[28px] font-bold text-slate-100 sm:text-[30px]">Мои задачи</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              Утверждённые планы, сменный прогресс и история выполнения
+            </p>
+          </div>
+          {isQaCompany ? (
+            <div className="flex items-center gap-2 pt-2">
+              <Switch
+                id="tasks-test-data"
+                checked={showTestData}
+                onCheckedChange={setShowTestData}
+              />
+              <Label htmlFor="tasks-test-data" className="text-sm text-slate-300">
+                Показать тестовые данные
+              </Label>
+            </div>
+          ) : null}
+        </div>
       </header>
 
       <div className="grid min-h-[680px] gap-4 lg:grid-cols-[minmax(320px,380px)_minmax(0,1fr)]">
@@ -1372,6 +1685,9 @@ export default function TasksPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <div className="text-[13px] font-semibold uppercase text-yellow-300">
+                      {selectedOperation.operation_number
+                        ? `${selectedOperation.operation_number} · `
+                        : ''}
                       {selectedPresentation?.categoryTitle}
                     </div>
                     <h2 className="mt-1 text-2xl font-bold text-slate-100 sm:text-[26px]">
@@ -1379,6 +1695,9 @@ export default function TasksPage() {
                     </h2>
                     <div className="mt-2 flex items-center gap-1.5 text-base font-semibold text-slate-200 sm:text-lg">
                         <MapPin className="h-4 w-4 text-slate-500" />
+                        {selectedOperation.fields?.field_code
+                          ? `${selectedOperation.fields.field_code} · `
+                          : ''}
                         {selectedPresentation?.fieldName}
                         {selectedPresentation?.cropName
                           ? ` · ${selectedPresentation.cropName}`

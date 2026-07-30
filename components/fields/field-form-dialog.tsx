@@ -30,6 +30,17 @@ interface FieldFormDialogProps {
   onSubmit: (data: FieldFormData) => Promise<void>;
   defaultValues?: FieldFormData;
   isEdit?: boolean;
+  existingFields?: Array<{
+    id: string;
+    name: string;
+    area: number;
+    archived?: boolean;
+  }>;
+  editingFieldId?: string | null;
+}
+
+function normalizeFieldName(value: string): string {
+  return value.trim().toLocaleLowerCase("ru-RU").replace(/\s+/g, " ");
 }
 
 export function FieldFormDialog({
@@ -38,6 +49,8 @@ export function FieldFormDialog({
   onSubmit,
   defaultValues,
   isEdit = false,
+  existingFields = [],
+  editingFieldId = null,
 }: FieldFormDialogProps) {
   const form = useForm<FieldFormData>({
     resolver: zodResolver(fieldSchema),
@@ -66,6 +79,18 @@ export function FieldFormDialog({
     await onSubmit(data);
     form.reset();
   };
+  const watchedName = form.watch("name");
+  const watchedArea = Number(form.watch("area") || 0);
+  const duplicateField = existingFields.find((field) => {
+    if (field.id === editingFieldId || field.archived) return false;
+    return (
+      normalizeFieldName(field.name) === normalizeFieldName(watchedName || "")
+    );
+  });
+  const closeAreaMatch =
+    duplicateField != null &&
+    Math.abs(Number(duplicateField.area || 0) - watchedArea) <=
+      Math.max(Number(duplicateField.area || 0) * 0.02, 1);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -93,6 +118,15 @@ export function FieldFormDialog({
                 </FormItem>
               )}
             />
+            {duplicateField ? (
+              <div className="rounded-md border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+                В компании уже есть активное поле с таким названием
+                {closeAreaMatch
+                  ? ` и близкой площадью (${duplicateField.area.toFixed(2)} га)`
+                  : ""}
+                . Продолжайте только если это действительно другое поле.
+              </div>
+            ) : null}
             <FormField
               control={form.control}
               name="area"

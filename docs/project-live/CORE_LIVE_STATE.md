@@ -758,6 +758,35 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
   production refs and `32` test-branch refs.
 - `READY_FOR_OWNER_PREVIEW_CHECK=YES`.
 
+## TZ-238 Package-Aware Warehouse Issue
+
+- TZ-238 status: `PASS`; report:
+  [task-reports/core/TZ-238.md](task-reports/core/TZ-238.md).
+- Warehouse preparation now records explicit batch allocations, package source,
+  package count and whole-package/measured issue mode without rewriting the
+  agronomist plan.
+- Ready reserves prepared quantity; issue uses only confirmed allocations and
+  writes allocation-bound ledger OUT rows. Physical return acceptance creates
+  ledger IN and reconciliation enforces
+  `issued = consumed + returned + loss`.
+- QA E2E `OP-2026-000067 / WR-2026-000037` passed:
+  plan `1 l`, prepared/issued `5 l`, consumed `1.2 l`, returned `3.8 l`,
+  loss `0`, request closed and field history persisted.
+- No-stock regression blocked a `5 kg` whole package with `0 kg` available
+  before allocation or ledger mutation.
+- Specialist cards show operation number, field code, request/material status,
+  package facts and expected return. Multi-target detail preserves both fields.
+- Three exact `E2E-TZ235` fields were archived. No operation, request, ticket,
+  batch, ledger or history row was physically deleted.
+- QA migrations `20260730105407`, `20260730111532` and `20260730121441`
+  were applied only to branch `gsglkmudcwkdetqtocae`; the final migration
+  removes legacy anonymous `field_history` CRUD and enforces field-company
+  scope.
+- Typecheck, build, `42/42` automated checks and authenticated desktop
+  regression at `1920x1080` and `1366x768` passed.
+- Production migrations/writes/deploy and master merge remain `0/0/NO/NO`.
+- `READY_FOR_FATHER_CONTROLLED_QA_PILOT=YES`; `READY_FOR_PRODUCTION=NO`.
+
 ## TZ-220 Specialist Task Workspace
 
 - TZ-220 status: `PASS_WITH_SCREENSHOT_CAPTURE_GAP`; report:

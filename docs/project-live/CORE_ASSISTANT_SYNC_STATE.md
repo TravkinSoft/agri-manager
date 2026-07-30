@@ -687,3 +687,12 @@ TZ221_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, memory, GLBD reads and
 TZ221_BRANCH_RESULT: `PASS - role regressions 33/33, 28/28 and 51/51; authenticated desktop and 390x844 mobile smoke; screenshots 15/15`.
 TZ221_PRODUCTION_IMPACT: `NONE`; test branch only, with zero production connection/write, no production deploy and no master merge.
 TZ221_ACTION: `OWNER_PREVIEW_CHECK_ALLOWED`; Assistant work remains independent from Specialist and Warehousekeeper ERP mutations.
+
+## TZ-238 review result
+
+TZ238_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory and GLBD read contracts were not modified.
+TZ238_CORE_IMPACT_FOUND: `YES - warehouse package allocations, issue/return quantities, Specialist task presentation and QA test-data filtering changed in Core`.
+TZ238_INTEGRATION_CONTRACT_IMPACT: `NO`; no Assistant tool, prompt, memory, snapshot or write boundary changed.
+TZ238_BRANCH_RESULT: `PASS - whole-package 1/5/4 l, OUT 5 l, consumed 1.2 l, return IN 3.8 l, closed reconciliation, no-stock block, multi-target clarity and field-history company RLS passed`.
+TZ238_PRODUCTION_IMPACT: `NONE`; migrations were applied only to branch `gsglkmudcwkdetqtocae`, with zero production writes/deploys and no master merge.
+TZ238_ACTION: `FATHER_CONTROLLED_QA_PILOT_ALLOWED`; Assistant work remains independent from warehouse and Specialist mutations.

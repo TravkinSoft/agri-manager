@@ -436,6 +436,8 @@ export default function FieldsPage() {
         open={isFormOpen}
         onOpenChange={handleFormClose}
         onSubmit={editingField ? handleEditField : handleAddField}
+        existingFields={fields}
+        editingFieldId={editingField?.id || null}
         defaultValues={
           editingField
             ? {

@@ -5,7 +5,12 @@ export function hasQaDataMarker(value: unknown): boolean {
     .replace(/\s+/g, " ")
     .trim();
   if (!text) return false;
-  return /qa[_\s-]*test(?:[_\s-]*\d{4})?/i.test(text) || text.includes("qa_test") || text.includes("qacodex");
+  return (
+    /qa[_\s-]*test(?:[_\s-]*\d{4})?/i.test(text) ||
+    /(?:^|\s)e2e[_\s-]*tz[_\s-]*\d+(?:\s|$)/i.test(text) ||
+    text.includes("qa_test") ||
+    text.includes("qacodex")
+  );
 }
 
 export function rowHasQaDataMarker(row: Record<string, unknown>, keys?: string[]): boolean {

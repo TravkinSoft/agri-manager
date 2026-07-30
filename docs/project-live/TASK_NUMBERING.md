@@ -109,6 +109,7 @@
 | TZ-221 | OPERATIONS / WAREHOUSE / UI | Final Specialist and Warehousekeeper workspaces | copilot-v1 | DONE | TZ-218,TZ-220 | [task-reports/core/TZ-221.md](task-reports/core/TZ-221.md) | `SELF` |
 | TZ-234 | OPERATIONS / WAREHOUSE / WEIGHBRIDGE / DATA INTEGRITY | Work audit remediation and workflow hardening | copilot-v1 | DONE | TZ-204,TZ-221,TZ-233 | [task-reports/core/TZ-234.md](task-reports/core/TZ-234.md) | `SELF` |
 | TZ-237 | GLBD / UI / DATABASE | Human pesticide cards and agronomic data recovery V1 | copilot-v1 | DONE | TZ-223,TZ-226,TZ-229,TZ-230 | [task-reports/core/TZ-237.md](task-reports/core/TZ-237.md) | `SELF` |
+| TZ-238 | WAREHOUSE / OPERATIONS / QA DATA / DATABASE | Package-aware issue, expected returns and Specialist task clarity | copilot-v1 | DONE | TZ-204,TZ-218,TZ-221,TZ-234 | [task-reports/core/TZ-238.md](task-reports/core/TZ-238.md) | `SELF` |
 
 ## Status values
 
