@@ -189,8 +189,14 @@ export interface InventoryBalance {
 export interface WarehouseStockLot {
   key: string;
   batch_id: string | null;
+  batch_class: string;
   batch_label: string;
   quantity: number;
+  reserved_quantity: number;
+  available_quantity: number;
+  package_size: number | null;
+  package_unit: string | null;
+  package_source: "batch" | "product" | null;
   manufactured_at: string | null;
   expires_at: string | null;
   supplier: string | null;
@@ -208,6 +214,8 @@ export interface WarehouseStockDetails {
   available_quantity: number;
   deficit_quantity: number;
   stock_status: "available" | "deficit" | string;
+  product_package_size: number | null;
+  product_package_unit: string | null;
   reservations: WarehouseStockReservation[];
   lots: WarehouseStockLot[];
   movements: InventoryTransactionWithDetails[];
@@ -221,6 +229,7 @@ export interface WarehouseStockReservation {
   field: string | null;
   quantity: number;
   status: string;
+  batch_id_text?: string | null;
 }
 
 export interface WarehouseTransferInput {

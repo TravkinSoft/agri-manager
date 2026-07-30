@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase/client";
 import type { WarehouseIssueRequest, WarehouseIssueRequestStatus } from "@/lib/types/warehouse-request";
+import type { WarehouseIssueMode } from "@/lib/types/warehouse-request";
 
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
   const { data, error } = await supabase.auth.getSession();
@@ -33,6 +34,7 @@ function normalizeStatus(value: unknown): WarehouseIssueRequestStatus {
     value === "partially_issued" ||
     value === "issued_by_warehouse" ||
     value === "received_confirmed" ||
+    value === "closed" ||
     value === "cancelled"
   ) {
     return value;
@@ -65,6 +67,17 @@ function normalizeRequestRow(row: any): WarehouseIssueRequest {
         loss_quantity: item.loss_quantity == null ? null : toNumber(item.loss_quantity),
         package_size: item.package_size == null ? null : toNumber(item.package_size),
         package_count: item.package_count == null ? null : toNumber(item.package_count),
+        allocations: Array.isArray(item.allocations)
+          ? item.allocations.map((allocation: any) => ({
+              ...allocation,
+              package_size:
+                allocation.package_size == null ? null : toNumber(allocation.package_size),
+              package_count:
+                allocation.package_count == null ? null : toNumber(allocation.package_count),
+              prepared_quantity: toNumber(allocation.prepared_quantity),
+              issued_quantity: toNumber(allocation.issued_quantity),
+            }))
+          : [],
       }))
     : [];
 
@@ -76,11 +89,13 @@ function normalizeRequestRow(row: any): WarehouseIssueRequest {
 }
 
 export async function getWarehouseIssueRequests(
-  companyId: string
+  companyId: string,
+  options?: { includeTestData?: boolean }
 ): Promise<WarehouseIssueRequest[]> {
   const headers = await buildAuthHeaders("none");
   const params = new URLSearchParams();
   params.set("companyId", companyId);
+  if (options?.includeTestData) params.set("includeTestData", "true");
   const response = await fetch(`/api/material-requests?${params.toString()}`, {
     method: "GET",
     headers,
@@ -93,11 +108,13 @@ export async function getWarehouseIssueRequests(
 export async function getRecipientWarehouseIssueRequests(params: {
   companyId: string;
   recipientUserId: string;
+  includeTestData?: boolean;
 }): Promise<WarehouseIssueRequest[]> {
   const headers = await buildAuthHeaders("none");
   const query = new URLSearchParams();
   query.set("companyId", params.companyId);
   query.set("mine", "true");
+  if (params.includeTestData) query.set("includeTestData", "true");
   const response = await fetch(`/api/material-requests?${query.toString()}`, {
     method: "GET",
     headers,
@@ -118,7 +135,18 @@ export async function updateWarehouseIssueRequestStatus(params: {
   sourceWarehouseId?: string | null;
   items?: Array<{
     itemId: string;
-    preparedQuantity?: number | null;
+    allocations: Array<{
+      batchId?: string | null;
+      batchIdText?: string | null;
+      batchClass: string;
+      batchLabel: string;
+      issueMode: Exclude<WarehouseIssueMode, "mixed">;
+      quantity: number;
+      packageSize?: number | null;
+      packageCount?: number | null;
+      packageUnit?: string | null;
+      manualPackageReason?: string | null;
+    }>;
   }>;
 }): Promise<void> {
   const headers = await buildAuthHeaders("json");
@@ -195,7 +223,7 @@ export async function issueWarehouseRequest(params: {
   requestId: string;
   companyId: string;
   sourceWarehouseId: string;
-  items?: Array<{ itemId: string; issuedQuantity: number; batchId?: string | null }>;
+  items?: Array<{ itemId: string; issuedQuantity: number }>;
 }): Promise<void> {
   const headers = await buildAuthHeaders("json");
   const idempotencyKey = crypto.randomUUID();

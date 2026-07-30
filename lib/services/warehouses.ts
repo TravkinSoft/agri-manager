@@ -552,12 +552,16 @@ export async function getWarehouseStockDetails(params: {
   warehouseId: string;
   productId: string;
   unit: string;
+  excludeRequestId?: string | null;
 }): Promise<WarehouseStockDetails> {
   const query = new URLSearchParams({
     companyId: params.companyId,
     productId: params.productId,
     unit: params.unit,
   });
+  if (params.excludeRequestId) {
+    query.set("excludeRequestId", params.excludeRequestId);
+  }
   const headers = await buildAuthHeaders("none");
   const response = await fetch(
     `/api/warehouses/${encodeURIComponent(params.warehouseId)}/stock-details?${query.toString()}`,

@@ -7,6 +7,7 @@ export type WarehouseIssueRequestStatus =
   | "partially_issued"
   | "issued_by_warehouse"
   | "received_confirmed"
+  | "closed"
   | "cancelled";
 
 export type WarehouseRequestV5Status =
@@ -19,6 +20,28 @@ export type WarehouseRequestV5Status =
   | "return_received"
   | "closed"
   | "cancelled";
+
+export type WarehouseIssueMode = "whole_package" | "measured" | "mixed";
+export type WarehousePackageSource = "batch" | "product" | "manual" | "measured";
+
+export interface WarehouseIssueAllocation {
+  id: string;
+  request_id: string;
+  request_item_id: string;
+  warehouse_id: string;
+  batch_id: string | null;
+  batch_id_text: string | null;
+  batch_class: string;
+  batch_label: string;
+  issue_mode: Exclude<WarehouseIssueMode, "mixed">;
+  package_source: WarehousePackageSource;
+  package_size: number | null;
+  package_count: number | null;
+  package_unit: string | null;
+  manual_package_reason: string | null;
+  prepared_quantity: number;
+  issued_quantity: number;
+}
 
 export interface WarehouseIssueRequestItem {
   id: string;
@@ -50,6 +73,10 @@ export interface WarehouseIssueRequestItem {
   package_size?: number | null;
   package_count?: number | null;
   package_unit?: string | null;
+  issue_mode?: WarehouseIssueMode | null;
+  package_source?: WarehousePackageSource | null;
+  package_reason?: string | null;
+  allocations?: WarehouseIssueAllocation[];
   reconciliation_status?:
     | "not_required"
     | "pending"
@@ -125,9 +152,13 @@ export interface WarehouseIssueRequest {
   variety_name?: string | null;
   reproduction_name?: string | null;
   operation_type?: string;
+  operation_number?: string | null;
   operation_date?: string;
   operation_notes?: string | null;
   operation_work_status?: string | null;
+  field_code?: string | null;
+  is_test_data?: boolean;
+  test_run_code?: string | null;
   recipient_email?: string;
   recipient_name?: string;
   assigned_specialist_name?: string | null;
