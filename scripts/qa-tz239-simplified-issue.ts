@@ -42,6 +42,9 @@ const identityMigration = source(
 const actualIdentityMigration = source(
   "supabase/migrations/20260731013506_warehouse_issue_actual_product_identity_v2.sql"
 );
+const equivalentIdentityMigration = source(
+  "supabase/migrations/20260731015717_warehouse_issue_equivalent_product_identity_v3.sql"
+);
 const packageMigration = source(
   "supabase/migrations/20260730105407_package_aware_warehouse_issue_v1.sql"
 );
@@ -236,7 +239,7 @@ test("19 ready route uses quantity-only RPC", () => {
   assert.doesNotMatch(requestRoute, forbiddenPackageContract);
 });
 test("20 issue route uses quantity-only RPC", () => {
-  assert.match(issueRoute, /issue_material_request_atomic_v4/);
+  assert.match(issueRoute, /issue_material_request_atomic_v5/);
   assert.doesNotMatch(issueRoute, forbiddenPackageContract);
 });
 test("21 request DTO omits package contract", () => {
@@ -309,6 +312,20 @@ test("31d final identity migration preserves quantity-only contract", () => {
     /whole_package|package_count|package_size/
   );
   assert.doesNotMatch(actualIdentityMigration, /drop\s+(?:table|column)/i);
+});
+test("31e company product and its master are not a substitution", () => {
+  assert.match(issueRoute, /canonicalProductId\(item\.planned_product_id\)/);
+  assert.match(issueRoute, /canonicalProductId\(item\.actual_product_id\)/);
+  assert.match(equivalentIdentityMigration, /p\.master_product_id/);
+  assert.match(equivalentIdentityMigration, /issue_material_request_atomic_v5/);
+});
+test("31f equivalent identity migration preserves substitution guard", () => {
+  assert.match(equivalentIdentityMigration, /substitution_status/);
+  assert.doesNotMatch(
+    equivalentIdentityMigration,
+    /whole_package|package_count|package_size/
+  );
+  assert.doesNotMatch(equivalentIdentityMigration, /drop\s+(?:table|column)/i);
 });
 test("32 reservation stays allocation-bound", () => {
   assert.match(

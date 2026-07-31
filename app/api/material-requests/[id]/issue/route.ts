@@ -52,7 +52,7 @@ export async function POST(
     }
 
     if (["issued", "issued_by_warehouse"].includes(String(requestRow.status || ""))) {
-      const { data, error } = await supabase.rpc("issue_material_request_atomic_v4", {
+      const { data, error } = await supabase.rpc("issue_material_request_atomic_v5", {
         p_company_id: companyId,
         p_actor_profile_id: actor.id,
         p_request_id: requestId,
@@ -79,6 +79,38 @@ export async function POST(
     if (!requestItems?.length) {
       return NextResponse.json({ error: "Material request has no items to issue" }, { status: 400 });
     }
+    const identityIds = Array.from(
+      new Set(
+        requestItems.flatMap((item: any) =>
+          [item.planned_product_id, item.actual_product_id, item.product_id]
+            .map((value) => String(value || ""))
+            .filter(Boolean)
+        )
+      )
+    );
+    const { data: productIdentities, error: productIdentitiesError } =
+      identityIds.length > 0
+        ? await supabase
+            .from("products")
+            .select("id,master_product_id")
+            .in("id", identityIds)
+        : { data: [], error: null };
+    if (productIdentitiesError) {
+      return NextResponse.json(
+        { error: productIdentitiesError.message || "Failed to resolve product identity" },
+        { status: 400 }
+      );
+    }
+    const canonicalProductIds = new Map(
+      (productIdentities || []).map((product: any) => [
+        String(product.id),
+        String(product.master_product_id || product.id),
+      ])
+    );
+    const canonicalProductId = (productId: unknown) => {
+      const value = String(productId || "");
+      return canonicalProductIds.get(value) || value;
+    };
     const { data: preparedAllocations, error: allocationsError } = await supabase
       .from("warehouse_issue_request_item_allocations")
       .select("id,request_item_id,warehouse_id,batch_id_text,batch_class,prepared_quantity,issued_quantity")
@@ -121,7 +153,8 @@ export async function POST(
       if (
         item.planned_product_id &&
         item.actual_product_id &&
-        item.planned_product_id !== item.actual_product_id &&
+        canonicalProductId(item.planned_product_id) !==
+          canonicalProductId(item.actual_product_id) &&
         item.substitution_status !== "approved"
       ) {
         return NextResponse.json({ error: `Material substitution must be approved for item ${item.id}` }, { status: 409 });
@@ -201,7 +234,7 @@ export async function POST(
       return NextResponse.json({ error: "Set at least one issue quantity greater than zero" }, { status: 400 });
     }
 
-    const { data, error } = await supabase.rpc("issue_material_request_atomic_v4", {
+    const { data, error } = await supabase.rpc("issue_material_request_atomic_v5", {
       p_company_id: companyId,
       p_actor_profile_id: actor.id,
       p_request_id: requestId,
