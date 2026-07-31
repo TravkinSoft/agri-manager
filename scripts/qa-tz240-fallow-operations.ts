@@ -117,16 +117,36 @@ const migrationPath = join(process.cwd(), "supabase", "migrations", "20260731144
 const migration = readFileSync(migrationPath, "utf8");
 const snowRetentionMigrationPath = join(process.cwd(), "supabase", "migrations", "20260731151000_operation_snow_retention_v1.sql");
 const snowRetentionMigration = readFileSync(snowRetentionMigrationPath, "utf8");
+const wholeFieldHistoryMigrationPath = join(
+  process.cwd(),
+  "supabase",
+  "migrations",
+  "20260731164000_operation_whole_field_history_v1.sql"
+);
+const wholeFieldHistoryMigration = readFileSync(wholeFieldHistoryMigrationPath, "utf8");
+const operationRoute = readFileSync(join(process.cwd(), "app", "api", "operations", "route.ts"), "utf8");
 check("migration adds land_use_type", () => assert.match(migration, /ADD COLUMN IF NOT EXISTS land_use_type/));
 check("migration enforces fallow null identity", () => assert.match(migration, /land_use_type = 'fallow'[\s\S]*crop_id IS NULL/));
 check("migration derives target scope", () => assert.match(migration, /GENERATED ALWAYS AS/));
 check("migration does not delete crop data", () => assert.doesNotMatch(migration, /DELETE\s+FROM\s+public\.(?:crops|crop_structure)/i));
 check("snow retention migration is idempotent", () => assert.match(snowRetentionMigration, /ON CONFLICT \(slug\) DO UPDATE/));
 check("snow retention does not require product", () => assert.match(snowRetentionMigration, /'snow_retention'[\s\S]*false,[\s\S]*false,[\s\S]*true/));
+check("closed season mutation remains blocked", () => assert.match(operationRoute, /assertSeasonWritableForMutation/));
+check("operation create remains company scoped", () => assert.match(operationRoute, /crop_structure_id does not belong to this company/));
+check("crop operations cannot target fallow", () => assert.match(operationRoute, /Crop operations cannot target fallow land/));
+check("whole-field history is limited to crop-independent V1 works", () => {
+  assert.match(wholeFieldHistoryMigration, /'plowing', 'snow_retention'/);
+  assert.match(wholeFieldHistoryMigration, /crop_structure_id is null/i);
+});
+check("whole-field history repair is idempotent", () => {
+  assert.match(wholeFieldHistoryMigration, /where not exists/i);
+  assert.doesNotMatch(wholeFieldHistoryMigration, /delete\s+from/i);
+});
 
 async function verifyMigrationReplay() {
   const db = new PGlite();
   await db.exec(`
+    create role anon;
     create table public.crop_structure (
       id uuid primary key,
       company_id uuid not null,
@@ -138,7 +158,40 @@ async function verifyMigrationReplay() {
     );
     create table public.operations (
       id uuid primary key,
-      crop_structure_id uuid
+      company_id uuid not null,
+      field_id uuid,
+      crop_structure_id uuid,
+      operation_type text,
+      operation_category_slug text,
+      operation_type_slug text,
+      operation_config jsonb not null default '{}'::jsonb,
+      status text,
+      work_status text,
+      operation_status text,
+      planned_area_ha numeric,
+      completed_area_ha numeric,
+      specialist_comment text
+    );
+    create table public.seasons (
+      id uuid primary key,
+      company_id uuid not null,
+      year integer not null,
+      archived boolean not null default false
+    );
+    create table public.field_history_entries (
+      id uuid primary key default gen_random_uuid(),
+      company_id uuid not null,
+      field_id uuid,
+      season_id uuid,
+      season_year integer,
+      history_value text,
+      original_raw_value text,
+      source text,
+      notes text,
+      operation_id uuid,
+      actual_completed_area_ha numeric,
+      material_facts jsonb,
+      material_reconciliation_status text
     );
     create table public.operation_types (
       id uuid primary key default gen_random_uuid(),
@@ -181,6 +234,59 @@ async function verifyMigrationReplay() {
       values ('10000000-0000-4000-8000-000000000005','10000000-0000-4000-8000-000000000002','10000000-0000-4000-8000-000000000003','fallow','10000000-0000-4000-8000-000000000004')`)
   );
   check("database constraint rejects fallow crop identity", () => assert.ok(true));
+
+  await db.exec(`
+    insert into public.seasons (id, company_id, year)
+    values ('10000000-0000-4000-8000-000000000010','10000000-0000-4000-8000-000000000002',2026);
+    insert into public.operations (
+      id,company_id,field_id,crop_structure_id,operation_type,operation_type_slug,
+      operation_category_slug,operation_config,status,work_status,operation_status,
+      planned_area_ha,completed_area_ha,specialist_comment
+    ) values (
+      '10000000-0000-4000-8000-000000000011','10000000-0000-4000-8000-000000000002',
+      '10000000-0000-4000-8000-000000000012',null,'Вспашка','plowing','soil_preparation',
+      '{"season_id":"10000000-0000-4000-8000-000000000010"}'::jsonb,
+      'completed','completed','completed',20,20,'Изолированный тест'
+    );
+  `);
+  await db.exec(wholeFieldHistoryMigration);
+  const repairedHistory = await db.query<{ history_value: string }>(
+    "select history_value from public.field_history_entries where operation_id='10000000-0000-4000-8000-000000000011'"
+  );
+  check("whole-field completed operation is backfilled into history", () => {
+    assert.equal(repairedHistory.rows[0]?.history_value, "Operation completed: Вспашка");
+  });
+
+  await db.exec(`
+    insert into public.operations (
+      id,company_id,field_id,crop_structure_id,operation_type,operation_type_slug,
+      operation_category_slug,operation_config,status,work_status,operation_status,
+      planned_area_ha,completed_area_ha,specialist_comment
+    ) values (
+      '10000000-0000-4000-8000-000000000013','10000000-0000-4000-8000-000000000002',
+      '10000000-0000-4000-8000-000000000012',null,'Снегозадержание','snow_retention','soil_preparation',
+      '{"season_id":"10000000-0000-4000-8000-000000000010"}'::jsonb,
+      'planned','active','planned',20,0,null
+    );
+    update public.operations
+    set status='completed',work_status='completed',operation_status='completed',
+        completed_area_ha=20,specialist_comment='Изолированный тест'
+    where id='10000000-0000-4000-8000-000000000013';
+  `);
+  const triggeredHistory = await db.query<{ history_value: string }>(
+    "select history_value from public.field_history_entries where operation_id='10000000-0000-4000-8000-000000000013'"
+  );
+  check("whole-field completion trigger records human history", () => {
+    assert.equal(triggeredHistory.rows[0]?.history_value, "Operation completed: Снегозадержание");
+  });
+  await db.exec(`
+    update public.operations set completed_area_ha=20
+    where id='10000000-0000-4000-8000-000000000013';
+  `);
+  const historyCount = await db.query<{ count: number }>(
+    "select count(*)::int as count from public.field_history_entries where operation_id='10000000-0000-4000-8000-000000000013'"
+  );
+  check("whole-field history trigger does not duplicate entries", () => assert.equal(historyCount.rows[0]?.count, 1));
   await db.close();
   process.stdout.write(`TZ-240 automated contract checks: ${passed}/${passed} PASS\n`);
 }
