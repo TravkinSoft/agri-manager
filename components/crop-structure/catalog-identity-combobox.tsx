@@ -54,7 +54,7 @@ export function CatalogIdentityCombobox({
           disabled={disabled}
           className={cn("justify-between px-3 font-normal", className)}
         >
-          <span className={cn("truncate", !selected && "text-slate-500")}>
+          <span className={cn("min-w-0 flex-1 truncate text-left", !selected && "text-slate-500")}>
             {selected?.label || placeholder}
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-slate-500" />

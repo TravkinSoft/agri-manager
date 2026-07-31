@@ -15,6 +15,11 @@ import {
   isCropIndependentFieldOperation,
 } from "../lib/operations/operation-engine";
 import { summarizeLandUseAreas } from "../lib/crop-structure/analytics";
+import {
+  hasCropStructureChanges,
+  sortReproductionsAgronomically,
+  summarizeCropStructureChanges,
+} from "../lib/crop-structure/editor";
 
 let passed = 0;
 function check(name: string, run: () => void) {
@@ -112,6 +117,35 @@ check("only approved V1 works are crop independent", () => {
 check("analytics separates crop and fallow areas", () => {
   assert.deepEqual(summarizeLandUseAreas([validCropRow, validFallowRow]), { cropArea: 80, fallowArea: 20 });
 });
+check("reproductions follow agronomic multiplication order", () => {
+  const rows = ["РС1", "ЭС", "ОС", "РС2", "СЭ", "ССЭ"].map((code) => ({ code }));
+  assert.deepEqual(sortReproductionsAgronomically(rows).map((row) => row.code), ["ОС", "ССЭ", "СЭ", "ЭС", "РС1", "РС2"]);
+});
+check("structure editor detects add update and delete separately", () => {
+  const base = {
+    land_use_type: "crop" as const,
+    crop_id: cropId,
+    variety_id: varietyId,
+    reproduction_id: reproductionId,
+    notes: "",
+    area: 50,
+  };
+  const previous = [{ ...base, id: "row-1" }, { ...base, id: "row-2" }];
+  const next = [{ ...base, id: "row-1", area: 60 }, { ...base, area: 40 }];
+  assert.deepEqual(summarizeCropStructureChanges(previous, next), { added: 1, updated: 1, deleted: 1 });
+});
+check("unchanged structure does not request save", () => {
+  const rows = [{
+    id: "row-1",
+    land_use_type: "fallow" as const,
+    crop_id: null,
+    variety_id: null,
+    reproduction_id: null,
+    notes: "Чистый пар",
+    area: 20,
+  }];
+  assert.equal(hasCropStructureChanges(summarizeCropStructureChanges(rows, rows.map((row) => ({ ...row })))), false);
+});
 
 const migrationPath = join(process.cwd(), "supabase", "migrations", "20260731144242_crop_structure_fallow_operations_v1.sql");
 const migration = readFileSync(migrationPath, "utf8");
@@ -125,6 +159,7 @@ const wholeFieldHistoryMigrationPath = join(
 );
 const wholeFieldHistoryMigration = readFileSync(wholeFieldHistoryMigrationPath, "utf8");
 const operationRoute = readFileSync(join(process.cwd(), "app", "api", "operations", "route.ts"), "utf8");
+const cropStructurePage = readFileSync(join(process.cwd(), "app", "(dashboard)", "crop-structure", "page.tsx"), "utf8");
 check("migration adds land_use_type", () => assert.match(migration, /ADD COLUMN IF NOT EXISTS land_use_type/));
 check("migration enforces fallow null identity", () => assert.match(migration, /land_use_type = 'fallow'[\s\S]*crop_id IS NULL/));
 check("migration derives target scope", () => assert.match(migration, /GENERATED ALWAYS AS/));
@@ -141,6 +176,17 @@ check("whole-field history is limited to crop-independent V1 works", () => {
 check("whole-field history repair is idempotent", () => {
   assert.match(wholeFieldHistoryMigration, /where not exists/i);
   assert.doesNotMatch(wholeFieldHistoryMigration, /delete\s+from/i);
+});
+check("field dossier reads only persisted structure rows", () => {
+  assert.doesNotMatch(cropStructurePage, /const rows = draftRows\.length \? draftRows : allocByField/);
+});
+check("structure save requires explicit confirmation", () => {
+  assert.match(cropStructurePage, /Подтвердить изменения структуры\?/);
+  assert.match(cropStructurePage, /Подтвердить и сохранить/);
+});
+check("missing season produces a visible save error", () => {
+  assert.match(cropStructurePage, /У этой компании нет активного сезона/);
+  assert.match(cropStructurePage, /setEditorValidationError\(message\)/);
 });
 
 async function verifyMigrationReplay() {

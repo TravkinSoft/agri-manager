@@ -7,6 +7,16 @@ import { FieldFormDialog } from "@/components/fields/field-form-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +43,12 @@ import {
   buildVarietyOptions,
   catalogIdentitySearchValue,
 } from "@/lib/crop-structure/catalog-identity";
+import {
+  hasCropStructureChanges,
+  sortReproductionsAgronomically,
+  summarizeCropStructureChanges,
+  type CropStructureChangeSummary,
+} from "@/lib/crop-structure/editor";
 import { createOperation, getOperationsForCropStructureRows } from "@/lib/services/operations";
 import type { OperationFormData, SpecialistAssignee } from "@/lib/types/operation";
 import { buildOperationPresentation, type OperationPresentation } from "@/lib/operations/operation-presentation";
@@ -389,10 +405,20 @@ export default function CropStructurePage() {
   const [specialists, setSpecialists] = useState<SpecialistAssignee[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(null);
+  const [saveConfirmationOpen, setSaveConfirmationOpen] = useState(false);
+  const [discardConfirmationOpen, setDiscardConfirmationOpen] = useState(false);
+  const [pendingSaveRows, setPendingSaveRows] = useState<Allocation[]>([]);
+  const [pendingSaveSummary, setPendingSaveSummary] = useState<CropStructureChangeSummary>({ added: 0, updated: 0, deleted: 0 });
+  const [editorValidationError, setEditorValidationError] = useState<string | null>(null);
 
   const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
   const season = useMemo(() => seasons.find((item) => item.id === seasonId) || null, [seasons, seasonId]);
+  const draftChangeSummary = useMemo(
+    () => summarizeCropStructureChanges(selectedFieldId ? initialByField.get(selectedFieldId) || [] : [], draftRows),
+    [draftRows, initialByField, selectedFieldId]
+  );
+  const hasUnsavedStructureChanges = hasCropStructureChanges(draftChangeSummary);
   const fieldDisplayName = (field: Field) => getFieldDisplayName(field);
 
   const handleCreateField = async (data: FieldFormData) => {
@@ -520,12 +546,13 @@ export default function CropStructurePage() {
   );
   const globalReproductions = useMemo(
     () =>
-      (buildReproductionOptions({
-        rows: allReproductions,
-        companyId: activeCompanyId || "",
-        selectedIds: selectedReproductionIds,
-      }) as Reproduction[])
-        .sort((a, b) => Number(a.level_order || 0) - Number(b.level_order || 0) || standardReproductionLabel(a).localeCompare(standardReproductionLabel(b), "ru")),
+      sortReproductionsAgronomically(
+        buildReproductionOptions({
+          rows: allReproductions,
+          companyId: activeCompanyId || "",
+          selectedIds: selectedReproductionIds,
+        }) as Reproduction[]
+      ),
     [allReproductions, activeCompanyId, selectedReproductionIds]
   );
   const varietyMap = useMemo(() => new Map(globalVarieties.map((item) => [item.id, item])), [globalVarieties]);
@@ -548,7 +575,7 @@ export default function CropStructurePage() {
       return;
     }
 
-    const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
+    const rows = allocByField.get(selectedField.id) || [];
     if (!rows.length) {
       setSelectedDossierAllocationKey(null);
       setDossierDetailTab("overview");
@@ -560,7 +587,7 @@ export default function CropStructurePage() {
       setSelectedDossierAllocationKey(keys[0]);
       setDossierDetailTab("overview");
     }
-  }, [allocByField, draftRows, selectedDossierAllocationKey, selectedField]);
+  }, [allocByField, selectedDossierAllocationKey, selectedField]);
 
   const cropName = (id?: string | null) => (id && cropMap.get(id) ? cropLabel(cropMap.get(id) as Crop) : "-");
   const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "-" : "-");
@@ -1165,6 +1192,14 @@ export default function CropStructurePage() {
   }, [activeCompanyId, seasonId, selectedFieldId, cropMap, isGlobalAdmin]);
 
   const openField = (fieldId: string, tab: "dossier" | "editor" | "legal" = "dossier") => {
+    if (tab === "editor" && !seasonId) {
+      toast({
+        title: "Нет активного сезона",
+        description: "Создание структуры доступно только после открытия сезона для этой компании.",
+        variant: "destructive",
+      });
+      tab = "dossier";
+    }
     const allowedTab = tab === "editor" && !canEditStructure
       ? "dossier"
       : tab === "legal" && !isGlobalAdmin
@@ -1173,6 +1208,7 @@ export default function CropStructurePage() {
     setSelectedFieldId(fieldId);
     setFieldDialogTab(allowedTab);
     setDraftRows((allocByField.get(fieldId) || []).map((item) => ({ ...item })));
+    setEditorValidationError(null);
   };
 
   const closeField = () => {
@@ -1180,9 +1216,24 @@ export default function CropStructurePage() {
     setSelectedOperationDetail(null);
     setDraftRows([]);
     setFieldDialogTab("dossier");
+    setPendingDeleteIndex(null);
+    setSaveConfirmationOpen(false);
+    setDiscardConfirmationOpen(false);
+    setPendingSaveRows([]);
+    setPendingSaveSummary({ added: 0, updated: 0, deleted: 0 });
+    setEditorValidationError(null);
+  };
+
+  const requestCloseField = () => {
+    if (hasUnsavedStructureChanges && !saving) {
+      setDiscardConfirmationOpen(true);
+      return;
+    }
+    closeField();
   };
 
   const patchDraft = (index: number, patch: Partial<Allocation>) => {
+    setEditorValidationError(null);
     setDraftRows((prev) => {
       const next = [...prev];
       const old = next[index];
@@ -1206,6 +1257,7 @@ export default function CropStructurePage() {
 
   const addRow = () => {
     if (!selectedFieldId) return;
+    setEditorValidationError(null);
     setDraftRows((prev) => [
       ...prev,
       {
@@ -1224,6 +1276,7 @@ export default function CropStructurePage() {
   };
 
   const removeRow = (index: number) => {
+    setEditorValidationError(null);
     setDraftRows((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   };
 
@@ -1276,8 +1329,19 @@ export default function CropStructurePage() {
     });
   };
 
-  const save = async () => {
-    if (!canEditStructure || !selectedFieldId || !selectedField || !activeCompanyId || !seasonId) return;
+  const prepareDraftForSave = () => {
+    if (!canEditStructure || !selectedFieldId || !selectedField || !activeCompanyId) {
+      const message = "Недостаточно данных для сохранения структуры.";
+      setEditorValidationError(message);
+      toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+      return null;
+    }
+    if (!seasonId) {
+      const message = "У этой компании нет активного сезона. Создайте сезон или войдите в нужную QA-компанию.";
+      setEditorValidationError(message);
+      toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+      return null;
+    }
     const validation = validateAndNormalizeCropStructureRows({
       rows: draftRows,
       cropsById: cropMap,
@@ -1286,20 +1350,50 @@ export default function CropStructurePage() {
       areaEpsilon: EPS,
     });
     if (!validation.ok) {
-      toast({ title: "Ошибка", description: validation.message, variant: "destructive" });
-      return;
+      setEditorValidationError(validation.message);
+      toast({ title: "Структура не сохранена", description: validation.message, variant: "destructive" });
+      return null;
     }
     for (const row of validation.rows) {
       if (isPotatoAllocation(row) && (!row.seed_spacing_cm || row.seed_spacing_cm <= 0)) {
-        toast({ title: "Ошибка", description: "Для картофеля укажите межсемянное расстояние в структуре.", variant: "destructive" });
-        return;
+        const message = "Для картофеля укажите межсемянное расстояние в структуре.";
+        setEditorValidationError(message);
+        toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+        return null;
       }
     }
+    setEditorValidationError(null);
+    return validation.rows as Allocation[];
+  };
+
+  const requestSave = () => {
+    const validatedRows = prepareDraftForSave();
+    if (!validatedRows || !selectedFieldId) return;
+    const summary = summarizeCropStructureChanges(initialByField.get(selectedFieldId) || [], validatedRows);
+    if (!hasCropStructureChanges(summary)) {
+      toast({ title: "Изменений нет", description: "Структура поля уже сохранена." });
+      return;
+    }
+    setPendingSaveRows(validatedRows.map((row) => ({ ...row })));
+    setPendingSaveSummary(summary);
+    setSaveConfirmationOpen(true);
+  };
+
+  const confirmSave = async () => {
+    if (!canEditStructure || !selectedFieldId || !selectedField || !activeCompanyId || !seasonId) {
+      const message = "Контекст поля или сезона изменился. Вернитесь в редактор и повторите сохранение.";
+      setSaveConfirmationOpen(false);
+      setEditorValidationError(message);
+      toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+      return;
+    }
+    const validatedRows = pendingSaveRows;
+    setSaveConfirmationOpen(false);
     try {
       setSaving(true);
       const prev = initialByField.get(selectedFieldId) || [];
       const prevIds = new Set(prev.map((row) => row.id).filter(Boolean) as string[]);
-      const curIds = new Set(validation.rows.map((row) => row.id).filter(Boolean) as string[]);
+      const curIds = new Set(validatedRows.map((row) => row.id).filter(Boolean) as string[]);
       const delIds = Array.from(prevIds).filter((id) => !curIds.has(id));
       if (delIds.length) {
         const protectedIds = delIds.filter((id) => (operationFactsByAllocation.get(id)?.length || 0) > 0 || (consumptionsByAllocation.get(id)?.length || 0) > 0);
@@ -1326,7 +1420,7 @@ export default function CropStructurePage() {
         body: JSON.stringify({
           companyId: activeCompanyId,
           seasonId,
-          rows: validation.rows,
+          rows: validatedRows,
         }),
       });
       const payload = (await response.json().catch(() => ({}))) as { rows?: unknown[]; error?: string };
@@ -1855,7 +1949,7 @@ export default function CropStructurePage() {
 
   const renderFieldDossierLegacy = () => {
     if (!selectedField) return null;
-    const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
+    const rows = allocByField.get(selectedField.id) || [];
     const planned = sumArea(rows);
     const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
     return (
@@ -2042,7 +2136,7 @@ export default function CropStructurePage() {
 
   const renderFieldDossier = () => {
     if (!selectedField) return null;
-    const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
+    const rows = allocByField.get(selectedField.id) || [];
     const planned = sumArea(rows);
     const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
     const rowItems = rows.map((allocation, index) => {
@@ -2342,16 +2436,39 @@ export default function CropStructurePage() {
     if (!selectedField) return null;
     const editorLabelClass = "mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400";
     const editorControlClass =
-      "h-10 border-slate-700 bg-[#0f1622] text-slate-100 shadow-inner shadow-black/20 placeholder:text-slate-500 focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-yellow-400/50 focus-visible:ring-offset-0";
+      "h-10 w-full min-w-0 border-slate-700 bg-[#0f1622] text-slate-100 shadow-inner shadow-black/20 placeholder:text-slate-500 focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-yellow-400/50 focus-visible:ring-offset-0";
+    const editorNumberControlClass = `${editorControlClass} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
     const editorSelectContentClass = "border-slate-700 bg-[#101720] text-slate-100 shadow-xl";
+    const plannedArea = sumArea(draftRows);
+    const remainingArea = selectedField.area - plannedArea;
+    const areaIsOver = remainingArea < -EPS;
 
     return (
       <div className="text-slate-100">
-        <div className="mb-3">
-          <div>
-            <div className="text-sm font-semibold text-slate-100">Редактор структуры</div>
-            <div className="mt-1 text-xs text-slate-400">План: {fmtHa(sumArea(draftRows))} / {fmtHa(selectedField.area)} · Остаток: {fmtHa(selectedField.area - sumArea(draftRows))}</div>
+        <div className="mb-3 space-y-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold text-slate-100">Редактор структуры</div>
+              <div className={`mt-1 text-xs ${areaIsOver ? "font-semibold text-rose-300" : "text-slate-400"}`}>
+                План: {fmtHa(plannedArea)} / {fmtHa(selectedField.area)} · {areaIsOver ? "Превышение" : "Остаток"}: {fmtHa(Math.abs(remainingArea))}
+              </div>
+            </div>
+            {hasUnsavedStructureChanges ? (
+              <Badge className="border border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/10">
+                Не сохранено
+              </Badge>
+            ) : null}
           </div>
+          {!seasonId ? (
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              У этой компании нет активного сезона. Структуру нельзя сохранить; войдите в основную QA-компанию или сначала откройте сезон.
+            </div>
+          ) : null}
+          {editorValidationError ? (
+            <div role="alert" className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              {editorValidationError}
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-3">
@@ -2372,8 +2489,8 @@ export default function CropStructurePage() {
                   </div>
                   <span className="text-xs text-slate-400">{fmtHa(Number(row.area || 0))}</span>
                 </div>
-                <div className="grid grid-cols-12 items-end gap-2 p-3">
-                <div className="col-span-12 max-w-[280px]">
+                <div className="grid grid-cols-12 items-end gap-3 p-3">
+                <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
                   <Label className={editorLabelClass}>Использование участка *</Label>
                   <Select
                     value={row.land_use_type}
@@ -2388,14 +2505,14 @@ export default function CropStructurePage() {
                 </div>
                 {!isFallowRow ? (
                   <>
-                    <div className="col-span-12 md:col-span-3">
+                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
                       <Label className={editorLabelClass}>Культура *</Label>
                       <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
                         <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
                         <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
-                    <div className="col-span-12 md:col-span-2">
+                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
                       <Label className={editorLabelClass}>Сорт *</Label>
                       <CatalogIdentityCombobox
                         value={row.variety_id}
@@ -2416,7 +2533,7 @@ export default function CropStructurePage() {
                         <div className="mt-1 text-[11px] text-amber-300">Для выбранной культуры нет доступных сортов</div>
                       ) : null}
                     </div>
-                    <div className="col-span-12 md:col-span-2">
+                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
                       <Label className={editorLabelClass}>Репродукция *</Label>
                       <CatalogIdentityCombobox
                         value={row.reproduction_id}
@@ -2436,10 +2553,10 @@ export default function CropStructurePage() {
                     </div>
                   </>
                 ) : null}
-                <div className="col-span-7 md:col-span-3">
+                <div className="col-span-12 min-w-0 sm:col-span-7 xl:col-span-4">
                   <Label className={editorLabelClass}>Площадь, га *</Label>
                   <div className="flex gap-1.5">
-                    <Input className={editorControlClass} type="number" min={0} step="0.01" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
+                    <Input className={editorNumberControlClass} type="text" inputMode="decimal" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
                     <Button
                       type="button"
                       title="Заполнить остатком площади"
@@ -2452,11 +2569,11 @@ export default function CropStructurePage() {
                     </Button>
                   </div>
                 </div>
-                <div className="col-span-3 md:col-span-1">
+                <div className="col-span-8 min-w-0 sm:col-span-3 xl:col-span-2">
                   <Label className={editorLabelClass}>%</Label>
                   <div className="flex h-10 items-center rounded-md border border-slate-700 bg-[#0b1220] px-3 text-sm font-semibold text-slate-200 shadow-inner shadow-black/20">{pct}</div>
                 </div>
-                <div className="col-span-2 md:col-span-1">
+                <div className="col-span-4 min-w-0 sm:col-span-2 xl:col-span-1">
                   <Label className={editorLabelClass}>Удалить</Label>
                   <Button
                     className="h-10 w-10 border border-transparent text-slate-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
@@ -2490,10 +2607,9 @@ export default function CropStructurePage() {
                       <div>
                         <Label className={editorLabelClass}>Междурядье, м</Label>
                         <Input
-                          className={editorControlClass}
-                          type="number"
-                          min={0}
-                          step="0.01"
+                          className={editorNumberControlClass}
+                          type="text"
+                          inputMode="decimal"
                           value={row.row_spacing_m == null ? "" : String(row.row_spacing_m)}
                           onChange={(event) => patchDraft(index, { row_spacing_m: parseNum(event.target.value) })}
                           placeholder={isPotatoAllocation(row) ? "0.75" : "м"}
@@ -2502,10 +2618,9 @@ export default function CropStructurePage() {
                       <div>
                         <Label className={editorLabelClass}>Межсемянное расстояние, см</Label>
                         <Input
-                          className={editorControlClass}
-                          type="number"
-                          min={0}
-                          step="0.1"
+                          className={editorNumberControlClass}
+                          type="text"
+                          inputMode="decimal"
                           value={row.seed_spacing_cm == null ? "" : String(row.seed_spacing_cm)}
                           onChange={(event) => patchDraft(index, { seed_spacing_cm: parseNum(event.target.value) })}
                           placeholder={isPotatoAllocation(row) ? "32" : "см"}
@@ -2628,7 +2743,7 @@ export default function CropStructurePage() {
               className="h-8 min-w-[92px] border-slate-700 bg-transparent px-2 text-xs font-medium text-slate-400 shadow-none hover:border-slate-600 hover:text-slate-200 disabled:cursor-default disabled:opacity-70"
               aria-label="Сезон структуры посевов"
             >
-              <SelectValue placeholder="Нет сезонов" />
+              <SelectValue placeholder="Сезон не создан" />
             </SelectTrigger>
             <SelectContent>
               {seasons.map((item) => <SelectItem key={item.id} value={item.id}>{item.year}</SelectItem>)}
@@ -2761,7 +2876,7 @@ export default function CropStructurePage() {
         existingFields={fields}
       />
 
-      <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && closeField()}>
+      <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && requestCloseField()}>
         <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1180px] [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent">
           <DialogHeader>
             <div className="flex items-center justify-between gap-2">
@@ -2777,7 +2892,13 @@ export default function CropStructurePage() {
                 Агро-контур
               </Button>
               {canEditStructure ? (
-                <Button variant={fieldDialogTab === "editor" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("editor")}>
+                <Button
+                  variant={fieldDialogTab === "editor" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFieldDialogTab("editor")}
+                  disabled={!seasonId}
+                  title={!seasonId ? "У компании нет активного сезона" : undefined}
+                >
                   Редактор структуры
                 </Button>
               ) : null}
@@ -2792,15 +2913,73 @@ export default function CropStructurePage() {
             {fieldDialogTab === "legal" ? renderLegalContour() : null}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeField}>Закрыть</Button>
+            <Button variant="outline" onClick={requestCloseField}>Закрыть</Button>
             {canEditStructure && fieldDialogTab === "editor" ? (
-              <Button onClick={save} disabled={saving}>
+              <Button onClick={requestSave} disabled={saving}>
                 <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
               </Button>
             ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={saveConfirmationOpen} onOpenChange={setSaveConfirmationOpen}>
+        <AlertDialogContent className="border-slate-700 bg-[#0b1017] text-slate-100">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Подтвердить изменения структуры?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              Только после подтверждения изменения будут записаны в сезон {season?.year || "—"}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
+              <div className="text-xs text-slate-400">Добавить</div>
+              <div className="mt-1 text-lg font-semibold text-slate-100">{pendingSaveSummary.added}</div>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
+              <div className="text-xs text-slate-400">Изменить</div>
+              <div className="mt-1 text-lg font-semibold text-slate-100">{pendingSaveSummary.updated}</div>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
+              <div className="text-xs text-slate-400">Удалить</div>
+              <div className="mt-1 text-lg font-semibold text-slate-100">{pendingSaveSummary.deleted}</div>
+            </div>
+          </div>
+          <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+            Итоговая площадь структуры: {fmtHa(sumArea(pendingSaveRows))} из {fmtHa(selectedField?.area || 0)}.
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-slate-600 bg-transparent text-slate-100 hover:bg-slate-800 hover:text-white">
+              Вернуться к редактированию
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-yellow-400 text-slate-950 hover:bg-yellow-300"
+              onClick={() => void confirmSave()}
+            >
+              Подтвердить и сохранить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={discardConfirmationOpen} onOpenChange={setDiscardConfirmationOpen}>
+        <AlertDialogContent className="border-slate-700 bg-[#0b1017] text-slate-100">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Закрыть без сохранения?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              Несохранённые добавления, изменения и удаления будут отменены. «Агро-контур» и база уже сохранённые данные не меняли.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-slate-600 bg-transparent text-slate-100 hover:bg-slate-800 hover:text-white">
+              Продолжить редактирование
+            </AlertDialogCancel>
+            <AlertDialogAction className="bg-rose-600 text-white hover:bg-rose-500" onClick={closeField}>
+              Закрыть без сохранения
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={Boolean(selectedOperationDetail)} onOpenChange={(open) => !open && setSelectedOperationDetail(null)}>
         <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1040px] travkin-scrollbar">
