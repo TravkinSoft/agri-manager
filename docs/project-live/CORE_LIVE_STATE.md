@@ -798,13 +798,17 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
   expected return is `max(issued - planned, 0)`.
 - Existing package columns and historic metadata remain untouched but are
   ignored by the active UI and APIs.
-- Retained QA lifecycle `OP-2026-000067 / WR-2026-000037` remains reconciled:
-  plan `1 l`, issued `5 l`, consumed `1.2 l`, returned `3.8 l`, loss `0`.
-- QA migration `20260730140942` adds quantity-only prepare/issue RPCs and
-  revokes authenticated execution of package-aware RPCs without changing
-  business rows.
-- Typecheck, build, `43/43` automated checks, no-stock and production read-only
-  checks passed.
+- Fresh QA lifecycle `OP-2026-000068 / WR-2026-000038` is reconciled:
+  plan `1 l`, issued `5 l`, expected return `4 l`, consumed `1.2 l`,
+  returned `3.8 l`, loss `0`, ledger `OUT -5 / IN +3.8 l`, request closed
+  and field history reconciled.
+- Four QA-only migrations provide quantity-only RPCs and canonical
+  company-product/global-master stock identity. Return now posts against the
+  actually issued `actual_product_id`.
+- Typecheck, build, `50/50` automated checks, authenticated lifecycle,
+  no-stock and production read-only checks passed.
+- Final preview commit:
+  `7b9d735a9adeda5e2138aa2c419935036170d0cd`.
 - Production migrations/writes/deploy and master merge remain `0/0/NO/NO`.
 
 ## TZ-220 Specialist Task Workspace

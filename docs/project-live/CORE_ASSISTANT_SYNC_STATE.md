@@ -702,6 +702,6 @@ TZ238_ACTION: `FATHER_CONTROLLED_QA_PILOT_ALLOWED`; Assistant work remains indep
 TZ239_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory and GLBD read contracts were not modified.
 TZ239_CORE_IMPACT_FOUND: `YES - warehouse preparation and issue changed from package-aware controls to one direct quantity with expected-return math`.
 TZ239_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, prompts, snapshots and ERP write boundaries are unchanged.
-TZ239_BRANCH_RESULT: `PASS - quantity-only UI and RPCs, 1/5/1.2/3.8/0 reconciliation, no-stock guard and 43/43 contract checks passed`.
+TZ239_BRANCH_RESULT: `PASS - quantity-only UI and RPCs, canonical actual-product OUT/IN identity, fresh 1/5/1.2/3.8/0 reconciliation, no-stock guard and 50/50 contract checks passed`.
 TZ239_PRODUCTION_IMPACT: `NONE`; migration was applied only to branch `gsglkmudcwkdetqtocae`, with zero production writes/deploys and no master merge.
 TZ239_ACTION: `QA_PREVIEW_ALLOWED`; Assistant work remains independent from warehouse issue mutations.
