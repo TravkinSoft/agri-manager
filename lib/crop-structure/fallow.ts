@@ -127,23 +127,6 @@ export function validateAndNormalizeCropStructureRows<T extends CropStructureSee
     }
   }
 
-  const identityKeys = new Set<string>();
-  for (let index = 0; index < normalizedRows.length; index += 1) {
-    const row = normalizedRows[index];
-    const crop = row.crop_id ? params.cropsById.get(row.crop_id) : null;
-    if (getCropStructureLandUseType(row, crop) === "fallow") continue;
-    const key = `${row.crop_id || ""}:${row.variety_id || ""}:${row.reproduction_id || ""}`;
-    if (identityKeys.has(key)) {
-      return {
-        ok: false,
-        rows: normalizedRows,
-        rowIndex: index,
-        message: "Такая культура, сорт и репродукция уже добавлены для этого поля.",
-      };
-    }
-    identityKeys.add(key);
-  }
-
   const totalArea = normalizedRows.reduce((sum, row) => sum + Number(row.area || 0), 0);
   if (totalArea > Number(params.fieldArea || 0) + areaEpsilon) {
     return {

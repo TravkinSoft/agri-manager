@@ -91,9 +91,10 @@ check("variety crop mismatch is rejected", () => {
   const result = validate([{ ...validCropRow, crop_id: otherCropId }]);
   assert.equal(result.ok, false);
 });
-check("duplicate crop identity is rejected", () => {
-  const result = validate([{ ...validCropRow, area: 40 }, { ...validCropRow, area: 40 }]);
-  assert.equal(result.ok, false);
+check("equal crop identities remain separate field sections", () => {
+  const result = validate([{ ...validCropRow, area: 40 }, { ...validCropRow, area: 60 }]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.rows.map((row) => row.area), [40, 60]);
 });
 check("zero area is rejected", () => assert.equal(validate([{ ...validFallowRow, area: 0 }]).ok, false));
 check("negative area is rejected", () => assert.equal(validate([{ ...validFallowRow, area: -1 }]).ok, false));

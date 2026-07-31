@@ -78,7 +78,11 @@ check("missing variety blocks crop structure save", () => assert.equal(validateR
 check("missing reproduction blocks crop structure save", () => assert.equal(validateRows([{ ...validRow, reproduction_id: null } as any]).ok, false));
 check("variety from another crop is rejected", () => assert.equal(validateRows([{ ...validRow, variety_id: "global-barley" }]).ok, false));
 check("area overflow is rejected", () => assert.equal(validateRows([{ ...validRow, area: 101 }], 100).ok, false));
-check("duplicate crop identity target is rejected", () => assert.equal(validateRows([validRow, { ...validRow, area: 5 }]).ok, false));
+check("equal crop identities are accepted as separate field sections", () => {
+  const result = validateRows([{ ...validRow, area: 40 }, { ...validRow, area: 60 }]);
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.rows.map((row) => row.area), [40, 60]);
+});
 check("valid complete crop identity is accepted", () => assert.equal(validateRows([validRow]).ok, true));
 
 const allocation = {
