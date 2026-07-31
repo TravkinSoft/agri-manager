@@ -1874,7 +1874,7 @@ export default function CropStructurePage() {
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {rows.length ? rows.map((allocation) => (
               <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2 text-sm">
-                <div className="truncate font-semibold text-slate-100">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                <div className="truncate font-semibold text-slate-100">{allocationIdentityLabel(allocation)}</div>
                 {allocation.identity_review_required ? (
                   <div className="mt-1 text-xs font-medium text-amber-300">
                     Требуется уточнить культуру, сорт и репродукцию до оформления урожая.
@@ -1906,7 +1906,7 @@ export default function CropStructurePage() {
                 <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border border-slate-800 bg-[#111827] p-3 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-base font-semibold text-white">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                      <div className="truncate text-base font-semibold text-white">{allocationIdentityLabel(allocation)}</div>
                       {allocation.identity_review_required ? (
                         <div className="mt-1 text-xs font-medium text-amber-300">
                           Требуется уточнить identity урожая
@@ -2054,7 +2054,7 @@ export default function CropStructurePage() {
       const rateArea = actualCompletedArea || plannedArea;
       const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади участка";
       const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
-      const title = `${cropName(allocation.crop_id)} / ${varietyName(allocation.variety_id)} / ${reproductionName(allocation.reproduction_id)}`;
+      const title = allocationIdentityLabel(allocation);
       return {
         allocation,
         facts,
