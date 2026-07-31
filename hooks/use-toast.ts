@@ -6,7 +6,8 @@ import * as React from 'react';
 import type { ToastActionElement, ToastProps } from '@/components/ui/toast';
 
 const TOAST_LIMIT = 1;
-const TOAST_REMOVE_DELAY = 1000000;
+export const TOAST_DURATION = 5000;
+const TOAST_REMOVE_DELAY = 1000;
 
 type ToasterToast = ToastProps & {
   id: string;
@@ -141,18 +142,27 @@ type Toast = Omit<ToasterToast, 'id'>;
 
 function toast({ ...props }: Toast) {
   const id = genId();
+  const duration = props.duration ?? TOAST_DURATION;
+  let autoDismissTimeout: ReturnType<typeof setTimeout> | undefined;
 
   const update = (props: ToasterToast) =>
     dispatch({
       type: 'UPDATE_TOAST',
       toast: { ...props, id },
     });
-  const dismiss = () => dispatch({ type: 'DISMISS_TOAST', toastId: id });
+  const dismiss = () => {
+    if (autoDismissTimeout) {
+      clearTimeout(autoDismissTimeout);
+      autoDismissTimeout = undefined;
+    }
+    dispatch({ type: 'DISMISS_TOAST', toastId: id });
+  };
 
   dispatch({
     type: 'ADD_TOAST',
     toast: {
       ...props,
+      duration,
       id,
       open: true,
       onOpenChange: (open) => {
@@ -160,6 +170,10 @@ function toast({ ...props }: Toast) {
       },
     },
   });
+
+  if (Number.isFinite(duration) && duration > 0) {
+    autoDismissTimeout = setTimeout(dismiss, duration);
+  }
 
   return {
     id: id,

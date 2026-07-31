@@ -209,7 +209,7 @@ export const translations = {
     role_warehouse: "Склад",
     role_weighman: "Весовщик",
     role_global_admin: "Глобальный администратор",
-    role_company_admin: "Администратор компании",
+    role_company_admin: "Администратор",
     role_director: "Директор",
     role_warehouse_operator: "Оператор склада",
     role_fuel_operator: "Оператор АЗС / ГСМ",

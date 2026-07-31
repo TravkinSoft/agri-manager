@@ -16,6 +16,7 @@ import {
 } from "../lib/operations/operation-engine";
 import { summarizeLandUseAreas } from "../lib/crop-structure/analytics";
 import {
+  compactReproductionLabel,
   hasCropStructureChanges,
   sortReproductionsAgronomically,
   summarizeCropStructureChanges,
@@ -122,6 +123,11 @@ check("reproductions follow agronomic multiplication order", () => {
   const rows = ["РС1", "ЭС", "ОС", "РС2", "СЭ", "ССЭ"].map((code) => ({ code }));
   assert.deepEqual(sortReproductionsAgronomically(rows).map((row) => row.code), ["ОС", "ССЭ", "СЭ", "ЭС", "РС1", "РС2"]);
 });
+check("latin reproduction codes use Russian agronomic labels", () => {
+  assert.equal(compactReproductionLabel({ code: "SE" }), "СЭ");
+  assert.equal(compactReproductionLabel({ code: "SSE" }), "ССЭ");
+  assert.equal(compactReproductionLabel({ code: "R1" }), "1 р.");
+});
 check("structure editor detects add update and delete separately", () => {
   const base = {
     land_use_type: "crop" as const,
@@ -161,6 +167,9 @@ const wholeFieldHistoryMigrationPath = join(
 const wholeFieldHistoryMigration = readFileSync(wholeFieldHistoryMigrationPath, "utf8");
 const operationRoute = readFileSync(join(process.cwd(), "app", "api", "operations", "route.ts"), "utf8");
 const cropStructurePage = readFileSync(join(process.cwd(), "app", "(dashboard)", "crop-structure", "page.tsx"), "utf8");
+const fieldDialog = readFileSync(join(process.cwd(), "components", "fields", "field-form-dialog.tsx"), "utf8");
+const translations = readFileSync(join(process.cwd(), "lib", "i18n", "translations.ts"), "utf8");
+const toastHook = readFileSync(join(process.cwd(), "hooks", "use-toast.ts"), "utf8");
 check("migration adds land_use_type", () => assert.match(migration, /ADD COLUMN IF NOT EXISTS land_use_type/));
 check("migration enforces fallow null identity", () => assert.match(migration, /land_use_type = 'fallow'[\s\S]*crop_id IS NULL/));
 check("migration derives target scope", () => assert.match(migration, /GENERATED ALWAYS AS/));
@@ -170,6 +179,20 @@ check("snow retention does not require product", () => assert.match(snowRetentio
 check("closed season mutation remains blocked", () => assert.match(operationRoute, /assertSeasonWritableForMutation/));
 check("operation create remains company scoped", () => assert.match(operationRoute, /crop_structure_id does not belong to this company/));
 check("crop operations cannot target fallow", () => assert.match(operationRoute, /Crop operations cannot target fallow land/));
+check("Russian add field form is complete", () => {
+  assert.match(fieldDialog, /addTitle: "Добавить поле"/);
+  assert.match(fieldDialog, /fieldName: "Название поля"/);
+  assert.match(fieldDialog, /area: "Площадь, га"/);
+  assert.match(fieldDialog, /soilType: "Тип почвы"/);
+  assert.match(fieldDialog, /notes: "Комментарий"/);
+});
+check("company admin header label is concise", () => {
+  assert.match(translations, /role_company_admin: "Администратор"/);
+});
+check("toasts auto dismiss after five seconds", () => {
+  assert.match(toastHook, /TOAST_DURATION = 5000/);
+  assert.match(toastHook, /setTimeout\(dismiss, duration\)/);
+});
 check("whole-field history is limited to crop-independent V1 works", () => {
   assert.match(wholeFieldHistoryMigration, /'plowing', 'snow_retention'/);
   assert.match(wholeFieldHistoryMigration, /crop_structure_id is null/i);

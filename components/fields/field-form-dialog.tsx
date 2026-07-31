@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { fieldSchema, FieldFormData } from "@/lib/types/field";
+import { useLanguage } from "@/lib/contexts/language-context";
 import { useEffect } from "react";
 
 interface FieldFormDialogProps {
@@ -43,6 +44,63 @@ function normalizeFieldName(value: string): string {
   return value.trim().toLocaleLowerCase("ru-RU").replace(/\s+/g, " ");
 }
 
+const formText = {
+  ru: {
+    addTitle: "Добавить поле",
+    editTitle: "Редактировать поле",
+    addDescription: "Укажите данные нового поля.",
+    editDescription: "Измените данные поля.",
+    fieldName: "Название поля",
+    fieldNamePlaceholder: "Например, Платина",
+    area: "Площадь, га",
+    areaPlaceholder: "Например, 25,5",
+    soilType: "Тип почвы",
+    soilTypePlaceholder: "Например, суглинок",
+    notes: "Комментарий",
+    notesPlaceholder: "Дополнительная информация о поле",
+    cancel: "Отмена",
+    saving: "Сохранение...",
+    update: "Сохранить",
+    add: "Добавить поле",
+  },
+  kz: {
+    addTitle: "Алқап қосу",
+    editTitle: "Алқапты өңдеу",
+    addDescription: "Жаңа алқаптың деректерін көрсетіңіз.",
+    editDescription: "Алқап деректерін өзгертіңіз.",
+    fieldName: "Алқап атауы",
+    fieldNamePlaceholder: "Мысалы, Платина",
+    area: "Ауданы, га",
+    areaPlaceholder: "Мысалы, 25,5",
+    soilType: "Топырақ түрі",
+    soilTypePlaceholder: "Мысалы, саздақ",
+    notes: "Түсініктеме",
+    notesPlaceholder: "Алқап туралы қосымша ақпарат",
+    cancel: "Болдырмау",
+    saving: "Сақталуда...",
+    update: "Сақтау",
+    add: "Алқап қосу",
+  },
+  en: {
+    addTitle: "Add field",
+    editTitle: "Edit field",
+    addDescription: "Enter the new field details.",
+    editDescription: "Update the field details.",
+    fieldName: "Field name",
+    fieldNamePlaceholder: "For example, North Field",
+    area: "Area, ha",
+    areaPlaceholder: "For example, 25.5",
+    soilType: "Soil type",
+    soilTypePlaceholder: "For example, clay loam",
+    notes: "Notes",
+    notesPlaceholder: "Additional field information",
+    cancel: "Cancel",
+    saving: "Saving...",
+    update: "Save",
+    add: "Add field",
+  },
+} as const;
+
 export function FieldFormDialog({
   open,
   onOpenChange,
@@ -52,6 +110,8 @@ export function FieldFormDialog({
   existingFields = [],
   editingFieldId = null,
 }: FieldFormDialogProps) {
+  const { language } = useLanguage();
+  const text = formText[language];
   const form = useForm<FieldFormData>({
     resolver: zodResolver(fieldSchema),
     defaultValues: defaultValues || {
@@ -96,11 +156,9 @@ export function FieldFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>{isEdit ? "Edit Field" : "Add New Field"}</DialogTitle>
+          <DialogTitle>{isEdit ? text.editTitle : text.addTitle}</DialogTitle>
           <DialogDescription>
-            {isEdit
-              ? "Update the field information below."
-              : "Enter the details for the new field."}
+            {isEdit ? text.editDescription : text.addDescription}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -110,9 +168,9 @@ export function FieldFormDialog({
               name="name"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Field Name *</FormLabel>
+                  <FormLabel>{text.fieldName} *</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., North Field" {...field} />
+                    <Input placeholder={text.fieldNamePlaceholder} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -132,12 +190,12 @@ export function FieldFormDialog({
               name="area"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Area (hectares) *</FormLabel>
+                  <FormLabel>{text.area} *</FormLabel>
                   <FormControl>
                     <Input
                       type="number"
                       step="0.01"
-                      placeholder="e.g., 25.5"
+                      placeholder={text.areaPlaceholder}
                       {...field}
                       onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                     />
@@ -151,9 +209,9 @@ export function FieldFormDialog({
               name="soil_type"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Soil Type</FormLabel>
+                  <FormLabel>{text.soilType}</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., Clay loam" {...field} />
+                    <Input placeholder={text.soilTypePlaceholder} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -164,10 +222,10 @@ export function FieldFormDialog({
               name="notes"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Notes</FormLabel>
+                  <FormLabel>{text.notes}</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Additional information about this field..."
+                      placeholder={text.notesPlaceholder}
                       className="resize-none"
                       rows={3}
                       {...field}
@@ -183,14 +241,14 @@ export function FieldFormDialog({
                 variant="outline"
                 onClick={() => onOpenChange(false)}
               >
-                Cancel
+                {text.cancel}
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>
                 {form.formState.isSubmitting
-                  ? "Saving..."
+                  ? text.saving
                   : isEdit
-                  ? "Update Field"
-                  : "Add Field"}
+                  ? text.update
+                  : text.add}
               </Button>
             </DialogFooter>
           </form>

@@ -44,6 +44,7 @@ import {
   catalogIdentitySearchValue,
 } from "@/lib/crop-structure/catalog-identity";
 import {
+  compactReproductionLabel,
   hasCropStructureChanges,
   sortReproductionsAgronomically,
   summarizeCropStructureChanges,
@@ -596,11 +597,7 @@ export default function CropStructurePage() {
     if (!id) return "";
     const item = reproductionMap.get(id);
     if (!item) return "";
-    const label = standardReproductionLabel(item);
-    const code = String(item.code || label.split("—")[0] || "").trim().toUpperCase();
-    const reproductionMatch = code.match(/^(?:РС|RS|R)\s*([1-4])$/u);
-    if (reproductionMatch) return `${reproductionMatch[1]} р.`;
-    return code && code !== "-" ? code : label;
+    return compactReproductionLabel(item);
   };
   const allocationIdentityLabel = (row: Allocation) =>
     isFallowLandUse(row.land_use_type)

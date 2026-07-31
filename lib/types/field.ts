@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 export const fieldSchema = z.object({
-  name: z.string().min(1, "Field name is required").max(100, "Field name is too long"),
-  area: z.number().positive("Area must be greater than 0"),
+  name: z.string().min(1, "Укажите название поля").max(100, "Название поля слишком длинное"),
+  area: z.number().positive("Площадь должна быть больше нуля"),
   soil_type: z.string().optional(),
   notes: z.string().optional(),
 });

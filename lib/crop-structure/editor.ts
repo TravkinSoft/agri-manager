@@ -92,6 +92,33 @@ export function agronomicReproductionRank(item: ReproductionIdentity) {
   return 1000 + Number(item.level_order || 0);
 }
 
+export function compactReproductionLabel(item: ReproductionIdentity | null | undefined) {
+  if (!item) return "";
+
+  switch (agronomicReproductionRank(item)) {
+    case 10:
+      return "ОС";
+    case 20:
+      return "ССЭ";
+    case 30:
+      return "СЭ";
+    case 40:
+      return "ЭС";
+    case 50:
+      return "1 р.";
+    case 60:
+      return "2 р.";
+    case 70:
+      return "3 р.";
+    case 80:
+      return "4 р.";
+    case 90:
+      return "F1";
+    default:
+      return String(item.name_ru || item.name || item.code || "").trim();
+  }
+}
+
 export function sortReproductionsAgronomically<T extends ReproductionIdentity>(rows: T[]) {
   return [...rows].sort((left, right) => {
     const rankDiff = agronomicReproductionRank(left) - agronomicReproductionRank(right);
