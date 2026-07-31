@@ -84,7 +84,7 @@ export async function POST(
 
     const requestItemsResult = await supabase
       .from("warehouse_issue_request_items")
-      .select("id,product_id,issued_quantity,returned_quantity,consumed_quantity,planned_quantity,required_quantity,unit,return_received_quantity,loss_quantity,expected_return_quantity,reconciliation_status")
+      .select("id,product_id,actual_product_id,issued_quantity,returned_quantity,consumed_quantity,planned_quantity,required_quantity,unit,return_received_quantity,loss_quantity,expected_return_quantity,reconciliation_status")
       .eq("request_id", requestId)
       .eq("company_id", companyId);
     let requestItems: any[] | null = requestItemsResult.data as any[] | null;
@@ -240,9 +240,10 @@ export async function POST(
     const nowIso = new Date().toISOString();
     const txPayload: any[] = [];
     for (const row of normalized.filter((item) => acceptReturn && item.returnedQuantity > MATERIAL_QTY_EPS)) {
+      const stockProductId = String(row.dbItem.actual_product_id || row.dbItem.product_id || "").trim();
       const contract = await resolveWarehouseStockContract(supabase, {
         companyId,
-        productId: row.dbItem.product_id,
+        productId: stockProductId,
         quantity: row.returnedQuantity,
         inputUom: row.dbItem.unit,
         event: "material_return",
@@ -251,7 +252,7 @@ export async function POST(
         warehouse_id: requestRow.source_warehouse_id,
         source_warehouse_id: null,
         destination_warehouse_id: requestRow.source_warehouse_id,
-        product_id: row.dbItem.product_id,
+        product_id: stockProductId,
         quantity: contract.baseQuantity,
         unit: contract.baseUom,
         base_quantity_kg: contract.massKg,

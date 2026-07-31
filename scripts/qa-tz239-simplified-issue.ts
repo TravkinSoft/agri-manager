@@ -348,6 +348,14 @@ test("34 expected return creates no ledger IN", () => {
 test("35 return acceptance writes ledger IN", () => {
   assert.match(returnRoute, /transaction_type:\s*"in"/);
 });
+test("35a return restores the actually issued stock identity", () => {
+  assert.match(
+    returnRoute,
+    /row\.dbItem\.actual_product_id\s*\|\|\s*row\.dbItem\.product_id/
+  );
+  assert.match(returnRoute, /productId:\s*stockProductId/);
+  assert.match(returnRoute, /product_id:\s*stockProductId/);
+});
 test("36 accepted return cannot exceed declared return", () => {
   assert.match(returnRoute, /accepted return exceeds declared return/i);
 });
