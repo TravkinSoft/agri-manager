@@ -168,6 +168,7 @@ const wholeFieldHistoryMigration = readFileSync(wholeFieldHistoryMigrationPath, 
 const operationRoute = readFileSync(join(process.cwd(), "app", "api", "operations", "route.ts"), "utf8");
 const cropStructurePage = readFileSync(join(process.cwd(), "app", "(dashboard)", "crop-structure", "page.tsx"), "utf8");
 const fieldDialog = readFileSync(join(process.cwd(), "components", "fields", "field-form-dialog.tsx"), "utf8");
+const assistantLauncher = readFileSync(join(process.cwd(), "components", "assistant", "assistant-launcher.tsx"), "utf8");
 const translations = readFileSync(join(process.cwd(), "lib", "i18n", "translations.ts"), "utf8");
 const toastHook = readFileSync(join(process.cwd(), "hooks", "use-toast.ts"), "utf8");
 check("migration adds land_use_type", () => assert.match(migration, /ADD COLUMN IF NOT EXISTS land_use_type/));
@@ -192,6 +193,14 @@ check("company admin header label is concise", () => {
 check("toasts auto dismiss after five seconds", () => {
   assert.match(toastHook, /TOAST_DURATION = 5000/);
   assert.match(toastHook, /setTimeout\(dismiss, duration\)/);
+});
+check("crop structure toolbar uses a compact responsive grid", () => {
+  assert.match(cropStructurePage, /xl:grid-cols-\[minmax\(180px,1fr\)/);
+  assert.match(cropStructurePage, /<CardContent className="p-3">/);
+});
+check("assistant launcher uses only the lower screen edge", () => {
+  assert.match(assistantLauncher, /fixed bottom-0 right-0[^"]*h-\[30vh\]/);
+  assert.doesNotMatch(assistantLauncher, /fixed inset-y-0 right-0/);
 });
 check("whole-field history is limited to crop-independent V1 works", () => {
   assert.match(wholeFieldHistoryMigration, /'plowing', 'snow_retention'/);

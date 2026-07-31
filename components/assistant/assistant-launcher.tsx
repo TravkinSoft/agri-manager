@@ -12,7 +12,7 @@ export function AssistantLauncher() {
 
   return (
     <div
-      className="fixed inset-y-0 right-0 z-40 hidden w-8 md:block"
+      className="fixed bottom-0 right-0 z-40 hidden h-[30vh] w-8 md:block"
       onPointerEnter={open}
       onMouseEnter={open}
       onMouseMove={open}

@@ -2750,18 +2750,18 @@ export default function CropStructurePage() {
       </PageHeader>
 
       <Card>
-        <CardContent className="pt-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative w-[240px]">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
-              <Input className="pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
+        <CardContent className="p-3">
+          <div className="grid items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_minmax(140px,170px)_minmax(130px,150px)_minmax(135px,155px)_auto]">
+            <div className="relative min-w-0">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+              <Input className="h-9 w-full pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
             </div>
             <Select value={cropFilter} onValueChange={setCropFilter}>
-              <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="all">Все культуры</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={(value: "all" | FieldState) => setStatusFilter(value)}>
-              <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
                 <SelectItem value="empty">Пусто</SelectItem>
@@ -2771,7 +2771,7 @@ export default function CropStructurePage() {
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={(value: "field" | "area" | "main_crop" | "state") => setSortBy(value)}>
-              <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="field">Сорт: поле</SelectItem>
                 <SelectItem value="area">Сорт: площадь</SelectItem>
@@ -2779,47 +2779,68 @@ export default function CropStructurePage() {
                 <SelectItem value="state">Сорт: статус</SelectItem>
               </SelectContent>
             </Select>
-            <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="flex min-w-0 items-center justify-end gap-1.5 sm:col-span-2 xl:col-span-1">
               {canEditStructure ? (
                 <Button
                   type="button"
+                  size="sm"
+                  className="h-9 whitespace-nowrap px-3"
                   onClick={() => setFieldCreateOpen(true)}
                 >
                   <Plus className="mr-2 h-4 w-4" />Добавить поле
                 </Button>
               ) : null}
-              <div className="flex rounded-md border border-slate-200 bg-white p-1">
+              <div className="flex shrink-0 rounded-md border border-slate-200 bg-white p-0.5">
                 <Button
                   type="button"
                   size="sm"
                   variant={viewMode === "cards" ? "default" : "ghost"}
-                  className="h-8 px-3"
+                  className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
                   onClick={() => changeViewMode("cards")}
+                  aria-label="Показать карточками"
+                  title="Карточки"
                 >
-                  <LayoutGrid className="mr-1.5 h-4 w-4" />Карточки
+                  <LayoutGrid className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
+                  <span className="xl:hidden 2xl:inline">Карточки</span>
                 </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant={viewMode === "table" ? "default" : "ghost"}
-                  className="h-8 px-3"
+                  className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
                   onClick={() => changeViewMode("table")}
+                  aria-label="Показать таблицей"
+                  title="Таблица"
                 >
-                  <Table2 className="mr-1.5 h-4 w-4" />Таблица
+                  <Table2 className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
+                  <span className="xl:hidden 2xl:inline">Таблица</span>
                 </Button>
                 {isGlobalAdmin ? (
                   <Button
                     type="button"
                     size="sm"
                     variant={viewMode === "map" ? "default" : "ghost"}
-                    className="h-8 px-3"
+                    className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
                     onClick={() => changeViewMode("map")}
+                    aria-label="Показать на карте"
+                    title="Карта"
                   >
-                    <MapIcon className="mr-1.5 h-4 w-4" />Карта
+                    <MapIcon className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
+                    <span className="xl:hidden 2xl:inline">Карта</span>
                   </Button>
                 ) : null}
               </div>
-              <Button variant="outline" onClick={exportExcel}><Download className="mr-2 h-4 w-4" />Excel</Button>
+              <Button
+                size="sm"
+                className="h-9 whitespace-nowrap px-3 xl:px-2.5 2xl:px-3"
+                variant="outline"
+                onClick={exportExcel}
+                aria-label="Экспортировать в Excel"
+                title="Excel"
+              >
+                <Download className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
+                <span className="xl:hidden 2xl:inline">Excel</span>
+              </Button>
             </div>
           </div>
         </CardContent>
