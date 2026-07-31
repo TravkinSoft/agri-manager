@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, Edit3, FileText, LayoutGrid, Map as MapIcon, Maximize2, Plus, Search, Table2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { FieldFormDialog } from "@/components/fields/field-form-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +21,8 @@ import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 import { getFieldDisplayName } from "@/lib/fields/display";
+import { createField } from "@/lib/services/fields";
+import type { FieldFormData } from "@/lib/types/field";
 import {
   isFallowCrop,
   normalizeCropStructureSeedAttributes,
@@ -356,6 +359,7 @@ export default function CropStructurePage() {
   const [saving, setSaving] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [fields, setFields] = useState<Field[]>([]);
+  const [fieldCreateOpen, setFieldCreateOpen] = useState(false);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [seasonId, setSeasonId] = useState("");
   const [allCrops, setAllCrops] = useState<Crop[]>([]);
@@ -390,6 +394,46 @@ export default function CropStructurePage() {
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
   const season = useMemo(() => seasons.find((item) => item.id === seasonId) || null, [seasons, seasonId]);
   const fieldDisplayName = (field: Field) => getFieldDisplayName(field);
+
+  const handleCreateField = async (data: FieldFormData) => {
+    if (!activeCompanyId) {
+      toast({
+        title: tr("Ошибка", "Қате", "Error"),
+        description: tr("Компания не выбрана", "Компания таңдалмаған", "Company is not selected"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const createdField = await createField(activeCompanyId, data);
+      const normalizedField: Field = {
+        id: createdField.id,
+        name: getFieldDisplayName(createdField),
+        area: Number(createdField.area || 0),
+        notes: createdField.notes || null,
+      };
+      setFields((current) =>
+        [...current.filter((field) => field.id !== normalizedField.id), normalizedField]
+          .sort((left, right) => fieldDisplayName(left).localeCompare(fieldDisplayName(right), "ru")),
+      );
+      setFieldCreateOpen(false);
+      toast({
+        title: tr("Поле создано", "Алаң құрылды", "Field created"),
+        description: tr(
+          `${fieldDisplayName(normalizedField)} добавлено в структуру посевов`,
+          `${fieldDisplayName(normalizedField)} егіс құрылымына қосылды`,
+          `${fieldDisplayName(normalizedField)} was added to crop structure`,
+        ),
+      });
+    } catch (error) {
+      toast({
+        title: tr("Не удалось создать поле", "Алаңды құру мүмкін болмады", "Could not create field"),
+        description: error instanceof Error ? error.message : tr("Повторите попытку", "Қайталап көріңіз", "Try again"),
+        variant: "destructive",
+      });
+    }
+  };
 
   const cropLabel = (crop: Crop) => (localizedName(crop as never, language) || crop.name || "").trim();
   const cropOptionKey = (crop: Crop) => {
@@ -2545,13 +2589,12 @@ export default function CropStructurePage() {
     <div className="space-y-4">
       <PageHeader title="Структура посевов" description="Компактный агрономический обзор по полям">
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-slate-500">Сезон</span>
-          <Select value={seasonId} onValueChange={setSeasonId}>
+          <Select value={seasonId || undefined} onValueChange={setSeasonId} disabled={seasons.length === 0}>
             <SelectTrigger
-              className="h-8 w-[92px] border-slate-700 bg-transparent px-2 text-xs font-medium text-slate-400 shadow-none hover:border-slate-600 hover:text-slate-200"
+              className="h-8 min-w-[92px] border-slate-700 bg-transparent px-2 text-xs font-medium text-slate-400 shadow-none hover:border-slate-600 hover:text-slate-200 disabled:cursor-default disabled:opacity-70"
               aria-label="Сезон структуры посевов"
             >
-              <SelectValue placeholder="Сезон" />
+              <SelectValue placeholder="Нет сезонов" />
             </SelectTrigger>
             <SelectContent>
               {seasons.map((item) => <SelectItem key={item.id} value={item.id}>{item.year}</SelectItem>)}
@@ -2594,7 +2637,7 @@ export default function CropStructurePage() {
               {canEditStructure ? (
                 <Button
                   type="button"
-                  onClick={() => { window.location.href = "/fields?create=1"; }}
+                  onClick={() => setFieldCreateOpen(true)}
                 >
                   <Plus className="mr-2 h-4 w-4" />Добавить поле
                 </Button>
@@ -2676,6 +2719,13 @@ export default function CropStructurePage() {
       {!loadError && hasFields && !filteredFields.length ? (
         <Card><CardContent className="p-8 text-center text-sm text-slate-500">По заданным фильтрам поля не найдены.</CardContent></Card>
       ) : null}
+
+      <FieldFormDialog
+        open={fieldCreateOpen}
+        onOpenChange={setFieldCreateOpen}
+        onSubmit={handleCreateField}
+        existingFields={fields}
+      />
 
       <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && closeField()}>
         <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1180px] [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent">
