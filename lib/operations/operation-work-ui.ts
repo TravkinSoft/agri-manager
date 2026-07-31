@@ -21,6 +21,7 @@ export const OPERATION_WORK_UI_SECTIONS: readonly OperationWorkUiSection[] = [
       { slug: "stubble_peeling" },
       { slug: "disking" },
       { slug: "plowing" },
+      { slug: "snow_retention" },
       { slug: "deep_ripping" },
       { slug: "cultivation" },
       { slug: "interrow_cultivation" },

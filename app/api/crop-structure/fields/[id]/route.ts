@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerActorFromSession, resolveCompanyForActor, SessionAuthError } from "@/lib/auth/server-session";
 import {
-  isFallowCrop,
+  isFallowLandUse,
   validateAndNormalizeCropStructureRows,
   type CropIdentity,
   type CropStructureSeedAttributes,
@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const EDIT_ALLOWED_ROLES = ["global_admin", "agronomist"] as const;
-const CROP_STRUCTURE_BASE_SELECT = "id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
+const CROP_STRUCTURE_BASE_SELECT = "id,field_id,land_use_type,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
 const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
 
 type InputRow = CropStructureSeedAttributes & {
@@ -86,6 +86,10 @@ function parseRows(value: unknown): InputRow[] {
     if (cropIdValue && !isUuid(cropIdValue)) {
       throw new SessionAuthError(`Invalid crop id at index ${index}`, 400);
     }
+    const landUseType = String(row.land_use_type || "crop").trim().toLowerCase();
+    if (landUseType !== "crop" && landUseType !== "fallow") {
+      throw new SessionAuthError(`Invalid land_use_type at index ${index}`, 400);
+    }
 
     for (const [key, value] of [
       ["variety_id", row.variety_id],
@@ -99,6 +103,7 @@ function parseRows(value: unknown): InputRow[] {
 
     return {
       ...(idValue ? { id: idValue } : {}),
+      land_use_type: landUseType,
       crop_id: nullableUuid(row.crop_id),
       variety_id: nullableUuid(row.variety_id),
       reproduction_id: nullableUuid(row.reproduction_id),
@@ -236,7 +241,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     for (let index = 0; index < validation.rows.length; index += 1) {
       const row = validation.rows[index];
       const crop = row.crop_id ? cropsById.get(row.crop_id) : null;
-      if (isFallowCrop(crop)) continue;
+      if (isFallowLandUse(row.land_use_type)) continue;
 
       const variety = row.variety_id ? varietiesById.get(row.variety_id) : null;
       const cropLabel = crop?.name_ru || crop?.name || crop?.name_en || "";
@@ -267,7 +272,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     const toPayload = (row: InputRow, includeTechnology: boolean) => {
       const crop = row.crop_id ? cropsById.get(row.crop_id) : null;
       const variety = row.variety_id ? varietiesById.get(row.variety_id) : null;
-      const potato = !isFallowCrop(crop) && isPotatoCropContext(
+      const potato = !isFallowLandUse(row.land_use_type) && isPotatoCropContext(
         crop?.name_ru || crop?.name || crop?.name_en || "",
         variety?.name || ""
       );
@@ -276,6 +281,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
         user_id: actor.id,
         field_id: fieldId,
         season_id: seasonId,
+        land_use_type: row.land_use_type || "crop",
         crop_id: row.crop_id,
         variety_id: row.variety_id,
         reproduction_id: row.reproduction_id,

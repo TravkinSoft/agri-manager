@@ -16,6 +16,25 @@ export type CanonicalOperationTypeSlug =
   | "logistics_operation"
   | "post_harvest_operation";
 
+export type OperationCropRequirement = "crop_required" | "crop_not_required";
+
+const CROP_INDEPENDENT_OPERATION_SLUGS = new Set(["plowing", "snow_retention"]);
+
+export function getOperationCropRequirement(input: {
+  categorySlug?: string | null;
+  typeSlug?: string | null;
+}): OperationCropRequirement {
+  const typeSlug = String(input.typeSlug || "").trim().toLowerCase();
+  return CROP_INDEPENDENT_OPERATION_SLUGS.has(typeSlug) ? "crop_not_required" : "crop_required";
+}
+
+export function isCropIndependentFieldOperation(input: {
+  categorySlug?: string | null;
+  typeSlug?: string | null;
+}): boolean {
+  return getOperationCropRequirement(input) === "crop_not_required";
+}
+
 export type OperationPurposeSlug =
   | "weed_control"
   | "disease_control"
@@ -343,6 +362,7 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "soil_operation", slug: "deep_ripping", label: "Глубокое рыхление" },
   { categorySlug: "soil_operation", slug: "chiseling", label: "Чизелевание" },
   { categorySlug: "soil_operation", slug: "plowing", label: "Вспашка" },
+  { categorySlug: "soil_operation", slug: "snow_retention", label: "Снегозадержание" },
   { categorySlug: "soil_operation", slug: "harrowing", label: "Боронование" },
   { categorySlug: "soil_operation", slug: "leveling", label: "Выравнивание" },
   { categorySlug: "soil_operation", slug: "rolling", label: "Прикатывание" },

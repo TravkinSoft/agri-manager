@@ -24,7 +24,7 @@ import { getFieldDisplayName } from "@/lib/fields/display";
 import { createField } from "@/lib/services/fields";
 import type { FieldFormData } from "@/lib/types/field";
 import {
-  isFallowCrop,
+  isFallowLandUse,
   normalizeCropStructureSeedAttributes,
   validateAndNormalizeCropStructureRows,
 } from "@/lib/crop-structure/fallow";
@@ -95,6 +95,7 @@ type CropStructureBootstrapPayload = {
 type Allocation = {
   id?: string;
   field_id: string;
+  land_use_type: "crop" | "fallow";
   crop_id: string | null;
   variety_id: string | null;
   reproduction_id: string | null;
@@ -228,7 +229,7 @@ const standardReproductionLabel = (item: Reproduction | null | undefined) => {
 
   return localizedName(item as never, "ru", ["name", "code"]) || item.name || item.code || "-";
 };
-const CROP_STRUCTURE_BASE_SELECT = "id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
+const CROP_STRUCTURE_BASE_SELECT = "id,field_id,land_use_type,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
 const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
 const CROP_STRUCTURE_REVIEW_SELECT = `${CROP_STRUCTURE_V4_SELECT},identity_review_required,identity_review_reason`;
 const isMissingIdentityReviewColumn = (error: unknown) => {
@@ -249,6 +250,7 @@ const isMissingCropStructureV4Column = (error: unknown) => {
 const allocationFromRow = (row: any): Allocation => ({
   id: row.id,
   field_id: row.field_id,
+  land_use_type: row.land_use_type === "fallow" ? "fallow" : "crop",
   crop_id: row.crop_id,
   variety_id: row.variety_id,
   reproduction_id: row.reproduction_id,
@@ -261,9 +263,7 @@ const allocationFromRow = (row: any): Allocation => ({
   seed_spacing_cm: row.seed_spacing_cm == null ? null : Number(row.seed_spacing_cm || 0),
   identity_review_required:
     row.identity_review_required === true ||
-    !row.crop_id ||
-    !row.variety_id ||
-    !row.reproduction_id,
+    (row.land_use_type !== "fallow" && (!row.crop_id || !row.variety_id || !row.reproduction_id)),
   identity_review_reason: row.identity_review_reason || null,
 });
 const buildAllocationMap = (rows: unknown[]) => {
@@ -576,13 +576,15 @@ export default function CropStructurePage() {
     return code && code !== "-" ? code : label;
   };
   const allocationIdentityLabel = (row: Allocation) =>
-    [cropName(row.crop_id), varietyName(row.variety_id), compactReproductionName(row.reproduction_id)]
-      .filter((value) => value && value !== "-")
-      .join(", ");
+    isFallowLandUse(row.land_use_type)
+      ? "Пар"
+      : [cropName(row.crop_id), varietyName(row.variety_id), compactReproductionName(row.reproduction_id)]
+          .filter((value) => value && value !== "-")
+          .join(", ");
   const isPotatoAllocation = (row: Pick<Allocation, "crop_id" | "variety_id">) =>
     isPotatoCropContext(cropName(row.crop_id), varietyName(row.variety_id));
-  const isFallowAllocation = (row: Pick<Allocation, "crop_id">) =>
-    isFallowCrop(row.crop_id ? cropMap.get(row.crop_id) : null);
+  const isFallowAllocation = (row: Pick<Allocation, "land_use_type">) =>
+    isFallowLandUse(row.land_use_type);
   const sumArea = (rows: Allocation[]) => rows.reduce((sum, row) => sum + Number(row.area || 0), 0);
   const allocationKey = (row: Allocation, index = 0) =>
     row.id || `${row.field_id || "field"}-${row.crop_id || "crop"}-${row.variety_id || "variety"}-${row.reproduction_id || "repro"}-${Number(row.area || 0)}-${index}`;
@@ -600,11 +602,11 @@ export default function CropStructurePage() {
 
   const operationAllocationsForField = (fieldId: string) =>
     [...(allocByField.get(fieldId) || [])]
-      .filter((row) => row.id && row.crop_id)
+      .filter((row) => row.id && (row.land_use_type === "fallow" || row.crop_id))
       .sort((a, b) => Number(b.area || 0) - Number(a.area || 0));
 
   const allocationTitle = (allocation: Allocation) =>
-    `${cropName(allocation.crop_id)} / ${varietyName(allocation.variety_id)} / ${reproductionName(allocation.reproduction_id)} — ${fmtHa(Number(allocation.area || 0))}`;
+    `${allocationIdentityLabel(allocation)} — ${fmtHa(Number(allocation.area || 0))}`;
 
   const selectedCropStructureRowIds = useMemo(
     () => {
@@ -1208,6 +1210,7 @@ export default function CropStructurePage() {
       ...prev,
       {
         field_id: selectedFieldId,
+        land_use_type: "crop",
         crop_id: null,
         variety_id: null,
         reproduction_id: null,
@@ -1253,6 +1256,7 @@ export default function CropStructurePage() {
         return [
           {
             field_id: selectedField.id,
+            land_use_type: "crop",
             crop_id: null,
             variety_id: null,
             reproduction_id: null,
@@ -1357,7 +1361,15 @@ export default function CropStructurePage() {
       const rows = allocByField.get(field.id) || [];
       if (!rows.length) lines.push([season.year, field.name, field.area.toFixed(2), "", "", "", "0.00"].join(";"));
       for (const row of rows) {
-        lines.push([season.year, field.name, field.area.toFixed(2), cropName(row.crop_id), varietyName(row.variety_id), reproductionName(row.reproduction_id), Number(row.area || 0).toFixed(2)].join(";"));
+        lines.push([
+          season.year,
+          field.name,
+          field.area.toFixed(2),
+          row.land_use_type === "fallow" ? "Пар" : cropName(row.crop_id),
+          row.land_use_type === "fallow" ? "" : varietyName(row.variety_id),
+          row.land_use_type === "fallow" ? "" : reproductionName(row.reproduction_id),
+          Number(row.area || 0).toFixed(2),
+        ].join(";"));
       }
     }
     const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
@@ -1410,11 +1422,12 @@ export default function CropStructurePage() {
     allocByField.forEach((allocations, fieldId) => {
       const field = fieldMap.get(fieldId);
       allocations.forEach((allocation) => {
-        if (!allocation.id || !allocation.crop_id) return;
+        if (!allocation.id || (allocation.land_use_type !== "fallow" && !allocation.crop_id)) return;
         rows.push({
           id: allocation.id,
           field_id: fieldId,
           season_id: seasonId,
+          land_use_type: allocation.land_use_type,
           crop_id: allocation.crop_id,
           variety_id: allocation.variety_id,
           reproduction_id: allocation.reproduction_id,
@@ -1432,9 +1445,9 @@ export default function CropStructurePage() {
           user_id: "",
           field_name: field?.name || "-",
           season_year: season?.year || 0,
-          crop_name: cropName(allocation.crop_id),
-          variety_name: varietyName(allocation.variety_id),
-          reproduction_name: reproductionName(allocation.reproduction_id),
+          crop_name: allocation.land_use_type === "fallow" ? "Пар" : cropName(allocation.crop_id),
+          variety_name: allocation.land_use_type === "fallow" ? null : varietyName(allocation.variety_id),
+          reproduction_name: allocation.land_use_type === "fallow" ? null : reproductionName(allocation.reproduction_id),
         });
       });
     });
@@ -1444,7 +1457,7 @@ export default function CropStructurePage() {
   const openOperationPlan = (field: Field, allocation: Allocation, event?: React.MouseEvent) => {
     event?.stopPropagation();
     if (!FIELD_FIRST_CREATE_ENABLED) return;
-    if (!allocation.id || !allocation.crop_id) {
+    if (!allocation.id || (allocation.land_use_type !== "fallow" && !allocation.crop_id)) {
       toast({
         title: "Нужен план по культуре",
         description: "Сначала сохраните культуру и площадь по полю.",
@@ -1462,12 +1475,15 @@ export default function CropStructurePage() {
       seed_spacing_cm: allocation.seed_spacing_cm ?? (allocationIsPotato ? 32 : null),
       operation_params: {
         irrigation_type: normalizeIrrigationType(allocation.irrigation_type),
+        scope: "structure_line",
+        land_use_type: allocation.land_use_type,
+        season_id: seasonId,
       },
       date: todayDateOnlyLocal(),
       notes: "",
     });
     setOperationSourceLabel(
-      `План по полю: ${field.name} • ${cropName(allocation.crop_id)} • ${varietyName(allocation.variety_id)} • ${reproductionName(allocation.reproduction_id)} • ${fmtHa(Number(allocation.area || 0))}`
+      `План по полю: ${field.name} • ${allocationIdentityLabel(allocation)} • ${fmtHa(Number(allocation.area || 0))}`
     );
     setSelectedFieldId(null);
     setSectionChoiceField(null);
@@ -1484,6 +1500,7 @@ export default function CropStructurePage() {
       planned_area_ha: Number(field.area || 0),
       operation_params: {
         scope: "whole_field",
+        season_id: seasonId,
       },
       date: todayDateOnlyLocal(),
       notes: "",
@@ -1505,12 +1522,7 @@ export default function CropStructurePage() {
       setSectionChoiceField(field);
       return;
     }
-    toast({
-      title: "Сначала задайте культуру",
-      description: "Для операции нужна сохранённая строка посева по полю.",
-      variant: "destructive",
-    });
-    if (canEditStructure) openField(field.id, "editor");
+    openWholeFieldOperationPlan(field, event);
   };
 
   const handleCreateOperationPlan = async (data: OperationFormData, options?: { idempotencyKey?: string }) => {
@@ -2361,15 +2373,28 @@ export default function CropStructurePage() {
                   <span className="text-xs text-slate-400">{fmtHa(Number(row.area || 0))}</span>
                 </div>
                 <div className="grid grid-cols-12 items-end gap-2 p-3">
-                <div className={isFallowRow ? "col-span-12 md:col-span-7" : "col-span-12 md:col-span-3"}>
-                  <Label className={editorLabelClass}>Культура *</Label>
-                  <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
-                    <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
-                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
+                <div className="col-span-12 max-w-[280px]">
+                  <Label className={editorLabelClass}>Использование участка *</Label>
+                  <Select
+                    value={row.land_use_type}
+                    onValueChange={(value) => patchDraft(index, { land_use_type: value as "crop" | "fallow" })}
+                  >
+                    <SelectTrigger className={editorControlClass}><SelectValue /></SelectTrigger>
+                    <SelectContent className={editorSelectContentClass}>
+                      <SelectItem value="crop">Культура</SelectItem>
+                      <SelectItem value="fallow">Пар</SelectItem>
+                    </SelectContent>
                   </Select>
                 </div>
                 {!isFallowRow ? (
                   <>
+                    <div className="col-span-12 md:col-span-3">
+                      <Label className={editorLabelClass}>Культура *</Label>
+                      <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
+                        <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
+                        <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
                     <div className="col-span-12 md:col-span-2">
                       <Label className={editorLabelClass}>Сорт *</Label>
                       <CatalogIdentityCombobox
@@ -2488,6 +2513,15 @@ export default function CropStructurePage() {
                       </div>
                     </>
                   ) : null}
+                </div>
+                <div className="col-span-12">
+                  <Label className={editorLabelClass}>Комментарий</Label>
+                  <Input
+                    className={editorControlClass}
+                    value={row.notes}
+                    onChange={(event) => patchDraft(index, { notes: event.target.value })}
+                    placeholder={isFallowRow ? "Например: чистый пар, подготовка под посев" : "Необязательный комментарий"}
+                  />
                 </div>
                 </div>
               </div>

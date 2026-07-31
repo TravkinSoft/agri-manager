@@ -1,9 +1,11 @@
 import { supabase } from "@/lib/supabase/client";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { summarizeLandUseAreas } from "@/lib/crop-structure/analytics";
 
 export interface SeasonSummary {
   totalFields: number;
   totalPlantedArea: number;
+  totalFallowArea: number;
   totalExpectedYield: number;
   totalOperations: number;
 }
@@ -50,7 +52,7 @@ async function requireAnalyticsCompanyId(): Promise<string> {
 async function loadSeasonScope(seasonId: string, companyId: string) {
   const { data, error } = await supabase
     .from("crop_structure")
-    .select("id,field_id,area,expected_yield")
+    .select("id,field_id,land_use_type,area,expected_yield")
     .eq("company_id", companyId)
     .eq("season_id", seasonId)
     .eq("archived", false);
@@ -80,12 +82,14 @@ export async function getSeasonSummary(seasonId: string): Promise<SeasonSummary>
       (operation.crop_structure_id && structureSet.has(String(operation.crop_structure_id))) ||
       (operation.field_id && fieldSet.has(String(operation.field_id)))
   );
+  const landUseAreas = summarizeLandUseAreas(cropStructures);
 
   return {
     totalFields: fieldIds.length,
-    totalPlantedArea: cropStructures.reduce((sum: number, row: any) => sum + Number(row.area || 0), 0),
+    totalPlantedArea: landUseAreas.cropArea,
+    totalFallowArea: landUseAreas.fallowArea,
     totalExpectedYield: cropStructures.reduce(
-      (sum: number, row: any) => sum + Number(row.expected_yield || 0),
+      (sum: number, row: any) => sum + (row.land_use_type === "fallow" ? 0 : Number(row.expected_yield || 0)),
       0
     ),
     totalOperations: seasonOperations.length,
@@ -100,6 +104,7 @@ export async function getCropStructureReport(
     .from("crop_structure")
     .select(`
       field_id,
+      land_use_type,
       crop_id,
       variety_id,
       reproduction_id,
@@ -117,6 +122,7 @@ export async function getCropStructureReport(
   const reportMap = new Map<string, CropStructureReport & { fields: Set<string> }>();
   for (const record of data || []) {
     const row = record as any;
+    if (row.land_use_type === "fallow") continue;
     const cropName = localizedName(row.crops, "ru") || "Требуется уточнение";
     const varietyName = brandName(row.varieties) || null;
     const reproductionName = localizedName(row.seed_reproductions, "ru") || null;

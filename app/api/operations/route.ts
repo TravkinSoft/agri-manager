@@ -17,7 +17,9 @@ import { SeasonGuardError, assertSeasonWritableForMutation } from "@/lib/seasons
 import {
   buildExecutionFactModelMetadata,
   buildWarehouseWorkflowMetadata,
+  getOperationCropRequirement,
   getTankMixComponentDefinition,
+  isCropIndependentFieldOperation,
   normalizeIrrigationType,
   normalizePurposeList,
   resolveCanonicalOperationType,
@@ -30,15 +32,6 @@ import {
 } from "@/lib/operations/machinery-compatibility";
 
 const CREATE_ALLOWED_ROLES = ["global_admin", "company_admin", "agronomist"] as const;
-const WHOLE_FIELD_ALLOWED_CATEGORIES = new Set([
-  "harvesting",
-  "service_operation",
-  "transport",
-  "logistics_operation",
-  "post_harvest",
-  "post_harvest_operation",
-]);
-
 type OperationCreateTiming = {
   auth_session_ms: number;
   actor_company_context_ms: number;
@@ -283,6 +276,7 @@ function normalizeOperationMaterialStorage(
 }
 
 function allowsDefaultOperationLine(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
+  if (isCropIndependentFieldOperation({ categorySlug, typeSlug })) return true;
   if (String(typeSlug || "").trim().toLowerCase() === "haulm_topping") return true;
   const canonical = resolveCanonicalOperationType({ categorySlug, typeSlug, operationType });
   if (canonical?.requiresCropStructure) return true;
@@ -292,6 +286,7 @@ function allowsDefaultOperationLine(categorySlug: string | null, typeSlug: strin
 }
 
 function requiresCropStructure(categorySlug: string | null, typeSlug: string | null, operationType: string): boolean {
+  if (isCropIndependentFieldOperation({ categorySlug, typeSlug })) return false;
   if (String(typeSlug || "").trim().toLowerCase() === "haulm_topping") return true;
   const canonical = resolveCanonicalOperationType({ categorySlug, typeSlug, operationType });
   if (canonical) return canonical.requiresCropStructure;
@@ -395,7 +390,12 @@ export async function POST(request: NextRequest) {
     const operationTypeSlug = requestedTypeSlug || canonicalType?.slug || null;
     const canonicalCategorySlug = canonicalType?.categorySlug || operationCategorySlug;
     const isWholeFieldScope = requestedOperationParams.scope === "whole_field";
-    const wholeFieldAllowed = WHOLE_FIELD_ALLOWED_CATEGORIES.has(canonicalCategorySlug || "");
+    const cropRequirement = getOperationCropRequirement({
+      categorySlug: canonicalCategorySlug,
+      typeSlug: operationTypeSlug,
+    });
+    const cropIndependent = cropRequirement === "crop_not_required";
+    const wholeFieldAllowed = cropIndependent;
     let purposes = normalizePurposeList(body.purposes);
     let operationTemplate: string | null =
       requestedTypeSlug && requestedTypeSlug !== canonicalType?.slug ? requestedTypeSlug : null;
@@ -408,6 +408,12 @@ export async function POST(request: NextRequest) {
       purposes = Array.from(new Set([...purposes, "desiccation" as const]));
     }
     const cropStructureRequired = requiresCropStructure(canonicalCategorySlug, operationTypeSlug, operationType) && !(isWholeFieldScope && wholeFieldAllowed);
+    if (cropIndependent && !fieldId) {
+      return NextResponse.json({ error: "field_id is required for plowing and snow retention" }, { status: 400 });
+    }
+    if (cropIndependent && !isWholeFieldScope && !cropStructureId) {
+      return NextResponse.json({ error: "A fallow crop_structure_id is required for structure-line scope" }, { status: 400 });
+    }
     if (cropStructureRequired && !fieldId) {
       return NextResponse.json({ error: "field_id is required for production operations" }, { status: 400 });
     }
@@ -419,14 +425,14 @@ export async function POST(request: NextRequest) {
     }
     if (isWholeFieldScope && !wholeFieldAllowed) {
       return NextResponse.json(
-        { error: "whole field scope is allowed only for harvesting, logistics, service and post-harvest operations" },
+        { error: "whole field scope is not allowed for the selected operation" },
         { status: 400 }
       );
     }
-
     let resolvedCropId = toNullableUuid(body.crop_id);
     let resolvedVarietyId: string | null = null;
     let resolvedReproductionId: string | null = null;
+    let resolvedLandUseType: "crop" | "fallow" | null = null;
     let resolvedStructureArea: number | null = null;
     let resolvedSeasonId: string | null = null;
     let resolvedSeasonYear: number | null = null;
@@ -449,6 +455,9 @@ export async function POST(request: NextRequest) {
             String(candidate?.rate_basis ?? "") === String(item?.rate_basis ?? "")
         )
     );
+    if (cropIndependent && operationComponents.length > 0) {
+      return NextResponse.json({ error: "Plowing and snow retention do not create material requests" }, { status: 400 });
+    }
     const deferCropStructureReadForFastPath =
       Boolean(cropStructureId && fieldId) &&
       !Array.isArray(body.targets) &&
@@ -459,6 +468,7 @@ export async function POST(request: NextRequest) {
       operationTemplate !== "potato_planting" &&
       canonicalCategorySlug !== "harvesting" &&
       operationTypeSlug !== "harvesting" &&
+      !cropIndependent &&
       allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType);
 
     if (cropStructureId && !deferCropStructureReadForFastPath) {
@@ -501,6 +511,7 @@ export async function POST(request: NextRequest) {
           company_id: companyId,
           field_id: (structureRow as any).field_id,
           season_id: (structureRow as any).season_id,
+          land_use_type: "crop",
           crop_id: newCropId,
           variety_id: toNullableUuid(structureChange?.new_variety_id),
           reproduction_id: toNullableUuid(structureChange?.new_reproduction_id),
@@ -554,6 +565,7 @@ export async function POST(request: NextRequest) {
         structureRow = updatedStructureRow as any;
       }
       if (structureRow) {
+        resolvedLandUseType = (structureRow as any).land_use_type === "fallow" ? "fallow" : "crop";
         resolvedCropId = toNullableUuid((structureRow as any).crop_id);
         resolvedVarietyId = toNullableUuid((structureRow as any).variety_id);
         resolvedReproductionId = toNullableUuid((structureRow as any).reproduction_id);
@@ -569,6 +581,19 @@ export async function POST(request: NextRequest) {
         resolvedRowSpacingM = resolvedRowSpacingM ?? toNullableNumber((structureRow as any).row_spacing_m);
         resolvedSeedSpacingCm = resolvedSeedSpacingCm ?? toNullableNumber((structureRow as any).seed_spacing_cm);
       }
+    }
+
+    if (cropIndependent && cropStructureId && resolvedLandUseType !== "fallow") {
+      return NextResponse.json(
+        { error: "Plowing and snow retention may target only the whole field or a fallow structure line" },
+        { status: 409 }
+      );
+    }
+    if (!cropIndependent && resolvedLandUseType === "fallow") {
+      return NextResponse.json({ error: "The selected operation requires a crop structure line" }, { status: 409 });
+    }
+    if (!cropIndependent && cropStructureRequired && !resolvedCropId) {
+      return NextResponse.json({ error: "The selected operation requires crop identity" }, { status: 409 });
     }
 
     if (
@@ -621,7 +646,7 @@ export async function POST(request: NextRequest) {
       const targetReadStarted = Date.now();
       const { data: targetStructureRows, error: targetStructureError } = await supabase
         .from("crop_structure")
-        .select("id,field_id,crop_id,variety_id,reproduction_id,area,season_id,seasons:season_id(year)")
+        .select("id,field_id,land_use_type,crop_id,variety_id,reproduction_id,area,season_id,seasons:season_id(year)")
         .eq("company_id", companyId)
         .in("id", targetStructureIds);
       timing.crop_structure_read_ms += Date.now() - targetReadStarted;
@@ -640,6 +665,13 @@ export async function POST(request: NextRequest) {
     });
     if (mismatchedTarget) {
       return NextResponse.json({ error: "target crop_structure_id must belong to target field_id" }, { status: 400 });
+    }
+    const fallowTarget = requestedTargets.find((target) => {
+      const structure = target.crop_structure_id ? targetStructuresById.get(target.crop_structure_id) : null;
+      return structure?.land_use_type === "fallow";
+    });
+    if (fallowTarget && !cropIndependent) {
+      return NextResponse.json({ error: "Crop operations cannot target fallow land" }, { status: 409 });
     }
     const oversizedTarget = requestedTargets.find((target) => {
       const structure = target.crop_structure_id ? targetStructuresById.get(target.crop_structure_id) : null;
@@ -664,6 +696,52 @@ export async function POST(request: NextRequest) {
     const targetsPlannedArea = normalizedTargets.reduce((sum, target) => sum + Number(target.planned_area_ha || 0), 0);
     const effectivePlannedArea =
       targetsPlannedArea > 0 ? Number(targetsPlannedArea.toFixed(4)) : plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
+
+    let resolvedFieldArea: number | null = null;
+    if (fieldId) {
+      const { data: fieldRow, error: fieldError } = await supabase
+        .from("fields")
+        .select("id,area")
+        .eq("id", fieldId)
+        .eq("company_id", companyId)
+        .eq("archived", false)
+        .maybeSingle();
+      if (fieldError) return NextResponse.json({ error: fieldError.message }, { status: 400 });
+      if (!fieldRow?.id) return NextResponse.json({ error: "field_id does not belong to this company" }, { status: 400 });
+      const fieldArea = Number(fieldRow.area || 0);
+      resolvedFieldArea = Number.isFinite(fieldArea) && fieldArea > 0 ? fieldArea : null;
+    }
+
+    if (!resolvedSeasonId) {
+      const requestedSeasonId = toNullableUuid(requestedOperationParams.season_id);
+      let seasonQuery = supabase
+        .from("seasons")
+        .select("id,year,archived")
+        .eq("company_id", companyId);
+      seasonQuery = requestedSeasonId
+        ? seasonQuery.eq("id", requestedSeasonId)
+        : seasonQuery.eq("year", Number(operationDate.slice(0, 4))).order("year", { ascending: false }).limit(1);
+      const { data: seasonRows, error: seasonError } = await seasonQuery;
+      if (seasonError) return NextResponse.json({ error: seasonError.message }, { status: 400 });
+      const seasonRow = Array.isArray(seasonRows) ? seasonRows[0] : seasonRows;
+      if (!seasonRow?.id) {
+        return NextResponse.json({ error: "An active season is required for a whole-field operation" }, { status: 409 });
+      }
+      resolvedSeasonId = String(seasonRow.id);
+      resolvedSeasonYear = Number(seasonRow.year || 0) || null;
+    }
+
+    if (cropStructureId && resolvedStructureArea && effectivePlannedArea && effectivePlannedArea > resolvedStructureArea + 0.0001) {
+      return NextResponse.json({ error: "planned area exceeds crop structure area" }, { status: 400 });
+    }
+    if (isWholeFieldScope && resolvedFieldArea && effectivePlannedArea && effectivePlannedArea > resolvedFieldArea + 0.0001) {
+      return NextResponse.json({ error: "planned area exceeds field area" }, { status: 400 });
+    }
+    if (cropIndependent) {
+      resolvedCropId = null;
+      resolvedVarietyId = null;
+      resolvedReproductionId = null;
+    }
 
     const machineId = toNullableUuid(body.machine_id);
     const equipmentId = toNullableUuid(body.equipment_id);
@@ -798,6 +876,11 @@ export async function POST(request: NextRequest) {
       operation_template: operationTemplate,
       operation_params: {
         ...requestedOperationParams,
+        scope: isWholeFieldScope ? "whole_field" : "structure_line",
+        target_scope: isWholeFieldScope ? "field" : "structure_line",
+        crop_requirement: cropRequirement,
+        land_use_type: resolvedLandUseType,
+        season_id: resolvedSeasonId,
         irrigation_type: resolvedIrrigationType,
         row_spacing_m: resolvedRowSpacingM,
         seed_spacing_cm: resolvedSeedSpacingCm,

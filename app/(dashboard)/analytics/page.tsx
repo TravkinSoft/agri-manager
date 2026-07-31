@@ -45,6 +45,7 @@ export default function AnalyticsPage() {
   const [seasonSummary, setSeasonSummary] = useState<SeasonSummary>({
     totalFields: 0,
     totalPlantedArea: 0,
+    totalFallowArea: 0,
     totalExpectedYield: 0,
     totalOperations: 0,
   });
@@ -167,7 +168,7 @@ export default function AnalyticsPage() {
         </Card>
       ) : (
         <div className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-5">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-slate-600">
@@ -210,6 +211,21 @@ export default function AnalyticsPage() {
                   {seasonSummary.totalExpectedYield.toFixed(2)} {localizeUnit("t", language)}
                 </div>
                 <p className="text-xs text-slate-500 mt-1">{t("Прогноз общего урожая", "Жалпы өнім болжамы", "Projected total harvest")}</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-slate-600">
+                  {t("Площадь пара", "Сүрі жер ауданы", "Fallow Area")}
+                </CardTitle>
+                <Maximize className="h-4 w-4 text-slate-400" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {seasonSummary.totalFallowArea.toFixed(2)} {localizeUnit("ha", language)}
+                </div>
+                <p className="mt-1 text-xs text-slate-500">{t("Не входит в площадь посева", "Егіс ауданына кірмейді", "Excluded from planted area")}</p>
               </CardContent>
             </Card>
 

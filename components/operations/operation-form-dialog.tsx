@@ -81,6 +81,7 @@ import {
   TANK_MIX_COMPONENT_DEFINITIONS,
   getDefaultUnitForComponent,
   getIrrigationTypeLabel,
+  getOperationCropRequirement,
   getOperationTemplateAvailability,
   getPurposeDefinitionsForOperation,
   getTankMixComponentDefinition,
@@ -210,15 +211,6 @@ const DEPTH_ENABLED_WORKS = new Set([
 ]);
 
 const SEEDING_WORKS = new Set(["seeding", "planting_generic", "overseeding"]);
-
-const WHOLE_FIELD_ALLOWED_CATEGORIES = new Set([
-  "harvesting",
-  "service_operation",
-  "transport",
-  "logistics_operation",
-  "post_harvest",
-  "post_harvest_operation",
-]);
 
 const ADDITIONAL_COMPONENT_TYPES = new Set<TankMixComponentType>([
   "adjuvant",
@@ -564,6 +556,9 @@ function createTargetKey() {
 
 function requiresCropStructureForType(type: OperationTypeMaster | null): boolean {
   if (!type) return false;
+  if (getOperationCropRequirement({ categorySlug: type.category_slug, typeSlug: type.slug }) === "crop_not_required") {
+    return false;
+  }
   const canonical = resolveCanonicalOperationType({
     categorySlug: type.category_slug,
     typeSlug: type.slug,
@@ -912,6 +907,11 @@ export function OperationFormDialog({
     [categorySlug, form, selectedType, typeSlug]
   );
   const canonicalSlug = canonicalType?.slug as CanonicalOperationTypeSlug | undefined;
+  const cropRequirement = getOperationCropRequirement({
+    categorySlug: canonicalType?.categorySlug || selectedType?.category_slug || categorySlug,
+    typeSlug,
+  });
+  const cropIndependent = cropRequirement === "crop_not_required";
   const purposeOptions = useMemo(() => getPurposeDefinitionsForOperation(canonicalSlug), [canonicalSlug]);
   const impliedPurpose = typeSlug ? IMPLIED_PURPOSE_BY_TEMPLATE[typeSlug] || null : null;
   const visiblePurposeOptions = useMemo(
@@ -963,7 +963,7 @@ export function OperationFormDialog({
     () => fields.find((item) => item.id === selectedFieldId) || null,
     [fields, selectedFieldId]
   );
-  const isWholeFieldScope = operationParams.scope === "whole_field" || (lockedContext && !!selectedFieldId && !selectedCropStructureId);
+  const isWholeFieldScope = operationParams.scope === "whole_field";
   const selectedIrrigationType = normalizeIrrigationType((selectedCropStructure as any)?.irrigation_type);
   const hasExplicitIrrigationType = selectedIrrigationType !== "unknown";
   const selectedIsPotato = isPotatoCropContext(
@@ -999,8 +999,12 @@ export function OperationFormDialog({
     return rows.filter((item) => approvedSlugs.has(item.slug));
   }, [types, categorySlug]);
   const workGroups = useMemo<WorkOptionGroup[]>(() => {
+    const cropIndependentContext = isWholeFieldScope || selectedCropStructure?.land_use_type === "fallow";
     return OPERATION_WORK_UI_SECTIONS.map((section) => {
-      const options = section.works.map((work) => {
+      const options = section.works.filter((work) =>
+        !cropIndependentContext ||
+        getOperationCropRequirement({ categorySlug: section.categorySlug, typeSlug: work.slug }) === "crop_not_required"
+      ).map((work) => {
         const type = types.find((item) => item.slug === work.slug && item.category_slug === section.categorySlug);
         const definition = OPERATION_SUBTYPE_DEFINITIONS.find((item) => item.slug === work.slug);
         return { id: work.slug, label: type?.name_ru || definition?.label || work.slug };
@@ -1011,8 +1015,8 @@ export function OperationFormDialog({
         options,
         directWorkId: section.directOperationSlug,
       };
-    });
-  }, [types]);
+    }).filter((group) => !cropIndependentContext || group.options.length > 0);
+  }, [isWholeFieldScope, selectedCropStructure?.land_use_type, types]);
   const fieldLabelWithArea = (field: Field) => {
     const title = getFieldDisplayName(field).trim();
     const prefixedTitle = title.toLowerCase().startsWith("поле") ? title : `Поле ${title}`;
@@ -1029,18 +1033,24 @@ export function OperationFormDialog({
   }, [fields]);
 
   const cropStructureLabel = useCallback(
-    (structure: CropStructureWithDetails) => formatCropIdentity(resolveStructureCropIdentity(structure)),
+    (structure: CropStructureWithDetails) =>
+      structure.land_use_type === "fallow" ? "Пар" : formatCropIdentity(resolveStructureCropIdentity(structure)),
     [resolveStructureCropIdentity]
   );
   const cropStructureOptions = useMemo(
     () =>
       cropStructures
-        .filter((item) => !item.archived && (!selectedFieldId || item.field_id === selectedFieldId))
+        .filter(
+          (item) =>
+            !item.archived &&
+            (!selectedFieldId || item.field_id === selectedFieldId) &&
+            (cropIndependent ? item.land_use_type === "fallow" : item.land_use_type !== "fallow")
+        )
         .map((item) => ({
           id: item.id,
           label: `${cropStructureLabel(item)} — ${Number(item.area || 0).toFixed(2)} га`,
         })),
-    [cropStructureLabel, cropStructures, selectedFieldId]
+    [cropIndependent, cropStructureLabel, cropStructures, selectedFieldId]
   );
 
   const createTargetFromStructure = (structure: CropStructureWithDetails): OperationTargetDraft => ({
@@ -1593,6 +1603,40 @@ export function OperationFormDialog({
   ]);
 
   useEffect(() => {
+    if (!open || !typeSlug) return;
+    if (cropIndependent) {
+      if (isWholeFieldScope) {
+        form.setValue("crop_structure_id", null);
+        form.setValue("crop_id", null);
+        if (selectedField) form.setValue("planned_area_ha", Number(selectedField.area || 0));
+        return;
+      }
+      if (selectedCropStructure?.land_use_type !== "fallow") {
+        const fallowRows = selectedFieldCropStructures.filter((item) => item.land_use_type === "fallow");
+        const next = fallowRows.length === 1 ? fallowRows[0] : null;
+        form.setValue("crop_structure_id", next?.id || null);
+        form.setValue("crop_id", null);
+        form.setValue("planned_area_ha", next ? Number(next.area || 0) : null);
+      }
+      return;
+    }
+    if (selectedCropStructure?.land_use_type === "fallow") {
+      form.setValue("crop_structure_id", null);
+      form.setValue("crop_id", null);
+      form.setValue("planned_area_ha", null);
+    }
+  }, [
+    cropIndependent,
+    form,
+    isWholeFieldScope,
+    open,
+    selectedCropStructure,
+    selectedField,
+    selectedFieldCropStructures,
+    typeSlug,
+  ]);
+
+  useEffect(() => {
     if (!open || typeSlug !== "potato_planting" || !operationIsPotato) return;
     if (!form.getValues("row_spacing_m")) {
       form.setValue("row_spacing_m", 0.75);
@@ -1688,9 +1732,11 @@ export function OperationFormDialog({
   const showField = canonicalType ? canonicalType.requiresCropStructure || isTopRemoval : true;
   const cropStructureRequired = isWholeFieldScope
     ? false
-    : canonicalType
-      ? canonicalType.requiresCropStructure || isTopRemoval
-      : requiresCropStructureForType(selectedType);
+    : cropIndependent
+      ? operationParams.scope === "structure_line"
+      : canonicalType
+        ? canonicalType.requiresCropStructure || isTopRemoval
+        : requiresCropStructureForType(selectedType);
   const totalTargetArea = operationTargets.reduce((sum, target) => sum + Number(target.planned_area_ha || 0), 0);
   const targetCount = operationTargets.filter((target) => Number(target.planned_area_ha || 0) > 0).length;
   const targetFieldCount = new Set(operationTargets.map((target) => target.field_id).filter(Boolean)).size;
@@ -2371,8 +2417,8 @@ export function OperationFormDialog({
       setSubmitError(message);
       return;
     }
-    if (isWholeFieldScope && !WHOLE_FIELD_ALLOWED_CATEGORIES.has(canonicalType?.categorySlug || selectedType.category_slug)) {
-      const message = "Для всего поля доступны только уборка, логистика, сервис и послеуборочные работы.";
+    if (isWholeFieldScope && !cropIndependent) {
+      const message = "Без культуры на всё поле доступны только вспашка и снегозадержание.";
       form.setError("operation_type", { message });
       setSubmitError(message);
       return;
@@ -2384,7 +2430,7 @@ export function OperationFormDialog({
       return;
     }
     if (cropStructureRequired && !data.crop_structure_id) {
-      const message = "Выберите культуру на поле.";
+      const message = cropIndependent ? "Выберите участок пара." : "Выберите участок структуры с культурой.";
       form.setError("crop_structure_id", { message });
       setSubmitError(message);
       return;
@@ -2512,6 +2558,9 @@ export function OperationFormDialog({
     }
     const operationParamsForSubmit: Record<string, unknown> = {
       ...operationParams,
+      scope: isWholeFieldScope ? "whole_field" : "structure_line",
+      target_scope: isWholeFieldScope ? "field" : "structure_line",
+      crop_requirement: cropRequirement,
       irrigation_type: selectedIrrigationType,
       operation_template: typeSlug || null,
       row_spacing_m: data.row_spacing_m ?? null,
@@ -2708,6 +2757,41 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
+            {cropIndependent && selectedField ? (
+              <div className="rounded-lg border border-slate-700 bg-[#111827] p-3">
+                <div className="text-xs font-medium text-slate-300">Область работы</div>
+                <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Область работы">
+                  <Button
+                    type="button"
+                    variant={isWholeFieldScope ? "default" : "outline"}
+                    onClick={() => {
+                      setOperationParams((prev) => ({ ...prev, scope: "whole_field", target_scope: "field" }));
+                      form.setValue("crop_structure_id", null);
+                      form.setValue("crop_id", null);
+                      form.setValue("planned_area_ha", Number(selectedField.area || 0));
+                      setOperationTargets([]);
+                    }}
+                  >
+                    Всё поле
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={!isWholeFieldScope ? "default" : "outline"}
+                    onClick={() => {
+                      const fallowRows = selectedFieldCropStructures.filter((item) => item.land_use_type === "fallow");
+                      const next = fallowRows.length === 1 ? fallowRows[0] : null;
+                      setOperationParams((prev) => ({ ...prev, scope: "structure_line", target_scope: "structure_line" }));
+                      form.setValue("crop_structure_id", next?.id || null);
+                      form.setValue("crop_id", null);
+                      form.setValue("planned_area_ha", next ? Number(next.area || 0) : null);
+                    }}
+                  >
+                    Участок структуры
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {selectedCropStructure ? (
               <div className="rounded-lg border border-slate-700 bg-[#111827] p-3 text-sm text-slate-100">
                 <div className="font-semibold">
@@ -2733,7 +2817,7 @@ export function OperationFormDialog({
                   <span className="font-medium text-slate-100">Всё поле — {Number(selectedField.area || 0).toFixed(2)} га</span>
                 </div>
                 <div className="mt-1 text-xs text-slate-400">
-                  Доступны только уборка, логистика, сервис и послеуборочные работы.
+                  Без культуры доступны вспашка и снегозадержание.
                 </div>
               </div>
             ) : null}
@@ -2842,7 +2926,7 @@ export function OperationFormDialog({
                 onCategoryChange={handleCategoryChange}
                 onWorkChange={handleTypeChange}
                 groups={workGroups}
-                disabled={!selectedCropStructure && !isWholeFieldScope}
+                disabled={!selectedFieldId}
               />
               {form.formState.errors.operation_type?.message ? (
                 <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">

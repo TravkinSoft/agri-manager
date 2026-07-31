@@ -5,6 +5,7 @@ import { getFieldDisplayName } from "@/lib/fields/display";
 
 export interface FieldHistoryRecord {
   id: string;
+  landUseType: "crop" | "fallow";
   fieldName: string;
   seasonYear: number;
   cropName: string;
@@ -32,6 +33,7 @@ export async function getAllFieldHistory(fieldId?: string, language: Language = 
     .from("crop_structure")
     .select(`
       id,
+      land_use_type,
       area,
       expected_yield,
       status,
@@ -68,11 +70,12 @@ export async function getAllFieldHistory(fieldId?: string, language: Language = 
     return [];
   }
 
-  const records = data?.map((record: any) => ({
+  const records: FieldHistoryRecord[] = data?.map((record: any) => ({
     id: record.id,
+    landUseType: record.land_use_type === "fallow" ? "fallow" as const : "crop" as const,
     fieldName: getFieldDisplayName(record.fields || {}) || "Unknown",
     seasonYear: record.seasons?.year || 0,
-    cropName: localizedName(record.crops, language) || "Unknown",
+    cropName: record.land_use_type === "fallow" ? "Пар" : localizedName(record.crops, language) || "Культура не указана",
     varietyName: brandName(record.varieties) || null,
     area: Number(record.area),
     expectedYield: record.expected_yield ? Number(record.expected_yield) : null,
@@ -114,6 +117,7 @@ export async function getAllFieldsWithLatestCrop(language: Language = "ru"): Pro
           )
         `)
         .eq("field_id", field.id)
+        .eq("land_use_type", "crop")
         .eq("archived", false)
         .order("seasons(year)", { ascending: false })
         .limit(1)
@@ -150,6 +154,7 @@ export async function getCropRotation(fieldId: string, language: Language = "ru"
       )
     `)
     .eq("field_id", fieldId)
+    .eq("land_use_type", "crop")
     .eq("archived", false)
     .order("seasons(year)", { ascending: false });
 

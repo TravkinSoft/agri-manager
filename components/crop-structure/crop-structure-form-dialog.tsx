@@ -68,9 +68,10 @@ export function CropStructureFormDialog({
     defaultValues: defaultValues || {
       field_id: "",
       season_id: selectedSeasonId || "",
-      crop_id: "",
-      variety_id: undefined,
-      reproduction_id: undefined,
+      land_use_type: "crop",
+      crop_id: null,
+      variety_id: null,
+      reproduction_id: null,
       area: 0,
       seeding_rate: 0,
       expected_yield: 0,
@@ -95,9 +96,10 @@ export function CropStructureFormDialog({
       form.reset({
         field_id: "",
         season_id: selectedSeasonId || "",
-        crop_id: "",
-        variety_id: undefined,
-        reproduction_id: undefined,
+        land_use_type: "crop",
+        crop_id: null,
+        variety_id: null,
+        reproduction_id: null,
         area: 0,
         seeding_rate: 0,
         expected_yield: 0,
@@ -222,7 +224,7 @@ export function CropStructureFormDialog({
                     <FormLabel>Crop *</FormLabel>
                     <Select
                       onValueChange={handleCropChange}
-                      value={field.value}
+                      value={field.value ?? undefined}
                       disabled={loadingCrops}
                     >
                       <FormControl>
@@ -250,7 +252,7 @@ export function CropStructureFormDialog({
                     <FormLabel>Variety</FormLabel>
                     <Select
                       onValueChange={field.onChange}
-                      value={field.value}
+                      value={field.value ?? undefined}
                       disabled={!form.watch("crop_id") || varieties.length === 0}
                     >
                       <FormControl>
@@ -285,7 +287,7 @@ export function CropStructureFormDialog({
                   <FormLabel>Seed Reproduction</FormLabel>
                   <Select
                     onValueChange={field.onChange}
-                    value={field.value}
+                    value={field.value ?? undefined}
                     disabled={loadingCrops}
                   >
                     <FormControl>
