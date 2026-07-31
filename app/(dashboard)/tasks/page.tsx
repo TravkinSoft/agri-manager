@@ -1639,7 +1639,7 @@ export default function TasksPage() {
             </div>
           ) : null}
 
-          <div className="mt-3 max-h-[calc(100dvh-250px)] space-y-2 overflow-y-auto pr-1">
+          <div className="travkin-scrollbar mt-3 max-h-[calc(100dvh-250px)] space-y-2 overflow-y-auto pr-1">
             {loading ? (
               <div className="py-10 text-center text-sm text-slate-400">Загрузка задач...</div>
             ) : visibleOperations.length === 0 ? (
@@ -1707,7 +1707,7 @@ export default function TasksPage() {
                 </div>
               </header>
 
-              <div className="space-y-6 overflow-y-auto px-4 py-5 sm:px-6">
+              <div className="travkin-scrollbar space-y-6 overflow-y-auto px-4 py-5 sm:px-6">
                 {selectedPresentation ? (
                   <SpecialistOperationPlan
                     presentation={selectedPresentation}

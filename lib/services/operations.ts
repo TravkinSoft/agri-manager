@@ -403,6 +403,34 @@ export async function getSpecialistOperations(
     .filter(isProductionOperation);
 }
 
+export async function getOperationsForCropStructureRows(
+  companyId: string,
+  cropStructureRowIds: string[]
+): Promise<OperationWithDetails[]> {
+  const rowIds = Array.from(
+    new Set(cropStructureRowIds.map((value) => String(value || "").trim()).filter(Boolean))
+  );
+  if (!companyId || rowIds.length === 0) return [];
+
+  const [{ data, error }, assets] = await Promise.all([
+    supabase
+      .from("operations")
+      .select(OPERATION_DETAILS_SELECT)
+      .eq("company_id", companyId)
+      .eq("archived", false)
+      .in("crop_structure_id", rowIds)
+      .order("date", { ascending: false }),
+    getOperationAssetCatalog(companyId),
+  ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return attachOperationAssetRelations((data || []) as Record<string, any>[], assets)
+    .map((operation: any) => normalizeOperationRow(operation));
+}
+
 export async function getOperation(operationId: string): Promise<Operation | null> {
   const { data, error } = await supabase
     .from("operations")

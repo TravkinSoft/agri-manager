@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
+import { SpecialistOperationPlan } from "@/components/operations/specialist-operation-plan";
 import { CatalogIdentityCombobox } from "@/components/crop-structure/catalog-identity-combobox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
@@ -29,8 +30,9 @@ import {
   buildVarietyOptions,
   catalogIdentitySearchValue,
 } from "@/lib/crop-structure/catalog-identity";
-import { createOperation } from "@/lib/services/operations";
+import { createOperation, getOperationsForCropStructureRows } from "@/lib/services/operations";
 import type { OperationFormData, SpecialistAssignee } from "@/lib/types/operation";
+import { buildOperationPresentation, type OperationPresentation } from "@/lib/operations/operation-presentation";
 import type { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import {
   getIrrigationTypeLabel,
@@ -152,6 +154,7 @@ type StructureOperationFact = {
   planned_area_ha: number | null;
   actual_area_ha: number | null;
   materials: StructureOperationMaterialFact[];
+  presentation: OperationPresentation;
 };
 
 type FieldLegalLink = {
@@ -303,8 +306,6 @@ const numberOrNull = (value: unknown): number | null => {
   return Number.isFinite(numeric) ? numeric : null;
 };
 
-const oneRelation = (value: unknown): any => (Array.isArray(value) ? value[0] : value);
-
 const batchClassLabel = (value?: string | null) => {
   if (value === "seed") return "Семенной";
   if (value === "feed") return "Кормовой";
@@ -365,6 +366,7 @@ export default function CropStructurePage() {
   const [bootstrappedStructureKey, setBootstrappedStructureKey] = useState<string | null>(null);
   const [consumptions, setConsumptions] = useState<Consumption[]>([]);
   const [operationFacts, setOperationFacts] = useState<StructureOperationFact[]>([]);
+  const [selectedOperationDetail, setSelectedOperationDetail] = useState<StructureOperationFact | null>(null);
   const [operationConsumptions, setOperationConsumptions] = useState<Consumption[]>([]);
   const [search, setSearch] = useState("");
   const [cropFilter, setCropFilter] = useState("all");
@@ -387,6 +389,7 @@ export default function CropStructurePage() {
   const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
   const season = useMemo(() => seasons.find((item) => item.id === seasonId) || null, [seasons, seasonId]);
+  const fieldDisplayName = (field: Field) => getFieldDisplayName(field);
 
   const cropLabel = (crop: Crop) => (localizedName(crop as never, language) || crop.name || "").trim();
   const cropOptionKey = (crop: Crop) => {
@@ -518,6 +521,20 @@ export default function CropStructurePage() {
   const cropName = (id?: string | null) => (id && cropMap.get(id) ? cropLabel(cropMap.get(id) as Crop) : "-");
   const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "-" : "-");
   const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? standardReproductionLabel(reproductionMap.get(id)) : "-");
+  const compactReproductionName = (id?: string | null) => {
+    if (!id) return "";
+    const item = reproductionMap.get(id);
+    if (!item) return "";
+    const label = standardReproductionLabel(item);
+    const code = String(item.code || label.split("—")[0] || "").trim().toUpperCase();
+    const reproductionMatch = code.match(/^(?:РС|RS|R)\s*([1-4])$/u);
+    if (reproductionMatch) return `${reproductionMatch[1]} р.`;
+    return code && code !== "-" ? code : label;
+  };
+  const allocationIdentityLabel = (row: Allocation) =>
+    [cropName(row.crop_id), varietyName(row.variety_id), compactReproductionName(row.reproduction_id)]
+      .filter((value) => value && value !== "-")
+      .join(", ");
   const isPotatoAllocation = (row: Pick<Allocation, "crop_id" | "variety_id">) =>
     isPotatoCropContext(cropName(row.crop_id), varietyName(row.variety_id));
   const isFallowAllocation = (row: Pick<Allocation, "crop_id">) =>
@@ -535,22 +552,6 @@ export default function CropStructurePage() {
     if (value.includes("подсол")) return "🌻";
     if (value.includes("соя") || value.includes("горох") || value.includes("боб")) return "🌱";
     return "🌿";
-  };
-
-  const cropSummaries = (rows: Allocation[]) => {
-    const grouped = new Map<string, { cropId: string | null; name: string; area: number }>();
-    for (const row of rows) {
-      const key = row.crop_id || "unknown";
-      const resolvedName = row.crop_id ? cropName(row.crop_id) : "";
-      const name = resolvedName && resolvedName !== "-" ? resolvedName : "Культура не задана";
-      const current = grouped.get(key);
-      if (current) {
-        current.area += Number(row.area || 0);
-      } else {
-        grouped.set(key, { cropId: row.crop_id, name, area: Number(row.area || 0) });
-      }
-    }
-    return Array.from(grouped.values()).sort((a, b) => b.area - a.area || a.name.localeCompare(b.name, "ru"));
   };
 
   const operationAllocationsForField = (fieldId: string) =>
@@ -948,90 +949,48 @@ export default function CropStructurePage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await supabase
-          .from("operations")
-          .select(`
-            id,
-            field_id,
-            crop_structure_id,
-            operation_type,
-            operation_type_slug,
-            operation_category_slug,
-            date,
-            status,
-            work_status,
-            completed_at,
-            planned_area_ha,
-            operation_materials:operation_materials (
-              id,
-              product_id,
-              material_type,
-              unit,
-              planned_quantity,
-              issued_quantity,
-              consumed_quantity,
-              returned_quantity,
-              actual_rate,
-              products:product_id (name,trade_name,normalized_name)
-            ),
-            operation_lines:operation_lines (
-              id,
-              field_id,
-              planned_area_ha,
-              actual_area_ha
-            )
-          `)
-          .eq("company_id", activeCompanyId)
-          .eq("archived", false)
-          .in("crop_structure_id", selectedCropStructureRowIds)
-          .order("date", { ascending: false });
+        const operations = await getOperationsForCropStructureRows(
+          activeCompanyId,
+          selectedCropStructureRowIds
+        );
 
-        if (res.error) throw res.error;
-
-        const facts: StructureOperationFact[] = ((res.data || []) as any[]).map((row) => {
-          const lineRows = Array.isArray(row.operation_lines) ? row.operation_lines : [];
-          const plannedFromLines = lineRows.reduce((sum: number, line: any) => sum + Number(line.planned_area_ha || 0), 0);
-          const actualLineValues = lineRows
-            .map((line: any) => numberOrNull(line.actual_area_ha))
-            .filter((value: number | null): value is number => value != null);
-          const actualFromLines = actualLineValues.length
-            ? actualLineValues.reduce((sum: number, value: number) => sum + value, 0)
-            : null;
-          const materials: StructureOperationMaterialFact[] = (Array.isArray(row.operation_materials) ? row.operation_materials : []).map((material: any) => {
-            const product = oneRelation(material.products);
-            return {
-              product_id: material.product_id ? String(material.product_id) : null,
-              product_name: brandName(product) || String(product?.name || "Материал"),
-              material_type: material.material_type ? String(material.material_type) : null,
-              unit: material.unit ? String(material.unit) : null,
-              planned_quantity: numberOrNull(material.planned_quantity),
-              issued_quantity: Number(material.issued_quantity || 0),
-              consumed_quantity: numberOrNull(material.consumed_quantity),
-              returned_quantity: numberOrNull(material.returned_quantity),
-              actual_rate: numberOrNull(material.actual_rate),
-            };
-          });
+        const facts: StructureOperationFact[] = operations.map((operation) => {
+          const presentation = buildOperationPresentation(operation);
+          const materials: StructureOperationMaterialFact[] = (operation.materials || []).map((material) => ({
+            product_id: material.product_id ? String(material.product_id) : null,
+            product_name: String(material.product_name || "Материал"),
+            material_type: material.material_type ? String(material.material_type) : null,
+            unit: material.unit ? String(material.unit) : null,
+            planned_quantity: numberOrNull(material.planned_quantity),
+            issued_quantity: Number(material.issued_quantity || 0),
+            consumed_quantity: numberOrNull(material.consumed_quantity),
+            returned_quantity: numberOrNull(material.returned_quantity),
+            actual_rate: numberOrNull(material.actual_rate),
+          }));
 
           return {
-            id: String(row.id),
-            field_id: String(row.field_id || ""),
-            crop_structure_row_id: row.crop_structure_id ? String(row.crop_structure_id) : null,
-            operation_type: String(row.operation_type || "Операция"),
-            operation_type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
-            operation_category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
-            date: row.date || null,
-            status: row.status ? String(row.status) : null,
-            work_status: row.work_status ? String(row.work_status) : null,
-            completed_at: row.completed_at || null,
-            planned_area_ha: plannedFromLines > 0 ? plannedFromLines : numberOrNull(row.planned_area_ha),
-            actual_area_ha: actualFromLines,
+            id: String(operation.id),
+            field_id: String(operation.field_id || ""),
+            crop_structure_row_id: operation.crop_structure_id ? String(operation.crop_structure_id) : null,
+            operation_type: presentation.workTitle || String(operation.operation_type || "Операция"),
+            operation_type_slug: operation.operation_type_slug ? String(operation.operation_type_slug) : null,
+            operation_category_slug: operation.operation_category_slug ? String(operation.operation_category_slug) : null,
+            date: operation.date || null,
+            status: operation.status ? String(operation.status) : null,
+            work_status: operation.work_status ? String(operation.work_status) : null,
+            completed_at: operation.completed_at || null,
+            planned_area_ha: presentation.plannedAreaHa,
+            actual_area_ha: presentation.completedAreaHa,
             materials,
+            presentation,
           };
         });
 
         const derivedConsumptions: Consumption[] = facts.flatMap((fact) => {
           if (!fact.crop_structure_row_id) return [];
-          const area = fact.actual_area_ha ?? fact.planned_area_ha ?? null;
+          const area = fact.actual_area_ha && fact.actual_area_ha > 0
+            ? fact.actual_area_ha
+            : fact.planned_area_ha ?? null;
           const operationKey = fact.operation_type_slug || fact.operation_category_slug || fact.operation_type;
           return fact.materials.flatMap((material) => {
             const quantity = material.consumed_quantity ?? (material.issued_quantity > 0 ? material.issued_quantity : null);
@@ -1172,6 +1131,7 @@ export default function CropStructurePage() {
 
   const closeField = () => {
     setSelectedFieldId(null);
+    setSelectedOperationDetail(null);
     setDraftRows([]);
     setFieldDialogTab("dossier");
   };
@@ -1338,6 +1298,7 @@ export default function CropStructurePage() {
       setBootstrappedStructureKey(`${activeCompanyId}:${seasonId}`);
       setDraftRows(savedRows.map((item) => ({ ...item })));
       toast({ title: "Сохранено", description: "Структура поля обновлена." });
+      closeField();
     } catch (error) {
       toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Save failed", variant: "destructive" });
     } finally {
@@ -1558,9 +1519,7 @@ export default function CropStructurePage() {
 
   const renderOverviewCard = (field: Field) => {
     const rows = allocByField.get(field.id) || [];
-    const crops = cropSummaries(rows);
-    const visibleCrops = crops.slice(0, 3);
-    const hiddenCrops = Math.max(0, crops.length - visibleCrops.length);
+    const visibleRows = rows.slice(0, 4);
 
     return (
       <Card
@@ -1571,7 +1530,7 @@ export default function CropStructurePage() {
         <CardContent className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-3">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0 truncate text-[20px] font-bold leading-tight text-[#facc15]">
-              Поле {field.name}
+              {fieldDisplayName(field)}
             </div>
             <div className="shrink-0 rounded-md border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-100">
               {fmtHa(field.area)}
@@ -1579,18 +1538,19 @@ export default function CropStructurePage() {
           </div>
 
           <div className="min-h-0 space-y-1 overflow-hidden">
-            {visibleCrops.length ? visibleCrops.map((item) => (
-              <div key={`${field.id}-${item.cropId || item.name}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-0 text-[12px] leading-[18px] text-slate-100">
-                <span className="shrink-0 text-base leading-none">{cropIcon(item.name)}</span>
-                <span className="min-w-0 truncate font-medium">{item.name}</span>
-                <span className="shrink-0 rounded-md bg-slate-800/80 px-1.5 py-0 text-[10px] font-semibold tabular-nums text-slate-100">{fmtHa(item.area)}</span>
+            {visibleRows.length ? visibleRows.map((row, index) => (
+              <div key={`${field.id}-${row.id || index}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-0 text-[12px] leading-[18px] text-slate-100">
+                <span className="shrink-0 text-base leading-none">{cropIcon(cropName(row.crop_id))}</span>
+                <span className="min-w-0 truncate font-medium" title={allocationIdentityLabel(row)}>
+                  {allocationIdentityLabel(row) || "Культура не задана"}
+                </span>
+                <span className="shrink-0 rounded-md bg-slate-800/80 px-1.5 py-0 text-[10px] font-semibold tabular-nums text-slate-100">{fmtHa(Number(row.area || 0))}</span>
               </div>
             )) : (
               <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2 py-3 text-center text-xs text-slate-500">
                 Культура не задана
               </div>
             )}
-            {hiddenCrops > 0 ? <div className="truncate px-1 text-[12px] font-medium leading-[18px] text-slate-400">+ ещё {hiddenCrops}</div> : null}
           </div>
 
           <Button
@@ -1621,23 +1581,23 @@ export default function CropStructurePage() {
             </thead>
             <tbody>
               {filteredFields.map((field) => {
-                const crops = cropSummaries(allocByField.get(field.id) || []);
-                const visibleCrops = crops.slice(0, 3);
-                const hiddenCrops = Math.max(0, crops.length - visibleCrops.length);
+                const rows = allocByField.get(field.id) || [];
+                const visibleRows = rows.slice(0, 4);
+                const hiddenRows = Math.max(0, rows.length - visibleRows.length);
                 return (
                   <tr key={field.id} className="cursor-pointer border-b border-slate-100 hover:bg-slate-50" onClick={() => openField(field.id)}>
-                    <td className="px-3 py-2 font-semibold text-[#facc15]">Поле {field.name}</td>
+                    <td className="px-3 py-2 font-semibold text-[#facc15]">{fieldDisplayName(field)}</td>
                     <td className="px-3 py-2 text-slate-700">
-                      {visibleCrops.length ? (
+                      {visibleRows.length ? (
                         <div className="flex min-w-0 flex-wrap gap-2">
-                          {visibleCrops.map((item) => (
-                            <span key={`${field.id}-table-${item.cropId || item.name}`} className="inline-flex max-w-[240px] items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1">
-                              <span className="shrink-0">{cropIcon(item.name)}</span>
-                              <span className="min-w-0 truncate">{item.name}</span>
-                              <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">{fmtHa(item.area)}</span>
+                          {visibleRows.map((row, index) => (
+                            <span key={`${field.id}-table-${row.id || index}`} className="inline-flex max-w-[280px] items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1">
+                              <span className="shrink-0">{cropIcon(cropName(row.crop_id))}</span>
+                              <span className="min-w-0 truncate">{allocationIdentityLabel(row)}</span>
+                              <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">{fmtHa(Number(row.area || 0))}</span>
                             </span>
                           ))}
-                          {hiddenCrops > 0 ? <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-slate-500">+ ещё {hiddenCrops}</span> : null}
+                          {hiddenRows > 0 ? <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-slate-500">+ ещё {hiddenRows}</span> : null}
                         </div>
                       ) : (
                         <span className="text-slate-400">Культура не задана</span>
@@ -1809,7 +1769,9 @@ export default function CropStructurePage() {
   };
 
   const operationAreaLabel = (operation: StructureOperationFact) => {
-    const value = operation.actual_area_ha ?? operation.planned_area_ha;
+    const value = operation.actual_area_ha && operation.actual_area_ha > 0
+      ? operation.actual_area_ha
+      : operation.planned_area_ha;
     return value == null ? "площадь не указана" : fmtHa(value);
   };
 
@@ -1846,7 +1808,7 @@ export default function CropStructurePage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Сезонный контур поля</div>
-              <div className="mt-1 text-2xl font-semibold text-white">Поле {selectedField.name}</div>
+              <div className="mt-1 text-2xl font-semibold text-white">{fieldDisplayName(selectedField)}</div>
               <div className="mt-1 text-sm text-slate-400">
                 Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
               </div>
@@ -1967,20 +1929,7 @@ export default function CropStructurePage() {
 
                       {operationsForAllocation.length ? (
                         <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
-                          {operationsForAllocation.map((operation) => (
-                            <div key={operation.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
-                                  <div className="mt-0.5 text-[11px] text-slate-500">
-                                    {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
-                                  </div>
-                                </div>
-                                <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
-                              </div>
-                              <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
-                            </div>
-                          ))}
+                          {operationsForAllocation.map(renderOperationCard)}
                         </div>
                       ) : (
                         <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-950/60 px-3 py-3 text-xs text-slate-500">
@@ -1997,6 +1946,41 @@ export default function CropStructurePage() {
           <div className="rounded-xl border border-dashed border-slate-700 bg-[#111827] p-5 text-sm text-slate-400">Посевные строки ещё не заданы.</div>
         )}
       </div>
+    );
+  };
+
+  const renderOperationCard = (operation: StructureOperationFact) => {
+    const progress = Math.max(0, Math.min(100, operation.presentation.progressPercent));
+    return (
+      <button
+        key={operation.id}
+        type="button"
+        className="w-full rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2 text-left transition hover:border-yellow-400/50 hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+        onClick={() => setSelectedOperationDetail(operation)}
+        aria-label={`Открыть операцию ${operation.operation_type}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">
+              {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
+            </div>
+          </div>
+          <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
+        </div>
+        <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
+        <div className="mt-2 flex items-center gap-2" aria-label={`Прогресс ${progress.toFixed(0)} процентов`}>
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-800">
+            <div
+              className="h-full rounded-full bg-yellow-400 transition-[width]"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="w-9 shrink-0 text-right text-[10px] font-semibold tabular-nums text-slate-400">
+            {progress.toFixed(0)}%
+          </span>
+        </div>
+      </button>
     );
   };
 
@@ -2039,7 +2023,7 @@ export default function CropStructurePage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Сезонный контур поля</div>
-              <div className="mt-1 text-2xl font-semibold text-white">Поле {selectedField.name}</div>
+              <div className="mt-1 text-2xl font-semibold text-white">{fieldDisplayName(selectedField)}</div>
               <div className="mt-1 text-sm text-slate-400">
                 Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
               </div>
@@ -2196,20 +2180,7 @@ export default function CropStructurePage() {
                       <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
                         <div className="text-sm font-semibold text-slate-100">Последние операции</div>
                         <div className="mt-3 space-y-2">
-                          {selectedItem.operationsForAllocation.slice(0, 4).map((operation) => (
-                            <div key={operation.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
-                                  <div className="mt-0.5 text-[11px] text-slate-500">
-                                    {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
-                                  </div>
-                                </div>
-                                <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
-                              </div>
-                              <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
-                            </div>
-                          ))}
+                          {selectedItem.operationsForAllocation.slice(0, 4).map(renderOperationCard)}
                           {!selectedItem.operationsForAllocation.length ? <div className="text-xs text-slate-500">Операций нет.</div> : null}
                         </div>
                       </div>
@@ -2247,7 +2218,11 @@ export default function CropStructurePage() {
                       </thead>
                       <tbody>
                         {selectedItem.operationsForAllocation.map((operation) => (
-                          <tr key={operation.id} className="border-t border-slate-800">
+                          <tr
+                            key={operation.id}
+                            className="cursor-pointer border-t border-slate-800 transition hover:bg-slate-900/80"
+                            onClick={() => setSelectedOperationDetail(operation)}
+                          >
                             <td className="px-3 py-2 text-slate-400">{fmtDate(operation.completed_at || operation.date)}</td>
                             <td className="px-3 py-2 text-slate-300">{operationKindLabel(operation)}</td>
                             <td className="px-3 py-2 font-medium text-slate-100">{operation.operation_type}</td>
@@ -2498,7 +2473,7 @@ export default function CropStructurePage() {
             <div>
               <div className="text-sm font-semibold text-slate-900">Юридический контур поля</div>
               <div className="mt-1 text-sm text-slate-600">
-                Поле {selectedField.name} · Агро-площадь {fmtHa(selectedField.area)} · Юр-площадь {fmtHa(totalLegalArea)}
+                {fieldDisplayName(selectedField)} · Агро-площадь {fmtHa(selectedField.area)} · Юр-площадь {fmtHa(totalLegalArea)}
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 Разница: {diff > 0 ? "+" : ""}{fmtHa(diffAbs).replace(" га", "")} га
@@ -2568,15 +2543,26 @@ export default function CropStructurePage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Структура посевов" description="Компактный агрономический обзор по полям" />
+      <PageHeader title="Структура посевов" description="Компактный агрономический обзор по полям">
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-slate-500">Сезон</span>
+          <Select value={seasonId} onValueChange={setSeasonId}>
+            <SelectTrigger
+              className="h-8 w-[92px] border-slate-700 bg-transparent px-2 text-xs font-medium text-slate-400 shadow-none hover:border-slate-600 hover:text-slate-200"
+              aria-label="Сезон структуры посевов"
+            >
+              <SelectValue placeholder="Сезон" />
+            </SelectTrigger>
+            <SelectContent>
+              {seasons.map((item) => <SelectItem key={item.id} value={item.id}>{item.year}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </PageHeader>
 
       <Card>
         <CardContent className="pt-5">
           <div className="flex flex-wrap items-center gap-2">
-            <Select value={seasonId} onValueChange={setSeasonId}>
-              <SelectTrigger className="w-[140px]"><SelectValue placeholder="Сезон" /></SelectTrigger>
-              <SelectContent>{seasons.map((item) => <SelectItem key={item.id} value={item.id}>{item.year}</SelectItem>)}</SelectContent>
-            </Select>
             <div className="relative w-[240px]">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
               <Input className="pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
@@ -2605,12 +2591,12 @@ export default function CropStructurePage() {
               </SelectContent>
             </Select>
             <div className="ml-auto flex flex-wrap items-center gap-2">
-              {canEditStructure && fields.length ? (
+              {canEditStructure ? (
                 <Button
                   type="button"
-                  onClick={() => openField((fields.find((field) => fieldState(field.id) === "empty") || fields[0]).id, "editor")}
+                  onClick={() => { window.location.href = "/fields?create=1"; }}
                 >
-                  <Plus className="mr-2 h-4 w-4" />Добавить карточку
+                  <Plus className="mr-2 h-4 w-4" />Добавить поле
                 </Button>
               ) : null}
               <div className="flex rounded-md border border-slate-200 bg-white p-1">
@@ -2695,7 +2681,7 @@ export default function CropStructurePage() {
         <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1180px] [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent">
           <DialogHeader>
             <div className="flex items-center justify-between gap-2">
-              <DialogTitle>{selectedField ? `Поле ${selectedField.name} — ${fmtHa(selectedField.area)}` : "Поле"}</DialogTitle>
+              <DialogTitle>{selectedField ? `${fieldDisplayName(selectedField)} — ${fmtHa(selectedField.area)}` : "Поле"}</DialogTitle>
               <Button variant="outline" onClick={exportFieldPdf} disabled={pdfLoading || !selectedFieldId || !seasonId}>
                 <FileText className="mr-2 h-4 w-4" />{pdfLoading ? "Формирование..." : "PDF поля"}
               </Button>
@@ -2729,6 +2715,67 @@ export default function CropStructurePage() {
               </Button>
             ) : null}
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(selectedOperationDetail)} onOpenChange={(open) => !open && setSelectedOperationDetail(null)}>
+        <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1040px] travkin-scrollbar">
+          {selectedOperationDetail ? (
+            <>
+              <DialogHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3 pr-6">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold uppercase text-yellow-300">
+                      {selectedOperationDetail.presentation.categoryTitle}
+                    </div>
+                    <DialogTitle className="mt-1 text-2xl">
+                      {selectedOperationDetail.presentation.workTitle}
+                    </DialogTitle>
+                    <div className="mt-2 text-sm text-slate-400">
+                      {fieldDisplayName(selectedField || fieldMap.get(selectedOperationDetail.field_id) || { id: "", name: "Поле", area: 0 })}
+                      {selectedOperationDetail.presentation.cropName ? ` · ${selectedOperationDetail.presentation.cropName}` : ""}
+                      {selectedOperationDetail.presentation.varietyName ? ` · ${selectedOperationDetail.presentation.varietyName}` : ""}
+                      {selectedOperationDetail.presentation.reproductionName ? ` · ${selectedOperationDetail.presentation.reproductionName}` : ""}
+                      {` · ${fmtDate(selectedOperationDetail.date)}`}
+                    </div>
+                  </div>
+                  <Badge className={operationStatusClass(selectedOperationDetail)}>
+                    {selectedOperationDetail.presentation.statusLabel}
+                  </Badge>
+                </div>
+              </DialogHeader>
+
+              <SpecialistOperationPlan presentation={selectedOperationDetail.presentation} />
+
+              <section className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
+                <div className="text-sm font-semibold text-slate-100">Прогресс по сменам</div>
+                {selectedOperationDetail.presentation.progressReports.length ? (
+                  <div className="mt-3 space-y-2">
+                    {selectedOperationDetail.presentation.progressReports.map((report) => (
+                      <div key={report.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span className="font-semibold text-slate-200">
+                            {fmtDate(report.reported_at)} · +{fmtHa(Number(report.completed_area_ha || 0))}
+                          </span>
+                          <span className="tabular-nums text-slate-400">
+                            {Number(report.progress_percent || 0).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% · осталось {fmtHa(Number(report.remaining_area_ha || 0))}
+                          </span>
+                        </div>
+                        {report.comment ? <div className="mt-1 text-xs text-slate-400">{report.comment}</div> : null}
+                        {report.stop_reason ? <div className="mt-1 text-xs text-amber-300">Причина остановки: {report.stop_reason}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-sm text-slate-500">Сменный прогресс ещё не сдавался.</div>
+                )}
+              </section>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSelectedOperationDetail(null)}>Закрыть</Button>
+              </DialogFooter>
+            </>
+          ) : null}
         </DialogContent>
       </Dialog>
 
