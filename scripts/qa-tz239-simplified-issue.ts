@@ -36,6 +36,9 @@ const returnRoute = source("app/api/material-requests/[id]/return/route.ts");
 const quantityMigration = source(
   "supabase/migrations/20260730140942_simplify_warehouse_issue_quantities_v1.sql"
 );
+const identityMigration = source(
+  "supabase/migrations/20260730153500_warehouse_issue_product_identity_v1.sql"
+);
 const packageMigration = source(
   "supabase/migrations/20260730105407_package_aware_warehouse_issue_v1.sql"
 );
@@ -226,11 +229,11 @@ test("18 ready API accepts prepared quantity", () => {
   assert.doesNotMatch(requestService, forbiddenPackageContract);
 });
 test("19 ready route uses quantity-only RPC", () => {
-  assert.match(requestRoute, /prepare_material_request_atomic_v1/);
+  assert.match(requestRoute, /prepare_material_request_atomic_v2/);
   assert.doesNotMatch(requestRoute, forbiddenPackageContract);
 });
 test("20 issue route uses quantity-only RPC", () => {
-  assert.match(issueRoute, /issue_material_request_atomic_v2/);
+  assert.match(issueRoute, /issue_material_request_atomic_v3/);
   assert.doesNotMatch(issueRoute, forbiddenPackageContract);
 });
 test("21 request DTO omits package contract", () => {
@@ -281,6 +284,16 @@ test("30 migration removes lower-plan guard", () => {
 });
 test("31 migration does not drop legacy columns or tables", () => {
   assert.doesNotMatch(quantityMigration, /drop\s+(?:table|column)/i);
+});
+test("31a request identity resolves to the global master atomically", () => {
+  assert.match(identityMigration, /select p\.master_product_id/);
+  assert.match(identityMigration, /set actual_product_id = v_product_id/);
+  assert.match(identityMigration, /prepare_material_request_atomic_v2/);
+  assert.match(identityMigration, /issue_material_request_atomic_v3/);
+});
+test("31b identity migration preserves quantity-only contract", () => {
+  assert.doesNotMatch(identityMigration, /whole_package|package_count|package_size/);
+  assert.doesNotMatch(identityMigration, /drop\s+(?:table|column)/i);
 });
 test("32 reservation stays allocation-bound", () => {
   assert.match(
