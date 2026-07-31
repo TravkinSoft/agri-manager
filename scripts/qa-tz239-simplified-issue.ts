@@ -39,6 +39,9 @@ const quantityMigration = source(
 const identityMigration = source(
   "supabase/migrations/20260730153500_warehouse_issue_product_identity_v1.sql"
 );
+const actualIdentityMigration = source(
+  "supabase/migrations/20260731013506_warehouse_issue_actual_product_identity_v2.sql"
+);
 const packageMigration = source(
   "supabase/migrations/20260730105407_package_aware_warehouse_issue_v1.sql"
 );
@@ -229,11 +232,11 @@ test("18 ready API accepts prepared quantity", () => {
   assert.doesNotMatch(requestService, forbiddenPackageContract);
 });
 test("19 ready route uses quantity-only RPC", () => {
-  assert.match(requestRoute, /prepare_material_request_atomic_v2/);
+  assert.match(requestRoute, /prepare_material_request_atomic_v3/);
   assert.doesNotMatch(requestRoute, forbiddenPackageContract);
 });
 test("20 issue route uses quantity-only RPC", () => {
-  assert.match(issueRoute, /issue_material_request_atomic_v3/);
+  assert.match(issueRoute, /issue_material_request_atomic_v4/);
   assert.doesNotMatch(issueRoute, forbiddenPackageContract);
 });
 test("21 request DTO omits package contract", () => {
@@ -294,6 +297,18 @@ test("31a request identity resolves to the global master atomically", () => {
 test("31b identity migration preserves quantity-only contract", () => {
   assert.doesNotMatch(identityMigration, /whole_package|package_count|package_size/);
   assert.doesNotMatch(identityMigration, /drop\s+(?:table|column)/i);
+});
+test("31c preselected company product resolves to the global master", () => {
+  assert.match(actualIdentityMigration, /p\.id = v_item\.actual_product_id/);
+  assert.match(actualIdentityMigration, /prepare_material_request_atomic_v3/);
+  assert.match(actualIdentityMigration, /issue_material_request_atomic_v4/);
+});
+test("31d final identity migration preserves quantity-only contract", () => {
+  assert.doesNotMatch(
+    actualIdentityMigration,
+    /whole_package|package_count|package_size/
+  );
+  assert.doesNotMatch(actualIdentityMigration, /drop\s+(?:table|column)/i);
 });
 test("32 reservation stays allocation-bound", () => {
   assert.match(

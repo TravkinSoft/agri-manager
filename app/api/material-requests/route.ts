@@ -389,7 +389,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const { data, error } = await supabase.rpc("prepare_material_request_atomic_v2", {
+    const { data, error } = await supabase.rpc("prepare_material_request_atomic_v3", {
       p_company_id: companyId,
       p_actor_profile_id: actor.id,
       p_request_id: requestId,
