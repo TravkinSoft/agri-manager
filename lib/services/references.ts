@@ -74,7 +74,7 @@ export async function getCrops(
     .order("name", { ascending: true });
 
   if (!includeArchived) {
-    query = query.eq("archived", false);
+    query = query.eq("archived", false).eq("is_active", true);
   }
 
   const { data, error } = await query;
@@ -148,7 +148,7 @@ export async function getVarieties(
     .or(`company_id.is.null,company_id.eq.${companyId}`)
     .order("name", { ascending: true });
 
-  if (!includeArchived) query = query.eq("archived", false);
+  if (!includeArchived) query = query.eq("archived", false).eq("is_active", true);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
 
@@ -197,7 +197,7 @@ export async function getVarietiesByCrop(
     .order("name", { ascending: true });
 
   if (!includeArchived) {
-    query = query.eq("archived", false);
+    query = query.eq("archived", false).eq("is_active", true);
   }
 
   const { data, error } = await query;

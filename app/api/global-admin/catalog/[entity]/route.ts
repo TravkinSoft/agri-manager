@@ -221,7 +221,7 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     defaultOrder: "name",
     scopeWhere: (query) => query.is("company_id", null),
     searchColumns: ["name", "name_ru", "name_en", "slug", "subcategory", "crop_subcategory", "category", "crop_category"],
-    filters: ["crop_category", "crop_subcategory", "is_common_in_kz", "is_active"],
+    filters: ["category_id", "is_common_in_kz", "is_active"],
     normalizeRow: (row) => {
       const categoryName =
         row.crop_categories?.name_ru ||
@@ -1347,6 +1347,15 @@ export async function GET(
 
       if (filterKey === "pesticide_subcategory") {
         query = query.contains("pesticide_subcategories", [value]);
+        continue;
+      }
+
+      if (filterKey === "category_id" && entity === "crops") {
+        if (isUuidLike(value)) {
+          query = query.eq("category_id", value);
+        } else {
+          query = query.eq("category_id", "00000000-0000-0000-0000-000000000000");
+        }
         continue;
       }
 

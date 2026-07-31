@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit --incremental false",
     "qa:tz239": "npx tsx scripts/qa-tz239-simplified-issue.ts",
     "qa:tz240": "npx --no-install tsx scripts/qa-tz240-fallow-operations.ts",
+    "qa:tz241": "npx --no-install tsx scripts/qa-tz241-crops-varieties.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
     "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",
     "qa:assistant:full": "npx tsx scripts/qa-assistant-copilot-full-check.ts",

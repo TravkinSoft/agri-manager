@@ -65,6 +65,17 @@ const activeFilterOptions: FilterOption[] = [
   { label: "Неактивные", value: "false" },
 ];
 
+export const canonicalCropCategoryOptions: FilterOption[] = [
+  { label: "Бахчевые", value: "020889df-2e9a-4900-91e2-2ffeb6790a87" },
+  { label: "Зернобобовые", value: "62f6ed93-1a9e-486b-95c2-1b486efdcbf4" },
+  { label: "Зерновые", value: "2c93e301-985e-4865-bdbb-d7d4b8770fd0" },
+  { label: "Кормовые", value: "52f55700-25db-4f0d-867a-24c555004210" },
+  { label: "Масличные", value: "2da5fd74-154c-42fc-8ca1-2d3a45acc295" },
+  { label: "Овощные", value: "56d39e40-8782-4557-b522-0dd2434fa341" },
+  { label: "Плодово-ягодные", value: "0eb35c13-095c-518d-867e-5ba0550bad5a" },
+  { label: "Технические", value: "239ba091-97ec-4594-8de3-7882d7a54575" },
+];
+
 const seedUnitOptions: FilterOption[] = [
   { label: "кг", value: "kg" },
   { label: "т", value: "t" },
@@ -380,8 +391,7 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
       { key: "is_active", label: "Активность" },
     ],
     filters: [
-      { key: "crop_category", label: "Категория", options: [{ label: "Все", value: "all" }] },
-      { key: "crop_subcategory", label: "Подкатегория", options: [{ label: "Все", value: "all" }] },
+      { key: "category_id", label: "Категория", options: [{ label: "Все", value: "all" }, ...canonicalCropCategoryOptions] },
       { key: "is_common_in_kz", label: "Распространена в РК", options: [{ label: "Все", value: "all" }, { label: "Да", value: "true" }, { label: "Нет", value: "false" }] },
       { key: "is_active", label: "Активность", options: activeFilterOptions },
     ],
@@ -389,7 +399,7 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
       { key: "name_ru", label: "Название", type: "text", required: true },
       { key: "name_en", label: "Английское название", type: "text" },
       { key: "slug", label: "Slug", type: "text", required: true },
-      { key: "category", label: "Категория", type: "text", required: true },
+      { key: "category_id", label: "Категория", type: "select", required: true, options: canonicalCropCategoryOptions },
       { key: "subcategory", label: "Подкатегория", type: "text" },
       { key: "is_common_in_kz", label: "Распространена в РК", type: "checkbox" },
       { key: "priority_level", label: "Приоритет", type: "text" },
@@ -414,7 +424,7 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
       { key: "is_active", label: "Активность" },
     ],
     filters: [
-      { key: "crop_id", label: "Культура", options: [{ label: "Все", value: "all" }] },
+      { key: "crop_id", label: "Культура", options: [{ label: "Все", value: "all" }], optionsEntity: "crops" },
       { key: "originator_id", label: "Оригинатор", options: [{ label: "Все", value: "all" }], optionsEntity: "seed_originators" },
       { key: "origin_country", label: "Страна", options: [{ label: "Все", value: "all" }] },
       { key: "is_common_in_kz", label: "Распространена в РК", options: [{ label: "Все", value: "all" }, { label: "Да", value: "true" }, { label: "Нет", value: "false" }] },

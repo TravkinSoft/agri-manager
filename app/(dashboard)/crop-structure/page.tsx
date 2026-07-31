@@ -2521,13 +2521,13 @@ export default function CropStructurePage() {
                         }))}
                         placeholder="Выберите сорт"
                         searchPlaceholder="Поиск сорта..."
-                        emptyMessage={row.crop_id ? "Для выбранной культуры нет доступных сортов" : "Сначала выберите культуру"}
+                        emptyMessage={row.crop_id ? "Для выбранной культуры пока нет глобальных сортов." : "Сначала выберите культуру"}
                         className={editorControlClass}
                         disabled={!row.crop_id || vars.length === 0}
                         onChange={(value) => patchDraft(index, { variety_id: value })}
                       />
                       {row.crop_id && vars.length === 0 ? (
-                        <div className="mt-1 text-[11px] text-amber-300">Для выбранной культуры нет доступных сортов</div>
+                        <div className="mt-1 text-[11px] text-amber-300">Для выбранной культуры пока нет глобальных сортов.</div>
                       ) : null}
                     </div>
                     <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
