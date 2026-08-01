@@ -93,7 +93,9 @@ function normalizeOperationMaterials(rows: any[] | null | undefined): OperationM
     rate_basis: parseMaterialRateBasisFromNotes(row?.notes),
     product_name: row?.products
       ? buildProductPassport({ ...row.products, id: String(row.product_id || row.products.id || "") }).displayName
-      : null,
+      : [localizedName(relationOne(row?.crops) as any, "ru"), brandName(relationOne(row?.varieties) as any), localizedName(relationOne(row?.reproductions) as any, "ru")]
+          .filter(Boolean)
+          .join(", ") || null,
     master_product_id: row?.products?.master_product_id || null,
     product_type: row?.products?.product_type || row?.products?.type || null,
   })) as OperationMaterial[];
@@ -157,6 +159,13 @@ function normalizeOperationRow(op: any): OperationWithDetails {
       reproductionName: localizedName(op.crop_structure?.seed_reproductions, "ru"),
     }
   );
+  const mixComponents = Array.isArray(op?.crop_structure?.crop_structure_mix_components)
+    ? op.crop_structure.crop_structure_mix_components
+    : [];
+  const mixCropNames = Array.from(new Set(mixComponents.map((component: any) =>
+    localizedName(relationOne(component?.crops) as any, "ru") || ""
+  ).filter(Boolean)));
+  const mixName = mixCropNames.length > 0 ? `Зерносмесь: ${mixCropNames.join(" + ")}` : "Зерносмесь";
 
   return {
     ...op,
@@ -176,9 +185,9 @@ function normalizeOperationRow(op: any): OperationWithDetails {
     tank_mix: (config as any).tank_mix && typeof (config as any).tank_mix === "object" ? (config as any).tank_mix : null,
     work_status: op.work_status || (op.status === "completed" ? "completed" : op.status === "in_progress" ? "in_progress" : "active"),
     field_name: op.fields?.name || primaryLine?.field_name || "-",
-    crop_name: cropIdentity.cropName || "-",
-    variety_name: cropIdentity.varietyName || "-",
-    reproduction_name: cropIdentity.reproductionName || "-",
+    crop_name: op?.crop_structure?.land_use_type === "crop_mix" ? mixName : cropIdentity.cropName || "-",
+    variety_name: op?.crop_structure?.land_use_type === "crop_mix" ? "Состав в структуре посевов" : cropIdentity.varietyName || "-",
+    reproduction_name: op?.crop_structure?.land_use_type === "crop_mix" ? "Несколько компонентов" : cropIdentity.reproductionName || "-",
     responsible_name:
       relationOne(op.responsible_profile)?.full_name ||
       relationOne(op.responsible_profile)?.email ||
@@ -227,13 +236,23 @@ const OPERATION_DETAILS_SELECT = `
   fields:field_id (name),
   responsible_profile:responsible_user_id (id,full_name,email,role),
   crop_structure:crop_structure_id (
+    land_use_type,
     crops:crop_id (name,name_ru,name_kz,name_en,slug),
     varieties:variety_id (name),
-    seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+    seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code),
+    crop_structure_mix_components (
+      id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order,
+      crops:crop_id (name,name_ru,name_kz,name_en,slug),
+      varieties:variety_id (name),
+      reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+    )
   ),
   operation_materials:operation_materials (
     *,
-    products:product_id (name,trade_name,master_product_id,type,product_type)
+    products:product_id (name,trade_name,master_product_id,type,product_type),
+    crops:crop_id (name,name_ru,name_kz,name_en,slug),
+    varieties:variety_id (name),
+    reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
   ),
   operation_progress:operation_progress (
     *,

@@ -103,6 +103,7 @@ export async function getCropStructureReport(
   const { data, error } = await supabase
     .from("crop_structure")
     .select(`
+      id,
       field_id,
       land_use_type,
       crop_id,
@@ -112,7 +113,12 @@ export async function getCropStructureReport(
       expected_yield,
       crops:crop_id (name,name_ru,name_kz,name_en,slug),
       varieties:variety_id (name),
-      seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+      seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code),
+      crop_structure_mix_components(
+        crop_id,
+        sort_order,
+        crops:crop_id(name,name_ru,name_kz,name_en,slug)
+      )
     `)
     .eq("company_id", companyId)
     .eq("season_id", seasonId)
@@ -123,10 +129,22 @@ export async function getCropStructureReport(
   for (const record of data || []) {
     const row = record as any;
     if (row.land_use_type === "fallow") continue;
-    const cropName = localizedName(row.crops, "ru") || "Требуется уточнение";
-    const varietyName = brandName(row.varieties) || null;
-    const reproductionName = localizedName(row.seed_reproductions, "ru") || null;
-    const key = `${row.crop_id || ""}:${row.variety_id || ""}:${row.reproduction_id || ""}`;
+    const mixComponents = Array.isArray(row.crop_structure_mix_components)
+      ? [...row.crop_structure_mix_components].sort(
+          (left: any, right: any) => Number(left.sort_order || 0) - Number(right.sort_order || 0)
+        )
+      : [];
+    const mixCropNames = mixComponents
+      .map((component: any) => localizedName(component.crops, "ru"))
+      .filter(Boolean);
+    const cropName = row.land_use_type === "crop_mix"
+      ? `Зерносмесь: ${mixCropNames.slice(0, 3).join(" + ")}${mixCropNames.length > 3 ? ` + ещё ${mixCropNames.length - 3}` : ""}`
+      : localizedName(row.crops, "ru") || "Требуется уточнение";
+    const varietyName = row.land_use_type === "crop_mix" ? null : brandName(row.varieties) || null;
+    const reproductionName = row.land_use_type === "crop_mix" ? null : localizedName(row.seed_reproductions, "ru") || null;
+    const key = row.land_use_type === "crop_mix"
+      ? `mix:${mixComponents.map((component: any) => component.crop_id).join("+")}`
+      : `${row.crop_id || ""}:${row.variety_id || ""}:${row.reproduction_id || ""}`;
     const existing = reportMap.get(key);
     if (existing) {
       existing.fields.add(String(row.field_id || ""));

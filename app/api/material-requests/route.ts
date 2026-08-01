@@ -101,6 +101,14 @@ export async function GET(request: NextRequest) {
           substitution_status,
           planned_product_id,
           actual_product_id,
+          crop_id,
+          variety_id,
+          reproduction_id,
+          material_kind,
+          source_mix_component_id,
+          component_crop:crops!warehouse_issue_request_items_crop_id_fkey(name,name_ru,name_kz,name_en,slug),
+          component_variety:varieties!warehouse_issue_request_items_variety_id_fkey(name),
+          component_reproduction:seed_reproductions!warehouse_issue_request_items_reproduction_id_fkey(name,name_ru,name_kz,name_en,code),
           substitution_reason,
           substitution_requested_by,
           substitution_approved_by,
@@ -205,6 +213,7 @@ export async function GET(request: NextRequest) {
           : null;
         return {
           ...item,
+          product_id: item.product_id ? String(item.product_id) : "",
           planned_quantity: plannedQty,
           prepared_quantity: preparedQty,
           received_quantity: receivedQty,
@@ -217,7 +226,15 @@ export async function GET(request: NextRequest) {
           shortage_quantity: shortageQty,
           loss_quantity: lossQty,
           allocations,
-          product_name: passport?.displayName || brandName(item.products) || "-",
+          product_name:
+            passport?.displayName ||
+            brandName(item.products) ||
+            [
+              localizedName(item.component_crop, "ru"),
+              brandName(item.component_variety),
+              localizedName(item.component_reproduction, "ru", ["name", "code"]),
+            ].filter(Boolean).join(", ") ||
+            "Семенной компонент не оприходован",
           product_type: item.products?.type || item.product_category || "-",
           product_unit:
             passport?.units.stockUnit && passport.units.stockUnit !== "unknown"
@@ -229,6 +246,7 @@ export async function GET(request: NextRequest) {
       const items =
         actor.role === "warehouse" || actor.role === "warehouse_operator"
           ? normalizedItems.filter((item: any) =>
+              item.material_kind === "seed" || item.product_category === "seed" ||
               isAgrochemicalProductType(item.product_type || item.product_category)
             )
           : normalizedItems;

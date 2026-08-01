@@ -9,12 +9,21 @@ export type HarvestTicketContext = {
   allocation: {
     id: string;
     fieldId: string;
-    cropId: string;
+    landUseType: "crop" | "crop_mix";
+    cropId: string | null;
     varietyId: string | null;
     reproductionId: string | null;
     areaHa: number;
     identityReviewRequired: boolean;
     identityReviewReason: string | null;
+    composition: Array<{
+      id: string;
+      cropId: string;
+      varietyId: string;
+      reproductionId: string;
+      seedRateKgHa: number;
+      sortOrder: number;
+    }>;
   } | null;
   operationId: string | null;
   operationLineId: string | null;
@@ -193,7 +202,7 @@ export async function resolveHarvestTicketContext(params: {
 
   let { data: allocation, error: allocationError } = await supabase
     .from("crop_structure")
-    .select("id,company_id,season_id,field_id,crop_id,variety_id,reproduction_id,area,archived,identity_review_required,identity_review_reason")
+    .select("id,company_id,season_id,field_id,land_use_type,crop_id,variety_id,reproduction_id,area,archived,identity_review_required,identity_review_reason,crop_structure_mix_components(id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order)")
     .eq("id", allocationId)
     .eq("company_id", companyId)
     .eq("season_id", activeSeason.id)
@@ -203,7 +212,7 @@ export async function resolveHarvestTicketContext(params: {
   if (allocationError && /identity_review_/i.test(allocationError.message || "")) {
     const fallback = await supabase
       .from("crop_structure")
-      .select("id,company_id,season_id,field_id,crop_id,variety_id,reproduction_id,area,archived")
+      .select("id,company_id,season_id,field_id,land_use_type,crop_id,variety_id,reproduction_id,area,archived,crop_structure_mix_components(id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order)")
       .eq("id", allocationId)
       .eq("company_id", companyId)
       .eq("season_id", activeSeason.id)
@@ -214,14 +223,16 @@ export async function resolveHarvestTicketContext(params: {
     allocationError = fallback.error;
   }
   if (allocationError) throw allocationError;
-  if (!allocation?.id || !allocation.crop_id) {
+  const isCropMix = allocation?.land_use_type === "crop_mix";
+  if (!allocation?.id || (!isCropMix && !allocation.crop_id)) {
     return empty("invalid", "Участок не относится к выбранному полю или активному сезону.");
   }
 
   const allocationValue = {
     id: String(allocation.id),
     fieldId: String(allocation.field_id),
-    cropId: String(allocation.crop_id),
+    landUseType: isCropMix ? "crop_mix" as const : "crop" as const,
+    cropId: allocation.crop_id ? String(allocation.crop_id) : null,
     varietyId: allocation.variety_id ? String(allocation.variety_id) : null,
     reproductionId: allocation.reproduction_id ? String(allocation.reproduction_id) : null,
     areaHa: Number(allocation.area || 0),
@@ -229,11 +240,24 @@ export async function resolveHarvestTicketContext(params: {
     identityReviewReason: (allocation as any).identity_review_reason
       ? String((allocation as any).identity_review_reason)
       : null,
+    composition: (Array.isArray((allocation as any).crop_structure_mix_components)
+      ? (allocation as any).crop_structure_mix_components
+      : []).map((component: any) => ({
+        id: String(component.id),
+        cropId: String(component.crop_id),
+        varietyId: String(component.variety_id),
+        reproductionId: String(component.reproduction_id),
+        seedRateKgHa: Number(component.seed_rate_kg_ha || 0),
+        sortOrder: Number(component.sort_order || 0),
+      })),
   };
   if (
-    allocationValue.identityReviewRequired ||
-    !allocationValue.varietyId ||
-    !allocationValue.reproductionId
+    (isCropMix && allocationValue.composition.length < 2) ||
+    (!isCropMix && (
+      allocationValue.identityReviewRequired ||
+      !allocationValue.varietyId ||
+      !allocationValue.reproductionId
+    ))
   ) {
     return {
       ...empty(
@@ -294,6 +318,7 @@ export async function resolveHarvestTicketContext(params: {
   if (linesError) throw linesError;
 
   const lineCandidates = (lines || []).filter((line: any) => {
+    if (isCropMix) return !line.crop_id && !line.variety_id && !line.reproduction_id;
     if (String(line.crop_id || "") !== allocationValue.cropId) return false;
     if (line.variety_id && !sameNullable(line.variety_id, allocationValue.varietyId)) return false;
     if (line.reproduction_id && !sameNullable(line.reproduction_id, allocationValue.reproductionId)) return false;

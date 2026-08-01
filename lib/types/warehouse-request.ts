@@ -39,6 +39,11 @@ export interface WarehouseIssueRequestItem {
   request_id: string;
   company_id: string;
   product_id: string;
+  crop_id?: string | null;
+  variety_id?: string | null;
+  reproduction_id?: string | null;
+  material_kind?: string | null;
+  source_mix_component_id?: string | null;
   product_category: string | null;
   required_quantity: number;
   planned_quantity?: number | null;

@@ -876,3 +876,22 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Test branch is `gsglkmudcwkdetqtocae`; production connections/writes,
   production deploy and master merge remain `0/0/NO/NO`.
 - `READY_FOR_OWNER_PREVIEW_CHECK=YES`.
+
+## TZ-242 Grain Mix V1
+
+- TZ-242 status: `PASS`; report: [task-reports/core/TZ-242.md](task-reports/core/TZ-242.md).
+- `crop_mix` is one crop-structure allocation with one area and 2-10 ordered
+  component identities; it is not a crop, variety, global product or recipe.
+- QA E2E passed `100 ha`, oat `70 kg/ha = 7,000 kg`, pea
+  `50 kg/ha = 5,000 kg`, one planting operation/task/request, two separate
+  issue/return/reconciliation lines and one planting history row.
+- One harvest operation and one finalized ticket produced one mixed batch, one
+  ledger IN `+20,000 kg`, one immutable composition snapshot and mixed yield
+  `200 kg/ha`. Repeated finalization remained a no-op.
+- RLS, closed-season guard, five role contexts and cross-company denial passed.
+  Supabase advisors report no task-specific missing FK index or RLS init-plan
+  finding after the final QA-only optimization migration.
+- Typecheck, build and `45/45` automated checks passed. Production counts and
+  schema gate stayed unchanged; production migrations/writes/deploy and master
+  merge remain `0/0/NO/NO`.
+- `READY_FOR_FATHER_CONTROLLED_QA_PILOT=YES`; `READY_FOR_PRODUCTION=NO`.

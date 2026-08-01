@@ -133,7 +133,7 @@ export async function POST(
 
       const { error: finalizeError } = ticket.op_type === "weighbridge_impurities"
         ? await supabase.rpc("finalize_weighbridge_impurity_ticket_for_session_v1", { p_ticket_id: id })
-        : await supabase.rpc("finalize_weighbridge_ticket_v2", {
+        : await supabase.rpc("finalize_weighbridge_ticket_authenticated_v1", {
             p_ticket_id: id,
             p_actor_user_id: actor.id,
           });

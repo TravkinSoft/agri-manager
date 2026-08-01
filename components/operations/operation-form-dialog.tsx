@@ -956,9 +956,10 @@ export function OperationFormDialog({
     [cropNameById, reproductionNameById, varietyNameById]
   );
   const selectedCropIdentity = useMemo(
-    () => (selectedCropStructure ? resolveStructureCropIdentity(selectedCropStructure) : null),
+    () => (selectedCropStructure && selectedCropStructure.land_use_type !== "crop_mix" ? resolveStructureCropIdentity(selectedCropStructure) : null),
     [resolveStructureCropIdentity, selectedCropStructure]
   );
+  const selectedIsCropMix = selectedCropStructure?.land_use_type === "crop_mix";
   const selectedField = useMemo(
     () => fields.find((item) => item.id === selectedFieldId) || null,
     [fields, selectedFieldId]
@@ -1034,7 +1035,11 @@ export function OperationFormDialog({
 
   const cropStructureLabel = useCallback(
     (structure: CropStructureWithDetails) =>
-      structure.land_use_type === "fallow" ? "Пар" : formatCropIdentity(resolveStructureCropIdentity(structure)),
+      structure.land_use_type === "fallow"
+        ? "Пар"
+        : structure.land_use_type === "crop_mix"
+          ? structure.crop_name || "Зерносмесь"
+          : formatCropIdentity(resolveStructureCropIdentity(structure)),
     [resolveStructureCropIdentity]
   );
   const cropStructureOptions = useMemo(
@@ -1532,7 +1537,7 @@ export function OperationFormDialog({
     if (!selectedFieldId) {
       form.setValue("field_id", selectedCropStructure.field_id);
     }
-    form.setValue("crop_id", selectedCropStructure.crop_id);
+    form.setValue("crop_id", selectedIsCropMix ? null : selectedCropStructure.crop_id);
     form.setValue("planned_area_ha", Number(selectedCropStructure.area || 0));
     setOperationTargets((prev) => {
       const primaryTarget = createTargetFromStructure(selectedCropStructure);
@@ -1574,8 +1579,10 @@ export function OperationFormDialog({
         reproduction: selectedCropStructure.reproduction_name || null,
         area_ha: Number(selectedCropStructure.area || 0),
       },
+      crop_mix: selectedIsCropMix,
+      composition: selectedIsCropMix ? selectedCropStructure.mix_components || [] : undefined,
     }));
-  }, [form, open, selectedCropStructure, selectedFieldId, selectedIrrigationType, selectedIsPotato, typeSlug]);
+  }, [form, open, selectedCropStructure, selectedFieldId, selectedIrrigationType, selectedIsCropMix, selectedIsPotato, typeSlug]);
 
   useEffect(() => {
     if (!open || !selectedFieldId || isWholeFieldScope) return;
@@ -1726,7 +1733,7 @@ export function OperationFormDialog({
   const isDripTapeCollection = typeSlug === "drip_tape_collection" || typeSlug === "tape_residue_collection";
   const showPurposeEngine = false;
   const showTankMix = !!canonicalType?.supportsTankMix;
-  const showMaterials = (!!canonicalType?.supportsMaterials || isDripTapeRidge) && !isHarvest;
+  const showMaterials = (!!canonicalType?.supportsMaterials || isDripTapeRidge) && !isHarvest && !(selectedIsCropMix && isSeedWork);
   const showMachine = canonicalType ? canonicalType.requiresMachine || isDripTapeCollection || typeSlug === "haulm_topping" : !!selectedType?.requires_machine;
   const showTransport = canonicalType?.slug === "harvesting" || canonicalType?.slug === "transport";
   const showField = canonicalType ? canonicalType.requiresCropStructure || isTopRemoval : true;
@@ -1771,7 +1778,12 @@ export function OperationFormDialog({
   }, [canonicalType, isDripTapeRidge, materials.length, open]);
 
   useEffect(() => {
-    if (!open || !isSeedWork || materials.length > 0) return;
+    if (!open || !selectedIsCropMix || !isSeedWork || materials.length === 0) return;
+    setMaterials([]);
+  }, [isSeedWork, materials.length, open, selectedIsCropMix]);
+
+  useEffect(() => {
+    if (!open || !isSeedWork || selectedIsCropMix || materials.length > 0) return;
     setMaterials([
       {
         component_type: "seed",
@@ -1786,7 +1798,7 @@ export function OperationFormDialog({
         notes: null,
       },
     ]);
-  }, [isSeedWork, materials.length, open]);
+  }, [isSeedWork, materials.length, open, selectedIsCropMix]);
 
   useEffect(() => {
     if (!open || products.length === 0 || materials.length === 0) return;
@@ -2529,7 +2541,7 @@ export function OperationFormDialog({
       const component = getTankMixComponentDefinition(item.component_type);
       return component.productRequired ? String(item.product_id || "").trim().length > 0 : true;
     });
-    if (isSeedWork) {
+    if (isSeedWork && !selectedIsCropMix) {
       const seedMaterial = materialsForSubmit.find((item) => item.component_type === "seed");
       if (!seedMaterial?.product_id) {
         const message = "Выберите семенной или посадочный материал.";
@@ -2681,8 +2693,8 @@ export function OperationFormDialog({
     !categorySlug ? "тип работы" : null,
     !selectedType ? "работа" : null,
     !responsibleUserId ? "ответственный" : null,
-    isSeedWork && !materials.some((item) => item.component_type === "seed" && item.product_id) ? "семенной материал" : null,
-    isSeedWork && !materials.some((item) => item.component_type === "seed" && Number(item.planned_rate || 0) > 0) ? "норма" : null,
+    isSeedWork && !selectedIsCropMix && !materials.some((item) => item.component_type === "seed" && item.product_id) ? "семенной материал" : null,
+    isSeedWork && !selectedIsCropMix && !materials.some((item) => item.component_type === "seed" && Number(item.planned_rate || 0) > 0) ? "норма" : null,
     isPotatoPlanting && (!seedSpacingCm || seedSpacingCm <= 0) ? "межклубневое расстояние" : null,
     isPotatoPlanting && (!seedRateKgHa || seedRateKgHa <= 0) ? "норма посадки" : null,
     (isIrrigation || isFertigation) && !operationParams.water_norm_mm && !operationParams.water_volume_m3 ? "норма воды" : null,
@@ -2961,7 +2973,27 @@ export function OperationFormDialog({
               ) : null}
             </section>
 
-            {selectedCropStructure && categorySlug === "planting" ? (
+            {selectedCropStructure && categorySlug === "planting" && selectedIsCropMix ? (
+              <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold text-white">Зерносмесь из структуры посевов</div>
+                  <div className="text-xs text-slate-400">Одна операция и одна заявка. Склад выдаёт каждый компонент отдельной строкой.</div>
+                </div>
+                <div className="space-y-2">
+                  {(selectedCropStructure.mix_components || []).map((component, index) => (
+                    <div key={component.id || `${component.crop_id}-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/45 px-3 py-2 text-sm">
+                      <div className="min-w-0 truncate font-medium text-slate-100">
+                        {[component.crop_name, component.variety_name, component.reproduction_name].filter(Boolean).join(", ")}
+                      </div>
+                      <div className="whitespace-nowrap text-slate-300">{Number(component.seed_rate_kg_ha || 0)} кг/га</div>
+                      <div className="whitespace-nowrap font-semibold text-yellow-300">
+                        {(Number(selectedCropStructure.area || 0) * Number(component.seed_rate_kg_ha || 0)).toLocaleString("ru-RU")} кг
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : selectedCropStructure && categorySlug === "planting" ? (
               <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
                 <div className="mb-3">
                   <div className="text-sm font-semibold text-white">Культура из структуры посевов</div>

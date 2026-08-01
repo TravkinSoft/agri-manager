@@ -90,6 +90,9 @@ export async function GET(request: NextRequest) {
           batch_id,
           operation_line_id,
           lot_id,
+          composition_snapshot,
+          composition_hash,
+          is_mixed_harvest,
           products:product_id(name,trade_name,normalized_name),
           varieties:variety_id(name),
           reproductions:reproduction_id(name,name_ru,name_kz,name_en,code)
@@ -132,6 +135,9 @@ export async function GET(request: NextRequest) {
         batch_id: line.batch_id ? String(line.batch_id) : null,
         operation_line_id: line.operation_line_id ? String(line.operation_line_id) : null,
         lot_id: line.lot_id ? String(line.lot_id) : null,
+        composition_snapshot: Array.isArray(line.composition_snapshot) ? line.composition_snapshot : [],
+        composition_hash: line.composition_hash ? String(line.composition_hash) : null,
+        is_mixed_harvest: Boolean(line.is_mixed_harvest),
       })),
     }));
 
@@ -226,6 +232,9 @@ export async function POST(request: NextRequest) {
     const isHarvestIncoming =
       String(ticket.direction || "") === "incoming" &&
       String(ticket.op_type || "").toLowerCase() === "harvest_incoming";
+    let harvestIsCropMix = false;
+    let harvestCompositionSnapshot: Array<Record<string, unknown>> = [];
+    let harvestCompositionHash: string | null = null;
     const isImpurityRemoval =
       String(ticket.direction || "") === "outgoing" &&
       String(ticket.op_type || "").toLowerCase() === "weighbridge_impurities";
@@ -247,12 +256,47 @@ export async function POST(request: NextRequest) {
       if (harvestContext.status !== "ready") {
         return NextResponse.json({ error: harvestContext.message }, { status: 409 });
       }
-      if (lines.length !== 1 || !lines[0]?.product_id) {
+      if (lines.length !== 1) {
         return NextResponse.json(
           { error: "Приход урожая должен содержать одну складскую номенклатуру." },
           { status: 400 }
         );
       }
+
+      harvestIsCropMix = harvestContext.allocation?.landUseType === "crop_mix";
+      if (harvestIsCropMix) {
+        const { data: derivedProduct, error: derivedProductError } = await supabase.rpc(
+          "ensure_crop_mix_inventory_product_v1",
+          {
+            p_company_id: companyId,
+            p_actor_profile_id: actor.id,
+            p_crop_structure_id: String(ticket.crop_structure_allocation_id),
+          }
+        );
+        if (derivedProductError || !(derivedProduct as any)?.product_id) {
+          return NextResponse.json(
+            { error: derivedProductError?.message || "Не удалось создать складскую идентичность урожая зерносмеси." },
+            { status: 400 }
+          );
+        }
+        lines[0].product_id = String((derivedProduct as any).product_id);
+        lines[0].crop_id = null;
+        lines[0].variety_id = null;
+        lines[0].reproduction_id = null;
+        harvestCompositionSnapshot = Array.isArray((derivedProduct as any).composition_snapshot)
+          ? (derivedProduct as any).composition_snapshot
+          : [];
+        harvestCompositionHash = String((derivedProduct as any).composition_hash || "") || null;
+        (lines[0] as any).composition_snapshot = harvestCompositionSnapshot;
+        (lines[0] as any).composition_hash = harvestCompositionHash;
+        (lines[0] as any).is_mixed_harvest = true;
+      } else {
+        if (!lines[0]?.product_id) {
+          return NextResponse.json(
+            { error: "Приход урожая должен содержать одну складскую номенклатуру." },
+            { status: 400 }
+          );
+        }
 
       const [{ data: crop, error: cropError }, { data: harvestProduct, error: harvestProductError }] =
         await Promise.all([
@@ -305,14 +349,15 @@ export async function POST(request: NextRequest) {
           { status: 409 }
         );
       }
+      }
 
       ticket.season_id = harvestContext.seasonId;
       ticket.linked_operation_id = harvestContext.operationId || null;
       for (const line of lines) {
         line.operation_line_id = harvestContext.operationLineId || null;
-        line.crop_id = harvestContext.allocation?.cropId || null;
-        line.variety_id = harvestContext.allocation?.varietyId || null;
-        line.reproduction_id = harvestContext.allocation?.reproductionId || null;
+        line.crop_id = harvestIsCropMix ? null : harvestContext.allocation?.cropId || null;
+        line.variety_id = harvestIsCropMix ? null : harvestContext.allocation?.varietyId || null;
+        line.reproduction_id = harvestIsCropMix ? null : harvestContext.allocation?.reproductionId || null;
       }
 
       const destinationKind = String(ticket.destination_kind || "warehouse").trim().toLowerCase();
@@ -809,7 +854,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "gross_weight_kg is required and must be positive for harvest incoming" }, { status: 400 });
       }
       for (const line of lines) {
-        if (!line.crop_id || !line.variety_id || !line.reproduction_id) {
+        if (!harvestIsCropMix && (!line.crop_id || !line.variety_id || !line.reproduction_id)) {
           return NextResponse.json(
             { error: "crop_id, variety_id and reproduction_id are required for harvest incoming lines" },
             { status: 400 }
@@ -957,7 +1002,7 @@ export async function POST(request: NextRequest) {
       }
       const { data: structureRows, error: structureError } = await supabase
         .from("crop_structure")
-        .select("id,field_id,season_id,crop_id,variety_id,reproduction_id,company_id")
+        .select("id,field_id,season_id,land_use_type,crop_id,variety_id,reproduction_id,company_id")
         .eq("company_id", ticket.company_id)
         .eq("season_id", seasonId)
         .eq("field_id", ticket.field_id)
@@ -974,6 +1019,14 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      if (harvestIsCropMix) {
+        if ((allocation as any).land_use_type !== "crop_mix") {
+          return NextResponse.json({ error: "Selected crop structure is not a crop mix" }, { status: 409 });
+        }
+        if (lines.some((line) => line.crop_id || line.variety_id || line.reproduction_id)) {
+          return NextResponse.json({ error: "Crop mix harvest line must use the mixed inventory identity" }, { status: 409 });
+        }
+      } else {
       const allowed = new Set(
         (structureRows || []).map(
           (x: any) => `${String(x.crop_id || "")}:${String(x.variety_id || "")}:${String(x.reproduction_id || "")}`
@@ -997,6 +1050,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
+      }
       }
     }
     if (isDirectSupplierReceipt) {
@@ -1129,6 +1183,9 @@ export async function POST(request: NextRequest) {
       density_verified_at: line.density_verified_at ?? null,
       unit_source: line.unit_source ?? null,
       unit_contract_version: line.unit_contract_version ?? null,
+      composition_snapshot: (line as any).composition_snapshot || [],
+      composition_hash: (line as any).composition_hash || null,
+      is_mixed_harvest: Boolean((line as any).is_mixed_harvest),
     }));
 
     const { error: linesError } = await supabase.from("ticket_lines").insert(linesPayload);
@@ -1166,7 +1223,7 @@ export async function POST(request: NextRequest) {
 
     if (isDirectSupplierReceipt) {
       const rpcStartedAt = Date.now();
-      const { error: finalizeError } = await supabase.rpc("finalize_weighbridge_ticket_v2", {
+      const { error: finalizeError } = await supabase.rpc("finalize_weighbridge_ticket_authenticated_v1", {
         p_ticket_id: createdTicket.id,
         p_actor_user_id: actor.id,
       });

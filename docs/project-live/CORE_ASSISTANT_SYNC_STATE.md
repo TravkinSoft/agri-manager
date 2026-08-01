@@ -726,3 +726,12 @@ TZ239_INTEGRATION_CONTRACT_IMPACT: `NO`; Assistant tools, prompts, snapshots and
 TZ239_BRANCH_RESULT: `PASS - quantity-only UI and RPCs, canonical actual-product OUT/IN identity, fresh 1/5/1.2/3.8/0 reconciliation, no-stock guard and 50/50 contract checks passed`.
 TZ239_PRODUCTION_IMPACT: `NONE`; migration was applied only to branch `gsglkmudcwkdetqtocae`, with zero production writes/deploys and no master merge.
 TZ239_ACTION: `QA_PREVIEW_ALLOWED`; Assistant work remains independent from warehouse issue mutations.
+
+## TZ-242 review result
+
+TZ242_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory, GLBD tools and snapshots were not modified.
+TZ242_CORE_IMPACT_FOUND: `YES - crop structure, planting, warehouse issue, Specialist fact, field history, harvest and weighbridge support one grain-mix allocation end to end`.
+TZ242_INTEGRATION_CONTRACT_IMPACT: `NO`; no Assistant tool, prompt, memory, snapshot or ERP-write boundary changed.
+TZ242_BRANCH_RESULT: `PASS - 100 ha, 2 components, 12,000 kg seed plan, separate issue/fact/returns, one 20,000 kg mixed harvest batch, one ledger IN and 200 kg/ha mixed yield`.
+TZ242_PRODUCTION_IMPACT: `NONE`; migrations and E2E data exist only on branch `gsglkmudcwkdetqtocae`, with zero production writes/deploys and no master merge.
+TZ242_ACTION: `FATHER_CONTROLLED_QA_PILOT_ALLOWED`; mixed seed remainder, recipes and Assistant recommendations remain out of scope.

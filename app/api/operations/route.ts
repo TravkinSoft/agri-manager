@@ -432,7 +432,7 @@ export async function POST(request: NextRequest) {
     let resolvedCropId = toNullableUuid(body.crop_id);
     let resolvedVarietyId: string | null = null;
     let resolvedReproductionId: string | null = null;
-    let resolvedLandUseType: "crop" | "fallow" | null = null;
+    let resolvedLandUseType: "crop" | "crop_mix" | "fallow" | null = null;
     let resolvedStructureArea: number | null = null;
     let resolvedSeasonId: string | null = null;
     let resolvedSeasonYear: number | null = null;
@@ -458,18 +458,9 @@ export async function POST(request: NextRequest) {
     if (cropIndependent && operationComponents.length > 0) {
       return NextResponse.json({ error: "Plowing and snow retention do not create material requests" }, { status: 400 });
     }
-    const deferCropStructureReadForFastPath =
-      Boolean(cropStructureId && fieldId) &&
-      !Array.isArray(body.targets) &&
-      !body.structure_change?.mode &&
-      operationComponents.length === 0 &&
-      !rowSpacingM &&
-      !seedSpacingCm &&
-      operationTemplate !== "potato_planting" &&
-      canonicalCategorySlug !== "harvesting" &&
-      operationTypeSlug !== "harvesting" &&
-      !cropIndependent &&
-      allowsDefaultOperationLine(canonicalCategorySlug, operationTypeSlug, operationType);
+    // The structure row is authoritative for crop, fallow and crop-mix identity.
+    // Always read it before mutation so a crop-mix cannot enter the single-crop fast path.
+    const deferCropStructureReadForFastPath = false;
 
     if (cropStructureId && !deferCropStructureReadForFastPath) {
       const cropStructureStarted = Date.now();
@@ -565,7 +556,12 @@ export async function POST(request: NextRequest) {
         structureRow = updatedStructureRow as any;
       }
       if (structureRow) {
-        resolvedLandUseType = (structureRow as any).land_use_type === "fallow" ? "fallow" : "crop";
+        resolvedLandUseType =
+          (structureRow as any).land_use_type === "fallow"
+            ? "fallow"
+            : (structureRow as any).land_use_type === "crop_mix"
+              ? "crop_mix"
+              : "crop";
         resolvedCropId = toNullableUuid((structureRow as any).crop_id);
         resolvedVarietyId = toNullableUuid((structureRow as any).variety_id);
         resolvedReproductionId = toNullableUuid((structureRow as any).reproduction_id);
@@ -592,12 +588,13 @@ export async function POST(request: NextRequest) {
     if (!cropIndependent && resolvedLandUseType === "fallow") {
       return NextResponse.json({ error: "The selected operation requires a crop structure line" }, { status: 409 });
     }
-    if (!cropIndependent && cropStructureRequired && !resolvedCropId) {
+    if (!cropIndependent && cropStructureRequired && !resolvedCropId && resolvedLandUseType !== "crop_mix") {
       return NextResponse.json({ error: "The selected operation requires crop identity" }, { status: 409 });
     }
 
     if (
       (canonicalCategorySlug === "harvesting" || operationTypeSlug === "harvesting") &&
+      resolvedLandUseType !== "crop_mix" &&
       (!resolvedCropId || !resolvedVarietyId || !resolvedReproductionId)
     ) {
       return NextResponse.json(
@@ -923,13 +920,20 @@ export async function POST(request: NextRequest) {
       season_year: resolvedSeasonYear,
     };
 
+    const cropMixOperationType =
+      resolvedLandUseType === "crop_mix" && canonicalCategorySlug === "planting"
+        ? "Посев зерносмеси"
+        : resolvedLandUseType === "crop_mix" && canonicalCategorySlug === "harvesting"
+          ? "Уборка зерносмеси"
+          : storageOperationType;
+
     const operationPayload = {
       company_id: companyId,
       field_id: fieldId,
       crop_structure_id: cropStructureId,
       operation_category_slug: canonicalCategorySlug,
       operation_type_slug: storageOperationTypeSlug,
-      operation_type: storageOperationType,
+      operation_type: cropMixOperationType,
       machine_id: machineId,
       equipment_id: equipmentId,
       transport_id: toNullableUuid(body.transport_id),
@@ -1035,21 +1039,37 @@ export async function POST(request: NextRequest) {
     }
 
     const mutationStarted = Date.now();
-    const { data: mutationResult, error: mutationError } = await supabase.rpc("create_operation_plan_atomic_v12", {
-      p_company_id: companyId,
-      p_actor_profile_id: actor.id,
-      p_operation: {
-        ...operationPayload,
-        crop_id: resolvedCropId,
-        variety_id: resolvedVarietyId,
-        reproduction_id: resolvedReproductionId,
-      },
-      p_lines: lineRows,
-      p_materials: materialRows,
-      p_structure_change: pendingStructureChangeEvent || {},
-      p_idempotency_key: idempotencyKey,
-      p_request_fingerprint: requestFingerprint,
-    });
+    const isCropMixPlanting = resolvedLandUseType === "crop_mix" && canonicalCategorySlug === "planting";
+    const mutation = isCropMixPlanting
+      ? await supabase.rpc("create_crop_mix_operation_plan_atomic_v1", {
+          p_company_id: companyId,
+          p_actor_profile_id: actor.id,
+          p_operation: {
+            ...operationPayload,
+            planned_area_ha: resolvedExecutionArea,
+            crop_id: null,
+            variety_id: null,
+            reproduction_id: null,
+          },
+          p_idempotency_key: idempotencyKey,
+          p_request_fingerprint: requestFingerprint,
+        })
+      : await supabase.rpc("create_operation_plan_atomic_v12", {
+          p_company_id: companyId,
+          p_actor_profile_id: actor.id,
+          p_operation: {
+            ...operationPayload,
+            crop_id: resolvedCropId,
+            variety_id: resolvedVarietyId,
+            reproduction_id: resolvedReproductionId,
+          },
+          p_lines: lineRows,
+          p_materials: materialRows,
+          p_structure_change: pendingStructureChangeEvent || {},
+          p_idempotency_key: idempotencyKey,
+          p_request_fingerprint: requestFingerprint,
+        });
+    const { data: mutationResult, error: mutationError } = mutation;
     timing.operation_insert_ms += Date.now() - mutationStarted;
 
     if (mutationError || !mutationResult) {

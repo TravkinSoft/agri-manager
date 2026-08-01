@@ -251,7 +251,7 @@ export default function WarehouseRequestsPage() {
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [sourceWarehouseId, setSourceWarehouseId] = useState("");
   const [stockDetailsByItem, setStockDetailsByItem] = useState<
-    Record<string, WarehouseStockDetails>
+    Record<string, WarehouseStockDetails | null>
   >({});
   const [stockDetailsLoading, setStockDetailsLoading] = useState(false);
   const [preparedByItem, setPreparedByItem] = useState<Record<string, string>>(
@@ -424,10 +424,12 @@ export default function WarehouseRequestsPage() {
     setStockDetailsLoading(true);
     Promise.all(
       selectedRequest.items.map(async (item) => {
+        const productId = item.actual_product_id || item.product_id;
+        if (!productId) return [item.id, null] as const;
         const details = await getWarehouseStockDetails({
           companyId: profile.company_id!,
           warehouseId: effectiveWarehouseId,
-          productId: item.actual_product_id || item.product_id,
+          productId,
           unit: item.unit || item.product_unit || "kg",
           excludeRequestId: selectedRequest.id,
         });
@@ -472,6 +474,7 @@ export default function WarehouseRequestsPage() {
         0
       );
       const details = stockDetailsByItem[item.id] || null;
+      const hasProductIdentity = Boolean(item.actual_product_id || item.product_id);
       const lifecycleStatus = String(
         selectedRequest.warehouse_request_status || selectedRequest.status || ""
       );
@@ -520,8 +523,9 @@ export default function WarehouseRequestsPage() {
       const expectedReturn = preparingNow
         ? validation.expectedReturnQuantity
         : toQty(item.expected_return_quantity, Math.max(prepared - planned, 0));
-      const rowStatus =
-        lifecycleStatus === "closed" ||
+      const rowStatus = !hasProductIdentity
+        ? "Семенной материал с таким сортом и репродукцией ещё не оприходован"
+        : lifecycleStatus === "closed" ||
         item.reconciliation_status === "reconciled"
           ? "Сверка завершена"
           : lifecycleStatus === "return_expected"
@@ -549,7 +553,7 @@ export default function WarehouseRequestsPage() {
           preparingNow && prepared > available + 0.000001,
         valid:
           !preparingNow ||
-          (Boolean(details) &&
+          (hasProductIdentity && Boolean(details) &&
             validation.valid &&
             lotDistribution.deficitQuantity <= 0.000001 &&
             prepared <= available + 0.000001),
