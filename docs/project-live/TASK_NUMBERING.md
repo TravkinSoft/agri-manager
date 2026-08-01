@@ -111,6 +111,7 @@
 | TZ-237 | GLBD / UI / DATABASE | Human pesticide cards and agronomic data recovery V1 | copilot-v1 | DONE | TZ-223,TZ-226,TZ-229,TZ-230 | [task-reports/core/TZ-237.md](task-reports/core/TZ-237.md) | `SELF` |
 | TZ-238 | WAREHOUSE / OPERATIONS / QA DATA / DATABASE | Package-aware issue, expected returns and Specialist task clarity | copilot-v1 | DONE | TZ-204,TZ-218,TZ-221,TZ-234 | [task-reports/core/TZ-238.md](task-reports/core/TZ-238.md) | `SELF` |
 | TZ-239 | WAREHOUSE / OPERATIONS / QA DATABASE | Remove package complexity from warehouse issue | copilot-v1 | DONE | TZ-238 | [task-reports/core/TZ-239.md](task-reports/core/TZ-239.md) | `SELF` |
+| TZ-241 | CATALOG / AGRONOMY / QA DATABASE / UI | Global crops catalog and regional varieties import V1 | copilot-v1 | DONE | TZ-239 | [task-reports/core/TZ-241.md](task-reports/core/TZ-241.md) | `SELF` |
 
 ## Status values
 

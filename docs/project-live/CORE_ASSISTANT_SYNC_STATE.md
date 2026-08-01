@@ -1,8 +1,8 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-07-29T00:00:00+05:00
+LAST_REVIEW_AT: 2026-08-01T00:00:00+05:00
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (TZ-237 feature commits: `a9d4f0a`, `908a78e`, `70767a7`)
+CORE_COMMIT: `SELF` (TZ-241 feature commit: `2f3adbd`)
 
 ASSISTANT_BRANCH_REVIEWED: `origin/assistant-v1`
 ASSISTANT_COMMIT_REVIEWED: `f503f05b54de129b6778fee10e3b6406ec761ced`
@@ -16,7 +16,28 @@ INTEGRATION_CONTRACT_IMPACT: NO - Contract 0.4 remains unchanged.
 INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
-NEXT_SAFE_ACTION: Complete owner agronomist visual review of TZ-237 in QA. Do not refresh the Assistant snapshot or enable agronomic recommendations without a separate approved task.
+NEXT_SAFE_ACTION: Accept a separately approved owner-supplied regional variety package. Do not start grain mixtures, refresh the Assistant snapshot or enable agronomic recommendations without a separate approved task.
+
+## TZ-241 review result
+
+TZ241_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory and Contract 0.4
+were not changed.
+
+TZ241_CORE_IMPACT_FOUND: `YES - canonical crop category filters, active global
+crop/variety reads and honest empty-variety copy`.
+
+TZ241_INTEGRATION_CONTRACT_IMPACT: `NO`; no Assistant snapshot, catalog tool or
+recommendation contract changed.
+
+TZ241_ACCEPTANCE: `PASS - 68/68 crops, 588/588 source variety pairs, 44/44
+automated checks and 15/15 Agronomist browser regression`.
+
+TZ241_TEST_ENVIRONMENT: `gsglkmudcwkdetqtocae and Vercel Preview only`;
+production writes, production migrations, production deploy and master merge
+are `0/NONE/NO/NO`.
+
+TZ241_ACTION: `NEXT OWNER-SUPPLIED VARIETY PACKAGE ALLOWED`; grain mixtures and
+Assistant agronomic recommendations remain out of scope.
 
 ## TZ-237 review result
 

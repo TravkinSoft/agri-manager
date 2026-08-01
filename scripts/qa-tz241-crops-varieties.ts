@@ -160,6 +160,17 @@ async function main() {
   check(39, "Обычный QA user не меняет global crop", Boolean(deniedMutation.error) || (deniedMutation.data || []).length === 0);
   check(40, "Global Admin route защищён проверкой роли", codeContains("app/api/global-admin/catalog/[entity]/route.ts", /getServerActorFromSession/) && codeContains("app/api/global-admin/catalog/[entity]/route.ts", /global_admin/));
 
+  const cropSearchSample = sourceCrops.slice(0, 20);
+  check(41, "Global Admin search sample 20/20", cropSearchSample.length === 20 && cropSearchSample.every((row) => activeCrops.some((crop) => normalize(displayCrop(crop)) === normalize(row.crop))));
+
+  const varietySearchSample = sourceVarieties.slice(0, 30);
+  check(42, "Global Admin variety search sample 30/30", varietySearchSample.length === 30 && varietySearchSample.every((row) => {
+    const crop = cropByName.get(normalize(row.crop));
+    return Boolean(crop && activeVarieties.some((variety) => variety.crop_id === crop.id && normalize(variety.name) === normalize(row.variety)));
+  }));
+  check(43, "Global Admin category filter contains exactly 8 canonical options", canonicalCropCategoryOptions.length === 8 && new Set(canonicalCropCategoryOptions.map((option) => option.label)).size === 8 && canonicalCropCategoryOptions.every((option) => EXPECTED_CATEGORIES.includes(option.label)));
+  check(44, "Global varieties filter resolves crop IDs", codeContains("lib/platform/global-catalog-config.ts", /key:\s*\"crop_id\"[^\n]+optionsEntity:\s*\"crops\"/) && codeContains("app/api/global-admin/catalog/[entity]/route.ts", /query = query\.eq\(filterKey, value\)/));
+
   const failed = checks.filter((item) => item.status === "FAIL");
   console.log(JSON.stringify({ task: "TZ-241", project_ref: QA_REF, checks_total: checks.length, passed: checks.length - failed.length, failed: failed.length, checks }, null, 2));
   if (failed.length) process.exitCode = 1;

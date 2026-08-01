@@ -1,8 +1,8 @@
 # Core Live State
 
-LAST_UPDATED: 2026-07-29
+LAST_UPDATED: 2026-08-01
 CORE_BRANCH: `copilot-v1`
-CORE_COMMIT: `SELF` (commit containing this Live-state update; TZ-237 feature commits: `a9d4f0a`, `908a78e`, `70767a7`)
+CORE_COMMIT: `SELF` (commit containing this Live-state update; TZ-241 feature commit: `2f3adbd`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
 ACTIVE_SEASON: `2026` для ТОО «Астык-STEM» и `2026 тестовый сезон` для TravkinFlowTest1
 PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает, но ветка `copilot-v1` содержит ещё не выпущенные изменения, включая ТЗ №136, №138, локальный складской контракт ТЗ №144 и branch-only preview read fix ТЗ №186. После push ТЗ №148 складской scope заморожен как `FROZEN_PENDING_FUTURE_APPLY`; ТЗ №186 не меняет production и требует A108 browser retest.
@@ -12,7 +12,7 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Модуль | Статус | Текущая правда |
 | --- | --- | --- |
 | Поля | READY | В production 100 company-scoped полей; Field остаётся главным производственным объектом. |
-| Структура посевов | IN_PROGRESS | В production 122 строки. Основной flow и lazy-load больших компаний проверены; fix сохранения участка «Пар» готов в `copilot-v1` по ТЗ №136, но ещё не выпущен в production. |
+| Структура посевов | TZ241_QA_CATALOG_READY | QA использует 68 активных global crops и 600 global varieties; 15-crop Agronomist regression прошёл с правильными crop/variety/reproduction identities. Production не менялась. |
 | Операции | TZ209_SIMPLIFIED_SELECTOR_READY | Atomic lifecycle сохранён. Новые планы показывают только 6 утверждённых разделов; почва/посев/уборка дают 11/3/10 конкретных работ, а удобрения/опрыскивание/полив выбираются одним кликом. Исторические операции и TZ-204/TZ-207 lifecycle не изменены. |
 | Склады | FROZEN_PENDING_FUTURE_APPLY | ТЗ №144 локально перевело 15 проблемных writer paths на единый контракт `base_quantity + base_uom + optional mass_kg`, обязательный `batch_class` и доказуемую плотность. ТЗ №148 доказало repeat safety. Commit `c6788b6` отправлен в `origin/copilot-v1`; migration `20260713183038` не применена, backfill не запускался, scope заморожен до отдельного production preflight и approval. Branch-only read blocker `/api/warehouses/balances` закрыт ТЗ №189 без schema/write изменений. |
 | Контрагенты | TZ211_PREVIEW_READY | В test branch доступны 108 глобальных юридических идентичностей. Новые складские приходы выбирают поставщика по названию или БИН/ИНН и атомарно создают/восстанавливают одну company-связь после успешного ledger `IN`. Production не менялась. |
@@ -23,6 +23,24 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A110_READ_ONLY_GATE_READY | TZ-195 preview принят владельцем. TZ-197 закрыл preview-pending GLBD actions; A110 может начинать read-only с safety matrix и блокировкой десяти `BLOCKED_NO_DATA`. Agronomic recommendations остаются запрещены. |
+
+## TZ-241 global crops and regional varieties
+
+- TZ-241 status: `PASS`; report: [task-reports/core/TZ-241.md](task-reports/core/TZ-241.md).
+- The supplied workbook was verified by SHA-256 and contributed exactly `68`
+  crops across `8` canonical categories and `588` crop-scoped variety pairs.
+- QA now contains `68` active global crops and `600` active global varieties;
+  the extra `12` varieties are pre-existing non-source rows preserved by design.
+- Existing crop and variety IDs and every linked relation count were preserved.
+  Duplicate normalized crop names, duplicate crop/variety pairs, wrong-crop
+  conflicts and cross-company leakage are all `0`.
+- Automated regression passed `44/44`; Agronomist browser regression passed
+  `15/15` and all temporary rows were removed exactly.
+- Preview commit `2f3adbd` is READY on the canonical QA alias. Production
+  fingerprint remained `3edb0ad648af1d3a820ea5af88139d96`; production writes,
+  migrations, deploy and master merge are `0/NONE/NO/NO`.
+- Remaining crop varieties require later owner-supplied regional packages.
+  Grain/grass mixtures and Assistant snapshots were not started.
 
 ## TZ-237 Human pesticide cards
 
