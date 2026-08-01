@@ -104,7 +104,30 @@ async function loadCropStructureBootstrap(
     if (cropStructureRes.error) {
       throw new Error(cropStructureRes.error.message || "Failed to load crop structure rows");
     }
-    cropStructureRows = cropStructureRes.data || [];
+    const structureRows = cropStructureRes.data || [];
+    const structureIds = structureRows.map((row: any) => String(row.id || "")).filter(Boolean);
+    let mixComponents: any[] = [];
+    if (structureIds.length) {
+      const mixRes = await supabase
+        .from("crop_structure_mix_components")
+        .select("id,company_id,crop_structure_id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order")
+        .eq("company_id", companyId)
+        .in("crop_structure_id", structureIds)
+        .order("sort_order");
+      if (mixRes.error) {
+        throw new Error(mixRes.error.message || "Failed to load crop mix components");
+      }
+      mixComponents = mixRes.data || [];
+    }
+    const componentsByStructure = new Map<string, any[]>();
+    for (const component of mixComponents) {
+      const key = String(component.crop_structure_id || "");
+      componentsByStructure.set(key, [...(componentsByStructure.get(key) || []), component]);
+    }
+    cropStructureRows = structureRows.map((row: any) => ({
+      ...row,
+      mix_components: componentsByStructure.get(String(row.id || "")) || [],
+    }));
   }
 
   return {

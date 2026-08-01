@@ -3,7 +3,7 @@ import { z } from "zod";
 export const cropStructureSchema = z.object({
   field_id: z.string().uuid("Please select a field"),
   season_id: z.string().uuid("Please select a season"),
-  land_use_type: z.enum(["crop", "fallow"]).default("crop"),
+  land_use_type: z.enum(["crop", "crop_mix", "fallow"]).default("crop"),
   crop_id: z.string().uuid("Please select a crop").nullable(),
   variety_id: z.string().uuid("Please select a variety").nullable().optional(),
   reproduction_id: z.string().uuid("Please select a reproduction").nullable().optional(),
@@ -20,13 +20,13 @@ export const cropStructureSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["crop_id"], message: "Please select a crop" });
   }
   if (
-    value.land_use_type === "fallow" &&
+    (value.land_use_type === "fallow" || value.land_use_type === "crop_mix") &&
     (value.crop_id != null || value.variety_id != null || value.reproduction_id != null)
   ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["land_use_type"],
-      message: "Fallow land cannot have crop identity",
+      message: "Fallow and crop mix roots cannot have crop identity",
     });
   }
 });
@@ -37,7 +37,7 @@ export interface CropStructure {
   id: string;
   field_id: string;
   season_id: string;
-  land_use_type: "crop" | "fallow";
+  land_use_type: "crop" | "crop_mix" | "fallow";
   crop_id: string | null;
   variety_id: string | null;
   reproduction_id: string | null;
@@ -61,4 +61,15 @@ export interface CropStructureWithDetails extends CropStructure {
   crop_name: string;
   variety_name: string | null;
   reproduction_name: string | null;
+  mix_components?: Array<{
+    id?: string;
+    crop_id: string | null;
+    variety_id: string | null;
+    reproduction_id: string | null;
+    seed_rate_kg_ha: number | null;
+    sort_order?: number;
+    crop_name?: string | null;
+    variety_name?: string | null;
+    reproduction_name?: string | null;
+  }>;
 }

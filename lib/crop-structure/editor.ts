@@ -1,6 +1,8 @@
+import { grainMixFingerprint, type GrainMixComponent } from "@/lib/crop-structure/grain-mix";
+
 export type CropStructureEditorRow = {
   id?: string;
-  land_use_type: "crop" | "fallow";
+  land_use_type: "crop" | "crop_mix" | "fallow";
   crop_id: string | null;
   variety_id: string | null;
   reproduction_id: string | null;
@@ -9,6 +11,7 @@ export type CropStructureEditorRow = {
   irrigation_type?: string | null;
   row_spacing_m?: number | null;
   seed_spacing_cm?: number | null;
+  mix_components?: GrainMixComponent[];
 };
 
 export type CropStructureChangeSummary = {
@@ -43,6 +46,7 @@ const rowFingerprint = (row: CropStructureEditorRow) =>
     row.irrigation_type || "unknown",
     row.row_spacing_m == null ? null : Number(row.row_spacing_m),
     row.seed_spacing_cm == null ? null : Number(row.seed_spacing_cm),
+    grainMixFingerprint(row.mix_components || []),
   ]);
 
 export function summarizeCropStructureChanges(

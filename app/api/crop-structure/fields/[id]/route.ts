@@ -1,18 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerActorFromSession, resolveCompanyForActor, SessionAuthError } from "@/lib/auth/server-session";
+import {
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+  SessionAuthError,
+} from "@/lib/auth/server-session";
 import {
   isFallowLandUse,
+  isCropMixLandUse,
   validateAndNormalizeCropStructureRows,
   type CropIdentity,
   type CropStructureSeedAttributes,
 } from "@/lib/crop-structure/fallow";
+import {
+  validateGrainMixComponents,
+  type GrainMixComponent,
+} from "@/lib/crop-structure/grain-mix";
 import { isPotatoCropContext, normalizeIrrigationType, type IrrigationType } from "@/lib/operations/operation-engine";
-import { getServiceClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const EDIT_ALLOWED_ROLES = ["global_admin", "agronomist"] as const;
+const EDIT_ALLOWED_ROLES = ["global_admin", "company_admin", "agronomist"] as const;
 const CROP_STRUCTURE_BASE_SELECT = "id,field_id,land_use_type,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
 const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
 
@@ -20,6 +29,7 @@ type InputRow = CropStructureSeedAttributes & {
   id?: string;
   notes?: string | null;
   irrigation_type?: IrrigationType | null;
+  mix_components: GrainMixComponent[];
 };
 
 type CropRow = CropIdentity & {
@@ -87,9 +97,33 @@ function parseRows(value: unknown): InputRow[] {
       throw new SessionAuthError(`Invalid crop id at index ${index}`, 400);
     }
     const landUseType = String(row.land_use_type || "crop").trim().toLowerCase();
-    if (landUseType !== "crop" && landUseType !== "fallow") {
+    if (landUseType !== "crop" && landUseType !== "crop_mix" && landUseType !== "fallow") {
       throw new SessionAuthError(`Invalid land_use_type at index ${index}`, 400);
     }
+
+    const mixComponents = Array.isArray(row.mix_components)
+      ? row.mix_components.map((rawComponent, componentIndex) => {
+          const component = (rawComponent || {}) as Record<string, unknown>;
+          const id = String(component.id || "").trim();
+          if (id && !isUuid(id)) {
+            throw new SessionAuthError(`Invalid mix component id at row ${index}, component ${componentIndex}`, 400);
+          }
+          for (const key of ["crop_id", "variety_id", "reproduction_id"] as const) {
+            const normalized = String(component[key] || "").trim();
+            if (normalized && !isUuid(normalized)) {
+              throw new SessionAuthError(`Invalid ${key} at row ${index}, component ${componentIndex}`, 400);
+            }
+          }
+          return {
+            ...(id ? { id } : {}),
+            crop_id: nullableUuid(component.crop_id),
+            variety_id: nullableUuid(component.variety_id),
+            reproduction_id: nullableUuid(component.reproduction_id),
+            seed_rate_kg_ha: nullableNumber(component.seed_rate_kg_ha),
+            sort_order: componentIndex + 1,
+          } satisfies GrainMixComponent;
+        })
+      : [];
 
     for (const [key, value] of [
       ["variety_id", row.variety_id],
@@ -112,6 +146,7 @@ function parseRows(value: unknown): InputRow[] {
       irrigation_type: normalizeIrrigationType(row.irrigation_type == null ? null : String(row.irrigation_type)),
       row_spacing_m: nullableNumber(row.row_spacing_m),
       seed_spacing_cm: nullableNumber(row.seed_spacing_cm),
+      mix_components: mixComponents,
     };
   });
 }
@@ -144,7 +179,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     const companyId = resolveCompanyForActor(actor, String(body.companyId || "").trim() || null);
     const requestedRows = parseRows(body.rows);
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
 
     const [fieldRes, seasonRes, existingRes, activeSeasonsRes] = await Promise.all([
       supabase.from("fields").select("id,company_id,area,archived").eq("id", fieldId).eq("company_id", companyId).maybeSingle(),
@@ -177,9 +212,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       throw new SessionAuthError("Only the current season crop structure can be edited", 409);
     }
 
-    const cropIds = Array.from(new Set(requestedRows.map((row) => row.crop_id).filter((id): id is string => Boolean(id))));
-    const varietyIds = Array.from(new Set(requestedRows.map((row) => row.variety_id).filter((id): id is string => Boolean(id))));
-    const reproductionIds = Array.from(new Set(requestedRows.map((row) => row.reproduction_id).filter((id): id is string => Boolean(id))));
+    const cropIds = Array.from(new Set(requestedRows.flatMap((row) => [row.crop_id, ...row.mix_components.map((item) => item.crop_id)]).filter((id): id is string => Boolean(id))));
+    const varietyIds = Array.from(new Set(requestedRows.flatMap((row) => [row.variety_id, ...row.mix_components.map((item) => item.variety_id)]).filter((id): id is string => Boolean(id))));
+    const reproductionIds = Array.from(new Set(requestedRows.flatMap((row) => [row.reproduction_id, ...row.mix_components.map((item) => item.reproduction_id)]).filter((id): id is string => Boolean(id))));
 
     const [cropsRes, varietiesRes, reproductionsRes] = await Promise.all([
       cropIds.length
@@ -232,6 +267,26 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       throw new SessionAuthError(validation.message, 400);
     }
 
+    for (let index = 0; index < validation.rows.length; index += 1) {
+      const row = validation.rows[index];
+      if (isCropMixLandUse(row.land_use_type)) {
+        const mixValidation = validateGrainMixComponents({
+          components: row.mix_components,
+          cropsById,
+          varietiesById,
+        });
+        if (!mixValidation.ok) {
+          throw new SessionAuthError(
+            `Строка ${index + 1}: ${mixValidation.message}`,
+            400
+          );
+        }
+        if (row.irrigation_type == null) row.irrigation_type = "unknown";
+      } else if (row.mix_components.length > 0) {
+        throw new SessionAuthError(`Строка ${index + 1}: компоненты разрешены только для зерносмеси.`, 400);
+      }
+    }
+
     const existingIds = new Set((existingRes.data || []).map((row) => String(row.id)));
     const submittedIds = new Set(validation.rows.map((row) => row.id).filter((id): id is string => Boolean(id)));
     if (Array.from(submittedIds).some((id) => !existingIds.has(id))) {
@@ -241,7 +296,7 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     for (let index = 0; index < validation.rows.length; index += 1) {
       const row = validation.rows[index];
       const crop = row.crop_id ? cropsById.get(row.crop_id) : null;
-      if (isFallowLandUse(row.land_use_type)) continue;
+      if (isFallowLandUse(row.land_use_type) || isCropMixLandUse(row.land_use_type)) continue;
 
       const variety = row.variety_id ? varietiesById.get(row.variety_id) : null;
       const cropLabel = crop?.name_ru || crop?.name || crop?.name_en || "";
@@ -256,103 +311,41 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       }
     }
 
-    const deleteIds = Array.from(existingIds).filter((id) => !submittedIds.has(id));
-    if (deleteIds.length) {
-      const [operationsRes, consumptionsRes] = await Promise.all([
-        supabase.from("operations").select("id", { count: "exact", head: true }).in("crop_structure_id", deleteIds),
-        supabase.from("field_material_consumptions").select("id", { count: "exact", head: true }).in("crop_structure_row_id", deleteIds),
-      ]);
-      const dependencyError = operationsRes.error || consumptionsRes.error;
-      if (dependencyError) throw new Error(dependencyError.message);
-      if (Number(operationsRes.count || 0) > 0 || Number(consumptionsRes.count || 0) > 0) {
-        throw new SessionAuthError("Нельзя удалить участок: у него уже есть операции или материалы.", 409);
-      }
+    const rowsForSave = validation.rows.map((row) => ({
+      id: row.id || crypto.randomUUID(),
+      land_use_type: row.land_use_type || "crop",
+      crop_id: row.crop_id,
+      variety_id: row.variety_id,
+      reproduction_id: row.reproduction_id,
+      notes: row.notes || null,
+      area: Number(row.area || 0),
+      irrigation_type: normalizeIrrigationType(row.irrigation_type),
+      row_spacing_m: row.row_spacing_m,
+      seed_spacing_cm: row.seed_spacing_cm,
+      mix_components: row.mix_components.map((component, componentIndex) => ({
+        id: component.id || null,
+        crop_id: component.crop_id,
+        variety_id: component.variety_id,
+        reproduction_id: component.reproduction_id,
+        seed_rate_kg_ha: Number(component.seed_rate_kg_ha || 0),
+        sort_order: componentIndex + 1,
+      })),
+    }));
+
+    const { data: saved, error: saveError } = await supabase.rpc("save_crop_structure_field_v5", {
+      p_company_id: companyId,
+      p_actor_profile_id: actor.id,
+      p_actor_auth_user_id: actor.authUserId,
+      p_field_id: fieldId,
+      p_season_id: seasonId,
+      p_rows: rowsForSave,
+    });
+    if (saveError) {
+      const conflict = String(saveError.code || "") === "23514" || String(saveError.code || "") === "23505";
+      throw new SessionAuthError(saveError.message, conflict ? 409 : 400);
     }
 
-    const toPayload = (row: InputRow, includeTechnology: boolean) => {
-      const crop = row.crop_id ? cropsById.get(row.crop_id) : null;
-      const variety = row.variety_id ? varietiesById.get(row.variety_id) : null;
-      const potato = !isFallowLandUse(row.land_use_type) && isPotatoCropContext(
-        crop?.name_ru || crop?.name || crop?.name_en || "",
-        variety?.name || ""
-      );
-      return {
-        company_id: companyId,
-        user_id: actor.id,
-        field_id: fieldId,
-        season_id: seasonId,
-        land_use_type: row.land_use_type || "crop",
-        crop_id: row.crop_id,
-        variety_id: row.variety_id,
-        reproduction_id: row.reproduction_id,
-        notes: row.notes || null,
-        area: Number(row.area || 0),
-        status: "planned",
-        archived: false,
-        ...(includeTechnology
-          ? {
-              irrigation_type: normalizeIrrigationType(row.irrigation_type),
-              row_spacing_m: row.row_spacing_m ?? (potato ? 0.75 : null),
-              seed_spacing_cm: row.seed_spacing_cm ?? null,
-            }
-          : {}),
-      };
-    };
-
-    const updates = validation.rows.filter((row) => row.id);
-    if (updates.length) {
-      let result = await supabase.from("crop_structure").upsert(
-        updates.map((row) => ({ id: row.id, ...toPayload(row, true) })),
-        { onConflict: "id" }
-      );
-      if (result.error && isMissingCropStructureV4Column(result.error)) {
-        result = await supabase.from("crop_structure").upsert(
-          updates.map((row) => ({ id: row.id, ...toPayload(row, false) })),
-          { onConflict: "id" }
-        );
-      }
-      if (result.error) throw new Error(result.error.message);
-    }
-
-    const inserts = validation.rows.filter((row) => !row.id);
-    if (inserts.length) {
-      let result = await supabase.from("crop_structure").insert(inserts.map((row) => toPayload(row, true)));
-      if (result.error && isMissingCropStructureV4Column(result.error)) {
-        result = await supabase.from("crop_structure").insert(inserts.map((row) => toPayload(row, false)));
-      }
-      if (result.error) throw new Error(result.error.message);
-    }
-
-    if (deleteIds.length) {
-      const deleteRes = await supabase
-        .from("crop_structure")
-        .delete()
-        .eq("company_id", companyId)
-        .eq("field_id", fieldId)
-        .eq("season_id", seasonId)
-        .in("id", deleteIds);
-      if (deleteRes.error) throw new Error(deleteRes.error.message);
-    }
-
-    let savedRowsRes: any = await supabase
-      .from("crop_structure")
-      .select(CROP_STRUCTURE_V4_SELECT)
-      .eq("company_id", companyId)
-      .eq("field_id", fieldId)
-      .eq("season_id", seasonId)
-      .eq("archived", false);
-    if (savedRowsRes.error && isMissingCropStructureV4Column(savedRowsRes.error)) {
-      savedRowsRes = await supabase
-        .from("crop_structure")
-        .select(CROP_STRUCTURE_BASE_SELECT)
-        .eq("company_id", companyId)
-        .eq("field_id", fieldId)
-        .eq("season_id", seasonId)
-        .eq("archived", false);
-    }
-    if (savedRowsRes.error) throw new Error(savedRowsRes.error.message);
-
-    return NextResponse.json({ companyId, fieldId, seasonId, rows: savedRowsRes.data || [] });
+    return NextResponse.json(saved || { companyId, fieldId, seasonId, rows: [] });
   } catch (error) {
     return apiError(error);
   }

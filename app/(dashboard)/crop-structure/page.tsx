@@ -34,10 +34,20 @@ import { getFieldDisplayName } from "@/lib/fields/display";
 import { createField } from "@/lib/services/fields";
 import type { FieldFormData } from "@/lib/types/field";
 import {
+  isCropMixLandUse,
   isFallowLandUse,
   normalizeCropStructureSeedAttributes,
   validateAndNormalizeCropStructureRows,
 } from "@/lib/crop-structure/fallow";
+import {
+  GRAIN_MIX_MAX_COMPONENTS,
+  GRAIN_MIX_MIN_COMPONENTS,
+  grainMixComponentTotalKg,
+  grainMixDisplayName,
+  grainMixTotalKg,
+  validateGrainMixComponents,
+  type GrainMixComponent,
+} from "@/lib/crop-structure/grain-mix";
 import {
   buildReproductionOptions,
   buildVarietyOptions,
@@ -112,7 +122,7 @@ type CropStructureBootstrapPayload = {
 type Allocation = {
   id?: string;
   field_id: string;
-  land_use_type: "crop" | "fallow";
+  land_use_type: "crop" | "crop_mix" | "fallow";
   crop_id: string | null;
   variety_id: string | null;
   reproduction_id: string | null;
@@ -125,6 +135,7 @@ type Allocation = {
   seed_spacing_cm?: number | null;
   identity_review_required?: boolean;
   identity_review_reason?: string | null;
+  mix_components: GrainMixComponent[];
 };
 type Consumption = {
   id: string;
@@ -267,7 +278,7 @@ const isMissingCropStructureV4Column = (error: unknown) => {
 const allocationFromRow = (row: any): Allocation => ({
   id: row.id,
   field_id: row.field_id,
-  land_use_type: row.land_use_type === "fallow" ? "fallow" : "crop",
+  land_use_type: row.land_use_type === "fallow" ? "fallow" : row.land_use_type === "crop_mix" ? "crop_mix" : "crop",
   crop_id: row.crop_id,
   variety_id: row.variety_id,
   reproduction_id: row.reproduction_id,
@@ -280,8 +291,20 @@ const allocationFromRow = (row: any): Allocation => ({
   seed_spacing_cm: row.seed_spacing_cm == null ? null : Number(row.seed_spacing_cm || 0),
   identity_review_required:
     row.identity_review_required === true ||
-    (row.land_use_type !== "fallow" && (!row.crop_id || !row.variety_id || !row.reproduction_id)),
+    (row.land_use_type === "crop" && (!row.crop_id || !row.variety_id || !row.reproduction_id)),
   identity_review_reason: row.identity_review_reason || null,
+  mix_components: Array.isArray(row.mix_components)
+    ? row.mix_components
+        .map((component: any, index: number) => ({
+          id: component.id || undefined,
+          crop_id: component.crop_id || null,
+          variety_id: component.variety_id || null,
+          reproduction_id: component.reproduction_id || null,
+          seed_rate_kg_ha: component.seed_rate_kg_ha == null ? null : Number(component.seed_rate_kg_ha),
+          sort_order: Number(component.sort_order || index + 1),
+        }))
+        .sort((left: GrainMixComponent, right: GrainMixComponent) => Number(left.sort_order || 0) - Number(right.sort_order || 0))
+    : [],
 });
 const buildAllocationMap = (rows: unknown[]) => {
   const map = new Map<string, Allocation[]>();
@@ -293,7 +316,10 @@ const buildAllocationMap = (rows: unknown[]) => {
   return map;
 };
 const cloneAllocationMap = (map: Map<string, Allocation[]>) =>
-  new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({ ...item }))]));
+  new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({
+    ...item,
+    mix_components: item.mix_components.map((component) => ({ ...component })),
+  }))]));
 const fmtDate = (value?: string | null) => {
   if (!value) return "-";
   const d = new Date(value);
@@ -369,7 +395,7 @@ export default function CropStructurePage() {
   const activeCompanyId = profile?.company_id || null;
   const activeProfileId = profile?.id || null;
   const isGlobalAdmin = profile?.role === "global_admin";
-  const canEditStructure = isGlobalAdmin || profile?.role === "agronomist";
+  const canEditStructure = isGlobalAdmin || profile?.role === "company_admin" || profile?.role === "agronomist";
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -520,7 +546,7 @@ export default function CropStructurePage() {
       Array.from(allocByField.values())
         .flat()
         .concat(draftRows)
-        .map((row) => row.variety_id)
+        .flatMap((row) => [row.variety_id, ...row.mix_components.map((component) => component.variety_id)])
         .filter((id): id is string => Boolean(id)),
     [allocByField, draftRows]
   );
@@ -529,7 +555,7 @@ export default function CropStructurePage() {
       Array.from(allocByField.values())
         .flat()
         .concat(draftRows)
-        .map((row) => row.reproduction_id)
+        .flatMap((row) => [row.reproduction_id, ...row.mix_components.map((component) => component.reproduction_id)])
         .filter((id): id is string => Boolean(id)),
     [allocByField, draftRows]
   );
@@ -599,16 +625,19 @@ export default function CropStructurePage() {
     if (!item) return "";
     return compactReproductionLabel(item);
   };
-  const allocationIdentityLabel = (row: Allocation) =>
-    isFallowLandUse(row.land_use_type)
-      ? "Пар"
-      : [cropName(row.crop_id), varietyName(row.variety_id), compactReproductionName(row.reproduction_id)]
-          .filter((value) => value && value !== "-")
-          .join(", ");
+  const allocationIdentityLabel = (row: Allocation) => {
+    if (isFallowLandUse(row.land_use_type)) return "Пар";
+    if (isCropMixLandUse(row.land_use_type)) return grainMixDisplayName(row.mix_components, cropMap);
+    return [cropName(row.crop_id), varietyName(row.variety_id), compactReproductionName(row.reproduction_id)]
+      .filter((value) => value && value !== "-")
+      .join(", ");
+  };
   const isPotatoAllocation = (row: Pick<Allocation, "crop_id" | "variety_id">) =>
     isPotatoCropContext(cropName(row.crop_id), varietyName(row.variety_id));
   const isFallowAllocation = (row: Pick<Allocation, "land_use_type">) =>
     isFallowLandUse(row.land_use_type);
+  const isCropMixAllocation = (row: Pick<Allocation, "land_use_type">) =>
+    isCropMixLandUse(row.land_use_type);
   const sumArea = (rows: Allocation[]) => rows.reduce((sum, row) => sum + Number(row.area || 0), 0);
   const allocationKey = (row: Allocation, index = 0) =>
     row.id || `${row.field_id || "field"}-${row.crop_id || "crop"}-${row.variety_id || "variety"}-${row.reproduction_id || "repro"}-${Number(row.area || 0)}-${index}`;
@@ -626,7 +655,7 @@ export default function CropStructurePage() {
 
   const operationAllocationsForField = (fieldId: string) =>
     [...(allocByField.get(fieldId) || [])]
-      .filter((row) => row.id && (row.land_use_type === "fallow" || row.crop_id))
+      .filter((row) => row.id && (row.land_use_type === "fallow" || row.land_use_type === "crop_mix" || row.crop_id))
       .sort((a, b) => Number(b.area || 0) - Number(a.area || 0));
 
   const allocationTitle = (allocation: Allocation) =>
@@ -923,7 +952,28 @@ export default function CropStructurePage() {
             .eq("archived", false);
         }
         if (res.error) throw res.error;
-        const map = buildAllocationMap(res.data || []);
+        const structureRows = res.data || [];
+        const structureIds = structureRows.map((row: any) => String(row.id || "")).filter(Boolean);
+        let mixComponents: any[] = [];
+        if (structureIds.length) {
+          const mixRes = await supabase
+            .from("crop_structure_mix_components")
+            .select("id,company_id,crop_structure_id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order")
+            .eq("company_id", activeCompanyId)
+            .in("crop_structure_id", structureIds)
+            .order("sort_order");
+          if (mixRes.error) throw mixRes.error;
+          mixComponents = mixRes.data || [];
+        }
+        const mixByStructure = new Map<string, any[]>();
+        for (const component of mixComponents) {
+          const key = String(component.crop_structure_id || "");
+          mixByStructure.set(key, [...(mixByStructure.get(key) || []), component]);
+        }
+        const map = buildAllocationMap(structureRows.map((row: any) => ({
+          ...row,
+          mix_components: mixByStructure.get(String(row.id || "")) || [],
+        })));
         if (cancelled) return;
         setAllocByField(map);
         setInitialByField(cloneAllocationMap(map));
@@ -1204,7 +1254,10 @@ export default function CropStructurePage() {
         : tab;
     setSelectedFieldId(fieldId);
     setFieldDialogTab(allowedTab);
-    setDraftRows((allocByField.get(fieldId) || []).map((item) => ({ ...item })));
+    setDraftRows((allocByField.get(fieldId) || []).map((item) => ({
+      ...item,
+      mix_components: item.mix_components.map((component) => ({ ...component })),
+    })));
     setEditorValidationError(null);
   };
 
@@ -1235,6 +1288,17 @@ export default function CropStructurePage() {
       const next = [...prev];
       const old = next[index];
       let merged = { ...old, ...patch };
+      if (patch.land_use_type && patch.land_use_type !== old.land_use_type) {
+        merged.mix_components = patch.land_use_type === "crop_mix"
+          ? Array.from({ length: GRAIN_MIX_MIN_COMPONENTS }, (_, componentIndex) => ({
+              crop_id: null,
+              variety_id: null,
+              reproduction_id: null,
+              seed_rate_kg_ha: null,
+              sort_order: componentIndex + 1,
+            }))
+          : [];
+      }
       if (patch.crop_id && patch.crop_id !== old.crop_id) {
         const availableVarieties = varietiesByCrop.get(displayCropId(patch.crop_id) || patch.crop_id) || [];
         merged.variety_id = availableVarieties.length === 1 ? availableVarieties[0].id : null;
@@ -1250,6 +1314,54 @@ export default function CropStructurePage() {
       next[index] = merged;
       return next;
     });
+  };
+
+  const patchMixComponent = (rowIndex: number, componentIndex: number, patch: Partial<GrainMixComponent>) => {
+    setEditorValidationError(null);
+    setDraftRows((current) => current.map((row, index) => {
+      if (index !== rowIndex) return row;
+      const components = row.mix_components.map((component, position) => {
+        if (position !== componentIndex) return component;
+        const next = { ...component, ...patch };
+        if (patch.crop_id && patch.crop_id !== component.crop_id) {
+          const options = varietiesByCrop.get(displayCropId(patch.crop_id) || patch.crop_id) || [];
+          next.variety_id = options.length === 1 ? options[0].id : null;
+        }
+        return next;
+      });
+      return { ...row, mix_components: components.map((component, position) => ({ ...component, sort_order: position + 1 })) };
+    }));
+  };
+
+  const addMixComponent = (rowIndex: number) => {
+    setDraftRows((current) => current.map((row, index) => {
+      if (index !== rowIndex || row.mix_components.length >= GRAIN_MIX_MAX_COMPONENTS) return row;
+      return {
+        ...row,
+        mix_components: [
+          ...row.mix_components,
+          {
+            crop_id: null,
+            variety_id: null,
+            reproduction_id: null,
+            seed_rate_kg_ha: null,
+            sort_order: row.mix_components.length + 1,
+          },
+        ],
+      };
+    }));
+  };
+
+  const removeMixComponent = (rowIndex: number, componentIndex: number) => {
+    setDraftRows((current) => current.map((row, index) => {
+      if (index !== rowIndex || row.mix_components.length <= GRAIN_MIX_MIN_COMPONENTS) return row;
+      return {
+        ...row,
+        mix_components: row.mix_components
+          .filter((_, position) => position !== componentIndex)
+          .map((component, position) => ({ ...component, sort_order: position + 1 })),
+      };
+    }));
   };
 
   const addRow = () => {
@@ -1268,6 +1380,7 @@ export default function CropStructurePage() {
         irrigation_type: "unknown",
         row_spacing_m: null,
         seed_spacing_cm: null,
+        mix_components: [],
       },
     ]);
   };
@@ -1315,6 +1428,7 @@ export default function CropStructurePage() {
             irrigation_type: "unknown",
             row_spacing_m: null,
             seed_spacing_cm: null,
+            mix_components: [],
           },
         ];
       }
@@ -1352,6 +1466,19 @@ export default function CropStructurePage() {
       return null;
     }
     for (const row of validation.rows) {
+      if (isCropMixAllocation(row)) {
+        const mixValidation = validateGrainMixComponents({
+          components: row.mix_components,
+          cropsById: cropMap,
+          varietiesById: varietyMap,
+        });
+        if (!mixValidation.ok) {
+          setEditorValidationError(mixValidation.message);
+          toast({ title: "Структура не сохранена", description: mixValidation.message, variant: "destructive" });
+          return null;
+        }
+        row.mix_components = mixValidation.components;
+      }
       if (isPotatoAllocation(row) && (!row.seed_spacing_cm || row.seed_spacing_cm <= 0)) {
         const message = "Для картофеля укажите межсемянное расстояние в структуре.";
         setEditorValidationError(message);
@@ -1371,7 +1498,10 @@ export default function CropStructurePage() {
       toast({ title: "Изменений нет", description: "Структура поля уже сохранена." });
       return;
     }
-    setPendingSaveRows(validatedRows.map((row) => ({ ...row })));
+    setPendingSaveRows(validatedRows.map((row) => ({
+      ...row,
+      mix_components: row.mix_components.map((component) => ({ ...component })),
+    })));
     setPendingSaveSummary(summary);
     setSaveConfirmationOpen(true);
   };
@@ -1431,11 +1561,17 @@ export default function CropStructurePage() {
       });
       setInitialByField((current) => {
         const next = cloneAllocationMap(current);
-        next.set(selectedFieldId, savedRows.map((item) => ({ ...item })));
+        next.set(selectedFieldId, savedRows.map((item) => ({
+          ...item,
+          mix_components: item.mix_components.map((component) => ({ ...component })),
+        })));
         return next;
       });
       setBootstrappedStructureKey(`${activeCompanyId}:${seasonId}`);
-      setDraftRows(savedRows.map((item) => ({ ...item })));
+      setDraftRows(savedRows.map((item) => ({
+        ...item,
+        mix_components: item.mix_components.map((component) => ({ ...component })),
+      })));
       toast({ title: "Сохранено", description: "Структура поля обновлена." });
       closeField();
     } catch (error) {
@@ -1452,13 +1588,21 @@ export default function CropStructurePage() {
       const rows = allocByField.get(field.id) || [];
       if (!rows.length) lines.push([season.year, field.name, field.area.toFixed(2), "", "", "", "0.00"].join(";"));
       for (const row of rows) {
+        const mixSummary = isCropMixAllocation(row)
+          ? row.mix_components.map((component) => [
+              cropName(component.crop_id),
+              varietyName(component.variety_id),
+              reproductionName(component.reproduction_id),
+              `${Number(component.seed_rate_kg_ha || 0)} кг/га`,
+            ].filter(Boolean).join(", ")).join(" | ")
+          : "";
         lines.push([
           season.year,
           field.name,
           field.area.toFixed(2),
-          row.land_use_type === "fallow" ? "Пар" : cropName(row.crop_id),
-          row.land_use_type === "fallow" ? "" : varietyName(row.variety_id),
-          row.land_use_type === "fallow" ? "" : reproductionName(row.reproduction_id),
+          row.land_use_type === "fallow" ? "Пар" : row.land_use_type === "crop_mix" ? grainMixDisplayName(row.mix_components, cropMap) : cropName(row.crop_id),
+          row.land_use_type === "crop_mix" ? mixSummary : row.land_use_type === "fallow" ? "" : varietyName(row.variety_id),
+          row.land_use_type === "fallow" || row.land_use_type === "crop_mix" ? "" : reproductionName(row.reproduction_id),
           Number(row.area || 0).toFixed(2),
         ].join(";"));
       }
@@ -1513,7 +1657,7 @@ export default function CropStructurePage() {
     allocByField.forEach((allocations, fieldId) => {
       const field = fieldMap.get(fieldId);
       allocations.forEach((allocation) => {
-        if (!allocation.id || (allocation.land_use_type !== "fallow" && !allocation.crop_id)) return;
+        if (!allocation.id || (allocation.land_use_type === "crop" && !allocation.crop_id)) return;
         rows.push({
           id: allocation.id,
           field_id: fieldId,
@@ -1536,9 +1680,15 @@ export default function CropStructurePage() {
           user_id: "",
           field_name: field?.name || "-",
           season_year: season?.year || 0,
-          crop_name: allocation.land_use_type === "fallow" ? "Пар" : cropName(allocation.crop_id),
-          variety_name: allocation.land_use_type === "fallow" ? null : varietyName(allocation.variety_id),
-          reproduction_name: allocation.land_use_type === "fallow" ? null : reproductionName(allocation.reproduction_id),
+          crop_name: allocation.land_use_type === "fallow" ? "Пар" : allocation.land_use_type === "crop_mix" ? grainMixDisplayName(allocation.mix_components, cropMap) : cropName(allocation.crop_id),
+          variety_name: allocation.land_use_type === "fallow" || allocation.land_use_type === "crop_mix" ? null : varietyName(allocation.variety_id),
+          reproduction_name: allocation.land_use_type === "fallow" || allocation.land_use_type === "crop_mix" ? null : reproductionName(allocation.reproduction_id),
+          mix_components: allocation.mix_components.map((component) => ({
+            ...component,
+            crop_name: cropName(component.crop_id),
+            variety_name: varietyName(component.variety_id),
+            reproduction_name: reproductionName(component.reproduction_id),
+          })),
         });
       });
     });
@@ -1548,7 +1698,7 @@ export default function CropStructurePage() {
   const openOperationPlan = (field: Field, allocation: Allocation, event?: React.MouseEvent) => {
     event?.stopPropagation();
     if (!FIELD_FIRST_CREATE_ENABLED) return;
-    if (!allocation.id || (allocation.land_use_type !== "fallow" && !allocation.crop_id)) {
+    if (!allocation.id || (allocation.land_use_type === "crop" && !allocation.crop_id)) {
       toast({
         title: "Нужен план по культуре",
         description: "Сначала сохраните культуру и площадь по полю.",
@@ -2306,6 +2456,33 @@ export default function CropStructurePage() {
                       </div>
                     </div>
 
+                    {selectedItem.allocation.land_use_type === "crop_mix" ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-semibold text-slate-100">Состав зерносмеси</div>
+                          <div className="text-xs font-semibold text-yellow-300">
+                            Всего семян: {grainMixTotalKg(selectedItem.plannedArea, selectedItem.allocation.mix_components).toLocaleString("ru-RU")} кг
+                          </div>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {selectedItem.allocation.mix_components.map((component, index) => (
+                            <div
+                              key={component.id || `${component.crop_id}-${index}`}
+                              className="grid gap-2 rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_110px_120px] sm:items-center"
+                            >
+                              <div className="min-w-0 truncate font-semibold text-slate-100">
+                                {index + 1}. {cropName(component.crop_id)} · {varietyName(component.variety_id)} · {reproductionName(component.reproduction_id)}
+                              </div>
+                              <div className="text-slate-300">{component.seed_rate_kg_ha} кг/га</div>
+                              <div className="font-semibold text-slate-100">
+                                {grainMixComponentTotalKg(selectedItem.plannedArea, component.seed_rate_kg_ha).toLocaleString("ru-RU")} кг
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
                     {selectedItem.operationSummary.length ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
                         <div className="text-sm font-semibold text-slate-100">Сводка операций</div>
@@ -2477,6 +2654,7 @@ export default function CropStructurePage() {
             const materialsCount = row.id ? consumptionsByAllocation.get(row.id)?.length || 0 : 0;
             const isDeleteLocked = operationsCount > 0 || materialsCount > 0;
             const isFallowRow = isFallowAllocation(row);
+            const isCropMixRow = isCropMixAllocation(row);
             return (
               <div key={`${row.id || "new"}-${index}`} className="overflow-hidden rounded-xl border border-slate-700/80 bg-[#101823] shadow-sm ring-1 ring-slate-900/40">
                 <div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2">
@@ -2491,16 +2669,17 @@ export default function CropStructurePage() {
                   <Label className={editorLabelClass}>Использование участка *</Label>
                   <Select
                     value={row.land_use_type}
-                    onValueChange={(value) => patchDraft(index, { land_use_type: value as "crop" | "fallow" })}
+                    onValueChange={(value) => patchDraft(index, { land_use_type: value as "crop" | "crop_mix" | "fallow" })}
                   >
                     <SelectTrigger className={editorControlClass}><SelectValue /></SelectTrigger>
                     <SelectContent className={editorSelectContentClass}>
                       <SelectItem value="crop">Культура</SelectItem>
+                      <SelectItem value="crop_mix">Зерносмесь</SelectItem>
                       <SelectItem value="fallow">Пар</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                {!isFallowRow ? (
+                {!isFallowRow && !isCropMixRow ? (
                   <>
                     <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
                       <Label className={editorLabelClass}>Культура *</Label>
@@ -2550,6 +2729,117 @@ export default function CropStructurePage() {
                     </div>
                   </>
                 ) : null}
+                {isCropMixRow ? (
+                  <div className="col-span-12 space-y-2 rounded-lg border border-slate-700/70 bg-slate-950/35 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-100">Состав зерносмеси</div>
+                        <div className="text-xs text-slate-400">Нормы задаются отдельно; площадь участка учитывается один раз.</div>
+                      </div>
+                      <div className="text-sm font-semibold text-yellow-300">
+                        Всего: {grainMixTotalKg(row.area, row.mix_components).toLocaleString("ru-RU")} кг
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {row.mix_components.map((component, componentIndex) => {
+                        const componentCropId = displayCropId(component.crop_id);
+                        const componentVarieties = componentCropId ? varietiesByCrop.get(componentCropId) || [] : [];
+                        return (
+                          <div key={`${component.id || "new"}-${componentIndex}`} className="grid grid-cols-12 items-end gap-2 rounded-lg border border-slate-800 bg-[#0b1220] p-2">
+                            <div className="col-span-12 min-w-0 md:col-span-2">
+                              <Label className={editorLabelClass}>Компонент {componentIndex + 1}: культура *</Label>
+                              <Select
+                                value={componentCropId || "none"}
+                                onValueChange={(value) => patchMixComponent(index, componentIndex, { crop_id: value === "none" ? null : value })}
+                              >
+                                <SelectTrigger className={editorControlClass}><SelectValue placeholder="Культура" /></SelectTrigger>
+                                <SelectContent className={editorSelectContentClass}>
+                                  <SelectItem value="none">—</SelectItem>
+                                  {cropSelectOptions(componentCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="col-span-12 min-w-0 md:col-span-3">
+                              <Label className={editorLabelClass}>Сорт *</Label>
+                              <CatalogIdentityCombobox
+                                value={component.variety_id}
+                                options={componentVarieties.map((variety) => ({
+                                  id: variety.id,
+                                  label: localizedName(variety as never, language, ["name"]) || variety.name,
+                                  searchValue: catalogIdentitySearchValue(variety),
+                                  legacy: variety.archived === true || variety.is_active === false,
+                                }))}
+                                placeholder="Выберите сорт"
+                                searchPlaceholder="Поиск сорта..."
+                                emptyMessage={component.crop_id ? "Для культуры нет сортов." : "Сначала выберите культуру"}
+                                className={editorControlClass}
+                                disabled={!component.crop_id || componentVarieties.length === 0}
+                                onChange={(value) => patchMixComponent(index, componentIndex, { variety_id: value })}
+                              />
+                            </div>
+                            <div className="col-span-12 min-w-0 md:col-span-3">
+                              <Label className={editorLabelClass}>Репродукция *</Label>
+                              <CatalogIdentityCombobox
+                                value={component.reproduction_id}
+                                options={globalReproductions.map((item) => ({
+                                  id: item.id,
+                                  label: standardReproductionLabel(item),
+                                  searchValue: catalogIdentitySearchValue(item),
+                                  legacy: item.archived === true || item.is_active === false,
+                                }))}
+                                placeholder="Репродукция"
+                                searchPlaceholder="Поиск репродукции..."
+                                emptyMessage="Репродукции не найдены"
+                                className={editorControlClass}
+                                onChange={(value) => patchMixComponent(index, componentIndex, { reproduction_id: value })}
+                              />
+                            </div>
+                            <div className="col-span-8 min-w-0 md:col-span-2">
+                              <Label className={editorLabelClass}>Норма, кг/га *</Label>
+                              <Input
+                                className={editorNumberControlClass}
+                                type="text"
+                                inputMode="decimal"
+                                value={component.seed_rate_kg_ha == null ? "" : String(component.seed_rate_kg_ha)}
+                                onChange={(event) => patchMixComponent(index, componentIndex, { seed_rate_kg_ha: parseNum(event.target.value) })}
+                                placeholder="кг/га"
+                              />
+                            </div>
+                            <div className="col-span-3 min-w-0 md:col-span-1">
+                              <Label className={editorLabelClass}>Всего</Label>
+                              <div className="flex h-10 items-center truncate text-xs font-semibold text-slate-200" title={`${grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha)} кг`}>
+                                {grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha).toLocaleString("ru-RU")} кг
+                              </div>
+                            </div>
+                            <div className="col-span-1 flex justify-end">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                title="Удалить компонент"
+                                className="h-10 w-10 text-slate-400 hover:bg-rose-500/15 hover:text-rose-200"
+                                disabled={row.mix_components.length <= GRAIN_MIX_MIN_COMPONENTS}
+                                onClick={() => removeMixComponent(index, componentIndex)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-slate-700 bg-[#0b1220] text-slate-100"
+                      disabled={row.mix_components.length >= GRAIN_MIX_MAX_COMPONENTS}
+                      onClick={() => addMixComponent(index)}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />Добавить компонент
+                    </Button>
+                  </div>
+                ) : null}
                 <div className="col-span-12 min-w-0 sm:col-span-7 xl:col-span-4">
                   <Label className={editorLabelClass}>Площадь, га *</Label>
                   <div className="flex gap-1.5">
@@ -2583,7 +2873,7 @@ export default function CropStructurePage() {
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className={`col-span-12 grid grid-cols-1 gap-2 border-t border-slate-700/70 pt-3 ${isFallowRow ? "" : "md:grid-cols-3"}`}>
+                <div className={`col-span-12 grid grid-cols-1 gap-2 border-t border-slate-700/70 pt-3 ${isFallowRow || isCropMixRow ? "" : "md:grid-cols-3"}`}>
                   <div>
                     <Label className={editorLabelClass}>Орошение</Label>
                     <Select
@@ -2599,7 +2889,7 @@ export default function CropStructurePage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  {!isFallowRow ? (
+                  {!isFallowRow && !isCropMixRow ? (
                     <>
                       <div>
                         <Label className={editorLabelClass}>Междурядье, м</Label>

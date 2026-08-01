@@ -1,6 +1,6 @@
 export const FALLOW_CROP_SLUG = "fallow";
 
-export const LAND_USE_TYPES = ["crop", "fallow"] as const;
+export const LAND_USE_TYPES = ["crop", "crop_mix", "fallow"] as const;
 export type LandUseType = (typeof LAND_USE_TYPES)[number];
 
 export type CropIdentity = {
@@ -35,11 +35,16 @@ export function isFallowLandUse(value: LandUseType | string | null | undefined):
   return value === "fallow";
 }
 
+export function isCropMixLandUse(value: LandUseType | string | null | undefined): boolean {
+  return value === "crop_mix";
+}
+
 export function getCropStructureLandUseType(
   row: Pick<CropStructureSeedAttributes, "land_use_type" | "crop_id">,
   crop?: CropIdentity | null
 ): LandUseType {
   if (isFallowLandUse(row.land_use_type)) return "fallow";
+  if (isCropMixLandUse(row.land_use_type)) return "crop_mix";
   // Read compatibility for old installations; new writes never use a fake crop.
   if (row.land_use_type == null && isFallowCrop(crop)) return "fallow";
   return "crop";
@@ -52,6 +57,7 @@ export function formatCropStructureIdentity(input: {
   reproductionName?: string | null;
 }): string {
   if (isFallowLandUse(input.landUseType)) return "Пар";
+  if (isCropMixLandUse(input.landUseType)) return "Зерносмесь";
   return [input.cropName, input.varietyName, input.reproductionName].filter(Boolean).join(" / ") || "Культура не указана";
 }
 
@@ -64,7 +70,7 @@ export function normalizeCropStructureSeedAttributes<T extends CropStructureSeed
 
   return {
     ...row,
-    land_use_type: "fallow",
+    land_use_type: landUseType,
     crop_id: null,
     variety_id: null,
     reproduction_id: null,
@@ -83,12 +89,14 @@ export function validateAndNormalizeCropStructureRows<T extends CropStructureSee
   const areaEpsilon = params.areaEpsilon ?? 0.0001;
   for (let index = 0; index < params.rows.length; index += 1) {
     const row = params.rows[index];
-    if (isFallowLandUse(row.land_use_type) && (row.crop_id || row.variety_id || row.reproduction_id)) {
+    if ((isFallowLandUse(row.land_use_type) || isCropMixLandUse(row.land_use_type)) && (row.crop_id || row.variety_id || row.reproduction_id)) {
       return {
         ok: false,
         rows: params.rows.map((item) => ({ ...item })),
         rowIndex: index,
-        message: "Для пара культура, сорт и репродукция не указываются.",
+        message: isCropMixLandUse(row.land_use_type)
+          ? "Для зерносмеси корневая культура не указывается: заполните компоненты смеси."
+          : "Для пара культура, сорт и репродукция не указываются.",
       };
     }
   }
