@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { BookOpen, ChevronDown, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { BookOpen, ChevronDown, ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
@@ -62,6 +62,7 @@ import {
 type RowRecord = Record<string, any>;
 type Option = { label: string; value: string };
 type SearchConflict = { message: string; components: string[] };
+type CategoryCount = { key: string; label: string; count: number };
 
 const CONSOLE_LABEL_CLASS = "font-mono text-[11px] uppercase tracking-[0.12em] !text-[#42566f]";
 const CONSOLE_CONTROL_CLASS =
@@ -283,20 +284,30 @@ function toArrayValue(value: any): string[] {
 export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }) {
   const { user } = useAuth();
   const { toast } = useToast();
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const pesticideIdFromUrl = config.entity === "pesticides" ? searchParams.get("pesticide") : null;
+  const initialSearchParamsRef = useRef(searchParams.toString());
+  const pesticideIdFromUrl = config.entity === "pesticides"
+    ? new URLSearchParams(initialSearchParamsRef.current).get("pesticide")
+    : null;
+  const isCanonicalPesticideList = config.entity === "pesticides";
 
   const [rows, setRows] = useState<RowRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [totalRows, setTotalRows] = useState(0);
+  const [categoryCounts, setCategoryCounts] = useState<CategoryCount[]>([]);
+  const [allCategoryCount, setAllCategoryCount] = useState(0);
+  const [listCursor, setListCursor] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = useState<Array<string | null>>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editingRow, setEditingRow] = useState<RowRecord | null>(null);
   const [formState, setFormState] = useState<Record<string, any>>({});
   const [filters, setFilters] = useState<Record<string, string | string[]>>({});
+  const [filtersReady, setFiltersReady] = useState(false);
   const [remoteOptions, setRemoteOptions] = useState<Record<string, Option[]>>({});
   const [searchConflict, setSearchConflict] = useState<SearchConflict | null>(null);
   const [componentOpen, setComponentOpen] = useState(false);
@@ -309,6 +320,13 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   const [pesticideCardError, setPesticideCardError] = useState<string | null>(null);
   const [pesticideCard, setPesticideCard] = useState<FullPesticideCardData | null>(null);
   const [selectedPesticideId, setSelectedPesticideId] = useState<string | null>(null);
+  const listAbortRef = useRef<AbortController | null>(null);
+  const listRequestSequenceRef = useRef(0);
+  const listScrollRef = useRef<HTMLDivElement | null>(null);
+  const lastAppliedListKeyRef = useRef("");
+  const cardAbortRef = useRef<AbortController | null>(null);
+  const cardRequestSequenceRef = useRef(0);
+  const cardCacheRef = useRef(new Map<string, FullPesticideCardData>());
 
   const canSubmit = useMemo(() => {
     return config.formFields.every((field) => {
@@ -364,12 +382,29 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     return result;
   }, [config.filters, rows, remoteOptions]);
 
-  const loadRows = async () => {
-    if (!user?.id) return;
+  const serializedFilters = useMemo(() => JSON.stringify(filters), [filters]);
+  const effectiveListSearch = isCanonicalPesticideList ? debouncedSearch : search;
+
+  const loadRows = useCallback(async () => {
+    if (!user?.id || !filtersReady) return;
+
+    listAbortRef.current?.abort();
+    const controller = new AbortController();
+    listAbortRef.current = controller;
+    const sequence = ++listRequestSequenceRef.current;
+    const requestSearch = effectiveListSearch;
+    const listKey = `${config.entity}|${requestSearch}|${serializedFilters}|${listCursor || "first"}`;
+
     setLoading(true);
     try {
       const params = new URLSearchParams({ userId: user.id });
-      if (search.trim()) params.set("search", search.trim());
+      if (isCanonicalPesticideList) {
+        if (requestSearch.trim()) params.set("q", requestSearch.trim());
+        params.set("limit", "50");
+        if (listCursor) params.set("cursor", listCursor);
+      } else if (requestSearch.trim()) {
+        params.set("search", requestSearch.trim());
+      }
 
       Object.entries(filters).forEach(([key, value]) => {
         if (Array.isArray(value)) {
@@ -377,25 +412,52 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
           if (prepared.length) params.set(key, prepared.join(","));
           return;
         }
-        if (value && value !== "all") params.set(key, value);
+        if (!value || value === "all") return;
+        if (isCanonicalPesticideList && key === "category_id") params.set("category", value);
+        else if (isCanonicalPesticideList && key === "is_active") {
+          params.set("status", value === "false" ? "inactive" : "active");
+        } else params.set(key, value);
       });
 
+      if (isCanonicalPesticideList && !params.has("status")) params.set("status", "active");
+
       const headers = await buildClientAuthHeaders();
-      const response = await fetch(`/api/global-admin/catalog/${config.entity}?${params.toString()}`, {
+      const endpoint = isCanonicalPesticideList
+        ? "/api/global-admin/catalog/products"
+        : `/api/global-admin/catalog/${config.entity}`;
+      const response = await fetch(`${endpoint}?${params.toString()}`, {
         headers,
         cache: "no-store",
+        signal: controller.signal,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить каталог");
-      setRows(Array.isArray(payload?.rows) ? payload.rows : []);
+      if (controller.signal.aborted || sequence !== listRequestSequenceRef.current) return;
+
+      const nextRows = isCanonicalPesticideList
+        ? (Array.isArray(payload?.items) ? payload.items : [])
+        : (Array.isArray(payload?.rows) ? payload.rows : []);
+      setRows(nextRows);
       setSearchConflict(payload?.searchConflict || null);
+      if (isCanonicalPesticideList) {
+        setTotalRows(Number(payload?.total || 0));
+        setNextCursor(payload?.next_cursor || null);
+        setAllCategoryCount(Number(payload?.category_counts?.all || 0));
+        setCategoryCounts(Array.isArray(payload?.category_counts?.categories) ? payload.category_counts.categories : []);
+      }
+      if (lastAppliedListKeyRef.current !== listKey) {
+        lastAppliedListKeyRef.current = listKey;
+        listScrollRef.current?.scrollTo({ top: 0 });
+      }
     } catch (error: any) {
+      if (controller.signal.aborted || error?.name === "AbortError") return;
+      if (sequence !== listRequestSequenceRef.current) return;
       setSearchConflict(null);
       toast({ title: "Ошибка", description: error?.message || "Не удалось загрузить каталог", variant: "destructive" });
     } finally {
-      setLoading(false);
+      if (sequence === listRequestSequenceRef.current) setLoading(false);
     }
-  };
+  }, [config.entity, effectiveListSearch, filters, filtersReady, isCanonicalPesticideList, listCursor, serializedFilters, toast, user?.id]);
 
   const loadRemoteOptions = async () => {
     if (!user?.id) return;
@@ -415,45 +477,69 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
       return;
     }
 
-    const entries = await Promise.all(
-      targets.map(async (target) => {
+    const targetsByEntity = new Map<GlobalCatalogEntity, string[]>();
+    for (const target of targets) {
+      const keys = targetsByEntity.get(target.entity) || [];
+      keys.push(target.targetKey);
+      targetsByEntity.set(target.entity, keys);
+    }
+
+    const groupedEntries = await Promise.all(
+      Array.from(targetsByEntity.entries()).map(async ([entity, targetKeys]) => {
         try {
           const params = new URLSearchParams({ userId: user.id });
-          const response = await fetch(`/api/global-admin/catalog/${target.entity}?${params.toString()}`, {
+          const response = await fetch(`/api/global-admin/catalog/${entity}?${params.toString()}`, {
             headers,
             cache: "no-store",
           });
           const payload = await response.json().catch(() => ({}));
-          if (!response.ok) return [target.targetKey, []] as const;
+          if (!response.ok) return targetKeys.map((targetKey) => [targetKey, []] as const);
 
           const options: Option[] = (payload?.rows || []).map((row: any) => ({
-            label: optionLabel(target.entity, row),
+            label: optionLabel(entity, row),
             value: row.id,
           }));
-          return [target.targetKey, options] as const;
+          return targetKeys.map((targetKey) => [targetKey, options] as const);
         } catch {
-          return [target.targetKey, []] as const;
+          return targetKeys.map((targetKey) => [targetKey, []] as const);
         }
       })
     );
 
-    setRemoteOptions(Object.fromEntries(entries));
+    setRemoteOptions(Object.fromEntries(groupedEntries.flat()));
   };
 
   useEffect(() => {
+    if (!isCanonicalPesticideList) {
+      setDebouncedSearch(search);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setListCursor(null);
+      setCursorHistory([]);
+      setDebouncedSearch(search);
+    }, 275);
+    return () => window.clearTimeout(timer);
+  }, [isCanonicalPesticideList, search]);
+
+  useEffect(() => {
+    const initialParams = new URLSearchParams(initialSearchParamsRef.current);
     const defaults = Object.fromEntries(
       config.filters.map((filter) => {
-        const fromUrl = searchParams.get(filter.key);
+        const fromUrl = initialParams.get(filter.key);
         if (filter.multi) return [filter.key, fromUrl ? fromUrl.split(",").map((value) => value.trim()).filter(Boolean) : []];
+        if (isCanonicalPesticideList && filter.key === "is_active") return [filter.key, fromUrl || "true"];
         return [filter.key, fromUrl || filter.options.find((option) => option.value === "all")?.value || "all"];
       })
     );
     setFilters(defaults);
-  }, [config.entity, searchParams]);
+    setFiltersReady(true);
+  }, [config.entity, config.filters, isCanonicalPesticideList]);
 
   useEffect(() => {
     void loadRows();
-  }, [config.entity, user?.id, search, JSON.stringify(filters)]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => listAbortRef.current?.abort();
+  }, [loadRows]);
 
   useEffect(() => {
     void loadRemoteOptions();
@@ -485,24 +571,40 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
   const loadPesticideCard = async (productId: string) => {
     if (!user?.id || !productId) return;
+    cardAbortRef.current?.abort();
+    const cached = cardCacheRef.current.get(productId);
     setSelectedPesticideId(productId);
     setPesticideCardOpen(true);
-    setPesticideCardLoading(true);
     setPesticideCardError(null);
+    if (cached) {
+      setPesticideCard(cached);
+      setPesticideCardLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    cardAbortRef.current = controller;
+    const sequence = ++cardRequestSequenceRef.current;
+    setPesticideCardLoading(true);
     setPesticideCard(null);
     try {
       const headers = await buildClientAuthHeaders();
       const response = await fetch(`/api/global-admin/pesticide-card/${productId}`, {
         headers,
         cache: "no-store",
+        signal: controller.signal,
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить полную карточку");
+      if (controller.signal.aborted || sequence !== cardRequestSequenceRef.current) return;
+      cardCacheRef.current.set(productId, payload as FullPesticideCardData);
       setPesticideCard(payload as FullPesticideCardData);
     } catch (error: any) {
+      if (controller.signal.aborted || error?.name === "AbortError") return;
+      if (sequence !== cardRequestSequenceRef.current) return;
       setPesticideCardError(error?.message || "Не удалось загрузить полную карточку");
     } finally {
-      setPesticideCardLoading(false);
+      if (sequence === cardRequestSequenceRef.current) setPesticideCardLoading(false);
     }
   };
 
@@ -511,9 +613,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   };
 
   const openPesticideCard = (productId: string) => {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(window.location.search);
     params.set("pesticide", productId);
-    router.push(`${pathname}?${params.toString()}`);
+    window.history.pushState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
+    void loadPesticideCard(productId);
   };
 
   const handlePesticideCardOpenChange = (open: boolean) => {
@@ -521,12 +624,18 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
       setPesticideCardOpen(true);
       return;
     }
-    const params = new URLSearchParams(searchParams.toString());
+    cardAbortRef.current?.abort();
+    cardRequestSequenceRef.current += 1;
+    const params = new URLSearchParams(window.location.search);
     params.delete("pesticide");
     setPesticideCardOpen(false);
     setSelectedPesticideId(null);
     setPesticideCard(null);
-    router.push(params.size ? `${pathname}?${params.toString()}` : pathname);
+    window.history.replaceState(
+      window.history.state,
+      "",
+      params.size ? `${window.location.pathname}?${params.toString()}` : window.location.pathname,
+    );
   };
 
   useEffect(() => {
@@ -541,6 +650,8 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     void loadPesticideCard(pesticideIdFromUrl);
   }, [config.entity, user?.id, pesticideIdFromUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => () => cardAbortRef.current?.abort(), []);
+
   const retryComponentCard = () => {
     if (selectedComponentId) void loadComponentCard(selectedComponentId);
   };
@@ -552,16 +663,33 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     setCreateOpen(true);
   };
 
-  const openEdit = (row: RowRecord) => {
+  const openEdit = async (row: RowRecord) => {
+    let sourceRow = row;
+    if (isCanonicalPesticideList && user?.id) {
+      try {
+        const headers = await buildClientAuthHeaders();
+        const params = new URLSearchParams({ userId: user.id, id: row.id });
+        const response = await fetch(`/api/global-admin/catalog/pesticides?${params.toString()}`, {
+          headers,
+          cache: "no-store",
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok || !payload?.rows?.[0]) throw new Error(payload?.error || "Запись не найдена");
+        sourceRow = payload.rows[0];
+      } catch (error: any) {
+        toast({ title: "Ошибка", description: error?.message || "Не удалось открыть редактирование", variant: "destructive" });
+        return;
+      }
+    }
     const initial = Object.fromEntries(
       config.formFields.map((field) => {
-        const value = row[field.key];
+        const value = sourceRow[field.key];
         if (field.type === "checkbox") return [field.key, value !== false];
         if (field.type === "multiselect") return [field.key, toArrayValue(value)];
         return [field.key, value ?? ""];
       })
     );
-    setEditingRow(row);
+    setEditingRow(sourceRow);
     setFormState(initial);
     setEditOpen(true);
   };
@@ -763,6 +891,8 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
       return (
         <div className="space-y-2 min-w-[240px]">
           {renderMultiSelect(filter.label, selected, options.filter((o) => o.value !== "all"), (itemValue) => {
+            setListCursor(null);
+            setCursorHistory([]);
             setFilters((prev) => {
               const current = new Set(toArrayValue(prev[filter.key]));
               if (current.has(itemValue)) current.delete(itemValue);
@@ -778,7 +908,14 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     return (
       <div className="space-y-2 min-w-[180px]">
         <Label className={CONSOLE_LABEL_CLASS}>{filter.label}</Label>
-        <Select value={selected} onValueChange={(value) => setFilters((prev) => ({ ...prev, [filter.key]: value }))}>
+        <Select
+          value={selected}
+          onValueChange={(value) => {
+            setListCursor(null);
+            setCursorHistory([]);
+            setFilters((prev) => ({ ...prev, [filter.key]: value }));
+          }}
+        >
           <SelectTrigger className={CONSOLE_SELECT_TRIGGER_CLASS}>
             <SelectValue />
           </SelectTrigger>
@@ -822,7 +959,11 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
             <button
               type="button"
               key={component.id}
-              onClick={() => void loadComponentCard(component.id)}
+              onClick={(event) => {
+                event.stopPropagation();
+                void loadComponentCard(component.id);
+              }}
+              onKeyDown={(event) => event.stopPropagation()}
               className="inline-flex items-center gap-1 border border-[#9aa8ba] bg-[#f6f8fb] px-2 py-1 text-left text-xs font-medium text-[#174f84] hover:bg-[#e8edf3]"
               title={`Открыть карточку: ${component.displayName}`}
             >
@@ -835,6 +976,33 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     }
 
     return formatCellValue(row[key], key, row, config.entity);
+  };
+
+  const visibleFilters = isCanonicalPesticideList
+    ? config.filters.filter((filter) => filter.key !== "category_id")
+    : config.filters;
+  const selectedCategory = String(filters.category_id || "all");
+  const currentPage = cursorHistory.length + 1;
+
+  const selectCategory = (value: string) => {
+    setListCursor(null);
+    setCursorHistory([]);
+    setFilters((current) => ({ ...current, category_id: value }));
+  };
+
+  const goToNextPage = () => {
+    if (!nextCursor) return;
+    setCursorHistory((history) => [...history, listCursor]);
+    setListCursor(nextCursor);
+  };
+
+  const goToPreviousPage = () => {
+    setCursorHistory((history) => {
+      if (!history.length) return history;
+      const nextHistory = history.slice(0, -1);
+      setListCursor(history[history.length - 1]);
+      return nextHistory;
+    });
   };
 
   return (
@@ -860,12 +1028,15 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 <Input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
-                  className={`${CONSOLE_CONTROL_CLASS} pl-9`}
+                  className={`${CONSOLE_CONTROL_CLASS} pl-9 pr-9`}
                   placeholder={config.searchPlaceholder}
                 />
+                {loading && rows.length ? (
+                  <Loader2 className="absolute right-3 top-2.5 h-4 w-4 animate-spin text-[#536276]" aria-label="Обновление результатов" />
+                ) : null}
               </div>
             </div>
-            {config.filters.map(renderFilter)}
+            {visibleFilters.map(renderFilter)}
           </div>
           {searchConflict ? (
             <div className="border border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-950">
@@ -876,9 +1047,45 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
         </CardHeader>
       </Card>
 
-      <Card className="w-full rounded-none border-[#9aa8ba] bg-white !text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
+      <div className={isCanonicalPesticideList ? "grid min-w-0 gap-3 lg:grid-cols-[220px_minmax(0,1fr)]" : "block"}>
+        {isCanonicalPesticideList ? (
+          <aside className="h-fit border border-[#9aa8ba] bg-white" aria-label="Категории пестицидов">
+            <div className="border-b border-[#9aa8ba] bg-[#d7dde6] px-3 py-2 font-mono text-[11px] uppercase tracking-[0.12em] text-[#42566f]">
+              Категории
+            </div>
+            <div className="p-1.5">
+              <button
+                type="button"
+                onClick={() => selectCategory("all")}
+                className={`flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left text-sm ${selectedCategory === "all" ? "bg-[#15395f] text-white" : "text-[#1f2937] hover:bg-[#eef1f5]"}`}
+              >
+                <span>Все</span>
+                <span className="tabular-nums">{allCategoryCount}</span>
+              </button>
+              {categoryCounts.map((category) => (
+                <button
+                  type="button"
+                  key={category.key}
+                  onClick={() => selectCategory(category.key)}
+                  className={`flex w-full items-center justify-between gap-3 px-2 py-1.5 text-left text-sm ${selectedCategory === category.key ? "bg-[#15395f] text-white" : "text-[#1f2937] hover:bg-[#eef1f5]"}`}
+                >
+                  <span className="min-w-0 truncate" title={category.label}>{category.label}</span>
+                  <span className="shrink-0 tabular-nums">{category.count}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+        ) : null}
+
+      <Card className="min-w-0 w-full rounded-none border-[#9aa8ba] bg-white !text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
         <CardContent className="p-0">
-          <div className="max-h-[calc(100vh-330px)] min-h-[320px] w-full overflow-auto">
+          {isCanonicalPesticideList ? (
+            <div className="flex min-h-10 items-center justify-between border-b border-[#c3ccd8] bg-[#f6f8fb] px-3 py-2 text-sm text-[#42566f]">
+              <span>Найдено: <strong className="text-[#111827]">{totalRows}</strong></span>
+              <span className="tabular-nums">Страница {currentPage}</span>
+            </div>
+          ) : null}
+          <div ref={listScrollRef} className="max-h-[calc(100vh-330px)] min-h-[320px] w-full overflow-auto">
             <Table className="min-w-[1200px] !text-[#111827]">
               <TableHeader className="sticky top-0 z-20 bg-[#eef1f5] shadow-[0_1px_0_#9aa8ba]">
                 <TableRow className="border-[#9aa8ba] hover:bg-[#eef1f5]">
@@ -891,7 +1098,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loading ? (
+                {loading && rows.length === 0 ? (
                   <TableRow className="border-[#c3ccd8] hover:bg-[#f6f8fb]">
                     <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-[#536276]">Загрузка...</TableCell>
                   </TableRow>
@@ -901,8 +1108,21 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                     <TableCell colSpan={config.columns.length + 1} className="px-4 py-6 text-center !text-[#536276]">Записей нет.</TableCell>
                   </TableRow>
                 ) : null}
-                {!loading && rows.map((row) => (
-                  <TableRow key={row.id} className="border-[#c3ccd8] bg-white hover:bg-[#f6f8fb]">
+                {rows.map((row) => (
+                  <TableRow
+                    key={row.id}
+                    tabIndex={isCanonicalPesticideList ? 0 : undefined}
+                    role={isCanonicalPesticideList ? "button" : undefined}
+                    aria-label={isCanonicalPesticideList ? `Открыть карточку ${row.trade_name || row.name || "препарата"}` : undefined}
+                    onClick={isCanonicalPesticideList ? () => openPesticideCard(row.id) : undefined}
+                    onKeyDown={isCanonicalPesticideList ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openPesticideCard(row.id);
+                      }
+                    } : undefined}
+                    className={`border-[#c3ccd8] bg-white hover:bg-[#f6f8fb] ${isCanonicalPesticideList ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#163d68]" : ""}`}
+                  >
                     {config.columns.map((column) => (
                       <TableCell key={`${row.id}-${column.key}`} className={CONSOLE_TABLE_CELL_CLASS}>
                         {renderCatalogCell(row, column.key)}
@@ -910,22 +1130,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                     ))}
                     <TableCell className={CONSOLE_TABLE_CELL_CLASS}>
                       <div className="flex items-center justify-end gap-2">
-                        {config.entity === "pesticides" ? (
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => openPesticideCard(row.id)}
-                            className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]"
-                            title="Открыть полную карточку"
-                            aria-label="Открыть полную карточку"
-                          >
-                            <BookOpen className="h-4 w-4" />
-                          </Button>
-                        ) : null}
-                        <Button variant="outline" size="icon" onClick={() => openEdit(row)} className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]">
+                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void openEdit(row); }} className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]">
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="outline" size="icon" onClick={() => archiveRow(row.id)} disabled={saving} className="rounded-none border-[#9aa8ba] bg-white !text-[#9f1239] hover:bg-[#fff1f2]">
+                        <Button variant="outline" size="icon" onKeyDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); void archiveRow(row.id); }} disabled={saving} className="rounded-none border-[#9aa8ba] bg-white !text-[#9f1239] hover:bg-[#fff1f2]">
                           <Trash2 className="h-4 w-4 text-rose-600" />
                         </Button>
                       </div>
@@ -935,8 +1143,35 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
               </TableBody>
             </Table>
           </div>
+          {isCanonicalPesticideList ? (
+            <div className="flex items-center justify-end gap-2 border-t border-[#c3ccd8] bg-[#f6f8fb] px-3 py-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={goToPreviousPage}
+                disabled={!cursorHistory.length || loading}
+                className="rounded-none border-[#9aa8ba] bg-white text-[#16324f]"
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Назад
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={goToNextPage}
+                disabled={!nextCursor || loading}
+                className="rounded-none border-[#9aa8ba] bg-white text-[#16324f]"
+              >
+                Далее
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
+      </div>
 
       <Dialog open={createOpen} onOpenChange={(open) => !saving && setCreateOpen(open)}>
         <DialogContent className="max-w-3xl">

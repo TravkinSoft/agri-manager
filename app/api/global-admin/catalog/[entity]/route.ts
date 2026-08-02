@@ -1267,6 +1267,10 @@ export async function GET(
     }
 
     const search = String(request.nextUrl.searchParams.get("search") || "").trim();
+    const rowId = String(request.nextUrl.searchParams.get("id") || "").trim();
+    if (rowId && !isUuidLike(rowId)) {
+      return NextResponse.json({ error: "Некорректный идентификатор записи" }, { status: 400 });
+    }
     const productEntity =
       entity === "pesticides" ||
       entity === "fertilizers" ||
@@ -1324,6 +1328,7 @@ export async function GET(
     let query = supabase.from(config.table).select(config.select);
     query = config.scopeWhere(query);
     query = query.eq("archived", false);
+    if (rowId) query = query.eq("id", rowId);
 
     if (search && entity !== "active_ingredients") {
       const searchTerms =
