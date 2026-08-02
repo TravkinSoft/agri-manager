@@ -805,6 +805,24 @@ Assistant implementation: A105 candidate-first prototype at `b22f765` is superse
 - Production migrations/writes/deploy and master merge remain `0/0/NO/NO`.
 - `READY_FOR_FATHER_CONTROLLED_QA_PILOT=YES`; `READY_FOR_PRODUCTION=NO`.
 
+## TZ-243 Global Fertilizers Catalog V1
+
+- TZ-243 status: `PASS_WITH_MANUAL_SCREENSHOT_GAP`; report:
+  [task-reports/core/TZ-243.md](task-reports/core/TZ-243.md).
+- QA contains all `418` source fertilizer identities, `5` EcoSave additives and
+  `13` functional fertilizer categories. Application scope is separate from
+  category, source duplicates and unresolved rows are `0`, and existing
+  Curamin Foliar / Phomazin IDs are preserved.
+- Fertilizers use the existing page with category, manufacturer and application
+  filters. Additives and growth regulators share the Pesticides page; their
+  separate sidebar items are removed and legacy routes redirect safely.
+- RLS role matrix, idempotency, typecheck, QA build and `53/53` automated checks
+  passed. Browser screenshots remain an explicit P2 evidence gap after Chrome
+  detached twice; QA has no live growth-regulator fixture.
+- Production writes/migrations/deploy remain `0/0/NO`; master unchanged.
+- `READY_FOR_FATHER_CONTROLLED_QA_PILOT=YES`;
+  `READY_FOR_PRODUCTION=NO`.
+
 ## TZ-239 Quantity-Only Warehouse Issue
 
 - TZ-239 status: `PASS`; report:

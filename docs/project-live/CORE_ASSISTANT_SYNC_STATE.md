@@ -735,3 +735,12 @@ TZ242_INTEGRATION_CONTRACT_IMPACT: `NO`; no Assistant tool, prompt, memory, snap
 TZ242_BRANCH_RESULT: `PASS - 100 ha, 2 components, 12,000 kg seed plan, separate issue/fact/returns, one 20,000 kg mixed harvest batch, one ledger IN and 200 kg/ha mixed yield`.
 TZ242_PRODUCTION_IMPACT: `NONE`; migrations and E2E data exist only on branch `gsglkmudcwkdetqtocae`, with zero production writes/deploys and no master merge.
 TZ242_ACTION: `FATHER_CONTROLLED_QA_PILOT_ALLOWED`; mixed seed remainder, recipes and Assistant recommendations remain out of scope.
+
+## TZ-243 review result
+
+TZ243_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory, tools and snapshots were not modified.
+TZ243_CORE_IMPACT_FOUND: `YES - QA global fertilizers, EcoSave additives, catalog filters, identity rules and agrochemistry navigation changed in Core`.
+TZ243_INTEGRATION_CONTRACT_IMPACT: `NO`; no Assistant read contract, recommendation boundary or ERP-write boundary changed.
+TZ243_BRANCH_RESULT: `PASS_WITH_MANUAL_SCREENSHOT_GAP - source 418/5, categories 13, RLS and idempotency PASS, typecheck/build PASS, automated 53/53`.
+TZ243_PRODUCTION_IMPACT: `NONE`; production was read-only with zero writes, migrations or deploys and master unchanged.
+TZ243_ACTION: `FATHER_CONTROLLED_QA_PILOT_ALLOWED`; full production review remains separate and explicitly unapproved.
