@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AlertTriangle, ArrowRightCircle, Building2, FileText, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/contexts/auth-context";
@@ -85,6 +86,7 @@ async function buildAuthHeaders(contentType: "json" | "none" = "none") {
 }
 
 export default function PlatformCompaniesPage() {
+  const router = useRouter();
   const { user, setGlobalAdminCompanyContext } = useAuth();
   const { toast } = useToast();
   const [companies, setCompanies] = useState<CompanyItem[]>([]);
@@ -92,6 +94,7 @@ export default function PlatformCompaniesPage() {
   const [platformStatus, setPlatformStatus] = useState<PlatformRuntimeStatus | null>(null);
   const [platformStatusError, setPlatformStatusError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [openingCompanyId, setOpeningCompanyId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<CompanyItem | null>(null);
@@ -162,7 +165,8 @@ export default function PlatformCompaniesPage() {
   }, [user?.id]);
 
   const openCompanyContext = async (companyId: string) => {
-    if (!user?.id) return;
+    if (!user?.id || openingCompanyId) return;
+    setOpeningCompanyId(companyId);
     try {
       const headers = await buildAuthHeaders("json");
       const response = await fetch("/api/global-admin/companies", {
@@ -176,16 +180,17 @@ export default function PlatformCompaniesPage() {
       setSelectedCompanyId(nextCompanyId);
       setGlobalAdminCompanyContext(nextCompanyId);
       toast({
-        title: "Контекст компании выбран",
+        title: "Вход в компанию",
         description: companies.find((company) => company.id === companyId)?.name || companyId,
       });
-      await loadStatus();
+      router.push("/dashboard");
     } catch (error: any) {
       toast({
         title: "Ошибка",
         description: error?.message || "Не удалось открыть компанию",
         variant: "destructive",
       });
+      setOpeningCompanyId(null);
     }
   };
 
@@ -426,9 +431,13 @@ export default function PlatformCompaniesPage() {
                 <span className="font-medium">{company.name}</span>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={() => openCompanyContext(company.id)}>
-                <ArrowRightCircle className="mr-2 h-4 w-4" />
-                {company.id === selectedCompanyId ? "Контекст выбран" : "Выбрать контекст"}
+                <Button
+                  variant="outline"
+                  disabled={openingCompanyId !== null}
+                  onClick={() => openCompanyContext(company.id)}
+                >
+                  <ArrowRightCircle className="mr-2 h-4 w-4" />
+                  {openingCompanyId === company.id ? "Открываем..." : "Войти в компанию"}
                 </Button>
                 <Button
                   variant="destructive"
