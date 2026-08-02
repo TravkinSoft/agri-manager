@@ -126,6 +126,7 @@ async function main() {
   assert.equal(normalizePesticideSearchText("  «Ёлка—1»  "), "елка-1");
   assert.deepEqual(tokenizePesticideQuery("SwissGrow   Phomazin"), ["swissgrow", "phomazin"]);
   assert.equal(stablePesticideSort([...products]).length, products.length);
+  assert.match(endpoint, /filter\(\(componentId\): componentId is string => Boolean\(componentId\)\)/);
   console.log(`TZ-246 RESULT: ${passed}/${checks.length} PASS`);
 }
 

@@ -49,7 +49,7 @@ type ProductRow = PesticideCatalogProduct & Record<string, any>;
 type ReferenceRow = Record<string, any>;
 type ComponentLink = {
   product_id: string;
-  component_id: string;
+  component_id: string | null;
   role_in_product?: string | null;
   sort_order?: number | null;
 };
@@ -327,7 +327,11 @@ export async function GET(request: NextRequest) {
         .in("review_status", ["approved", "needs_owner_review"]);
       if (linksResult.error) throw new Error(linksResult.error.message);
       componentLinks = (linksResult.data || []) as ComponentLink[];
-      const componentIds = Array.from(new Set(componentLinks.map((link) => link.component_id)));
+      const componentIds = Array.from(new Set(
+        componentLinks
+          .map((link) => link.component_id)
+          .filter((componentId): componentId is string => Boolean(componentId)),
+      ));
       if (componentIds.length) {
         const componentsResult = await supabase
           .from("glbd_components")
