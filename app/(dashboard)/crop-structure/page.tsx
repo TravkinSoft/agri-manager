@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Download, Edit3, FileText, LayoutGrid, Map as MapIcon, Maximize2, Plus, Search, Table2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { FieldFormDialog } from "@/components/fields/field-form-dialog";
@@ -388,6 +389,7 @@ const materialCategory = (item: Consumption): MaterialCategory => {
 };
 
 export default function CropStructurePage() {
+  const router = useRouter();
   const { toast } = useToast();
   const { profile, loading: authLoading } = useAuth();
   const { language } = useLanguage();
@@ -1924,7 +1926,7 @@ export default function CropStructurePage() {
   const renderMapView = () => (
     <Card>
       <CardContent className="flex min-h-[420px] items-center justify-center p-6">
-        <Button type="button" size="lg" onClick={() => { window.location.href = "/fields-map"; }}>
+        <Button type="button" size="lg" onClick={() => router.push("/fields-map")}>
           <MapIcon className="mr-2 h-5 w-5" />Открыть карту полей
         </Button>
       </CardContent>
@@ -3154,10 +3156,10 @@ export default function CropStructurePage() {
             </div>
             {isGlobalAdmin ? (
               <div className="mt-4 flex flex-wrap justify-center gap-2">
-                <Button type="button" onClick={() => { window.location.href = "/import"; }}>
+                <Button type="button" onClick={() => router.push("/import")}>
                   <Plus className="mr-2 h-4 w-4" />Импортировать структуру
                 </Button>
-                <Button type="button" variant="outline" onClick={() => { window.location.href = "/fields-map"; }}>
+                <Button type="button" variant="outline" onClick={() => router.push("/fields-map")}>
                   <MapIcon className="mr-2 h-4 w-4" />Открыть карту полей
                 </Button>
               </div>

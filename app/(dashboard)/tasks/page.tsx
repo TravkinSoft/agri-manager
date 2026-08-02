@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import { useLiveRefresh } from '@/hooks/use-live-refresh';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { useLanguage } from '@/lib/contexts/language-context';
 import { supabase } from '@/lib/supabase/client';
@@ -510,9 +511,9 @@ export default function TasksPage() {
     return Array.isArray(payload?.identities) ? payload.identities : [];
   };
 
-  const loadTasks = async () => {
+  const loadTasks = async ({ foreground = true }: { foreground?: boolean } = {}) => {
     if (!profile?.id || !profile.company_id) return;
-    setLoading(true);
+    if (foreground) setLoading(true);
     try {
       const [operationsResult, requestsResult, assetCatalog, companyResult] = await Promise.all([
         supabase
@@ -669,19 +670,28 @@ export default function TasksPage() {
       setMaterialRequests(cleanRequests);
 
     } catch (error: any) {
-      toast({
-        title: 'Ошибка',
-        description: error?.message || 'Не удалось загрузить задачи',
-        variant: 'destructive',
-      });
+      if (foreground) {
+        toast({
+          title: 'Ошибка',
+          description: error?.message || 'Не удалось загрузить задачи',
+          variant: 'destructive',
+        });
+      } else {
+        console.error('Background task refresh failed', error);
+      }
     } finally {
-      setLoading(false);
+      if (foreground) setLoading(false);
     }
   };
 
   useEffect(() => {
     if (profile?.id && profile.company_id) void loadTasks();
   }, [profile?.id, profile?.company_id, language, showTestData]);
+
+  useLiveRefresh({
+    enabled: Boolean(profile?.id && profile?.company_id),
+    onRefresh: () => loadTasks({ foreground: false }),
+  });
 
   const requestsByOperation = useMemo(() => {
     const map = new Map<string, WarehouseIssueRequest[]>();

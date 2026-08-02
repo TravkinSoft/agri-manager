@@ -62,6 +62,7 @@ import { getWarehouseIssueRequests } from "@/lib/services/warehouse-requests";
 import type { WarehouseIssueRequest } from "@/lib/types/warehouse-request";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import {
   OperationFormData,
   OperationLine,
@@ -203,10 +204,10 @@ export default function OperationsPage() {
     profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "agronomist";
   const canUpdateOperationFacts = canManageOperationLines || profile?.role === "brigadier";
 
-  const loadData = async () => {
+  const loadData = async ({ foreground = true }: { foreground?: boolean } = {}) => {
     if (authLoading || !profile?.company_id) return;
     const companyId = profile.company_id;
-    setLoading(true);
+    if (foreground) setLoading(true);
     try {
       const [opsRes, fieldsRes, cropRes, specialistRes, requestsRes] = await Promise.allSettled([
         getOperations(companyId),
@@ -236,9 +237,11 @@ export default function OperationsPage() {
 
     } catch (error) {
       console.error(error);
-      toast({ title: "Ошибка", description: "Не удалось загрузить операции", variant: "destructive" });
+      if (foreground) {
+        toast({ title: "Ошибка", description: "Не удалось загрузить операции", variant: "destructive" });
+      }
     } finally {
-      setLoading(false);
+      if (foreground) setLoading(false);
     }
   };
 
@@ -246,6 +249,11 @@ export default function OperationsPage() {
     if (authLoading) return;
     if (profile?.company_id) void loadData();
   }, [authLoading, profile?.company_id, language]);
+
+  useLiveRefresh({
+    enabled: !authLoading && Boolean(profile?.company_id),
+    onRefresh: () => loadData({ foreground: false }),
+  });
 
   const reviewVariance = async (operation: OperationWithDetails, decision: "approve" | "reject") => {
     if (!profile?.company_id) return;

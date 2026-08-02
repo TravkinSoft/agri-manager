@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
@@ -274,9 +275,9 @@ export default function WarehouseRequestsPage() {
     canAdmin ||
     profile?.role === "agronomist";
 
-  const loadData = async () => {
+  const loadData = async ({ foreground = true }: { foreground?: boolean } = {}) => {
     if (!profile?.company_id) return;
-    setLoading(true);
+    if (foreground) setLoading(true);
     try {
       const [requestRows, warehouseRows, balanceRows, companyResult] = await Promise.all([
         getWarehouseIssueRequests(profile.company_id, {
@@ -306,19 +307,28 @@ export default function WarehouseRequestsPage() {
         )
       );
     } catch (error: any) {
-      toast({
-        title: "Ошибка",
-        description: error?.message || "Не удалось загрузить заявки",
-        variant: "destructive",
-      });
+      if (foreground) {
+        toast({
+          title: "Ошибка",
+          description: error?.message || "Не удалось загрузить заявки",
+          variant: "destructive",
+        });
+      } else {
+        console.error("Background warehouse request refresh failed", error);
+      }
     } finally {
-      setLoading(false);
+      if (foreground) setLoading(false);
     }
   };
 
   useEffect(() => {
     if (profile?.company_id) void loadData();
   }, [profile?.company_id, profile?.role, language, showTestData]);
+
+  useLiveRefresh({
+    enabled: Boolean(profile?.company_id && canView),
+    onRefresh: () => loadData({ foreground: false }),
+  });
 
   const tabCounts = useMemo(() => {
     const counts: Record<WarehouseTab, number> = {
