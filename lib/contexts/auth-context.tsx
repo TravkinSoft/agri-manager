@@ -32,6 +32,7 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  setGlobalAdminCompanyContext: (companyId: string | null) => void;
   signIn: (email: string, password: string) => Promise<{ defaultPath: string }>;
   signUp: (payload: {
     email: string;
@@ -340,6 +341,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const setGlobalAdminCompanyContext = (companyId: string | null) => {
+    setProfile((currentProfile) => {
+      if (!currentProfile || currentProfile.role !== "global_admin") return currentProfile;
+
+      return {
+        ...currentProfile,
+        context_company_id: companyId,
+        company_id: companyId || currentProfile.home_company_id || currentProfile.company_id,
+      };
+    });
+  };
+
   const resolveDisplayProfileForActor = async (baseProfile: any, actor?: { id?: string; isImpersonating?: boolean } | null) => {
     const actorProfileId = String(actor?.id || "").trim();
     const baseProfileId = String(baseProfile?.id || "").trim();
@@ -579,6 +592,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         profile,
         loading,
+        setGlobalAdminCompanyContext,
         signIn,
         signUp,
         verifySignupCode,
