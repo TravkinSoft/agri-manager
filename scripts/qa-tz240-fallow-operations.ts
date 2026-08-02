@@ -62,7 +62,7 @@ const validFallowRow: TestRow = {
 const validate = (rows: TestRow[], fieldArea = 100) =>
   validateAndNormalizeCropStructureRows({ rows, cropsById: crops, varietiesById: varieties, fieldArea });
 
-check("land use enum is canonical", () => assert.deepEqual(LAND_USE_TYPES, ["crop", "fallow"]));
+check("land use enum includes the canonical grain-mix type", () => assert.deepEqual(LAND_USE_TYPES, ["crop", "crop_mix", "fallow"]));
 check("crop land use stays crop", () => assert.equal(getCropStructureLandUseType(validCropRow), "crop"));
 check("fallow land use stays fallow", () => assert.equal(getCropStructureLandUseType(validFallowRow), "fallow"));
 check("fallow normalization clears identity", () => {

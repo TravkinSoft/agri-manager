@@ -149,7 +149,9 @@ check("ledger receives canonical batch id", () => assert.match(harvestMigration,
 check("field history receives ticket and batch links", () => assert.match(harvestMigration, /harvest_ticket_id[\s\S]*harvest_batch_id/));
 check("finalization writes an audit event", () => assert.match(harvestMigration, /'harvest_finalized'/));
 check("weight and ticket line update is atomic", () => assert.match(harvestMigration, /set_harvest_ticket_weights_for_session_v1/));
-check("server overwrites submitted identity from crop structure", () => assert.match(ticketsRoute, /line\.variety_id = harvestContext\.allocation\?\.varietyId/));
+check("server overwrites submitted identity from crop structure", () =>
+  assert.match(ticketsRoute, /line\.variety_id = harvestIsCropMix \? null : harvestContext\.allocation\?\.varietyId/)
+);
 check("server rejects harvest product identity mismatch", () => assert.match(ticketsRoute, /isHarvestProductForAllocation/));
 check("server accepts a valid crop structure without mandatory operation", () => assert.doesNotMatch(ticketsRoute, /if \(!ticket\.linked_operation_id\)/));
 check("server validates crop-to-variety relation", () => assert.match(cropRoute, /varietiesById/));

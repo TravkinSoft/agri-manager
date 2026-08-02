@@ -287,10 +287,10 @@ const tests: TestCase[] = [
     run: () => assert.match(migration, /v_available := v_on_hand - v_reserved/),
   },
   {
-    name: "material request API returns stock deficit details",
+    name: "material request API preserves atomic stock errors",
     run: () => {
-      assert.match(materialRequestRoute, /deficit/);
-      assert.match(materialRequestRoute, /reserved/);
+      assert.match(materialRequestRoute, /prepare_material_request_atomic_v3/);
+      assert.match(materialRequestRoute, /operationMutationError\(error/);
     },
   },
   {
@@ -303,11 +303,10 @@ const tests: TestCase[] = [
   },
   {
     name: "multiple crop structures remain unselected at weighbridge",
-    run: () =>
-      assert.match(
-        weighbridgePage,
-        /fieldHarvestOptions\.length === 1[\s\S]*?cropStructureAllocationId: ""/
-      ),
+    run: () => {
+      assert.match(weighbridgePage, /automaticHarvestAllocation\(fieldHarvestOptions\)/);
+      assert.match(weighbridgePage, /if \(!exists\)[\s\S]*?cropStructureAllocationId: ""/);
+    },
   },
   {
     name: "weighbridge create button is disabled before valid input",
