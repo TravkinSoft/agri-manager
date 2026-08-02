@@ -29,7 +29,7 @@ import { enforceAssistantGreetingPolicy } from "@/lib/assistant/v2/greeting-poli
 import {
   A107RuntimeGuardError,
   A107_ALLOWED_BRANCH_REF,
-  assertA107RuntimeGuard,
+  assertA107RuntimeGuardWhenConfigured,
 } from "@/lib/assistant/v1/a107-runtime-guard";
 import type { AssistantDebugMetadata, AssistantDebugSettingsSource } from "@/lib/assistant/debug-types";
 import type { AssistantEngineResult, AssistantNavigationAction } from "@/lib/assistant/engine/types";
@@ -749,7 +749,7 @@ export async function POST(request: NextRequest) {
   const startedAt = Date.now();
 
   try {
-    assertA107RuntimeGuard();
+    assertA107RuntimeGuardWhenConfigured();
     const actor = await getServerActorFromSession(request);
     ensureAssistantRole(actor);
     role = actor.role;

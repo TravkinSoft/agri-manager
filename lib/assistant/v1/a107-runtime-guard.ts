@@ -108,3 +108,10 @@ export function assertA107RuntimeGuard(
     databaseCredentialsLoaded: false,
   };
 }
+
+export function assertA107RuntimeGuardWhenConfigured(
+  env: NodeJS.ProcessEnv = process.env
+): A107RuntimeGuardResult | null {
+  if (!String(env.A107_BRANCH_REF || "").trim()) return null;
+  return assertA107RuntimeGuard(env);
+}
