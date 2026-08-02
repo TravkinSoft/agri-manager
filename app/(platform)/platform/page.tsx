@@ -85,7 +85,7 @@ async function buildAuthHeaders(contentType: "json" | "none" = "none") {
 }
 
 export default function PlatformCompaniesPage() {
-  const { user } = useAuth();
+  const { user, setGlobalAdminCompanyContext } = useAuth();
   const { toast } = useToast();
   const [companies, setCompanies] = useState<CompanyItem[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
@@ -172,12 +172,14 @@ export default function PlatformCompaniesPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось открыть компанию");
-      setSelectedCompanyId(payload?.selectedCompanyId ? String(payload.selectedCompanyId) : null);
+      const nextCompanyId = payload?.selectedCompanyId ? String(payload.selectedCompanyId) : null;
+      setSelectedCompanyId(nextCompanyId);
+      setGlobalAdminCompanyContext(nextCompanyId);
       toast({
         title: "Контекст компании выбран",
         description: companies.find((company) => company.id === companyId)?.name || companyId,
       });
-      window.location.reload();
+      await loadStatus();
     } catch (error: any) {
       toast({
         title: "Ошибка",

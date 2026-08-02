@@ -36,7 +36,7 @@ type CompanyUserContextItem = {
 
 export function Header() {
   const { toggleSidebar } = useSidebar();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, setGlobalAdminCompanyContext } = useAuth();
   const { t } = useLanguage();
   const router = useRouter();
   const [companies, setCompanies] = useState<CompanyContextItem[]>([]);
@@ -210,7 +210,9 @@ export function Header() {
         throw new Error(payload?.error || "Failed to switch company context");
       }
       const payload = await response.json().catch(() => ({}));
-      setSelectedCompanyId(payload?.selectedCompanyId ? String(payload.selectedCompanyId) : "__none__");
+      const nextCompanyId = payload?.selectedCompanyId ? String(payload.selectedCompanyId) : null;
+      setSelectedCompanyId(nextCompanyId || "__none__");
+      setGlobalAdminCompanyContext(nextCompanyId);
       if (nextValue === "__none__") {
         window.location.assign("/platform");
         return;
