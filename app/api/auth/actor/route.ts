@@ -5,33 +5,39 @@ export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
   try {
-    const actor = await getServerActorFromSession(request);
-    const adminActor = await getServerActorFromSession(request, { ignoreImpersonation: true });
-
-    return NextResponse.json({
-      actor: {
-        id: actor.id,
-        authUserId: actor.authUserId,
-        role: actor.role,
-        roleRawKey: actor.roleRawKey,
-        roleIsLegacyAlias: actor.roleIsLegacyAlias,
-        companyId: actor.companyId,
-        homeCompanyId: actor.homeCompanyId,
-        contextCompanyId: actor.contextCompanyId,
-        status: actor.status,
-        email: actor.email,
-        isImpersonating: actor.isImpersonating,
-        impersonatedProfileId: actor.impersonatedProfileId,
-        impersonatedCompanyId: actor.impersonatedCompanyId,
-        impersonatedByProfileId: actor.impersonatedByProfileId,
-        impersonatedByAuthUserId: actor.impersonatedByAuthUserId,
-      },
-      admin: {
-        id: adminActor.id,
-        role: adminActor.role,
-        companyId: adminActor.companyId,
-      },
+    const actor = await getServerActorFromSession(request, { skipCache: true });
+    const adminActor = await getServerActorFromSession(request, {
+      ignoreImpersonation: true,
+      skipCache: true,
     });
+
+    return NextResponse.json(
+      {
+        actor: {
+          id: actor.id,
+          authUserId: actor.authUserId,
+          role: actor.role,
+          roleRawKey: actor.roleRawKey,
+          roleIsLegacyAlias: actor.roleIsLegacyAlias,
+          companyId: actor.companyId,
+          homeCompanyId: actor.homeCompanyId,
+          contextCompanyId: actor.contextCompanyId,
+          status: actor.status,
+          email: actor.email,
+          isImpersonating: actor.isImpersonating,
+          impersonatedProfileId: actor.impersonatedProfileId,
+          impersonatedCompanyId: actor.impersonatedCompanyId,
+          impersonatedByProfileId: actor.impersonatedByProfileId,
+          impersonatedByAuthUserId: actor.impersonatedByAuthUserId,
+        },
+        admin: {
+          id: adminActor.id,
+          role: adminActor.role,
+          companyId: adminActor.companyId,
+        },
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
