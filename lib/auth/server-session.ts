@@ -93,6 +93,7 @@ export type ServerActorTiming = {
 
 type ServerActorOptions = {
   ignoreImpersonation?: boolean;
+  skipCache?: boolean;
   timing?: ServerActorTiming;
 };
 
@@ -607,7 +608,7 @@ export async function getServerActorFromSession(
   const totalStarted = Date.now();
   const cacheToken = parseBearerToken(request);
   const cacheKey = cacheToken ? `${options?.ignoreImpersonation === true ? "admin" : "actor"}:${cacheToken}` : null;
-  if (cacheKey) {
+  if (cacheKey && options?.skipCache !== true) {
     const cached = actorContextCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       if (options?.timing) {
