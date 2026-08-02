@@ -443,13 +443,13 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     table: "products",
     select: "*",
     defaultOrder: "name",
-    scopeWhere: (query) => query.is("company_id", null).eq("product_type", "pesticide"),
-    searchColumns: ["name", "trade_name"],
+    scopeWhere: (query) => query.is("company_id", null).in("product_type", ["pesticide", "additive", "adjuvant", "growth_regulator"]),
+    searchColumns: ["name", "trade_name", "subcategory", "category", "manufacturer", "formulation"],
     filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "is_active"],
     normalizeRow: (row) => ({
       ...normalizeProductCatalogRow(row),
       active_ingredients: row.active_ingredients || row.active_ingredient || "-",
-      pesticide_category: row.pesticide_category || "-",
+      pesticide_category: row.catalog_category_label || row.pesticide_category || "-",
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
       status: "master",
@@ -464,26 +464,35 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
   },
   fertilizers: {
     table: "products",
-    select: "*",
+    select: "*, fertilizer_categories:fertilizer_category_id(id,name_ru,slug)",
     defaultOrder: "name",
     scopeWhere: (query) => query.is("company_id", null).eq("product_type", "fertilizer"),
-    searchColumns: ["name", "trade_name"],
-    filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "fertilizer_type", "is_active"],
+    searchColumns: ["name", "trade_name", "manufacturer", "formulation", "composition", "catalog_category_label", "application_scope"],
+    filters: ["fertilizer_category_id", "manufacturer_id", "application_scope", "is_active"],
     normalizeRow: (row) => ({
       ...normalizeProductCatalogRow(row),
-      active_ingredients: row.active_ingredients || row.active_ingredient || "-",
-      pesticide_category: row.pesticide_category || "-",
-      mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
+      fertilizer_category: row.fertilizer_categories?.name_ru || row.catalog_category_label || row.fertilizer_type || "-",
       formulation: row.formulation_name || row.formulation || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
       ...normalizeProductMetadataPayload(payload, "kg"),
+      trade_name: payload.trade_name || payload.name,
+      name_ru: payload.name_ru || payload.trade_name || payload.name,
       type: "fertilizer",
       product_type: "fertilizer",
       company_id: null,
     }),
     beforeUpdate: (payload) => normalizeProductMetadataPayload(payload, "kg"),
+  },
+  fertilizer_categories: {
+    table: "fertilizer_categories",
+    select: "id,slug,name_ru,definition,examples,sort_order,is_active,archived,created_at,updated_at",
+    defaultOrder: "sort_order",
+    scopeWhere: (query) => query,
+    searchColumns: ["slug", "name_ru", "definition", "examples"],
+    filters: ["is_active"],
+    beforeCreate: (payload) => ({ ...payload, archived: false }),
   },
   additives: {
     table: "products",
@@ -1263,10 +1272,7 @@ export async function GET(
       entity === "fertilizers" ||
       entity === "additives" ||
       entity === "growth_regulators";
-    const componentProductEntity =
-      entity === "pesticides" ||
-      entity === "fertilizers" ||
-      entity === "growth_regulators";
+    const componentProductEntity = entity === "pesticides" || entity === "growth_regulators";
     let glbdIndex: GlbdComponentSearchEntry[] | undefined;
     const matchingProductIdSet = new Set<string>();
 
@@ -1416,7 +1422,7 @@ export async function GET(
       hydratedRows = await attachCropNamesToVarieties(supabase, rawRows);
     } else if (entity === "seeds") {
       hydratedRows = await attachSeedProductNames(supabase, rawRows);
-    } else if (entity === "pesticides" || entity === "fertilizers") {
+    } else if (entity === "pesticides") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows, glbdIndex);
     } else if (entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows, glbdIndex);
@@ -1459,11 +1465,39 @@ export async function POST(
       ? normalized.active_ingredient_ids
       : undefined;
     delete normalized.active_ingredient_ids;
-    if ((entity === "pesticides" || entity === "fertilizers") && !normalized.category_id) {
+    if (entity === "pesticides" && !normalized.category_id) {
       normalized.category_id = await resolvePesticideCategoryIdBySlug(
         supabase,
         normalized.pesticide_category || normalized.category_slug || normalized.source_category_slug
       );
+    }
+
+    if (entity === "fertilizers") {
+      const categoryId = String(normalized.fertilizer_category_id || "").trim();
+      const composition = String(normalized.composition || "").trim();
+      const formulationId = String(normalized.formulation_id || "").trim();
+      if (!categoryId || !composition || !formulationId || !normalized.application_scope) {
+        return NextResponse.json({ error: "Для удобрения обязательны категория, состав, форма и применение" }, { status: 400 });
+      }
+      const [{ data: category }, { data: manufacturer }, { data: formulation }] = await Promise.all([
+        supabase.from("fertilizer_categories").select("id,slug,name_ru").eq("id", categoryId).eq("is_active", true).eq("archived", false).maybeSingle(),
+        normalized.manufacturer_id
+          ? supabase.from("agrochem_manufacturers").select("id,name").eq("id", normalized.manufacturer_id).eq("is_active", true).eq("archived", false).maybeSingle()
+          : Promise.resolve({ data: null }),
+        supabase.from("agrochem_formulations").select("id,name_ru").eq("id", formulationId).eq("is_active", true).eq("archived", false).maybeSingle(),
+      ]);
+      if (!category || !formulation) {
+        return NextResponse.json({ error: "Категория или форма удобрения не найдена" }, { status: 400 });
+      }
+      normalized.fertilizer_type = category.slug;
+      normalized.catalog_category_slug = category.slug;
+      normalized.catalog_category_label = category.name_ru;
+      normalized.category = "fertilizer";
+      normalized.category_id = null;
+      normalized.manufacturer = manufacturer?.name || null;
+      normalized.formulation = formulation.name_ru;
+      normalized.product_form = formulation.name_ru;
+      normalized.active_ingredient = null;
     }
 
     if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
@@ -1471,20 +1505,23 @@ export async function POST(
       if (!tradeName) {
         return NextResponse.json({ error: "Торговое название обязательно" }, { status: 400 });
       }
-      if (!normalized.category_id) {
+      if (entity !== "fertilizers" && !normalized.category_id) {
         return NextResponse.json({ error: "Категория обязательна" }, { status: 400 });
       }
-      if (!selectedActiveIngredientIds?.length) {
+      if (entity !== "fertilizers" && !selectedActiveIngredientIds?.length) {
         return NextResponse.json({ error: "Выберите минимум одно действующее вещество" }, { status: 400 });
       }
 
-      const { data: existedProduct } = await supabase
+      const { data: existedProducts } = await supabase
         .from("products")
-        .select("id")
+        .select("id,manufacturer,manufacturer_id")
         .is("company_id", null)
         .eq("archived", false)
-        .ilike("trade_name", tradeName)
-        .maybeSingle();
+        .ilike("trade_name", tradeName);
+      const manufacturerIdentity = normalizeCatalogName(normalized.manufacturer || "");
+      const existedProduct = (existedProducts || []).find((row: any) =>
+        entity !== "fertilizers" || normalizeCatalogName(row.manufacturer || "") === manufacturerIdentity
+      );
       if (existedProduct?.id) {
         return NextResponse.json({ error: "Продукт с таким торговым названием уже существует" }, { status: 400 });
       }
@@ -1498,7 +1535,7 @@ export async function POST(
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     if (
-      (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") &&
+      (entity === "pesticides" || entity === "growth_regulators") &&
       data &&
       typeof data === "object" &&
       "id" in data
@@ -1511,7 +1548,7 @@ export async function POST(
       hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
     } else if (entity === "seeds") {
       hydratedRows = await attachSeedProductNames(supabase, [data]);
-    } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+    } else if (entity === "pesticides" || entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
     }
     const row = hydratedRows[0];
@@ -1546,7 +1583,35 @@ export async function PATCH(
       ? normalized.active_ingredient_ids
       : undefined;
     delete normalized.active_ingredient_ids;
-    if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+    if (entity === "fertilizers") {
+      const categoryId = String(normalized.fertilizer_category_id || "").trim();
+      if (!categoryId) {
+        return NextResponse.json({ error: "Категория удобрения обязательна" }, { status: 400 });
+      }
+      const [{ data: category }, { data: manufacturer }, { data: formulation }] = await Promise.all([
+        supabase.from("fertilizer_categories").select("id,slug,name_ru").eq("id", categoryId).eq("is_active", true).eq("archived", false).maybeSingle(),
+        normalized.manufacturer_id
+          ? supabase.from("agrochem_manufacturers").select("id,name").eq("id", normalized.manufacturer_id).eq("is_active", true).eq("archived", false).maybeSingle()
+          : Promise.resolve({ data: null }),
+        normalized.formulation_id
+          ? supabase.from("agrochem_formulations").select("id,name_ru").eq("id", normalized.formulation_id).eq("is_active", true).eq("archived", false).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      if (!category || !formulation) {
+        return NextResponse.json({ error: "Категория или форма удобрения не найдена" }, { status: 400 });
+      }
+      normalized.fertilizer_type = category.slug;
+      normalized.catalog_category_slug = category.slug;
+      normalized.catalog_category_label = category.name_ru;
+      normalized.category = "fertilizer";
+      normalized.category_id = null;
+      normalized.manufacturer = manufacturer?.name || null;
+      normalized.formulation = formulation.name_ru;
+      normalized.product_form = formulation.name_ru;
+      normalized.active_ingredient = null;
+    }
+
+    if (entity === "pesticides" || entity === "growth_regulators") {
       const nextCategoryId = await resolvePesticideCategoryIdBySlug(
         supabase,
         normalized.category_id || normalized.pesticide_category || normalized.category_slug || normalized.source_category_slug
@@ -1554,17 +1619,22 @@ export async function PATCH(
       if (nextCategoryId) {
         normalized.category_id = nextCategoryId;
       }
+    }
 
+    if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
       const nextTradeName = String(normalized.trade_name || normalized.name || "").trim();
       if (nextTradeName) {
-        const { data: existedProduct } = await supabase
+        const { data: existedProducts } = await supabase
           .from("products")
-          .select("id")
+          .select("id,manufacturer")
           .is("company_id", null)
           .eq("archived", false)
           .ilike("trade_name", nextTradeName)
-          .neq("id", id)
-          .maybeSingle();
+          .neq("id", id);
+        const manufacturerIdentity = normalizeCatalogName(normalized.manufacturer || "");
+        const existedProduct = (existedProducts || []).find((row: any) =>
+          entity !== "fertilizers" || normalizeCatalogName(row.manufacturer || "") === manufacturerIdentity
+        );
         if (existedProduct?.id) {
           return NextResponse.json({ error: "Продукт с таким торговым названием уже существует" }, { status: 400 });
         }
@@ -1580,7 +1650,7 @@ export async function PATCH(
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     if (
-      (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") &&
+      (entity === "pesticides" || entity === "growth_regulators") &&
       data &&
       typeof data === "object" &&
       "id" in data
@@ -1592,7 +1662,7 @@ export async function PATCH(
       hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
     } else if (entity === "seeds") {
       hydratedRows = await attachSeedProductNames(supabase, [data]);
-    } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+    } else if (entity === "pesticides" || entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
     }
     const row = hydratedRows[0];

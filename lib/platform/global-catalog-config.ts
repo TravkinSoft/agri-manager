@@ -9,6 +9,7 @@ export type GlobalCatalogEntity =
   | "weeds"
   | "pesticides"
   | "fertilizers"
+  | "fertilizer_categories"
   | "additives"
   | "growth_regulators"
   | "pesticide_categories"
@@ -222,19 +223,20 @@ const standaloneMachineryAssetGroupFilterOptions: FilterOption[] = [
 const productTypeFilterOptions: FilterOption[] = [
   { label: "Все", value: "all" },
   { label: "Пестициды", value: "pesticide" },
-  { label: "Удобрения", value: "fertilizer" },
+  { label: "Добавки", value: "additive" },
   { label: "Регуляторы роста", value: "growth_regulator" },
   { label: "Адъюванты", value: "adjuvant" },
 ];
 
-const fertilizerTypeOptions: FilterOption[] = [
-  { label: "Азотное", value: "nitrogen" },
-  { label: "Фосфорное", value: "phosphorus" },
-  { label: "Калийное", value: "potassium" },
-  { label: "NPK", value: "npk" },
-  { label: "Микроэлементное", value: "micronutrient" },
-  { label: "Листовое", value: "foliar" },
-  { label: "Органическое", value: "organic" },
+const fertilizerApplicationOptions: FilterOption[] = [
+  { label: "Основное внесение", value: "Основное внесение" },
+  { label: "Фертигация / листовое", value: "Фертигация / листовое" },
+  { label: "Листовое", value: "Листовое" },
+  { label: "Листовое / фертигация", value: "Листовое / фертигация" },
+  { label: "Семена / листовое", value: "Семена / листовое" },
+  { label: "Почвенное", value: "Почвенное" },
+  { label: "Почвенное / фертигация", value: "Почвенное / фертигация" },
+  { label: "Баковая смесь", value: "Баковая смесь" },
 ];
 
 const additiveSubtypeOptions: FilterOption[] = [
@@ -653,19 +655,52 @@ export const GLOBAL_CATALOG_CONFIGS: Record<GlobalCatalogEntity, GlobalCatalogCo
     title: "Глобальный каталог удобрений",
     description: "Мастер-список удобрений платформы.",
     createLabel: "Добавить удобрение",
-    searchPlaceholder: "Поиск по названию, ДВ, формуляции, производителю...",
+    searchPlaceholder: "Поиск по названию, составу, форме или производителю...",
     columns: [
-      ...defaultAgrochemColumns.slice(0, 4),
-      { key: "fertilizer_type", label: "Тип удобрения" },
-      ...defaultAgrochemColumns.slice(4),
+      { key: "trade_name", label: "Название" },
+      { key: "manufacturer", label: "Производитель" },
+      { key: "fertilizer_category", label: "Категория" },
+      { key: "composition", label: "Состав" },
+      { key: "formulation", label: "Форма" },
+      { key: "stock_unit", label: "Единица" },
     ],
     filters: [
-      ...defaultAgrochemFilters,
-      { key: "fertilizer_type", label: "Тип удобрения", options: [{ label: "Все", value: "all" }, ...fertilizerTypeOptions] },
+      { key: "fertilizer_category_id", label: "Категория", options: [{ label: "Все", value: "all" }], optionsEntity: "fertilizer_categories" },
+      { key: "manufacturer_id", label: "Производитель", options: [{ label: "Все", value: "all" }], optionsEntity: "agrochem_manufacturers" },
+      { key: "application_scope", label: "Применение", options: [{ label: "Все", value: "all" }, ...fertilizerApplicationOptions] },
+      { key: "is_active", label: "Активность", options: activeFilterOptions },
     ],
     formFields: [
-      ...defaultAgrochemFormFields,
-      { key: "fertilizer_type", label: "Тип удобрения", type: "select", required: true, options: fertilizerTypeOptions },
+      { key: "name", label: "Название", type: "text", required: true },
+      { key: "manufacturer_id", label: "Производитель", type: "select", optionsEntity: "agrochem_manufacturers" },
+      { key: "fertilizer_category_id", label: "Категория", type: "select", required: true, optionsEntity: "fertilizer_categories" },
+      { key: "composition", label: "Состав", type: "text", required: true },
+      { key: "formulation_id", label: "Форма", type: "select", required: true, optionsEntity: "agrochem_formulations" },
+      { key: "application_scope", label: "Применение", type: "select", required: true, options: fertilizerApplicationOptions },
+      { key: "stock_unit", label: "Единица", type: "select", required: true, options: materialStockUnitOptions.filter((option) => option.value === "kg" || option.value === "l") },
+      { key: "source_url", label: "Источник", type: "text", required: true },
+      { key: "is_active", label: "Активно", type: "checkbox" },
+    ],
+  },
+  fertilizer_categories: {
+    entity: "fertilizer_categories",
+    title: "Категории удобрений",
+    description: "Канонический справочник категорий удобрений.",
+    createLabel: "Добавить категорию",
+    searchPlaceholder: "Поиск категории...",
+    columns: [
+      { key: "name_ru", label: "Название" },
+      { key: "slug", label: "Slug" },
+      { key: "definition", label: "Определение" },
+    ],
+    filters: [{ key: "is_active", label: "Активность", options: activeFilterOptions }],
+    formFields: [
+      { key: "name_ru", label: "Название", type: "text", required: true },
+      { key: "slug", label: "Slug", type: "text", required: true },
+      { key: "definition", label: "Определение", type: "text" },
+      { key: "examples", label: "Примеры", type: "text" },
+      { key: "sort_order", label: "Порядок", type: "number", required: true },
+      { key: "is_active", label: "Активна", type: "checkbox" },
     ],
   },
   additives: {

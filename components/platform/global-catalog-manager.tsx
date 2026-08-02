@@ -442,10 +442,14 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
   useEffect(() => {
     const defaults = Object.fromEntries(
-      config.filters.map((filter) => [filter.key, filter.multi ? [] : filter.options.find((o) => o.value === "all")?.value || "all"])
+      config.filters.map((filter) => {
+        const fromUrl = searchParams.get(filter.key);
+        if (filter.multi) return [filter.key, fromUrl ? fromUrl.split(",").map((value) => value.trim()).filter(Boolean) : []];
+        return [filter.key, fromUrl || filter.options.find((option) => option.value === "all")?.value || "all"];
+      })
     );
     setFilters(defaults);
-  }, [config.entity]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [config.entity, searchParams]);
 
   useEffect(() => {
     void loadRows();
