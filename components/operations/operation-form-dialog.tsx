@@ -269,6 +269,65 @@ function normalizeNumber(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function formatDecimalInput(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "";
+  return String(value).replace(".", ",");
+}
+
+function MaterialRateInput({
+  value,
+  onValueChange,
+  placeholder,
+  describedBy,
+}: {
+  value: number | null | undefined;
+  onValueChange: (value: number | null) => void;
+  placeholder: string;
+  describedBy?: string;
+}) {
+  const [draft, setDraft] = useState(() => formatDecimalInput(value));
+  const editingRef = useRef(false);
+  const lastEmittedValueRef = useRef<number | null>(value ?? null);
+
+  useEffect(() => {
+    const nextValue = value ?? null;
+    const changedOutsideInput = !Object.is(nextValue, lastEmittedValueRef.current);
+    if (!editingRef.current || changedOutsideInput) {
+      setDraft(formatDecimalInput(nextValue));
+      lastEmittedValueRef.current = nextValue;
+    }
+  }, [value]);
+
+  return (
+    <Input
+      className="h-8 text-xs"
+      inputMode="decimal"
+      value={draft}
+      onFocus={() => {
+        editingRef.current = true;
+      }}
+      onChange={(event) => {
+        const nextDraft = event.target.value.trim();
+        if (!/^\d*(?:[.,]\d*)?$/.test(nextDraft)) return;
+
+        setDraft(nextDraft);
+        const nextValue = normalizeNumber(nextDraft);
+        lastEmittedValueRef.current = nextValue;
+        onValueChange(nextValue);
+      }}
+      onBlur={() => {
+        editingRef.current = false;
+        const nextValue = normalizeNumber(draft);
+        lastEmittedValueRef.current = nextValue;
+        setDraft(formatDecimalInput(nextValue));
+        onValueChange(nextValue);
+      }}
+      placeholder={placeholder}
+      aria-describedby={describedBy}
+    />
+  );
+}
+
 function clampArea(value: number | null, maxArea: number | null): number | null {
   if (value == null) return null;
   if (maxArea != null && maxArea > 0) return Math.min(value, maxArea);
@@ -2221,12 +2280,11 @@ export function OperationFormDialog({
         ) : null}
         <div>
           <div className="mb-1 text-xs text-slate-500">Норма</div>
-          <Input
-            className="h-8 text-xs"
-            value={material.planned_rate ?? ""}
-            onChange={(event) => updateMaterial(index, { planned_rate: normalizeNumber(event.target.value) })}
+          <MaterialRateInput
+            value={material.planned_rate}
+            onValueChange={(plannedRate) => updateMaterial(index, { planned_rate: plannedRate })}
             placeholder={formatRateUnit(material.unit || getDefaultUnitForComponent(component.slug), rateBasis)}
-            aria-describedby={material.product_id && material.planned_rate == null ? `material-rate-help-${index}` : undefined}
+            describedBy={material.product_id && material.planned_rate == null ? `material-rate-help-${index}` : undefined}
           />
           {material.product_id && material.planned_rate == null ? (
             <div id={`material-rate-help-${index}`} className="mt-1 text-[11px] text-amber-300">
