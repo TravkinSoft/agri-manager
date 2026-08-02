@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   CheckCircle2,
@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
@@ -262,6 +263,7 @@ export default function WarehouseRequestsPage() {
   const [adminReason, setAdminReason] = useState("");
   const [isQaCompany, setIsQaCompany] = useState(false);
   const [showTestData, setShowTestData] = useState(false);
+  const notificationDeepLinkHandledRef = useRef(false);
 
   const canProcess =
     profile?.role === "warehouse" ||
@@ -274,9 +276,9 @@ export default function WarehouseRequestsPage() {
     canAdmin ||
     profile?.role === "agronomist";
 
-  const loadData = async () => {
+  const loadData = async ({ foreground = true }: { foreground?: boolean } = {}) => {
     if (!profile?.company_id) return;
-    setLoading(true);
+    if (foreground) setLoading(true);
     try {
       const [requestRows, warehouseRows, balanceRows, companyResult] = await Promise.all([
         getWarehouseIssueRequests(profile.company_id, {
@@ -306,19 +308,30 @@ export default function WarehouseRequestsPage() {
         )
       );
     } catch (error: any) {
-      toast({
-        title: "Ошибка",
-        description: error?.message || "Не удалось загрузить заявки",
-        variant: "destructive",
-      });
+      if (foreground) {
+        toast({
+          title: "Ошибка",
+          description: error?.message || "Не удалось загрузить заявки",
+          variant: "destructive",
+        });
+      } else {
+        console.error("Background warehouse request refresh failed", error);
+      }
     } finally {
-      setLoading(false);
+      if (foreground) setLoading(false);
     }
   };
 
   useEffect(() => {
     if (profile?.company_id) void loadData();
   }, [profile?.company_id, profile?.role, language, showTestData]);
+
+  useLiveRefresh({
+    enabled: Boolean(profile?.company_id && canView),
+    onRefresh: () => loadData({ foreground: false }),
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.operations,
+  });
 
   const tabCounts = useMemo(() => {
     const counts: Record<WarehouseTab, number> = {
@@ -354,6 +367,22 @@ export default function WarehouseRequestsPage() {
 
   const selectedRequest =
     requests.find((row) => row.id === selectedId) || null;
+
+  useEffect(() => {
+    if (loading || notificationDeepLinkHandledRef.current) return;
+    const requestId = new URLSearchParams(window.location.search).get("request");
+    if (!requestId) {
+      notificationDeepLinkHandledRef.current = true;
+      return;
+    }
+    const request = requests.find((item) => item.id === requestId);
+    if (!request) return;
+    setActiveTab(tabForRequest(request));
+    setSelectedId(request.id);
+    setDetailDismissed(false);
+    setMobileDetailOpen(true);
+    notificationDeepLinkHandledRef.current = true;
+  }, [loading, requests]);
 
   useEffect(() => {
     if (visibleRequests.length === 0) {

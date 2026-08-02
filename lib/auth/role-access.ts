@@ -13,6 +13,8 @@ const HIDDEN_PILOT_PREFIXES = [
   "/technique",
 ];
 
+const AUTHENTICATED_SHARED_PREFIXES = ["/notifications"];
+
 const COMPANY_ADMIN_ALLOWED_PREFIXES = [
   "/dashboard",
   "/fields",
@@ -101,6 +103,10 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
   if (!path || path === "/") return true;
 
   if (role === "global_admin") return true;
+
+  if (AUTHENTICATED_SHARED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+    return true;
+  }
 
   if (HIDDEN_PILOT_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
     return false;

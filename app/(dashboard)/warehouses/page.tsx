@@ -32,6 +32,7 @@ import { WarehouseReceiptDialog } from "@/components/warehouses/warehouse-receip
 import { WarehouseStockDetailsDialog } from "@/components/warehouses/warehouse-stock-details-dialog";
 import { WarehouseTransferDialog } from "@/components/warehouses/warehouse-transfer-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
@@ -136,10 +137,12 @@ export default function WarehousesPage() {
   const canView = canStockOperate || canManageWarehouses || ["agronomist", "director", "weighman"].includes(role);
   const isReadOnlyRole = ["weighman", "agronomist", "director"].includes(role);
 
-  const loadData = async () => {
+  const loadData = async ({ foreground = true }: { foreground?: boolean } = {}) => {
     if (!profile?.company_id) return;
-    setLoading(true);
-    setError(null);
+    if (foreground) {
+      setLoading(true);
+      setError(null);
+    }
     try {
       const [warehouseRows, productRows, balanceRows, movementRows, receiptRows, requestRows, batchRows] = await Promise.all([
         getWarehouses(profile.company_id, canManageWarehouses, language),
@@ -157,10 +160,15 @@ export default function WarehousesPage() {
       setReceipts(receiptRows);
       setRequests(requestRows);
       setHarvestBatches(batchRows);
+      setError(null);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось загрузить склады");
+      if (foreground) {
+        setError(cause instanceof Error ? cause.message : "Не удалось загрузить склады");
+      } else {
+        console.error("Background warehouse refresh failed", cause);
+      }
     } finally {
-      setLoading(false);
+      if (foreground) setLoading(false);
     }
   };
 
@@ -169,6 +177,13 @@ export default function WarehousesPage() {
     // loadData is intentionally tied to the selected company and role contract.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.company_id, profile?.role, language]);
+
+  useLiveRefresh({
+    enabled: Boolean(profile?.company_id && canView),
+    onRefresh: () => loadData({ foreground: false }),
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.warehouses,
+  });
 
   const summaries = useMemo<Summary[]>(() => warehouses.map((warehouse) => {
     const stock = balances.filter((row) => row.warehouse_id === warehouse.id);
