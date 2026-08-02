@@ -61,6 +61,7 @@ export function useLiveRefresh({
     };
 
     window.addEventListener("focus", scheduleRefresh);
+    window.addEventListener("online", scheduleRefresh);
     document.addEventListener("visibilitychange", handleVisibilityChange);
     const interval = window.setInterval(scheduleRefresh, intervalMs);
 
@@ -70,6 +71,7 @@ export function useLiveRefresh({
       if (debounceTimer) clearTimeout(debounceTimer);
       window.clearInterval(interval);
       window.removeEventListener("focus", scheduleRefresh);
+      window.removeEventListener("online", scheduleRefresh);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [debounceMs, enabled, intervalMs]);

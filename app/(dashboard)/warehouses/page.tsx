@@ -160,6 +160,7 @@ export default function WarehousesPage() {
       setReceipts(receiptRows);
       setRequests(requestRows);
       setHarvestBatches(batchRows);
+      setError(null);
     } catch (cause) {
       if (foreground) {
         setError(cause instanceof Error ? cause.message : "Не удалось загрузить склады");
