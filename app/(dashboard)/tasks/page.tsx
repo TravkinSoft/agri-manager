@@ -19,7 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
-import { useLiveRefresh } from '@/hooks/use-live-refresh';
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from '@/hooks/use-live-refresh';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { useLanguage } from '@/lib/contexts/language-context';
 import { supabase } from '@/lib/supabase/client';
@@ -691,6 +691,8 @@ export default function TasksPage() {
   useLiveRefresh({
     enabled: Boolean(profile?.id && profile?.company_id),
     onRefresh: () => loadTasks({ foreground: false }),
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.operations,
   });
 
   const requestsByOperation = useMemo(() => {

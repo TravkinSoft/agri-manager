@@ -17,7 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
-import { useLiveRefresh } from "@/hooks/use-live-refresh";
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
@@ -1019,6 +1019,8 @@ export default function WeighbridgeOperationsPage() {
   useLiveRefresh({
     enabled: Boolean(!authLoading && profile?.company_id && profile?.id && canView),
     onRefresh: refreshTickets,
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.weighbridge,
   });
 
   const siteConfirm = async (opts: { title: string; description: string; actionLabel: string }) => {

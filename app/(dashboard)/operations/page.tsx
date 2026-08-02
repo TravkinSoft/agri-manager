@@ -62,7 +62,7 @@ import { getWarehouseIssueRequests } from "@/lib/services/warehouse-requests";
 import type { WarehouseIssueRequest } from "@/lib/types/warehouse-request";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
-import { useLiveRefresh } from "@/hooks/use-live-refresh";
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import {
   OperationFormData,
   OperationLine,
@@ -253,6 +253,8 @@ export default function OperationsPage() {
   useLiveRefresh({
     enabled: !authLoading && Boolean(profile?.company_id),
     onRefresh: () => loadData({ foreground: false }),
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.operations,
   });
 
   const reviewVariance = async (operation: OperationWithDetails, decision: "approve" | "reject") => {

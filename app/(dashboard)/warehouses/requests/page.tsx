@@ -25,7 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useLiveRefresh } from "@/hooks/use-live-refresh";
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
@@ -328,6 +328,8 @@ export default function WarehouseRequestsPage() {
   useLiveRefresh({
     enabled: Boolean(profile?.company_id && canView),
     onRefresh: () => loadData({ foreground: false }),
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.operations,
   });
 
   const tabCounts = useMemo(() => {
