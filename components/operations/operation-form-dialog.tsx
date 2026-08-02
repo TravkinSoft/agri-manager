@@ -4,7 +4,7 @@ import { KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId, use
 import { FieldErrors, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
-import { Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -56,7 +56,6 @@ import { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { supabase } from "@/lib/supabase/client";
 import { getFieldDisplayName } from "@/lib/fields/display";
-import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { stripManufacturerPrefixCandidate } from "@/lib/catalog/catalog-identity";
 import { buildProductPassport } from "@/lib/products/product-passport";
@@ -156,6 +155,8 @@ type ProductOption = {
   aliases?: string[];
   availableQty: number;
   warehouseNames: string[];
+  availableQuantities?: Array<{ quantity: number; unit: string }>;
+  sourceType?: string;
 };
 type CropCatalogOption = { id: string; name: string; archived?: boolean | null; is_active?: boolean | null };
 type VarietyCatalogOption = { id: string; name: string; crop_id: string; archived?: boolean | null; is_active?: boolean | null };
@@ -587,24 +588,98 @@ function mergeCanonicalTypes(rows: OperationTypeMaster[]): OperationTypeMaster[]
   return Array.from(bySlug.values());
 }
 
-async function loadOperationCatalogProducts(companyId: string) {
+function mapMaterialSelectProduct(row: any): ProductOption {
+  const availableQuantities = Array.isArray(row.available_quantities) ? row.available_quantities : [];
+  const primaryStock = availableQuantities.length === 1 ? availableQuantities[0] : null;
+  return {
+    id: String(row.product_id),
+    master_product_id: String(row.canonical_product_id || row.product_id),
+    name: String(row.trade_name || "-"),
+    trade_name: String(row.trade_name || "-"),
+    normalized_name: String(row.trade_name || "-"),
+    manufacturer: row.manufacturer ? String(row.manufacturer) : null,
+    notes: row.active_ingredient ? `ДВ: ${row.active_ingredient}` : null,
+    type: row.product_type ? String(row.product_type) : null,
+    product_type: row.product_type ? String(row.product_type) : null,
+    category: row.category ? String(row.category) : null,
+    subcategory: row.subcategory ? String(row.subcategory) : null,
+    pesticide_category: row.category ? String(row.category) : null,
+    fertilizer_type: row.subcategory ? String(row.subcategory) : null,
+    unit: String(primaryStock?.unit || row.available_unit || row.unit || "") || null,
+    stock_unit: String(row.available_unit || row.unit || "") || null,
+    default_unit: String(row.unit || row.available_unit || "") || null,
+    base_uom: String(row.unit || row.available_unit || "") || null,
+    aliases: Array.isArray(row.aliases) ? row.aliases.map(String) : [],
+    availableQty: Number(primaryStock?.quantity || row.available_quantity || 0),
+    warehouseNames: [],
+    availableQuantities,
+    sourceType: row.source_type ? String(row.source_type) : "global",
+  };
+}
+
+function materialProductSearchOption(item: ProductOption): SearchOption {
+  const stockValues = (item.availableQuantities || [])
+    .filter((stock) => Number(stock.quantity) > 0)
+    .map((stock) => `${Number(stock.quantity).toLocaleString("ru-RU")} ${formatStorageUnit(stock.unit)}`);
+  const stockLabel = stockValues.length > 0 ? `Есть на складе: ${stockValues.join(" · ")}` : "Нет на складе · Можно планировать";
+  const categoryKey = String(item.pesticide_category || item.fertilizer_type || item.category || item.product_type || item.type || "").toLowerCase();
+  const categoryLabel =
+    ({
+      pesticide: "Пестицид",
+      growth_regulator: "Регулятор роста",
+      fertilizer: "Удобрение",
+      additive: "Добавка",
+      adjuvant: "Адъювант",
+      herbicide: "Гербицид",
+      fungicide: "Фунгицид",
+      insecticide: "Инсектицид",
+      seed_treatment: "Протравитель",
+    } as Record<string, string>)[categoryKey] || "Материал";
+  return {
+    id: item.id,
+    label: operationProductTradeName(item) || item.name,
+    hint: `${categoryLabel} • ${item.aliases?.length ? `Также: ${item.aliases.slice(0, 5).join(", ")} • ` : ""}${
+      operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""
+    }${stockLabel}`,
+  };
+}
+
+async function loadInitialOperationCatalogProducts() {
+  const results = await Promise.all(
+    (["pesticides", "fertilizers", "additives"] as ChemistryMaterialGroup[]).map((group) =>
+      loadOperationCatalogProducts(group)
+    )
+  );
+  const error = results.find((result) => result.error)?.error || null;
+  const byId = new Map<string, ProductOption>();
+  results.forEach((result) => result.data.forEach((product: ProductOption) => byId.set(product.id, product)));
+  return { data: Array.from(byId.values()), error };
+}
+
+async function loadOperationCatalogProducts(
+  group: ChemistryMaterialGroup,
+  query = "",
+  cursor?: string | null
+) {
   const { data, error } = await supabase.auth.getSession();
   const accessToken = data.session?.access_token;
   if (error || !accessToken) {
     return { data: [] as any[], error: new Error("Сессия не найдена") };
   }
-  const response = await fetch(
-    `/api/warehouses/products?companyId=${encodeURIComponent(companyId)}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+  const params = new URLSearchParams({ product_group: group, limit: "20" });
+  if (query.trim()) params.set("q", query.trim());
+  if (cursor) params.set("cursor", cursor);
+  const response = await fetch(`/api/products/material-select?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    cache: "no-store",
+  });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     return { data: [] as any[], error: new Error(payload?.error || "Не удалось загрузить каталог материалов") };
   }
   return {
-    data: Array.isArray(payload?.products)
-      ? payload.products.filter((row: any) => row.is_active !== false && !row.archived)
-      : [],
+    data: Array.isArray(payload?.items) ? payload.items.map(mapMaterialSelectProduct) : [],
+    nextCursor: payload?.next_cursor ? String(payload.next_cursor) : null,
     error: null,
   };
 }
@@ -616,10 +691,46 @@ function SearchableSelect(props: {
   placeholder: string;
   emptyLabel?: string;
   disabled?: boolean;
+  onSearch?: (query: string) => Promise<SearchOption[]>;
 }) {
-  const { value, onChange, options, placeholder, emptyLabel = "Ничего не найдено", disabled } = props;
+  const { value, onChange, options, placeholder, emptyLabel = "Ничего не найдено", disabled, onSearch } = props;
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [remoteOptions, setRemoteOptions] = useState<SearchOption[]>([]);
+  const [remoteLoading, setRemoteLoading] = useState(false);
+  const [remoteError, setRemoteError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
+  const onSearchRef = useRef(onSearch);
   const selected = options.find((option) => option.id === value);
+  const displayedOptions = onSearch ? remoteOptions : options;
+
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
+
+  useEffect(() => {
+    if (!open || !onSearchRef.current) return;
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      setRemoteLoading(true);
+      setRemoteError(null);
+      try {
+        const next = await onSearchRef.current!(query);
+        if (!cancelled) setRemoteOptions(next);
+      } catch (error) {
+        if (!cancelled) {
+          setRemoteOptions([]);
+          setRemoteError(error instanceof Error ? error.message : "Не удалось загрузить каталог материалов");
+        }
+      } finally {
+        if (!cancelled) setRemoteLoading(false);
+      }
+    }, query ? 250 : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [Boolean(onSearch), open, query, retryKey]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -638,12 +749,27 @@ function SearchableSelect(props: {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[--radix-popover-trigger-width] p-0">
-        <Command>
-          <CommandInput placeholder="Поиск..." />
+        <Command shouldFilter={!onSearch}>
+          <CommandInput placeholder="Поиск по названию, alias, производителю или ДВ..." value={query} onValueChange={setQuery} />
           <CommandList className="max-h-72 overflow-y-auto overscroll-contain">
-            <CommandEmpty>{emptyLabel}</CommandEmpty>
+            {remoteLoading ? (
+              <div className="flex items-center gap-2 px-3 py-4 text-sm text-slate-400">
+                <Loader2 className="h-4 w-4 animate-spin" /> Загрузка каталога...
+              </div>
+            ) : null}
+            {remoteError ? (
+              <div className="space-y-2 px-3 py-4 text-sm text-red-300">
+                <div>Не удалось загрузить каталог материалов.</div>
+                <Button type="button" size="sm" variant="outline" onClick={() => setRetryKey((current) => current + 1)}>
+                  Повторить
+                </Button>
+              </div>
+            ) : null}
+            {!remoteLoading && !remoteError && displayedOptions.length === 0 ? (
+              <CommandEmpty>{query ? "По вашему запросу ничего не найдено." : emptyLabel}</CommandEmpty>
+            ) : null}
             <CommandGroup>
-              {options.map((option) => (
+              {displayedOptions.map((option) => (
                 <CommandItem
                   key={option.id}
                   value={`${option.label} ${option.hint || ""}`}
@@ -849,6 +975,7 @@ export function OperationFormDialog({
   const [transports, setTransports] = useState<RefOption[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [productsLoadError, setProductsLoadError] = useState<string | null>(null);
+  const [catalogReloadKey, setCatalogReloadKey] = useState(0);
   const [cropCatalog, setCropCatalog] = useState<CropCatalogOption[]>([]);
   const [varietyCatalog, setVarietyCatalog] = useState<VarietyCatalogOption[]>([]);
   const [reproductionCatalog, setReproductionCatalog] = useState<ReproductionCatalogOption[]>([]);
@@ -1109,20 +1236,19 @@ export function OperationFormDialog({
   );
   const transportOptions = useMemo(() => transports.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [transports]);
   const productOptions = useMemo(
-    () =>
-      products.map((item) => ({
-        id: item.id,
-        label: operationProductTradeName(item) || item.name,
-        hint: `${item.aliases?.length ? `Также: ${item.aliases.slice(0, 5).join(", ")} • ` : ""}${
-          Number(item.availableQty || 0) > 0
-            ? `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Есть на складе: ${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${formatStorageUnit(item.unit)}${
-                item.warehouseNames.length > 0 ? ` • ${item.warehouseNames.slice(0, 2).join(", ")}` : ""
-              }`
-            : `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Нет на складе • Можно планировать`
-        }`,
-      })),
+    () => products.map(materialProductSearchOption),
     [products]
   );
+  const searchMaterialCatalog = useCallback(async (group: ChemistryMaterialGroup, query: string) => {
+    const result = await loadOperationCatalogProducts(group, query);
+    if (result.error) throw result.error;
+    setProducts((current) => {
+      const byId = new Map(current.map((product) => [product.id, product]));
+      result.data.forEach((product: ProductOption) => byId.set(product.id, product));
+      return Array.from(byId.values());
+    });
+    return result.data.map(materialProductSearchOption);
+  }, []);
   const cropCatalogOptions = useMemo(
     () => cropCatalog.map((item) => ({ id: item.id, label: item.name })),
     [cropCatalog]
@@ -1191,7 +1317,6 @@ export function OperationFormDialog({
         equipmentRes,
         transportRes,
         companyProductsRes,
-        stockRes,
         cropsRes,
         varietiesRes,
         reproductionsRes,
@@ -1222,12 +1347,7 @@ export function OperationFormDialog({
           .eq("archived", false)
           .eq("is_active", true)
           .order("name"),
-        loadOperationCatalogProducts(profile.company_id!),
-        supabase
-          .from("v_stock_balance_identity")
-          .select("product_id,warehouse_id,quantity")
-          .eq("company_id", profile.company_id)
-          .gt("quantity", 0),
+        loadInitialOperationCatalogProducts(),
         supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,archived,is_active").order("name"),
         supabase.from("varieties").select("id,name,crop_id,archived,is_active").order("name"),
         supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code,archived,is_active").order("name"),
@@ -1280,175 +1400,13 @@ export function OperationFormDialog({
       }
       if (companyProductsRes.error) {
         setProducts([]);
-        setProductsLoadError(`Не удалось загрузить материалы компании: ${companyProductsRes.error.message}`);
+        setProductsLoadError(`Не удалось загрузить каталог материалов: ${companyProductsRes.error.message}`);
       } else {
         setProductsLoadError(null);
-        const stockRows = (stockRes.error ? [] : stockRes.data || []).filter((row: any) => row.product_id);
-        const warehouseIds = Array.from(new Set(stockRows.map((row: any) => String(row.warehouse_id || "")).filter(Boolean)));
-
-        const [warehouseMetaRes] = await Promise.all([
-            warehouseIds.length > 0
-              ? supabase
-                  .from("warehouses")
-                  .select("id,name,warehouse_type,description,archived,is_archived")
-                  .eq("company_id", profile.company_id)
-                  .in("id", warehouseIds)
-              : Promise.resolve({ data: [], error: null } as any),
-        ]);
-
-          const productMetaById = new Map<
-            string,
-            Pick<
-              ProductOption,
-              | "name"
-              | "master_product_id"
-              | "trade_name"
-              | "normalized_name"
-              | "manufacturer"
-              | "notes"
-              | "type"
-              | "product_type"
-              | "category"
-              | "subcategory"
-              | "pesticide_category"
-              | "fertilizer_type"
-              | "unit"
-              | "stock_unit"
-              | "default_unit"
-              | "base_uom"
-              | "application_unit"
-              | "default_rate_type"
-              | "default_rate_unit"
-              | "aliases"
-            >
-          >(
-            (companyProductsRes.data || []).map((row: any) => [
-              String(row.id),
-              {
-                master_product_id: row.master_product_id ? String(row.master_product_id) : null,
-                name:
-                  stripManufacturerPrefixCandidate({
-                    id: String(row.id),
-                    name: String(row.trade_name || row.name || "-"),
-                    trade_name: row.trade_name ? String(row.trade_name) : null,
-                    normalized_name: row.normalized_name ? String(row.normalized_name) : null,
-                    manufacturer: row.manufacturer ? String(row.manufacturer) : null,
-                    notes: row.notes ? String(row.notes) : null,
-                    product_type: row.product_type ? String(row.product_type) : null,
-                    type: row.type ? String(row.type) : null,
-                    category: row.category ? String(row.category) : null,
-                    subcategory: row.subcategory ? String(row.subcategory) : null,
-                  }).proposedTradeName || String(row.trade_name || row.name || "-"),
-                trade_name: row.trade_name ? String(row.trade_name) : null,
-                normalized_name: row.normalized_name ? String(row.normalized_name) : null,
-                manufacturer: row.manufacturer ? String(row.manufacturer) : null,
-                notes: row.notes ? String(row.notes) : null,
-                type: row.type ? String(row.type) : null,
-                product_type: row.product_type ? String(row.product_type) : null,
-                category: row.category ? String(row.category) : null,
-                subcategory: row.subcategory ? String(row.subcategory) : null,
-                pesticide_category: row.pesticide_category ? String(row.pesticide_category) : null,
-                fertilizer_type: row.fertilizer_type ? String(row.fertilizer_type) : null,
-                unit: row.unit ? String(row.unit) : null,
-                stock_unit: row.stock_unit ? String(row.stock_unit) : null,
-                default_unit: row.default_unit ? String(row.default_unit) : null,
-                base_uom: row.base_uom ? String(row.base_uom) : null,
-                application_unit: row.application_unit ? String(row.application_unit) : null,
-                default_rate_type: row.default_rate_type ? String(row.default_rate_type) : null,
-                default_rate_unit: row.default_rate_unit ? String(row.default_rate_unit) : null,
-                aliases: Array.isArray(row.aliases) ? row.aliases.map(String) : [],
-              },
-            ])
-          );
-          const warehouseNameById = new Map<string, string>(
-            (warehouseMetaRes.data || []).map((row: any) => [String(row.id), String(row.name || "-")])
-          );
-          const productionWarehouseIds = new Set(
-            (warehouseMetaRes.data || [])
-              .filter((row: any) => !row.archived && !row.is_archived)
-              .filter((row: any) => !hasQaDataMarker(`${row.name || ""} ${row.warehouse_type || ""} ${row.description || ""}`))
-              .map((row: any) => String(row.id))
-          );
-          const grouped = new Map<string, ProductOption>();
-
-          productMetaById.forEach((meta, productId) => {
-            grouped.set(productId, {
-              id: productId,
-              master_product_id: meta.master_product_id,
-              name: meta.name,
-              trade_name: meta.trade_name,
-              normalized_name: meta.normalized_name,
-              manufacturer: meta.manufacturer,
-              notes: meta.notes,
-              type: meta.type,
-              product_type: meta.product_type,
-              category: meta.category,
-              subcategory: meta.subcategory,
-              pesticide_category: meta.pesticide_category,
-              fertilizer_type: meta.fertilizer_type,
-              unit: meta.unit,
-              stock_unit: meta.stock_unit,
-              default_unit: meta.default_unit,
-              base_uom: meta.base_uom,
-              application_unit: meta.application_unit,
-              default_rate_type: meta.default_rate_type,
-              default_rate_unit: meta.default_rate_unit,
-              aliases: meta.aliases,
-              availableQty: 0,
-              warehouseNames: [],
-            });
-          });
-
-          stockRows.forEach((row: any) => {
-            if (!productionWarehouseIds.has(String(row.warehouse_id || ""))) return;
-            const productId = String(row.product_id);
-            const meta = productMetaById.get(productId);
-            if (!meta) return;
-            const current =
-              grouped.get(productId) ||
-              ({
-                id: productId,
-                master_product_id: meta.master_product_id,
-                name: meta.name,
-                trade_name: meta.trade_name,
-                normalized_name: meta.normalized_name,
-                manufacturer: meta.manufacturer,
-                notes: meta.notes,
-                type: meta.type,
-                product_type: meta.product_type,
-                category: meta.category,
-                subcategory: meta.subcategory,
-                pesticide_category: meta.pesticide_category,
-                fertilizer_type: meta.fertilizer_type,
-                unit: meta.unit,
-                stock_unit: meta.stock_unit,
-                default_unit: meta.default_unit,
-                base_uom: meta.base_uom,
-                application_unit: meta.application_unit,
-                default_rate_type: meta.default_rate_type,
-                default_rate_unit: meta.default_rate_unit,
-                aliases: meta.aliases,
-                availableQty: 0,
-                warehouseNames: [],
-              } satisfies ProductOption);
-            current.availableQty += Number(row.quantity || 0);
-            const warehouseName = warehouseNameById.get(String(row.warehouse_id || ""));
-            if (warehouseName && !current.warehouseNames.includes(warehouseName)) {
-              current.warehouseNames.push(warehouseName);
-            }
-            grouped.set(productId, current);
-          });
-
-          setProducts(
-            Array.from(grouped.values()).sort((a, b) => {
-              const stockDiff = Number(b.availableQty > 0) - Number(a.availableQty > 0);
-              if (stockDiff !== 0) return stockDiff;
-              return a.name.localeCompare(b.name, "ru");
-            })
-          );
+        setProducts(companyProductsRes.data);
       }
     })();
-  }, [open, profile?.company_id]);
+  }, [catalogReloadKey, open, profile?.company_id]);
 
   useEffect(() => {
     if (!open) return;
@@ -2156,6 +2114,7 @@ export function OperationFormDialog({
 
   const renderMaterialRow = (material: OperationMaterialFormData, index: number) => {
     const component = getTankMixComponentDefinition(material.component_type || material.material_type);
+    const remoteProductGroup = chemistryGroupForComponent(component.slug);
     const selectedProduct = products.find((item) => item.id === material.product_id);
     const pesticideCardId = productMatchesChemistryGroup(selectedProduct, "pesticides")
       ? selectedProduct?.master_product_id
@@ -2219,8 +2178,9 @@ export function OperationFormDialog({
                 });
               }}
               options={productOptionsForMaterial(material)}
+              onSearch={remoteProductGroup ? (query) => searchMaterialCatalog(remoteProductGroup, query) : undefined}
               placeholder={isPotatoPlanting ? "Выберите удобрение или препарат" : "Выберите продукт"}
-              emptyLabel="Материалы компании не найдены"
+              emptyLabel="На складах пока нет подходящих материалов. Выберите продукт из глобального каталога."
             />
             <PesticideCardLink productId={pesticideCardId} />
             </div>
@@ -3416,12 +3376,15 @@ export function OperationFormDialog({
                 ) : null}
 
                 {productsLoadError ? (
-                  <div className="rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
-                    {productsLoadError}
+                  <div className="flex items-center justify-between gap-3 rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
+                    <span>{productsLoadError}</span>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setCatalogReloadKey((current) => current + 1)}>
+                      Повторить
+                    </Button>
                   </div>
                 ) : productOptions.length === 0 && materials.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">
-                    Материалы компании не найдены.
+                    На складах пока нет подходящих материалов. Выберите продукт из глобального каталога.
                   </div>
                 ) : mainMaterialRows.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">

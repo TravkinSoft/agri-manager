@@ -1482,17 +1482,8 @@ export async function getPesticides(
   includeArchived = false,
   language: Language = "ru"
 ): Promise<AgrochemicalReference[]> {
-  let query = supabase
-    .from("products")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("name", { ascending: true });
-  if (!includeArchived) query = query.eq("archived", false);
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return (data || [])
-    .filter((row: any) => getMaterialProductTypeFromProduct(row) === "pesticide")
-    .map((row: any) => mapAgrochemicalRow(row, language));
+  const rows = await getCompanyAgrochemicalMaterials(companyId, includeArchived, language);
+  return rows.filter((row: any) => ["pesticide", "growth_regulator"].includes(String(row.product_type || row.type || "")));
 }
 
 export async function getFertilizers(
@@ -1500,17 +1491,8 @@ export async function getFertilizers(
   includeArchived = false,
   language: Language = "ru"
 ): Promise<AgrochemicalReference[]> {
-  let query = supabase
-    .from("products")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("name", { ascending: true });
-  if (!includeArchived) query = query.eq("archived", false);
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return (data || [])
-    .filter((row: any) => getMaterialProductTypeFromProduct(row) === "fertilizer")
-    .map((row: any) => mapAgrochemicalRow(row, language));
+  const rows = await getCompanyAgrochemicalMaterials(companyId, includeArchived, language);
+  return rows.filter((row: any) => String(row.product_type || row.type || "") === "fertilizer");
 }
 
 export async function getAdditives(
@@ -1518,17 +1500,28 @@ export async function getAdditives(
   includeArchived = false,
   language: Language = "ru"
 ): Promise<AgrochemicalReference[]> {
-  let query = supabase
-    .from("products")
-    .select("*")
-    .eq("company_id", companyId)
-    .order("name", { ascending: true });
-  if (!includeArchived) query = query.eq("archived", false);
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return (data || [])
-    .filter((row: any) => getMaterialProductTypeFromProduct(row) === "additive")
-    .map((row: any) => mapAgrochemicalRow(row, language));
+  const rows = await getCompanyAgrochemicalMaterials(companyId, includeArchived, language);
+  return rows.filter((row: any) => ["additive", "adjuvant"].includes(String(row.product_type || row.type || "")));
+}
+
+export async function getCompanyAgrochemicalMaterials(
+  _companyId: string,
+  includeArchived = false,
+  language: Language = "ru"
+): Promise<AgrochemicalReference[]> {
+  const headers = await getSessionAuthorizationHeader();
+  const response = await fetch("/api/references/materials", { headers, cache: "no-store" });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error || "Failed to load company materials");
+  return (Array.isArray(payload?.rows) ? payload.rows : [])
+    .filter((row: any) => includeArchived || !row.archived)
+    .map((row: any) => ({
+      ...mapAgrochemicalRow(row, language),
+      canonical_product_id: row.canonical_product_id,
+      source_scope: row.source_scope,
+      reference_statuses: Array.isArray(row.reference_statuses) ? row.reference_statuses : [],
+      available_quantities: Array.isArray(row.available_quantities) ? row.available_quantities : [],
+    }));
 }
 
 export async function searchAgrochemicalMaster(
@@ -1626,69 +1619,19 @@ export async function searchAgrochemicalMaster(
 }
 
 export async function addGlobalAgrochemicalToCompany(
-  companyId: string,
-  userId: string,
+  _companyId: string,
+  _userId: string,
   globalProductId: string
 ): Promise<AgrochemicalReference> {
-  const { data: master, error: masterError } = await supabase
-    .from("products")
-    .select("*")
-    .eq("id", globalProductId)
-    .is("company_id", null)
-    .single();
-
-  if (masterError || !master) {
-    throw new Error(masterError?.message || "Global product not found");
-  }
-
-  const duplicate = await supabase
-    .from("products")
-    .select("id")
-    .eq("company_id", companyId)
-    .eq("type", master.type)
-    .eq("name", master.name)
-    .eq("archived", false)
-    .maybeSingle();
-
-  if (duplicate.error) throw new Error(duplicate.error.message);
-  if (duplicate.data?.id) {
-    const existing = await supabase.from("products").select("*").eq("id", duplicate.data.id).single();
-    if (existing.error) throw new Error(existing.error.message);
-    return existing.data as AgrochemicalReference;
-  }
-
-  const insertPayload = {
-    name: master.name,
-    type: master.type,
-    product_type: master.product_type || getMaterialProductTypeFromProduct(master) || null,
-    category: master.category || null,
-    subcategory: master.subcategory || null,
-    trade_name: master.trade_name || null,
-    pesticide_category: master.pesticide_category || null,
-    pesticide_subcategories: master.pesticide_subcategories || null,
-    fertilizer_type: master.fertilizer_type || null,
-    active_ingredient: master.active_ingredient || null,
-    formulation: master.formulation || null,
-    manufacturer: master.manufacturer || null,
-    package_size: master.package_size ?? null,
-    package_unit: master.package_unit || null,
-    default_unit: master.default_unit || master.unit || "kg",
-    notes: master.notes || null,
-    unit: master.default_unit || master.unit || "kg",
-    crop_id: master.crop_id || null,
-    product_form: master.product_form || null,
-    accounting_mode: master.accounting_mode || "bulk_mass",
-    base_uom: master.base_uom || "kg",
-    pack_uom: master.pack_uom || null,
-    unit_weight_kg: master.unit_weight_kg ?? null,
-    units_per_pack: master.units_per_pack ?? null,
-    is_seed_material: master.is_seed_material ?? false,
-    master_product_id: master.id,
-    company_id: companyId,
-    user_id: userId,
-  };
-
-  const { data, error } = await supabase.from("products").insert([insertPayload]).select().single();
+  const headers = await getSessionAuthorizationHeader();
+  const response = await fetch("/api/references/materials", {
+    method: "POST",
+    headers: { ...headers, "Content-Type": "application/json" },
+    body: JSON.stringify({ global_product_id: globalProductId }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error || "Failed to link global product");
+  const { data, error } = await supabase.from("products").select("*").eq("id", globalProductId).single();
   if (error) throw new Error(error.message);
   return data as AgrochemicalReference;
 }
