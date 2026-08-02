@@ -82,7 +82,10 @@ const checks: Check[] = [
 
   { name: "39 all count uses canonical active rows", run: () => assert.match(endpoint, /all: activeRows\.length/) },
   { name: "40 category count uses canonical active rows", run: () => assert.match(endpoint, /for \(const product of activeRows\)/) },
-  { name: "41 aliases never increment category counts", run: () => assert.ok(endpoint.indexOf("categoryCountMap") < endpoint.indexOf("global_product_aliases")) },
+  { name: "41 aliases never increment category counts", run: () => {
+    const categoryCountBlock = endpoint.slice(endpoint.indexOf("categoryCountMap"), endpoint.indexOf("let filtered"));
+    assert.doesNotMatch(categoryCountBlock, /aliases|global_product_aliases/);
+  } },
   { name: "42 company override cannot increment counts", run: () => assert.match(endpoint, /\.is\("company_id", null\)/) },
   { name: "43 archived rows cannot increment counts", run: () => assert.match(endpoint, /\.eq\("archived", false\)/) },
   { name: "44 text query does not alter category counts", run: () => assert.ok(endpoint.indexOf("categoryCountMap") < endpoint.indexOf("let filtered")) },
@@ -126,7 +129,8 @@ async function main() {
   assert.equal(normalizePesticideSearchText("  «Ёлка—1»  "), "елка-1");
   assert.deepEqual(tokenizePesticideQuery("SwissGrow   Phomazin"), ["swissgrow", "phomazin"]);
   assert.equal(stablePesticideSort([...products]).length, products.length);
-  assert.match(endpoint, /filter\(\(componentId\): componentId is string => Boolean\(componentId\)\)/);
+  assert.match(endpoint, /component_id: string \| null/);
+  assert.match(endpoint, /if \(!component\) continue/);
   console.log(`TZ-246 RESULT: ${passed}/${checks.length} PASS`);
 }
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/service";
 import { getServerActorFromSession, SessionAuthError } from "@/lib/auth/server-session";
 import {
@@ -15,6 +16,7 @@ import {
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 const PRODUCT_TYPES = ["pesticide", "additive", "adjuvant", "growth_regulator"];
+const GLOBAL_PESTICIDE_CATALOG_CACHE_TAG = "global-pesticide-catalog-v1";
 
 const PRODUCT_SELECT = [
   "id",
@@ -72,6 +74,85 @@ async function fetchAllRows<T>(
     if (page.length < pageSize) return rows;
   }
 }
+
+type CatalogSnapshot = {
+  productRows: ProductRow[];
+  categories: ReferenceRow[];
+  manufacturers: ReferenceRow[];
+  formulations: ReferenceRow[];
+  modes: ReferenceRow[];
+  aliases: ReferenceRow[];
+  componentLinks: ComponentLink[];
+  components: ReferenceRow[];
+  registrations: ReferenceRow[];
+};
+
+const getCatalogSnapshot = unstable_cache(
+  async (): Promise<CatalogSnapshot> => {
+    const supabase = getServiceClient();
+    const [
+      productRows,
+      categoriesResult,
+      manufacturersResult,
+      formulationsResult,
+      modesResult,
+      aliases,
+      componentLinks,
+      components,
+      registrations,
+    ] = await Promise.all([
+      fetchAllRows<ProductRow>((from, to) => supabase
+        .from("products")
+        .select(PRODUCT_SELECT)
+        .is("company_id", null)
+        .eq("archived", false)
+        .in("product_type", PRODUCT_TYPES)
+        .range(from, to) as unknown as PromiseLike<SupabasePage<ProductRow>>),
+      supabase.from("pesticide_categories").select("id,slug,name_ru,is_active,archived").eq("archived", false),
+      supabase.from("agrochem_manufacturers").select("id,name").eq("archived", false),
+      supabase.from("agrochem_formulations").select("id,code,name_ru").eq("archived", false),
+      supabase.from("agrochem_mode_of_actions").select("id,slug,name_ru").eq("archived", false),
+      fetchAllRows<ReferenceRow>((from, to) => supabase
+        .from("global_product_aliases")
+        .select("product_id,alias")
+        .range(from, to) as unknown as PromiseLike<SupabasePage<ReferenceRow>>),
+      fetchAllRows<ComponentLink>((from, to) => supabase
+        .from("glbd_product_components")
+        .select("product_id,component_id,role_in_product,sort_order")
+        .in("review_status", ["approved", "needs_owner_review"])
+        .range(from, to) as unknown as PromiseLike<SupabasePage<ComponentLink>>),
+      fetchAllRows<ReferenceRow>((from, to) => supabase
+        .from("glbd_components")
+        .select("id,legacy_active_ingredient_id,name_ru,name_en,canonical_name,is_active,archived_at")
+        .eq("is_active", true)
+        .is("archived_at", null)
+        .range(from, to) as unknown as PromiseLike<SupabasePage<ReferenceRow>>),
+      fetchAllRows<ReferenceRow>((from, to) => supabase
+        .from("glbd_product_registrations")
+        .select("product_id,registration_number")
+        .range(from, to) as unknown as PromiseLike<SupabasePage<ReferenceRow>>),
+    ]);
+
+    const firstError = [categoriesResult, manufacturersResult, formulationsResult, modesResult]
+      .map((result) => result.error)
+      .find(Boolean);
+    if (firstError) throw new Error(firstError.message);
+
+    return {
+      productRows,
+      categories: categoriesResult.data || [],
+      manufacturers: manufacturersResult.data || [],
+      formulations: formulationsResult.data || [],
+      modes: modesResult.data || [],
+      aliases,
+      componentLinks,
+      components,
+      registrations,
+    };
+  },
+  [GLOBAL_PESTICIDE_CATALOG_CACHE_TAG],
+  { revalidate: 300, tags: [GLOBAL_PESTICIDE_CATALOG_CACHE_TAG] },
+);
 
 function parseLimit(value: string | null): number {
   const parsed = Number.parseInt(String(value || ""), 10);
@@ -135,7 +216,6 @@ export async function GET(request: NextRequest) {
       throw new SessionAuthError("Доступ только для глобального администратора", 403);
     }
 
-    const supabase = getServiceClient();
     const params = request.nextUrl.searchParams;
     const query = normalizePesticideSearchText(params.get("q"));
     const category = pesticideCategoryKey(params.get("category"));
@@ -150,43 +230,13 @@ export async function GET(request: NextRequest) {
     const limit = parseLimit(params.get("limit"));
     const offset = decodeCursor(params.get("cursor"));
 
-    const [productRows, categoriesResult, manufacturersResult, formulationsResult, modesResult] = await Promise.all([
-      fetchAllRows<ProductRow>((from, to) => supabase
-        .from("products")
-        .select(PRODUCT_SELECT)
-        .is("company_id", null)
-        .eq("archived", false)
-        .in("product_type", PRODUCT_TYPES)
-        .range(from, to) as unknown as PromiseLike<SupabasePage<ProductRow>>),
-      supabase
-        .from("pesticide_categories")
-        .select("id,slug,name_ru,is_active,archived")
-        .eq("archived", false),
-      supabase
-        .from("agrochem_manufacturers")
-        .select("id,name")
-        .eq("archived", false),
-      supabase
-        .from("agrochem_formulations")
-        .select("id,code,name_ru")
-        .eq("archived", false),
-      supabase
-        .from("agrochem_mode_of_actions")
-        .select("id,slug,name_ru")
-        .eq("archived", false),
-    ]);
+    const snapshot = await getCatalogSnapshot();
+    const categoryById = byId(snapshot.categories);
+    const manufacturerById = byId(snapshot.manufacturers);
+    const formulationById = byId(snapshot.formulations);
+    const modeById = byId(snapshot.modes);
 
-    const firstError = [categoriesResult, manufacturersResult, formulationsResult, modesResult]
-      .map((result) => result.error)
-      .find(Boolean);
-    if (firstError) throw new Error(firstError.message);
-
-    const categoryById = byId(categoriesResult.data || []);
-    const manufacturerById = byId(manufacturersResult.data || []);
-    const formulationById = byId(formulationsResult.data || []);
-    const modeById = byId(modesResult.data || []);
-
-    const canonicalRows = dedupeCanonicalPesticides(productRows).map((product) => {
+    const canonicalRows = dedupeCanonicalPesticides(snapshot.productRows).map((product) => {
       const categoryReference = product.category_id ? categoryById.get(String(product.category_id)) : null;
       const rawCategory = categoryReference?.slug || product.pesticide_category || product.category || product.subcategory;
       const categoryKey = pesticideCategoryKey(rawCategory);
@@ -235,36 +285,12 @@ export async function GET(request: NextRequest) {
     });
 
     const relationsByProductId = new Map<string, PesticideSearchRelations>();
-    let componentLinks: ComponentLink[] = [];
-    let componentsById = new Map<string, ReferenceRow>();
+    let componentLinks: ComponentLink[] = snapshot.componentLinks;
+    const componentsById = byId(snapshot.components);
     const needsSearchRelations = Boolean(query || activeIngredientIds.length);
 
     if (needsSearchRelations) {
-      const [aliases, links, components, registrations] = await Promise.all([
-        fetchAllRows<ReferenceRow>((from, to) => supabase
-          .from("global_product_aliases")
-          .select("product_id,alias")
-          .range(from, to) as unknown as PromiseLike<SupabasePage<ReferenceRow>>),
-        fetchAllRows<ComponentLink>((from, to) => supabase
-          .from("glbd_product_components")
-          .select("product_id,component_id,role_in_product,sort_order")
-          .in("review_status", ["approved", "needs_owner_review"])
-          .range(from, to) as unknown as PromiseLike<SupabasePage<ComponentLink>>),
-        fetchAllRows<ReferenceRow>((from, to) => supabase
-          .from("glbd_components")
-          .select("id,legacy_active_ingredient_id,name_ru,name_en,canonical_name,is_active,archived_at")
-          .eq("is_active", true)
-          .is("archived_at", null)
-          .range(from, to) as unknown as PromiseLike<SupabasePage<ReferenceRow>>),
-        fetchAllRows<ReferenceRow>((from, to) => supabase
-          .from("glbd_product_registrations")
-          .select("product_id,registration_number")
-          .range(from, to) as unknown as PromiseLike<SupabasePage<ReferenceRow>>),
-      ]);
-
-      componentLinks = links;
-      componentsById = byId(components);
-      for (const alias of aliases) {
+      for (const alias of snapshot.aliases) {
         addRelation(relationsByProductId, String(alias.product_id), "aliases", alias.alias);
       }
       for (const link of componentLinks) {
@@ -277,7 +303,7 @@ export async function GET(request: NextRequest) {
           component.name_ru || component.name_en || component.canonical_name,
         );
       }
-      for (const registration of registrations) {
+      for (const registration of snapshot.registrations) {
         addRelation(
           relationsByProductId,
           String(registration.product_id),
@@ -319,29 +345,8 @@ export async function GET(request: NextRequest) {
     const page = ranked.slice(offset, offset + limit).map((entry) => entry.product);
 
     if (!needsSearchRelations && page.length) {
-      const productIds = page.map((product) => product.id);
-      const linksResult = await supabase
-        .from("glbd_product_components")
-        .select("product_id,component_id,role_in_product,sort_order")
-        .in("product_id", productIds)
-        .in("review_status", ["approved", "needs_owner_review"]);
-      if (linksResult.error) throw new Error(linksResult.error.message);
-      componentLinks = (linksResult.data || []) as ComponentLink[];
-      const componentIds = Array.from(new Set(
-        componentLinks
-          .map((link) => link.component_id)
-          .filter((componentId): componentId is string => Boolean(componentId)),
-      ));
-      if (componentIds.length) {
-        const componentsResult = await supabase
-          .from("glbd_components")
-          .select("id,legacy_active_ingredient_id,name_ru,name_en,canonical_name,is_active,archived_at")
-          .in("id", componentIds)
-          .eq("is_active", true)
-          .is("archived_at", null);
-        if (componentsResult.error) throw new Error(componentsResult.error.message);
-        componentsById = byId(componentsResult.data || []);
-      }
+      const productIds = new Set(page.map((product) => product.id));
+      componentLinks = componentLinks.filter((link) => productIds.has(link.product_id));
     }
 
     const linksByProductId = new Map<string, ComponentLink[]>();
