@@ -6,7 +6,7 @@ import {
   getServerActorFromSession,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-import { assertA107RuntimeGuard } from "@/lib/assistant/v1/a107-runtime-guard";
+import { assertA107RuntimeGuardWhenConfigured } from "@/lib/assistant/v1/a107-runtime-guard";
 
 export const runtime = "nodejs";
 
@@ -67,7 +67,7 @@ async function resolveActiveSeason(
 
 export async function GET(request: NextRequest) {
   try {
-    assertA107RuntimeGuard();
+    assertA107RuntimeGuardWhenConfigured();
     const actor = await getServerActorFromSession(request);
     ensureAssistantRole(actor);
     const debugRequested = request.nextUrl.searchParams.get("debug") === "1";
