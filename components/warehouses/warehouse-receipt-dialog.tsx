@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Building2, Check, ChevronsUpDown, Clock3, PackagePlus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -48,6 +48,7 @@ function productSearchValue(product: Product): string {
 }
 
 export function WarehouseReceiptDialog({ open, onOpenChange, companyId, warehouses, products, defaultWarehouseId, onCreated }: Props) {
+  const initializedForOpenRef = useRef(false);
   const [warehouseId, setWarehouseId] = useState("");
   const [supplierOpen, setSupplierOpen] = useState(false);
   const [supplierSearch, setSupplierSearch] = useState("");
@@ -63,7 +64,13 @@ export function WarehouseReceiptDialog({ open, onOpenChange, companyId, warehous
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      initializedForOpenRef.current = false;
+      return;
+    }
+    if (initializedForOpenRef.current) return;
+    initializedForOpenRef.current = true;
+
     setWarehouseId(defaultWarehouseId || warehouses[0]?.id || "");
     setSupplierOpen(false); setSupplierSearch(""); setSupplierResults([]); setSelectedSupplier(null);
     setProductOpenKey(null); setDocumentNo(""); setNotes(""); setLines([newLine()]);
