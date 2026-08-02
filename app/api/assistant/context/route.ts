@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
+import { getAuthenticatedServerClient } from "@/lib/supabase/server-user";
 import {
   SessionAuthError,
   ensureAssistantRole,
   getServerActorFromSession,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
+import { assertA107RuntimeGuard } from "@/lib/assistant/v1/a107-runtime-guard";
 
 export const runtime = "nodejs";
 
@@ -31,7 +32,10 @@ function mapSessionErrorCode(error: SessionAuthError): string {
   return "SESSION_AUTH_ERROR";
 }
 
-async function resolveActiveSeason(supabase: ReturnType<typeof getServiceClient>, companyId: string): Promise<string | null> {
+async function resolveActiveSeason(
+  supabase: ReturnType<typeof getAuthenticatedServerClient>,
+  companyId: string
+): Promise<string | null> {
   const seasonRes = await supabase
     .from("seasons")
     .select("year,is_active")
@@ -63,6 +67,7 @@ async function resolveActiveSeason(supabase: ReturnType<typeof getServiceClient>
 
 export async function GET(request: NextRequest) {
   try {
+    assertA107RuntimeGuard();
     const actor = await getServerActorFromSession(request);
     ensureAssistantRole(actor);
     const debugRequested = request.nextUrl.searchParams.get("debug") === "1";
@@ -95,7 +100,7 @@ export async function GET(request: NextRequest) {
     }
 
     const companyId = resolveCompanyForActor(actor, null);
-    const supabase = getServiceClient();
+    const supabase = getAuthenticatedServerClient(request);
 
     const [companyRes, season] = await Promise.all([
       supabase.from("companies").select("id,name").eq("id", companyId).maybeSingle(),

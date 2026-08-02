@@ -1,9 +1,11 @@
 import { supabase } from "@/lib/supabase/client";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { summarizeLandUseAreas } from "@/lib/crop-structure/analytics";
 
 export interface SeasonSummary {
   totalFields: number;
   totalPlantedArea: number;
+  totalFallowArea: number;
   totalExpectedYield: number;
   totalOperations: number;
 }
@@ -30,44 +32,66 @@ export interface InventorySummary {
   warehousesCount: number;
 }
 
-export async function getSeasonSummary(seasonId: string): Promise<SeasonSummary> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return {
-      totalFields: 0,
-      totalPlantedArea: 0,
-      totalExpectedYield: 0,
-      totalOperations: 0,
-    };
-  }
+async function requireAnalyticsCompanyId(): Promise<string> {
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+  if (authError || !user?.id) throw new Error("Сессия пользователя недоступна");
 
-  const { data: cropStructures } = await supabase
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("company_id")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!profile?.company_id) throw new Error("Компания пользователя не определена");
+  return String(profile.company_id);
+}
+
+async function loadSeasonScope(seasonId: string, companyId: string) {
+  const { data, error } = await supabase
     .from("crop_structure")
-    .select("id, field_id, area, expected_yield")
+    .select("id,field_id,land_use_type,area,expected_yield")
+    .eq("company_id", companyId)
     .eq("season_id", seasonId)
-    .eq("user_id", user.id)
     .eq("archived", false);
+  if (error) throw new Error(error.message);
+  return data || [];
+}
 
-  const uniqueFields = new Set(cropStructures?.map((cs) => cs.field_id) || []);
-  const totalPlantedArea = cropStructures?.reduce((sum, cs) => sum + Number(cs.area), 0) || 0;
-  const totalExpectedYield =
-    cropStructures?.reduce((sum, cs) => sum + Number(cs.expected_yield || 0), 0) || 0;
+export async function getSeasonSummary(seasonId: string): Promise<SeasonSummary> {
+  const companyId = await requireAnalyticsCompanyId();
+  const cropStructures = await loadSeasonScope(seasonId, companyId);
+  const cropStructureIds = cropStructures.map((row: any) => String(row.id));
+  const fieldIds = Array.from(
+    new Set(cropStructures.map((row: any) => String(row.field_id || "")).filter(Boolean))
+  );
 
-  const { data: operations } = await supabase
+  const { data: operations, error: operationError } = await supabase
     .from("operations")
-    .select("id, crop_structure_id")
-    .eq("user_id", user.id)
+    .select("id,crop_structure_id,field_id")
+    .eq("company_id", companyId)
     .eq("archived", false);
+  if (operationError) throw new Error(operationError.message);
 
-  const cropStructureIds = new Set(cropStructures?.map((cs) => cs.id) || []);
-  const seasonOperations = operations?.filter(
-    (op) => op.crop_structure_id && cropStructureIds.has(op.crop_structure_id)
-  ) || [];
+  const structureSet = new Set(cropStructureIds);
+  const fieldSet = new Set(fieldIds);
+  const seasonOperations = (operations || []).filter(
+    (operation: any) =>
+      (operation.crop_structure_id && structureSet.has(String(operation.crop_structure_id))) ||
+      (operation.field_id && fieldSet.has(String(operation.field_id)))
+  );
+  const landUseAreas = summarizeLandUseAreas(cropStructures);
 
   return {
-    totalFields: uniqueFields.size,
-    totalPlantedArea,
-    totalExpectedYield,
+    totalFields: fieldIds.length,
+    totalPlantedArea: landUseAreas.cropArea,
+    totalFallowArea: landUseAreas.fallowArea,
+    totalExpectedYield: cropStructures.reduce(
+      (sum: number, row: any) => sum + (row.land_use_type === "fallow" ? 0 : Number(row.expected_yield || 0)),
+      0
+    ),
     totalOperations: seasonOperations.length,
   };
 }
@@ -75,12 +99,13 @@ export async function getSeasonSummary(seasonId: string): Promise<SeasonSummary>
 export async function getCropStructureReport(
   seasonId: string
 ): Promise<CropStructureReport[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
-
+  const companyId = await requireAnalyticsCompanyId();
   const { data, error } = await supabase
     .from("crop_structure")
     .select(`
+      id,
+      field_id,
+      land_use_type,
       crop_id,
       variety_id,
       reproduction_id,
@@ -88,155 +113,142 @@ export async function getCropStructureReport(
       expected_yield,
       crops:crop_id (name,name_ru,name_kz,name_en,slug),
       varieties:variety_id (name),
-      seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+      seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code),
+      crop_structure_mix_components(
+        crop_id,
+        sort_order,
+        crops:crop_id(name,name_ru,name_kz,name_en,slug)
+      )
     `)
+    .eq("company_id", companyId)
     .eq("season_id", seasonId)
-    .eq("user_id", user.id)
     .eq("archived", false);
+  if (error) throw new Error(error.message);
 
-  if (error) {
-    console.error("Error fetching crop structure report:", error);
-    return [];
-  }
-
-  const reportMap = new Map<string, CropStructureReport>();
-
-  data?.forEach((record: any) => {
-    const cropName = localizedName(record.crops, "ru") || "—";
-    const varietyName = brandName(record.varieties) || null;
-    const reproductionName = localizedName(record.seed_reproductions, "ru") || null;
-    const key = `${cropName}-${varietyName}-${reproductionName}`;
-
-    if (reportMap.has(key)) {
-      const existing = reportMap.get(key)!;
-      existing.fieldsCount += 1;
-      existing.totalArea += Number(record.area);
-      existing.expectedYield += Number(record.expected_yield || 0);
+  const reportMap = new Map<string, CropStructureReport & { fields: Set<string> }>();
+  for (const record of data || []) {
+    const row = record as any;
+    if (row.land_use_type === "fallow") continue;
+    const mixComponents = Array.isArray(row.crop_structure_mix_components)
+      ? [...row.crop_structure_mix_components].sort(
+          (left: any, right: any) => Number(left.sort_order || 0) - Number(right.sort_order || 0)
+        )
+      : [];
+    const mixCropNames = mixComponents
+      .map((component: any) => localizedName(component.crops, "ru"))
+      .filter(Boolean);
+    const cropName = row.land_use_type === "crop_mix"
+      ? `Зерносмесь: ${mixCropNames.slice(0, 3).join(" + ")}${mixCropNames.length > 3 ? ` + ещё ${mixCropNames.length - 3}` : ""}`
+      : localizedName(row.crops, "ru") || "Требуется уточнение";
+    const varietyName = row.land_use_type === "crop_mix" ? null : brandName(row.varieties) || null;
+    const reproductionName = row.land_use_type === "crop_mix" ? null : localizedName(row.seed_reproductions, "ru") || null;
+    const key = row.land_use_type === "crop_mix"
+      ? `mix:${mixComponents.map((component: any) => component.crop_id).join("+")}`
+      : `${row.crop_id || ""}:${row.variety_id || ""}:${row.reproduction_id || ""}`;
+    const existing = reportMap.get(key);
+    if (existing) {
+      existing.fields.add(String(row.field_id || ""));
+      existing.fieldsCount = existing.fields.size;
+      existing.totalArea += Number(row.area || 0);
+      existing.expectedYield += Number(row.expected_yield || 0);
     } else {
+      const fields = new Set([String(row.field_id || "")]);
       reportMap.set(key, {
         cropName,
         varietyName,
         reproductionName,
-        fieldsCount: 1,
-        totalArea: Number(record.area),
-        expectedYield: Number(record.expected_yield || 0),
+        fields,
+        fieldsCount: fields.size,
+        totalArea: Number(row.area || 0),
+        expectedYield: Number(row.expected_yield || 0),
       });
     }
-  });
+  }
 
-  return Array.from(reportMap.values()).sort((a, b) => b.totalArea - a.totalArea);
+  return Array.from(reportMap.values())
+    .map(({ fields: _fields, ...row }) => row)
+    .sort((left, right) => right.totalArea - left.totalArea);
 }
 
-export async function getOperationsSummary(): Promise<OperationsSummary[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
+export async function getOperationsSummary(seasonId: string): Promise<OperationsSummary[]> {
+  const companyId = await requireAnalyticsCompanyId();
+  const cropStructures = await loadSeasonScope(seasonId, companyId);
+  const structureSet = new Set(cropStructures.map((row: any) => String(row.id)));
+  const fieldSet = new Set(cropStructures.map((row: any) => String(row.field_id || "")));
 
   const { data, error } = await supabase
     .from("operations")
-    .select("operation_type, date")
-    .eq("user_id", user.id)
+    .select("operation_type,date,crop_structure_id,field_id")
+    .eq("company_id", companyId)
     .eq("archived", false)
     .order("date", { ascending: false });
-
-  if (error) {
-    console.error("Error fetching operations summary:", error);
-    return [];
-  }
+  if (error) throw new Error(error.message);
 
   const summaryMap = new Map<string, { count: number; lastDate: string | null }>();
-
-  data?.forEach((record: any) => {
-    const opType = record.operation_type || "Unknown";
-
-    if (summaryMap.has(opType)) {
-      const existing = summaryMap.get(opType)!;
-      existing.count += 1;
-      if (
-        record.date &&
-        (!existing.lastDate || new Date(record.date) > new Date(existing.lastDate))
-      ) {
-        existing.lastDate = record.date;
-      }
-    } else {
-      summaryMap.set(opType, {
-        count: 1,
-        lastDate: record.date || null,
-      });
+  for (const record of data || []) {
+    const row = record as any;
+    if (
+      !structureSet.has(String(row.crop_structure_id || "")) &&
+      !fieldSet.has(String(row.field_id || ""))
+    ) {
+      continue;
     }
-  });
+    const operationType = String(row.operation_type || "Без типа");
+    const current = summaryMap.get(operationType) || { count: 0, lastDate: null };
+    current.count += 1;
+    if (row.date && (!current.lastDate || String(row.date) > current.lastDate)) {
+      current.lastDate = String(row.date);
+    }
+    summaryMap.set(operationType, current);
+  }
 
   return Array.from(summaryMap.entries())
-    .map(([operationType, { count, lastDate }]) => ({
+    .map(([operationType, value]) => ({
       operationType,
-      totalRecords: count,
-      lastDate,
+      totalRecords: value.count,
+      lastDate: value.lastDate,
     }))
-    .sort((a, b) => b.totalRecords - a.totalRecords);
+    .sort((left, right) => right.totalRecords - left.totalRecords);
 }
 
 export async function getInventorySummary(): Promise<InventorySummary[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("company_id")
-    .eq("id", user.id)
-    .maybeSingle();
-  if (!profile?.company_id) return [];
-
+  const companyId = await requireAnalyticsCompanyId();
   const { data: balances, error } = await supabase
     .from("v_stock_balance_canonical")
-    .select("product_id, warehouse_id, quantity")
-    .eq("company_id", profile.company_id);
-
-  if (error) {
-    console.error("Error fetching inventory summary:", error);
-    return [];
-  }
+    .select("product_id,warehouse_id,quantity")
+    .eq("company_id", companyId);
+  if (error) throw new Error(error.message);
 
   const productIds = Array.from(
     new Set((balances || []).map((row: any) => String(row.product_id || "")).filter(Boolean))
   );
-
-  const productsRes = productIds.length
-    ? await supabase.from("products").select("id,name,trade_name,normalized_name,type,product_type").in("id", productIds)
-    : ({ data: [], error: null } as any);
-
-  const productById = new Map<string, any>();
-  (productsRes.data || []).forEach((row: any) => productById.set(String(row.id), row));
+  const { data: products, error: productError } = productIds.length
+    ? await supabase
+        .from("products")
+        .select("id,name,trade_name,normalized_name,type,product_type")
+        .in("id", productIds)
+    : { data: [] as any[], error: null };
+  if (productError) throw new Error(productError.message);
+  const productById = new Map((products || []).map((row: any) => [String(row.id), row]));
 
   const inventoryMap = new Map<
     string,
-    {
-      productName: string;
-      productType: string;
-      totalQuantity: number;
-      warehouses: Set<string>;
-    }
+    { productName: string; productType: string; totalQuantity: number; warehouses: Set<string> }
   >();
-
-  (balances || []).forEach((record: any) => {
-    const productId = record.product_id;
-    const product = productById.get(String(productId));
-    const productName = brandName(product) || "Unknown";
-    const productType = product?.product_type || product?.type || "unknown";
-    const warehouseId = record.warehouse_id;
-    const quantity = Number(record.quantity || 0);
-
-    if (inventoryMap.has(productId)) {
-      const existing = inventoryMap.get(productId)!;
-      existing.totalQuantity += quantity;
-      existing.warehouses.add(warehouseId);
-    } else {
-      inventoryMap.set(productId, {
-        productName,
-        productType,
-        totalQuantity: quantity,
-        warehouses: new Set([warehouseId]),
-      });
-    }
-  });
+  for (const record of balances || []) {
+    const row = record as any;
+    const productId = String(row.product_id || "");
+    const product = productById.get(productId);
+    const current = inventoryMap.get(productId) || {
+      productName: brandName(product) || "Без названия",
+      productType: product?.product_type || product?.type || "material",
+      totalQuantity: 0,
+      warehouses: new Set<string>(),
+    };
+    current.totalQuantity += Number(row.quantity || 0);
+    current.warehouses.add(String(row.warehouse_id || ""));
+    inventoryMap.set(productId, current);
+  }
 
   return Array.from(inventoryMap.values())
     .map((item) => ({
@@ -246,5 +258,5 @@ export async function getInventorySummary(): Promise<InventorySummary[]> {
       warehousesCount: item.warehouses.size,
     }))
     .filter((item) => item.totalQuantity !== 0)
-    .sort((a, b) => b.totalQuantity - a.totalQuantity);
+    .sort((left, right) => right.totalQuantity - left.totalQuantity);
 }

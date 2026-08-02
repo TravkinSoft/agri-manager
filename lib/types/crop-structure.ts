@@ -3,9 +3,10 @@ import { z } from "zod";
 export const cropStructureSchema = z.object({
   field_id: z.string().uuid("Please select a field"),
   season_id: z.string().uuid("Please select a season"),
-  crop_id: z.string().uuid("Please select a crop"),
-  variety_id: z.string().uuid("Please select a variety").optional(),
-  reproduction_id: z.string().uuid("Please select a reproduction").optional(),
+  land_use_type: z.enum(["crop", "crop_mix", "fallow"]).default("crop"),
+  crop_id: z.string().uuid("Please select a crop").nullable(),
+  variety_id: z.string().uuid("Please select a variety").nullable().optional(),
+  reproduction_id: z.string().uuid("Please select a reproduction").nullable().optional(),
   area: z.number().positive("Area must be greater than 0"),
   seeding_rate: z.number().positive("Seeding rate must be greater than 0").optional().or(z.literal(0)),
   expected_yield: z.number().positive("Expected yield must be greater than 0").optional().or(z.literal(0)),
@@ -14,6 +15,20 @@ export const cropStructureSchema = z.object({
   seed_spacing_cm: z.number().positive("In-row spacing must be greater than 0").nullable().optional(),
   status: z.enum(["planned", "planted", "growing", "harvested"]).default("planned"),
   notes: z.string().optional(),
+}).superRefine((value, ctx) => {
+  if (value.land_use_type === "crop" && !value.crop_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["crop_id"], message: "Please select a crop" });
+  }
+  if (
+    (value.land_use_type === "fallow" || value.land_use_type === "crop_mix") &&
+    (value.crop_id != null || value.variety_id != null || value.reproduction_id != null)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["land_use_type"],
+      message: "Fallow and crop mix roots cannot have crop identity",
+    });
+  }
 });
 
 export type CropStructureFormData = z.infer<typeof cropStructureSchema>;
@@ -22,7 +37,8 @@ export interface CropStructure {
   id: string;
   field_id: string;
   season_id: string;
-  crop_id: string;
+  land_use_type: "crop" | "crop_mix" | "fallow";
+  crop_id: string | null;
   variety_id: string | null;
   reproduction_id: string | null;
   area: number;
@@ -45,4 +61,15 @@ export interface CropStructureWithDetails extends CropStructure {
   crop_name: string;
   variety_name: string | null;
   reproduction_name: string | null;
+  mix_components?: Array<{
+    id?: string;
+    crop_id: string | null;
+    variety_id: string | null;
+    reproduction_id: string | null;
+    seed_rate_kg_ha: number | null;
+    sort_order?: number;
+    crop_name?: string | null;
+    variety_name?: string | null;
+    reproduction_name?: string | null;
+  }>;
 }

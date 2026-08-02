@@ -3,83 +3,68 @@ import { assertActorAccess } from "@/lib/auth/server-acl";
 import {
   SessionAuthError,
   getServerActorFromSession,
+  getUserScopedClientFromRequest,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import { counterpartyMatchesSearch, isCountryCode } from "@/lib/counterparties/catalog";
+import { COUNTERPARTY_SELECT, normalizeCounterpartyRow } from "@/lib/counterparties/rows";
 import type { CounterpartyType } from "@/lib/types/counterparty";
 
-const COUNTERPARTY_ROLES = [
-  "company_admin",
-  "global_admin",
-  "warehouse",
-  "weighman",
-  "fuel_operator",
-  "agronomist",
-  "director",
+const READ_ROLES = [
+  "company_admin", "global_admin", "warehouse", "warehouse_operator", "weighman",
+  "fuel_operator", "agronomist", "director",
 ] as const;
-
+const WRITE_ROLES = ["company_admin", "global_admin"] as const;
 const TYPE_VALUES = new Set<CounterpartyType>([
-  "supplier",
-  "buyer",
-  "carrier",
-  "service",
-  "both",
-  "other",
+  "supplier", "buyer", "carrier", "service", "both", "other",
 ]);
 
-function normalizeCounterpartyRow(row: any) {
-  return {
-    id: String(row.id),
-    company_id: String(row.company_id),
-    name: String(row.name || "Контрагент"),
-    counterparty_type: String(row.counterparty_type || "other"),
-    bin_iin: row.bin_iin ?? null,
-    phone: row.phone ?? null,
-    contact_person: row.contact_person ?? null,
-    notes: row.notes ?? null,
-    is_active: row.is_active !== false,
-    archived: row.archived === true,
-    created_at: String(row.created_at || ""),
-    updated_at: String(row.updated_at || ""),
-  };
-}
-
-function isMissingColumnError(message: string, column: string) {
-  const text = message.toLowerCase();
-  return text.includes("column") && text.includes(column.toLowerCase()) && text.includes("does not exist");
+async function loadCounterparty(supabase: any, id: string, companyId: string) {
+  const { data, error } = await supabase
+    .from("counterparties")
+    .select(COUNTERPARTY_SELECT)
+    .eq("id", id)
+    .eq("company_id", companyId)
+    .single();
+  if (error || !data) throw new Error(error?.message || "Контрагент не найден");
+  return normalizeCounterpartyRow(data);
 }
 
 export async function GET(request: NextRequest) {
   try {
     const actor = await getServerActorFromSession(request);
-    const companyId = resolveCompanyForActor(actor, String(request.nextUrl.searchParams.get("companyId") || "").trim() || null);
+    const companyId = resolveCompanyForActor(
+      actor,
+      String(request.nextUrl.searchParams.get("companyId") || "").trim() || null,
+    );
     const type = String(request.nextUrl.searchParams.get("type") || "").trim().toLowerCase();
+    const status = String(request.nextUrl.searchParams.get("status") || "").trim().toLowerCase();
     const activeOnly = String(request.nextUrl.searchParams.get("activeOnly") || "true").toLowerCase() !== "false";
-
-    const supabase = getServiceClient();
+    const country = String(request.nextUrl.searchParams.get("country") || "").trim().toUpperCase();
+    const search = String(request.nextUrl.searchParams.get("search") || "").trim();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...COUNTERPARTY_ROLES],
+      allowedRoles: [...READ_ROLES],
     });
 
-    let query = supabase
-      .from("counterparties")
-      .select("*")
-      .eq("company_id", companyId)
-      .eq("archived", false)
-      .order("name");
+    let query = supabase.from("counterparties").select(COUNTERPARTY_SELECT).eq("company_id", companyId);
+    if (status === "active" || (!status && activeOnly)) {
+      query = query.eq("archived", false).eq("is_active", true);
+    } else if (status === "archived") {
+      query = query.or("archived.eq.true,is_active.eq.false");
+    }
+    const { data, error } = await query.order("name");
+    if (error) throw new Error(error.message);
 
-    if (activeOnly) query = query.eq("is_active", true);
-    if (type && type !== "all") query = query.eq("counterparty_type", type);
-
-    const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-
-    return NextResponse.json({
-      counterparties: (data || []).map(normalizeCounterpartyRow),
-    });
+    const rows = (data || [])
+      .map(normalizeCounterpartyRow)
+      .filter((row) => !type || type === "all" || row.roles.includes(type) || row.counterparty_type === type || (row.counterparty_type === "both" && ["supplier", "buyer"].includes(type)))
+      .filter((row) => !isCountryCode(country) || row.country_code === country)
+      .filter((row) => counterpartyMatchesSearch({ legalName: row.legal_name, taxId: row.tax_id, aliases: row.aliases, shortName: row.short_name, query: search }));
+    return NextResponse.json({ counterparties: rows });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -93,61 +78,53 @@ export async function POST(request: NextRequest) {
     const actor = await getServerActorFromSession(request);
     const body = await request.json();
     const companyId = resolveCompanyForActor(actor, String(body.companyId || "").trim() || null);
-    const name = String(body.name || "").trim();
-    const type = String(body.type || "").trim().toLowerCase() as CounterpartyType;
-    const binIin = body.binIin == null ? null : String(body.binIin).trim() || null;
-    const phone = body.phone == null ? null : String(body.phone).trim() || null;
-    const contactPerson = body.contactPerson == null ? null : String(body.contactPerson).trim() || null;
-    const comment = body.comment == null ? null : String(body.comment).trim() || null;
-    const isActive = body.isActive !== false;
-
-    if (!name || !type) {
-      return NextResponse.json({ error: "name and type are required" }, { status: 400 });
-    }
-    if (!TYPE_VALUES.has(type)) {
-      return NextResponse.json({ error: "Invalid counterparty type" }, { status: 400 });
-    }
-
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...COUNTERPARTY_ROLES],
+      allowedRoles: [...WRITE_ROLES],
     });
 
-    const baseInsert: any = {
-      company_id: companyId,
-      name,
-      counterparty_type: type,
-      phone,
-      notes: comment,
-      is_active: isActive,
-      archived: false,
-    };
-    const withExtra = {
-      ...baseInsert,
-      bin_iin: binIin,
-      contact_person: contactPerson,
-    };
-
-    let insertRes = await supabase.from("counterparties").insert(withExtra).select("*").single();
-    if (
-      insertRes.error &&
-      (isMissingColumnError(insertRes.error.message, "bin_iin") ||
-        isMissingColumnError(insertRes.error.message, "contact_person"))
-    ) {
-      insertRes = await supabase.from("counterparties").insert(baseInsert).select("*").single();
+    let row: any;
+    const globalCounterpartyId = String(body.globalCounterpartyId || "").trim();
+    const type = String(body.type || "supplier").trim().toLowerCase() as CounterpartyType;
+    if (!["supplier", "buyer"].includes(type)) {
+      return NextResponse.json({ error: "Можно добавить роль поставщика или покупателя" }, { status: 400 });
     }
-    if (insertRes.error || !insertRes.data) {
-      return NextResponse.json({ error: insertRes.error?.message || "Insert failed" }, { status: 400 });
+    if (globalCounterpartyId) {
+      const result = await supabase.rpc("link_global_counterparty_role_to_company_v2", {
+        p_company_id: companyId,
+        p_global_counterparty_id: globalCounterpartyId,
+        p_role: type,
+      });
+      if (result.error || !result.data?.id) throw new Error(result.error?.message || "Не удалось добавить контрагента");
+      row = result.data;
+    } else {
+      const name = String(body.name || "").trim();
+      const taxId = String(body.binIin || "").trim();
+      const countryCode = String(body.countryCode || "").trim().toUpperCase();
+      if (!TYPE_VALUES.has(type)) return NextResponse.json({ error: "Недопустимая роль контрагента" }, { status: 400 });
+      if (!name || !taxId || !isCountryCode(countryCode)) {
+        return NextResponse.json({ error: "Укажите юридическое название, БИН/ИНН и страну" }, { status: 400 });
+      }
+      const result = await supabase.rpc("create_local_counterparty_role_v2", {
+        p_company_id: companyId,
+        p_legal_name: name,
+        p_tax_id: taxId,
+        p_country_code: countryCode,
+        p_role: type,
+        p_aliases: Array.isArray(body.aliases) ? body.aliases : [],
+      });
+      if (result.error || !result.data?.id) throw new Error(result.error?.message || "Не удалось создать контрагента");
+      row = result.data;
     }
 
-    return NextResponse.json({ counterparty: normalizeCounterpartyRow(insertRes.data) });
+    return NextResponse.json({ counterparty: await loadCounterparty(supabase, String(row.id), companyId) });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Unknown error" }, { status: 400 });
   }
 }

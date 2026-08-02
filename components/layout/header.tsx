@@ -353,6 +353,16 @@ export function Header() {
           </div>
         ) : null}
 
+        {profile ? (
+          <Badge
+            variant="outline"
+            className="hidden h-8 max-w-[150px] items-center truncate border-[#384256] bg-[#171d29] px-2.5 text-xs font-medium text-[#CBD5E1] hover:bg-[#171d29] sm:inline-flex"
+            title={user?.email || getRoleLabel(profile.role)}
+          >
+            {getRoleLabel(profile.role)}
+          </Badge>
+        ) : null}
+
         <LanguageSwitcher />
         <Button
           variant="ghost"

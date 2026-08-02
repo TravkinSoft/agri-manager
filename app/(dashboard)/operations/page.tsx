@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Archive, ChevronDown, ChevronUp, Pencil, Plus } from "lucide-react";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
+import { OperationPlanDetails } from "@/components/operations/operation-plan-details";
+import { PesticideCardLink } from "@/components/platform/pesticide-card-link";
 import {
   archiveOperation,
   createOperation,
@@ -56,6 +59,7 @@ import {
 import { getFields } from "@/lib/services/fields";
 import { getCropStructures } from "@/lib/services/crop-structure";
 import { getWarehouseIssueRequests } from "@/lib/services/warehouse-requests";
+import type { WarehouseIssueRequest } from "@/lib/types/warehouse-request";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -68,8 +72,13 @@ import {
 import { Field } from "@/lib/types/field";
 import { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import { useLanguage } from "@/lib/contexts/language-context";
+import { supabase } from "@/lib/supabase/client";
 import { localizeUnit } from "@/lib/i18n/helpers";
 import { formatVarietyReproduction } from "@/lib/operations/crop-identity";
+import {
+  buildOperationPresentation,
+  type OperationDisplayStatus,
+} from "@/lib/operations/operation-presentation";
 import {
   getPurposeDefinitionsForOperation,
   getTankMixComponentDefinition,
@@ -109,6 +118,24 @@ function statusBadge(status: string | null | undefined) {
   if (normalized === "in_progress") return <Badge className="bg-blue-100 text-blue-800">in progress</Badge>;
   if (normalized === "ready_to_start") return <Badge className="bg-amber-100 text-amber-800">ready</Badge>;
   return <Badge className="bg-slate-100 text-slate-800">{normalized}</Badge>;
+}
+
+function displayStatusBadge(status: OperationDisplayStatus, label: string) {
+  const className =
+    status === "completed"
+      ? "bg-emerald-100 text-emerald-800"
+      : status === "in_progress"
+        ? "bg-blue-100 text-blue-800"
+        : status === "awaiting_reconciliation"
+          ? "bg-amber-100 text-amber-900"
+        : status === "accepted"
+          ? "bg-cyan-100 text-cyan-800"
+          : status === "awaiting_approval"
+            ? "bg-violet-100 text-violet-800"
+            : status === "cancelled"
+              ? "bg-red-100 text-red-800"
+              : "bg-slate-100 text-slate-800";
+  return <Badge className={className}>{label}</Badge>;
 }
 
 function getOperationEngine(operation: OperationWithDetails) {
@@ -153,11 +180,14 @@ export default function OperationsPage() {
   const [operationToArchive, setOperationToArchive] = useState<OperationWithDetails | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [requestStatusByOperationId, setRequestStatusByOperationId] = useState<Record<string, string>>({});
+  const [warehouseRequests, setWarehouseRequests] = useState<WarehouseIssueRequest[]>([]);
   const [operationLinesByOperationId, setOperationLinesByOperationId] = useState<Record<string, OperationLine[]>>({});
   const [linesLoadingByOperationId, setLinesLoadingByOperationId] = useState<Record<string, boolean>>({});
   const [lineDraftByOperationId, setLineDraftByOperationId] = useState<Record<string, OperationLineFormData>>({});
   const [lineMutationBusyByOperationId, setLineMutationBusyByOperationId] = useState<Record<string, boolean>>({});
   const [selectedOperation, setSelectedOperation] = useState<OperationWithDetails | null>(null);
+  const [varianceReviewComment, setVarianceReviewComment] = useState("");
+  const [varianceReviewBusy, setVarianceReviewBusy] = useState(false);
 
   const [explorerField, setExplorerField] = useState<string>("all");
   const [explorerOperationType, setExplorerOperationType] = useState<string>("all");
@@ -198,8 +228,10 @@ export default function OperationsPage() {
           if (row.operation_id) map[row.operation_id] = row.status;
         });
         setRequestStatusByOperationId(map);
+        setWarehouseRequests(requestsRes.value);
       } else {
         setRequestStatusByOperationId({});
+        setWarehouseRequests([]);
       }
 
     } catch (error) {
@@ -214,6 +246,44 @@ export default function OperationsPage() {
     if (authLoading) return;
     if (profile?.company_id) void loadData();
   }, [authLoading, profile?.company_id, language]);
+
+  const reviewVariance = async (operation: OperationWithDetails, decision: "approve" | "reject") => {
+    if (!profile?.company_id) return;
+    if (decision === "reject" && !varianceReviewComment.trim()) {
+      toast({ title: "Нужен комментарий", description: "Укажите, что специалист должен исправить.", variant: "destructive" });
+      return;
+    }
+    setVarianceReviewBusy(true);
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !sessionData.session?.access_token) throw new Error("Сессия не найдена. Войдите заново.");
+      const idempotencyKey = crypto.randomUUID();
+      const response = await fetch(`/api/operations/${encodeURIComponent(operation.id)}/variance-review`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${sessionData.session.access_token}`,
+          "Content-Type": "application/json",
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify({
+          companyId: profile.company_id,
+          decision,
+          comment: varianceReviewComment.trim() || null,
+          idempotency_key: idempotencyKey,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось обработать отклонение.");
+      toast({ title: decision === "approve" ? "Факт подтверждён" : "Результат возвращён специалисту" });
+      setVarianceReviewComment("");
+      setSelectedOperation(null);
+      await loadData();
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error?.message || "Не удалось обработать отклонение.", variant: "destructive" });
+    } finally {
+      setVarianceReviewBusy(false);
+    }
+  };
 
   const makeDefaultLineDraft = (operation: OperationWithDetails): OperationLineFormData => ({
     field_id: operation.field_id || null,
@@ -448,7 +518,7 @@ export default function OperationsPage() {
     return keys.sort((a, b) => a.localeCompare(b, "ru"));
   }, [operations]);
   const countLabel = (value: number) => (loading || authLoading ? "..." : String(value));
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = todayDateOnlyLocal();
   const waitingMaterialsCount = operations.filter((operation) => {
     const requestStatus = String(requestStatusByOperationId[operation.id] || "").toLowerCase();
     return requestStatus && !["issued", "received", "completed", "closed", "cancelled"].includes(requestStatus);
@@ -941,6 +1011,33 @@ export default function OperationsPage() {
   const selectedOperationEngine = selectedOperation ? getOperationEngine(selectedOperation) : null;
   const selectedOperationPurposes = selectedOperation ? getOperationPurposeLabels(selectedOperation) : [];
   const selectedTankMixComponents = selectedOperation ? getTankMixComponents(selectedOperation) : [];
+  const selectedPresentation = selectedOperation
+    ? buildOperationPresentation(selectedOperation, {
+        responsibleName:
+          selectedOperation.responsible_name ||
+          (selectedOperation.responsible_user_id
+            ? specialistLabelById[selectedOperation.responsible_user_id]
+            : null),
+      })
+    : null;
+  const selectedWarehouseMaterials = selectedOperation
+    ? warehouseRequests
+        .filter((request) => request.operation_id === selectedOperation.id && request.status !== "cancelled")
+        .flatMap((request) =>
+          (request.items || []).map((item) => ({
+            productId: item.product_id,
+            preparedQuantity: Number(item.prepared_quantity || 0),
+            issuedQuantity: Number(item.issued_quantity || 0),
+            statusLabel: request.status === "ready"
+              ? "Готово к выдаче"
+              : request.status === "issued" || request.status === "issued_by_warehouse"
+                ? "Выдано"
+                : request.status === "received_confirmed"
+                  ? "Принято специалистом"
+                  : "На складе",
+          }))
+        )
+    : [];
 
   return (
     <div className="space-y-4">
@@ -1071,18 +1168,19 @@ export default function OperationsPage() {
                 <TableRow>
                   <TableHead>Дата</TableHead>
                   <TableHead>Поле</TableHead>
-                  <TableHead>Культура</TableHead>
-                  <TableHead>Сорт</TableHead>
-                  <TableHead>Операция</TableHead>
-                  <TableHead>Площадь</TableHead>
+                  <TableHead>Работа</TableHead>
+                  <TableHead>План</TableHead>
+                  <TableHead>Прогресс</TableHead>
+                  <TableHead>Осталось / отклонение</TableHead>
                   <TableHead>Ответственный</TableHead>
-                  <TableHead>Материалы</TableHead>
                   <TableHead>Статус</TableHead>
                   <TableHead className="w-[96px]"> </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredOperations.map((operation) => (
+                {filteredOperations.map((operation) => {
+                  const presentation = buildOperationPresentation(operation);
+                  return (
                   <TableRow
                     key={operation.id}
                     className="cursor-pointer"
@@ -1093,17 +1191,27 @@ export default function OperationsPage() {
                   >
                     <TableCell>{formatDate(operation.date)}</TableCell>
                     <TableCell className="font-medium">{operation.field_name}</TableCell>
-                    <TableCell>{operation.crop_name || "—"}</TableCell>
-                    <TableCell>{operation.variety_name || "—"}</TableCell>
-                    <TableCell>{operation.operation_type}</TableCell>
-                    <TableCell>{Number(operation.planned_area_ha || 0).toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</TableCell>
                     <TableCell>
-                      {operation.responsible_user_id
-                        ? specialistLabelById[operation.responsible_user_id] || operation.responsible_user_id
-                        : "—"}
+                      <div className="font-medium">{presentation.workTitle}</div>
+                      <div className="text-xs text-muted-foreground">{presentation.categoryTitle}</div>
                     </TableCell>
-                    <TableCell className="max-w-[320px] truncate">{renderMaterialsText(operation)}</TableCell>
-                    <TableCell>{statusBadge(operation.work_status)}</TableCell>
+                    <TableCell>{presentation.plannedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</TableCell>
+                    <TableCell>
+                      {presentation.completedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} /{" "}
+                      {presentation.plannedAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га
+                      <div className="text-xs text-muted-foreground">{presentation.progressPercent.toFixed(1)}%</div>
+                    </TableCell>
+                    <TableCell>
+                      {presentation.isOverPlan
+                        ? `+${presentation.deviationAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`
+                        : `${presentation.remainingAreaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`}
+                    </TableCell>
+                    <TableCell>
+                      {presentation.responsibleName ||
+                        (operation.responsible_user_id ? specialistLabelById[operation.responsible_user_id] : null) ||
+                        "Не назначен"}
+                    </TableCell>
+                    <TableCell>{displayStatusBadge(presentation.status, presentation.statusLabel)}</TableCell>
                     <TableCell>
                       <div className="flex justify-end gap-1">
                         <Button
@@ -1133,7 +1241,8 @@ export default function OperationsPage() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -1183,38 +1292,61 @@ export default function OperationsPage() {
           {selectedOperation ? (
             <>
               <SheetHeader>
-                <SheetTitle>{selectedOperation.operation_type}</SheetTitle>
+                <div className="flex items-start justify-between gap-3 pr-8">
+                  <div>
+                    <SheetTitle>{selectedPresentation?.workTitle}</SheetTitle>
+                    <div className="mt-1 text-xs text-muted-foreground">{selectedPresentation?.categoryTitle}</div>
+                  </div>
+                  {selectedPresentation ? displayStatusBadge(selectedPresentation.status, selectedPresentation.statusLabel) : null}
+                </div>
                 <SheetDescription>
-                  {selectedOperation.field_name} • {selectedOperation.crop_name || "без культуры"} • {formatDate(selectedOperation.date)}
+                  {selectedOperation.field_name}
+                  {selectedOperation.crop_name ? ` • ${selectedOperation.crop_name}` : ""}
+                  {" • "}{formatDate(selectedOperation.date)}
                 </SheetDescription>
               </SheetHeader>
               <Tabs defaultValue="general" className="mt-5">
-                <TabsList className="grid h-auto w-full grid-cols-5">
+                <TabsList className="grid h-auto w-full grid-flow-col auto-cols-fr">
                   <TabsTrigger value="general">Общее</TabsTrigger>
-                  <TabsTrigger value="materials">Материалы</TabsTrigger>
-                  <TabsTrigger value="warehouse">Склад</TabsTrigger>
+                  {(selectedOperation.materials || []).length > 0 || selectedOperation.tank_mix?.enabled ? (
+                    <TabsTrigger value="materials">Материалы</TabsTrigger>
+                  ) : null}
+                  {requestStatusByOperationId[selectedOperation.id] ? <TabsTrigger value="warehouse">Склад</TabsTrigger> : null}
                   <TabsTrigger value="fact">Факт</TabsTrigger>
                   <TabsTrigger value="history">История</TabsTrigger>
                 </TabsList>
                 <TabsContent value="general" className="space-y-3 text-sm">
-                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <div><span className="text-muted-foreground">Тип работ:</span> {selectedOperation.operation_engine_label || selectedOperationEngine?.label || selectedOperation.operation_type}</div>
-                    <div><span className="text-muted-foreground">Цели:</span> {selectedOperationPurposes.length > 0 ? selectedOperationPurposes.join(", ") : "—"}</div>
-                    <div><span className="text-muted-foreground">Поле:</span> {selectedOperation.field_name}</div>
+                  {selectedPresentation ? (
+                    <OperationPlanDetails
+                      presentation={selectedPresentation}
+                      warehouseMaterials={selectedWarehouseMaterials}
+                      showExecutionFacts
+                    />
+                  ) : null}
+                  {selectedOperationPurposes.length > 0 ? (
                     <div>
-                      <span className="text-muted-foreground">План поля:</span>{" "}
-                      {selectedOperation.crop_name || "—"}
-                      {selectedOperation.variety_name ? ` • ${selectedOperation.variety_name}` : ""}
-                      {selectedOperation.reproduction_name ? ` • ${selectedOperation.reproduction_name}` : ""}
+                      <span className="text-muted-foreground">Цели:</span>{" "}
+                      {selectedOperationPurposes.join(", ")}
                     </div>
-                    <div><span className="text-muted-foreground">Культура:</span> {selectedOperation.crop_name || "—"}</div>
-                    <div><span className="text-muted-foreground">Сорт:</span> {selectedOperation.variety_name || "—"}</div>
-                    <div><span className="text-muted-foreground">Репродукция:</span> {selectedOperation.reproduction_name || "—"}</div>
-                    <div><span className="text-muted-foreground">Площадь:</span> {Number(selectedOperation.planned_area_ha || 0).toFixed(2)} га</div>
-                    <div><span className="text-muted-foreground">Способ/назначение:</span> {selectedOperation.operation_target || "—"}</div>
-                    <div><span className="text-muted-foreground">Статус:</span> {statusBadge(selectedOperation.work_status)}</div>
-                    <div className="md:col-span-2"><span className="text-muted-foreground">Комментарий:</span> {selectedOperation.notes || "—"}</div>
-                  </div>
+                  ) : null}
+                  {selectedPresentation ? (
+                    <div className="grid grid-cols-2 gap-3 rounded-md border bg-muted/20 p-3">
+                      <div>
+                        <div className="text-xs text-muted-foreground">Фактически выполнено</div>
+                        <div className="font-semibold">{selectedPresentation.completedAreaHa.toFixed(2)} га</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-muted-foreground">
+                          {selectedPresentation.isOverPlan ? "Перевыполнение" : "Осталось"}
+                        </div>
+                        <div className="font-semibold">
+                          {selectedPresentation.isOverPlan
+                            ? `+${selectedPresentation.deviationAreaHa.toFixed(2)} га`
+                            : `${selectedPresentation.remainingAreaHa.toFixed(2)} га`}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="flex gap-2">
                     <Button type="button" variant="outline" onClick={() => { setEditingOperation(selectedOperation); setIsFormOpen(true); }}>
                       Редактировать
@@ -1225,6 +1357,51 @@ export default function OperationsPage() {
                       </Button>
                     ) : null}
                   </div>
+                  {selectedPresentation?.status === "awaiting_approval" &&
+                  selectedPresentation.pendingCompletion ? (
+                    <div className="space-y-3 rounded-md border border-violet-300 bg-violet-50 p-4 text-sm">
+                      <div className="font-semibold text-violet-950">Результат ожидает подтверждения</div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <div><span className="text-muted-foreground">План:</span> {selectedPresentation.pendingCompletion.planned_area_ha.toFixed(2)} га</div>
+                        <div><span className="text-muted-foreground">Факт:</span> {selectedPresentation.pendingCompletion.actual_area_ha.toFixed(2)} га</div>
+                        <div>
+                          <span className="text-muted-foreground">Отклонение:</span>{" "}
+                          {selectedPresentation.pendingCompletion.deviation_area_ha > 0 ? "+" : ""}
+                          {selectedPresentation.pendingCompletion.deviation_area_ha.toFixed(2)} га
+                        </div>
+                        <div><span className="text-muted-foreground">Причина:</span> {selectedPresentation.pendingCompletion.variance_reason}</div>
+                        {selectedPresentation.pendingCompletion.specialist_comment ? (
+                          <div className="md:col-span-2">
+                            <span className="text-muted-foreground">Комментарий специалиста:</span>{" "}
+                            {selectedPresentation.pendingCompletion.specialist_comment}
+                          </div>
+                        ) : null}
+                      </div>
+                      <Input
+                        value={varianceReviewComment}
+                        onChange={(event) => setVarianceReviewComment(event.target.value)}
+                        placeholder="Комментарий обязателен при возврате специалисту"
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          type="button"
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                          onClick={() => void reviewVariance(selectedOperation, "approve")}
+                          disabled={varianceReviewBusy}
+                        >
+                          Подтвердить факт
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void reviewVariance(selectedOperation, "reject")}
+                          disabled={varianceReviewBusy}
+                        >
+                          Вернуть специалисту
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
                 </TabsContent>
                 <TabsContent value="materials">
                   {selectedOperation.tank_mix?.enabled || selectedTankMixComponents.length > 0 ? (
@@ -1259,7 +1436,14 @@ export default function OperationsPage() {
                           const loss = Math.max(issued - consumed - returned, 0);
                           return (
                             <TableRow key={material.id}>
-                              <TableCell className="font-medium">{material.product_name || material.product_id}</TableCell>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-1">
+                                  <span>{material.product_name || material.product_id}</span>
+                                  {String(material.product_type || "").toLowerCase() === "pesticide" ? (
+                                    <PesticideCardLink productId={material.master_product_id} />
+                                  ) : null}
+                                </div>
+                              </TableCell>
                               <TableCell>{getMaterialComponentLabel(material)}</TableCell>
                               <TableCell>{material.planned_rate ?? "—"} {displayRateUnit(material.unit)}</TableCell>
                               <TableCell>{material.actual_rate ?? "—"} {displayRateUnit(material.unit)}</TableCell>
@@ -1321,6 +1505,24 @@ export default function OperationsPage() {
                   </div>
                 </TabsContent>
                 <TabsContent value="fact" className="space-y-3">
+                  {(selectedPresentation?.progressReports.length || 0) > 0 ? (
+                    <div className="space-y-2">
+                      <div className="text-sm font-semibold">История смен</div>
+                      {selectedPresentation?.progressReports
+                        .slice()
+                        .reverse()
+                        .map((report) => (
+                          <div key={report.id} className="flex items-start justify-between gap-3 border-b py-2 text-sm">
+                            <div>
+                              <div className="font-medium">+{Number(report.completed_area_ha).toFixed(2)} га</div>
+                              {report.stop_reason ? <div className="text-muted-foreground">{report.stop_reason}</div> : null}
+                              {report.comment ? <div className="text-xs text-muted-foreground">{report.comment}</div> : null}
+                            </div>
+                            <div className="text-xs text-muted-foreground">{new Date(report.reported_at).toLocaleString("ru-RU")}</div>
+                          </div>
+                        ))}
+                    </div>
+                  ) : null}
                   {linesLoadingByOperationId[selectedOperation.id] ? (
                     <div className="text-sm text-muted-foreground">Загрузка факта...</div>
                   ) : (operationLinesByOperationId[selectedOperation.id] || []).length === 0 ? (

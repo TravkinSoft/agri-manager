@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
+import { validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 
 export async function GET(
   request: NextRequest,
@@ -246,17 +246,11 @@ export async function PATCH(
           : Number(ticket.tare_weight_kg);
 
     if (nextGross != null && nextTare != null) {
-      if (!(nextGross > 0)) {
-        return NextResponse.json({ error: "Брутто должно быть больше нуля." }, { status: 400 });
+      const weightValidation = validateHarvestWeights(nextGross, nextTare);
+      if (!weightValidation.ok) {
+        return NextResponse.json({ error: weightValidation.message }, { status: 400 });
       }
-      if (nextTare > nextGross) {
-        return NextResponse.json({ error: "Тара не может быть больше брутто." }, { status: 400 });
-      }
-      const nextNet = nextGross - nextTare;
-      if (!(nextNet > 0)) {
-        return NextResponse.json({ error: "Нетто должно быть больше нуля." }, { status: 400 });
-      }
-      patch.net_weight_kg = nextNet;
+      patch.net_weight_kg = weightValidation.net;
     }
 
     if (body?.notes !== undefined) {
@@ -273,6 +267,26 @@ export async function PATCH(
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "No patch fields provided" }, { status: 400 });
+    }
+
+    if (ticket.op_type === "harvest_incoming" && patch.net_weight_kg !== undefined) {
+      const { error: atomicUpdateError } = await supabase.rpc("set_harvest_ticket_weights_for_session_v1", {
+        p_ticket_id: id,
+        p_patch: patch,
+      });
+      if (atomicUpdateError) {
+        return NextResponse.json({ error: atomicUpdateError.message }, { status: 400 });
+      }
+      const { data: updated, error: updatedError } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("id", id)
+        .eq("company_id", companyId)
+        .single();
+      if (updatedError || !updated?.id) {
+        return NextResponse.json({ error: updatedError?.message || "Ticket not found after update" }, { status: 400 });
+      }
+      return NextResponse.json({ ticket: updated });
     }
 
     const { data: updated, error: updateError } = await supabase

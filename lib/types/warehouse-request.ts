@@ -7,6 +7,7 @@ export type WarehouseIssueRequestStatus =
   | "partially_issued"
   | "issued_by_warehouse"
   | "received_confirmed"
+  | "closed"
   | "cancelled";
 
 export type WarehouseRequestV5Status =
@@ -20,11 +21,29 @@ export type WarehouseRequestV5Status =
   | "closed"
   | "cancelled";
 
+export interface WarehouseIssueAllocation {
+  id: string;
+  request_id: string;
+  request_item_id: string;
+  warehouse_id: string;
+  batch_id: string | null;
+  batch_id_text: string | null;
+  batch_class: string;
+  batch_label: string;
+  prepared_quantity: number;
+  issued_quantity: number;
+}
+
 export interface WarehouseIssueRequestItem {
   id: string;
   request_id: string;
   company_id: string;
   product_id: string;
+  crop_id?: string | null;
+  variety_id?: string | null;
+  reproduction_id?: string | null;
+  material_kind?: string | null;
+  source_mix_component_id?: string | null;
   product_category: string | null;
   required_quantity: number;
   planned_quantity?: number | null;
@@ -47,9 +66,7 @@ export interface WarehouseIssueRequestItem {
   loss_reason?: string | null;
   loss_comment?: string | null;
   return_comment?: string | null;
-  package_size?: number | null;
-  package_count?: number | null;
-  package_unit?: string | null;
+  allocations?: WarehouseIssueAllocation[];
   reconciliation_status?:
     | "not_required"
     | "pending"
@@ -98,7 +115,7 @@ export interface WarehouseIssueRequest {
   comment: string | null;
   status: WarehouseIssueRequestStatus;
   warehouse_request_status?: WarehouseRequestV5Status | null;
-  workflow_status?: "active" | "preparing" | "ready" | "issued" | "partially_issued" | "cancelled";
+  workflow_status?: "active" | "preparing" | "ready" | "issued" | "closed" | "partially_issued" | "cancelled";
   confirm_token: string | null;
   created_at: string;
   updated_at: string;
@@ -125,9 +142,13 @@ export interface WarehouseIssueRequest {
   variety_name?: string | null;
   reproduction_name?: string | null;
   operation_type?: string;
+  operation_number?: string | null;
   operation_date?: string;
   operation_notes?: string | null;
   operation_work_status?: string | null;
+  field_code?: string | null;
+  is_test_data?: boolean;
+  test_run_code?: string | null;
   recipient_email?: string;
   recipient_name?: string;
   assigned_specialist_name?: string | null;

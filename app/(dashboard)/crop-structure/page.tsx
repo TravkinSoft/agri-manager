@@ -3,22 +3,66 @@
 import { useEffect, useMemo, useState } from "react";
 import { Download, Edit3, FileText, LayoutGrid, Map as MapIcon, Maximize2, Plus, Search, Table2, X } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { FieldFormDialog } from "@/components/fields/field-form-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { OperationFormDialog } from "@/components/operations/operation-form-dialog";
+import { SpecialistOperationPlan } from "@/components/operations/specialist-operation-plan";
+import { CatalogIdentityCombobox } from "@/components/crop-structure/catalog-identity-combobox";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 import { getFieldDisplayName } from "@/lib/fields/display";
-import { createOperation } from "@/lib/services/operations";
+import { createField } from "@/lib/services/fields";
+import type { FieldFormData } from "@/lib/types/field";
+import {
+  isCropMixLandUse,
+  isFallowLandUse,
+  normalizeCropStructureSeedAttributes,
+  validateAndNormalizeCropStructureRows,
+} from "@/lib/crop-structure/fallow";
+import {
+  GRAIN_MIX_MAX_COMPONENTS,
+  GRAIN_MIX_MIN_COMPONENTS,
+  grainMixComponentTotalKg,
+  grainMixDisplayName,
+  grainMixTotalKg,
+  validateGrainMixComponents,
+  type GrainMixComponent,
+} from "@/lib/crop-structure/grain-mix";
+import {
+  buildReproductionOptions,
+  buildVarietyOptions,
+  catalogIdentitySearchValue,
+} from "@/lib/crop-structure/catalog-identity";
+import {
+  compactReproductionLabel,
+  hasCropStructureChanges,
+  sortReproductionsAgronomically,
+  summarizeCropStructureChanges,
+  type CropStructureChangeSummary,
+} from "@/lib/crop-structure/editor";
+import { createOperation, getOperationsForCropStructureRows } from "@/lib/services/operations";
 import type { OperationFormData, SpecialistAssignee } from "@/lib/types/operation";
+import { buildOperationPresentation, type OperationPresentation } from "@/lib/operations/operation-presentation";
 import type { CropStructureWithDetails } from "@/lib/types/crop-structure";
 import {
   getIrrigationTypeLabel,
@@ -41,7 +85,17 @@ type Crop = {
   archived?: boolean | null;
   is_active?: boolean | null;
 };
-type Variety = { id: string; name: string; crop_id: string; company_id?: string | null; archived?: boolean | null; is_active?: boolean | null };
+type Variety = {
+  id: string;
+  name: string;
+  name_ru?: string | null;
+  name_kz?: string | null;
+  name_en?: string | null;
+  crop_id: string;
+  company_id?: string | null;
+  archived?: boolean | null;
+  is_active?: boolean | null;
+};
 type Reproduction = {
   id: string;
   name: string;
@@ -68,6 +122,7 @@ type CropStructureBootstrapPayload = {
 type Allocation = {
   id?: string;
   field_id: string;
+  land_use_type: "crop" | "crop_mix" | "fallow";
   crop_id: string | null;
   variety_id: string | null;
   reproduction_id: string | null;
@@ -78,6 +133,9 @@ type Allocation = {
   irrigation_type?: IrrigationType | null;
   row_spacing_m?: number | null;
   seed_spacing_cm?: number | null;
+  identity_review_required?: boolean;
+  identity_review_reason?: string | null;
+  mix_components: GrainMixComponent[];
 };
 type Consumption = {
   id: string;
@@ -128,6 +186,7 @@ type StructureOperationFact = {
   planned_area_ha: number | null;
   actual_area_ha: number | null;
   materials: StructureOperationMaterialFact[];
+  presentation: OperationPresentation;
 };
 
 type FieldLegalLink = {
@@ -198,20 +257,28 @@ const standardReproductionLabel = (item: Reproduction | null | undefined) => {
 
   return localizedName(item as never, "ru", ["name", "code"]) || item.name || item.code || "-";
 };
-const CROP_STRUCTURE_BASE_SELECT = "id,field_id,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
+const CROP_STRUCTURE_BASE_SELECT = "id,field_id,land_use_type,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
 const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
+const CROP_STRUCTURE_REVIEW_SELECT = `${CROP_STRUCTURE_V4_SELECT},identity_review_required,identity_review_reason`;
+const isMissingIdentityReviewColumn = (error: unknown) => {
+  const message = String((error as any)?.message || error || "").toLowerCase();
+  return message.includes("identity_review_required") || message.includes("identity_review_reason");
+};
 const isMissingCropStructureV4Column = (error: unknown) => {
   const message = String((error as any)?.message || error || "").toLowerCase();
   return (
     message.includes("irrigation_type") ||
     message.includes("row_spacing_m") ||
     message.includes("seed_spacing_cm") ||
+    message.includes("identity_review_required") ||
+    message.includes("identity_review_reason") ||
     message.includes("schema cache")
   );
 };
 const allocationFromRow = (row: any): Allocation => ({
   id: row.id,
   field_id: row.field_id,
+  land_use_type: row.land_use_type === "fallow" ? "fallow" : row.land_use_type === "crop_mix" ? "crop_mix" : "crop",
   crop_id: row.crop_id,
   variety_id: row.variety_id,
   reproduction_id: row.reproduction_id,
@@ -222,6 +289,22 @@ const allocationFromRow = (row: any): Allocation => ({
   irrigation_type: normalizeIrrigationType(row.irrigation_type),
   row_spacing_m: row.row_spacing_m == null ? null : Number(row.row_spacing_m || 0),
   seed_spacing_cm: row.seed_spacing_cm == null ? null : Number(row.seed_spacing_cm || 0),
+  identity_review_required:
+    row.identity_review_required === true ||
+    (row.land_use_type === "crop" && (!row.crop_id || !row.variety_id || !row.reproduction_id)),
+  identity_review_reason: row.identity_review_reason || null,
+  mix_components: Array.isArray(row.mix_components)
+    ? row.mix_components
+        .map((component: any, index: number) => ({
+          id: component.id || undefined,
+          crop_id: component.crop_id || null,
+          variety_id: component.variety_id || null,
+          reproduction_id: component.reproduction_id || null,
+          seed_rate_kg_ha: component.seed_rate_kg_ha == null ? null : Number(component.seed_rate_kg_ha),
+          sort_order: Number(component.sort_order || index + 1),
+        }))
+        .sort((left: GrainMixComponent, right: GrainMixComponent) => Number(left.sort_order || 0) - Number(right.sort_order || 0))
+    : [],
 });
 const buildAllocationMap = (rows: unknown[]) => {
   const map = new Map<string, Allocation[]>();
@@ -233,7 +316,10 @@ const buildAllocationMap = (rows: unknown[]) => {
   return map;
 };
 const cloneAllocationMap = (map: Map<string, Allocation[]>) =>
-  new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({ ...item }))]));
+  new Map(Array.from(map.entries()).map(([key, value]) => [key, value.map((item) => ({
+    ...item,
+    mix_components: item.mix_components.map((component) => ({ ...component })),
+  }))]));
 const fmtDate = (value?: string | null) => {
   if (!value) return "-";
   const d = new Date(value);
@@ -265,8 +351,6 @@ const numberOrNull = (value: unknown): number | null => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
 };
-
-const oneRelation = (value: unknown): any => (Array.isArray(value) ? value[0] : value);
 
 const batchClassLabel = (value?: string | null) => {
   if (value === "seed") return "Семенной";
@@ -310,12 +394,15 @@ export default function CropStructurePage() {
   const tr = (ru: string, kz: string, en: string) => (language === "kz" ? kz : language === "en" ? en : ru);
   const activeCompanyId = profile?.company_id || null;
   const activeProfileId = profile?.id || null;
+  const isGlobalAdmin = profile?.role === "global_admin";
+  const canEditStructure = isGlobalAdmin || profile?.role === "company_admin" || profile?.role === "agronomist";
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [fields, setFields] = useState<Field[]>([]);
+  const [fieldCreateOpen, setFieldCreateOpen] = useState(false);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [seasonId, setSeasonId] = useState("");
   const [allCrops, setAllCrops] = useState<Crop[]>([]);
@@ -326,6 +413,7 @@ export default function CropStructurePage() {
   const [bootstrappedStructureKey, setBootstrappedStructureKey] = useState<string | null>(null);
   const [consumptions, setConsumptions] = useState<Consumption[]>([]);
   const [operationFacts, setOperationFacts] = useState<StructureOperationFact[]>([]);
+  const [selectedOperationDetail, setSelectedOperationDetail] = useState<StructureOperationFact | null>(null);
   const [operationConsumptions, setOperationConsumptions] = useState<Consumption[]>([]);
   const [search, setSearch] = useState("");
   const [cropFilter, setCropFilter] = useState("all");
@@ -344,10 +432,61 @@ export default function CropStructurePage() {
   const [specialists, setSpecialists] = useState<SpecialistAssignee[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>("cards");
   const [pendingDeleteIndex, setPendingDeleteIndex] = useState<number | null>(null);
+  const [saveConfirmationOpen, setSaveConfirmationOpen] = useState(false);
+  const [discardConfirmationOpen, setDiscardConfirmationOpen] = useState(false);
+  const [pendingSaveRows, setPendingSaveRows] = useState<Allocation[]>([]);
+  const [pendingSaveSummary, setPendingSaveSummary] = useState<CropStructureChangeSummary>({ added: 0, updated: 0, deleted: 0 });
+  const [editorValidationError, setEditorValidationError] = useState<string | null>(null);
 
   const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
   const season = useMemo(() => seasons.find((item) => item.id === seasonId) || null, [seasons, seasonId]);
+  const draftChangeSummary = useMemo(
+    () => summarizeCropStructureChanges(selectedFieldId ? initialByField.get(selectedFieldId) || [] : [], draftRows),
+    [draftRows, initialByField, selectedFieldId]
+  );
+  const hasUnsavedStructureChanges = hasCropStructureChanges(draftChangeSummary);
+  const fieldDisplayName = (field: Field) => getFieldDisplayName(field);
+
+  const handleCreateField = async (data: FieldFormData) => {
+    if (!activeCompanyId) {
+      toast({
+        title: tr("Ошибка", "Қате", "Error"),
+        description: tr("Компания не выбрана", "Компания таңдалмаған", "Company is not selected"),
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      const createdField = await createField(activeCompanyId, data);
+      const normalizedField: Field = {
+        id: createdField.id,
+        name: getFieldDisplayName(createdField),
+        area: Number(createdField.area || 0),
+        notes: createdField.notes || null,
+      };
+      setFields((current) =>
+        [...current.filter((field) => field.id !== normalizedField.id), normalizedField]
+          .sort((left, right) => fieldDisplayName(left).localeCompare(fieldDisplayName(right), "ru")),
+      );
+      setFieldCreateOpen(false);
+      toast({
+        title: tr("Поле создано", "Алаң құрылды", "Field created"),
+        description: tr(
+          `${fieldDisplayName(normalizedField)} добавлено в структуру посевов`,
+          `${fieldDisplayName(normalizedField)} егіс құрылымына қосылды`,
+          `${fieldDisplayName(normalizedField)} was added to crop structure`,
+        ),
+      });
+    } catch (error) {
+      toast({
+        title: tr("Не удалось создать поле", "Алаңды құру мүмкін болмады", "Could not create field"),
+        description: error instanceof Error ? error.message : tr("Повторите попытку", "Қайталап көріңіз", "Try again"),
+        variant: "destructive",
+      });
+    }
+  };
 
   const cropLabel = (crop: Crop) => (localizedName(crop as never, language) || crop.name || "").trim();
   const cropOptionKey = (crop: Crop) => {
@@ -402,30 +541,59 @@ export default function CropStructurePage() {
     selectedCropId && !globalCropIds.has(selectedCropId) && cropMap.get(selectedCropId)
       ? [...globalCrops, cropMap.get(selectedCropId) as Crop].sort((a, b) => cropLabel(a).localeCompare(cropLabel(b), "ru"))
       : globalCrops;
-  const globalVarieties = useMemo(() => allVarieties.filter(isVisibleCatalogItem), [allVarieties, activeCompanyId]);
+  const selectedVarietyIds = useMemo(
+    () =>
+      Array.from(allocByField.values())
+        .flat()
+        .concat(draftRows)
+        .flatMap((row) => [row.variety_id, ...row.mix_components.map((component) => component.variety_id)])
+        .filter((id): id is string => Boolean(id)),
+    [allocByField, draftRows]
+  );
+  const selectedReproductionIds = useMemo(
+    () =>
+      Array.from(allocByField.values())
+        .flat()
+        .concat(draftRows)
+        .flatMap((row) => [row.reproduction_id, ...row.mix_components.map((component) => component.reproduction_id)])
+        .filter((id): id is string => Boolean(id)),
+    [allocByField, draftRows]
+  );
+  const globalVarieties = useMemo(
+    () =>
+      Array.from(
+        buildVarietyOptions({
+          rows: allVarieties,
+          companyId: activeCompanyId || "",
+          canonicalCropId: (cropId) => displayCropId(cropId) || cropId,
+          selectedIds: selectedVarietyIds,
+        }).values()
+      ).flat(),
+    [allVarieties, activeCompanyId, cropCatalog.aliasById, selectedVarietyIds]
+  );
   const globalReproductions = useMemo(
     () =>
-      allReproductions
-        .filter(isVisibleCatalogItem)
-        .sort((a, b) => Number(a.level_order || 0) - Number(b.level_order || 0) || standardReproductionLabel(a).localeCompare(standardReproductionLabel(b), "ru")),
-    [allReproductions, activeCompanyId]
+      sortReproductionsAgronomically(
+        buildReproductionOptions({
+          rows: allReproductions,
+          companyId: activeCompanyId || "",
+          selectedIds: selectedReproductionIds,
+        }) as Reproduction[]
+      ),
+    [allReproductions, activeCompanyId, selectedReproductionIds]
   );
   const varietyMap = useMemo(() => new Map(globalVarieties.map((item) => [item.id, item])), [globalVarieties]);
   const reproductionMap = useMemo(() => new Map(globalReproductions.map((item) => [item.id, item])), [globalReproductions]);
-  const varietiesByCrop = useMemo(() => {
-    const map = new Map<string, Variety[]>();
-    for (const variety of globalVarieties) {
-      const cropIds = [variety.crop_id];
-      const visibleCropId = displayCropId(variety.crop_id);
-      if (visibleCropId && visibleCropId !== variety.crop_id) {
-        cropIds.push(visibleCropId);
-      }
-      for (const cropId of cropIds) {
-        map.set(cropId, [...(map.get(cropId) || []), variety]);
-      }
-    }
-    return map;
-  }, [globalVarieties, cropCatalog.aliasById]);
+  const varietiesByCrop = useMemo(
+    () =>
+      buildVarietyOptions({
+        rows: globalVarieties,
+        companyId: activeCompanyId || "",
+        canonicalCropId: (cropId) => displayCropId(cropId) || cropId,
+        selectedIds: selectedVarietyIds,
+      }) as Map<string, Variety[]>,
+    [globalVarieties, activeCompanyId, cropCatalog.aliasById, selectedVarietyIds]
+  );
 
   useEffect(() => {
     if (!selectedField) {
@@ -434,7 +602,7 @@ export default function CropStructurePage() {
       return;
     }
 
-    const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
+    const rows = allocByField.get(selectedField.id) || [];
     if (!rows.length) {
       setSelectedDossierAllocationKey(null);
       setDossierDetailTab("overview");
@@ -446,13 +614,30 @@ export default function CropStructurePage() {
       setSelectedDossierAllocationKey(keys[0]);
       setDossierDetailTab("overview");
     }
-  }, [allocByField, draftRows, selectedDossierAllocationKey, selectedField]);
+  }, [allocByField, selectedDossierAllocationKey, selectedField]);
 
   const cropName = (id?: string | null) => (id && cropMap.get(id) ? cropLabel(cropMap.get(id) as Crop) : "-");
   const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "-" : "-");
   const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? standardReproductionLabel(reproductionMap.get(id)) : "-");
+  const compactReproductionName = (id?: string | null) => {
+    if (!id) return "";
+    const item = reproductionMap.get(id);
+    if (!item) return "";
+    return compactReproductionLabel(item);
+  };
+  const allocationIdentityLabel = (row: Allocation) => {
+    if (isFallowLandUse(row.land_use_type)) return "Пар";
+    if (isCropMixLandUse(row.land_use_type)) return grainMixDisplayName(row.mix_components, cropMap);
+    return [cropName(row.crop_id), varietyName(row.variety_id), compactReproductionName(row.reproduction_id)]
+      .filter((value) => value && value !== "-")
+      .join(", ");
+  };
   const isPotatoAllocation = (row: Pick<Allocation, "crop_id" | "variety_id">) =>
     isPotatoCropContext(cropName(row.crop_id), varietyName(row.variety_id));
+  const isFallowAllocation = (row: Pick<Allocation, "land_use_type">) =>
+    isFallowLandUse(row.land_use_type);
+  const isCropMixAllocation = (row: Pick<Allocation, "land_use_type">) =>
+    isCropMixLandUse(row.land_use_type);
   const sumArea = (rows: Allocation[]) => rows.reduce((sum, row) => sum + Number(row.area || 0), 0);
   const allocationKey = (row: Allocation, index = 0) =>
     row.id || `${row.field_id || "field"}-${row.crop_id || "crop"}-${row.variety_id || "variety"}-${row.reproduction_id || "repro"}-${Number(row.area || 0)}-${index}`;
@@ -468,29 +653,13 @@ export default function CropStructurePage() {
     return "🌿";
   };
 
-  const cropSummaries = (rows: Allocation[]) => {
-    const grouped = new Map<string, { cropId: string | null; name: string; area: number }>();
-    for (const row of rows) {
-      const key = row.crop_id || "unknown";
-      const resolvedName = row.crop_id ? cropName(row.crop_id) : "";
-      const name = resolvedName && resolvedName !== "-" ? resolvedName : "Культура не задана";
-      const current = grouped.get(key);
-      if (current) {
-        current.area += Number(row.area || 0);
-      } else {
-        grouped.set(key, { cropId: row.crop_id, name, area: Number(row.area || 0) });
-      }
-    }
-    return Array.from(grouped.values()).sort((a, b) => b.area - a.area || a.name.localeCompare(b.name, "ru"));
-  };
-
   const operationAllocationsForField = (fieldId: string) =>
     [...(allocByField.get(fieldId) || [])]
-      .filter((row) => row.id && row.crop_id)
+      .filter((row) => row.id && (row.land_use_type === "fallow" || row.land_use_type === "crop_mix" || row.crop_id))
       .sort((a, b) => Number(b.area || 0) - Number(a.area || 0));
 
   const allocationTitle = (allocation: Allocation) =>
-    `${cropName(allocation.crop_id)} / ${varietyName(allocation.variety_id)} / ${reproductionName(allocation.reproduction_id)} — ${fmtHa(Number(allocation.area || 0))}`;
+    `${allocationIdentityLabel(allocation)} — ${fmtHa(Number(allocation.area || 0))}`;
 
   const selectedCropStructureRowIds = useMemo(
     () => {
@@ -557,18 +726,19 @@ export default function CropStructurePage() {
   useEffect(() => {
     try {
       const saved = window.localStorage.getItem(CROP_STRUCTURE_VIEW_KEY);
-      if (saved === "cards" || saved === "table" || saved === "map") {
-        setViewMode(saved);
+      if (saved === "cards" || saved === "table" || (saved === "map" && isGlobalAdmin)) {
+        setViewMode(saved as ViewMode);
       }
     } catch {
       // localStorage can be unavailable in hardened browser contexts.
     }
-  }, []);
+  }, [isGlobalAdmin]);
 
   const changeViewMode = (mode: ViewMode) => {
-    setViewMode(mode);
+    const nextMode = mode === "map" && !isGlobalAdmin ? "cards" : mode;
+    setViewMode(nextMode);
     try {
-      window.localStorage.setItem(CROP_STRUCTURE_VIEW_KEY, mode);
+      window.localStorage.setItem(CROP_STRUCTURE_VIEW_KEY, nextMode);
     } catch {
       // View persistence is a convenience; the page should still work without it.
     }
@@ -761,10 +931,18 @@ export default function CropStructurePage() {
       try {
         let res: any = await supabase
           .from("crop_structure")
-          .select(CROP_STRUCTURE_V4_SELECT)
+          .select(CROP_STRUCTURE_REVIEW_SELECT)
           .eq("company_id", activeCompanyId)
           .eq("season_id", seasonId)
           .eq("archived", false);
+        if (res.error && isMissingIdentityReviewColumn(res.error)) {
+          res = await supabase
+            .from("crop_structure")
+            .select(CROP_STRUCTURE_V4_SELECT)
+            .eq("company_id", activeCompanyId)
+            .eq("season_id", seasonId)
+            .eq("archived", false);
+        }
         if (res.error && isMissingCropStructureV4Column(res.error)) {
           res = await supabase
             .from("crop_structure")
@@ -774,7 +952,28 @@ export default function CropStructurePage() {
             .eq("archived", false);
         }
         if (res.error) throw res.error;
-        const map = buildAllocationMap(res.data || []);
+        const structureRows = res.data || [];
+        const structureIds = structureRows.map((row: any) => String(row.id || "")).filter(Boolean);
+        let mixComponents: any[] = [];
+        if (structureIds.length) {
+          const mixRes = await supabase
+            .from("crop_structure_mix_components")
+            .select("id,company_id,crop_structure_id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order")
+            .eq("company_id", activeCompanyId)
+            .in("crop_structure_id", structureIds)
+            .order("sort_order");
+          if (mixRes.error) throw mixRes.error;
+          mixComponents = mixRes.data || [];
+        }
+        const mixByStructure = new Map<string, any[]>();
+        for (const component of mixComponents) {
+          const key = String(component.crop_structure_id || "");
+          mixByStructure.set(key, [...(mixByStructure.get(key) || []), component]);
+        }
+        const map = buildAllocationMap(structureRows.map((row: any) => ({
+          ...row,
+          mix_components: mixByStructure.get(String(row.id || "")) || [],
+        })));
         if (cancelled) return;
         setAllocByField(map);
         setInitialByField(cloneAllocationMap(map));
@@ -788,7 +987,7 @@ export default function CropStructurePage() {
   }, [activeCompanyId, seasonId, bootstrappedStructureKey, toast]);
 
   useEffect(() => {
-    if (!activeCompanyId || !seasonId || !selectedFieldId) {
+    if (!isGlobalAdmin || !activeCompanyId || !seasonId || !selectedFieldId) {
       setConsumptions([]);
       return;
     }
@@ -870,90 +1069,48 @@ export default function CropStructurePage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await supabase
-          .from("operations")
-          .select(`
-            id,
-            field_id,
-            crop_structure_id,
-            operation_type,
-            operation_type_slug,
-            operation_category_slug,
-            date,
-            status,
-            work_status,
-            completed_at,
-            planned_area_ha,
-            operation_materials:operation_materials (
-              id,
-              product_id,
-              material_type,
-              unit,
-              planned_quantity,
-              issued_quantity,
-              consumed_quantity,
-              returned_quantity,
-              actual_rate,
-              products:product_id (name,trade_name,normalized_name)
-            ),
-            operation_lines:operation_lines (
-              id,
-              field_id,
-              planned_area_ha,
-              actual_area_ha
-            )
-          `)
-          .eq("company_id", activeCompanyId)
-          .eq("archived", false)
-          .in("crop_structure_id", selectedCropStructureRowIds)
-          .order("date", { ascending: false });
+        const operations = await getOperationsForCropStructureRows(
+          activeCompanyId,
+          selectedCropStructureRowIds
+        );
 
-        if (res.error) throw res.error;
-
-        const facts: StructureOperationFact[] = ((res.data || []) as any[]).map((row) => {
-          const lineRows = Array.isArray(row.operation_lines) ? row.operation_lines : [];
-          const plannedFromLines = lineRows.reduce((sum: number, line: any) => sum + Number(line.planned_area_ha || 0), 0);
-          const actualLineValues = lineRows
-            .map((line: any) => numberOrNull(line.actual_area_ha))
-            .filter((value: number | null): value is number => value != null);
-          const actualFromLines = actualLineValues.length
-            ? actualLineValues.reduce((sum: number, value: number) => sum + value, 0)
-            : null;
-          const materials: StructureOperationMaterialFact[] = (Array.isArray(row.operation_materials) ? row.operation_materials : []).map((material: any) => {
-            const product = oneRelation(material.products);
-            return {
-              product_id: material.product_id ? String(material.product_id) : null,
-              product_name: brandName(product) || String(product?.name || "Материал"),
-              material_type: material.material_type ? String(material.material_type) : null,
-              unit: material.unit ? String(material.unit) : null,
-              planned_quantity: numberOrNull(material.planned_quantity),
-              issued_quantity: Number(material.issued_quantity || 0),
-              consumed_quantity: numberOrNull(material.consumed_quantity),
-              returned_quantity: numberOrNull(material.returned_quantity),
-              actual_rate: numberOrNull(material.actual_rate),
-            };
-          });
+        const facts: StructureOperationFact[] = operations.map((operation) => {
+          const presentation = buildOperationPresentation(operation);
+          const materials: StructureOperationMaterialFact[] = (operation.materials || []).map((material) => ({
+            product_id: material.product_id ? String(material.product_id) : null,
+            product_name: String(material.product_name || "Материал"),
+            material_type: material.material_type ? String(material.material_type) : null,
+            unit: material.unit ? String(material.unit) : null,
+            planned_quantity: numberOrNull(material.planned_quantity),
+            issued_quantity: Number(material.issued_quantity || 0),
+            consumed_quantity: numberOrNull(material.consumed_quantity),
+            returned_quantity: numberOrNull(material.returned_quantity),
+            actual_rate: numberOrNull(material.actual_rate),
+          }));
 
           return {
-            id: String(row.id),
-            field_id: String(row.field_id || ""),
-            crop_structure_row_id: row.crop_structure_id ? String(row.crop_structure_id) : null,
-            operation_type: String(row.operation_type || "Операция"),
-            operation_type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
-            operation_category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
-            date: row.date || null,
-            status: row.status ? String(row.status) : null,
-            work_status: row.work_status ? String(row.work_status) : null,
-            completed_at: row.completed_at || null,
-            planned_area_ha: plannedFromLines > 0 ? plannedFromLines : numberOrNull(row.planned_area_ha),
-            actual_area_ha: actualFromLines,
+            id: String(operation.id),
+            field_id: String(operation.field_id || ""),
+            crop_structure_row_id: operation.crop_structure_id ? String(operation.crop_structure_id) : null,
+            operation_type: presentation.workTitle || String(operation.operation_type || "Операция"),
+            operation_type_slug: operation.operation_type_slug ? String(operation.operation_type_slug) : null,
+            operation_category_slug: operation.operation_category_slug ? String(operation.operation_category_slug) : null,
+            date: operation.date || null,
+            status: operation.status ? String(operation.status) : null,
+            work_status: operation.work_status ? String(operation.work_status) : null,
+            completed_at: operation.completed_at || null,
+            planned_area_ha: presentation.plannedAreaHa,
+            actual_area_ha: presentation.completedAreaHa,
             materials,
+            presentation,
           };
         });
 
         const derivedConsumptions: Consumption[] = facts.flatMap((fact) => {
           if (!fact.crop_structure_row_id) return [];
-          const area = fact.actual_area_ha ?? fact.planned_area_ha ?? null;
+          const area = fact.actual_area_ha && fact.actual_area_ha > 0
+            ? fact.actual_area_ha
+            : fact.planned_area_ha ?? null;
           const operationKey = fact.operation_type_slug || fact.operation_category_slug || fact.operation_type;
           return fact.materials.flatMap((material) => {
             const quantity = material.consumed_quantity ?? (material.issued_quantity > 0 ? material.issued_quantity : null);
@@ -1079,28 +1236,77 @@ export default function CropStructurePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeCompanyId, seasonId, selectedFieldId, cropMap]);
+  }, [activeCompanyId, seasonId, selectedFieldId, cropMap, isGlobalAdmin]);
 
   const openField = (fieldId: string, tab: "dossier" | "editor" | "legal" = "dossier") => {
+    if (tab === "editor" && !seasonId) {
+      toast({
+        title: "Нет активного сезона",
+        description: "Создание структуры доступно только после открытия сезона для этой компании.",
+        variant: "destructive",
+      });
+      tab = "dossier";
+    }
+    const allowedTab = tab === "editor" && !canEditStructure
+      ? "dossier"
+      : tab === "legal" && !isGlobalAdmin
+        ? "dossier"
+        : tab;
     setSelectedFieldId(fieldId);
-    setFieldDialogTab(tab);
-    setDraftRows((allocByField.get(fieldId) || []).map((item) => ({ ...item })));
+    setFieldDialogTab(allowedTab);
+    setDraftRows((allocByField.get(fieldId) || []).map((item) => ({
+      ...item,
+      mix_components: item.mix_components.map((component) => ({ ...component })),
+    })));
+    setEditorValidationError(null);
   };
 
   const closeField = () => {
     setSelectedFieldId(null);
+    setSelectedOperationDetail(null);
     setDraftRows([]);
     setFieldDialogTab("dossier");
+    setPendingDeleteIndex(null);
+    setSaveConfirmationOpen(false);
+    setDiscardConfirmationOpen(false);
+    setPendingSaveRows([]);
+    setPendingSaveSummary({ added: 0, updated: 0, deleted: 0 });
+    setEditorValidationError(null);
+  };
+
+  const requestCloseField = () => {
+    if (hasUnsavedStructureChanges && !saving) {
+      setDiscardConfirmationOpen(true);
+      return;
+    }
+    closeField();
   };
 
   const patchDraft = (index: number, patch: Partial<Allocation>) => {
+    setEditorValidationError(null);
     setDraftRows((prev) => {
       const next = [...prev];
       const old = next[index];
-      const merged = { ...old, ...patch };
-      if (patch.crop_id && patch.crop_id !== old.crop_id) {
-        merged.variety_id = null;
+      let merged = { ...old, ...patch };
+      if (patch.land_use_type && patch.land_use_type !== old.land_use_type) {
+        merged.mix_components = patch.land_use_type === "crop_mix"
+          ? Array.from({ length: GRAIN_MIX_MIN_COMPONENTS }, (_, componentIndex) => ({
+              crop_id: null,
+              variety_id: null,
+              reproduction_id: null,
+              seed_rate_kg_ha: null,
+              sort_order: componentIndex + 1,
+            }))
+          : [];
       }
+      if (patch.crop_id && patch.crop_id !== old.crop_id) {
+        const availableVarieties = varietiesByCrop.get(displayCropId(patch.crop_id) || patch.crop_id) || [];
+        merged.variety_id = availableVarieties.length === 1 ? availableVarieties[0].id : null;
+      }
+      merged = normalizeCropStructureSeedAttributes(
+        merged,
+        merged.crop_id ? cropMap.get(merged.crop_id) : null
+      );
       if (isPotatoAllocation(merged)) {
         merged.row_spacing_m = merged.row_spacing_m || 0.75;
         merged.irrigation_type = normalizeIrrigationType(merged.irrigation_type);
@@ -1110,12 +1316,62 @@ export default function CropStructurePage() {
     });
   };
 
+  const patchMixComponent = (rowIndex: number, componentIndex: number, patch: Partial<GrainMixComponent>) => {
+    setEditorValidationError(null);
+    setDraftRows((current) => current.map((row, index) => {
+      if (index !== rowIndex) return row;
+      const components = row.mix_components.map((component, position) => {
+        if (position !== componentIndex) return component;
+        const next = { ...component, ...patch };
+        if (patch.crop_id && patch.crop_id !== component.crop_id) {
+          const options = varietiesByCrop.get(displayCropId(patch.crop_id) || patch.crop_id) || [];
+          next.variety_id = options.length === 1 ? options[0].id : null;
+        }
+        return next;
+      });
+      return { ...row, mix_components: components.map((component, position) => ({ ...component, sort_order: position + 1 })) };
+    }));
+  };
+
+  const addMixComponent = (rowIndex: number) => {
+    setDraftRows((current) => current.map((row, index) => {
+      if (index !== rowIndex || row.mix_components.length >= GRAIN_MIX_MAX_COMPONENTS) return row;
+      return {
+        ...row,
+        mix_components: [
+          ...row.mix_components,
+          {
+            crop_id: null,
+            variety_id: null,
+            reproduction_id: null,
+            seed_rate_kg_ha: null,
+            sort_order: row.mix_components.length + 1,
+          },
+        ],
+      };
+    }));
+  };
+
+  const removeMixComponent = (rowIndex: number, componentIndex: number) => {
+    setDraftRows((current) => current.map((row, index) => {
+      if (index !== rowIndex || row.mix_components.length <= GRAIN_MIX_MIN_COMPONENTS) return row;
+      return {
+        ...row,
+        mix_components: row.mix_components
+          .filter((_, position) => position !== componentIndex)
+          .map((component, position) => ({ ...component, sort_order: position + 1 })),
+      };
+    }));
+  };
+
   const addRow = () => {
     if (!selectedFieldId) return;
+    setEditorValidationError(null);
     setDraftRows((prev) => [
       ...prev,
       {
         field_id: selectedFieldId,
+        land_use_type: "crop",
         crop_id: null,
         variety_id: null,
         reproduction_id: null,
@@ -1124,11 +1380,13 @@ export default function CropStructurePage() {
         irrigation_type: "unknown",
         row_spacing_m: null,
         seed_spacing_cm: null,
+        mix_components: [],
       },
     ]);
   };
 
   const removeRow = (index: number) => {
+    setEditorValidationError(null);
     setDraftRows((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   };
 
@@ -1161,6 +1419,7 @@ export default function CropStructurePage() {
         return [
           {
             field_id: selectedField.id,
+            land_use_type: "crop",
             crop_id: null,
             variety_id: null,
             reproduction_id: null,
@@ -1169,6 +1428,7 @@ export default function CropStructurePage() {
             irrigation_type: "unknown",
             row_spacing_m: null,
             seed_spacing_cm: null,
+            mix_components: [],
           },
         ];
       }
@@ -1180,46 +1440,87 @@ export default function CropStructurePage() {
     });
   };
 
-  const save = async () => {
-    if (!selectedFieldId || !selectedField || !activeCompanyId || !activeProfileId || !seasonId) return;
-    for (const row of draftRows) {
-      if (!row.crop_id || !row.variety_id || !row.reproduction_id || row.area == null || row.area <= 0) {
-        toast({ title: "Ошибка", description: "Заполните культуру, сорт, репродукцию и площадь.", variant: "destructive" });
-        return;
+  const prepareDraftForSave = () => {
+    if (!canEditStructure || !selectedFieldId || !selectedField || !activeCompanyId) {
+      const message = "Недостаточно данных для сохранения структуры.";
+      setEditorValidationError(message);
+      toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+      return null;
+    }
+    if (!seasonId) {
+      const message = "У этой компании нет активного сезона. Создайте сезон или войдите в нужную QA-компанию.";
+      setEditorValidationError(message);
+      toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+      return null;
+    }
+    const validation = validateAndNormalizeCropStructureRows({
+      rows: draftRows,
+      cropsById: cropMap,
+      varietiesById: varietyMap,
+      fieldArea: selectedField.area,
+      areaEpsilon: EPS,
+    });
+    if (!validation.ok) {
+      setEditorValidationError(validation.message);
+      toast({ title: "Структура не сохранена", description: validation.message, variant: "destructive" });
+      return null;
+    }
+    for (const row of validation.rows) {
+      if (isCropMixAllocation(row)) {
+        const mixValidation = validateGrainMixComponents({
+          components: row.mix_components,
+          cropsById: cropMap,
+          varietiesById: varietyMap,
+        });
+        if (!mixValidation.ok) {
+          setEditorValidationError(mixValidation.message);
+          toast({ title: "Структура не сохранена", description: mixValidation.message, variant: "destructive" });
+          return null;
+        }
+        row.mix_components = mixValidation.components;
       }
       if (isPotatoAllocation(row) && (!row.seed_spacing_cm || row.seed_spacing_cm <= 0)) {
-        toast({ title: "Ошибка", description: "Для картофеля укажите межсемянное расстояние в структуре.", variant: "destructive" });
-        return;
+        const message = "Для картофеля укажите межсемянное расстояние в структуре.";
+        setEditorValidationError(message);
+        toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+        return null;
       }
     }
-    if (sumArea(draftRows) > selectedField.area + EPS) {
-      toast({ title: "Ошибка", description: "Площадь посевных строк превышает площадь поля.", variant: "destructive" });
+    setEditorValidationError(null);
+    return validation.rows as Allocation[];
+  };
+
+  const requestSave = () => {
+    const validatedRows = prepareDraftForSave();
+    if (!validatedRows || !selectedFieldId) return;
+    const summary = summarizeCropStructureChanges(initialByField.get(selectedFieldId) || [], validatedRows);
+    if (!hasCropStructureChanges(summary)) {
+      toast({ title: "Изменений нет", description: "Структура поля уже сохранена." });
       return;
     }
+    setPendingSaveRows(validatedRows.map((row) => ({
+      ...row,
+      mix_components: row.mix_components.map((component) => ({ ...component })),
+    })));
+    setPendingSaveSummary(summary);
+    setSaveConfirmationOpen(true);
+  };
+
+  const confirmSave = async () => {
+    if (!canEditStructure || !selectedFieldId || !selectedField || !activeCompanyId || !seasonId) {
+      const message = "Контекст поля или сезона изменился. Вернитесь в редактор и повторите сохранение.";
+      setSaveConfirmationOpen(false);
+      setEditorValidationError(message);
+      toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
+      return;
+    }
+    const validatedRows = pendingSaveRows;
+    setSaveConfirmationOpen(false);
     try {
       setSaving(true);
-      const toStructurePayload = (row: Allocation, includeTechnology: boolean) => ({
-        company_id: activeCompanyId,
-        user_id: activeProfileId,
-        field_id: selectedFieldId,
-        season_id: seasonId,
-        crop_id: row.crop_id,
-        variety_id: row.variety_id,
-        reproduction_id: row.reproduction_id,
-        notes: row.notes || null,
-        area: Number(row.area || 0),
-        status: "planned",
-        ...(includeTechnology
-          ? {
-              irrigation_type: normalizeIrrigationType(row.irrigation_type),
-              row_spacing_m: row.row_spacing_m ?? (isPotatoAllocation(row) ? 0.75 : null),
-              seed_spacing_cm: row.seed_spacing_cm ?? null,
-            }
-          : {}),
-      });
       const prev = initialByField.get(selectedFieldId) || [];
       const prevIds = new Set(prev.map((row) => row.id).filter(Boolean) as string[]);
-      const curIds = new Set(draftRows.map((row) => row.id).filter(Boolean) as string[]);
+      const curIds = new Set(validatedRows.map((row) => row.id).filter(Boolean) as string[]);
       const delIds = Array.from(prevIds).filter((id) => !curIds.has(id));
       if (delIds.length) {
         const protectedIds = delIds.filter((id) => (operationFactsByAllocation.get(id)?.length || 0) > 0 || (consumptionsByAllocation.get(id)?.length || 0) > 0);
@@ -1231,42 +1532,48 @@ export default function CropStructurePage() {
           });
           return;
         }
-        const del = await supabase.from("crop_structure").delete().eq("company_id", activeCompanyId).eq("field_id", selectedFieldId).eq("season_id", seasonId).in("id", delIds);
-        if (del.error) throw del.error;
       }
-      const updates = draftRows.filter((row) => row.id);
-      if (updates.length) {
-        let up = await supabase.from("crop_structure").upsert(
-          updates.map((row) => ({ id: row.id, ...toStructurePayload(row, true) })),
-          { onConflict: "id" },
-        );
-        if (up.error && isMissingCropStructureV4Column(up.error)) {
-          up = await supabase.from("crop_structure").upsert(
-            updates.map((row) => ({ id: row.id, ...toStructurePayload(row, false) })),
-            { onConflict: "id" },
-          );
-        }
-        if (up.error) throw up.error;
-      }
-      const inserts = draftRows.filter((row) => !row.id);
-      if (inserts.length) {
-        let ins = await supabase.from("crop_structure").insert(inserts.map((row) => toStructurePayload(row, true)));
-        if (ins.error && isMissingCropStructureV4Column(ins.error)) {
-          ins = await supabase.from("crop_structure").insert(inserts.map((row) => toStructurePayload(row, false)));
-        }
-        if (ins.error) throw ins.error;
-      }
-      let res: any = await supabase.from("crop_structure").select(CROP_STRUCTURE_V4_SELECT).eq("company_id", activeCompanyId).eq("season_id", seasonId).eq("archived", false);
-      if (res.error && isMissingCropStructureV4Column(res.error)) {
-        res = await supabase.from("crop_structure").select(CROP_STRUCTURE_BASE_SELECT).eq("company_id", activeCompanyId).eq("season_id", seasonId).eq("archived", false);
-      }
-      if (res.error) throw res.error;
-      const map = buildAllocationMap(res.data || []);
-      setAllocByField(map);
-      setInitialByField(cloneAllocationMap(map));
+
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (sessionError || !token) throw new Error("User is not authenticated");
+
+      const response = await fetch(`/api/crop-structure/fields/${selectedFieldId}`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          companyId: activeCompanyId,
+          seasonId,
+          rows: validatedRows,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { rows?: unknown[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Failed to save crop structure");
+
+      const savedRows = (payload.rows || []).map(allocationFromRow);
+      setAllocByField((current) => {
+        const next = new Map(current);
+        next.set(selectedFieldId, savedRows);
+        return next;
+      });
+      setInitialByField((current) => {
+        const next = cloneAllocationMap(current);
+        next.set(selectedFieldId, savedRows.map((item) => ({
+          ...item,
+          mix_components: item.mix_components.map((component) => ({ ...component })),
+        })));
+        return next;
+      });
       setBootstrappedStructureKey(`${activeCompanyId}:${seasonId}`);
-      setDraftRows((map.get(selectedFieldId) || []).map((item) => ({ ...item })));
+      setDraftRows(savedRows.map((item) => ({
+        ...item,
+        mix_components: item.mix_components.map((component) => ({ ...component })),
+      })));
       toast({ title: "Сохранено", description: "Структура поля обновлена." });
+      closeField();
     } catch (error) {
       toast({ title: "Ошибка", description: error instanceof Error ? error.message : "Save failed", variant: "destructive" });
     } finally {
@@ -1281,7 +1588,23 @@ export default function CropStructurePage() {
       const rows = allocByField.get(field.id) || [];
       if (!rows.length) lines.push([season.year, field.name, field.area.toFixed(2), "", "", "", "0.00"].join(";"));
       for (const row of rows) {
-        lines.push([season.year, field.name, field.area.toFixed(2), cropName(row.crop_id), varietyName(row.variety_id), reproductionName(row.reproduction_id), Number(row.area || 0).toFixed(2)].join(";"));
+        const mixSummary = isCropMixAllocation(row)
+          ? row.mix_components.map((component) => [
+              cropName(component.crop_id),
+              varietyName(component.variety_id),
+              reproductionName(component.reproduction_id),
+              `${Number(component.seed_rate_kg_ha || 0)} кг/га`,
+            ].filter(Boolean).join(", ")).join(" | ")
+          : "";
+        lines.push([
+          season.year,
+          field.name,
+          field.area.toFixed(2),
+          row.land_use_type === "fallow" ? "Пар" : row.land_use_type === "crop_mix" ? grainMixDisplayName(row.mix_components, cropMap) : cropName(row.crop_id),
+          row.land_use_type === "crop_mix" ? mixSummary : row.land_use_type === "fallow" ? "" : varietyName(row.variety_id),
+          row.land_use_type === "fallow" || row.land_use_type === "crop_mix" ? "" : reproductionName(row.reproduction_id),
+          Number(row.area || 0).toFixed(2),
+        ].join(";"));
       }
     }
     const blob = new Blob([`\uFEFF${lines.join("\n")}`], { type: "text/csv;charset=utf-8;" });
@@ -1334,11 +1657,12 @@ export default function CropStructurePage() {
     allocByField.forEach((allocations, fieldId) => {
       const field = fieldMap.get(fieldId);
       allocations.forEach((allocation) => {
-        if (!allocation.id || !allocation.crop_id) return;
+        if (!allocation.id || (allocation.land_use_type === "crop" && !allocation.crop_id)) return;
         rows.push({
           id: allocation.id,
           field_id: fieldId,
           season_id: seasonId,
+          land_use_type: allocation.land_use_type,
           crop_id: allocation.crop_id,
           variety_id: allocation.variety_id,
           reproduction_id: allocation.reproduction_id,
@@ -1356,9 +1680,15 @@ export default function CropStructurePage() {
           user_id: "",
           field_name: field?.name || "-",
           season_year: season?.year || 0,
-          crop_name: cropName(allocation.crop_id),
-          variety_name: varietyName(allocation.variety_id),
-          reproduction_name: reproductionName(allocation.reproduction_id),
+          crop_name: allocation.land_use_type === "fallow" ? "Пар" : allocation.land_use_type === "crop_mix" ? grainMixDisplayName(allocation.mix_components, cropMap) : cropName(allocation.crop_id),
+          variety_name: allocation.land_use_type === "fallow" || allocation.land_use_type === "crop_mix" ? null : varietyName(allocation.variety_id),
+          reproduction_name: allocation.land_use_type === "fallow" || allocation.land_use_type === "crop_mix" ? null : reproductionName(allocation.reproduction_id),
+          mix_components: allocation.mix_components.map((component) => ({
+            ...component,
+            crop_name: cropName(component.crop_id),
+            variety_name: varietyName(component.variety_id),
+            reproduction_name: reproductionName(component.reproduction_id),
+          })),
         });
       });
     });
@@ -1368,7 +1698,7 @@ export default function CropStructurePage() {
   const openOperationPlan = (field: Field, allocation: Allocation, event?: React.MouseEvent) => {
     event?.stopPropagation();
     if (!FIELD_FIRST_CREATE_ENABLED) return;
-    if (!allocation.id || !allocation.crop_id) {
+    if (!allocation.id || (allocation.land_use_type === "crop" && !allocation.crop_id)) {
       toast({
         title: "Нужен план по культуре",
         description: "Сначала сохраните культуру и площадь по полю.",
@@ -1386,12 +1716,15 @@ export default function CropStructurePage() {
       seed_spacing_cm: allocation.seed_spacing_cm ?? (allocationIsPotato ? 32 : null),
       operation_params: {
         irrigation_type: normalizeIrrigationType(allocation.irrigation_type),
+        scope: "structure_line",
+        land_use_type: allocation.land_use_type,
+        season_id: seasonId,
       },
-      date: new Date().toISOString().slice(0, 10),
+      date: todayDateOnlyLocal(),
       notes: "",
     });
     setOperationSourceLabel(
-      `План по полю: ${field.name} • ${cropName(allocation.crop_id)} • ${varietyName(allocation.variety_id)} • ${reproductionName(allocation.reproduction_id)} • ${fmtHa(Number(allocation.area || 0))}`
+      `План по полю: ${field.name} • ${allocationIdentityLabel(allocation)} • ${fmtHa(Number(allocation.area || 0))}`
     );
     setSelectedFieldId(null);
     setSectionChoiceField(null);
@@ -1408,8 +1741,9 @@ export default function CropStructurePage() {
       planned_area_ha: Number(field.area || 0),
       operation_params: {
         scope: "whole_field",
+        season_id: seasonId,
       },
-      date: new Date().toISOString().slice(0, 10),
+      date: todayDateOnlyLocal(),
       notes: "",
     });
     setOperationSourceLabel(`План по полю: ${field.name} • Всё поле • ${fmtHa(Number(field.area || 0))}`);
@@ -1429,12 +1763,7 @@ export default function CropStructurePage() {
       setSectionChoiceField(field);
       return;
     }
-    toast({
-      title: "Сначала задайте культуру",
-      description: "Для операции нужна сохранённая строка посева по полю.",
-      variant: "destructive",
-    });
-    openField(field.id, "editor");
+    openWholeFieldOperationPlan(field, event);
   };
 
   const handleCreateOperationPlan = async (data: OperationFormData, options?: { idempotencyKey?: string }) => {
@@ -1487,9 +1816,7 @@ export default function CropStructurePage() {
 
   const renderOverviewCard = (field: Field) => {
     const rows = allocByField.get(field.id) || [];
-    const crops = cropSummaries(rows);
-    const visibleCrops = crops.slice(0, 3);
-    const hiddenCrops = Math.max(0, crops.length - visibleCrops.length);
+    const visibleRows = rows.slice(0, 4);
 
     return (
       <Card
@@ -1500,7 +1827,7 @@ export default function CropStructurePage() {
         <CardContent className="grid h-full grid-rows-[auto_minmax(0,1fr)_auto] gap-2 p-3">
           <div className="flex min-w-0 items-start justify-between gap-3">
             <div className="min-w-0 truncate text-[20px] font-bold leading-tight text-[#facc15]">
-              Поле {field.name}
+              {fieldDisplayName(field)}
             </div>
             <div className="shrink-0 rounded-md border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-100">
               {fmtHa(field.area)}
@@ -1508,18 +1835,19 @@ export default function CropStructurePage() {
           </div>
 
           <div className="min-h-0 space-y-1 overflow-hidden">
-            {visibleCrops.length ? visibleCrops.map((item) => (
-              <div key={`${field.id}-${item.cropId || item.name}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-0 text-[12px] leading-[18px] text-slate-100">
-                <span className="shrink-0 text-base leading-none">{cropIcon(item.name)}</span>
-                <span className="min-w-0 truncate font-medium">{item.name}</span>
-                <span className="shrink-0 rounded-md bg-slate-800/80 px-1.5 py-0 text-[10px] font-semibold tabular-nums text-slate-100">{fmtHa(item.area)}</span>
+            {visibleRows.length ? visibleRows.map((row, index) => (
+              <div key={`${field.id}-${row.id || index}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-1 py-0 text-[12px] leading-[18px] text-slate-100">
+                <span className="shrink-0 text-base leading-none">{cropIcon(cropName(row.crop_id))}</span>
+                <span className="min-w-0 truncate font-medium" title={allocationIdentityLabel(row)}>
+                  {allocationIdentityLabel(row) || "Культура не задана"}
+                </span>
+                <span className="shrink-0 rounded-md bg-slate-800/80 px-1.5 py-0 text-[10px] font-semibold tabular-nums text-slate-100">{fmtHa(Number(row.area || 0))}</span>
               </div>
             )) : (
               <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2 py-3 text-center text-xs text-slate-500">
                 Культура не задана
               </div>
             )}
-            {hiddenCrops > 0 ? <div className="truncate px-1 text-[12px] font-medium leading-[18px] text-slate-400">+ ещё {hiddenCrops}</div> : null}
           </div>
 
           <Button
@@ -1550,23 +1878,23 @@ export default function CropStructurePage() {
             </thead>
             <tbody>
               {filteredFields.map((field) => {
-                const crops = cropSummaries(allocByField.get(field.id) || []);
-                const visibleCrops = crops.slice(0, 3);
-                const hiddenCrops = Math.max(0, crops.length - visibleCrops.length);
+                const rows = allocByField.get(field.id) || [];
+                const visibleRows = rows.slice(0, 4);
+                const hiddenRows = Math.max(0, rows.length - visibleRows.length);
                 return (
                   <tr key={field.id} className="cursor-pointer border-b border-slate-100 hover:bg-slate-50" onClick={() => openField(field.id)}>
-                    <td className="px-3 py-2 font-semibold text-[#facc15]">Поле {field.name}</td>
+                    <td className="px-3 py-2 font-semibold text-[#facc15]">{fieldDisplayName(field)}</td>
                     <td className="px-3 py-2 text-slate-700">
-                      {visibleCrops.length ? (
+                      {visibleRows.length ? (
                         <div className="flex min-w-0 flex-wrap gap-2">
-                          {visibleCrops.map((item) => (
-                            <span key={`${field.id}-table-${item.cropId || item.name}`} className="inline-flex max-w-[240px] items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1">
-                              <span className="shrink-0">{cropIcon(item.name)}</span>
-                              <span className="min-w-0 truncate">{item.name}</span>
-                              <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">{fmtHa(item.area)}</span>
+                          {visibleRows.map((row, index) => (
+                            <span key={`${field.id}-table-${row.id || index}`} className="inline-flex max-w-[280px] items-center gap-1.5 rounded-md bg-slate-100 px-2 py-1">
+                              <span className="shrink-0">{cropIcon(cropName(row.crop_id))}</span>
+                              <span className="min-w-0 truncate">{allocationIdentityLabel(row)}</span>
+                              <span className="shrink-0 text-xs font-semibold tabular-nums text-slate-900">{fmtHa(Number(row.area || 0))}</span>
                             </span>
                           ))}
-                          {hiddenCrops > 0 ? <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-slate-500">+ ещё {hiddenCrops}</span> : null}
+                          {hiddenRows > 0 ? <span className="inline-flex items-center rounded-md bg-slate-100 px-2 py-1 text-slate-500">+ ещё {hiddenRows}</span> : null}
                         </div>
                       ) : (
                         <span className="text-slate-400">Культура не задана</span>
@@ -1738,7 +2066,9 @@ export default function CropStructurePage() {
   };
 
   const operationAreaLabel = (operation: StructureOperationFact) => {
-    const value = operation.actual_area_ha ?? operation.planned_area_ha;
+    const value = operation.actual_area_ha && operation.actual_area_ha > 0
+      ? operation.actual_area_ha
+      : operation.planned_area_ha;
     return value == null ? "площадь не указана" : fmtHa(value);
   };
 
@@ -1766,7 +2096,7 @@ export default function CropStructurePage() {
 
   const renderFieldDossierLegacy = () => {
     if (!selectedField) return null;
-    const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
+    const rows = allocByField.get(selectedField.id) || [];
     const planned = sumArea(rows);
     const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
     return (
@@ -1775,7 +2105,7 @@ export default function CropStructurePage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Сезонный контур поля</div>
-              <div className="mt-1 text-2xl font-semibold text-white">Поле {selectedField.name}</div>
+              <div className="mt-1 text-2xl font-semibold text-white">{fieldDisplayName(selectedField)}</div>
               <div className="mt-1 text-sm text-slate-400">
                 Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
               </div>
@@ -1785,7 +2115,12 @@ export default function CropStructurePage() {
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {rows.length ? rows.map((allocation) => (
               <div key={`dossier-head-${allocation.id || allocation.crop_id}`} className="rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-2 text-sm">
-                <div className="truncate font-semibold text-slate-100">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                <div className="truncate font-semibold text-slate-100">{allocationIdentityLabel(allocation)}</div>
+                {allocation.identity_review_required ? (
+                  <div className="mt-1 text-xs font-medium text-amber-300">
+                    Требуется уточнить культуру, сорт и репродукцию до оформления урожая.
+                  </div>
+                ) : null}
                 <div className="text-xs text-slate-400">{fmtHa(Number(allocation.area || 0))}</div>
               </div>
             )) : (
@@ -1812,7 +2147,12 @@ export default function CropStructurePage() {
                 <div key={`detail-${allocation.id || allocation.crop_id}`} className="rounded-2xl border border-slate-800 bg-[#111827] p-3 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-base font-semibold text-white">{cropName(allocation.crop_id)} / {varietyName(allocation.variety_id)} / {reproductionName(allocation.reproduction_id)}</div>
+                      <div className="truncate text-base font-semibold text-white">{allocationIdentityLabel(allocation)}</div>
+                      {allocation.identity_review_required ? (
+                        <div className="mt-1 text-xs font-medium text-amber-300">
+                          Требуется уточнить identity урожая
+                        </div>
+                      ) : null}
                       <div className="mt-1 text-xs text-slate-400">
                         {fmtHa(plannedArea)} · операций {operationsForAllocation.length} · материалов {facts.rows.length}
                       </div>
@@ -1886,20 +2226,7 @@ export default function CropStructurePage() {
 
                       {operationsForAllocation.length ? (
                         <div className="mt-2 max-h-52 space-y-2 overflow-y-auto pr-1 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
-                          {operationsForAllocation.map((operation) => (
-                            <div key={operation.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
-                                  <div className="mt-0.5 text-[11px] text-slate-500">
-                                    {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
-                                  </div>
-                                </div>
-                                <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
-                              </div>
-                              <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
-                            </div>
-                          ))}
+                          {operationsForAllocation.map(renderOperationCard)}
                         </div>
                       ) : (
                         <div className="mt-2 rounded-lg border border-dashed border-slate-700 bg-slate-950/60 px-3 py-3 text-xs text-slate-500">
@@ -1919,9 +2246,44 @@ export default function CropStructurePage() {
     );
   };
 
+  const renderOperationCard = (operation: StructureOperationFact) => {
+    const progress = Math.max(0, Math.min(100, operation.presentation.progressPercent));
+    return (
+      <button
+        key={operation.id}
+        type="button"
+        className="w-full rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2 text-left transition hover:border-yellow-400/50 hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+        onClick={() => setSelectedOperationDetail(operation)}
+        aria-label={`Открыть операцию ${operation.operation_type}`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
+            <div className="mt-0.5 text-[11px] text-slate-500">
+              {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
+            </div>
+          </div>
+          <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
+        </div>
+        <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
+        <div className="mt-2 flex items-center gap-2" aria-label={`Прогресс ${progress.toFixed(0)} процентов`}>
+          <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-800">
+            <div
+              className="h-full rounded-full bg-yellow-400 transition-[width]"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="w-9 shrink-0 text-right text-[10px] font-semibold tabular-nums text-slate-400">
+            {progress.toFixed(0)}%
+          </span>
+        </div>
+      </button>
+    );
+  };
+
   const renderFieldDossier = () => {
     if (!selectedField) return null;
-    const rows = draftRows.length ? draftRows : allocByField.get(selectedField.id) || [];
+    const rows = allocByField.get(selectedField.id) || [];
     const planned = sumArea(rows);
     const fieldConsumptions = consumptionsByField.get(selectedField.id) || [];
     const rowItems = rows.map((allocation, index) => {
@@ -1933,11 +2295,12 @@ export default function CropStructurePage() {
       const rateArea = actualCompletedArea || plannedArea;
       const rateBasis = actualCompletedArea ? "по выполненной площади" : "по площади участка";
       const materialRows = buildSeasonMaterialRows(facts.rows, rateArea);
-      const title = `${cropName(allocation.crop_id)} / ${varietyName(allocation.variety_id)} / ${reproductionName(allocation.reproduction_id)}`;
+      const title = allocationIdentityLabel(allocation);
       return {
         allocation,
         facts,
         key: allocationKey(allocation, index),
+        reviewRequired: Boolean(allocation.identity_review_required),
         materialRows,
         operationSummary,
         operationsForAllocation,
@@ -1957,7 +2320,7 @@ export default function CropStructurePage() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">Сезонный контур поля</div>
-              <div className="mt-1 text-2xl font-semibold text-white">Поле {selectedField.name}</div>
+              <div className="mt-1 text-2xl font-semibold text-white">{fieldDisplayName(selectedField)}</div>
               <div className="mt-1 text-sm text-slate-400">
                 Всего {fmtHa(selectedField.area)} · структура {fmtHa(planned)} · сезон {season?.year || "-"} · фактических выдач {fieldConsumptions.length}
               </div>
@@ -2013,7 +2376,9 @@ export default function CropStructurePage() {
                     >
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-slate-100">{item.title}</div>
-                        <div className="mt-1 text-xs text-slate-500">{fmtHa(item.plannedArea)}</div>
+                        <div className={`mt-1 text-xs ${item.reviewRequired ? "font-medium text-amber-300" : "text-slate-500"}`}>
+                          {item.reviewRequired ? "Требуется уточнить сорт и репродукцию" : fmtHa(item.plannedArea)}
+                        </div>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-1">
                         <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-semibold text-slate-300">{item.operationsForAllocation.length} оп.</span>
@@ -2030,6 +2395,11 @@ export default function CropStructurePage() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-lg font-semibold text-white">{selectedItem.title}</div>
+                    {selectedItem.reviewRequired ? (
+                      <div className="mt-1 text-xs font-medium text-amber-300">
+                        До оформления урожая уточните культуру, сорт и репродукцию.
+                      </div>
+                    ) : null}
                     <div className="mt-1 text-sm text-slate-400">
                       {fmtHa(selectedItem.plannedArea)} · операций {selectedItem.operationsForAllocation.length} · материалов {selectedItem.materialRows.length}
                     </div>
@@ -2086,6 +2456,33 @@ export default function CropStructurePage() {
                       </div>
                     </div>
 
+                    {selectedItem.allocation.land_use_type === "crop_mix" ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="text-sm font-semibold text-slate-100">Состав зерносмеси</div>
+                          <div className="text-xs font-semibold text-yellow-300">
+                            Всего семян: {grainMixTotalKg(selectedItem.plannedArea, selectedItem.allocation.mix_components).toLocaleString("ru-RU")} кг
+                          </div>
+                        </div>
+                        <div className="mt-3 space-y-2">
+                          {selectedItem.allocation.mix_components.map((component, index) => (
+                            <div
+                              key={component.id || `${component.crop_id}-${index}`}
+                              className="grid gap-2 rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2 text-xs sm:grid-cols-[minmax(0,1fr)_110px_120px] sm:items-center"
+                            >
+                              <div className="min-w-0 truncate font-semibold text-slate-100">
+                                {index + 1}. {cropName(component.crop_id)} · {varietyName(component.variety_id)} · {reproductionName(component.reproduction_id)}
+                              </div>
+                              <div className="text-slate-300">{component.seed_rate_kg_ha} кг/га</div>
+                              <div className="font-semibold text-slate-100">
+                                {grainMixComponentTotalKg(selectedItem.plannedArea, component.seed_rate_kg_ha).toLocaleString("ru-RU")} кг
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
                     {selectedItem.operationSummary.length ? (
                       <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
                         <div className="text-sm font-semibold text-slate-100">Сводка операций</div>
@@ -2107,20 +2504,7 @@ export default function CropStructurePage() {
                       <div className="rounded-xl border border-slate-800 bg-slate-950/45 p-3">
                         <div className="text-sm font-semibold text-slate-100">Последние операции</div>
                         <div className="mt-3 space-y-2">
-                          {selectedItem.operationsForAllocation.slice(0, 4).map((operation) => (
-                            <div key={operation.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <div className="truncate text-xs font-semibold text-slate-100">{operation.operation_type}</div>
-                                  <div className="mt-0.5 text-[11px] text-slate-500">
-                                    {fmtDate(operation.completed_at || operation.date)} · {operationKindLabel(operation)} · {operationAreaLabel(operation)}
-                                  </div>
-                                </div>
-                                <Badge className={operationStatusClass(operation)}>{operationStatusLabel(operation)}</Badge>
-                              </div>
-                              <div className="mt-1 truncate text-[11px] text-slate-400">{operationMaterialsPreview(operation)}</div>
-                            </div>
-                          ))}
+                          {selectedItem.operationsForAllocation.slice(0, 4).map(renderOperationCard)}
                           {!selectedItem.operationsForAllocation.length ? <div className="text-xs text-slate-500">Операций нет.</div> : null}
                         </div>
                       </div>
@@ -2158,7 +2542,11 @@ export default function CropStructurePage() {
                       </thead>
                       <tbody>
                         {selectedItem.operationsForAllocation.map((operation) => (
-                          <tr key={operation.id} className="border-t border-slate-800">
+                          <tr
+                            key={operation.id}
+                            className="cursor-pointer border-t border-slate-800 transition hover:bg-slate-900/80"
+                            onClick={() => setSelectedOperationDetail(operation)}
+                          >
                             <td className="px-3 py-2 text-slate-400">{fmtDate(operation.completed_at || operation.date)}</td>
                             <td className="px-3 py-2 text-slate-300">{operationKindLabel(operation)}</td>
                             <td className="px-3 py-2 font-medium text-slate-100">{operation.operation_type}</td>
@@ -2222,16 +2610,39 @@ export default function CropStructurePage() {
     if (!selectedField) return null;
     const editorLabelClass = "mb-1 block text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400";
     const editorControlClass =
-      "h-10 border-slate-700 bg-[#0f1622] text-slate-100 shadow-inner shadow-black/20 placeholder:text-slate-500 focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-yellow-400/50 focus-visible:ring-offset-0";
+      "h-10 w-full min-w-0 border-slate-700 bg-[#0f1622] text-slate-100 shadow-inner shadow-black/20 placeholder:text-slate-500 focus-visible:border-yellow-400 focus-visible:ring-2 focus-visible:ring-yellow-400/50 focus-visible:ring-offset-0";
+    const editorNumberControlClass = `${editorControlClass} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`;
     const editorSelectContentClass = "border-slate-700 bg-[#101720] text-slate-100 shadow-xl";
+    const plannedArea = sumArea(draftRows);
+    const remainingArea = selectedField.area - plannedArea;
+    const areaIsOver = remainingArea < -EPS;
 
     return (
       <div className="text-slate-100">
-        <div className="mb-3">
-          <div>
-            <div className="text-sm font-semibold text-slate-100">Редактор структуры</div>
-            <div className="mt-1 text-xs text-slate-400">План: {fmtHa(sumArea(draftRows))} / {fmtHa(selectedField.area)} · Остаток: {fmtHa(selectedField.area - sumArea(draftRows))}</div>
+        <div className="mb-3 space-y-2">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold text-slate-100">Редактор структуры</div>
+              <div className={`mt-1 text-xs ${areaIsOver ? "font-semibold text-rose-300" : "text-slate-400"}`}>
+                План: {fmtHa(plannedArea)} / {fmtHa(selectedField.area)} · {areaIsOver ? "Превышение" : "Остаток"}: {fmtHa(Math.abs(remainingArea))}
+              </div>
+            </div>
+            {hasUnsavedStructureChanges ? (
+              <Badge className="border border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/10">
+                Не сохранено
+              </Badge>
+            ) : null}
           </div>
+          {!seasonId ? (
+            <div className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              У этой компании нет активного сезона. Структуру нельзя сохранить; войдите в основную QA-компанию или сначала откройте сезон.
+            </div>
+          ) : null}
+          {editorValidationError ? (
+            <div role="alert" className="rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              {editorValidationError}
+            </div>
+          ) : null}
         </div>
 
         <div className="space-y-3">
@@ -2242,6 +2653,8 @@ export default function CropStructurePage() {
             const operationsCount = row.id ? operationFactsByAllocation.get(row.id)?.length || 0 : 0;
             const materialsCount = row.id ? consumptionsByAllocation.get(row.id)?.length || 0 : 0;
             const isDeleteLocked = operationsCount > 0 || materialsCount > 0;
+            const isFallowRow = isFallowAllocation(row);
+            const isCropMixRow = isCropMixAllocation(row);
             return (
               <div key={`${row.id || "new"}-${index}`} className="overflow-hidden rounded-xl border border-slate-700/80 bg-[#101823] shadow-sm ring-1 ring-slate-900/40">
                 <div className="flex items-center justify-between border-b border-slate-700/70 px-3 py-2">
@@ -2251,32 +2664,186 @@ export default function CropStructurePage() {
                   </div>
                   <span className="text-xs text-slate-400">{fmtHa(Number(row.area || 0))}</span>
                 </div>
-                <div className="grid grid-cols-12 items-end gap-2 p-3">
-                <div className="col-span-12 md:col-span-3">
-                  <Label className={editorLabelClass}>Культура *</Label>
-                  <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
-                    <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
-                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
+                <div className="grid grid-cols-12 items-end gap-3 p-3">
+                <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
+                  <Label className={editorLabelClass}>Использование участка *</Label>
+                  <Select
+                    value={row.land_use_type}
+                    onValueChange={(value) => patchDraft(index, { land_use_type: value as "crop" | "crop_mix" | "fallow" })}
+                  >
+                    <SelectTrigger className={editorControlClass}><SelectValue /></SelectTrigger>
+                    <SelectContent className={editorSelectContentClass}>
+                      <SelectItem value="crop">Культура</SelectItem>
+                      <SelectItem value="crop_mix">Зерносмесь</SelectItem>
+                      <SelectItem value="fallow">Пар</SelectItem>
+                    </SelectContent>
                   </Select>
                 </div>
-                <div className="col-span-12 md:col-span-2">
-                  <Label className={editorLabelClass}>Сорт *</Label>
-                  <Select value={row.variety_id || "none"} onValueChange={(value) => patchDraft(index, { variety_id: value === "none" ? null : value })}>
-                    <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите сорт" /></SelectTrigger>
-                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{vars.map((variety) => <SelectItem key={variety.id} value={variety.id}>{variety.name}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div className="col-span-12 md:col-span-2">
-                  <Label className={editorLabelClass}>Репродукция *</Label>
-                  <Select value={row.reproduction_id || "none"} onValueChange={(value) => patchDraft(index, { reproduction_id: value === "none" ? null : value })}>
-                    <SelectTrigger className={editorControlClass}><SelectValue placeholder="Репродукция" /></SelectTrigger>
-                    <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{globalReproductions.map((item) => <SelectItem key={item.id} value={item.id}>{standardReproductionLabel(item)}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
-                <div className="col-span-7 md:col-span-3">
+                {!isFallowRow && !isCropMixRow ? (
+                  <>
+                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
+                      <Label className={editorLabelClass}>Культура *</Label>
+                      <Select value={rowCropId || "none"} onValueChange={(value) => patchDraft(index, { crop_id: value === "none" ? null : value })}>
+                        <SelectTrigger className={editorControlClass}><SelectValue placeholder="Выберите культуру" /></SelectTrigger>
+                        <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
+                      <Label className={editorLabelClass}>Сорт *</Label>
+                      <CatalogIdentityCombobox
+                        value={row.variety_id}
+                        options={vars.map((variety) => ({
+                          id: variety.id,
+                          label: localizedName(variety as never, language, ["name"]) || variety.name,
+                          searchValue: catalogIdentitySearchValue(variety),
+                          legacy: variety.archived === true || variety.is_active === false,
+                        }))}
+                        placeholder="Выберите сорт"
+                        searchPlaceholder="Поиск сорта..."
+                        emptyMessage={row.crop_id ? "Для выбранной культуры пока нет глобальных сортов." : "Сначала выберите культуру"}
+                        className={editorControlClass}
+                        disabled={!row.crop_id || vars.length === 0}
+                        onChange={(value) => patchDraft(index, { variety_id: value })}
+                      />
+                      {row.crop_id && vars.length === 0 ? (
+                        <div className="mt-1 text-[11px] text-amber-300">Для выбранной культуры пока нет глобальных сортов.</div>
+                      ) : null}
+                    </div>
+                    <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
+                      <Label className={editorLabelClass}>Репродукция *</Label>
+                      <CatalogIdentityCombobox
+                        value={row.reproduction_id}
+                        options={globalReproductions.map((item) => ({
+                          id: item.id,
+                          label: standardReproductionLabel(item),
+                          searchValue: catalogIdentitySearchValue(item),
+                          legacy: item.archived === true || item.is_active === false,
+                        }))}
+                        placeholder="Выберите репродукцию"
+                        searchPlaceholder="Поиск репродукции..."
+                        emptyMessage="Доступные репродукции не найдены"
+                        className={editorControlClass}
+                        disabled={globalReproductions.length === 0}
+                        onChange={(value) => patchDraft(index, { reproduction_id: value })}
+                      />
+                    </div>
+                  </>
+                ) : null}
+                {isCropMixRow ? (
+                  <div className="col-span-12 space-y-2 rounded-lg border border-slate-700/70 bg-slate-950/35 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-100">Состав зерносмеси</div>
+                        <div className="text-xs text-slate-400">Нормы задаются отдельно; площадь участка учитывается один раз.</div>
+                      </div>
+                      <div className="text-sm font-semibold text-yellow-300">
+                        Всего: {grainMixTotalKg(row.area, row.mix_components).toLocaleString("ru-RU")} кг
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      {row.mix_components.map((component, componentIndex) => {
+                        const componentCropId = displayCropId(component.crop_id);
+                        const componentVarieties = componentCropId ? varietiesByCrop.get(componentCropId) || [] : [];
+                        return (
+                          <div key={`${component.id || "new"}-${componentIndex}`} className="grid grid-cols-12 items-end gap-2 rounded-lg border border-slate-800 bg-[#0b1220] p-2">
+                            <div className="col-span-12 min-w-0 md:col-span-2">
+                              <Label className={editorLabelClass}>Компонент {componentIndex + 1}: культура *</Label>
+                              <Select
+                                value={componentCropId || "none"}
+                                onValueChange={(value) => patchMixComponent(index, componentIndex, { crop_id: value === "none" ? null : value })}
+                              >
+                                <SelectTrigger className={editorControlClass}><SelectValue placeholder="Культура" /></SelectTrigger>
+                                <SelectContent className={editorSelectContentClass}>
+                                  <SelectItem value="none">—</SelectItem>
+                                  {cropSelectOptions(componentCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="col-span-12 min-w-0 md:col-span-3">
+                              <Label className={editorLabelClass}>Сорт *</Label>
+                              <CatalogIdentityCombobox
+                                value={component.variety_id}
+                                options={componentVarieties.map((variety) => ({
+                                  id: variety.id,
+                                  label: localizedName(variety as never, language, ["name"]) || variety.name,
+                                  searchValue: catalogIdentitySearchValue(variety),
+                                  legacy: variety.archived === true || variety.is_active === false,
+                                }))}
+                                placeholder="Выберите сорт"
+                                searchPlaceholder="Поиск сорта..."
+                                emptyMessage={component.crop_id ? "Для культуры нет сортов." : "Сначала выберите культуру"}
+                                className={editorControlClass}
+                                disabled={!component.crop_id || componentVarieties.length === 0}
+                                onChange={(value) => patchMixComponent(index, componentIndex, { variety_id: value })}
+                              />
+                            </div>
+                            <div className="col-span-12 min-w-0 md:col-span-3">
+                              <Label className={editorLabelClass}>Репродукция *</Label>
+                              <CatalogIdentityCombobox
+                                value={component.reproduction_id}
+                                options={globalReproductions.map((item) => ({
+                                  id: item.id,
+                                  label: standardReproductionLabel(item),
+                                  searchValue: catalogIdentitySearchValue(item),
+                                  legacy: item.archived === true || item.is_active === false,
+                                }))}
+                                placeholder="Репродукция"
+                                searchPlaceholder="Поиск репродукции..."
+                                emptyMessage="Репродукции не найдены"
+                                className={editorControlClass}
+                                onChange={(value) => patchMixComponent(index, componentIndex, { reproduction_id: value })}
+                              />
+                            </div>
+                            <div className="col-span-8 min-w-0 md:col-span-2">
+                              <Label className={editorLabelClass}>Норма, кг/га *</Label>
+                              <Input
+                                className={editorNumberControlClass}
+                                type="text"
+                                inputMode="decimal"
+                                value={component.seed_rate_kg_ha == null ? "" : String(component.seed_rate_kg_ha)}
+                                onChange={(event) => patchMixComponent(index, componentIndex, { seed_rate_kg_ha: parseNum(event.target.value) })}
+                                placeholder="кг/га"
+                              />
+                            </div>
+                            <div className="col-span-3 min-w-0 md:col-span-1">
+                              <Label className={editorLabelClass}>Всего</Label>
+                              <div className="flex h-10 items-center truncate text-xs font-semibold text-slate-200" title={`${grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha)} кг`}>
+                                {grainMixComponentTotalKg(row.area, component.seed_rate_kg_ha).toLocaleString("ru-RU")} кг
+                              </div>
+                            </div>
+                            <div className="col-span-1 flex justify-end">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                title="Удалить компонент"
+                                className="h-10 w-10 text-slate-400 hover:bg-rose-500/15 hover:text-rose-200"
+                                disabled={row.mix_components.length <= GRAIN_MIX_MIN_COMPONENTS}
+                                onClick={() => removeMixComponent(index, componentIndex)}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="border-slate-700 bg-[#0b1220] text-slate-100"
+                      disabled={row.mix_components.length >= GRAIN_MIX_MAX_COMPONENTS}
+                      onClick={() => addMixComponent(index)}
+                    >
+                      <Plus className="mr-2 h-4 w-4" />Добавить компонент
+                    </Button>
+                  </div>
+                ) : null}
+                <div className="col-span-12 min-w-0 sm:col-span-7 xl:col-span-4">
                   <Label className={editorLabelClass}>Площадь, га *</Label>
                   <div className="flex gap-1.5">
-                    <Input className={editorControlClass} type="number" min={0} step="0.01" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
+                    <Input className={editorNumberControlClass} type="text" inputMode="decimal" value={row.area == null ? "" : String(row.area)} onChange={(event) => patchDraft(index, { area: parseNum(event.target.value) })} placeholder="га" />
                     <Button
                       type="button"
                       title="Заполнить остатком площади"
@@ -2289,11 +2856,11 @@ export default function CropStructurePage() {
                     </Button>
                   </div>
                 </div>
-                <div className="col-span-3 md:col-span-1">
+                <div className="col-span-8 min-w-0 sm:col-span-3 xl:col-span-2">
                   <Label className={editorLabelClass}>%</Label>
                   <div className="flex h-10 items-center rounded-md border border-slate-700 bg-[#0b1220] px-3 text-sm font-semibold text-slate-200 shadow-inner shadow-black/20">{pct}</div>
                 </div>
-                <div className="col-span-2 md:col-span-1">
+                <div className="col-span-4 min-w-0 sm:col-span-2 xl:col-span-1">
                   <Label className={editorLabelClass}>Удалить</Label>
                   <Button
                     className="h-10 w-10 border border-transparent text-slate-400 hover:border-rose-500/40 hover:bg-rose-500/15 hover:text-rose-200 disabled:cursor-not-allowed disabled:opacity-40"
@@ -2306,7 +2873,7 @@ export default function CropStructurePage() {
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="col-span-12 grid grid-cols-1 gap-2 border-t border-slate-700/70 pt-3 md:grid-cols-3">
+                <div className={`col-span-12 grid grid-cols-1 gap-2 border-t border-slate-700/70 pt-3 ${isFallowRow || isCropMixRow ? "" : "md:grid-cols-3"}`}>
                   <div>
                     <Label className={editorLabelClass}>Орошение</Label>
                     <Select
@@ -2322,30 +2889,41 @@ export default function CropStructurePage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
-                    <Label className={editorLabelClass}>Междурядье, м</Label>
-                    <Input
-                      className={editorControlClass}
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={row.row_spacing_m == null ? "" : String(row.row_spacing_m)}
-                      onChange={(event) => patchDraft(index, { row_spacing_m: parseNum(event.target.value) })}
-                      placeholder={isPotatoAllocation(row) ? "0.75" : "м"}
-                    />
-                  </div>
-                  <div>
-                    <Label className={editorLabelClass}>Межсемянное расстояние, см</Label>
-                    <Input
-                      className={editorControlClass}
-                      type="number"
-                      min={0}
-                      step="0.1"
-                      value={row.seed_spacing_cm == null ? "" : String(row.seed_spacing_cm)}
-                      onChange={(event) => patchDraft(index, { seed_spacing_cm: parseNum(event.target.value) })}
-                      placeholder={isPotatoAllocation(row) ? "32" : "см"}
-                    />
-                  </div>
+                  {!isFallowRow && !isCropMixRow ? (
+                    <>
+                      <div>
+                        <Label className={editorLabelClass}>Междурядье, м</Label>
+                        <Input
+                          className={editorNumberControlClass}
+                          type="text"
+                          inputMode="decimal"
+                          value={row.row_spacing_m == null ? "" : String(row.row_spacing_m)}
+                          onChange={(event) => patchDraft(index, { row_spacing_m: parseNum(event.target.value) })}
+                          placeholder={isPotatoAllocation(row) ? "0.75" : "м"}
+                        />
+                      </div>
+                      <div>
+                        <Label className={editorLabelClass}>Межсемянное расстояние, см</Label>
+                        <Input
+                          className={editorNumberControlClass}
+                          type="text"
+                          inputMode="decimal"
+                          value={row.seed_spacing_cm == null ? "" : String(row.seed_spacing_cm)}
+                          onChange={(event) => patchDraft(index, { seed_spacing_cm: parseNum(event.target.value) })}
+                          placeholder={isPotatoAllocation(row) ? "32" : "см"}
+                        />
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+                <div className="col-span-12">
+                  <Label className={editorLabelClass}>Комментарий</Label>
+                  <Input
+                    className={editorControlClass}
+                    value={row.notes}
+                    onChange={(event) => patchDraft(index, { notes: event.target.value })}
+                    placeholder={isFallowRow ? "Например: чистый пар, подготовка под посев" : "Необязательный комментарий"}
+                  />
                 </div>
                 </div>
               </div>
@@ -2375,7 +2953,7 @@ export default function CropStructurePage() {
             <div>
               <div className="text-sm font-semibold text-slate-900">Юридический контур поля</div>
               <div className="mt-1 text-sm text-slate-600">
-                Поле {selectedField.name} · Агро-площадь {fmtHa(selectedField.area)} · Юр-площадь {fmtHa(totalLegalArea)}
+                {fieldDisplayName(selectedField)} · Агро-площадь {fmtHa(selectedField.area)} · Юр-площадь {fmtHa(totalLegalArea)}
               </div>
               <div className="mt-1 text-xs text-slate-500">
                 Разница: {diff > 0 ? "+" : ""}{fmtHa(diffAbs).replace(" га", "")} га
@@ -2445,25 +3023,35 @@ export default function CropStructurePage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Структура посевов" description="Компактный агрономический обзор по полям" />
+      <PageHeader title="Структура посевов" description="Компактный агрономический обзор по полям">
+        <div className="ml-auto flex items-center gap-2">
+          <Select value={seasonId || undefined} onValueChange={setSeasonId} disabled={seasons.length === 0}>
+            <SelectTrigger
+              className="h-8 min-w-[92px] border-slate-700 bg-transparent px-2 text-xs font-medium text-slate-400 shadow-none hover:border-slate-600 hover:text-slate-200 disabled:cursor-default disabled:opacity-70"
+              aria-label="Сезон структуры посевов"
+            >
+              <SelectValue placeholder="Сезон не создан" />
+            </SelectTrigger>
+            <SelectContent>
+              {seasons.map((item) => <SelectItem key={item.id} value={item.id}>{item.year}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+      </PageHeader>
 
       <Card>
-        <CardContent className="pt-5">
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={seasonId} onValueChange={setSeasonId}>
-              <SelectTrigger className="w-[140px]"><SelectValue placeholder="Сезон" /></SelectTrigger>
-              <SelectContent>{seasons.map((item) => <SelectItem key={item.id} value={item.id}>{item.year}</SelectItem>)}</SelectContent>
-            </Select>
-            <div className="relative w-[240px]">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-slate-400" />
-              <Input className="pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
+        <CardContent className="p-3">
+          <div className="grid items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_minmax(140px,170px)_minmax(130px,150px)_minmax(135px,155px)_auto]">
+            <div className="relative min-w-0">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+              <Input className="h-9 w-full pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
             </div>
             <Select value={cropFilter} onValueChange={setCropFilter}>
-              <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
               <SelectContent><SelectItem value="all">Все культуры</SelectItem>{globalCrops.map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={(value: "all" | FieldState) => setStatusFilter(value)}>
-              <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Все статусы</SelectItem>
                 <SelectItem value="empty">Пусто</SelectItem>
@@ -2473,7 +3061,7 @@ export default function CropStructurePage() {
               </SelectContent>
             </Select>
             <Select value={sortBy} onValueChange={(value: "field" | "area" | "main_crop" | "state") => setSortBy(value)}>
-              <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="field">Сорт: поле</SelectItem>
                 <SelectItem value="area">Сорт: площадь</SelectItem>
@@ -2481,37 +3069,68 @@ export default function CropStructurePage() {
                 <SelectItem value="state">Сорт: статус</SelectItem>
               </SelectContent>
             </Select>
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <div className="flex rounded-md border border-slate-200 bg-white p-1">
+            <div className="flex min-w-0 items-center justify-end gap-1.5 sm:col-span-2 xl:col-span-1">
+              {canEditStructure ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-9 whitespace-nowrap px-3"
+                  onClick={() => setFieldCreateOpen(true)}
+                >
+                  <Plus className="mr-2 h-4 w-4" />Добавить поле
+                </Button>
+              ) : null}
+              <div className="flex shrink-0 rounded-md border border-slate-200 bg-white p-0.5">
                 <Button
                   type="button"
                   size="sm"
                   variant={viewMode === "cards" ? "default" : "ghost"}
-                  className="h-8 px-3"
+                  className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
                   onClick={() => changeViewMode("cards")}
+                  aria-label="Показать карточками"
+                  title="Карточки"
                 >
-                  <LayoutGrid className="mr-1.5 h-4 w-4" />Карточки
+                  <LayoutGrid className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
+                  <span className="xl:hidden 2xl:inline">Карточки</span>
                 </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant={viewMode === "table" ? "default" : "ghost"}
-                  className="h-8 px-3"
+                  className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
                   onClick={() => changeViewMode("table")}
+                  aria-label="Показать таблицей"
+                  title="Таблица"
                 >
-                  <Table2 className="mr-1.5 h-4 w-4" />Таблица
+                  <Table2 className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
+                  <span className="xl:hidden 2xl:inline">Таблица</span>
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={viewMode === "map" ? "default" : "ghost"}
-                  className="h-8 px-3"
-                  onClick={() => changeViewMode("map")}
-                >
-                  <MapIcon className="mr-1.5 h-4 w-4" />Карта
-                </Button>
+                {isGlobalAdmin ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={viewMode === "map" ? "default" : "ghost"}
+                    className="h-8 px-2.5 xl:px-2 2xl:px-2.5"
+                    onClick={() => changeViewMode("map")}
+                    aria-label="Показать на карте"
+                    title="Карта"
+                  >
+                    <MapIcon className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
+                    <span className="xl:hidden 2xl:inline">Карта</span>
+                  </Button>
+                ) : null}
               </div>
-              <Button variant="outline" onClick={exportExcel}><Download className="mr-2 h-4 w-4" />Excel</Button>
+              <Button
+                size="sm"
+                className="h-9 whitespace-nowrap px-3 xl:px-2.5 2xl:px-3"
+                variant="outline"
+                onClick={exportExcel}
+                aria-label="Экспортировать в Excel"
+                title="Excel"
+              >
+                <Download className="mr-1.5 h-4 w-4 xl:mr-0 2xl:mr-1.5" />
+                <span className="xl:hidden 2xl:inline">Excel</span>
+              </Button>
             </div>
           </div>
         </CardContent>
@@ -2533,14 +3152,16 @@ export default function CropStructurePage() {
             <div className="mt-2 text-sm text-slate-500">
               Создайте поля или импортируйте структуру посевов, чтобы заполнить сезон {season?.year || "2026"}.
             </div>
-            <div className="mt-4 flex flex-wrap justify-center gap-2">
-              <Button type="button" onClick={() => { window.location.href = "/import"; }}>
-                <Plus className="mr-2 h-4 w-4" />Импортировать структуру
-              </Button>
-              <Button type="button" variant="outline" onClick={() => { window.location.href = "/fields-map"; }}>
-                <MapIcon className="mr-2 h-4 w-4" />Открыть карту полей
-              </Button>
-            </div>
+            {isGlobalAdmin ? (
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                <Button type="button" onClick={() => { window.location.href = "/import"; }}>
+                  <Plus className="mr-2 h-4 w-4" />Импортировать структуру
+                </Button>
+                <Button type="button" variant="outline" onClick={() => { window.location.href = "/fields-map"; }}>
+                  <MapIcon className="mr-2 h-4 w-4" />Открыть карту полей
+                </Button>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}
@@ -2551,16 +3172,23 @@ export default function CropStructurePage() {
         </div>
       ) : null}
       {!loadError && hasFields && viewMode === "table" ? renderTableView() : null}
-      {!loadError && hasFields && viewMode === "map" ? renderMapView() : null}
+      {!loadError && hasFields && viewMode === "map" && isGlobalAdmin ? renderMapView() : null}
       {!loadError && hasFields && !filteredFields.length ? (
         <Card><CardContent className="p-8 text-center text-sm text-slate-500">По заданным фильтрам поля не найдены.</CardContent></Card>
       ) : null}
 
-      <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && closeField()}>
+      <FieldFormDialog
+        open={fieldCreateOpen}
+        onOpenChange={setFieldCreateOpen}
+        onSubmit={handleCreateField}
+        existingFields={fields}
+      />
+
+      <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && requestCloseField()}>
         <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1180px] [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent">
           <DialogHeader>
             <div className="flex items-center justify-between gap-2">
-              <DialogTitle>{selectedField ? `Поле ${selectedField.name} — ${fmtHa(selectedField.area)}` : "Поле"}</DialogTitle>
+              <DialogTitle>{selectedField ? `${fieldDisplayName(selectedField)} — ${fmtHa(selectedField.area)}` : "Поле"}</DialogTitle>
               <Button variant="outline" onClick={exportFieldPdf} disabled={pdfLoading || !selectedFieldId || !seasonId}>
                 <FileText className="mr-2 h-4 w-4" />{pdfLoading ? "Формирование..." : "PDF поля"}
               </Button>
@@ -2571,23 +3199,154 @@ export default function CropStructurePage() {
               <Button variant={fieldDialogTab === "dossier" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("dossier")}>
                 Агро-контур
               </Button>
-              <Button variant={fieldDialogTab === "editor" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("editor")}>
-                Редактор структуры
-              </Button>
-              <Button variant={fieldDialogTab === "legal" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("legal")}>
-                Юридический контур
-              </Button>
+              {canEditStructure ? (
+                <Button
+                  variant={fieldDialogTab === "editor" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setFieldDialogTab("editor")}
+                  disabled={!seasonId}
+                  title={!seasonId ? "У компании нет активного сезона" : undefined}
+                >
+                  Редактор структуры
+                </Button>
+              ) : null}
+              {isGlobalAdmin ? (
+                <Button variant={fieldDialogTab === "legal" ? "default" : "outline"} size="sm" onClick={() => setFieldDialogTab("legal")}>
+                  Юридический контур
+                </Button>
+              ) : null}
             </div>
             {fieldDialogTab === "dossier" ? renderFieldDossier() : null}
             {fieldDialogTab === "editor" ? renderEditor() : null}
             {fieldDialogTab === "legal" ? renderLegalContour() : null}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={closeField}>Закрыть</Button>
-            <Button onClick={save} disabled={saving}>
-              <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
-            </Button>
+            <Button variant="outline" onClick={requestCloseField}>Закрыть</Button>
+            {canEditStructure && fieldDialogTab === "editor" ? (
+              <Button onClick={requestSave} disabled={saving}>
+                <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
+              </Button>
+            ) : null}
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={saveConfirmationOpen} onOpenChange={setSaveConfirmationOpen}>
+        <AlertDialogContent className="border-slate-700 bg-[#0b1017] text-slate-100">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Подтвердить изменения структуры?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              Только после подтверждения изменения будут записаны в сезон {season?.year || "—"}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
+              <div className="text-xs text-slate-400">Добавить</div>
+              <div className="mt-1 text-lg font-semibold text-slate-100">{pendingSaveSummary.added}</div>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
+              <div className="text-xs text-slate-400">Изменить</div>
+              <div className="mt-1 text-lg font-semibold text-slate-100">{pendingSaveSummary.updated}</div>
+            </div>
+            <div className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-2">
+              <div className="text-xs text-slate-400">Удалить</div>
+              <div className="mt-1 text-lg font-semibold text-slate-100">{pendingSaveSummary.deleted}</div>
+            </div>
+          </div>
+          <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+            Итоговая площадь структуры: {fmtHa(sumArea(pendingSaveRows))} из {fmtHa(selectedField?.area || 0)}.
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-slate-600 bg-transparent text-slate-100 hover:bg-slate-800 hover:text-white">
+              Вернуться к редактированию
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-yellow-400 text-slate-950 hover:bg-yellow-300"
+              onClick={() => void confirmSave()}
+            >
+              Подтвердить и сохранить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={discardConfirmationOpen} onOpenChange={setDiscardConfirmationOpen}>
+        <AlertDialogContent className="border-slate-700 bg-[#0b1017] text-slate-100">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Закрыть без сохранения?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              Несохранённые добавления, изменения и удаления будут отменены. «Агро-контур» и база уже сохранённые данные не меняли.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="border-slate-600 bg-transparent text-slate-100 hover:bg-slate-800 hover:text-white">
+              Продолжить редактирование
+            </AlertDialogCancel>
+            <AlertDialogAction className="bg-rose-600 text-white hover:bg-rose-500" onClick={closeField}>
+              Закрыть без сохранения
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={Boolean(selectedOperationDetail)} onOpenChange={(open) => !open && setSelectedOperationDetail(null)}>
+        <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1040px] travkin-scrollbar">
+          {selectedOperationDetail ? (
+            <>
+              <DialogHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3 pr-6">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold uppercase text-yellow-300">
+                      {selectedOperationDetail.presentation.categoryTitle}
+                    </div>
+                    <DialogTitle className="mt-1 text-2xl">
+                      {selectedOperationDetail.presentation.workTitle}
+                    </DialogTitle>
+                    <div className="mt-2 text-sm text-slate-400">
+                      {fieldDisplayName(selectedField || fieldMap.get(selectedOperationDetail.field_id) || { id: "", name: "Поле", area: 0 })}
+                      {selectedOperationDetail.presentation.cropName ? ` · ${selectedOperationDetail.presentation.cropName}` : ""}
+                      {selectedOperationDetail.presentation.varietyName ? ` · ${selectedOperationDetail.presentation.varietyName}` : ""}
+                      {selectedOperationDetail.presentation.reproductionName ? ` · ${selectedOperationDetail.presentation.reproductionName}` : ""}
+                      {` · ${fmtDate(selectedOperationDetail.date)}`}
+                    </div>
+                  </div>
+                  <Badge className={operationStatusClass(selectedOperationDetail)}>
+                    {selectedOperationDetail.presentation.statusLabel}
+                  </Badge>
+                </div>
+              </DialogHeader>
+
+              <SpecialistOperationPlan presentation={selectedOperationDetail.presentation} />
+
+              <section className="rounded-xl border border-slate-800 bg-slate-950/45 p-4">
+                <div className="text-sm font-semibold text-slate-100">Прогресс по сменам</div>
+                {selectedOperationDetail.presentation.progressReports.length ? (
+                  <div className="mt-3 space-y-2">
+                    {selectedOperationDetail.presentation.progressReports.map((report) => (
+                      <div key={report.id} className="rounded-lg border border-slate-800 bg-[#0b1220] px-3 py-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span className="font-semibold text-slate-200">
+                            {fmtDate(report.reported_at)} · +{fmtHa(Number(report.completed_area_ha || 0))}
+                          </span>
+                          <span className="tabular-nums text-slate-400">
+                            {Number(report.progress_percent || 0).toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% · осталось {fmtHa(Number(report.remaining_area_ha || 0))}
+                          </span>
+                        </div>
+                        {report.comment ? <div className="mt-1 text-xs text-slate-400">{report.comment}</div> : null}
+                        {report.stop_reason ? <div className="mt-1 text-xs text-amber-300">Причина остановки: {report.stop_reason}</div> : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-2 text-sm text-slate-500">Сменный прогресс ещё не сдавался.</div>
+                )}
+              </section>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSelectedOperationDetail(null)}>Закрыть</Button>
+              </DialogFooter>
+            </>
+          ) : null}
         </DialogContent>
       </Dialog>
 

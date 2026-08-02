@@ -5,6 +5,7 @@ import type {
   AssistantSessionState,
   AssistantUiContext,
 } from "@/lib/assistant/engine/types";
+import { isDateOnly, todayDateOnlyLocal } from "@/lib/dates/date-only";
 
 export type AssistantActionPlan = {
   type: AssistantPendingActionType;
@@ -136,17 +137,18 @@ function inferDraftKind(intent: AssistantIntent): AssistantDraftKind {
 function parseOperationDateFromText(value: string): string | null {
   const lower = value.toLowerCase();
   const date = new Date();
-  if (/(сегодня|today)/i.test(lower)) return date.toISOString().slice(0, 10);
+  if (/(сегодня|today)/i.test(lower)) return todayDateOnlyLocal(date);
   if (/(завтра|tomorrow)/i.test(lower)) {
     date.setDate(date.getDate() + 1);
-    return date.toISOString().slice(0, 10);
+    return todayDateOnlyLocal(date);
   }
   const match = value.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   if (!match) return null;
   const day = match[1].padStart(2, "0");
   const month = match[2].padStart(2, "0");
   const year = match[3] ? (match[3].length === 2 ? `20${match[3]}` : match[3]) : String(new Date().getFullYear());
-  return `${year}-${month}-${day}`;
+  const result = `${year}-${month}-${day}`;
+  return isDateOnly(result) ? result : null;
 }
 
 function applyOperationDraftTextFields(output: Record<string, unknown>, query: string): void {

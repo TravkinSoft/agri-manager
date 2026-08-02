@@ -33,6 +33,7 @@ function normalizeStatus(value: unknown): WarehouseIssueRequestStatus {
     value === "partially_issued" ||
     value === "issued_by_warehouse" ||
     value === "received_confirmed" ||
+    value === "closed" ||
     value === "cancelled"
   ) {
     return value;
@@ -63,8 +64,13 @@ function normalizeRequestRow(row: any): WarehouseIssueRequest {
         return_received_quantity: item.return_received_quantity == null ? null : toNumber(item.return_received_quantity),
         shortage_quantity: item.shortage_quantity == null ? null : toNumber(item.shortage_quantity),
         loss_quantity: item.loss_quantity == null ? null : toNumber(item.loss_quantity),
-        package_size: item.package_size == null ? null : toNumber(item.package_size),
-        package_count: item.package_count == null ? null : toNumber(item.package_count),
+        allocations: Array.isArray(item.allocations)
+          ? item.allocations.map((allocation: any) => ({
+              ...allocation,
+              prepared_quantity: toNumber(allocation.prepared_quantity),
+              issued_quantity: toNumber(allocation.issued_quantity),
+            }))
+          : [],
       }))
     : [];
 
@@ -76,11 +82,13 @@ function normalizeRequestRow(row: any): WarehouseIssueRequest {
 }
 
 export async function getWarehouseIssueRequests(
-  companyId: string
+  companyId: string,
+  options?: { includeTestData?: boolean }
 ): Promise<WarehouseIssueRequest[]> {
   const headers = await buildAuthHeaders("none");
   const params = new URLSearchParams();
   params.set("companyId", companyId);
+  if (options?.includeTestData) params.set("includeTestData", "true");
   const response = await fetch(`/api/material-requests?${params.toString()}`, {
     method: "GET",
     headers,
@@ -93,11 +101,13 @@ export async function getWarehouseIssueRequests(
 export async function getRecipientWarehouseIssueRequests(params: {
   companyId: string;
   recipientUserId: string;
+  includeTestData?: boolean;
 }): Promise<WarehouseIssueRequest[]> {
   const headers = await buildAuthHeaders("none");
   const query = new URLSearchParams();
   query.set("companyId", params.companyId);
   query.set("mine", "true");
+  if (params.includeTestData) query.set("includeTestData", "true");
   const response = await fetch(`/api/material-requests?${query.toString()}`, {
     method: "GET",
     headers,
@@ -114,39 +124,87 @@ export async function getRecipientWarehouseIssueRequests(params: {
 export async function updateWarehouseIssueRequestStatus(params: {
   requestId: string;
   companyId: string;
-  status: WarehouseIssueRequestStatus;
+  status: "ready";
   sourceWarehouseId?: string | null;
   items?: Array<{
     itemId: string;
-    preparedQuantity?: number | null;
-    packageSize?: number | null;
-    packageCount?: number | null;
+    preparedQuantity: number;
+    allocations: Array<{
+      batchId?: string | null;
+      batchIdText?: string | null;
+      batchClass: string;
+      batchLabel: string;
+      quantity: number;
+    }>;
   }>;
 }): Promise<void> {
-  const action =
-    params.status === "preparing"
-      ? "preparing"
-      : params.status === "ready"
-        ? "ready"
-        : params.status === "cancelled"
-          ? "cancel"
-          : null;
-  if (!action) {
-    throw new Error(`Unsupported status action for ${params.status}`);
-  }
-
   const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch("/api/material-requests", {
     method: "PATCH",
     headers,
     body: JSON.stringify({
       requestId: params.requestId,
       companyId: params.companyId,
-      action,
+      action: "ready",
       sourceWarehouseId: params.sourceWarehouseId || null,
       items: params.items || [],
+      idempotency_key: idempotencyKey,
     }),
   });
+  await parseApiResponse(response);
+}
+
+export async function adminTransitionWarehouseRequest(params: {
+  requestId: string;
+  companyId: string;
+  action: "return_to_preparation" | "cancel" | "record_loss";
+  reason: string;
+  items?: Array<{ itemId: string; lossQuantity: number }>;
+}): Promise<void> {
+  const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(
+    `/api/material-requests/${encodeURIComponent(params.requestId)}/admin`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        companyId: params.companyId,
+        action: params.action,
+        reason: params.reason,
+        items: params.items || [],
+        idempotency_key: idempotencyKey,
+      }),
+    }
+  );
+  await parseApiResponse(response);
+}
+
+export async function reconcileWarehouseReturn(params: {
+  requestId: string;
+  companyId: string;
+  items: Array<{ itemId: string; returnedQuantity: number }>;
+  closeWithoutReturn?: boolean;
+}): Promise<void> {
+  const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(
+    `/api/material-requests/${encodeURIComponent(params.requestId)}/warehouse-return`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        companyId: params.companyId,
+        items: params.items,
+        closeWithoutReturn: Boolean(params.closeWithoutReturn),
+        idempotency_key: idempotencyKey,
+      }),
+    }
+  );
   await parseApiResponse(response);
 }
 
@@ -154,9 +212,11 @@ export async function issueWarehouseRequest(params: {
   requestId: string;
   companyId: string;
   sourceWarehouseId: string;
-  items?: Array<{ itemId: string; issuedQuantity: number; batchId?: string | null }>;
+  items?: Array<{ itemId: string; issuedQuantity: number }>;
 }): Promise<void> {
   const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch(`/api/material-requests/${encodeURIComponent(params.requestId)}/issue`, {
     method: "POST",
     headers,
@@ -164,6 +224,7 @@ export async function issueWarehouseRequest(params: {
       companyId: params.companyId,
       sourceWarehouseId: params.sourceWarehouseId,
       items: params.items || [],
+      idempotency_key: idempotencyKey,
     }),
   });
   await parseApiResponse(response);
@@ -174,6 +235,8 @@ export async function confirmWarehouseReceipt(params: {
   companyId: string;
 }): Promise<void> {
   const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch(`/api/material-requests/${encodeURIComponent(params.requestId)}/confirm`, {
     method: "POST",
     headers,
@@ -187,11 +250,18 @@ export async function confirmWarehouseReceipt(params: {
 export async function returnWarehouseRequestMaterials(params: {
   requestId: string;
   companyId: string;
-  items: Array<{ itemId: string; returnedQuantity: number; lossQuantity?: number | null }>;
+  items: Array<{
+    itemId: string;
+    consumedQuantity?: number | null;
+    returnedQuantity: number;
+    lossQuantity?: number | null;
+  }>;
   closeWithoutReturn?: boolean;
   acceptReturn?: boolean;
 }): Promise<void> {
   const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch(`/api/material-requests/${encodeURIComponent(params.requestId)}/return`, {
     method: "POST",
     headers,
@@ -200,6 +270,7 @@ export async function returnWarehouseRequestMaterials(params: {
       items: params.items,
       closeWithoutReturn: Boolean(params.closeWithoutReturn),
       acceptReturn: Boolean(params.acceptReturn),
+      idempotency_key: idempotencyKey,
     }),
   });
   await parseApiResponse(response);

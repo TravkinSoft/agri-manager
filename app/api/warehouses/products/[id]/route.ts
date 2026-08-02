@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
 
 const READ_ROLES = [
   "global_admin",
@@ -15,11 +16,6 @@ const READ_ROLES = [
 
 const WRITE_ROLES = [
   "global_admin",
-  "company_admin",
-  "warehouse",
-  "warehouse_operator",
-  "agronomist",
-  "director",
 ] as const;
 
 const PRODUCT_TYPES = new Set([
@@ -132,11 +128,16 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       }
       patch.accounting_mode = accountingMode;
     }
-    if (body.base_uom !== undefined) patch.base_uom = toNullableText(body.base_uom) || "kg";
+    if (body.base_uom !== undefined || body.unit !== undefined) {
+      const baseUom = normalizeStockUom(
+        toNullableText(body.base_uom) || toNullableText(body.unit) || existing.base_uom || existing.unit
+      ).baseUom;
+      patch.base_uom = baseUom;
+      patch.unit = baseUom;
+    }
     if (body.pack_uom !== undefined) patch.pack_uom = toNullableText(body.pack_uom);
     if (body.unit_weight_kg !== undefined) patch.unit_weight_kg = toNullableNumber(body.unit_weight_kg);
     if (body.units_per_pack !== undefined) patch.units_per_pack = toNullableNumber(body.units_per_pack);
-    if (body.unit !== undefined) patch.unit = toNullableText(body.unit) || "kg";
     if (body.description !== undefined) patch.description = toNullableText(body.description);
     if (body.is_active !== undefined) patch.is_active = body.is_active === true;
     if (body.archived !== undefined) patch.archived = body.archived === true;

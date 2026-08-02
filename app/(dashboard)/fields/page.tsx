@@ -187,6 +187,15 @@ export default function FieldsPage() {
     }
   }, [authLoading, profile?.company_id]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("create") === "1") {
+      setEditingField(null);
+      setIsFormOpen(true);
+    }
+  }, []);
+
   const loadFields = async () => {
     if (!profile?.company_id) return;
 
@@ -436,6 +445,8 @@ export default function FieldsPage() {
         open={isFormOpen}
         onOpenChange={handleFormClose}
         onSubmit={editingField ? handleEditField : handleAddField}
+        existingFields={fields}
+        editingFieldId={editingField?.id || null}
         defaultValues={
           editingField
             ? {

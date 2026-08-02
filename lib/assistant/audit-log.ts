@@ -23,7 +23,8 @@ function truncate(value: string | null | undefined, max = 2000): string | null {
 
 export async function writeAssistantAuditLog(
   supabase: SupabaseClient,
-  payload: AssistantAuditLogPayload
+  payload: AssistantAuditLogPayload,
+  options: { required?: boolean } = {}
 ): Promise<void> {
   const row = {
     actor_user_id: payload.actor_user_id,
@@ -43,7 +44,7 @@ export async function writeAssistantAuditLog(
   const { error } = await supabase.from("assistant_audit_logs").insert([row]);
   if (error) {
     const msg = String(error.message || "").toLowerCase();
-    if (msg.includes("does not exist") || msg.includes("schema cache")) {
+    if (!options.required && (msg.includes("does not exist") || msg.includes("schema cache"))) {
       return;
     }
     throw new Error(error.message);

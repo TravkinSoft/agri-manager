@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "marker": "assistant_qa_dataset_v1_tz176",
+  "branchRef": "gsglkmudcwkdetqtocae",
+  "productionRef": "bhsemlvmkikpntabctml",
+  "users": {
+    "a": {
+      "id": "49a8ee17-7e28-49f5-a674-060ff277aa63",
+      "companyId": "8a0f2c0e-6638-4a31-99a8-cab4237d287d"
+    },
+    "b": {
+      "id": "58a0c065-2163-4f24-ae75-37f07f45a198",
+      "companyId": "4e65767a-9527-4e7f-afea-ec2426ec0193"
+    }
+  },
+  "companies": {
+    "a": { "name": "Астык-STEM QA" },
+    "b": { "name": "Астык-STEM QA Isolation B" }
+  },
+  "crops": {
+    "wheat": { "id": "309ddba8-2d21-4c92-babd-9e3386282123", "name": "Пшеница" },
+    "potato": { "id": "d7ce6552-daf9-47da-8ccf-8884b1b6890d", "name": "Картофель" },
+    "flax": { "id": "453b05f6-6ee4-4f57-a149-94bd51ddc772", "name": "Лён (масличный)" },
+    "barley": { "id": "a5e6b412-9124-41a5-8760-cb465eaef71d", "name": "Ячмень" },
+    "soy": { "id": "fd148cc4-d7d8-4f1c-b1fd-9fad186fc49e", "name": "Соя" },
+    "corn": { "id": "efa3910b-90c8-4431-b73c-c8de30bebd44", "name": "Кукуруза" },
+    "alfalfa": { "id": "f53ac75a-5980-43af-89f1-bc5d27f51208", "name": "Люцерна" }
+  },
+  "variety": {
+    "id": "6254d534-d867-49da-849b-e8e3f0bee9ef",
+    "name": "Гала",
+    "nameEn": "Gala"
+  },
+  "reproduction": {
+    "id": "0457bf93-2d79-46df-b9eb-5b7d4d26def2",
+    "name": "Первая репродукция",
+    "nameRu": "1 репродукция",
+    "code": "R1"
+  },
+  "manufacturers": [
+    {
+      "id": "105bd25c-829a-41d0-acd7-6f108bdc0501",
+      "name": "Swissgrow"
+    }
+  ],
+  "products": [
+    {
+      "key": "nitrate",
+      "id": "6e62d166-c4cc-4d01-9cc8-18c57b99ba2f",
+      "name": "Аммиачная селитра",
+      "nameRu": "Аммиачная селитра",
+      "nameEn": "Ammonium Nitrate",
+      "manufacturer": "EuroChem",
+      "manufacturerId": null,
+      "unit": "kg",
+      "fertilizerType": "nitrogen",
+      "subcategory": "macro",
+      "activeIngredient": "ammonium nitrate (NH4NO3)",
+      "physicalState": "granule",
+      "sourceUrl": "canonical:production-product-6e62d166"
+    },
+    {
+      "key": "curamin",
+      "id": "f281b5ab-67ef-4006-9ab7-2260ecd352e2",
+      "name": "Curamin Foliar",
+      "nameRu": "Curamin Foliar",
+      "nameEn": "Curamin Foliar",
+      "manufacturer": "Swissgrow",
+      "manufacturerId": "105bd25c-829a-41d0-acd7-6f108bdc0501",
+      "unit": "l",
+      "fertilizerType": "micronutrient",
+      "subcategory": "foliar",
+      "activeIngredient": "copper complex, Cu 3%",
+      "physicalState": "liquid",
+      "sourceUrl": "https://swissgrow.kz/curamin-foliar"
+    },
+    {
+      "key": "phomazin",
+      "id": "509948aa-f47b-4d11-bd45-0fe934a3cb46",
+      "name": "Phomazin",
+      "nameRu": "Фомазин",
+      "nameEn": "Phomazin",
+      "manufacturer": "Swissgrow",
+      "manufacturerId": "105bd25c-829a-41d0-acd7-6f108bdc0501",
+      "unit": "l",
+      "fertilizerType": "npk",
+      "subcategory": "other",
+      "activeIngredient": "phosphorus-potassium composition",
+      "physicalState": "liquid",
+      "sourceUrl": "canonical:product-passport-v1"
+    }
+  ],
+  "aliases": [
+    { "id": "17600000-0000-4000-a100-000000000001", "productKey": "nitrate", "alias": "Ammonium Nitrate" },
+    { "id": "17600000-0000-4000-a100-000000000002", "productKey": "nitrate", "alias": "Селитра аммиачная" },
+    { "id": "17600000-0000-4000-a100-000000000003", "productKey": "curamin", "alias": "Курамин Фолиар" },
+    { "id": "17600000-0000-4000-a100-000000000004", "productKey": "phomazin", "alias": "Фомазин" },
+    { "id": "17600000-0000-4000-a100-000000000005", "productKey": "phomazin", "alias": "Swissgrow Phomazin" }
+  ],
+  "dataset": {
+    "seasonId": "17600000-0000-4000-8000-000000000001",
+    "fields": [
+      { "key": "field20", "id": "17600000-0000-4000-8100-000000000001", "name": "Поле20", "area": 100 },
+      { "key": "field28", "id": "17600000-0000-4000-8100-000000000002", "name": "Поле28", "area": 150 },
+      { "key": "orchardNorth", "id": "17600000-0000-4000-8100-000000000003", "name": "Сад Северный", "area": 22 },
+      { "key": "orchardSouth", "id": "17600000-0000-4000-8100-000000000004", "name": "Сад Южный", "area": 18 },
+      { "key": "field7", "id": "17600000-0000-4000-8100-000000000005", "name": "Поле7", "area": 210 },
+      { "key": "field12", "id": "17600000-0000-4000-8100-000000000006", "name": "Поле12", "area": 175 },
+      { "key": "field15", "id": "17600000-0000-4000-8100-000000000007", "name": "Поле15", "area": 125 },
+      { "key": "field31", "id": "17600000-0000-4000-8100-000000000008", "name": "Поле31", "area": 200 }
+    ],
+    "isolationField": { "id": "17600000-0000-4000-8100-000000000099", "name": "Секретное поле B", "area": 999 },
+    "cropLines": [
+      { "key": "wheat100", "id": "17600000-0000-4000-8200-000000000001", "fieldKey": "field20", "cropKey": "wheat", "area": 100 },
+      { "key": "potato150", "id": "17600000-0000-4000-8200-000000000002", "fieldKey": "field28", "cropKey": "potato", "area": 150, "identity": true },
+      { "key": "potatoNorth22", "id": "17600000-0000-4000-8200-000000000003", "fieldKey": "orchardNorth", "cropKey": "potato", "area": 22, "identity": true },
+      { "key": "potatoSouth18", "id": "17600000-0000-4000-8200-000000000004", "fieldKey": "orchardSouth", "cropKey": "potato", "area": 18, "identity": true },
+      { "key": "flax210", "id": "17600000-0000-4000-8200-000000000005", "fieldKey": "field7", "cropKey": "flax", "area": 210 },
+      { "key": "barley175", "id": "17600000-0000-4000-8200-000000000006", "fieldKey": "field12", "cropKey": "barley", "area": 175 },
+      { "key": "soy125", "id": "17600000-0000-4000-8200-000000000007", "fieldKey": "field15", "cropKey": "soy", "area": 125 },
+      { "key": "corn120", "id": "17600000-0000-4000-8200-000000000008", "fieldKey": "field31", "cropKey": "corn", "area": 120 },
+      { "key": "alfalfa80", "id": "17600000-0000-4000-8200-000000000009", "fieldKey": "field31", "cropKey": "alfalfa", "area": 80 }
+    ],
+    "operations": [
+      { "key": "fertilizerCompleted", "id": "17600000-0000-4000-8300-000000000001", "lineId": "17600000-0000-4000-8310-000000000001", "fieldKey": "field20", "cropLineKey": "wheat100", "type": "fertilizer_application", "category": "nutrition", "status": "completed", "area": 100, "completedArea": 100, "progress": 100 },
+      { "key": "sprayingActive", "id": "17600000-0000-4000-8300-000000000002", "lineId": "17600000-0000-4000-8310-000000000002", "fieldKey": "field28", "cropLineKey": "potato150", "type": "spraying", "category": "protection", "status": "in_progress", "area": 150, "completedArea": 60, "progress": 40 },
+      { "key": "plantingPlanned", "id": "17600000-0000-4000-8300-000000000003", "lineId": "17600000-0000-4000-8310-000000000003", "fieldKey": "field15", "cropLineKey": "soy125", "type": "planting", "category": "planting", "status": "planned", "area": 125, "completedArea": 0, "progress": 0 },
+      { "key": "irrigationNorthCompleted", "id": "17600000-0000-4000-8300-000000000004", "lineId": "17600000-0000-4000-8310-000000000004", "fieldKey": "orchardNorth", "cropLineKey": "potatoNorth22", "type": "irrigation", "category": "irrigation", "status": "completed", "area": 22, "completedArea": 22, "progress": 100 },
+      { "key": "irrigationSouthActive", "id": "17600000-0000-4000-8300-000000000005", "lineId": "17600000-0000-4000-8310-000000000005", "fieldKey": "orchardSouth", "cropLineKey": "potatoSouth18", "type": "irrigation", "category": "irrigation", "status": "in_progress", "area": 18, "completedArea": 8, "progress": 44.44 }
+    ],
+    "operationMaterials": [
+      { "id": "17600000-0000-4000-8320-000000000001", "operationKey": "fertilizerCompleted", "productKey": "nitrate", "unit": "kg", "plannedRate": 2.5, "actualRate": 2.4, "plannedQuantity": 250, "issued": 240, "consumed": 240, "returned": 0, "loss": 0 },
+      { "id": "17600000-0000-4000-8320-000000000002", "operationKey": "sprayingActive", "productKey": "curamin", "unit": "l", "plannedRate": 2, "actualRate": null, "plannedQuantity": 300, "issued": 0, "consumed": 0, "returned": 0, "loss": 0 }
+    ],
+    "warehouses": [
+      { "key": "main", "id": "17600000-0000-4000-8400-000000000001", "name": "Основной склад", "company": "a" },
+      { "key": "field", "id": "17600000-0000-4000-8400-000000000002", "name": "Полевой склад", "company": "a" },
+      { "key": "isolation", "id": "17600000-0000-4000-8400-000000000099", "name": "Изолированный склад B", "company": "b" }
+    ],
+    "transactions": [
+      { "id": "17600000-0000-4000-8500-000000000001", "warehouseKey": "main", "productKey": "nitrate", "company": "a", "movement": "receipt", "quantity": 1490, "unit": "kg" },
+      { "id": "17600000-0000-4000-8500-000000000002", "warehouseKey": "main", "productKey": "curamin", "company": "a", "movement": "receipt", "quantity": 480, "unit": "l" },
+      { "id": "17600000-0000-4000-8500-000000000003", "warehouseKey": "main", "productKey": "phomazin", "company": "a", "movement": "receipt", "quantity": 200, "unit": "l" },
+      { "id": "17600000-0000-4000-8500-000000000004", "warehouseKey": "field", "productKey": "nitrate", "company": "a", "movement": "receipt", "quantity": 300, "unit": "kg" },
+      { "id": "17600000-0000-4000-8500-000000000005", "warehouseKey": "field", "productKey": "curamin", "company": "a", "movement": "receipt", "quantity": 40, "unit": "l" },
+      { "id": "17600000-0000-4000-8500-000000000006", "warehouseKey": "main", "productKey": "nitrate", "company": "a", "movement": "issue", "quantity": 240, "unit": "kg", "operationKey": "fertilizerCompleted", "fieldKey": "field20" },
+      { "id": "17600000-0000-4000-8500-000000000099", "warehouseKey": "isolation", "productKey": "nitrate", "company": "b", "movement": "receipt", "quantity": 777, "unit": "kg" }
+    ]
+  }
+}

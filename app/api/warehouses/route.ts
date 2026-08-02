@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
-import { WAREHOUSE_READ_ROLES, WAREHOUSE_WRITE_ROLES, normalizeWarehouseRow, toNullableText } from "@/app/api/warehouses/_helpers";
+import {
+  SessionAuthError,
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+} from "@/lib/auth/server-session";
+import { WAREHOUSE_ENTITY_WRITE_ROLES, WAREHOUSE_READ_ROLES, normalizeWarehouseRow, toNullableText, warehouseVisibleToRole } from "@/app/api/warehouses/_helpers";
 import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
 
 export async function GET(request: NextRequest) {
@@ -12,7 +16,7 @@ export async function GET(request: NextRequest) {
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
     const includeArchived = String(request.nextUrl.searchParams.get("includeArchived") || "false").toLowerCase() === "true";
 
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,
@@ -36,6 +40,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       warehouses: (data || [])
         .map(normalizeWarehouseRow)
+        .filter((row) => warehouseVisibleToRole(row, actor.role))
         .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"])),
     });
   } catch (error) {
@@ -56,12 +61,12 @@ export async function POST(request: NextRequest) {
     const requestedCompanyId = String(body.companyId || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
 
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,
       companyId,
-      allowedRoles: [...WAREHOUSE_WRITE_ROLES],
+      allowedRoles: [...WAREHOUSE_ENTITY_WRITE_ROLES],
     });
 
     const name = String(body.name || "").trim();

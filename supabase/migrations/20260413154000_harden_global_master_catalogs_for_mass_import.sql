@@ -83,6 +83,34 @@ on conflict (level) do update
 set name_ru = excluded.name_ru,
     is_active = excluded.is_active;
 
+insert into public.master_crop_categories(code, name_ru, is_active) values
+  ('cereal', 'Зерновые', true),
+  ('cover_crop', 'Покровные культуры', true),
+  ('forage', 'Кормовые', true),
+  ('legume', 'Бобовые', true),
+  ('melon', 'Бахчевые', true),
+  ('oilseed', 'Масличные', true),
+  ('other', 'Другое', true),
+  ('perennial_grass', 'Многолетние травы', true),
+  ('technical', 'Технические', true),
+  ('vegetable', 'Овощные', true)
+on conflict (code) do update
+set name_ru = excluded.name_ru,
+    is_active = excluded.is_active;
+
+insert into public.master_crop_subcategories(code, category_code, name_ru, is_active) values
+  ('annual', 'forage', 'Однолетние', true),
+  ('bulb', 'vegetable', 'Луковичные', true),
+  ('fruit', 'vegetable', 'Плодовые', true),
+  ('leafy', 'vegetable', 'Листовые', true),
+  ('perennial', 'forage', 'Многолетние', true),
+  ('root', 'vegetable', 'Корнеплоды', true),
+  ('tuber', 'vegetable', 'Клубнеплоды', true)
+on conflict (code) do update
+set category_code = excluded.category_code,
+    name_ru = excluded.name_ru,
+    is_active = excluded.is_active;
+
 insert into public.master_pesticide_categories(code, name_ru, is_active) values
   ('herbicide', 'Гербицид', true),
   ('fungicide', 'Фунгицид', true),
@@ -359,6 +387,8 @@ for each row execute function public.ensure_updated_at_column();
 -- 5) AGROCHEMISTRY (PRODUCTS table)
 -- =====================================================
 alter table public.products
+  add column if not exists pesticide_category text,
+  add column if not exists fertilizer_type text,
   add column if not exists category text,
   add column if not exists subcategory text,
   add column if not exists concentration text,
@@ -606,6 +636,9 @@ create trigger update_reference_vehicles_updated_at
 before update on public.reference_vehicles
 for each row execute function public.ensure_updated_at_column();
 
+create unique index if not exists ux_master_pesticide_categories_code_ci
+  on public.master_pesticide_categories(lower(code));
+
 -- Optional compatibility view for "fleet_transport" naming in analytics/import docs
 create or replace view public.fleet_transport as
 select
@@ -623,4 +656,3 @@ select
   updated_at
 from public.reference_vehicles
 where company_id is null and archived = false;
-

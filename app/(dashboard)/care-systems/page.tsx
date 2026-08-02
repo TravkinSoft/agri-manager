@@ -38,6 +38,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { PesticideCardLink } from "@/components/platform/pesticide-card-link";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Command,
@@ -118,6 +119,7 @@ type Variety = {
 
 type Product = {
   id: string;
+  master_product_id: string | null;
   name: string;
   trade_name: string | null;
   normalized_name: string | null;
@@ -1645,6 +1647,12 @@ export default function CareSystemsPage() {
                         {selectedProduct?.manufacturer && (
                           <div className="mt-2 text-xs text-[#9CA3AF]">Производитель: {selectedProduct.manufacturer}</div>
                         )}
+                        {selectedProduct?.master_product_id ? (
+                          <div className="mt-1 flex items-center gap-1 text-xs text-[#9CA3AF]">
+                            <PesticideCardLink productId={selectedProduct.master_product_id} />
+                            <span>Карточка препарата</span>
+                          </div>
+                        ) : null}
                         <div className={`mt-2 text-xs ${preview.error ? "text-[#FCA5A5]" : "text-[#A7F3D0]"}`}>
                           {preview.error ? preview.error : `План: ${formatQuantity(preview.value, preview.unit)}`}
                         </div>

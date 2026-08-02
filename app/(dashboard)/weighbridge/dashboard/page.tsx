@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { listTickets } from "@/lib/services/weighbridge";
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 
 function isActiveStatus(status: string | null | undefined) {
   const s = String(status || "").toLowerCase();
@@ -48,7 +49,7 @@ export default function WeighbridgeDashboardPage() {
   if (authLoading || isOperationalRole) return null;
 
   const metrics = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayDateOnlyLocal();
     const active = tickets.filter((t) => isActiveStatus(t.status)).length;
     const awaitingSecond = tickets.filter(
       (t) =>
@@ -89,14 +90,13 @@ export default function WeighbridgeDashboardPage() {
           <CardContent className="flex flex-wrap gap-2">
             {isAgronomistObserver ? (
               <div className="text-sm text-slate-600">
-                Для агронома доступен только обзор. Создание/ведение талонов, переработка и другие действия доступны весовщику.
+                Для агронома доступен только обзор. Создание и ведение талонов доступны весовщику.
               </div>
             ) : (
               <>
                 <Button asChild><Link href="/weighbridge">Создать талон</Link></Button>
                 <Button asChild variant="outline"><Link href="/weighbridge">Активные талоны</Link></Button>
                 <Button asChild variant="outline"><Link href="/weighbridge/history">История талонов</Link></Button>
-                <Button asChild variant="outline"><Link href="/processing">Переработка</Link></Button>
               </>
             )}
           </CardContent>

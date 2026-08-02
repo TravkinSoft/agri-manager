@@ -16,6 +16,7 @@ export type InventoryStatus = "draft" | "confirmed" | "cancelled";
 export type TransactionDirection = "in" | "out";
 export type CapacityUnit = "kg" | "t" | "m3" | "l";
 export type WarehouseType =
+  | "agrochemical"
   | "grain"
   | "vegetable"
   | "seed"
@@ -47,19 +48,71 @@ export interface Warehouse {
   company_id?: string | null;
 }
 
+export interface WarehouseReceiptLineInput {
+  product_id: string;
+  quantity: number;
+  uom: string;
+  lot_number?: string | null;
+  manufactured_at?: string | null;
+  expires_at?: string | null;
+  package_count?: number | null;
+  package_size?: number | null;
+  notes?: string | null;
+}
+
+export interface WarehouseReceiptInput {
+  warehouse_id: string;
+  received_at?: string;
+  supplier_company_counterparty_id?: string | null;
+  supplier_global_counterparty_id?: string | null;
+  document_no?: string | null;
+  notes?: string | null;
+  lines: WarehouseReceiptLineInput[];
+}
+
+export interface WarehouseReceipt {
+  id: string;
+  ticket_no: string;
+  status: string;
+  warehouse_to_id: string;
+  supplier?: string | null;
+  supplier_document_no?: string | null;
+  notes?: string | null;
+  created_at: string;
+  finalized_at?: string | null;
+  lines: Array<{
+    id: string;
+    product_id: string;
+    product_name_snapshot?: string | null;
+    product_type?: string | null;
+    quantity: number;
+    uom: string;
+    lot_id?: string | null;
+    quality_json?: Record<string, unknown> | null;
+  }>;
+}
+
 export interface Product {
   id: string;
+  master_product_id?: string | null;
   name: string;
+  trade_name?: string | null;
+  normalized_name?: string | null;
+  name_ru?: string | null;
+  name_en?: string | null;
+  product_type?: ProductCategory | string | null;
   type: ProductCategory;
   crop_id?: string | null;
   product_form?: string | null;
   accounting_mode?: ProductAccountingMode | null;
   base_uom?: string | null;
+  stock_unit?: string | null;
   pack_uom?: string | null;
   unit_weight_kg?: number | null;
   units_per_pack?: number | null;
   unit?: string | null;
   description?: string | null;
+  aliases?: string[];
   created_at: string;
   archived: boolean;
   user_id: string;
@@ -124,7 +177,130 @@ export interface InventoryBalance {
   product_type: ProductCategory | string;
   unit: string;
   quantity: number;
+  reserved_quantity?: number;
+  available_quantity?: number;
+  deficit_quantity?: number;
+  stock_status?: "available" | "deficit" | string;
+  reservations?: WarehouseStockReservation[];
+  product_ids?: string[];
   last_updated: string;
+}
+
+export interface WarehouseStockLot {
+  key: string;
+  batch_id: string | null;
+  batch_class: string;
+  batch_label: string;
+  quantity: number;
+  reserved_quantity: number;
+  available_quantity: number;
+  manufactured_at: string | null;
+  expires_at: string | null;
+  supplier: string | null;
+  receipt_no: string | null;
+  received_at: string | null;
+}
+
+export interface WarehouseStockDetails {
+  warehouse_id: string;
+  product_id: string;
+  product_name: string;
+  unit: string;
+  quantity: number;
+  reserved_quantity: number;
+  available_quantity: number;
+  deficit_quantity: number;
+  stock_status: "available" | "deficit" | string;
+  reservations: WarehouseStockReservation[];
+  lots: WarehouseStockLot[];
+  movements: InventoryTransactionWithDetails[];
+}
+
+export interface WarehouseStockReservation {
+  request_id: string;
+  request_number: string;
+  operation_id: string | null;
+  operation: string | null;
+  field: string | null;
+  quantity: number;
+  status: string;
+  batch_id_text?: string | null;
+}
+
+export interface WarehouseTransferInput {
+  destination_warehouse_id: string;
+  product_id: string;
+  quantity: number;
+  vehicle_id: string;
+  driver_id: string;
+  notes?: string | null;
+}
+
+export interface WarehouseTransferResult {
+  transfer_id: string;
+  transfer_no: string;
+  posted_at: string;
+  quantity: number;
+  uom: string;
+  reserved_quantity: number;
+  ledger_rows: number;
+  idempotent_replay: boolean;
+}
+
+export type WarehouseInventoryStatus = "in_progress" | "awaiting_approval" | "approved" | "rejected" | "cancelled";
+
+export interface WarehouseInventoryItem {
+  id: string;
+  inventory_id: string;
+  company_id: string;
+  product_id: string;
+  product_name_snapshot: string;
+  product_type: string;
+  uom: string;
+  book_quantity: number;
+  actual_quantity: number | null;
+  difference_quantity: number | null;
+  discovered: boolean;
+  batch_id_text?: string | null;
+  batch_class?: string | null;
+  adjustment_ledger_entry_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WarehouseInventoryDocument {
+  id: string;
+  company_id: string;
+  inventory_no: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  status: WarehouseInventoryStatus;
+  snapshot_at: string;
+  started_at: string;
+  started_by: string;
+  started_by_name?: string | null;
+  assigned_to: string;
+  assigned_to_name?: string | null;
+  submitted_at: string | null;
+  submitted_by: string | null;
+  submitted_by_name?: string | null;
+  approved_at: string | null;
+  approved_by: string | null;
+  approved_by_name?: string | null;
+  rejected_at: string | null;
+  rejected_by: string | null;
+  rejected_by_name?: string | null;
+  rejection_comment: string | null;
+  completed_at: string | null;
+  completed_by: string | null;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+  item_count: number;
+  difference_count: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  items?: WarehouseInventoryItem[];
 }
 
 export interface WarehouseDeleteCheck {
@@ -169,7 +345,7 @@ export interface WarehouseHistorySnapshot {
 export const warehouseSchema = z.object({
   name: z.string().trim().min(1, "Warehouse name is required"),
   warehouse_type: z
-    .enum(["grain", "vegetable", "seed", "fertilizer", "pesticide", "universal", "potato_storage", "fuel", "temporary"])
+    .enum(["agrochemical", "grain", "vegetable", "seed", "fertilizer", "pesticide", "universal", "potato_storage", "fuel", "temporary"])
     .default("universal"),
   capacity_value: z.coerce.number().min(0).optional().nullable(),
   capacity_unit: z.enum(["kg", "t", "m3", "l"]).optional().nullable(),

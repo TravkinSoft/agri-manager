@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerActorFromSession, resolveCompanyForActor, SessionAuthError } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import {
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+  SessionAuthError,
+} from "@/lib/auth/server-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function loadActiveCompanyAssets(companyId: string) {
-  const supabase = getServiceClient();
+async function loadActiveCompanyAssets(
+  companyId: string,
+  supabase: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>
+) {
 
   const [machinesRes, equipmentRes, vehiclesRes] = await Promise.all([
     supabase
@@ -61,7 +67,8 @@ export async function GET(request: NextRequest) {
     const actor = await getServerActorFromSession(request);
     const requestedCompanyId = request.nextUrl.searchParams.get("companyId");
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
-    const assets = await loadActiveCompanyAssets(companyId);
+    const supabase = await getUserScopedClientFromRequest(request);
+    const assets = await loadActiveCompanyAssets(companyId, supabase);
 
     return NextResponse.json({
       companyId,

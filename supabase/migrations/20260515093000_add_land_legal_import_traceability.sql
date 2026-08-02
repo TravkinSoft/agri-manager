@@ -65,11 +65,11 @@ select
   ule.name as usage_legal_entity_name,
   l.allocation_method,
   l.source,
-  l.source_document,
   l.status,
   l.valid_from,
   l.valid_to,
-  l.notes
+  l.notes,
+  l.source_document
 from public.field_cadastre_links l
 join public.fields f on f.id = l.field_id
 join public.cadastral_parcels cp on cp.id = l.cadastral_parcel_id

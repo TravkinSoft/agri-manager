@@ -37,6 +37,58 @@ create table if not exists public.agrochem_mode_of_actions (
   updated_at timestamptz not null default now()
 );
 
+-- Canonical source for the production supplier/passport baseline. These
+-- objects existed in production without a tracked migration source.
+create table if not exists public.global_suppliers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  normalized_name text not null,
+  aliases text[] not null default '{}'::text[],
+  notes text,
+  is_active boolean not null default true,
+  archived boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists ux_global_suppliers_normalized_active
+  on public.global_suppliers (lower(normalized_name))
+  where archived = false;
+
+create table if not exists public.global_supplier_aliases (
+  id uuid primary key default gen_random_uuid(),
+  supplier_id uuid not null references public.global_suppliers(id) on delete cascade,
+  alias text not null,
+  normalized_alias text not null,
+  source text,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists ux_global_supplier_aliases_norm
+  on public.global_supplier_aliases (lower(normalized_alias));
+
+create table if not exists public.global_product_aliases (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete cascade,
+  alias text not null,
+  normalized_alias text not null,
+  source text,
+  created_at timestamptz not null default now()
+);
+
+create unique index if not exists ux_global_product_aliases_product_norm
+  on public.global_product_aliases (product_id, lower(normalized_alias));
+
+create table if not exists public.global_product_supplier_links (
+  id uuid primary key default gen_random_uuid(),
+  product_id uuid not null references public.products(id) on delete cascade,
+  supplier_id uuid not null references public.global_suppliers(id) on delete cascade,
+  role text not null default 'supplier'::text,
+  source text,
+  created_at timestamptz not null default now(),
+  unique (product_id, supplier_id, role)
+);
+
 create unique index if not exists ux_agrochem_manufacturers_name_active
   on public.agrochem_manufacturers (lower(name))
   where archived = false;
@@ -69,9 +121,17 @@ on conflict do nothing;
 
 alter table public.products
   add column if not exists product_type text,
+  add column if not exists mode_of_action_type text,
   add column if not exists manufacturer_id uuid,
   add column if not exists formulation_id uuid,
-  add column if not exists mode_of_action_type_id uuid;
+  add column if not exists mode_of_action_type_id uuid,
+  add column if not exists application_rate_text text,
+  add column if not exists normalized_name text,
+  add column if not exists ui_group text,
+  add column if not exists import_confidence text,
+  add column if not exists requires_review boolean not null default false,
+  add column if not exists operation_template text,
+  add column if not exists global_supplier_id uuid;
 
 do $$
 begin
@@ -123,6 +183,32 @@ begin
       add constraint products_mode_of_action_type_id_fk
       foreign key (mode_of_action_type_id)
       references public.agrochem_mode_of_actions(id);
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'products_category_id_fk'
+      and conrelid = 'public.products'::regclass
+  ) then
+    alter table public.products
+      add constraint products_category_id_fk
+      foreign key (category_id)
+      references public.pesticide_categories(id)
+      on update cascade on delete set null;
+  end if;
+
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'products_global_supplier_id_fkey'
+      and conrelid = 'public.products'::regclass
+  ) then
+    alter table public.products
+      add constraint products_global_supplier_id_fkey
+      foreign key (global_supplier_id)
+      references public.global_suppliers(id)
+      on delete set null;
   end if;
 end $$;
 
@@ -184,3 +270,6 @@ create index if not exists idx_products_category_id on public.products(category_
 create index if not exists idx_products_manufacturer_id on public.products(manufacturer_id);
 create index if not exists idx_products_formulation_id on public.products(formulation_id);
 create index if not exists idx_products_mode_of_action_type_id on public.products(mode_of_action_type_id);
+
+alter table public.products
+  alter column updated_at drop not null;

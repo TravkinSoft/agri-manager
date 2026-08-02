@@ -1,8 +1,5 @@
-"use client";
-
-import { GlobalCatalogManager } from "@/components/platform/global-catalog-manager";
-import { getCatalogConfig } from "@/lib/platform/global-catalog-config";
+import { redirect } from "next/navigation";
 
 export default function GlobalGrowthRegulatorsPage() {
-  return <GlobalCatalogManager config={getCatalogConfig("growth_regulators")} />;
+  redirect("/platform/catalogs/agrochemistry/pesticides?product_type=growth_regulator");
 }

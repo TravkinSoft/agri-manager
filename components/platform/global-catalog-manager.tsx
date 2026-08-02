@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { BookOpen, ChevronDown, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import { buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
@@ -49,9 +50,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  GlbdComponentDialog,
+  type GlbdComponentCardData,
+} from "@/components/platform/glbd-component-dialog";
+import {
+  FullPesticideCardDialog,
+  type FullPesticideCardData,
+} from "@/components/platform/full-pesticide-card-dialog";
 
 type RowRecord = Record<string, any>;
 type Option = { label: string; value: string };
+type SearchConflict = { message: string; components: string[] };
 
 const CONSOLE_LABEL_CLASS = "font-mono text-[11px] uppercase tracking-[0.12em] !text-[#42566f]";
 const CONSOLE_CONTROL_CLASS =
@@ -273,6 +283,10 @@ function toArrayValue(value: any): string[] {
 export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }) {
   const { user } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const pesticideIdFromUrl = config.entity === "pesticides" ? searchParams.get("pesticide") : null;
 
   const [rows, setRows] = useState<RowRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -284,6 +298,17 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   const [formState, setFormState] = useState<Record<string, any>>({});
   const [filters, setFilters] = useState<Record<string, string | string[]>>({});
   const [remoteOptions, setRemoteOptions] = useState<Record<string, Option[]>>({});
+  const [searchConflict, setSearchConflict] = useState<SearchConflict | null>(null);
+  const [componentOpen, setComponentOpen] = useState(false);
+  const [componentLoading, setComponentLoading] = useState(false);
+  const [componentError, setComponentError] = useState<string | null>(null);
+  const [componentDetail, setComponentDetail] = useState<GlbdComponentCardData | null>(null);
+  const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
+  const [pesticideCardOpen, setPesticideCardOpen] = useState(false);
+  const [pesticideCardLoading, setPesticideCardLoading] = useState(false);
+  const [pesticideCardError, setPesticideCardError] = useState<string | null>(null);
+  const [pesticideCard, setPesticideCard] = useState<FullPesticideCardData | null>(null);
+  const [selectedPesticideId, setSelectedPesticideId] = useState<string | null>(null);
 
   const canSubmit = useMemo(() => {
     return config.formFields.every((field) => {
@@ -363,7 +388,9 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить каталог");
       setRows(Array.isArray(payload?.rows) ? payload.rows : []);
+      setSearchConflict(payload?.searchConflict || null);
     } catch (error: any) {
+      setSearchConflict(null);
       toast({ title: "Ошибка", description: error?.message || "Не удалось загрузить каталог", variant: "destructive" });
     } finally {
       setLoading(false);
@@ -415,10 +442,14 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
   useEffect(() => {
     const defaults = Object.fromEntries(
-      config.filters.map((filter) => [filter.key, filter.multi ? [] : filter.options.find((o) => o.value === "all")?.value || "all"])
+      config.filters.map((filter) => {
+        const fromUrl = searchParams.get(filter.key);
+        if (filter.multi) return [filter.key, fromUrl ? fromUrl.split(",").map((value) => value.trim()).filter(Boolean) : []];
+        return [filter.key, fromUrl || filter.options.find((option) => option.value === "all")?.value || "all"];
+      })
     );
     setFilters(defaults);
-  }, [config.entity]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [config.entity, searchParams]);
 
   useEffect(() => {
     void loadRows();
@@ -427,6 +458,92 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   useEffect(() => {
     void loadRemoteOptions();
   }, [config.entity, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const loadComponentCard = async (componentId: string) => {
+    if (!user?.id || !componentId) return;
+    setSelectedComponentId(componentId);
+    setComponentOpen(true);
+    setComponentLoading(true);
+    setComponentError(null);
+    setComponentDetail(null);
+    try {
+      const params = new URLSearchParams({ userId: user.id, componentId });
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/global-admin/catalog/active_ingredients?${params.toString()}`, {
+        headers,
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить карточку компонента");
+      setComponentDetail(payload?.component || null);
+    } catch (error: any) {
+      setComponentError(error?.message || "Не удалось загрузить карточку компонента");
+    } finally {
+      setComponentLoading(false);
+    }
+  };
+
+  const loadPesticideCard = async (productId: string) => {
+    if (!user?.id || !productId) return;
+    setSelectedPesticideId(productId);
+    setPesticideCardOpen(true);
+    setPesticideCardLoading(true);
+    setPesticideCardError(null);
+    setPesticideCard(null);
+    try {
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/global-admin/pesticide-card/${productId}`, {
+        headers,
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить полную карточку");
+      setPesticideCard(payload as FullPesticideCardData);
+    } catch (error: any) {
+      setPesticideCardError(error?.message || "Не удалось загрузить полную карточку");
+    } finally {
+      setPesticideCardLoading(false);
+    }
+  };
+
+  const retryPesticideCard = () => {
+    if (selectedPesticideId) void loadPesticideCard(selectedPesticideId);
+  };
+
+  const openPesticideCard = (productId: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("pesticide", productId);
+    router.push(`${pathname}?${params.toString()}`);
+  };
+
+  const handlePesticideCardOpenChange = (open: boolean) => {
+    if (open) {
+      setPesticideCardOpen(true);
+      return;
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("pesticide");
+    setPesticideCardOpen(false);
+    setSelectedPesticideId(null);
+    setPesticideCard(null);
+    router.push(params.size ? `${pathname}?${params.toString()}` : pathname);
+  };
+
+  useEffect(() => {
+    if (config.entity !== "pesticides" || !user?.id) return;
+    if (!pesticideIdFromUrl) {
+      setPesticideCardOpen(false);
+      setSelectedPesticideId(null);
+      setPesticideCard(null);
+      return;
+    }
+    if (selectedPesticideId === pesticideIdFromUrl && pesticideCardOpen) return;
+    void loadPesticideCard(pesticideIdFromUrl);
+  }, [config.entity, user?.id, pesticideIdFromUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const retryComponentCard = () => {
+    if (selectedComponentId) void loadComponentCard(selectedComponentId);
+  };
 
   const openCreate = () => {
     const initial = Object.fromEntries(config.formFields.map((field) => [field.key, getInitialValue(field)]));
@@ -677,6 +794,49 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     );
   };
 
+  const renderCatalogCell = (row: RowRecord, key: string) => {
+    if (config.entity === "active_ingredients" && key === "name_ru" && row.glbd_component_id) {
+      return (
+        <div className="min-w-[190px]">
+          <button
+            type="button"
+            onClick={() => void loadComponentCard(row.glbd_component_id)}
+            className="inline-flex items-center gap-1.5 text-left font-medium text-[#174f84] underline-offset-4 hover:underline"
+            title="Открыть карточку компонента"
+          >
+            <BookOpen className="h-3.5 w-3.5 shrink-0" />
+            {row.name_ru || row.canonical_name || "Компонент"}
+          </button>
+          {row.matched_alias ? (
+            <div className="mt-1 text-xs text-[#68788d]">Найдено по варианту: «{row.matched_alias}»</div>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (isProductEntity(config.entity) && key === "active_ingredients" && Array.isArray(row.active_ingredient_components)) {
+      if (!row.active_ingredient_components.length) return formatCellValue(row[key], key, row, config.entity);
+      return (
+        <div className="flex min-w-[210px] flex-wrap gap-1.5">
+          {row.active_ingredient_components.map((component: any) => (
+            <button
+              type="button"
+              key={component.id}
+              onClick={() => void loadComponentCard(component.id)}
+              className="inline-flex items-center gap-1 border border-[#9aa8ba] bg-[#f6f8fb] px-2 py-1 text-left text-xs font-medium text-[#174f84] hover:bg-[#e8edf3]"
+              title={`Открыть карточку: ${component.displayName}`}
+            >
+              <BookOpen className="h-3 w-3 shrink-0" />
+              {component.displayName}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    return formatCellValue(row[key], key, row, config.entity);
+  };
+
   return (
     <div className="w-full space-y-3 text-[#111827]">
       <Card className="w-full rounded-none border-[#9aa8ba] bg-white !text-[#111827] shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
@@ -707,6 +867,12 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
             </div>
             {config.filters.map(renderFilter)}
           </div>
+          {searchConflict ? (
+            <div className="border border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+              <div className="font-medium">{searchConflict.message}</div>
+              <div className="mt-1 text-xs">Совпадения: {searchConflict.components.join(", ")}</div>
+            </div>
+          ) : null}
         </CardHeader>
       </Card>
 
@@ -739,11 +905,23 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                   <TableRow key={row.id} className="border-[#c3ccd8] bg-white hover:bg-[#f6f8fb]">
                     {config.columns.map((column) => (
                       <TableCell key={`${row.id}-${column.key}`} className={CONSOLE_TABLE_CELL_CLASS}>
-                        {formatCellValue(row[column.key], column.key, row, config.entity)}
+                        {renderCatalogCell(row, column.key)}
                       </TableCell>
                     ))}
                     <TableCell className={CONSOLE_TABLE_CELL_CLASS}>
                       <div className="flex items-center justify-end gap-2">
+                        {config.entity === "pesticides" ? (
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            onClick={() => openPesticideCard(row.id)}
+                            className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]"
+                            title="Открыть полную карточку"
+                            aria-label="Открыть полную карточку"
+                          >
+                            <BookOpen className="h-4 w-4" />
+                          </Button>
+                        ) : null}
                         <Button variant="outline" size="icon" onClick={() => openEdit(row)} className="rounded-none border-[#9aa8ba] bg-white !text-[#16324f] hover:bg-[#eef1f5]">
                           <Pencil className="h-4 w-4" />
                         </Button>
@@ -805,6 +983,24 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <GlbdComponentDialog
+        open={componentOpen}
+        onOpenChange={setComponentOpen}
+        loading={componentLoading}
+        error={componentError}
+        component={componentDetail}
+        onRetry={retryComponentCard}
+      />
+
+      <FullPesticideCardDialog
+        open={pesticideCardOpen}
+        onOpenChange={handlePesticideCardOpenChange}
+        loading={pesticideCardLoading}
+        error={pesticideCardError}
+        card={pesticideCard}
+        onRetry={retryPesticideCard}
+      />
     </div>
   );
 }

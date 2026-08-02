@@ -27,11 +27,12 @@ with inventory_base as (
     it.destination_warehouse_id,
     it.warehouse_id as legacy_warehouse_id,
     it.quantity,
-    coalesce(nullif(it.unit, ''), 'kg') as uom,
+    coalesce(nullif(p.unit, ''), 'kg') as uom,
     null::uuid as ticket_id,
     null::uuid as processing_id,
     it.notes as reason_type
   from public.inventory_transactions it
+  join public.products p on p.id = it.product_id
   where it.company_id is not null
     and coalesce(it.status, 'confirmed') = 'confirmed'
 ),

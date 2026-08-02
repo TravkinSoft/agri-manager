@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { buildProductDisplayLabel } from "@/lib/catalog/catalog-identity";
+import { buildProductDisplayLabel, dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import {
   calculateMaterialPlannedQuantity,
@@ -8,6 +8,7 @@ import {
 } from "@/lib/materials/mix-calculations";
 import { inferMaterialStockUnit, normalizeMaterialRateBasis, type MaterialRateBasis } from "@/lib/materials/metadata";
 import { buildProductPassport, normalizeProductPassportStockUnit } from "@/lib/products/product-passport";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 
 export type CropCareSchemeStatus = "draft" | "active" | "paused" | "completed" | "archived";
 export type CropCareSchemeType = "protection" | "nutrition" | "fertigation" | "combined" | "other";
@@ -36,6 +37,7 @@ export type CropCareVariety = {
 
 export type CropCareProduct = {
   id: string;
+  master_product_id: string | null;
   name: string;
   trade_name: string | null;
   normalized_name: string | null;
@@ -1004,7 +1006,7 @@ export async function loadCropCareBootstrap(supabase: SupabaseClient, companyId:
       .from("products")
       .select("*")
       .eq("archived", false)
-      .eq("company_id", companyId)
+      .or(`company_id.eq.${companyId},company_id.is.null`)
       .order("name", { ascending: true })
       .limit(1500),
     supabase
@@ -1020,6 +1022,18 @@ export async function loadCropCareBootstrap(supabase: SupabaseClient, companyId:
   if (productsRes.error) throw new Error(productsRes.error.message);
   if (responsibleRes.error) throw new Error(responsibleRes.error.message);
 
+  const productRows = productsRes.data || [];
+  const companyProductRows = productRows.filter(
+    (row: any) => String(row.company_id || "") === companyId
+  );
+  const overriddenGlobalIds = new Set(
+    companyProductRows.map((row: any) => String(row.master_product_id || "")).filter(Boolean)
+  );
+  const products = dedupeProductsForSelect(
+    productRows.filter(
+      (row: any) => row.company_id != null || !overriddenGlobalIds.has(String(row.id))
+    )
+  );
   const schemes = season?.id ? await loadCropCareSchemes(supabase, companyId, season.id) : [];
   return {
     season,
@@ -1031,8 +1045,9 @@ export async function loadCropCareBootstrap(supabase: SupabaseClient, companyId:
       crop_id: String(row.crop_id),
       name: displayName(row),
     })),
-    products: (productsRes.data || []).map((row: any) => ({
+    products: products.map((row: any) => ({
       id: String(row.id),
+      master_product_id: nullableText(row.master_product_id),
       name: productDisplayName(row),
       trade_name: nullableText(row.trade_name),
       normalized_name: nullableText(row.normalized_name),
@@ -1277,7 +1292,7 @@ export function buildOperationPayloadFromScheme(input: {
       planned_area_ha: field.area_ha,
       notes: `crop_care_scheme:${input.scheme.id}; step:${input.step.id}`,
     })),
-    date: text(input.step.planned_date) || new Date().toISOString().slice(0, 10),
+    date: text(input.step.planned_date) || todayDateOnlyLocal(),
     responsible_user_id: nullableText(input.step.responsible_user_id),
     notes: [
       `Схема защиты и ухода: ${input.scheme.name}`,

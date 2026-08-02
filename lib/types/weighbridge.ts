@@ -24,10 +24,21 @@ export interface TicketLineInput {
   reproduction_id?: string | null;
   batch_class?: string | null;
   operation_line_id?: string | null;
+  mass_kg?: number | null;
+  density_kg_per_l?: number | null;
+  density_unit?: string | null;
+  density_source?: string | null;
+  density_verification_status?: string | null;
+  density_verified_at?: string | null;
+  unit_source?: string | null;
+  unit_contract_version?: number | null;
 }
 
 export interface TicketInput {
   company_id: string;
+  batch_id?: string | null;
+  audit_json?: Record<string, unknown> | null;
+  season_id?: string | null;
   ticket_type: string;
   op_type: string;
   direction: TicketDirection;
@@ -35,6 +46,7 @@ export interface TicketInput {
   source_id?: string | null;
   destination_kind: string;
   destination_id?: string | null;
+  processing_node_id?: string | null;
   field_id?: string | null;
   crop_structure_allocation_id?: string | null;
   warehouse_from_id?: string | null;
@@ -77,6 +89,9 @@ export interface WeighingInput {
 export interface WeighbridgeTicket {
   id: string;
   company_id: string;
+  batch_id?: string | null;
+  audit_json?: Record<string, unknown> | null;
+  season_id?: string | null;
   company_name?: string | null;
   ticket_no: string;
   ticket_type: string;
@@ -85,6 +100,8 @@ export interface WeighbridgeTicket {
   direction: TicketDirection;
   source_kind: string;
   destination_kind: string;
+  destination_id?: string | null;
+  processing_node_id?: string | null;
   field_id?: string | null;
   warehouse_from_id?: string | null;
   warehouse_to_id?: string | null;
@@ -134,5 +151,50 @@ export interface WeighbridgeTicket {
     amount?: number | null;
     notes?: string | null;
     operation_line_id?: string | null;
+  }>;
+}
+
+export interface HarvestBatchSummary {
+  id: string;
+  batchCode: string;
+  warehouseId: string;
+  warehouseName: string;
+  productId: string;
+  productName: string;
+  cropId: string | null;
+  cropName: string;
+  varietyId: string | null;
+  varietyName: string;
+  reproductionId: string | null;
+  reproductionName: string;
+  fieldId: string | null;
+  fieldName: string;
+  operationLineId: string | null;
+  cropStructureLabel: string;
+  seasonLabel: string;
+  operationName: string;
+  firstReceivedAt: string | null;
+  lastReceivedAt: string | null;
+  receivedKg: number;
+  removedKg: number;
+  cleanMassKg: number;
+  impurityPercent: number;
+  harvestedAreaHa: number | null;
+  grossYieldTPerHa: number | null;
+  cleanYieldTPerHa: number | null;
+  tickets: Array<{
+    id: string;
+    ticketNo: string;
+    operation: "harvest_incoming" | "weighbridge_impurities";
+    netWeightKg: number;
+    occurredAt: string | null;
+  }>;
+  movements: Array<{
+    id: string;
+    label: string;
+    quantityKg: number;
+    direction: "in" | "out";
+    occurredAt: string | null;
+    ticketNo: string;
   }>;
 }

@@ -1,12 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { SessionAuthError, getServerActorFromSession, getUserScopedClientFromRequest, resolveCompanyForActor } from "@/lib/auth/server-session";
 import { postInventoryTransactionToLedger } from "./_ledger";
+import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
+import { toStockContractColumns, type StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
+import {
+  AGROCHEMICAL_WAREHOUSE_TYPES,
+  isAgrochemicalProductType,
+  isAgrochemicalWarehouseType,
+} from "@/lib/warehouse/warehouse-scope";
 
 type MovementType = "receipt" | "issue" | "transfer" | "writeoff" | "adjustment";
 type TransactionDirection = "in" | "out";
 type InventoryStatus = "draft" | "confirmed" | "cancelled";
+
+class WarehouseScopeError extends Error {}
 
 const READ_ROLES = [
   "global_admin",
@@ -20,7 +28,6 @@ const READ_ROLES = [
 
 const WRITE_ROLES = [
   "global_admin",
-  "company_admin",
   "warehouse",
   "warehouse_operator",
 ] as const;
@@ -51,6 +58,14 @@ function normalizeMovementType(movementType: unknown, direction: unknown): Movem
     return movementType;
   }
   return direction === "in" ? "receipt" : "issue";
+}
+
+function stockEventForMovement(movementType: MovementType): StockBusinessEvent {
+  if (movementType === "receipt") return "manual_receipt";
+  if (movementType === "transfer") return "manual_transfer";
+  if (movementType === "writeoff") return "manual_writeoff";
+  if (movementType === "adjustment") return "manual_adjustment";
+  return "manual_issue";
 }
 
 function normalizeLedgerMovementType(reasonType: unknown, direction: unknown): MovementType {
@@ -95,13 +110,15 @@ function applyMovementToBalances(
     warehouseId?: string | null;
     productId: string;
     quantity: number;
+    uom: string;
+    batchClass: string;
   }
 ) {
   if (normalizeStatus(movement.status) !== "confirmed") return;
   const productId = movement.productId;
   const qty = movement.quantity;
   const add = (warehouseId: string, value: number) => {
-    const key = `${warehouseId}|${productId}`;
+    const key = `${warehouseId}|${productId}|${movement.uom}|${movement.batchClass}`;
     map.set(key, (map.get(key) || 0) + value);
   };
 
@@ -130,11 +147,10 @@ function applyMovementToBalances(
   }
 }
 
-async function loadConfirmedBalanceMap(companyId: string) {
-  const supabase = getServiceClient();
+async function loadConfirmedBalanceMap(supabase: any, companyId: string) {
   const { data, error } = await supabase
     .from("v_stock_balance_canonical")
-    .select("warehouse_id, product_id, quantity")
+    .select("warehouse_id, product_id, quantity, uom, batch_class")
     .eq("company_id", companyId);
   if (error) throw new Error(error.message);
 
@@ -143,9 +159,55 @@ async function loadConfirmedBalanceMap(companyId: string) {
     const warehouseId = String(row.warehouse_id || "");
     const productId = String(row.product_id || "");
     if (!warehouseId || !productId) return;
-    map.set(`${warehouseId}|${productId}`, toNumberSafe(row.quantity));
+    const uom = String(row.uom || "");
+    const batchClass = String(row.batch_class || "");
+    if (!uom || !batchClass) return;
+    map.set(`${warehouseId}|${productId}|${uom}|${batchClass}`, toNumberSafe(row.quantity));
   });
   return map;
+}
+
+async function assertWarehousekeeperMovementScope(
+  supabase: any,
+  actorRole: string,
+  companyId: string,
+  payload: Record<string, any>,
+  movementType: MovementType
+) {
+  if (actorRole !== "warehouse" && actorRole !== "warehouse_operator") return;
+  if (movementType === "receipt") {
+    throw new WarehouseScopeError("Use the atomic warehouse receipt form for incoming stock");
+  }
+  if (movementType === "issue" || movementType === "writeoff") {
+    throw new WarehouseScopeError("Warehouse issue is allowed only through an operation material request");
+  }
+
+  const warehouseIds = [payload.source_warehouse_id, payload.destination_warehouse_id, payload.warehouse_id]
+    .map((value) => String(value || ""))
+    .filter(Boolean);
+  const { data: warehouses, error: warehouseError } = await supabase
+    .from("warehouses")
+    .select("id,warehouse_type")
+    .eq("company_id", companyId)
+    .in("id", Array.from(new Set(warehouseIds)));
+  if (warehouseError) throw new Error(warehouseError.message);
+  if (
+    (warehouses || []).length !== Array.from(new Set(warehouseIds)).length ||
+    (warehouses || []).some((row: any) => !AGROCHEMICAL_WAREHOUSE_TYPES.includes(row.warehouse_type as any))
+  ) {
+    throw new WarehouseScopeError("Warehousekeeper movement is limited to agrochemical warehouses");
+  }
+
+  const { data: product, error: productError } = await supabase
+    .from("products")
+    .select("id,type,product_type,category,company_id")
+    .eq("id", payload.product_id)
+    .or(`company_id.eq.${companyId},company_id.is.null`)
+    .maybeSingle();
+  if (productError || !product?.id) throw new WarehouseScopeError(productError?.message || "Material not found");
+  if (!isAgrochemicalProductType(product.product_type || product.type || product.category)) {
+    throw new WarehouseScopeError("Warehousekeeper movement is limited to agrochemical materials");
+  }
 }
 
 function ensureSufficientStock(
@@ -156,6 +218,8 @@ function ensureSufficientStock(
     source_warehouse_id?: string | null;
     product_id: string;
     quantity: number;
+    base_uom: string;
+    batch_class: string;
   }
 ) {
   const productId = String(payload.product_id || "");
@@ -171,7 +235,7 @@ function ensureSufficientStock(
 
   const sourceId = String(payload.source_warehouse_id || "").trim();
   if (!sourceId) return;
-  const available = balanceMap.get(`${sourceId}|${productId}`) || 0;
+  const available = balanceMap.get(`${sourceId}|${productId}|${payload.base_uom}|${payload.batch_class}`) || 0;
   if (available < qty) {
     throw new Error(
       `Insufficient stock. Available: ${available.toFixed(2)}, requested: ${qty.toFixed(2)}`
@@ -238,7 +302,7 @@ export async function GET(request: NextRequest) {
     const limitRaw = Number(request.nextUrl.searchParams.get("limit") || 500);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 2000) : 500;
 
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,
@@ -250,7 +314,7 @@ export async function GET(request: NextRequest) {
       .from("stock_ledger_entries")
       .select(`
         *,
-        warehouses:warehouse_id (name, name_ru, name_kz, name_en),
+        warehouses:warehouse_id (name, name_ru, name_kz, name_en, warehouse_type),
         products:product_id (name, name_ru, name_kz, name_en, type, product_type, unit, base_uom),
         profiles:created_by (email),
         tickets:ticket_id (ticket_no)
@@ -296,7 +360,7 @@ export async function GET(request: NextRequest) {
         warehouse_name: warehouseName,
         product_name: row.products?.name || "N/A",
         product_type: row.products?.product_type || row.products?.type || "N/A",
-        product_unit: row.uom || row.products?.base_uom || row.products?.unit || "kg",
+        product_unit: row.uom || "legacy/unknown",
         created_by_email: row.profiles?.email || "N/A",
         source_system: "stock_ledger_entries",
         source_id: row.id || null,
@@ -329,7 +393,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const requestedCompanyId = String(body.companyId || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
 
     await assertActorAccess({
       supabase,
@@ -339,21 +403,45 @@ export async function POST(request: NextRequest) {
     });
 
     const normalized = buildPayloadFromBody(body, actor.id, actor.authUserId, companyId);
+    const contract = await resolveWarehouseStockContract(supabase, {
+      companyId,
+      productId: normalized.payload.product_id,
+      quantity: normalized.payload.quantity,
+      inputUom: body.input_uom,
+      requestedBatchClass: body.batch_class,
+      event: stockEventForMovement(normalized.movementType),
+    });
+    const canonicalPayload = {
+      ...normalized.payload,
+      quantity: contract.baseQuantity,
+      base_quantity_kg: contract.massKg,
+      ...toStockContractColumns(contract),
+    };
+
+    await assertWarehousekeeperMovementScope(
+      supabase,
+      actor.role,
+      companyId,
+      canonicalPayload,
+      normalized.movementType
+    );
 
     if (normalized.status === "confirmed") {
-      const balances = await loadConfirmedBalanceMap(companyId);
+      const balances = await loadConfirmedBalanceMap(supabase, companyId);
       ensureSufficientStock(balances, {
         movement_type: normalized.movementType,
         transaction_type: normalized.direction,
-        source_warehouse_id: normalized.payload.source_warehouse_id,
-        product_id: normalized.payload.product_id,
-        quantity: normalized.payload.quantity,
+        source_warehouse_id: canonicalPayload.source_warehouse_id,
+        product_id: canonicalPayload.product_id,
+        quantity: canonicalPayload.base_quantity,
+        base_uom: canonicalPayload.base_uom,
+        batch_class: canonicalPayload.batch_class,
       });
     }
 
     const { data, error } = await supabase
       .from("inventory_transactions")
-      .insert(normalized.payload)
+      .insert(canonicalPayload)
       .select("*")
       .single();
     if (error || !data) {
@@ -366,6 +454,9 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    if (error instanceof WarehouseScopeError) {
+      return NextResponse.json({ error: error.message }, { status: 403 });
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },

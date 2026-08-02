@@ -8,7 +8,6 @@ import {
   BookOpen,
   ChartBar as BarChart3,
   Droplets,
-  FlaskConical,
   History,
   LayoutDashboard,
   Map,
@@ -51,7 +50,7 @@ function handleHardNavigation(event: MouseEvent<HTMLAnchorElement>, href: string
   window.location.assign(target.href);
 }
 
-const ADMIN_NAV: NavItem[] = [
+const GLOBAL_ADMIN_NAV: NavItem[] = [
   { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
   { labelKey: "fields", href: "/fields", icon: MapPin },
   { labelKey: "field_map", href: "/fields-map", icon: Map },
@@ -73,16 +72,25 @@ const ADMIN_NAV: NavItem[] = [
   { labelKey: "import", href: "/import", icon: Upload },
 ];
 
+const COMPANY_ADMIN_NAV: NavItem[] = [
+  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "fields", href: "/fields", icon: MapPin },
+  { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
+  { labelKey: "operations", href: "/operations", icon: Tractor },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
+  { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
+  { labelKey: "references", href: "/references", icon: BookOpen },
+  { labelKey: "users", href: "/users", icon: Users },
+  { labelKey: "settings", href: "/settings", icon: Settings },
+];
+
 const AGRONOMIST_NAV: NavItem[] = [
   { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
   { labelKey: "fields", href: "/fields", icon: MapPin },
-  { labelKey: "field_map", href: "/fields-map", icon: Map },
   { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
-  { labelKey: "care_systems", href: "/care-systems", icon: ShieldCheck },
-  { labelKey: "field_history", href: "/field-history", icon: History },
   { labelKey: "operations", href: "/operations", icon: Tractor },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
-  { labelKey: "technique", href: "/technique", icon: Tractor },
   { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
   { labelKey: "references", href: "/references", icon: BookOpen },
 ];
@@ -90,14 +98,9 @@ const AGRONOMIST_NAV: NavItem[] = [
 const DIRECTOR_NAV: NavItem[] = [
   { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
   { labelKey: "fields", href: "/fields", icon: MapPin },
-  { labelKey: "field_map", href: "/fields-map", icon: Map },
   { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
-  { labelKey: "care_systems", href: "/care-systems", icon: ShieldCheck },
-  { labelKey: "field_history", href: "/field-history", icon: History },
   { labelKey: "operations", href: "/operations", icon: Tractor },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
-  { labelKey: "land_legal", href: "/land-legal", icon: ScrollText },
-  { labelKey: "technique", href: "/technique", icon: Tractor },
   { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
   { labelKey: "references", href: "/references", icon: BookOpen },
 ];
@@ -105,29 +108,16 @@ const DIRECTOR_NAV: NavItem[] = [
 const WAREHOUSE_NAV: NavItem[] = [
   { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
-  { labelKey: "inventory_nav", href: "/inventory", icon: Package },
   { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History },
   { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare },
-  { labelKey: "warehouse_catalogs", href: "/warehouses/manage", icon: BookOpen },
-  { labelKey: "meal_thermoses", href: "/meal-thermoses", icon: UtensilsCrossed },
+  { labelKey: "inventory_nav", href: "/inventory", icon: Package },
 ];
 
-const WAREHOUSE_OPERATOR_NAV: NavItem[] = [
-  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
-  { labelKey: "warehouses", href: "/warehouses", icon: Package },
-  { labelKey: "inventory_nav", href: "/inventory", icon: Package },
-  { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History },
-  { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare },
-  { labelKey: "meal_thermoses", href: "/meal-thermoses", icon: UtensilsCrossed },
-];
+const WAREHOUSE_OPERATOR_NAV = WAREHOUSE_NAV;
 
 const WEIGHMAN_NAV: NavItem[] = [
   { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
-  { labelKey: "machines", href: "/machines", icon: PackageSearch },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
-  { labelKey: "processing", href: "/processing", icon: FlaskConical },
-  { labelKey: "containers", href: "/containers", icon: PackageSearch },
   { labelKey: "ledger", href: "/ledger", icon: ScrollText },
 ];
 
@@ -140,22 +130,19 @@ const BRIGADIER_NAV: NavItem[] = [
   { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
   { labelKey: "operations", href: "/operations", icon: Tractor },
   { labelKey: "fields", href: "/fields", icon: MapPin },
-  { labelKey: "field_map", href: "/fields-map", icon: Map },
-  { labelKey: "meal_thermoses", href: "/meal-thermoses", icon: UtensilsCrossed },
 ];
 
 const LEGAL_OPERATOR_NAV: NavItem[] = [
   { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { labelKey: "land_legal", href: "/land-legal", icon: ScrollText },
   { labelKey: "fields", href: "/fields", icon: MapPin },
-  { labelKey: "field_map", href: "/fields-map", icon: Map },
   { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
 ];
 
-const FUEL_OPERATOR_NAV: NavItem[] = [{ labelKey: "fuel", href: "/fuel", icon: Droplets }];
+const FUEL_OPERATOR_NAV: NavItem[] = [{ labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard }];
 
 function getNavigationByRole(role?: string | null): NavItem[] {
-  if (role === "global_admin" || role === "company_admin") return ADMIN_NAV;
+  if (role === "global_admin") return GLOBAL_ADMIN_NAV;
+  if (role === "company_admin") return COMPANY_ADMIN_NAV;
   if (role === "agronomist") return AGRONOMIST_NAV;
   if (role === "director") return DIRECTOR_NAV;
   if (role === "warehouse") return WAREHOUSE_NAV;

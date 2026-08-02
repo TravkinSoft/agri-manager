@@ -5,7 +5,7 @@ import {
   getServerActorFromSession,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import { getAuthenticatedServerClient } from "@/lib/supabase/server-user";
 import { createAssistantThread, listAssistantThreads } from "@/lib/assistant/threads-store";
 
 export const runtime = "nodejs";
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
     const companyId = resolveCompanyForActor(actor, asText(request.nextUrl.searchParams.get("companyId")));
     const limit = Number(request.nextUrl.searchParams.get("limit") || "50");
 
-    const supabase = getServiceClient();
+    const supabase = getAuthenticatedServerClient(request);
     const threads = await listAssistantThreads({
       supabase,
       companyId,
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
     const payload = await request.json().catch(() => ({}));
     const companyId = resolveCompanyForActor(actor, asText(payload?.companyId));
 
-    const supabase = getServiceClient();
+    const supabase = getAuthenticatedServerClient(request);
     const thread = await createAssistantThread({
       supabase,
       companyId,

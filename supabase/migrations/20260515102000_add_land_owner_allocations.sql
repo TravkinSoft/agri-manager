@@ -44,11 +44,21 @@ create unique index if not exists ux_land_owner_allocations_dedupe
   where archived = false;
 
 drop trigger if exists trg_land_owner_allocations_updated_at on public.land_owner_allocations;
-create trigger trg_land_owner_allocations_updated_at
-before update on public.land_owner_allocations
-for each row execute function public.set_updated_at();
 
 alter table public.land_owner_allocations enable row level security;
+
+create or replace function public.get_current_company_id()
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select p.company_id
+  from public.profiles p
+  where p.id = auth.uid()
+  limit 1
+$$;
 
 drop policy if exists "Users can view company land owner allocations" on public.land_owner_allocations;
 drop policy if exists "Users can insert company land owner allocations" on public.land_owner_allocations;
@@ -75,4 +85,3 @@ create policy "Users can delete company land owner allocations"
   on public.land_owner_allocations
   for delete
   using (company_id = public.get_current_company_id());
-

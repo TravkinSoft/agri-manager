@@ -161,33 +161,11 @@ function mapContextErrorMessage(code: string | null, fallback: string | null): s
     ROLE_UNKNOWN: "Роль пользователя не распознана. Доступ к ассистенту закрыт.",
   };
   if (code && readableMessages[code]) return readableMessages[code];
-  return fallback || "Не удалось определить контекст ассистента.";
-
-  switch (code) {
-    case "COMPANY_CONTEXT_REQUIRED":
-      return "Выберите компанию в верхнем переключателе, чтобы использовать ассистента.";
-    case "COMPANY_CONTEXT_MISSING":
-      return "Компания для текущего пользователя не настроена. Обратитесь к администратору.";
-    case "COMPANY_CONTEXT_INVALID":
-      return "Контекст компании поврежден. Выберите компанию заново в верхнем переключателе.";
-    case "COMPANY_CONTEXT_MISMATCH":
-      return "Запрошенный контекст компании не совпадает с вашим доступом.";
-    case "ROLE_FORBIDDEN":
-      return "Для вашей роли ассистент недоступен.";
-    case "ROLE_LEGACY_ALIAS":
-      return "Обнаружена устаревшая роль пользователя. Обновите роль через администратора.";
-    case "AUTH_MISSING":
-    case "AUTH_INVALID":
-      return "Сессия истекла. Обновите страницу и войдите снова.";
-    case "PROFILE_NOT_FOUND":
-      return "Профиль пользователя не найден. Обратитесь к администратору.";
-    case "PROFILE_INACTIVE":
-      return "Профиль пользователя неактивен.";
-    case "ROLE_UNKNOWN":
-      return "Роль пользователя не распознана. Доступ к ассистенту закрыт.";
-    default:
-      return fallback || "Не удалось определить контекст ассистента.";
+  const message = String(fallback || "").trim();
+  if (/service[_ -]?role|supabase.*key|credential|secret/i.test(message)) {
+    return "Ассистент временно недоступен. Обратитесь к администратору.";
   }
+  return message || "Не удалось определить контекст ассистента.";
 }
 
 function mapAccessStatus(code: string | null): AssistantAccessStatus {

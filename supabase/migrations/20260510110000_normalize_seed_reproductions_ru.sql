@@ -24,8 +24,16 @@ select 'R2',  U&'\0412\0442\043E\0440\0430\044F\0020\0440\0435\043F\0440\043E\04
 select 'R3',  U&'\0422\0440\0435\0442\044C\044F\0020\0440\0435\043F\0440\043E\0434\0443\043A\0446\0438\044F', 60 union all
 select 'R4',  U&'\0427\0435\0442\0432\0451\0440\0442\0430\044F\0020\0440\0435\043F\0440\043E\0434\0443\043A\0446\0438\044F', 70;
 
-insert into public.seed_reproductions(name, name_ru, code, company_id, archived, is_active, level_order)
-select c.name_ru, c.name_ru, c.code, null, false, true, c.level_order
+insert into public.seed_reproductions(name, name_ru, code, company_id, archived, is_active, level_order, user_id)
+select c.name_ru, c.name_ru, c.code, null, false, true, c.level_order,
+  (
+    select p.id
+    from public.profiles p
+    where p.status = 'active'
+      and p.role in ('global_admin', 'admin')
+    order by case when p.role = 'global_admin' then 0 else 1 end, p.created_at asc
+    limit 1
+  )
 from tmp_seed_reproduction_canonical c
 where not exists (
   select 1
@@ -33,7 +41,13 @@ where not exists (
   where sr.company_id is null
     and sr.archived = false
     and lower(trim(coalesce(sr.name_ru, sr.name))) = lower(trim(c.name_ru))
-);
+)
+  and exists (
+    select 1
+    from public.profiles p
+    where p.status = 'active'
+      and p.role in ('global_admin', 'admin')
+  );
 
 create temporary table tmp_seed_reproduction_target (
   code text primary key,
@@ -159,6 +173,32 @@ update public.seed_reproductions sr
 set archived = true, is_active = false
 from tmp_seed_reproduction_map m
 where sr.id = m.old_id;
+
+-- Canonical source for production aliases used by imports and UI matching.
+create table if not exists public.seed_reproduction_aliases (
+  id uuid primary key default gen_random_uuid(),
+  seed_reproduction_id uuid not null references public.seed_reproductions(id) on delete cascade,
+  alias text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_seed_reproduction_aliases_seed_id
+  on public.seed_reproduction_aliases(seed_reproduction_id);
+create unique index if not exists ux_seed_reproduction_aliases_alias_ci
+  on public.seed_reproduction_aliases(lower(alias));
+create unique index if not exists ux_seed_reproduction_aliases_seed_alias
+  on public.seed_reproduction_aliases(seed_reproduction_id, alias);
+
+alter table public.seed_reproductions
+  alter column user_id drop not null;
+
+create index if not exists idx_seed_reproductions_is_active_v2
+  on public.seed_reproductions(is_active);
+create index if not exists idx_seed_reproductions_level_order_v2
+  on public.seed_reproductions(level_order);
+create unique index if not exists ux_seed_reproductions_global_name_active_v2
+  on public.seed_reproductions(lower(name))
+  where company_id is null and archived = false and is_active = true;
 
 notify pgrst, 'reload schema';
 

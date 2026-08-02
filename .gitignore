@@ -35,6 +35,9 @@ yarn-error.log*
 /scripts/output/
 /supabase/.temp/
 /reports/
+/audit-output/
+/.a107-build-context/
+/.a107-runtime-*/
 tmp-dev-*.log
 
 # typescript

@@ -1,7 +1,11 @@
 import type { NextRequest } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import {
+  SessionAuthError,
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+} from "@/lib/auth/server-session";
 
 export const WEIGHBRIDGE_READ_ROLES = [
   "global_admin",
@@ -16,10 +20,7 @@ export const WEIGHBRIDGE_READ_ROLES = [
 
 export const WEIGHBRIDGE_WRITE_ROLES = [
   "global_admin",
-  "company_admin",
   "director",
-  "warehouse",
-  "warehouse_operator",
   "weighman",
 ] as const;
 
@@ -47,7 +48,7 @@ export async function resolveWeighbridgeSession(
   const queryCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
   const requestedCompanyId = options?.requestedCompanyId ?? queryCompanyId;
   const companyId = resolveCompanyForActor(actor, requestedCompanyId);
-  const supabase = getServiceClient();
+  const supabase = await getUserScopedClientFromRequest(request);
 
   await assertActorAccess({
     supabase,
@@ -69,6 +70,14 @@ export function asSessionErrorResponse(error: unknown) {
 export function weighbridgeUserError(message: unknown): string {
   const raw = String(message || "").trim();
   const lower = raw.toLowerCase();
+
+  if (raw.includes("IMPURITY_WEIGHT_EXCEEDS_AVAILABLE|")) {
+    const available = Number(raw.split("IMPURITY_WEIGHT_EXCEEDS_AVAILABLE|")[1]?.split(/\s/)[0]);
+    const label = Number.isFinite(available)
+      ? available.toLocaleString("ru-RU", { maximumFractionDigits: 3 })
+      : "0";
+    return `Вес превышает доступную массу партии. Доступно: ${label} кг`;
+  }
 
   if (lower.includes("actor role is not allowed to finalize")) {
     return "У вашей роли нет права закрывать талоны весовой.";

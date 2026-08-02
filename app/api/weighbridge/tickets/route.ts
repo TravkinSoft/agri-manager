@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
+import { createHash } from "node:crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
+import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
+import type { StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
+import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context";
+import { isHarvestProductForAllocation } from "@/lib/weighbridge/harvest-contract";
+import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
+import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -11,15 +18,16 @@ function buildTicketNo(companyId: string): string {
 }
 
 const sameNullable = (a: unknown, b: unknown) => String(a || "") === String(b || "");
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-async function cleanupCreatedTicket(supabase: ReturnType<typeof getServiceClient>, ticketId: string) {
+async function cleanupCreatedTicket(supabase: SupabaseClient, ticketId: string) {
   await supabase.from("ticket_weighings").delete().eq("ticket_id", ticketId);
   await supabase.from("ticket_lines").delete().eq("ticket_id", ticketId);
   await supabase.from("tickets").delete().eq("id", ticketId);
 }
 
 async function resolveActiveSeasonId(
-  supabase: ReturnType<typeof getServiceClient>,
+  supabase: SupabaseClient,
   companyId: string
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -36,7 +44,7 @@ async function resolveActiveSeasonId(
 }
 
 async function resolveActiveShiftId(
-  supabase: ReturnType<typeof getServiceClient>,
+  supabase: SupabaseClient,
   companyId: string
 ): Promise<string | null> {
   const { data, error } = await supabase
@@ -82,6 +90,9 @@ export async function GET(request: NextRequest) {
           batch_id,
           operation_line_id,
           lot_id,
+          composition_snapshot,
+          composition_hash,
+          is_mixed_harvest,
           products:product_id(name,trade_name,normalized_name),
           varieties:variety_id(name),
           reproductions:reproduction_id(name,name_ru,name_kz,name_en,code)
@@ -109,7 +120,7 @@ export async function GET(request: NextRequest) {
         id: String(line.id),
         product_id: String(line.product_id),
         quantity: Number(line.quantity || 0),
-        uom: String(line.uom || "kg"),
+        uom: String(line.uom || "legacy/unknown"),
         warehouse_from_id: line.warehouse_from_id ? String(line.warehouse_from_id) : null,
         warehouse_to_id: line.warehouse_to_id ? String(line.warehouse_to_id) : null,
         unit_price: line.unit_price == null ? null : Number(line.unit_price),
@@ -124,6 +135,9 @@ export async function GET(request: NextRequest) {
         batch_id: line.batch_id ? String(line.batch_id) : null,
         operation_line_id: line.operation_line_id ? String(line.operation_line_id) : null,
         lot_id: line.lot_id ? String(line.lot_id) : null,
+        composition_snapshot: Array.isArray(line.composition_snapshot) ? line.composition_snapshot : [],
+        composition_hash: line.composition_hash ? String(line.composition_hash) : null,
+        is_mixed_harvest: Boolean(line.is_mixed_harvest),
       })),
     }));
 
@@ -166,6 +180,33 @@ export async function POST(request: NextRequest) {
     } as TicketInput;
     const lines = (Array.isArray(body?.lines) ? body.lines : []) as TicketLineInput[];
     const weighings = (Array.isArray(body?.weighings) ? body.weighings : []) as WeighingInput[];
+    const rawIdempotencyKey = String(request.headers.get("Idempotency-Key") || "").trim();
+    if (rawIdempotencyKey && !UUID_RE.test(rawIdempotencyKey)) {
+      return NextResponse.json({ error: "Idempotency-Key must be a UUID" }, { status: 400 });
+    }
+    const idempotencyKey = rawIdempotencyKey || null;
+    const requestFingerprint = idempotencyKey
+      ? createHash("sha256").update(JSON.stringify({ ticket: rawTicket, lines, weighings })).digest("hex")
+      : null;
+
+    if (idempotencyKey) {
+      const { data: existingTicket, error: existingTicketError } = await supabase
+        .from("tickets")
+        .select("*")
+        .eq("id", idempotencyKey)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (existingTicketError) {
+        return NextResponse.json({ error: existingTicketError.message }, { status: 400 });
+      }
+      if (existingTicket?.id) {
+        const existingFingerprint = String((existingTicket as any)?.audit_json?.request_fingerprint || "");
+        if (existingFingerprint !== requestFingerprint) {
+          return NextResponse.json({ error: "Idempotency-Key was already used with another ticket payload" }, { status: 409 });
+        }
+        return NextResponse.json({ ticket: existingTicket, idempotent_replay: true });
+      }
+    }
 
     if (!ticket.ticket_type || !ticket.op_type || !ticket.direction) {
       return NextResponse.json({ error: "ticket_type, op_type and direction are required" }, { status: 400 });
@@ -191,6 +232,166 @@ export async function POST(request: NextRequest) {
     const isHarvestIncoming =
       String(ticket.direction || "") === "incoming" &&
       String(ticket.op_type || "").toLowerCase() === "harvest_incoming";
+    let harvestIsCropMix = false;
+    let harvestCompositionSnapshot: Array<Record<string, unknown>> = [];
+    let harvestCompositionHash: string | null = null;
+    const isImpurityRemoval =
+      String(ticket.direction || "") === "outgoing" &&
+      String(ticket.op_type || "").toLowerCase() === "weighbridge_impurities";
+
+    if (isHarvestIncoming) {
+      if (!ticket.field_id || !ticket.crop_structure_allocation_id) {
+        return NextResponse.json(
+          { error: "Выберите поле и участок / культуру для прихода урожая." },
+          { status: 400 }
+        );
+      }
+
+      const harvestContext = await resolveHarvestTicketContext({
+        supabase,
+        companyId,
+        fieldId: String(ticket.field_id),
+        allocationId: String(ticket.crop_structure_allocation_id),
+      });
+      if (harvestContext.status !== "ready") {
+        return NextResponse.json({ error: harvestContext.message }, { status: 409 });
+      }
+      if (lines.length !== 1) {
+        return NextResponse.json(
+          { error: "Приход урожая должен содержать одну складскую номенклатуру." },
+          { status: 400 }
+        );
+      }
+
+      harvestIsCropMix = harvestContext.allocation?.landUseType === "crop_mix";
+      if (harvestIsCropMix) {
+        const { data: derivedProduct, error: derivedProductError } = await supabase.rpc(
+          "ensure_crop_mix_inventory_product_v1",
+          {
+            p_company_id: companyId,
+            p_actor_profile_id: actor.id,
+            p_crop_structure_id: String(ticket.crop_structure_allocation_id),
+          }
+        );
+        if (derivedProductError || !(derivedProduct as any)?.product_id) {
+          return NextResponse.json(
+            { error: derivedProductError?.message || "Не удалось создать складскую идентичность урожая зерносмеси." },
+            { status: 400 }
+          );
+        }
+        lines[0].product_id = String((derivedProduct as any).product_id);
+        lines[0].crop_id = null;
+        lines[0].variety_id = null;
+        lines[0].reproduction_id = null;
+        harvestCompositionSnapshot = Array.isArray((derivedProduct as any).composition_snapshot)
+          ? (derivedProduct as any).composition_snapshot
+          : [];
+        harvestCompositionHash = String((derivedProduct as any).composition_hash || "") || null;
+        (lines[0] as any).composition_snapshot = harvestCompositionSnapshot;
+        (lines[0] as any).composition_hash = harvestCompositionHash;
+        (lines[0] as any).is_mixed_harvest = true;
+      } else {
+        if (!lines[0]?.product_id) {
+          return NextResponse.json(
+            { error: "Приход урожая должен содержать одну складскую номенклатуру." },
+            { status: 400 }
+          );
+        }
+
+      const [{ data: crop, error: cropError }, { data: harvestProduct, error: harvestProductError }] =
+        await Promise.all([
+          supabase
+            .from("crops")
+            .select("id,name,name_ru,name_kz,name_en")
+            .eq("id", harvestContext.allocation?.cropId || "")
+            .maybeSingle(),
+          supabase
+            .from("products")
+            .select("id,name,trade_name,normalized_name,type,product_type,crop_id,variety_id,seed_reproduction_id")
+            .eq("id", lines[0].product_id)
+            .or(`company_id.eq.${companyId},company_id.is.null`)
+            .eq("archived", false)
+            .maybeSingle(),
+        ]);
+      if (cropError || !crop?.id || harvestProductError || !harvestProduct?.id) {
+        return NextResponse.json(
+          { error: "Не удалось подтвердить культуру и складскую номенклатуру урожая." },
+          { status: 400 }
+        );
+      }
+      const allocationIdentity = {
+        cropId: String(harvestContext.allocation?.cropId || ""),
+        varietyId: harvestContext.allocation?.varietyId || null,
+        reproductionId: harvestContext.allocation?.reproductionId || null,
+      };
+      const cropNames = [crop.name, crop.name_ru, crop.name_kz, crop.name_en]
+        .map((value) => String(value || "").trim())
+        .filter(Boolean);
+      if (
+        !isHarvestProductForAllocation(
+          {
+            id: String(harvestProduct.id),
+            name: harvestProduct.name,
+            tradeName: harvestProduct.trade_name,
+            normalizedName: harvestProduct.normalized_name,
+            type: harvestProduct.type,
+            productType: harvestProduct.product_type,
+            cropId: harvestProduct.crop_id,
+            varietyId: harvestProduct.variety_id,
+            reproductionId: harvestProduct.seed_reproduction_id,
+          },
+          allocationIdentity,
+          cropNames
+        )
+      ) {
+        return NextResponse.json(
+          { error: "Складская номенклатура не соответствует культуре, сорту или репродукции урожая." },
+          { status: 409 }
+        );
+      }
+      }
+
+      ticket.season_id = harvestContext.seasonId;
+      ticket.linked_operation_id = harvestContext.operationId || null;
+      for (const line of lines) {
+        line.operation_line_id = harvestContext.operationLineId || null;
+        line.crop_id = harvestIsCropMix ? null : harvestContext.allocation?.cropId || null;
+        line.variety_id = harvestIsCropMix ? null : harvestContext.allocation?.varietyId || null;
+        line.reproduction_id = harvestIsCropMix ? null : harvestContext.allocation?.reproductionId || null;
+      }
+
+      const destinationKind = String(ticket.destination_kind || "warehouse").trim().toLowerCase();
+      if (destinationKind === "warehouse") {
+        const warehouseId = String(ticket.warehouse_to_id || ticket.destination_id || "").trim();
+        const { data: destinationWarehouse, error: destinationWarehouseError } = await supabase
+          .from("warehouses")
+          .select("id,company_id,warehouse_type,archived,is_archived")
+          .eq("company_id", companyId)
+          .eq("id", warehouseId)
+          .maybeSingle();
+        if (
+          destinationWarehouseError ||
+          !destinationWarehouse?.id ||
+          destinationWarehouse.archived ||
+          destinationWarehouse.is_archived ||
+          !isHarvestWarehouseType(destinationWarehouse.warehouse_type)
+        ) {
+          return NextResponse.json(
+            { error: "Выберите активный склад, разрешённый для приёма урожая." },
+            { status: 400 }
+          );
+        }
+        ticket.destination_kind = "warehouse";
+        ticket.destination_id = String(destinationWarehouse.id);
+        ticket.processing_node_id = null;
+        ticket.warehouse_to_id = String(destinationWarehouse.id);
+        for (const line of lines) {
+          line.warehouse_to_id = String(destinationWarehouse.id);
+        }
+      } else {
+        return NextResponse.json({ error: "Урожай можно направить только на склад." }, { status: 400 });
+      }
+    }
     const isDirectWarehouseTransfer =
       isWarehouseTransfer &&
       String(ticket.weigh_method || "").toLowerCase() === "manual_override_with_reason";
@@ -198,12 +399,11 @@ export async function POST(request: NextRequest) {
       isFieldIssue &&
       String(ticket.weigh_method || "").toLowerCase() === "manual_override_with_reason";
     const supplierReceiptMode = String((ticket as any).receipt_mode || "weighbridge");
-    const supplierReceiptKind = String((ticket as any).supplier_receipt_kind || "generic");
     const isDirectSupplierReceipt = isSupplierReceipt && supplierReceiptMode === "direct";
     const requiresVehicle =
       isShipment ||
       isHarvestIncoming ||
-      (isSupplierReceipt && supplierReceiptMode !== "direct") ||
+      isImpurityRemoval ||
       (isWarehouseTransfer && !isDirectWarehouseTransfer) ||
       (isFieldIssue && !isDirectFieldIssue);
     const activeShiftIdPromise = isDirectSupplierReceipt
@@ -226,12 +426,92 @@ export async function POST(request: NextRequest) {
     if (!lines.length) {
       return NextResponse.json({ error: "At least one ticket line is required" }, { status: 400 });
     }
+    if (isImpurityRemoval) {
+      const impurityType = String(ticket.audit_json?.impurity_type || "").trim();
+      if (!ticket.batch_id || !ticket.warehouse_from_id) {
+        return NextResponse.json({ error: "Выберите склад и партию урожая." }, { status: 400 });
+      }
+      if (!ticket.vehicle_id || !ticket.driver_id) {
+        return NextResponse.json({ error: "Выберите водителя и машину." }, { status: 400 });
+      }
+      if (!Number.isFinite(Number(ticket.gross_weight_kg)) || Number(ticket.gross_weight_kg) <= 0) {
+        return NextResponse.json({ error: "Укажите брутто." }, { status: 400 });
+      }
+      if (!["soil_and_trash", "nonconforming_crop", "plant_residues", "other"].includes(impurityType)) {
+        return NextResponse.json({ error: "Выберите вид примесей." }, { status: 400 });
+      }
+      if (impurityType === "other" && !String(ticket.notes || "").trim()) {
+        return NextResponse.json({ error: "Для вида «Прочее» добавьте комментарий." }, { status: 400 });
+      }
+      if (lines.length !== 1) {
+        return NextResponse.json({ error: "Вывоз примесей поддерживает одну партию на талон." }, { status: 400 });
+      }
+
+      const [{ data: batch, error: batchError }, { data: warehouse, error: warehouseError }, { data: harvestTicket, error: harvestTicketError }] = await Promise.all([
+        supabase
+          .from("inventory_batches")
+          .select("id,batch_code,product_id,crop_id,variety_id,reproduction_id,batch_class,source_ticket_id,origin_type")
+          .eq("company_id", companyId)
+          .eq("id", ticket.batch_id)
+          .eq("origin_type", "harvest")
+          .maybeSingle(),
+        supabase
+          .from("warehouses")
+          .select("id,warehouse_type,archived,is_archived")
+          .eq("company_id", companyId)
+          .eq("id", ticket.warehouse_from_id)
+          .maybeSingle(),
+        supabase
+          .from("tickets")
+          .select("id,warehouse_to_id,status,is_finalized,is_voided")
+          .eq("company_id", companyId)
+          .eq("batch_id", ticket.batch_id)
+          .eq("op_type", "harvest_incoming")
+          .eq("warehouse_to_id", ticket.warehouse_from_id)
+          .eq("status", "finalized")
+          .eq("is_finalized", true)
+          .eq("is_voided", false)
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      if (batchError || !batch?.id) {
+        return NextResponse.json({ error: "Партия урожая не найдена в выбранной компании." }, { status: 400 });
+      }
+      if (warehouseError || !warehouse?.id || warehouse.archived || warehouse.is_archived || !isHarvestWarehouseType(warehouse.warehouse_type)) {
+        return NextResponse.json({ error: "Выберите активный склад урожая." }, { status: 400 });
+      }
+      if (harvestTicketError || !harvestTicket?.id) {
+        return NextResponse.json({ error: "Партия не была принята на выбранный склад закрытым талоном урожая." }, { status: 400 });
+      }
+
+      ticket.source_kind = "warehouse";
+      ticket.source_id = String(warehouse.id);
+      ticket.destination_kind = "impurity_removal";
+      ticket.destination_id = null;
+      ticket.warehouse_to_id = null;
+      ticket.processing_node_id = null;
+      ticket.audit_json = { ...(ticket.audit_json || {}), impurity_type: impurityType };
+      const line = lines[0];
+      line.product_id = String(batch.product_id || "");
+      line.crop_id = batch.crop_id ? String(batch.crop_id) : null;
+      line.variety_id = batch.variety_id ? String(batch.variety_id) : null;
+      line.reproduction_id = batch.reproduction_id ? String(batch.reproduction_id) : null;
+      line.batch_id = String(batch.id);
+      line.lot_id = String(batch.batch_code || batch.id);
+      line.batch_class = String(batch.batch_class || "commodity");
+      line.warehouse_from_id = String(warehouse.id);
+      line.warehouse_to_id = null;
+      line.uom = "kg";
+      if (!line.product_id) {
+        return NextResponse.json({ error: "У партии урожая не определена складская номенклатура." }, { status: 400 });
+      }
+    }
     if (isWarehouseTransfer) {
       if (!ticket.warehouse_from_id || !ticket.warehouse_to_id) {
         return NextResponse.json({ error: "source and destination warehouses are required for transfer" }, { status: 400 });
       }
       if (String(ticket.warehouse_from_id) === String(ticket.warehouse_to_id)) {
-        return NextResponse.json({ error: "source and destination warehouses must be different" }, { status: 400 });
+        return NextResponse.json({ error: "Склад назначения должен отличаться от склада-источника" }, { status: 400 });
       }
       if (lines.length !== 1) {
         return NextResponse.json({ error: "warehouse transfer currently supports one stock identity per ticket" }, { status: 400 });
@@ -241,13 +521,12 @@ export async function POST(request: NextRequest) {
       if (!line.product_id || !Number.isFinite(qty) || qty <= 0) {
         return NextResponse.json({ error: "transfer product identity and positive quantity are required" }, { status: 400 });
       }
-      line.batch_class = line.batch_class || "commodity";
     }
     if (isFieldIssue) {
       if (!ticket.warehouse_from_id || !ticket.field_id) {
         return NextResponse.json({ error: "source warehouse and field are required for field issue" }, { status: 400 });
       }
-      if (!["seed_planting_material", "fertilizer", "crop_protection", "organic", "fuel", "other"].includes(String((ticket as any).field_material_category || ""))) {
+      if (!["seed_planting_material", "fertilizer", "organic", "other"].includes(String((ticket as any).field_material_category || ""))) {
         return NextResponse.json({ error: "field material category is required for field issue" }, { status: 400 });
       }
       if (lines.length !== 1) {
@@ -258,7 +537,6 @@ export async function POST(request: NextRequest) {
       if (!line.product_id || !Number.isFinite(qty) || qty <= 0) {
         return NextResponse.json({ error: "field issue product identity and positive quantity are required" }, { status: 400 });
       }
-      line.batch_class = line.batch_class || "commodity";
     }
     if (isShipment || isDisposal) {
       if (!ticket.warehouse_from_id) {
@@ -272,7 +550,6 @@ export async function POST(request: NextRequest) {
       if (!line.product_id || !Number.isFinite(qty) || qty <= 0) {
         return NextResponse.json({ error: "stock identity and positive quantity are required" }, { status: 400 });
       }
-      line.batch_class = line.batch_class || "commodity";
       if (isShipment) {
         if (!ticket.buyer_id || String(ticket.destination_kind || "") !== "counterparty") {
           return NextResponse.json({ error: "counterparty is required for shipment" }, { status: 400 });
@@ -290,17 +567,22 @@ export async function POST(request: NextRequest) {
       if (!ticket.supplier_id || String(ticket.source_kind || "") !== "supplier") {
         return NextResponse.json({ error: "supplier_id is required for supplier receipt" }, { status: 400 });
       }
-      if (!ticket.warehouse_to_id || String(ticket.destination_kind || "") !== "warehouse") {
-        return NextResponse.json({ error: "warehouse_to_id is required for supplier receipt" }, { status: 400 });
-      }
       if (supplierReceiptMode === "direct") {
+        ticket.warehouse_to_id = null;
+        ticket.destination_id = null;
         ticket.gross_weight_kg = null;
         ticket.tare_weight_kg = null;
         ticket.weigh_method = "manual_override_with_reason";
       } else {
+        if (!ticket.warehouse_to_id || String(ticket.destination_kind || "") !== "warehouse") {
+          return NextResponse.json({ error: "warehouse_to_id is required for weighed supplier receipt" }, { status: 400 });
+        }
         const gross = Number(ticket.gross_weight_kg || 0);
         if (!Number.isFinite(gross) || gross <= 0) {
           return NextResponse.json({ error: "Укажите брутто для прихода через весовую." }, { status: 400 });
+        }
+        if (lines.length !== 1) {
+          return NextResponse.json({ error: "Один весовой талон может содержать только один товар" }, { status: 400 });
         }
       }
       for (const line of lines) {
@@ -308,23 +590,82 @@ export async function POST(request: NextRequest) {
         if (!line.product_id || !Number.isFinite(qty) || qty <= 0) {
           return NextResponse.json({ error: "product and positive quantity are required for supplier receipt lines" }, { status: 400 });
         }
-        line.uom = String(line.uom || "").trim();
-        if (!line.uom) {
-          return NextResponse.json({ error: "Выберите единицу измерения по каждой строке поставки" }, { status: 400 });
-        }
-        line.warehouse_to_id = line.warehouse_to_id || ticket.warehouse_to_id || null;
+        line.warehouse_to_id = supplierReceiptMode === "direct"
+          ? line.warehouse_to_id || null
+          : ticket.warehouse_to_id || null;
         if (!line.warehouse_to_id) {
           return NextResponse.json({ error: "Выберите склад по каждой строке поставки" }, { status: 400 });
         }
-        if (supplierReceiptKind === "agro_identity") {
-          if (!line.crop_id || !line.variety_id || !line.reproduction_id) {
-            return NextResponse.json({ error: "crop_id, variety_id and reproduction_id are required for identity-aware supplier receipt" }, { status: 400 });
-          }
-          if (!line.lot_id && !(line as any).supplier_lot) {
-            return NextResponse.json({ error: "supplier lot is required for identity-aware supplier receipt" }, { status: 400 });
-          }
-        }
       }
+    }
+
+    const stockEvent: StockBusinessEvent = isHarvestIncoming
+      ? "harvest_incoming"
+      : isImpurityRemoval
+        ? "manual_writeoff"
+      : isSupplierReceipt
+        ? "supplier_receipt"
+        : isWarehouseTransfer
+          ? "manual_transfer"
+          : isFieldIssue
+            ? "field_issue"
+            : isShipment
+              ? "shipment"
+              : isDisposal
+                ? "disposal"
+                : "processing";
+
+    for (const line of lines) {
+      const { data: product, error: productError } = await supabase
+        .from("products")
+        .select("id,product_type,type,category,stock_unit,base_uom,unit,physical_state,is_seed_material")
+        .eq("id", line.product_id)
+        .or(`company_id.eq.${ticket.company_id},company_id.is.null`)
+        .maybeSingle();
+      if (productError || !product?.id) {
+        return NextResponse.json({ error: "Номенклатура недоступна выбранной компании" }, { status: 400 });
+      }
+      const catalogStockUnit = String(product.stock_unit || "").trim().toLowerCase();
+      if (isDirectSupplierReceipt && !catalogStockUnit) {
+        return NextResponse.json({ error: "Для номенклатуры не задана единица хранения" }, { status: 400 });
+      }
+      if (!isDirectSupplierReceipt && isSupplierReceipt && !isWeighedSupplierProduct({
+        productType: product.product_type || product.type || product.category,
+        stockUnit: catalogStockUnit || product.base_uom || product.unit,
+        physicalState: product.physical_state,
+        isSeedMaterial: product.is_seed_material,
+      })) {
+        return NextResponse.json({ error: "Эта номенклатура не принимается через весовую" }, { status: 400 });
+      }
+      const contract = await resolveWarehouseStockContract(supabase, {
+        companyId: ticket.company_id,
+        productId: line.product_id,
+        quantity: line.quantity,
+        inputUom: line.uom,
+        requestedBatchClass: line.batch_class,
+        event: stockEvent,
+        fieldMaterialCategory: ticket.field_material_category,
+      });
+      if (!isDirectSupplierReceipt && contract.baseUom !== "kg" && !isDirectWarehouseTransfer && !isDirectFieldIssue) {
+        return NextResponse.json(
+          { error: "Литры и штуки нельзя подменять весом нетто. Используйте прямой документ с количеством в единице товара." },
+          { status: 400 }
+        );
+      }
+      if (isDirectSupplierReceipt && contract.baseUom !== catalogStockUnit) {
+        return NextResponse.json({ error: "Единица строки должна совпадать с единицей хранения номенклатуры" }, { status: 400 });
+      }
+      line.quantity = contract.baseQuantity;
+      line.uom = contract.baseUom;
+      line.batch_class = contract.batchClass;
+      line.mass_kg = contract.massKg;
+      line.density_kg_per_l = contract.densityKgPerL;
+      line.density_unit = contract.densityUnit;
+      line.density_source = contract.densitySource;
+      line.density_verification_status = contract.densityVerificationStatus;
+      line.density_verified_at = contract.densityVerifiedAt;
+      line.unit_source = contract.unitSource;
+      line.unit_contract_version = contract.unitContractVersion;
     }
 
     if (isWarehouseTransfer) {
@@ -332,7 +673,7 @@ export async function POST(request: NextRequest) {
       const requiredQty = Number(line.quantity || 0);
       const { data: balances, error: balanceError } = await supabase
         .from("v_stock_balance_identity")
-        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,quantity")
+        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
         .eq("company_id", ticket.company_id)
         .eq("warehouse_id", ticket.warehouse_from_id)
         .eq("product_id", line.product_id)
@@ -344,7 +685,8 @@ export async function POST(request: NextRequest) {
         sameNullable(row.variety_id, line.variety_id) &&
         sameNullable(row.reproduction_id, line.reproduction_id) &&
         (sameNullable(row.batch_id, line.batch_id) || sameNullable(row.batch_id, line.lot_id)) &&
-        String(row.batch_class || "commodity") === String(line.batch_class || "commodity")
+        String(row.batch_class || "") === String(line.batch_class || "") &&
+        String(row.uom || "") === String(line.uom || "")
       );
       const available = Number(match?.quantity || 0);
       if (!match) {
@@ -352,7 +694,7 @@ export async function POST(request: NextRequest) {
       }
       if (isDirectWarehouseTransfer && available < requiredQty) {
         return NextResponse.json(
-          { error: `РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РѕСЃС‚Р°С‚РєР° РґР»СЏ РїРµСЂРµРјРµС‰РµРЅРёСЏ. Р”РѕСЃС‚СѓРїРЅРѕ: ${available.toFixed(3)} РєРі, РЅСѓР¶РЅРѕ: ${requiredQty.toFixed(3)} РєРі` },
+          { error: `Недостаточно остатка для перемещения. Доступно: ${available.toFixed(3)} кг, нужно: ${requiredQty.toFixed(3)} кг` },
           { status: 400 }
         );
       }
@@ -362,7 +704,7 @@ export async function POST(request: NextRequest) {
       const requiredQty = Number(line.quantity || 0);
       const { data: balances, error: balanceError } = await supabase
         .from("v_stock_balance_identity")
-        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,quantity")
+        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
         .eq("company_id", ticket.company_id)
         .eq("warehouse_id", ticket.warehouse_from_id)
         .eq("product_id", line.product_id)
@@ -374,7 +716,8 @@ export async function POST(request: NextRequest) {
         sameNullable(row.variety_id, line.variety_id) &&
         sameNullable(row.reproduction_id, line.reproduction_id) &&
         (sameNullable(row.batch_id, line.batch_id) || sameNullable(row.batch_id, line.lot_id)) &&
-        String(row.batch_class || "commodity") === String(line.batch_class || "commodity")
+        String(row.batch_class || "") === String(line.batch_class || "") &&
+        String(row.uom || "") === String(line.uom || "")
       );
       const available = Number(match?.quantity || 0);
       if (!match) {
@@ -392,7 +735,7 @@ export async function POST(request: NextRequest) {
       const requiredQty = Number(line.quantity || 0);
       const { data: balances, error: balanceError } = await supabase
         .from("v_stock_balance_identity")
-        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,quantity")
+        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
         .eq("company_id", ticket.company_id)
         .eq("warehouse_id", ticket.warehouse_from_id)
         .eq("product_id", line.product_id)
@@ -404,7 +747,8 @@ export async function POST(request: NextRequest) {
         sameNullable(row.variety_id, line.variety_id) &&
         sameNullable(row.reproduction_id, line.reproduction_id) &&
         (sameNullable(row.batch_id, line.batch_id) || sameNullable(row.batch_id, line.lot_id)) &&
-        String(row.batch_class || "commodity") === String(line.batch_class || "commodity")
+        String(row.batch_class || "") === String(line.batch_class || "") &&
+        String(row.uom || "") === String(line.uom || "")
       );
       const available = Number(match?.quantity || 0);
       if (!match) {
@@ -412,7 +756,7 @@ export async function POST(request: NextRequest) {
       }
       if (isDirectFieldIssue && available < requiredQty) {
         return NextResponse.json(
-          { error: `РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РѕСЃС‚Р°С‚РєР° РґР»СЏ РѕС‚РїСѓСЃРєР° РІ РїРѕР»Рµ. Р”РѕСЃС‚СѓРїРЅРѕ: ${available.toFixed(3)} РєРі, РЅСѓР¶РЅРѕ: ${requiredQty.toFixed(3)} РєРі` },
+          { error: `Недостаточно остатка для отпуска в поле. Доступно: ${available.toFixed(3)} кг, нужно: ${requiredQty.toFixed(3)} кг` },
           { status: 400 }
         );
       }
@@ -497,7 +841,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "crop_structure_allocation_id is required for harvest incoming" }, { status: 400 });
       }
       if (!ticket.warehouse_to_id) {
-        return NextResponse.json({ error: "warehouse_to_id is required for harvest incoming" }, { status: 400 });
+        return NextResponse.json({ error: "Не определено место приёмки урожая." }, { status: 400 });
       }
       if (!ticket.driver_id) {
         return NextResponse.json({ error: "driver_id is required for harvest incoming" }, { status: 400 });
@@ -510,8 +854,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "gross_weight_kg is required and must be positive for harvest incoming" }, { status: 400 });
       }
       for (const line of lines) {
-        if (!line.crop_id) {
-          return NextResponse.json({ error: "crop_id is required for harvest incoming lines" }, { status: 400 });
+        if (!harvestIsCropMix && (!line.crop_id || !line.variety_id || !line.reproduction_id)) {
+          return NextResponse.json(
+            { error: "crop_id, variety_id and reproduction_id are required for harvest incoming lines" },
+            { status: 400 }
+          );
         }
         const lineQty = Number(line.quantity || 0);
         if (!Number.isFinite(lineQty) || lineQty <= 0) {
@@ -548,7 +895,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           );
         }
-        if (isFieldIssue && ticket.field_id && row.field_id && String(row.field_id || "") !== String(ticket.field_id || "")) {
+        if ((isFieldIssue || isHarvestIncoming) && ticket.field_id && row.field_id && String(row.field_id || "") !== String(ticket.field_id || "")) {
           return NextResponse.json(
             { error: `operation_line_id ${operationLineId} does not belong to selected field` },
             { status: 400 }
@@ -560,15 +907,22 @@ export async function POST(request: NextRequest) {
     if (ticket.linked_operation_id) {
       const { data: linkedOperation, error: linkedOperationError } = await supabase
         .from("operations")
-        .select("id,field_id,company_id")
+        .select("id,field_id,company_id,operation_category_slug,operation_type_slug")
         .eq("company_id", ticket.company_id)
         .eq("id", ticket.linked_operation_id)
         .maybeSingle();
       if (linkedOperationError || !linkedOperation?.id) {
         return NextResponse.json({ error: "linked_operation_id is invalid for actor company" }, { status: 400 });
       }
-      if (isFieldIssue && ticket.field_id && linkedOperation.field_id && String(linkedOperation.field_id || "") !== String(ticket.field_id || "")) {
+      if ((isFieldIssue || isHarvestIncoming) && ticket.field_id && linkedOperation.field_id && String(linkedOperation.field_id || "") !== String(ticket.field_id || "")) {
         return NextResponse.json({ error: "linked_operation_id does not belong to selected field" }, { status: 400 });
+      }
+      if (
+        isHarvestIncoming &&
+        linkedOperation.operation_category_slug !== "harvesting" &&
+        linkedOperation.operation_type_slug !== "harvesting"
+      ) {
+        return NextResponse.json({ error: "linked_operation_id must reference a harvesting operation" }, { status: 400 });
       }
     }
 
@@ -583,28 +937,30 @@ export async function POST(request: NextRequest) {
     if (isSupplierReceipt) {
       const { data: supplier, error: supplierError } = await supabase
         .from("counterparties")
-        .select("id,is_active,archived,counterparty_type")
+        .select("id,is_active,archived,counterparty_type,roles")
         .eq("company_id", ticket.company_id)
         .eq("id", ticket.supplier_id)
         .maybeSingle();
       if (supplierError || !supplier?.id) {
         return NextResponse.json({ error: "Supplier not found in current company" }, { status: 400 });
       }
-      if (!supplier.is_active || supplier.archived || !["supplier", "both"].includes(String(supplier.counterparty_type || ""))) {
+      const supplierRoles = Array.isArray((supplier as any).roles) ? (supplier as any).roles.map(String) : [];
+      if (!supplier.is_active || supplier.archived || (!supplierRoles.includes("supplier") && !["supplier", "both"].includes(String(supplier.counterparty_type || "")))) {
         return NextResponse.json({ error: "Supplier is inactive or not allowed for receipt" }, { status: 400 });
       }
     }
     if (isShipment) {
       const { data: buyer, error: buyerError } = await supabase
         .from("counterparties")
-        .select("id,is_active,archived,counterparty_type")
+        .select("id,is_active,archived,counterparty_type,roles")
         .eq("company_id", ticket.company_id)
         .eq("id", ticket.buyer_id)
         .maybeSingle();
       if (buyerError || !buyer?.id) {
         return NextResponse.json({ error: "Counterparty not found in current company" }, { status: 400 });
       }
-      if (!buyer.is_active || buyer.archived || !["buyer", "both", "other"].includes(String(buyer.counterparty_type || ""))) {
+      const buyerRoles = Array.isArray((buyer as any).roles) ? (buyer as any).roles.map(String) : [];
+      if (!buyer.is_active || buyer.archived || (!buyerRoles.includes("buyer") && !["buyer", "both"].includes(String(buyer.counterparty_type || "")))) {
         return NextResponse.json({ error: "Counterparty is inactive or not allowed for shipment" }, { status: 400 });
       }
     }
@@ -646,7 +1002,7 @@ export async function POST(request: NextRequest) {
       }
       const { data: structureRows, error: structureError } = await supabase
         .from("crop_structure")
-        .select("id,field_id,season_id,crop_id,variety_id,reproduction_id,company_id")
+        .select("id,field_id,season_id,land_use_type,crop_id,variety_id,reproduction_id,company_id")
         .eq("company_id", ticket.company_id)
         .eq("season_id", seasonId)
         .eq("field_id", ticket.field_id)
@@ -663,6 +1019,14 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+      if (harvestIsCropMix) {
+        if ((allocation as any).land_use_type !== "crop_mix") {
+          return NextResponse.json({ error: "Selected crop structure is not a crop mix" }, { status: 409 });
+        }
+        if (lines.some((line) => line.crop_id || line.variety_id || line.reproduction_id)) {
+          return NextResponse.json({ error: "Crop mix harvest line must use the mixed inventory identity" }, { status: 409 });
+        }
+      } else {
       const allowed = new Set(
         (structureRows || []).map(
           (x: any) => `${String(x.crop_id || "")}:${String(x.variety_id || "")}:${String(x.reproduction_id || "")}`
@@ -687,7 +1051,40 @@ export async function POST(request: NextRequest) {
           );
         }
       }
+      }
     }
+    if (isDirectSupplierReceipt) {
+      if (!idempotencyKey || !requestFingerprint) {
+        return NextResponse.json({ error: "Idempotency-Key is required for invoice receipt" }, { status: 400 });
+      }
+      const { data: receipt, error: receiptError } = await supabase.rpc("create_supplier_invoice_atomic_v1", {
+        p_company_id: ticket.company_id,
+        p_supplier_id: ticket.supplier_id,
+        p_document_no: ticket.supplier_document_no || null,
+        p_notes: ticket.notes || null,
+        p_lines: lines.map((line) => ({
+          product_id: line.product_id,
+          quantity: line.quantity,
+          warehouse_id: line.warehouse_to_id,
+          lot_number: line.lot_id || (line as any).supplier_lot || null,
+          unit_price: line.unit_price ?? null,
+          notes: line.notes || null,
+        })),
+        p_vehicle_id: ticket.vehicle_id || null,
+        p_driver_id: ticket.driver_id || null,
+        p_idempotency_key: idempotencyKey,
+        p_request_fingerprint: requestFingerprint,
+      });
+      if (receiptError) {
+        return NextResponse.json({ error: weighbridgeUserError(receiptError.message) }, { status: 400 });
+      }
+      const { data: finalizedTicket } = await supabase.from("tickets").select("*")
+        .eq("id", String((receipt as any)?.receipt_id || idempotencyKey)).eq("company_id", companyId).maybeSingle();
+      timing.validationMs = Date.now() - validationStartedAt;
+      timing.totalMs = Date.now() - startedAt;
+      return NextResponse.json({ ticket: finalizedTicket, receipt, idempotent_replay: Boolean((receipt as any)?.idempotent_replay), debug: timing });
+    }
+
     timing.validationMs = Date.now() - validationStartedAt;
     const dbStartedAt = Date.now();
     const ticketNo = buildTicketNo(ticket.company_id);
@@ -714,6 +1111,14 @@ export async function POST(request: NextRequest) {
       .from("tickets")
       .insert({
         ...ticket,
+        ...(idempotencyKey ? { id: idempotencyKey } : {}),
+        audit_json: idempotencyKey
+          ? {
+              ...(((ticket as any).audit_json || {}) as Record<string, unknown>),
+              idempotency_key: idempotencyKey,
+              request_fingerprint: requestFingerprint,
+            }
+          : (ticket as any).audit_json || null,
         shift_id: ticket.shift_id || activeShiftId,
         ticket_no: ticketNo,
         status: isDirectSupplierReceipt ? "ready_to_close" : "active",
@@ -749,7 +1154,7 @@ export async function POST(request: NextRequest) {
       product_id: line.product_id,
       crop_id: line.crop_id ?? null,
       quantity: Number(line.quantity || 0),
-      uom: String(line.uom || "kg").trim(),
+      uom: String(line.uom || "").trim(),
       warehouse_from_id: line.warehouse_from_id || (ticket.direction === "outgoing" || ticket.direction === "transfer" ? ticket.warehouse_from_id || null : null),
       warehouse_to_id: line.warehouse_to_id || (ticket.direction === "incoming" || ticket.direction === "transfer" ? ticket.warehouse_to_id || null : null),
       unit_price: line.unit_price == null ? null : Number(line.unit_price),
@@ -770,6 +1175,17 @@ export async function POST(request: NextRequest) {
       operation_line_id: (line as any).operation_line_id ?? null,
       batch_id: line.batch_id ?? null,
       batch_class: line.batch_class ?? null,
+      mass_kg: line.mass_kg ?? null,
+      density_kg_per_l: line.density_kg_per_l ?? null,
+      density_unit: line.density_unit ?? null,
+      density_source: line.density_source ?? null,
+      density_verification_status: line.density_verification_status ?? null,
+      density_verified_at: line.density_verified_at ?? null,
+      unit_source: line.unit_source ?? null,
+      unit_contract_version: line.unit_contract_version ?? null,
+      composition_snapshot: (line as any).composition_snapshot || [],
+      composition_hash: (line as any).composition_hash || null,
+      is_mixed_harvest: Boolean((line as any).is_mixed_harvest),
     }));
 
     const { error: linesError } = await supabase.from("ticket_lines").insert(linesPayload);
@@ -807,7 +1223,7 @@ export async function POST(request: NextRequest) {
 
     if (isDirectSupplierReceipt) {
       const rpcStartedAt = Date.now();
-      const { error: finalizeError } = await supabase.rpc("finalize_weighbridge_ticket_v2", {
+      const { error: finalizeError } = await supabase.rpc("finalize_weighbridge_ticket_authenticated_v1", {
         p_ticket_id: createdTicket.id,
         p_actor_user_id: actor.id,
       });

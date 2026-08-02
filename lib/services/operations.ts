@@ -93,7 +93,11 @@ function normalizeOperationMaterials(rows: any[] | null | undefined): OperationM
     rate_basis: parseMaterialRateBasisFromNotes(row?.notes),
     product_name: row?.products
       ? buildProductPassport({ ...row.products, id: String(row.product_id || row.products.id || "") }).displayName
-      : null,
+      : [localizedName(relationOne(row?.crops) as any, "ru"), brandName(relationOne(row?.varieties) as any), localizedName(relationOne(row?.reproductions) as any, "ru")]
+          .filter(Boolean)
+          .join(", ") || null,
+    master_product_id: row?.products?.master_product_id || null,
+    product_type: row?.products?.product_type || row?.products?.type || null,
   })) as OperationMaterial[];
 }
 
@@ -155,6 +159,13 @@ function normalizeOperationRow(op: any): OperationWithDetails {
       reproductionName: localizedName(op.crop_structure?.seed_reproductions, "ru"),
     }
   );
+  const mixComponents = Array.isArray(op?.crop_structure?.crop_structure_mix_components)
+    ? op.crop_structure.crop_structure_mix_components
+    : [];
+  const mixCropNames = Array.from(new Set(mixComponents.map((component: any) =>
+    localizedName(relationOne(component?.crops) as any, "ru") || ""
+  ).filter(Boolean)));
+  const mixName = mixCropNames.length > 0 ? `Зерносмесь: ${mixCropNames.join(" + ")}` : "Зерносмесь";
 
   return {
     ...op,
@@ -166,7 +177,7 @@ function normalizeOperationRow(op: any): OperationWithDetails {
         : Number.isFinite(plannedAreaFromConfig) && plannedAreaFromConfig > 0
           ? plannedAreaFromConfig
           : null,
-    actual_area_ha: actualAreaFromLines,
+    actual_area_ha: Number(op.completed_area_ha ?? actualAreaFromLines ?? 0),
     crop_id: primaryLine?.crop_id || (config as any).crop_id || null,
     operation_engine_type: String((config as any).operation_engine_type || canonicalType?.slug || op.operation_type_slug || ""),
     operation_engine_label: String((config as any).operation_engine_label || canonicalType?.label || op.operation_type || ""),
@@ -174,12 +185,144 @@ function normalizeOperationRow(op: any): OperationWithDetails {
     tank_mix: (config as any).tank_mix && typeof (config as any).tank_mix === "object" ? (config as any).tank_mix : null,
     work_status: op.work_status || (op.status === "completed" ? "completed" : op.status === "in_progress" ? "in_progress" : "active"),
     field_name: op.fields?.name || primaryLine?.field_name || "-",
-    crop_name: cropIdentity.cropName || "-",
-    variety_name: cropIdentity.varietyName || "-",
-    reproduction_name: cropIdentity.reproductionName || "-",
+    crop_name: op?.crop_structure?.land_use_type === "crop_mix" ? mixName : cropIdentity.cropName || "-",
+    variety_name: op?.crop_structure?.land_use_type === "crop_mix" ? "Состав в структуре посевов" : cropIdentity.varietyName || "-",
+    reproduction_name: op?.crop_structure?.land_use_type === "crop_mix" ? "Несколько компонентов" : cropIdentity.reproductionName || "-",
+    responsible_name:
+      relationOne(op.responsible_profile)?.full_name ||
+      relationOne(op.responsible_profile)?.email ||
+      null,
+    machine_name:
+      relationOne(op.machine)?.full_name ||
+      relationOne(op.machine)?.name ||
+      null,
+    equipment_name:
+      relationOne(op.equipment)?.full_name ||
+      relationOne(op.equipment)?.name ||
+      null,
+    transport_name:
+      relationOne(op.transport)?.full_name ||
+      relationOne(op.transport)?.name ||
+      null,
     materials: normalizeOperationMaterials(op.operation_materials),
+    progress_reports: Array.isArray(op.operation_progress)
+      ? op.operation_progress.map((row: any) => ({
+          ...row,
+          reporter_name:
+            relationOne(row.reported_by_profile)?.full_name ||
+            relationOne(row.reported_by_profile)?.email ||
+            null,
+        }))
+      : [],
+    completion_requests: Array.isArray(op.operation_completion_requests)
+      ? op.operation_completion_requests.map((row: any) => ({
+          ...row,
+          requester_name:
+            relationOne(row.requested_by_profile)?.full_name ||
+            relationOne(row.requested_by_profile)?.email ||
+            null,
+          reviewer_name:
+            relationOne(row.reviewed_by_profile)?.full_name ||
+            relationOne(row.reviewed_by_profile)?.email ||
+            null,
+        }))
+      : [],
     ...parseOperationDraftDetails(op.notes),
   } as OperationWithDetails;
+}
+
+const OPERATION_DETAILS_SELECT = `
+  *,
+  fields:field_id (name),
+  responsible_profile:responsible_user_id (id,full_name,email,role),
+  crop_structure:crop_structure_id (
+    land_use_type,
+    crops:crop_id (name,name_ru,name_kz,name_en,slug),
+    varieties:variety_id (name),
+    seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code),
+    crop_structure_mix_components (
+      id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order,
+      crops:crop_id (name,name_ru,name_kz,name_en,slug),
+      varieties:variety_id (name),
+      reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+    )
+  ),
+  operation_materials:operation_materials (
+    *,
+    products:product_id (name,trade_name,master_product_id,type,product_type),
+    crops:crop_id (name,name_ru,name_kz,name_en,slug),
+    varieties:variety_id (name),
+    reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+  ),
+  operation_progress:operation_progress (
+    *,
+    reported_by_profile:reported_by (id,full_name,email)
+  ),
+  operation_completion_requests:operation_completion_requests (
+    *,
+    requested_by_profile:requested_by (id,full_name,email),
+    reviewed_by_profile:reviewed_by (id,full_name,email)
+  ),
+  operation_lines:operation_lines (
+    id,
+    company_id,
+    operation_id,
+    field_id,
+    crop_id,
+    variety_id,
+    reproduction_id,
+    planned_area_ha,
+    actual_area_ha,
+    row_count,
+    row_spacing_m,
+    seed_spacing_cm,
+    calculated_plants_per_ha,
+    calculated_total_plants,
+    completed_by,
+    completed_at,
+    notes,
+    created_at,
+    updated_at,
+    fields:field_id (name),
+    crops:crop_id (name,name_ru,name_kz,name_en,slug),
+    varieties:variety_id (name),
+    reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
+  )
+`;
+
+export type OperationAssetCatalog = {
+  machines: Array<Record<string, any>>;
+  equipment: Array<Record<string, any>>;
+  vehicles: Array<Record<string, any>>;
+};
+
+export async function getOperationAssetCatalog(companyId: string): Promise<OperationAssetCatalog> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/references/company-assets?companyId=${encodeURIComponent(companyId)}`,
+    { method: "GET", headers, cache: "no-store" }
+  );
+  const payload = await parseApiResponse(response);
+  return {
+    machines: Array.isArray(payload.machines) ? payload.machines : [],
+    equipment: Array.isArray(payload.equipment) ? payload.equipment : [],
+    vehicles: Array.isArray(payload.vehicles) ? payload.vehicles : [],
+  };
+}
+
+export function attachOperationAssetRelations<T extends Record<string, any>>(
+  rows: T[],
+  catalog: OperationAssetCatalog
+): T[] {
+  const machines = new Map(catalog.machines.map((row) => [String(row.id), row]));
+  const equipment = new Map(catalog.equipment.map((row) => [String(row.id), row]));
+  const vehicles = new Map(catalog.vehicles.map((row) => [String(row.id), row]));
+  return rows.map((row) => ({
+    ...row,
+    machine: row.machine_id ? machines.get(String(row.machine_id)) || null : null,
+    equipment: row.equipment_id ? equipment.get(String(row.equipment_id)) || null : null,
+    transport: row.transport_id ? vehicles.get(String(row.transport_id)) || null : null,
+  }));
 }
 
 function isProductionOperation(row: OperationWithDetails): boolean {
@@ -233,44 +376,7 @@ export async function getOperations(
 ): Promise<OperationWithDetails[]> {
   let query = supabase
     .from("operations")
-    .select(`
-      *,
-      fields:field_id (name),
-      crop_structure:crop_structure_id (
-        crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name),
-        seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
-      ),
-      operation_materials:operation_materials (
-        *,
-        products:product_id (name,trade_name)
-      ),
-      operation_lines:operation_lines (
-        id,
-        company_id,
-        operation_id,
-        field_id,
-        crop_id,
-        variety_id,
-        reproduction_id,
-        planned_area_ha,
-        actual_area_ha,
-        row_count,
-        row_spacing_m,
-        seed_spacing_cm,
-        calculated_plants_per_ha,
-        calculated_total_plants,
-        completed_by,
-        completed_at,
-        notes,
-        created_at,
-        updated_at,
-        fields:field_id (name),
-        crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name),
-        reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
-      )
-    `)
+    .select(OPERATION_DETAILS_SELECT)
     .eq("company_id", companyId)
     .order("date", { ascending: false });
 
@@ -278,69 +384,70 @@ export async function getOperations(
     query = query.eq("archived", false);
   }
 
-  const { data, error } = await query;
+  const [{ data, error }, assets] = await Promise.all([
+    query,
+    getOperationAssetCatalog(companyId),
+  ]);
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return (data || []).map((op: any) => normalizeOperationRow(op)).filter(isProductionOperation);
+  return attachOperationAssetRelations((data || []) as Record<string, any>[], assets)
+    .map((op: any) => normalizeOperationRow(op))
+    .filter(isProductionOperation);
 }
 
 export async function getSpecialistOperations(
   companyId: string,
   specialistId: string
 ): Promise<OperationWithDetails[]> {
-  const { data, error } = await supabase
-    .from("operations")
-    .select(`
-      *,
-      fields:field_id (name),
-      crop_structure:crop_structure_id (
-        crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name),
-        seed_reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
-      ),
-      operation_materials:operation_materials (
-        *,
-        products:product_id (name,trade_name)
-      ),
-      operation_lines:operation_lines (
-        id,
-        company_id,
-        operation_id,
-        field_id,
-        crop_id,
-        variety_id,
-        reproduction_id,
-        planned_area_ha,
-        actual_area_ha,
-        row_count,
-        row_spacing_m,
-        seed_spacing_cm,
-        calculated_plants_per_ha,
-        calculated_total_plants,
-        completed_by,
-        completed_at,
-        notes,
-        created_at,
-        updated_at,
-        fields:field_id (name),
-        crops:crop_id (name,name_ru,name_kz,name_en,slug),
-        varieties:variety_id (name),
-        reproductions:reproduction_id (name,name_ru,name_kz,name_en,code)
-      )
-    `)
-    .eq("company_id", companyId)
-    .eq("responsible_user_id", specialistId)
-    .eq("archived", false)
-    .order("date", { ascending: true });
+  const [{ data, error }, assets] = await Promise.all([
+    supabase
+      .from("operations")
+      .select(OPERATION_DETAILS_SELECT)
+      .eq("company_id", companyId)
+      .eq("responsible_user_id", specialistId)
+      .eq("archived", false)
+      .order("date", { ascending: true }),
+    getOperationAssetCatalog(companyId),
+  ]);
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return (data || []).map((op: any) => normalizeOperationRow(op)).filter(isProductionOperation);
+  return attachOperationAssetRelations((data || []) as Record<string, any>[], assets)
+    .map((op: any) => normalizeOperationRow(op))
+    .filter(isProductionOperation);
+}
+
+export async function getOperationsForCropStructureRows(
+  companyId: string,
+  cropStructureRowIds: string[]
+): Promise<OperationWithDetails[]> {
+  const rowIds = Array.from(
+    new Set(cropStructureRowIds.map((value) => String(value || "").trim()).filter(Boolean))
+  );
+  if (!companyId || rowIds.length === 0) return [];
+
+  const [{ data, error }, assets] = await Promise.all([
+    supabase
+      .from("operations")
+      .select(OPERATION_DETAILS_SELECT)
+      .eq("company_id", companyId)
+      .eq("archived", false)
+      .in("crop_structure_id", rowIds)
+      .order("date", { ascending: false }),
+    getOperationAssetCatalog(companyId),
+  ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return attachOperationAssetRelations((data || []) as Record<string, any>[], assets)
+    .map((operation: any) => normalizeOperationRow(operation));
 }
 
 export async function getOperation(operationId: string): Promise<Operation | null> {
@@ -362,20 +469,19 @@ export async function createOperation(
   operationData: OperationFormData,
   options?: { idempotencyKey?: string }
 ): Promise<Operation & { material_request?: Record<string, unknown>; offline_queued?: boolean; offline_queue_id?: string }> {
+  const idempotencyKey = options?.idempotencyKey || crypto.randomUUID();
   const headers = await buildAuthHeaders("json");
-  if (options?.idempotencyKey) {
-    headers["Idempotency-Key"] = options.idempotencyKey;
-  }
+  headers["Idempotency-Key"] = idempotencyKey;
   const body = {
     companyId,
     ...operationData,
-    idempotency_key: options?.idempotencyKey,
+    idempotency_key: idempotencyKey,
     responsible_user_id:
       operationData.responsible_user_id && operationData.responsible_user_id !== "none"
         ? operationData.responsible_user_id
         : null,
   };
-  const queueable = Boolean(options?.idempotencyKey);
+  const queueable = true;
   const queueHeaders = { ...headers };
   delete queueHeaders.Authorization;
 
@@ -398,7 +504,7 @@ export async function createOperation(
       headers: queueHeaders,
       body,
       authRequired: true,
-      idempotencyKey: options?.idempotencyKey,
+      idempotencyKey,
     });
     return {
       id: item.id,
@@ -474,7 +580,7 @@ export async function updateOperation(
 
   const { data: currentOperation, error: currentError } = await supabase
     .from("operations")
-    .select("operation_config")
+    .select("company_id,operation_config")
     .eq("id", operationId)
     .maybeSingle();
   if (currentError) {
@@ -505,30 +611,21 @@ export async function updateOperation(
     execution_fact_model: buildExecutionFactModelMetadata(),
   };
 
-  const { data, error } = await supabase
-    .from("operations")
-    .update(payload)
-    .eq("id", operationId)
-    .select()
-    .single();
-
-  if (error) {
-    throw new Error(error.message);
+  const companyId = String((currentOperation as any)?.company_id || "").trim();
+  if (!companyId) throw new Error("Operation company context missing for material sync");
+  let materialSource = materials;
+  if (!materialSource) {
+    const { data: currentMaterials, error: currentMaterialsError } = await supabase
+      .from("operation_materials")
+      .select("product_id,batch_id,material_type,unit,planned_rate,actual_rate,planned_quantity,notes")
+      .eq("company_id", companyId)
+      .eq("operation_id", operationId)
+      .order("created_at", { ascending: true });
+    if (currentMaterialsError) throw new Error(currentMaterialsError.message);
+    materialSource = currentMaterials || [];
   }
 
-  if (materials) {
-    const companyId = String((data as any).company_id || "").trim();
-    if (!companyId) {
-      throw new Error("Operation company context missing for material sync");
-    }
-    const { error: deleteError } = await supabase
-      .from("operation_materials")
-      .delete()
-      .eq("company_id", companyId)
-      .eq("operation_id", operationId);
-    if (deleteError) throw new Error(deleteError.message);
-
-    const normalizedRows = materials
+  const normalizedRows = materialSource
       .map((item) => {
         const productId = String(item?.product_id || "").trim();
         const materialType = String(item?.material_type || "").trim();
@@ -537,9 +634,6 @@ export async function updateOperation(
         const storageMaterialType = toStorageMaterialType(item?.component_type || materialType);
         if (!DB_OPERATION_MATERIAL_TYPES.has(storageMaterialType)) return null;
         return {
-          company_id: companyId,
-          operation_id: operationId,
-          operation_line_id: null,
           product_id: productId,
           batch_id: item?.batch_id || null,
           material_type: storageMaterialType,
@@ -556,13 +650,21 @@ export async function updateOperation(
       })
       .filter(Boolean);
 
-    if (normalizedRows.length > 0) {
-      const { error: insertError } = await supabase.from("operation_materials").insert(normalizedRows as any[]);
-      if (insertError) throw new Error(insertError.message);
-    }
-  }
-
-  return data as Operation;
+  const idempotencyKey = crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({
+      companyId,
+      operationPatch: payload,
+      materials: normalizedRows,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+  const result = await parseApiResponse(response);
+  return result.operation as Operation;
 }
 
 export async function archiveOperation(operationId: string): Promise<void> {
@@ -605,45 +707,48 @@ export async function getAssignableSpecialists(companyId: string): Promise<Speci
 }
 
 export async function acceptOperationInWork(operationId: string): Promise<Operation> {
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
+  const { data: operation, error } = await supabase
     .from("operations")
-    .update({
-      work_status: "in_progress",
-      accepted_at: now,
-    })
+    .select("company_id")
     .eq("id", operationId)
-    .select()
     .single();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return data as Operation;
+  if (error || !operation?.company_id) throw new Error(error?.message || "Operation not found");
+  const idempotencyKey = crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/accept`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId: operation.company_id, idempotency_key: idempotencyKey }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation as Operation;
 }
 
 export async function completeOperationWork(
   operationId: string,
   specialistComment: string
 ): Promise<Operation> {
-  const now = new Date().toISOString();
-  const { data, error } = await supabase
+  const { data: operation, error } = await supabase
     .from("operations")
-    .update({
-      work_status: "completed",
-      completed_at: now,
-      specialist_comment: specialistComment || null,
-    })
+    .select("company_id")
     .eq("id", operationId)
-    .select()
     .single();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return data as Operation;
+  if (error || !operation?.company_id) throw new Error(error?.message || "Operation not found");
+  const idempotencyKey = crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/complete`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      companyId: operation.company_id,
+      comment: specialistComment,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+  const payload = await parseApiResponse(response);
+  return payload.operation as Operation;
 }
 
 export async function getOperationLines(
@@ -724,10 +829,12 @@ export async function ensureOperationMaterialRequest(
   companyId: string
 ): Promise<Record<string, unknown>> {
   const headers = await buildAuthHeaders("json");
+  const idempotencyKey = crypto.randomUUID();
+  headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch(`/api/operations/${encodeURIComponent(operationId)}/material-request`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ companyId }),
+    body: JSON.stringify({ companyId, idempotency_key: idempotencyKey }),
   });
   const payload = await parseApiResponse(response);
   return (payload.material_request || {}) as Record<string, unknown>;

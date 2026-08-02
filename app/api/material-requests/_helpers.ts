@@ -1,8 +1,10 @@
 import type { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
-import { getServiceClient } from "@/lib/supabase/service";
+import {
+  SessionAuthError,
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+} from "@/lib/auth/server-session";
 
 export const MATERIAL_REQUEST_READ_ROLES = [
   "global_admin",
@@ -18,7 +20,6 @@ export const MATERIAL_REQUEST_READ_ROLES = [
 
 export const MATERIAL_REQUEST_WAREHOUSE_WRITE_ROLES = [
   "global_admin",
-  "company_admin",
   "warehouse",
   "warehouse_operator",
 ] as const;
@@ -36,6 +37,7 @@ export type WorkflowStatus =
   | "preparing"
   | "ready"
   | "issued"
+  | "closed"
   | "partially_issued"
   | "cancelled";
 
@@ -50,6 +52,12 @@ export function toWorkflowStatus(rawStatus: unknown): WorkflowStatus {
   if (normalized === "partially_issued") return "partially_issued";
   if (normalized === "cancelled") return "cancelled";
   if (normalized === "received_confirmed") return "issued";
+  if (normalized === "pending") return "active";
+  if (normalized === "collecting") return "preparing";
+  if (normalized === "ready_for_pickup") return "ready";
+  if (normalized === "picked_up_by_specialist") return "issued";
+  if (normalized === "return_expected") return "issued";
+  if (normalized === "return_received" || normalized === "closed") return "closed";
   return "active";
 }
 
@@ -77,17 +85,16 @@ export async function resolveMaterialRequestSession(
   const queryCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
   const requestedCompanyId = options?.requestedCompanyId ?? queryCompanyId;
   const companyId = resolveCompanyForActor(actor, requestedCompanyId);
-  const supabase = getServiceClient();
-  const sessionSupabase = createSessionSupabaseClient(request);
+  const supabase = await getUserScopedClientFromRequest(request);
+  const allowedRoles = options?.allowedRoles || MATERIAL_REQUEST_READ_ROLES;
+  if (String(actor.status || "active") !== "active" || !allowedRoles.includes(actor.role as never)) {
+    throw new SessionAuthError("Access denied for current role", 403);
+  }
+  if (actor.role !== "global_admin" && actor.companyId !== companyId) {
+    throw new SessionAuthError("Actor does not belong to the target company", 403);
+  }
 
-  await assertActorAccess({
-    supabase,
-    actorUserId: actor.id,
-    companyId,
-    allowedRoles: [...(options?.allowedRoles || MATERIAL_REQUEST_READ_ROLES)],
-  });
-
-  return { actor, companyId, supabase, sessionSupabase };
+  return { actor, companyId, supabase, sessionSupabase: supabase };
 }
 
 export function asMaterialRequestError(error: unknown): { status: number; error: string } | null {
@@ -95,30 +102,4 @@ export function asMaterialRequestError(error: unknown): { status: number; error:
     return { status: error.status, error: error.message };
   }
   return null;
-}
-
-function createSessionSupabaseClient(request: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !anonKey) {
-    throw new SessionAuthError("Supabase anon credentials are not configured", 500);
-  }
-
-  const authHeader = request.headers.get("authorization") || request.headers.get("Authorization") || "";
-  const token = String(authHeader.match(/^Bearer\s+(.+)$/i)?.[1] || "").trim();
-  if (!token) {
-    throw new SessionAuthError("Missing authorization token", 401);
-  }
-
-  return createClient(supabaseUrl, anonKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  });
 }

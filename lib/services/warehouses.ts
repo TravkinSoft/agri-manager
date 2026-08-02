@@ -15,6 +15,10 @@ import {
   InventoryTransactionFormData,
   MovementType,
   TransactionDirection,
+  WarehouseInventoryDocument,
+  WarehouseStockDetails,
+  WarehouseTransferInput,
+  WarehouseTransferResult,
 } from "@/lib/types/warehouse";
 
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
@@ -321,11 +325,13 @@ export async function getWarehouseHistory(
 export async function getProducts(
   companyId: string,
   includeArchived = false,
-  language: Language = "ru"
+  language: Language = "ru",
+  scope?: "agrochemical"
 ): Promise<Product[]> {
   const params = new URLSearchParams();
   params.set("companyId", companyId);
   params.set("includeArchived", includeArchived ? "true" : "false");
+  if (scope) params.set("scope", scope);
   const headers = await buildAuthHeaders("none");
   const response = await fetch(`/api/warehouses/products?${params.toString()}`, {
     method: "GET",
@@ -339,6 +345,34 @@ export async function getProducts(
   })).filter((row) => !hasQaDataMarker(`${row.name} ${row.product_type || ""} ${row.type || ""} ${row.description || ""}`));
 }
 
+export async function getWarehouseReceipts(companyId: string): Promise<import("@/lib/types/warehouse").WarehouseReceipt[]> {
+  const params = new URLSearchParams({ companyId });
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/receipts?${params.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return Array.isArray(payload?.receipts) ? payload.receipts : [];
+}
+
+export async function createWarehouseReceipt(
+  companyId: string,
+  receipt: import("@/lib/types/warehouse").WarehouseReceiptInput,
+  idempotencyKey = crypto.randomUUID()
+): Promise<{ receipt_id: string; receipt_no: string; status: string; idempotent_replay: boolean }> {
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch("/api/warehouses/receipts", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ...receipt, companyId, idempotency_key: idempotencyKey }),
+  });
+  const payload = await parseJsonOrThrow(response);
+  return payload.receipt;
+}
+
 export async function createProduct(
   companyId: string,
   productData: ProductFormData
@@ -348,11 +382,11 @@ export async function createProduct(
     crop_id: productData.crop_id || null,
     product_form: productData.product_form || null,
     accounting_mode: productData.accounting_mode || "bulk_mass",
-    base_uom: productData.base_uom || "kg",
+    base_uom: productData.base_uom,
     pack_uom: productData.pack_uom || null,
     unit_weight_kg: productData.unit_weight_kg ?? null,
     units_per_pack: productData.units_per_pack ?? null,
-    unit: productData.unit || "kg",
+    unit: productData.unit || productData.base_uom,
     description: productData.description || null,
     companyId,
   };
@@ -380,7 +414,7 @@ export async function updateProduct(
     accounting_mode:
       productData.accounting_mode === undefined ? undefined : productData.accounting_mode,
     base_uom:
-      productData.base_uom === undefined ? undefined : productData.base_uom || "kg",
+      productData.base_uom === undefined ? undefined : productData.base_uom,
     pack_uom:
       productData.pack_uom === undefined ? undefined : productData.pack_uom || null,
     unit_weight_kg:
@@ -423,75 +457,15 @@ export async function getInventoryTransactions(
   companyId: string,
   language: Language = "ru"
 ): Promise<InventoryTransactionWithDetails[]> {
-  const { data, error } = await supabase
-    .from("stock_ledger_entries")
-    .select(
-      `
-      *,
-      warehouses:warehouse_id (name, name_ru, name_kz, name_en),
-      products:product_id (name, trade_name, normalized_name, type, product_type, unit, base_uom),
-      profiles:created_by (email),
-      tickets:ticket_id (ticket_no)
-    `
-    )
-    .eq("company_id", companyId)
-    .order("occurred_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-
-  return ((data || []).map((row: any) => {
-    const direction = row.direction === "in" ? "in" : "out";
-    const quantityDelta = Number.isFinite(Number(row.delta_qty_signed))
-      ? Number(row.delta_qty_signed)
-      : direction === "in"
-        ? Math.abs(toNumber(row.quantity))
-        : -Math.abs(toNumber(row.quantity));
-    const warehouseName = localizedName(row.warehouses, language) || "N/A";
-    const product = row.products || {};
-    const movementType = normalizeLedgerMovementType(row.reason_type, direction);
-    const dateIso = row.occurred_at || row.created_at || new Date().toISOString();
-
-    return {
-      id: String(row.id),
-      warehouse_id: String(row.warehouse_id || ""),
-      source_warehouse_id: direction === "out" ? String(row.warehouse_id || "") : null,
-      destination_warehouse_id: direction === "in" ? String(row.warehouse_id || "") : null,
-      product_id: String(row.product_id || ""),
-      quantity: Math.abs(toNumber(row.quantity || quantityDelta)),
-      quantity_delta: quantityDelta,
-      transaction_type: direction,
-      movement_type: movementType,
-      status: "confirmed",
-      operation_datetime: dateIso,
-      date: String(dateIso).slice(0, 10),
-      notes: row.notes || row.reason_type || null,
-      responsible_user_id: row.created_by || null,
-      confirmed_at: dateIso,
-      cancelled_at: null,
-      created_at: row.created_at || dateIso,
-      updated_at: row.created_at || dateIso,
-      user_id: row.created_by || "",
-      company_id: row.company_id || companyId,
-      warehouse_name: warehouseName,
-      source_warehouse_name: direction === "out" ? warehouseName : "-",
-      destination_warehouse_name: direction === "in" ? warehouseName : "-",
-      product_name: brandName(product) || "N/A",
-      product_type: product.product_type || product.type || "N/A",
-      product_unit: row.uom || product.base_uom || product.unit || "kg",
-      created_by_email: row.profiles?.email || "N/A",
-      source_system: "stock_ledger_entries",
-      source_id: row.id || null,
-      ledger_entry_id: row.id || null,
-      movement_source: row.reason_type || null,
-      reason_type: row.reason_type || null,
-      reason_ref_id: row.reason_ref_id || null,
-      ticket_id: row.ticket_id || null,
-      processing_id: row.processing_id || null,
-      document_ref: row.tickets?.ticket_no || row.reason_ref_id || row.ticket_id || row.processing_id || null,
-      is_storno: row.is_storno === true,
-    };
-  }) as InventoryTransactionWithDetails[]).filter(
+  const params = new URLSearchParams({ companyId, language });
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/transactions?${params.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return ((payload?.transactions || []) as InventoryTransactionWithDetails[]).filter(
     (row) =>
       !hasQaDataMarker(
         `${row.warehouse_name} ${row.source_warehouse_name} ${row.destination_warehouse_name} ${row.product_name} ${row.product_type} ${row.notes || ""} ${row.document_ref || ""}`
@@ -562,219 +536,125 @@ export async function deleteInventoryTransaction(transactionId: string, companyI
 }
 
 export async function getInventoryBalances(companyId: string, language: Language = "ru"): Promise<InventoryBalance[]> {
-  const identityRes = await supabase
-    .from("v_stock_balance_identity")
-    .select(
-      "warehouse_id, product_id, variety_id, reproduction_id, batch_id, batch_class, quantity, last_movement_at"
-    )
-    .eq("company_id", companyId);
-  const identityMissing =
-    identityRes.error &&
-    String(identityRes.error.message || "").toLowerCase().includes("v_stock_balance_identity");
+  const params = new URLSearchParams({ companyId, language });
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/balances?${params.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return Array.isArray(payload?.balances) ? (payload.balances as InventoryBalance[]) : [];
+}
 
-  if (identityRes.error && !identityMissing) {
-    throw new Error(identityRes.error.message);
+export async function getWarehouseStockDetails(params: {
+  companyId: string;
+  warehouseId: string;
+  productId: string;
+  unit: string;
+  excludeRequestId?: string | null;
+}): Promise<WarehouseStockDetails> {
+  const query = new URLSearchParams({
+    companyId: params.companyId,
+    productId: params.productId,
+    unit: params.unit,
+  });
+  if (params.excludeRequestId) {
+    query.set("excludeRequestId", params.excludeRequestId);
   }
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/warehouses/${encodeURIComponent(params.warehouseId)}/stock-details?${query.toString()}`,
+    { method: "GET", headers, cache: "no-store" }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.details as WarehouseStockDetails;
+}
 
-  if (identityMissing) {
-    const canonicalRes = await supabase
-      .from("v_stock_balance_canonical")
-      .select("warehouse_id, product_id, quantity, last_movement_at")
-      .eq("company_id", companyId);
-    if (canonicalRes.error) throw new Error(canonicalRes.error.message);
+export async function createWarehouseTransfer(
+  companyId: string,
+  sourceWarehouseId: string,
+  input: WarehouseTransferInput,
+  idempotencyKey = crypto.randomUUID()
+): Promise<WarehouseTransferResult> {
+  const headers = await buildAuthHeaders("json");
+  headers["Idempotency-Key"] = idempotencyKey;
+  const response = await fetch(
+    `/api/warehouses/${encodeURIComponent(sourceWarehouseId)}/transfers`,
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ...input, companyId, idempotency_key: idempotencyKey }),
+    }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.transfer as WarehouseTransferResult;
+}
 
-    const canonicalRows = canonicalRes.data || [];
-    const warehouseIds = Array.from(
-      new Set(canonicalRows.map((row: any) => String(row.warehouse_id || "")).filter(Boolean))
-    );
-    const productIds = Array.from(
-      new Set(canonicalRows.map((row: any) => String(row.product_id || "")).filter(Boolean))
-    );
-
-    const [warehousesRes, productsRes] = await Promise.all([
-      warehouseIds.length
-        ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").in("id", warehouseIds)
-        : Promise.resolve({ data: [], error: null } as any),
-      productIds.length
-        ? supabase
-            .from("products")
-            .select("id,name,trade_name,normalized_name,type,product_type,unit,base_uom")
-            .in("id", productIds)
-        : Promise.resolve({ data: [], error: null } as any),
-    ]);
-
-    const warehouseById = new Map<string, any>();
-    (warehousesRes.data || []).forEach((row: any) => warehouseById.set(String(row.id), row));
-    const productById = new Map<string, any>();
-    (productsRes.data || []).forEach((row: any) => productById.set(String(row.id), row));
-
-    return canonicalRows
-      .map((row: any) => {
-        const productName = brandName(productById.get(String(row.product_id))) || "N/A";
-        const classLabel =
-          String(row.batch_class || "commodity") === "seed"
-            ? "Семенной фонд"
-            : String(row.batch_class || "commodity") === "feed"
-              ? "Кормовой"
-              : String(row.batch_class || "commodity") === "waste"
-                ? "Отход"
-                : String(row.batch_class || "commodity") === "processing"
-                  ? "Переработка"
-                  : String(row.batch_class || "commodity") === "rejected"
-                    ? "Брак"
-                    : null;
-
-        return {
-          warehouse_id: String(row.warehouse_id),
-          warehouse_name:
-            localizedName(warehouseById.get(String(row.warehouse_id)), language) || "N/A",
-          product_id: String(row.product_id),
-          product_name: productName,
-          variety_id: null,
-          variety_name: "-",
-          reproduction_id: null,
-          reproduction_name: "-",
-          batch_id: null,
-          batch_class: String(row.batch_class || "commodity"),
-          identity_name: classLabel
-            ? `${productName} / - / - / ${classLabel}`
-            : `${productName} / - / -`,
-          product_type:
-            productById.get(String(row.product_id))?.product_type ||
-            productById.get(String(row.product_id))?.type ||
-            "N/A",
-          unit:
-            productById.get(String(row.product_id))?.base_uom ||
-            productById.get(String(row.product_id))?.unit ||
-            "kg",
-          quantity: toNumber(row.quantity),
-          last_updated: row.last_movement_at || new Date().toISOString(),
-        };
-      })
-      .filter((row) => Math.abs(row.quantity) > 0.000001)
-      .filter((row) => !hasQaDataMarker(`${row.warehouse_name} ${row.product_name} ${row.identity_name} ${row.product_type}`))
-      .sort(
-        (a, b) =>
-          a.warehouse_name.localeCompare(b.warehouse_name) ||
-          (a.identity_name || a.product_name).localeCompare(b.identity_name || b.product_name)
-      );
-  }
-
-  const data = identityRes.data || [];
-
-  const warehouseIds = Array.from(new Set((data || []).map((row: any) => String(row.warehouse_id || "")).filter(Boolean)));
-  const productIds = Array.from(new Set((data || []).map((row: any) => String(row.product_id || "")).filter(Boolean)));
-  const varietyIds = Array.from(new Set((data || []).map((row: any) => String(row.variety_id || "")).filter(Boolean)));
-  const reproductionIds = Array.from(new Set((data || []).map((row: any) => String(row.reproduction_id || "")).filter(Boolean)));
-
-  const [warehousesRes, productsRes, varietiesRes, reproductionsRes, lineSnapshotsRes] = await Promise.all([
-    warehouseIds.length
-      ? supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").in("id", warehouseIds)
-      : Promise.resolve({ data: [], error: null } as any),
-    productIds.length
-      ? supabase.from("products").select("id,name,trade_name,normalized_name,type,product_type,unit,base_uom").in("id", productIds)
-      : Promise.resolve({ data: [], error: null } as any),
-    varietyIds.length
-      ? supabase
-          .from("varieties")
-          .select("id,name,name_ru,name_kz,name_en,company_id")
-          .in("id", varietyIds)
-          .or(`company_id.eq.${companyId},company_id.is.null`)
-      : Promise.resolve({ data: [], error: null } as any),
-    reproductionIds.length
-      ? supabase
-          .from("seed_reproductions")
-          .select("id,name,name_ru,name_kz,name_en,company_id")
-          .in("id", reproductionIds)
-          .or(`company_id.eq.${companyId},company_id.is.null`)
-      : Promise.resolve({ data: [], error: null } as any),
-    varietyIds.length || reproductionIds.length
-      ? supabase
-          .from("ticket_lines")
-          .select("variety_id,variety_name_snapshot,reproduction_id,reproduction_name_snapshot")
-          .eq("company_id", companyId)
-          .not("ticket_id", "is", null)
-      : Promise.resolve({ data: [], error: null } as any),
-  ]);
-
-  const warehouseById = new Map<string, any>();
-  (warehousesRes.data || []).forEach((row: any) => {
-    warehouseById.set(String(row.id), row);
+export async function getWarehouseInventories(
+  companyId: string,
+  inventoryId?: string
+): Promise<WarehouseInventoryDocument[]> {
+  const query = new URLSearchParams({ companyId });
+  if (inventoryId) query.set("inventoryId", inventoryId);
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/inventories?${query.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
   });
+  const payload = await parseJsonOrThrow(response);
+  return Array.isArray(payload?.inventories) ? payload.inventories : [];
+}
 
-  const productById = new Map<string, any>();
-  (productsRes.data || []).forEach((row: any) => {
-    productById.set(String(row.id), row);
+export async function getWarehouseInventoryAssignees(companyId: string): Promise<Array<{ id: string; name: string; role: string }>> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/inventories/assignees?companyId=${encodeURIComponent(companyId)}`, {
+    method: "GET", headers, cache: "no-store",
   });
-  const varietyById = new Map<string, any>();
-  (varietiesRes.data || []).forEach((row: any) => {
-    varietyById.set(String(row.id), row);
-  });
-  const reproductionById = new Map<string, any>();
-  (reproductionsRes.data || []).forEach((row: any) => {
-    reproductionById.set(String(row.id), row);
-  });
-  const varietySnapshotById = new Map<string, string>();
-  const reproductionSnapshotById = new Map<string, string>();
-  (lineSnapshotsRes.data || []).forEach((row: any) => {
-    const vId = String(row.variety_id || "");
-    const vName = String(row.variety_name_snapshot || "").trim();
-    if (vId && vName && !varietySnapshotById.has(vId)) varietySnapshotById.set(vId, vName);
-    const rId = String(row.reproduction_id || "");
-    const rName = String(row.reproduction_name_snapshot || "").trim();
-    if (rId && rName && !reproductionSnapshotById.has(rId)) reproductionSnapshotById.set(rId, rName);
-  });
+  const payload = await parseJsonOrThrow(response);
+  return Array.isArray(payload?.assignees) ? payload.assignees : [];
+}
 
-  return (data || [])
-    .map((row: any) => {
-      const productName = brandName(productById.get(String(row.product_id))) || "N/A";
-      const varietyName = row.variety_id
-        ? (brandName(varietyById.get(String(row.variety_id))) ||
-          varietySnapshotById.get(String(row.variety_id)) ||
-          "-")
-        : "-";
-      const reproductionName = row.reproduction_id
-        ? (localizedName(reproductionById.get(String(row.reproduction_id)), language) ||
-          reproductionSnapshotById.get(String(row.reproduction_id)) ||
-          "-")
-        : "-";
-      const classLabel =
-        String(row.batch_class || "commodity") === "seed"
-          ? "Семенной фонд"
-          : String(row.batch_class || "commodity") === "feed"
-            ? "Кормовой"
-            : String(row.batch_class || "commodity") === "waste"
-              ? "Отход"
-              : String(row.batch_class || "commodity") === "processing"
-                ? "Переработка"
-                : String(row.batch_class || "commodity") === "rejected"
-                  ? "Брак"
-                  : null;
-      const identityCore = `${productName} / ${varietyName} / ${reproductionName}`;
+export async function startWarehouseInventory(params: {
+  companyId: string;
+  warehouseId: string;
+  assignedTo: string;
+  notes?: string | null;
+  inventoryId?: string;
+}) {
+  const inventoryId = params.inventoryId || crypto.randomUUID();
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch("/api/warehouses/inventories", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ...params, inventoryId }),
+  });
+  const payload = await parseJsonOrThrow(response);
+  return payload.inventory as Record<string, unknown>;
+}
 
-      return {
-        warehouse_id: String(row.warehouse_id),
-        warehouse_name: localizedName(warehouseById.get(String(row.warehouse_id)), language) || "N/A",
-        product_id: String(row.product_id),
-        product_name: productName,
-        variety_id: row.variety_id ? String(row.variety_id) : null,
-        variety_name: varietyName,
-        reproduction_id: row.reproduction_id ? String(row.reproduction_id) : null,
-        reproduction_name: reproductionName,
-        batch_id: row.batch_id ? String(row.batch_id) : null,
-        batch_class: String(row.batch_class || "commodity"),
-        identity_name: classLabel ? `${identityCore} / ${classLabel}` : identityCore,
-        product_type: productById.get(String(row.product_id))?.product_type || productById.get(String(row.product_id))?.type || "N/A",
-        unit: productById.get(String(row.product_id))?.base_uom || productById.get(String(row.product_id))?.unit || "kg",
-        quantity: toNumber(row.quantity),
-        last_updated: row.last_movement_at || new Date().toISOString(),
-      };
-    })
-    .filter((row) => Math.abs(row.quantity) > 0.000001)
-    .filter((row) => !hasQaDataMarker(`${row.warehouse_name} ${row.product_name} ${row.variety_name} ${row.reproduction_name} ${row.identity_name} ${row.product_type}`))
-    .sort(
-      (a, b) =>
-        a.warehouse_name.localeCompare(b.warehouse_name) ||
-        (a.identity_name || a.product_name).localeCompare(b.identity_name || b.product_name)
-    );
+export async function updateWarehouseInventory(params: {
+  companyId: string;
+  inventoryId: string;
+  action: "save" | "submit" | "approve" | "reject" | "cancel";
+  items?: Array<{ item_id?: string; product_id?: string; actual_quantity: number }>;
+  comment?: string;
+}) {
+  const headers = await buildAuthHeaders("json");
+  const response = await fetch(
+    `/api/warehouses/inventories/${encodeURIComponent(params.inventoryId)}`,
+    {
+      method: "PATCH",
+      headers,
+      body: JSON.stringify({
+        companyId: params.companyId,
+        action: params.action,
+        items: params.items || [],
+        comment: params.comment || null,
+      }),
+    }
+  );
+  const payload = await parseJsonOrThrow(response);
+  return payload.inventory as Record<string, unknown>;
 }

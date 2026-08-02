@@ -13,7 +13,7 @@ export async function getCropStructures(
       *,
       fields!inner(name,notes),
       seasons!inner(year),
-      crops!inner(name,name_ru,name_kz,name_en,slug),
+      crops(name,name_ru,name_kz,name_en,slug),
       varieties(name),
       seed_reproductions(name,name_ru,name_kz,name_en,code)
     `)
@@ -34,7 +34,7 @@ export async function getCropStructures(
     ...item,
     field_name: getFieldDisplayName(item.fields),
     season_year: item.seasons.year,
-    crop_name: localizedName(item.crops, "ru") || item.crops.name,
+    crop_name: item.land_use_type === "fallow" ? "Пар" : localizedName(item.crops, "ru") || item.crops?.name || "",
     variety_name: brandName(item.varieties) || null,
     reproduction_name: localizedName(item.seed_reproductions, "ru") || null,
   })) as CropStructureWithDetails[];
@@ -51,7 +51,7 @@ export async function getCropStructuresBySeasonId(
       *,
       fields!inner(name,notes),
       seasons!inner(year),
-      crops!inner(name,name_ru,name_kz,name_en,slug),
+      crops(name,name_ru,name_kz,name_en,slug),
       varieties(name),
       seed_reproductions(name,name_ru,name_kz,name_en,code)
     `)
@@ -73,7 +73,7 @@ export async function getCropStructuresBySeasonId(
     ...item,
     field_name: getFieldDisplayName(item.fields),
     season_year: item.seasons.year,
-    crop_name: localizedName(item.crops, "ru") || item.crops.name,
+    crop_name: item.land_use_type === "fallow" ? "Пар" : localizedName(item.crops, "ru") || item.crops?.name || "",
     variety_name: brandName(item.varieties) || null,
     reproduction_name: localizedName(item.seed_reproductions, "ru") || null,
   })) as CropStructureWithDetails[];
@@ -88,6 +88,9 @@ export async function createCropStructure(
     .insert([
       {
         ...cropStructureData,
+        crop_id: cropStructureData.land_use_type === "fallow" ? null : cropStructureData.crop_id,
+        variety_id: cropStructureData.land_use_type === "fallow" ? null : cropStructureData.variety_id || null,
+        reproduction_id: cropStructureData.land_use_type === "fallow" ? null : cropStructureData.reproduction_id || null,
         seeding_rate: cropStructureData.seeding_rate || null,
         expected_yield: cropStructureData.expected_yield || null,
         company_id: companyId,
@@ -112,6 +115,9 @@ export async function updateCropStructure(
     .from("crop_structure")
     .update({
       ...cropStructureData,
+      crop_id: cropStructureData.land_use_type === "fallow" ? null : cropStructureData.crop_id,
+      variety_id: cropStructureData.land_use_type === "fallow" ? null : cropStructureData.variety_id || null,
+      reproduction_id: cropStructureData.land_use_type === "fallow" ? null : cropStructureData.reproduction_id || null,
       seeding_rate: cropStructureData.seeding_rate || null,
       expected_yield: cropStructureData.expected_yield || null,
     })

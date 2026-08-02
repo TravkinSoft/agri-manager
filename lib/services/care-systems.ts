@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase/client";
 import { createOperation } from "@/lib/services/operations";
 import { localizedName } from "@/lib/i18n/helpers";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 
 export type CareSeason = { id: string; year: number };
 export type CareCrop = { id: string; name_ru: string | null; name_kz?: string | null; name_en: string | null; name: string | null; slug?: string | null };
@@ -358,7 +359,7 @@ export async function createOperationFromTreatmentStep(input: {
     field_id: linkRes.data.field_id,
     crop_structure_id: null,
     operation_type: stepRes.data.step_name,
-    date: new Date().toISOString().slice(0, 10),
+    date: todayDateOnlyLocal(),
     responsible_user_id: null,
     notes: [
       `Программа обработок: ${stepRes.data.step_name}`,
@@ -375,7 +376,7 @@ export async function createOperationFromTreatmentStep(input: {
     .update({
       status: "done",
       actual_operation_id: created.id,
-      actual_date: new Date().toISOString().slice(0, 10),
+      actual_date: todayDateOnlyLocal(),
     })
     .eq("company_id", input.companyId)
     .eq("treatment_program_field_link_id", input.linkId)

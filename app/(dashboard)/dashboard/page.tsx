@@ -21,6 +21,7 @@ import {
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { getInventoryBalances, getInventoryTransactions, getWarehouses } from "@/lib/services/warehouses";
+import { localizeOperationType } from "@/lib/i18n/helpers";
 
 export default function DashboardPage() {
   const { profile, loading: authLoading } = useAuth();
@@ -82,7 +83,12 @@ export default function DashboardPage() {
           ]);
           setMetrics(metricsData);
           setCropDistribution(cropData);
-          setRecentOperations(operationsData);
+          setRecentOperations(
+            operationsData.map((operation) => ({
+              ...operation,
+              operationType: localizeOperationType(operation.operationType, language),
+            }))
+          );
           setInventory(inventoryData);
         }
       } catch (error) {

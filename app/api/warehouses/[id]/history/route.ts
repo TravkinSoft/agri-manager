@@ -103,7 +103,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
         warehouse_name: warehouseName,
         product_name: row.products?.name || "N/A",
         product_type: row.products?.product_type || row.products?.type || "N/A",
-        product_unit: row.uom || row.products?.base_uom || row.products?.unit || "kg",
+        product_unit: row.uom || "legacy/unknown",
         created_by_email: row.profiles?.email || "N/A",
         source_system: "stock_ledger_entries",
         source_id: row.id || null,

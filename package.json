@@ -9,6 +9,11 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit --incremental false",
+    "qa:tz239": "npx tsx scripts/qa-tz239-simplified-issue.ts",
+    "qa:tz240": "npx --no-install tsx scripts/qa-tz240-fallow-operations.ts",
+    "qa:tz241": "npx --no-install tsx scripts/qa-tz241-crops-varieties.ts",
+    "qa:tz242": "npx --no-install tsx scripts/qa-tz242-grain-mix.ts",
+    "qa:tz243": "npx --no-install tsx scripts/qa-tz243-global-fertilizers.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
     "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",
     "qa:assistant:full": "npx tsx scripts/qa-assistant-copilot-full-check.ts",
@@ -16,6 +21,22 @@
     "qa:assistant:step5": "npx tsx scripts/qa-copilot-step5-source-of-truth.ts",
     "qa:assistant:backlog-step2-step3-step6": "npx tsx scripts/qa-copilot-backlog-step2-step3-step6.ts",
     "qa:assistant:trace": "npx tsx scripts/trace-copilot-decision-flow.ts",
+    "qa:assistant:readonly-v1": "npx --no-install tsx scripts/qa-assistant-a101-read-only.ts",
+    "qa:assistant:conversation-v2": "npx --no-install tsx scripts/qa-assistant-a104-conversation-v2.ts",
+    "qa:assistant:memory-v2": "npx --no-install tsx scripts/qa-assistant-a106-real-memory.ts",
+    "qa:assistant:memory-v2:owner": "npx --no-install tsx scripts/qa-assistant-a106-owner-findings.ts",
+    "qa:assistant:a107-real-erp": "npx --no-install tsx scripts/qa-assistant-a107-real-erp.ts",
+    "qa:assistant:a107-owner-findings": "npx --no-install tsx scripts/qa-assistant-a107-owner-findings.ts",
+    "qa:assistant:a109-context-scope": "npx --no-install tsx scripts/qa-assistant-a109-context-scope.ts",
+    "qa:assistant:a109-real": "npx --no-install tsx scripts/qa-assistant-a109-real.ts",
+    "qa:assistant:greeting-policy": "npx --no-install tsx scripts/qa-assistant-a106-greeting-policy.ts",
+    "qa:assistant:greeting-policy:real": "npx --no-install tsx scripts/qa-assistant-a106-real-greeting.ts",
+    "qa:warehouse:units-v2": "npx tsx scripts/qa-warehouse-canonical-units-v2.ts",
+    "qa:core:tz234": "npx --no-install tsx scripts/qa-tz234-regression.ts",
+    "qa:core:tz236": "npx --no-install tsx scripts/qa-tz236-regression.ts",
+    "qa:core:tz237": "npx --no-install tsx scripts/qa-tz237-pesticide-card.ts",
+    "qa:core:tz237:real": "npx --no-install tsx scripts/qa-tz237-real-card-coverage.ts",
+    "qa:glbd:component-discovery": "npx tsx scripts/qa-glbd-component-discovery.ts",
     "cleanup:users": "node scripts/cleanup-users-keep-admin.mjs",
     "import:structure2026:dry": "node scripts/import-structure-2026.mjs --mode dry-run",
     "import:structure2026:execute": "node scripts/import-structure-2026.mjs --mode execute --confirm-reset true"
@@ -86,6 +107,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
     "@types/pdf-parse": "^1.1.5"
   }
 }

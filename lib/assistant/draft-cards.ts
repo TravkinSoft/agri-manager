@@ -1,3 +1,5 @@
+import { isDateOnly, todayDateOnlyLocal } from "@/lib/dates/date-only";
+
 export type AssistantDraftCardStatus = "draft" | "confirmed" | "cancelled" | "expired";
 
 export type AssistantDraftMaterialLine = {
@@ -290,13 +292,13 @@ function normalizeDate(value: unknown): string | null {
   const text = cleanText(value);
   if (!text) return null;
   const lower = text.toLowerCase();
-  if (/(сегодня|today)/i.test(lower)) return new Date().toISOString().slice(0, 10);
+  if (/(сегодня|today)/i.test(lower)) return todayDateOnlyLocal();
   if (/(завтра|tomorrow)/i.test(lower)) {
     const date = new Date();
     date.setDate(date.getDate() + 1);
-    return date.toISOString().slice(0, 10);
+    return todayDateOnlyLocal(date);
   }
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (isDateOnly(text)) return text;
   const ruDate = text.match(/\b(\d{1,2})[./-](\d{1,2})(?:[./-](\d{2,4}))?\b/);
   if (ruDate) {
     const day = ruDate[1].padStart(2, "0");
@@ -306,7 +308,7 @@ function normalizeDate(value: unknown): string | null {
   }
   const parsed = new Date(text);
   if (Number.isNaN(parsed.getTime())) return text;
-  return parsed.toISOString().slice(0, 10);
+  return todayDateOnlyLocal(parsed);
 }
 
 function mergeDraftParams(base: Record<string, unknown>, override: Record<string, unknown>): Record<string, unknown> {

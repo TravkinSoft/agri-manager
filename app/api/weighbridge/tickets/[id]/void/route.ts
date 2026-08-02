@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 
 export async function POST(
@@ -20,7 +19,7 @@ export async function POST(
     }
 
     const authStartedAt = Date.now();
-    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
@@ -38,9 +37,8 @@ export async function POST(
     timing.validationMs = Date.now() - validationStartedAt;
 
     const rpcStartedAt = Date.now();
-    const { error } = await supabase.rpc("void_ticket_with_storno_v2", {
+    const { error } = await supabase.rpc("void_weighbridge_ticket_for_session_v1", {
       p_ticket_id: id,
-      p_actor_user_id: actor.id,
       p_reason: reason,
     });
     timing.rpcMs = Date.now() - rpcStartedAt;

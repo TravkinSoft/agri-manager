@@ -1,3 +1,5 @@
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
+
 export type TransformationType =
   | "drying"
   | "cleaning"
@@ -54,12 +56,17 @@ export interface CreateTransformationInput {
 
 export interface BatchTransformationRow {
   id: string;
+  record_type?: "transformation" | "waiting_ticket";
+  queue_status?: "waiting" | "in_progress" | "completed" | "voided";
   company_id: string;
   transformation_type: TransformationType | string;
   status: TransformationStatus | string;
   processing_node_id: string | null;
   processing_node_name: string | null;
   source_ticket_id: string | null;
+  ticket_no?: string | null;
+  field_name?: string | null;
+  crop_name?: string | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -84,26 +91,29 @@ async function parseJsonOrThrow(response: Response) {
 }
 
 export async function getProcessingTransformations(companyId: string, actorUserId: string): Promise<BatchTransformationRow[]> {
+  const headers = await buildClientAuthHeaders("none");
   const params = new URLSearchParams({ companyId, userId: actorUserId });
-  const payload = await parseJsonOrThrow(await fetch(`/api/processing/transformations?${params.toString()}`));
+  const payload = await parseJsonOrThrow(await fetch(`/api/processing/transformations?${params.toString()}`, { headers, cache: "no-store" }));
   return payload.items || [];
 }
 
 export async function createBatchTransformation(input: CreateTransformationInput): Promise<{ id: string }> {
+  const headers = await buildClientAuthHeaders("json");
   return parseJsonOrThrow(
     await fetch("/api/processing/transformations", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(input),
     })
   );
 }
 
 export async function finalizeBatchTransformation(transformationId: string, actorUserId: string): Promise<void> {
+  const headers = await buildClientAuthHeaders("json");
   await parseJsonOrThrow(
     await fetch(`/api/processing/transformations/${encodeURIComponent(transformationId)}/finalize`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ actor_user_id: actorUserId }),
     })
   );
@@ -111,7 +121,8 @@ export async function finalizeBatchTransformation(transformationId: string, acto
 
 export async function getWarehouseStockIdentities(companyId: string, actorUserId: string, warehouseId: string): Promise<StockIdentityItem[]> {
   if (!companyId || !actorUserId || !warehouseId) return [];
+  const headers = await buildClientAuthHeaders("none");
   const params = new URLSearchParams({ companyId, userId: actorUserId, warehouseId });
-  const payload = await parseJsonOrThrow(await fetch(`/api/weighbridge/stock-identities?${params.toString()}`));
+  const payload = await parseJsonOrThrow(await fetch(`/api/weighbridge/stock-identities?${params.toString()}`, { headers, cache: "no-store" }));
   return payload.items || [];
 }

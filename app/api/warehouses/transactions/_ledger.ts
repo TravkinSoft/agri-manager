@@ -34,9 +34,12 @@ function reasonTypeForMovement(movementType: MovementType): string {
 function buildLedgerRows(transaction: any) {
   if (String(transaction?.status || "confirmed") !== "confirmed") return [];
 
-  const quantity = Math.abs(toNumberSafe(transaction.base_quantity_kg ?? transaction.quantity));
-  if (!transaction?.id || !transaction?.company_id || !transaction?.product_id || quantity <= 0) {
-    return [];
+  const quantity = Math.abs(toNumberSafe(transaction.base_quantity));
+  const uom = String(transaction.base_uom || "").trim();
+  const batchClass = String(transaction.batch_class || "").trim();
+  if (!transaction?.id || !transaction?.company_id || !transaction?.product_id || quantity <= 0) return [];
+  if (transaction.unit_contract_version !== 2 || !uom || !batchClass) {
+    throw new Error("Inventory transaction has no canonical unit and batch contract");
   }
 
   const movementType = normalizeMovementType(transaction.movement_type, transaction.transaction_type);
@@ -47,7 +50,16 @@ function buildLedgerRows(transaction: any) {
     company_id: transaction.company_id,
     product_id: transaction.product_id,
     quantity,
-    uom: "kg",
+    uom,
+    batch_class: batchClass,
+    mass_kg: transaction.mass_kg ?? null,
+    density_kg_per_l: transaction.density_kg_per_l ?? null,
+    density_unit: transaction.density_unit ?? null,
+    density_source: transaction.density_source ?? null,
+    density_verification_status: transaction.density_verification_status ?? null,
+    density_verified_at: transaction.density_verified_at ?? null,
+    unit_source: `inventory_transaction:${transaction.id}`,
+    unit_contract_version: 2,
     reason_type: reasonTypeForMovement(movementType),
     reason_ref_id: transaction.id,
     occurred_at: occurredAt,

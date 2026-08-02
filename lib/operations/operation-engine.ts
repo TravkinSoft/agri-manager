@@ -16,6 +16,25 @@ export type CanonicalOperationTypeSlug =
   | "logistics_operation"
   | "post_harvest_operation";
 
+export type OperationCropRequirement = "crop_required" | "crop_not_required";
+
+const CROP_INDEPENDENT_OPERATION_SLUGS = new Set(["plowing", "snow_retention"]);
+
+export function getOperationCropRequirement(input: {
+  categorySlug?: string | null;
+  typeSlug?: string | null;
+}): OperationCropRequirement {
+  const typeSlug = String(input.typeSlug || "").trim().toLowerCase();
+  return CROP_INDEPENDENT_OPERATION_SLUGS.has(typeSlug) ? "crop_not_required" : "crop_required";
+}
+
+export function isCropIndependentFieldOperation(input: {
+  categorySlug?: string | null;
+  typeSlug?: string | null;
+}): boolean {
+  return getOperationCropRequirement(input) === "crop_not_required";
+}
+
 export type OperationPurposeSlug =
   | "weed_control"
   | "disease_control"
@@ -334,21 +353,27 @@ export const OPERATION_TYPE_DEFINITIONS: OperationTypeDefinition[] = [
 ];
 
 export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
-  { categorySlug: "soil_operation", slug: "stubble_peeling", label: "Лущение стерни" },
-  { categorySlug: "soil_operation", slug: "disking", label: "Дисковка" },
+  { categorySlug: "soil_operation", slug: "plant_residue_shredding", label: "Измельчение растительных остатков" },
+  { categorySlug: "soil_operation", slug: "stubble_peeling", label: "Лущение" },
+  { categorySlug: "soil_operation", slug: "disking", label: "Дискование" },
   { categorySlug: "soil_operation", slug: "heavy_disking", label: "Тяжелая дисковка" },
   { categorySlug: "soil_operation", slug: "cultivation", label: "Культивация" },
-  { categorySlug: "soil_operation", slug: "deep_ripping", label: "Глубокорыхление" },
+  { categorySlug: "soil_operation", slug: "interrow_cultivation", label: "Междурядная культивация" },
+  { categorySlug: "soil_operation", slug: "deep_ripping", label: "Глубокое рыхление" },
   { categorySlug: "soil_operation", slug: "chiseling", label: "Чизелевание" },
   { categorySlug: "soil_operation", slug: "plowing", label: "Вспашка" },
+  { categorySlug: "soil_operation", slug: "snow_retention", label: "Снегозадержание" },
   { categorySlug: "soil_operation", slug: "harrowing", label: "Боронование" },
   { categorySlug: "soil_operation", slug: "leveling", label: "Выравнивание" },
   { categorySlug: "soil_operation", slug: "rolling", label: "Прикатывание" },
+  { categorySlug: "soil_operation", slug: "rotary_tilling", label: "Фрезерование" },
   { categorySlug: "soil_operation", slug: "ridge_forming", label: "Формирование гребней" },
+  { categorySlug: "soil_operation", slug: "hilling", label: "Окучивание" },
   { categorySlug: "soil_operation", slug: "ridge_forming_with_drip_tape", label: "Гребнеобразование + укладка ленты" },
   { categorySlug: "soil_operation", slug: "furrow_cutting", label: "Нарезка борозд" },
 
   { categorySlug: "planting", slug: "seeding", label: "Посев" },
+  { categorySlug: "planting", slug: "planting_generic", label: "Посадка" },
   { categorySlug: "planting", slug: "potato_planting", label: "Посадка картофеля" },
   { categorySlug: "planting", slug: "seeding_with_fertilizer", label: "Посев с удобрением" },
   { categorySlug: "planting", slug: "seeding_with_microgranules", label: "Посев с микрогранулятом" },
@@ -383,14 +408,22 @@ export const OPERATION_SUBTYPE_DEFINITIONS: OperationSubtypeDefinition[] = [
   { categorySlug: "sampling", slug: "plant_sampling", label: "Отбор проб растений" },
 
   { categorySlug: "harvesting", slug: "direct_combining", label: "Прямое комбайнирование" },
+  { categorySlug: "harvesting", slug: "windrow_mowing", label: "Скашивание в валок" },
   { categorySlug: "harvesting", slug: "separate_harvesting", label: "Раздельная уборка" },
   { categorySlug: "harvesting", slug: "potato_lifting", label: "Подкоп картофеля" },
   { categorySlug: "harvesting", slug: "potato_harvesting", label: "Уборка картофеля" },
   { categorySlug: "harvesting", slug: "vegetable_harvesting", label: "Уборка овощей" },
   { categorySlug: "harvesting", slug: "grain_harvesting", label: "Уборка зерновых" },
   { categorySlug: "harvesting", slug: "windrow_pickup", label: "Подбор валков" },
+  { categorySlug: "harvesting", slug: "tuber_harvesting", label: "Уборка клубнеплодов" },
+  { categorySlug: "harvesting", slug: "silage_harvesting", label: "Уборка на силос" },
+  { categorySlug: "harvesting", slug: "forage_mowing", label: "Кошение кормовых культур" },
+  { categorySlug: "harvesting", slug: "tedding", label: "Ворошение" },
+  { categorySlug: "harvesting", slug: "raking", label: "Сгребание" },
+  { categorySlug: "harvesting", slug: "baling", label: "Прессование" },
+  { categorySlug: "harvesting", slug: "straw_collection", label: "Сбор соломы" },
 
-  { categorySlug: "service_operation", slug: "haulm_topping", label: "Ботвоудаление" },
+  { categorySlug: "service_operation", slug: "haulm_topping", label: "Удаление ботвы" },
   { categorySlug: "service_operation", slug: "drip_tape_collection", label: "Сбор капельной ленты" },
   { categorySlug: "service_operation", slug: "service_task", label: "Сервисная задача" },
   { categorySlug: "transport", slug: "transport_task", label: "Перевозка" },
@@ -556,6 +589,7 @@ export function normalizePurposeList(values: unknown): OperationPurposeSlug[] {
 
 const POTATO_TEMPLATES = new Set([
   "potato_planting",
+  "planting_generic",
   "ridge_forming_with_drip_tape",
   "drip_irrigation",
   "sprinkler_irrigation",
@@ -630,6 +664,13 @@ export function isPotatoCropName(value: string | null | undefined): boolean {
   return isPotatoCropContext(value);
 }
 
+export function isPlantedCropContext(
+  cropName: string | null | undefined,
+  varietyName?: string | null | undefined
+): boolean {
+  return isPotatoCropContext(cropName, varietyName);
+}
+
 export function isPotatoTemplate(slug: string | null | undefined): boolean {
   return POTATO_TEMPLATES.has(String(slug || "").trim().toLowerCase());
 }
@@ -656,6 +697,14 @@ export function getOperationTemplateAvailability(
   });
   const irrigationType = normalizeIrrigationType(input.irrigationType);
   const isPotato = isPotatoCropContext(input.cropName, input.varietyName);
+
+  if (template === "planting_generic" && !isPlantedCropContext(input.cropName, input.varietyName)) {
+    return { allowed: false, reason: "Для выбранной культуры используется посев, а не посадка." };
+  }
+
+  if ((template === "seeding" || template === "overseeding") && isPlantedCropContext(input.cropName, input.varietyName)) {
+    return { allowed: false, reason: "Для выбранной культуры используется посадка, а не посев." };
+  }
 
   if (POTATO_TEMPLATES.has(template) && !isPotato) {
     return { allowed: false, reason: "Работа относится к картофельной технологии." };

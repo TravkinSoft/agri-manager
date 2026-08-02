@@ -1,7 +1,11 @@
 "use client";
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
+import {
+  FullPesticideCardDialog,
+  type FullPesticideCardData,
+} from "@/components/platform/full-pesticide-card-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -13,8 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/contexts/auth-context";
+import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import {
-  addGlobalAgrochemicalToCompany,
   archiveCompanyPerson,
   createCompanyPerson,
   createEquipmentReference,
@@ -24,13 +28,20 @@ import {
   getAdditives,
   getCompanyAssetReferences,
   getCompanyPeople,
+  getGlobalEquipmentModels,
+  getGlobalMachineModels,
+  getGlobalTransportModels,
   getFertilizers,
   getPesticides,
   getSeasonAgronomyUsage,
-  searchAgrochemicalMaster,
   updateCompanyPerson,
   type SeasonAgronomyUsageRow,
 } from "@/lib/services/references";
+import type {
+  GlobalEquipmentModel,
+  GlobalMachineModel,
+  GlobalTransportModel,
+} from "@/lib/types/references";
 
 type DomainTab = "agronomy" | "agrochemistry" | "machine-yard" | "fleet" | "personnel";
 type MachineYardTab = "machines" | "equipment";
@@ -123,6 +134,27 @@ function assetYear(row: any): string {
 
 function activeStatus(row: any): string {
   return row.is_active === false ? "Неактивен" : "Активен";
+}
+
+function machineTypeFromCatalog(category: string | null | undefined) {
+  const value = String(category || "").toLowerCase();
+  if (value.includes("combine") || value.includes("harvester")) return "combine" as const;
+  if (value.includes("sprayer")) return "sprayer" as const;
+  if (value.includes("cultivator")) return "cultivator" as const;
+  if (value.includes("seeder") || value.includes("planter")) return "seeder" as const;
+  if (value === "tractor") return "tractor" as const;
+  return "other" as const;
+}
+
+function vehicleTypeFromCatalog(category: string | null | undefined) {
+  const value = String(category || "").toLowerCase();
+  if (value === "trailer") return "trailer" as const;
+  if (value === "truck" || value === "tractor_unit") return "truck" as const;
+  return "other" as const;
+}
+
+function catalogModelLabel(row: { full_name?: string | null; name?: string | null; brand?: string | null; model?: string | null }) {
+  return row.full_name || row.name || [row.brand, row.model].filter(Boolean).join(" ") || "Без названия";
 }
 
 function DataTable(props: { headers: string[]; rows: ReactNode[][]; loading: boolean; empty: string }) {
@@ -220,19 +252,22 @@ function materialCategory(row: any) {
 export default function ReferencesPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
+  const directCardHandled = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [linkingGlobalId, setLinkingGlobalId] = useState<string | null>(null);
-  const [catalogOpen, setCatalogOpen] = useState(false);
-  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [pesticideCardOpen, setPesticideCardOpen] = useState(false);
+  const [pesticideCardLoading, setPesticideCardLoading] = useState(false);
+  const [pesticideCardError, setPesticideCardError] = useState<string | null>(null);
+  const [pesticideCard, setPesticideCard] = useState<FullPesticideCardData | null>(null);
+  const [selectedPesticideId, setSelectedPesticideId] = useState<string | null>(null);
 
   const [domainTab, setDomainTab] = useState<DomainTab>("agronomy");
   const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("machines");
   const [modalType, setModalType] = useState<ModalType | null>(null);
   const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
 
-  const [catalogSearch, setCatalogSearch] = useState("");
+  const [modelSearch, setModelSearch] = useState("");
   const [workerSearch, setWorkerSearch] = useState("");
   const [workerRoleFilter, setWorkerRoleFilter] = useState("all");
   const [workerStatusFilter, setWorkerStatusFilter] = useState("active");
@@ -241,15 +276,31 @@ export default function ReferencesPage() {
   const [pesticides, setPesticides] = useState<any[]>([]);
   const [fertilizers, setFertilizers] = useState<any[]>([]);
   const [additives, setAdditives] = useState<any[]>([]);
-  const [catalogRows, setCatalogRows] = useState<any[]>([]);
   const [machines, setMachines] = useState<any[]>([]);
   const [equipment, setEquipment] = useState<any[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [workers, setWorkers] = useState<any[]>([]);
+  const [machineModels, setMachineModels] = useState<GlobalMachineModel[]>([]);
+  const [equipmentModels, setEquipmentModels] = useState<GlobalEquipmentModel[]>([]);
+  const [transportModels, setTransportModels] = useState<GlobalTransportModel[]>([]);
 
   const [form, setForm] = useState<Record<string, string>>({});
+  const canManageCompanyReferences = profile?.role === "company_admin" || profile?.role === "global_admin";
 
   const companyMaterials = useMemo(() => [...pesticides, ...fertilizers, ...additives], [pesticides, fertilizers, additives]);
+  const filteredAssetModels = useMemo(() => {
+    const query = modelSearch.trim().toLocaleLowerCase("ru");
+    const rows = modalType === "machine"
+      ? machineModels
+      : modalType === "equipment"
+        ? equipmentModels
+        : modalType === "vehicle"
+          ? transportModels
+          : [];
+    return rows
+      .filter((row) => !query || catalogModelLabel(row).toLocaleLowerCase("ru").includes(query))
+      .slice(0, 100);
+  }, [equipmentModels, machineModels, modalType, modelSearch, transportModels]);
   const seasonCropCount = useMemo(() => {
     const keys = new Set(
       seasonUsage
@@ -264,6 +315,7 @@ export default function ReferencesPage() {
     : `${seasonCropCount} ${pluralRu(seasonCropCount, "культура", "культуры", "культур")}`;
 
   const currentAction = useMemo(() => {
+    if (!canManageCompanyReferences) return null;
     if (domainTab === "machine-yard" && machineYardTab === "machines") {
       return { label: "Добавить технику", modal: "machine" as const };
     }
@@ -273,7 +325,7 @@ export default function ReferencesPage() {
     if (domainTab === "fleet") return { label: "Добавить транспорт", modal: "vehicle" as const };
     if (domainTab === "personnel") return { label: "Добавить сотрудника", modal: "worker" as const };
     return null;
-  }, [domainTab, machineYardTab]);
+  }, [canManageCompanyReferences, domainTab, machineYardTab]);
 
   const loadAll = async () => {
     if (!profile?.company_id) {
@@ -282,7 +334,7 @@ export default function ReferencesPage() {
     }
     setLoading(true);
     try {
-      const [usageRows, pesticideRows, fertilizerRows, additiveRows, assetRows, workerRows] =
+      const [usageRows, pesticideRows, fertilizerRows, additiveRows, assetRows, workerRows, machineModelRows, equipmentModelRows, transportModelRows] =
         await Promise.all([
           getSeasonAgronomyUsage(profile.company_id, "ru"),
           getPesticides(profile.company_id, false, "ru"),
@@ -290,6 +342,9 @@ export default function ReferencesPage() {
           getAdditives(profile.company_id, false, "ru"),
           getCompanyAssetReferences(profile.company_id, "ru"),
           getCompanyPeople(profile.company_id, true),
+          getGlobalMachineModels(),
+          getGlobalEquipmentModels(),
+          getGlobalTransportModels(),
         ]);
       setSeasonUsage(usageRows);
       setPesticides(pesticideRows);
@@ -299,6 +354,9 @@ export default function ReferencesPage() {
       setEquipment(assetRows.equipment);
       setVehicles(assetRows.vehicles);
       setWorkers(workerRows);
+      setMachineModels(machineModelRows);
+      setEquipmentModels(equipmentModelRows);
+      setTransportModels(transportModelRows);
     } finally {
       setLoading(false);
     }
@@ -307,42 +365,6 @@ export default function ReferencesPage() {
   useEffect(() => {
     void loadAll();
   }, [profile?.company_id]);
-
-  useEffect(() => {
-    if (!profile?.company_id || !catalogOpen) return;
-    const query = catalogSearch.trim();
-    if (query.length < 2) {
-      setCatalogRows([]);
-      setCatalogLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setCatalogLoading(true);
-    (async () => {
-      try {
-        const [pRows, fRows, aRows] = await Promise.all([
-          searchAgrochemicalMaster(profile.company_id!, "pesticide", query, "ru"),
-          searchAgrochemicalMaster(profile.company_id!, "fertilizer", query, "ru"),
-          searchAgrochemicalMaster(profile.company_id!, "additive", query, "ru"),
-        ]);
-        if (!cancelled) setCatalogRows([...pRows, ...fRows, ...aRows]);
-      } catch (error) {
-        if (!cancelled) {
-          setCatalogRows([]);
-          toast({
-            title: "Ошибка",
-            description: error instanceof Error ? error.message : "Не удалось найти материалы в каталоге TravkinFlow",
-            variant: "destructive",
-          });
-        }
-      } finally {
-        if (!cancelled) setCatalogLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [catalogOpen, catalogSearch, profile?.company_id, toast]);
 
   const filteredWorkers = useMemo(() => {
     const query = workerSearch.trim().toLowerCase();
@@ -362,6 +384,7 @@ export default function ReferencesPage() {
     setModalType(type);
     setEditingWorkerId(type === "worker" && initialForm.id ? initialForm.id : null);
     setForm(initialForm);
+    setModelSearch("");
   };
 
   const closeModal = () => {
@@ -370,43 +393,104 @@ export default function ReferencesPage() {
     setForm({});
   };
 
+  const loadPesticideCard = async (productId: string) => {
+    setSelectedPesticideId(productId);
+    setPesticideCardOpen(true);
+    setPesticideCardLoading(true);
+    setPesticideCardError(null);
+    setPesticideCard(null);
+    try {
+      const headers = await buildClientAuthHeaders();
+      const response = await fetch(`/api/catalog/pesticide-card/${productId}`, {
+        headers,
+        cache: "no-store",
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить полную карточку");
+      setPesticideCard(payload as FullPesticideCardData);
+    } catch (error) {
+      setPesticideCardError(error instanceof Error ? error.message : "Не удалось загрузить полную карточку");
+    } finally {
+      setPesticideCardLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!profile?.id || directCardHandled.current) return;
+    const productId = new URLSearchParams(window.location.search).get("pesticide");
+    if (!productId) return;
+    directCardHandled.current = true;
+    setDomainTab("agrochemistry");
+    void loadPesticideCard(productId);
+  }, [profile?.id]);
+
   const submitCreate = async () => {
     if (!profile?.company_id || !profile?.id || !modalType || saving) return;
     setSaving(true);
     try {
       if (modalType === "machine") {
-        if (!form.name?.trim()) throw new Error("Укажите название техники");
+        const model = machineModels.find((row) => row.id === form.model_id);
+        if (!model) throw new Error("Выберите модель техники из ГЛБД");
+        const type = machineTypeFromCatalog(model.category);
+        const canonicalName = catalogModelLabel(model);
+        const instanceIdentifier = String(form.inventory_number || form.plate_number || "").trim();
         await createMachineReference(profile.company_id, profile.id, {
-          name: form.name.trim(),
-          type: (form.type || "other") as any,
-          model: form.model || "",
-          status: "free",
-          is_active: true,
+          name: instanceIdentifier ? `${canonicalName} • ${instanceIdentifier}` : canonicalName,
+          type,
+          model: model.model || "",
+          status: (form.status || "free") as any,
+          is_active: form.status !== "inactive",
+          global_machine_model_id: model.id,
+          full_name: canonicalName,
+          brand: model.brand,
+          series: model.series,
+          category: type,
+          machinery_type: model.category,
+          inventory_number: form.inventory_number || null,
+          license_plate: form.plate_number || null,
+          manufacture_year: form.manufacture_year ? Number(form.manufacture_year) : null,
         });
       }
       if (modalType === "equipment") {
-        if (!form.name?.trim()) throw new Error("Укажите название оборудования");
+        const model = equipmentModels.find((row) => row.id === form.model_id);
+        if (!model) throw new Error("Выберите модель оборудования из ГЛБД");
         await createEquipmentReference(profile.company_id, profile.id, {
-          name: form.name.trim(),
-          category: form.category || "other",
+          name: catalogModelLabel(model),
+          category: model.category || "other",
+          global_equipment_model_id: model.id,
+          full_name: catalogModelLabel(model),
+          brand: model.brand,
+          series: model.series,
+          model: model.model,
+          equipment_category: model.category || model.equipment_type,
+          inventory_number: form.inventory_number || null,
+          manufacture_year: form.manufacture_year ? Number(form.manufacture_year) : null,
+          is_active: form.status !== "inactive",
         });
       }
       if (modalType === "vehicle") {
-        if (!form.name?.trim()) throw new Error("Укажите название транспорта");
+        const model = transportModels.find((row) => row.id === form.model_id);
+        if (!model) throw new Error("Выберите модель транспорта из ГЛБД");
         if (!form.plate_number?.trim()) throw new Error("Укажите госномер");
         await createVehicleReference(profile.company_id, profile.id, {
-          name: form.name.trim(),
+          name: catalogModelLabel(model),
           global_brand_id: null,
           global_model_id: null,
-          custom_name: form.custom_name || form.name.trim(),
+          transport_model_id: model.id,
+          custom_name: "",
           inventory_number: form.inventory_number || "",
           primary_responsible_personnel_id: null,
-          vehicle_type: (form.vehicle_type || "truck") as any,
+          type: vehicleTypeFromCatalog(model.category),
+          full_name: catalogModelLabel(model),
+          brand: model.brand,
+          series: model.series,
+          model: model.model,
           plate_number: form.plate_number.trim(),
           capacity_kg: Number(form.capacity_kg || 0),
           body_volume_m3: null,
-          status: "free",
-          is_active: true,
+          manufacture_year: form.manufacture_year ? Number(form.manufacture_year) : null,
+          status: (form.status || "free") as any,
+          is_active: form.status !== "inactive",
         });
       }
       if (modalType === "worker") {
@@ -474,26 +558,6 @@ export default function ReferencesPage() {
     }
   };
 
-  const addFromCatalog = async (productId: string) => {
-    if (!profile?.company_id || !profile?.id || linkingGlobalId) return;
-    setLinkingGlobalId(productId);
-    try {
-      await addGlobalAgrochemicalToCompany(profile.company_id, profile.id, productId);
-      await loadAll();
-      setCatalogSearch("");
-      setCatalogRows([]);
-      toast({ title: "Готово", description: "Материал добавлен в компанию. Складские остатки не создавались." });
-    } catch (error) {
-      toast({
-        title: "Ошибка",
-        description: error instanceof Error ? error.message : "Не удалось добавить материал в компанию",
-        variant: "destructive",
-      });
-    } finally {
-      setLinkingGlobalId(null);
-    }
-  };
-
   return (
     <div className="space-y-4">
       <PageHeader
@@ -547,11 +611,8 @@ export default function ReferencesPage() {
 
         <TabsContent value="agrochemistry" className="space-y-4">
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
+            <CardHeader>
               <CardTitle>Материалы компании</CardTitle>
-              <Button variant="outline" onClick={() => setCatalogOpen(true)}>
-                Добавить из каталога TravkinFlow
-              </Button>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm text-slate-500">
@@ -730,13 +791,17 @@ export default function ReferencesPage() {
                         <TableCell className="max-w-[260px] truncate">{worker.notes || "—"}</TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button variant="outline" size="sm" onClick={() => editWorker(worker)} disabled={saving}>
-                              Изменить
-                            </Button>
-                            {worker.status !== "archived" ? (
-                              <Button variant="outline" size="sm" onClick={() => archiveWorker(worker)} disabled={saving}>
-                                Архив
-                              </Button>
+                            {canManageCompanyReferences ? (
+                              <>
+                                <Button variant="outline" size="sm" onClick={() => editWorker(worker)} disabled={saving}>
+                                  Изменить
+                                </Button>
+                                {worker.status !== "archived" ? (
+                                  <Button variant="outline" size="sm" onClick={() => archiveWorker(worker)} disabled={saving}>
+                                    Архив
+                                  </Button>
+                                ) : null}
+                              </>
                             ) : null}
                           </div>
                         </TableCell>
@@ -750,49 +815,15 @@ export default function ReferencesPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={catalogOpen} onOpenChange={(open) => !linkingGlobalId && setCatalogOpen(open)}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Добавить из каталога TravkinFlow</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>Поиск материала</Label>
-              <Input
-                placeholder="Введите минимум 2 символа: название, производитель, ДВ..."
-                value={catalogSearch}
-                onChange={(e) => setCatalogSearch(e.target.value)}
-              />
-              <p className="text-xs text-slate-500">
-                Полный глобальный каталог не загружается. Сначала найдите нужный препарат, затем добавьте его в компанию.
-              </p>
-            </div>
-            <div className="max-h-[420px] overflow-auto rounded-md border">
-              <DataTable
-                headers={["Название", "Тип", "Категория/подтип", "Производитель", "Статус"]}
-                rows={catalogRows.map((x) => [
-                  <div key={`${x.id}-name`}>
-                    <div>{x.trade_name || x.name}</div>
-                    {x.active_ingredient ? <div className="text-xs text-slate-500">{x.active_ingredient}</div> : null}
-                  </div>,
-                  materialKind(x),
-                  materialCategory(x),
-                  x.manufacturer || "—",
-                  x.source_scope === "company" ? (
-                    <span className="text-sm text-slate-500">Уже добавлен</span>
-                  ) : (
-                    <Button size="sm" disabled={!!linkingGlobalId} onClick={() => addFromCatalog(x.id)}>
-                      {linkingGlobalId === x.id ? "Добавление..." : "Добавить"}
-                    </Button>
-                  ),
-                ])}
-                loading={catalogLoading}
-                empty={catalogSearch.trim().length < 2 ? "Введите минимум 2 символа для поиска" : "Ничего не найдено"}
-              />
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <FullPesticideCardDialog
+        open={pesticideCardOpen}
+        onOpenChange={setPesticideCardOpen}
+        loading={pesticideCardLoading}
+        error={pesticideCardError}
+        card={pesticideCard}
+        onRetry={() => selectedPesticideId && void loadPesticideCard(selectedPesticideId)}
+        adminMode={profile?.role === "global_admin"}
+      />
 
       <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && closeModal()}>
         <DialogContent>
@@ -807,21 +838,40 @@ export default function ReferencesPage() {
 
           <div className="space-y-3">
             {modalType === "machine" || modalType === "equipment" || modalType === "vehicle" ? (
-              <div>
-                <Label>Название</Label>
-                <Input value={form.name || ""} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} />
-              </div>
-            ) : null}
-
-            {modalType === "equipment" ? (
-              <div>
-                <Label>Категория</Label>
-                <Input
-                  value={form.category || ""}
-                  placeholder="Например: сеялка, культиватор, транспортер"
-                  onChange={(e) => setForm((prev) => ({ ...prev, category: e.target.value }))}
-                />
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label>Поиск модели в ГЛБД</Label>
+                  <Input
+                    value={modelSearch}
+                    placeholder="Бренд, серия или модель"
+                    onChange={(event) => setModelSearch(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Модель *</Label>
+                  <Select value={form.model_id || ""} onValueChange={(value) => setForm((prev) => ({ ...prev, model_id: value }))}>
+                    <SelectTrigger><SelectValue placeholder="Выберите модель из ГЛБД" /></SelectTrigger>
+                    <SelectContent>
+                      {filteredAssetModels.map((row) => (
+                        <SelectItem key={row.id} value={row.id}>{catalogModelLabel(row)}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {filteredAssetModels.length === 0 ? (
+                    <p className="text-sm text-amber-300">Модель отсутствует в ГЛБД. Обратитесь к Global Admin.</p>
+                  ) : null}
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <Label>Инвентарный номер</Label>
+                    <Input value={form.inventory_number || ""} onChange={(event) => setForm((prev) => ({ ...prev, inventory_number: event.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Год выпуска</Label>
+                    <Input type="number" min="1900" max="2100" value={form.manufacture_year || ""} onChange={(event) => setForm((prev) => ({ ...prev, manufacture_year: event.target.value }))} />
+                  </div>
+                </div>
+              </>
             ) : null}
 
             {modalType === "worker" ? (
@@ -912,6 +962,49 @@ export default function ReferencesPage() {
                   />
                 </div>
               </>
+            ) : null}
+
+            {modalType === "machine" ? (
+              <div>
+                <Label>Статус</Label>
+                <Select value={form.status || "free"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="free">Свободна</SelectItem>
+                    <SelectItem value="working">В работе</SelectItem>
+                    <SelectItem value="maintenance">На обслуживании</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            {modalType === "equipment" ? (
+              <div>
+                <Label>Статус</Label>
+                <Select value={form.status || "active"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Активно</SelectItem>
+                    <SelectItem value="inactive">Неактивно</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+
+            {modalType === "vehicle" ? (
+              <div>
+                <Label>Статус</Label>
+                <Select value={form.status || "free"} onValueChange={(value) => setForm((prev) => ({ ...prev, status: value }))}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="free">Свободен</SelectItem>
+                    <SelectItem value="in_trip">В рейсе</SelectItem>
+                    <SelectItem value="loading">Погрузка</SelectItem>
+                    <SelectItem value="unloading">Разгрузка</SelectItem>
+                    <SelectItem value="drying">На сушке</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             ) : null}
           </div>
 

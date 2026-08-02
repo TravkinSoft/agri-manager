@@ -34,6 +34,57 @@ begin
   end if;
 end $$;
 
+-- Canonical source for the production operation type dictionary. The table
+-- predates the tracked migration history but is required by program_steps.
+create table if not exists public.operation_types (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique,
+  name_ru text not null,
+  name_en text,
+  category_slug text,
+  requires_machine boolean not null default false,
+  requires_product boolean not null default false,
+  requires_field boolean not null default true,
+  affects_inventory boolean not null default false,
+  affects_field_history boolean not null default true,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.operation_types enable row level security;
+
+drop trigger if exists trg_operation_types_updated_at on public.operation_types;
+create trigger trg_operation_types_updated_at
+before update on public.operation_types
+for each row execute function public.update_updated_at_column();
+
+insert into public.operation_types (
+  id, slug, name_ru, name_en, category_slug,
+  requires_machine, requires_product, requires_field,
+  affects_inventory, affects_field_history, is_active
+)
+values
+  ('fdc1fcab-87c4-4f74-8156-771d530314ad', 'discing', 'Дискование', 'Discing', 'soil_preparation', true, false, true, false, true, true),
+  ('38d94b14-0e76-41c5-b2d6-9f23b9e74db6', 'fertilizing', 'Внесение удобрений', 'Fertilizing', 'fertilization', true, true, true, true, true, true),
+  ('79a46384-4419-454f-bd64-de84a45bb23e', 'field_transfer', 'Перевозка с поля', 'Field transfer', 'logistics', false, false, true, true, false, true),
+  ('5322e5c7-81e7-4b30-ae8e-1913ba1fc3df', 'harvesting', 'Уборка урожая', 'Harvesting', 'harvesting', true, false, true, true, true, true),
+  ('6207c998-9786-49f0-9030-cd1de7a53d37', 'plowing', 'Вспашка', 'Plowing', 'soil_preparation', true, false, true, false, true, true),
+  ('4d29d884-c6fa-40a0-8390-224adcd645bb', 'seeding', 'Посев', 'Seeding', 'seeding_planting', true, true, true, true, true, true),
+  ('83ed6eb5-3edb-4f03-83c2-e036a22de767', 'spraying', 'Опрыскивание', 'Spraying', 'plant_protection', true, true, true, true, true, true)
+on conflict (slug) do update
+set
+  name_ru = excluded.name_ru,
+  name_en = excluded.name_en,
+  category_slug = excluded.category_slug,
+  requires_machine = excluded.requires_machine,
+  requires_product = excluded.requires_product,
+  requires_field = excluded.requires_field,
+  affects_inventory = excluded.affects_inventory,
+  affects_field_history = excluded.affects_field_history,
+  is_active = excluded.is_active,
+  updated_at = now();
+
 create table if not exists public.program_goals (
   id uuid primary key default gen_random_uuid(),
   code text not null unique,
@@ -461,4 +512,3 @@ begin
     end loop;
   end if;
 end $$;
-

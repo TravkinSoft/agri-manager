@@ -758,3 +758,116 @@ create policy "Allow authenticated read company program step execution statuses"
   for select
   to authenticated
   using (company_id = public.get_user_company_id());
+
+-- Production retains a second set of catalog read policies whose names use
+-- physical table names. Clone the already-defined policies so the access
+-- predicates remain byte-for-byte equivalent without duplicating logic here.
+do $$
+declare
+  item record;
+  source_policy record;
+  using_clause text;
+  check_clause text;
+begin
+  for item in
+    select * from (values
+      ('seed_originators', 'Allow public read global seed originators', 'Allow public read global seed_originators'),
+      ('seed_originators', 'Allow authenticated read company seed originators', 'Allow authenticated read company seed_originators'),
+      ('crop_diseases', 'Allow public read global crop diseases', 'Allow public read global crop_diseases'),
+      ('crop_diseases', 'Allow authenticated read company crop diseases', 'Allow authenticated read company crop_diseases'),
+      ('disease_aliases', 'Allow public read global disease aliases', 'Allow public read global disease_aliases'),
+      ('disease_aliases', 'Allow authenticated read company disease aliases', 'Allow authenticated read company disease_aliases'),
+      ('disease_images', 'Allow public read global disease images', 'Allow public read global disease_images'),
+      ('disease_images', 'Allow authenticated read company disease images', 'Allow authenticated read company disease_images'),
+      ('crop_pests', 'Allow public read global crop pests', 'Allow public read global crop_pests'),
+      ('crop_pests', 'Allow authenticated read company crop pests', 'Allow authenticated read company crop_pests'),
+      ('pest_aliases', 'Allow public read global pest aliases', 'Allow public read global pest_aliases'),
+      ('pest_aliases', 'Allow authenticated read company pest aliases', 'Allow authenticated read company pest_aliases'),
+      ('pest_images', 'Allow public read global pest images', 'Allow public read global pest_images'),
+      ('pest_images', 'Allow authenticated read company pest images', 'Allow authenticated read company pest_images'),
+      ('crop_weeds', 'Allow public read global crop weeds', 'Allow public read global crop_weeds'),
+      ('crop_weeds', 'Allow authenticated read company crop weeds', 'Allow authenticated read company crop_weeds'),
+      ('weed_aliases', 'Allow public read global weed aliases', 'Allow public read global weed_aliases'),
+      ('weed_aliases', 'Allow authenticated read company weed aliases', 'Allow authenticated read company weed_aliases'),
+      ('weed_images', 'Allow public read global weed images', 'Allow public read global weed_images'),
+      ('weed_images', 'Allow authenticated read company weed images', 'Allow authenticated read company weed_images')
+    ) as mappings(table_name, source_name, target_name)
+  loop
+    select * into source_policy
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = item.table_name
+      and policyname = item.source_name;
+
+    if not found then
+      raise exception 'Source policy %.% is missing', item.table_name, item.source_name;
+    end if;
+
+    execute format('drop policy if exists %I on public.%I', item.target_name, item.table_name);
+    using_clause := case when source_policy.qual is null then ''
+      else format(' using (%s)', source_policy.qual) end;
+    check_clause := case when source_policy.with_check is null then ''
+      else format(' with check (%s)', source_policy.with_check) end;
+
+    execute format(
+      'create policy %I on public.%I as %s for %s to %s%s%s',
+      item.target_name,
+      item.table_name,
+      source_policy.permissive,
+      source_policy.cmd,
+      array_to_string(source_policy.roles, ', '),
+      using_clause,
+      check_clause
+    );
+  end loop;
+end $$;
+
+-- Match the production policy expressions for disease and weed relation
+-- tables. The range variable name is immaterial to access, but keeping it
+-- canonical removes false schema drift in future audits.
+do $$
+declare
+  item record;
+begin
+  for item in
+    select * from (values
+      ('crop_diseases', 'diseases', 'disease_id'),
+      ('disease_aliases', 'diseases', 'disease_id'),
+      ('disease_images', 'diseases', 'disease_id'),
+      ('crop_weeds', 'weeds', 'weed_id'),
+      ('weed_aliases', 'weeds', 'weed_id'),
+      ('weed_images', 'weeds', 'weed_id')
+    ) as mappings(table_name, parent_table, parent_id_column)
+  loop
+    execute format('drop policy if exists %I on public.%I',
+      'Allow public read global ' || item.table_name, item.table_name);
+    execute format(
+      'create policy %I on public.%I for select to anon, authenticated using (exists (select 1 from public.%I p where p.id = %I.%I and p.company_id is null and coalesce(p.is_active, true) = true and coalesce(p.archived, false) = false))',
+      'Allow public read global ' || item.table_name,
+      item.table_name,
+      item.parent_table,
+      item.table_name,
+      item.parent_id_column
+    );
+
+    execute format('drop policy if exists %I on public.%I',
+      'Allow authenticated read company ' || item.table_name, item.table_name);
+    execute format(
+      'create policy %I on public.%I for select to authenticated using (exists (select 1 from public.%I p where p.id = %I.%I and p.company_id = public.get_user_company_id() and coalesce(p.is_active, true) = true and coalesce(p.archived, false) = false))',
+      'Allow authenticated read company ' || item.table_name,
+      item.table_name,
+      item.parent_table,
+      item.table_name,
+      item.parent_id_column
+    );
+  end loop;
+end $$;
+
+drop policy if exists "Global admin can manage global products" on public.products;
+drop policy if exists "Users can view company and global products" on public.products;
+drop policy if exists "Users can view company products" on public.products;
+create policy "Users can view company products"
+  on public.products
+  for select
+  to authenticated
+  using (company_id = public.get_user_company_id());

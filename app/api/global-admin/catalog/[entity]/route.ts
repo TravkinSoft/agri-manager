@@ -5,6 +5,19 @@ import { localizedName } from "@/lib/i18n/helpers";
 import { normalizeMaterialRateBasis } from "@/lib/materials/metadata";
 import { buildProductPassport } from "@/lib/products/product-passport";
 import type { GlobalCatalogEntity } from "@/lib/platform/global-catalog-config";
+import {
+  buildGlbdComponentSearchEntries,
+  dedupeByCanonicalComponent,
+  findExactGlbdAliasConflict,
+  glbdComponentDisplayName,
+  glbdComponentMatchesSearch,
+  glbdComponentTypeLabel,
+  isVisibleGlbdComponent,
+  matchedGlbdAlias,
+  normalizeGlbdSearchText,
+  toGlbdComponentSourceDisplay,
+  type GlbdComponentSearchEntry,
+} from "@/lib/glbd/component-discovery";
 
 type EntityConfig = {
   table: string;
@@ -208,7 +221,7 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     defaultOrder: "name",
     scopeWhere: (query) => query.is("company_id", null),
     searchColumns: ["name", "name_ru", "name_en", "slug", "subcategory", "crop_subcategory", "category", "crop_category"],
-    filters: ["crop_category", "crop_subcategory", "is_common_in_kz", "is_active"],
+    filters: ["category_id", "is_common_in_kz", "is_active"],
     normalizeRow: (row) => {
       const categoryName =
         row.crop_categories?.name_ru ||
@@ -430,13 +443,13 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
     table: "products",
     select: "*",
     defaultOrder: "name",
-    scopeWhere: (query) => query.is("company_id", null).eq("product_type", "pesticide"),
-    searchColumns: ["name", "trade_name"],
+    scopeWhere: (query) => query.is("company_id", null).in("product_type", ["pesticide", "additive", "adjuvant", "growth_regulator"]),
+    searchColumns: ["name", "trade_name", "subcategory", "category", "manufacturer", "formulation"],
     filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "is_active"],
     normalizeRow: (row) => ({
       ...normalizeProductCatalogRow(row),
       active_ingredients: row.active_ingredients || row.active_ingredient || "-",
-      pesticide_category: row.pesticide_category || "-",
+      pesticide_category: row.catalog_category_label || row.pesticide_category || "-",
       mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
       formulation: row.formulation_name || row.formulation || "-",
       status: "master",
@@ -451,26 +464,35 @@ const ENTITY_CONFIG: Record<GlobalCatalogEntity, EntityConfig> = {
   },
   fertilizers: {
     table: "products",
-    select: "*",
+    select: "*, fertilizer_categories:fertilizer_category_id(id,name_ru,slug)",
     defaultOrder: "name",
     scopeWhere: (query) => query.is("company_id", null).eq("product_type", "fertilizer"),
-    searchColumns: ["name", "trade_name"],
-    filters: ["product_type", "category_id", "manufacturer_id", "formulation_id", "mode_of_action_type_id", "active_ingredient_ids", "fertilizer_type", "is_active"],
+    searchColumns: ["name", "trade_name", "manufacturer", "formulation", "composition", "catalog_category_label", "application_scope"],
+    filters: ["fertilizer_category_id", "manufacturer_id", "application_scope", "is_active"],
     normalizeRow: (row) => ({
       ...normalizeProductCatalogRow(row),
-      active_ingredients: row.active_ingredients || row.active_ingredient || "-",
-      pesticide_category: row.pesticide_category || "-",
-      mode_of_action_type: row.mode_of_action_type_name || translateModeOfAction(row.mode_of_action_type),
+      fertilizer_category: row.fertilizer_categories?.name_ru || row.catalog_category_label || row.fertilizer_type || "-",
       formulation: row.formulation_name || row.formulation || "-",
       status: "master",
     }),
     beforeCreate: (payload) => ({
       ...normalizeProductMetadataPayload(payload, "kg"),
+      trade_name: payload.trade_name || payload.name,
+      name_ru: payload.name_ru || payload.trade_name || payload.name,
       type: "fertilizer",
       product_type: "fertilizer",
       company_id: null,
     }),
     beforeUpdate: (payload) => normalizeProductMetadataPayload(payload, "kg"),
+  },
+  fertilizer_categories: {
+    table: "fertilizer_categories",
+    select: "id,slug,name_ru,definition,examples,sort_order,is_active,archived,created_at,updated_at",
+    defaultOrder: "sort_order",
+    scopeWhere: (query) => query,
+    searchColumns: ["slug", "name_ru", "definition", "examples"],
+    filters: ["is_active"],
+    beforeCreate: (payload) => ({ ...payload, archived: false }),
   },
   additives: {
     table: "products",
@@ -738,6 +760,19 @@ function expandProductSearchTerms(search: string): string[] {
 
 function productSearchMatches(row: any, search: string): boolean {
   const searchTerms = expandProductSearchTerms(search).map(normalizeSearchText);
+  const componentTerms = Array.isArray(row.active_ingredient_components)
+    ? row.active_ingredient_components.flatMap((component: any) => [
+        component.displayName,
+        component.nameEn,
+        ...(Array.isArray(component.aliases) ? component.aliases : []),
+      ])
+    : [];
+  const componentNeedle = normalizeGlbdSearchText(search);
+  const componentMatch = componentNeedle
+    ? componentTerms.some((value: any) =>
+        normalizeGlbdSearchText(value).includes(componentNeedle)
+      )
+    : false;
   const hay = [
     row.trade_name,
     row.name,
@@ -747,7 +782,7 @@ function productSearchMatches(row: any, search: string): boolean {
     row.manufacturer_name,
     row.manufacturer,
   ].map(normalizeSearchText);
-  return searchTerms.some((term) => term && hay.some((value) => value.includes(term)));
+  return componentMatch || searchTerms.some((term) => term && hay.some((value) => value.includes(term)));
 }
 
 function isUuidLike(value: string): boolean {
@@ -767,25 +802,6 @@ async function resolvePesticideCategoryIdBySlug(supabase: any, slugOrId: string 
     .maybeSingle();
 
   return data?.id || null;
-}
-
-async function assertGlobalAdmin(userId: string) {
-  const supabase = getServiceClient();
-  const { data: profile, error } = await supabase
-    .from("profiles")
-    .select("id, role, status")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (error || !profile?.id) throw new Error("Профиль пользователя не найден");
-  if (String(profile.role || "").toLowerCase() !== "global_admin") {
-    throw new Error("Доступ только для глобального администратора");
-  }
-  if (String(profile.status || "active") !== "active") {
-    throw new Error("Профиль глобального администратора неактивен");
-  }
-
-  return supabase;
 }
 
 async function assertGlobalAdminRequest(request: NextRequest) {
@@ -910,7 +926,147 @@ async function attachSeedProductNames(supabase: any, rows: any[]) {
   });
 }
 
-async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
+async function loadGlbdComponentSearchIndex(supabase: any): Promise<GlbdComponentSearchEntry[]> {
+  const [componentsResult, aliasesResult] = await Promise.all([
+    supabase
+      .from("glbd_components")
+      .select(
+        "id,legacy_active_ingredient_id,canonical_name,name_ru,name_en,component_type,is_active,archived_at"
+      ),
+    supabase
+      .from("glbd_component_aliases")
+      .select("component_id,alias_text,normalized_text,language"),
+  ]);
+
+  if (componentsResult.error) {
+    throw new Error(`Не удалось загрузить компоненты GLBD: ${componentsResult.error.message}`);
+  }
+  if (aliasesResult.error) {
+    throw new Error(`Не удалось загрузить дополнительные названия GLBD: ${aliasesResult.error.message}`);
+  }
+
+  return buildGlbdComponentSearchEntries(
+    componentsResult.data || [],
+    aliasesResult.data || []
+  );
+}
+
+function glbdSearchConflict(index: GlbdComponentSearchEntry[], search: string) {
+  const matches = findExactGlbdAliasConflict(index, search);
+  const uniqueIds = new Set(matches.map((component) => component.id));
+  if (uniqueIds.size < 2) return null;
+  return {
+    message: "Этот вариант названия относится к нескольким компонентам. Уточните официальное название.",
+    components: matches.map(glbdComponentDisplayName),
+  };
+}
+
+function attachGlbdComponentsToLegacyIngredients(
+  rows: any[],
+  index: GlbdComponentSearchEntry[],
+  search: string
+) {
+  const byLegacyId = new Map<string, GlbdComponentSearchEntry>();
+  const byComponentId = new Map<string, GlbdComponentSearchEntry>();
+  for (const component of index) {
+    byComponentId.set(component.id, component);
+    if (!isVisibleGlbdComponent(component) || !component.legacy_active_ingredient_id) continue;
+    byLegacyId.set(component.legacy_active_ingredient_id, component);
+  }
+
+  const enriched = rows.map((row) => {
+    const component = byLegacyId.get(row.id);
+    if (!component) return row;
+    return {
+      ...row,
+      name_ru: component.name_ru || row.name_ru,
+      name_en: component.name_en || row.name_en,
+      canonical_name: component.canonical_name || row.name_en || row.name_ru,
+      glbd_component_id: component.id,
+      glbd_component_type: component.component_type,
+      glbd_component_type_label: glbdComponentTypeLabel(component.component_type),
+      glbd_aliases: component.aliases.map((alias) => alias.alias_text).filter(Boolean),
+      matched_alias: search ? matchedGlbdAlias(component, search) : null,
+    };
+  });
+
+  const filtered = search
+    ? enriched.filter((row) => {
+        const component = row.glbd_component_id
+          ? byComponentId.get(row.glbd_component_id)
+          : null;
+        return component
+          ? glbdComponentMatchesSearch(component, search)
+          : [row.name_ru, row.name_en, row.slug, row.description]
+              .map(normalizeSearchText)
+              .some((value) => value.includes(normalizeSearchText(search)));
+      })
+    : enriched;
+
+  return dedupeByCanonicalComponent(filtered);
+}
+
+async function loadGlbdComponentCard(supabase: any, componentId: string) {
+  const [componentResult, aliasesResult, sourcesResult] = await Promise.all([
+    supabase
+      .from("glbd_components")
+      .select("id,canonical_name,name_ru,name_en,component_type,is_active,archived_at")
+      .eq("id", componentId)
+      .eq("is_active", true)
+      .is("archived_at", null)
+      .maybeSingle(),
+    supabase
+      .from("glbd_component_aliases")
+      .select("alias_text,normalized_text")
+      .eq("component_id", componentId),
+    supabase
+      .from("glbd_component_sources")
+      .select("id,component_id,source_type,source_url,source_title,claim_scope,checked_at")
+      .eq("component_id", componentId)
+      .neq("source_type", "needs_source")
+      .order("checked_at", { ascending: false, nullsFirst: false }),
+  ]);
+
+  if (componentResult.error) throw new Error(componentResult.error.message);
+  if (!componentResult.data) return null;
+  if (aliasesResult.error) throw new Error(aliasesResult.error.message);
+  if (sourcesResult.error) throw new Error(sourcesResult.error.message);
+
+  const component = componentResult.data;
+  const primaryNames = new Set(
+    [component.name_ru, component.name_en, component.canonical_name]
+      .map(normalizeGlbdSearchText)
+      .filter(Boolean)
+  );
+  const aliasNames = Array.from(
+    new Set(
+      (aliasesResult.data || [])
+        .map((alias: any) => String(alias.alias_text || alias.normalized_text || "").trim())
+        .filter((alias: string) => alias && !primaryNames.has(normalizeGlbdSearchText(alias)))
+    )
+  );
+  const sources = (sourcesResult.data || [])
+    .map(toGlbdComponentSourceDisplay)
+    .filter(Boolean);
+
+  return {
+    id: component.id,
+    displayName: glbdComponentDisplayName(component),
+    nameEn:
+      component.name_en && component.name_en !== component.name_ru
+        ? component.name_en
+        : null,
+    typeLabel: glbdComponentTypeLabel(component.component_type),
+    aliases: aliasNames,
+    sources,
+  };
+}
+
+async function attachActiveIngredientsToProducts(
+  supabase: any,
+  rows: any[],
+  glbdIndex?: GlbdComponentSearchEntry[]
+) {
   if (!rows.length) return rows;
 
   const productIds = Array.from(new Set(rows.map((row) => row.id).filter(Boolean)));
@@ -945,11 +1101,23 @@ async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
     return rows.map((row) => ({ ...row, active_ingredient: "-", active_ingredients: "-" }));
   }
 
+  const resolvedGlbdIndex = glbdIndex || (await loadGlbdComponentSearchIndex(supabase));
+  const componentByLegacyIngredientId = new Map<string, GlbdComponentSearchEntry>();
+  for (const component of resolvedGlbdIndex) {
+    if (!isVisibleGlbdComponent(component) || !component.legacy_active_ingredient_id) continue;
+    componentByLegacyIngredientId.set(component.legacy_active_ingredient_id, component);
+  }
+
   const ingredientNameById = new Map<string, string>();
   for (const ingredient of ingredients) {
+    const component = componentByLegacyIngredientId.get(ingredient.id);
     ingredientNameById.set(
       ingredient.id,
-      ingredient.name_ru || ingredient.name_en || ingredient.slug || "-"
+      (component ? glbdComponentDisplayName(component) : null) ||
+        ingredient.name_ru ||
+        ingredient.name_en ||
+        ingredient.slug ||
+        "-"
     );
   }
 
@@ -994,14 +1162,38 @@ async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
 
     const dedup = new Set<string>();
     const names: string[] = [];
+    const components: Array<{
+      id: string;
+      legacyIngredientId: string;
+      displayName: string;
+      nameEn: string | null;
+      typeLabel: string;
+      aliases: string[];
+    }> = [];
 
     for (const link of productLinks) {
       const name = ingredientNameById.get(link.active_ingredient_id);
       if (!name || name === "-") continue;
-      const key = name.trim().toLowerCase();
+      const component = componentByLegacyIngredientId.get(link.active_ingredient_id);
+      const key = component?.id || name.trim().toLowerCase();
       if (!key || dedup.has(key)) continue;
       dedup.add(key);
       names.push(name);
+      if (component) {
+        components.push({
+          id: component.id,
+          legacyIngredientId: link.active_ingredient_id,
+          displayName: glbdComponentDisplayName(component),
+          nameEn:
+            component.name_en && component.name_en !== component.name_ru
+              ? component.name_en
+              : null,
+          typeLabel: glbdComponentTypeLabel(component.component_type),
+          aliases: component.aliases
+            .map((alias) => String(alias.alias_text || "").trim())
+            .filter(Boolean),
+        });
+      }
     }
 
     const text = names.length ? names.join(", ") : "-";
@@ -1010,6 +1202,7 @@ async function attachActiveIngredientsToProducts(supabase: any, rows: any[]) {
       ...row,
       active_ingredient: text,
       active_ingredients: text,
+      active_ingredient_components: components,
       pesticide_category:
         categoryMap.get(row.category_id) ||
         row.pesticide_category ||
@@ -1061,17 +1254,84 @@ export async function GET(
     const config = ENTITY_CONFIG[entity];
     const { supabase } = await assertGlobalAdminRequest(request);
 
+    const componentId = String(request.nextUrl.searchParams.get("componentId") || "").trim();
+    if (entity === "active_ingredients" && componentId) {
+      if (!isUuidLike(componentId)) {
+        return NextResponse.json({ error: "Некорректный идентификатор компонента" }, { status: 400 });
+      }
+      const component = await loadGlbdComponentCard(supabase, componentId);
+      if (!component) {
+        return NextResponse.json({ error: "Компонент не найден или архивирован" }, { status: 404 });
+      }
+      return NextResponse.json({ component });
+    }
+
+    const search = String(request.nextUrl.searchParams.get("search") || "").trim();
+    const productEntity =
+      entity === "pesticides" ||
+      entity === "fertilizers" ||
+      entity === "additives" ||
+      entity === "growth_regulators";
+    const componentProductEntity = entity === "pesticides" || entity === "growth_regulators";
+    let glbdIndex: GlbdComponentSearchEntry[] | undefined;
+    const matchingProductIdSet = new Set<string>();
+
+    if (entity === "active_ingredients" || componentProductEntity) {
+      glbdIndex = await loadGlbdComponentSearchIndex(supabase);
+    }
+
+    if (search && productEntity) {
+      const aliasMatches = await Promise.all(
+        expandProductSearchTerms(search).map((term) =>
+          supabase
+            .from("global_product_aliases")
+            .select("product_id")
+            .ilike("alias", `%${term}%`)
+            .limit(1000)
+        )
+      );
+      for (const result of aliasMatches) {
+        if (result.error) throw new Error(result.error.message);
+        for (const row of result.data || []) {
+          if (row.product_id) matchingProductIdSet.add(String(row.product_id));
+        }
+      }
+    }
+
+    if (search && componentProductEntity && glbdIndex) {
+      const legacyIngredientIds = glbdIndex
+        .filter(
+          (component) =>
+            isVisibleGlbdComponent(component) &&
+            Boolean(component.legacy_active_ingredient_id) &&
+            glbdComponentMatchesSearch(component, search)
+        )
+        .map((component) => component.legacy_active_ingredient_id as string);
+
+      if (legacyIngredientIds.length) {
+        const { data: matchedLinks, error: matchedLinksError } = await supabase
+          .from("product_active_ingredients")
+          .select("product_id")
+          .in("active_ingredient_id", legacyIngredientIds);
+        if (matchedLinksError) throw new Error(matchedLinksError.message);
+        for (const link of matchedLinks || []) {
+          if (link.product_id) matchingProductIdSet.add(String(link.product_id));
+        }
+      }
+    }
+
+    const matchingProductIds = Array.from(matchingProductIdSet);
     let query = supabase.from(config.table).select(config.select);
     query = config.scopeWhere(query);
     query = query.eq("archived", false);
 
-    const search = String(request.nextUrl.searchParams.get("search") || "").trim();
-    if (search) {
+    if (search && entity !== "active_ingredients") {
       const searchTerms =
-        entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators"
-          ? expandProductSearchTerms(search)
-          : [search];
+        productEntity ? expandProductSearchTerms(search) : [search];
       const orParts = searchTerms.flatMap((term) => config.searchColumns.map((column) => `${column}.ilike.%${term}%`));
+      if (productEntity && matchingProductIds.length) {
+        orParts.push(`id.in.(${matchingProductIds.join(",")})`);
+      }
       query = query.or(orParts.join(","));
     }
 
@@ -1093,6 +1353,15 @@ export async function GET(
 
       if (filterKey === "pesticide_subcategory") {
         query = query.contains("pesticide_subcategories", [value]);
+        continue;
+      }
+
+      if (filterKey === "category_id" && entity === "crops") {
+        if (isUuidLike(value)) {
+          query = query.eq("category_id", value);
+        } else {
+          query = query.eq("category_id", "00000000-0000-0000-0000-000000000000");
+        }
         continue;
       }
 
@@ -1147,22 +1416,27 @@ export async function GET(
 
     const rawRows = data || [];
     let hydratedRows = rawRows;
-    if (entity === "varieties") {
+    if (entity === "active_ingredients" && glbdIndex) {
+      hydratedRows = attachGlbdComponentsToLegacyIngredients(rawRows, glbdIndex, search);
+    } else if (entity === "varieties") {
       hydratedRows = await attachCropNamesToVarieties(supabase, rawRows);
     } else if (entity === "seeds") {
       hydratedRows = await attachSeedProductNames(supabase, rawRows);
-    } else if (entity === "pesticides" || entity === "fertilizers") {
-      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
+    } else if (entity === "pesticides") {
+      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows, glbdIndex);
     } else if (entity === "growth_regulators") {
-      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows);
+      hydratedRows = await attachActiveIngredientsToProducts(supabase, rawRows, glbdIndex);
     }
 
     if (search && (entity === "pesticides" || entity === "fertilizers" || entity === "additives" || entity === "growth_regulators")) {
-      hydratedRows = hydratedRows.filter((row: any) => productSearchMatches(row, search));
+      hydratedRows = hydratedRows.filter(
+        (row: any) => matchingProductIdSet.has(String(row?.id || "")) || productSearchMatches(row, search)
+      );
     }
 
     const rows = hydratedRows.map((row: any) => (config.normalizeRow ? config.normalizeRow(row) : row));
-    return NextResponse.json({ rows });
+    const searchConflict = search && glbdIndex ? glbdSearchConflict(glbdIndex, search) : null;
+    return NextResponse.json({ rows, searchConflict });
   } catch (error) {
     if (error instanceof SessionAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
@@ -1191,11 +1465,39 @@ export async function POST(
       ? normalized.active_ingredient_ids
       : undefined;
     delete normalized.active_ingredient_ids;
-    if ((entity === "pesticides" || entity === "fertilizers") && !normalized.category_id) {
+    if (entity === "pesticides" && !normalized.category_id) {
       normalized.category_id = await resolvePesticideCategoryIdBySlug(
         supabase,
         normalized.pesticide_category || normalized.category_slug || normalized.source_category_slug
       );
+    }
+
+    if (entity === "fertilizers") {
+      const categoryId = String(normalized.fertilizer_category_id || "").trim();
+      const composition = String(normalized.composition || "").trim();
+      const formulationId = String(normalized.formulation_id || "").trim();
+      if (!categoryId || !composition || !formulationId || !normalized.application_scope) {
+        return NextResponse.json({ error: "Для удобрения обязательны категория, состав, форма и применение" }, { status: 400 });
+      }
+      const [{ data: category }, { data: manufacturer }, { data: formulation }] = await Promise.all([
+        supabase.from("fertilizer_categories").select("id,slug,name_ru").eq("id", categoryId).eq("is_active", true).eq("archived", false).maybeSingle(),
+        normalized.manufacturer_id
+          ? supabase.from("agrochem_manufacturers").select("id,name").eq("id", normalized.manufacturer_id).eq("is_active", true).eq("archived", false).maybeSingle()
+          : Promise.resolve({ data: null }),
+        supabase.from("agrochem_formulations").select("id,name_ru").eq("id", formulationId).eq("is_active", true).eq("archived", false).maybeSingle(),
+      ]);
+      if (!category || !formulation) {
+        return NextResponse.json({ error: "Категория или форма удобрения не найдена" }, { status: 400 });
+      }
+      normalized.fertilizer_type = category.slug;
+      normalized.catalog_category_slug = category.slug;
+      normalized.catalog_category_label = category.name_ru;
+      normalized.category = "fertilizer";
+      normalized.category_id = null;
+      normalized.manufacturer = manufacturer?.name || null;
+      normalized.formulation = formulation.name_ru;
+      normalized.product_form = formulation.name_ru;
+      normalized.active_ingredient = null;
     }
 
     if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
@@ -1203,20 +1505,23 @@ export async function POST(
       if (!tradeName) {
         return NextResponse.json({ error: "Торговое название обязательно" }, { status: 400 });
       }
-      if (!normalized.category_id) {
+      if (entity !== "fertilizers" && !normalized.category_id) {
         return NextResponse.json({ error: "Категория обязательна" }, { status: 400 });
       }
-      if (!selectedActiveIngredientIds?.length) {
+      if (entity !== "fertilizers" && !selectedActiveIngredientIds?.length) {
         return NextResponse.json({ error: "Выберите минимум одно действующее вещество" }, { status: 400 });
       }
 
-      const { data: existedProduct } = await supabase
+      const { data: existedProducts } = await supabase
         .from("products")
-        .select("id")
+        .select("id,manufacturer,manufacturer_id")
         .is("company_id", null)
         .eq("archived", false)
-        .ilike("trade_name", tradeName)
-        .maybeSingle();
+        .ilike("trade_name", tradeName);
+      const manufacturerIdentity = normalizeCatalogName(normalized.manufacturer || "");
+      const existedProduct = (existedProducts || []).find((row: any) =>
+        entity !== "fertilizers" || normalizeCatalogName(row.manufacturer || "") === manufacturerIdentity
+      );
       if (existedProduct?.id) {
         return NextResponse.json({ error: "Продукт с таким торговым названием уже существует" }, { status: 400 });
       }
@@ -1230,7 +1535,7 @@ export async function POST(
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     if (
-      (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") &&
+      (entity === "pesticides" || entity === "growth_regulators") &&
       data &&
       typeof data === "object" &&
       "id" in data
@@ -1243,7 +1548,7 @@ export async function POST(
       hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
     } else if (entity === "seeds") {
       hydratedRows = await attachSeedProductNames(supabase, [data]);
-    } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+    } else if (entity === "pesticides" || entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
     }
     const row = hydratedRows[0];
@@ -1278,7 +1583,35 @@ export async function PATCH(
       ? normalized.active_ingredient_ids
       : undefined;
     delete normalized.active_ingredient_ids;
-    if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+    if (entity === "fertilizers") {
+      const categoryId = String(normalized.fertilizer_category_id || "").trim();
+      if (!categoryId) {
+        return NextResponse.json({ error: "Категория удобрения обязательна" }, { status: 400 });
+      }
+      const [{ data: category }, { data: manufacturer }, { data: formulation }] = await Promise.all([
+        supabase.from("fertilizer_categories").select("id,slug,name_ru").eq("id", categoryId).eq("is_active", true).eq("archived", false).maybeSingle(),
+        normalized.manufacturer_id
+          ? supabase.from("agrochem_manufacturers").select("id,name").eq("id", normalized.manufacturer_id).eq("is_active", true).eq("archived", false).maybeSingle()
+          : Promise.resolve({ data: null }),
+        normalized.formulation_id
+          ? supabase.from("agrochem_formulations").select("id,name_ru").eq("id", normalized.formulation_id).eq("is_active", true).eq("archived", false).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      if (!category || !formulation) {
+        return NextResponse.json({ error: "Категория или форма удобрения не найдена" }, { status: 400 });
+      }
+      normalized.fertilizer_type = category.slug;
+      normalized.catalog_category_slug = category.slug;
+      normalized.catalog_category_label = category.name_ru;
+      normalized.category = "fertilizer";
+      normalized.category_id = null;
+      normalized.manufacturer = manufacturer?.name || null;
+      normalized.formulation = formulation.name_ru;
+      normalized.product_form = formulation.name_ru;
+      normalized.active_ingredient = null;
+    }
+
+    if (entity === "pesticides" || entity === "growth_regulators") {
       const nextCategoryId = await resolvePesticideCategoryIdBySlug(
         supabase,
         normalized.category_id || normalized.pesticide_category || normalized.category_slug || normalized.source_category_slug
@@ -1286,17 +1619,22 @@ export async function PATCH(
       if (nextCategoryId) {
         normalized.category_id = nextCategoryId;
       }
+    }
 
+    if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
       const nextTradeName = String(normalized.trade_name || normalized.name || "").trim();
       if (nextTradeName) {
-        const { data: existedProduct } = await supabase
+        const { data: existedProducts } = await supabase
           .from("products")
-          .select("id")
+          .select("id,manufacturer")
           .is("company_id", null)
           .eq("archived", false)
           .ilike("trade_name", nextTradeName)
-          .neq("id", id)
-          .maybeSingle();
+          .neq("id", id);
+        const manufacturerIdentity = normalizeCatalogName(normalized.manufacturer || "");
+        const existedProduct = (existedProducts || []).find((row: any) =>
+          entity !== "fertilizers" || normalizeCatalogName(row.manufacturer || "") === manufacturerIdentity
+        );
         if (existedProduct?.id) {
           return NextResponse.json({ error: "Продукт с таким торговым названием уже существует" }, { status: 400 });
         }
@@ -1312,7 +1650,7 @@ export async function PATCH(
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     if (
-      (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") &&
+      (entity === "pesticides" || entity === "growth_regulators") &&
       data &&
       typeof data === "object" &&
       "id" in data
@@ -1324,7 +1662,7 @@ export async function PATCH(
       hydratedRows = await attachCropNamesToVarieties(supabase, [data]);
     } else if (entity === "seeds") {
       hydratedRows = await attachSeedProductNames(supabase, [data]);
-    } else if (entity === "pesticides" || entity === "fertilizers" || entity === "growth_regulators") {
+    } else if (entity === "pesticides" || entity === "growth_regulators") {
       hydratedRows = await attachActiveIngredientsToProducts(supabase, [data]);
     }
     const row = hydratedRows[0];

@@ -13,6 +13,14 @@ export interface Operation {
   planned_area_ha?: number | null;
   crop_id?: string | null;
   status?: string | null;
+  operation_status?: string | null;
+  specialist_task_status?: string | null;
+  completed_area_ha?: number | null;
+  remaining_area_ha?: number | null;
+  progress_percent?: number | null;
+  last_progress_at?: string | null;
+  last_stop_reason?: string | null;
+  started_at?: string | null;
   assigned_to?: string | null;
   date: string;
   machine_id?: string | null;
@@ -48,6 +56,10 @@ export interface OperationWithDetails extends Operation {
   tank_mix?: OperationTankMixFormData | null;
   responsible_email?: string;
   responsible_role?: string;
+  responsible_name?: string | null;
+  machine_name?: string | null;
+  equipment_name?: string | null;
+  transport_name?: string | null;
   draft_target?: string;
   draft_main_product?: string;
   draft_additional_products?: string;
@@ -57,6 +69,45 @@ export interface OperationWithDetails extends Operation {
   draft_responsible?: string;
   draft_comments?: string;
   materials?: OperationMaterial[];
+  operation_lines?: OperationLine[];
+  progress_reports?: OperationProgressReport[];
+  completion_requests?: OperationCompletionRequest[];
+}
+
+export interface OperationProgressReport {
+  id: string;
+  operation_id: string;
+  company_id: string;
+  reported_by: string | null;
+  reported_at: string;
+  completed_area_ha: number;
+  remaining_area_ha: number;
+  progress_percent: number;
+  status_after_report: string;
+  stop_reason: string | null;
+  comment: string | null;
+  weather_note: string | null;
+  reporter_name?: string | null;
+}
+
+export interface OperationCompletionRequest {
+  id: string;
+  operation_id: string;
+  company_id: string;
+  requested_by: string;
+  planned_area_ha: number;
+  actual_area_ha: number;
+  deviation_area_ha: number;
+  variance_reason: string;
+  specialist_comment: string | null;
+  material_facts: Array<Record<string, unknown>>;
+  status: "pending" | "approved" | "rejected";
+  reviewed_by: string | null;
+  review_comment: string | null;
+  requested_at: string;
+  reviewed_at: string | null;
+  requester_name?: string | null;
+  reviewer_name?: string | null;
 }
 
 export type OperationMaterialType =
@@ -91,8 +142,11 @@ export interface OperationMaterial {
   issued_quantity: number;
   consumed_quantity: number | null;
   returned_quantity: number | null;
+  loss_quantity?: number | null;
   notes: string | null;
   product_name?: string | null;
+  master_product_id?: string | null;
+  product_type?: string | null;
 }
 
 export interface OperationLine {

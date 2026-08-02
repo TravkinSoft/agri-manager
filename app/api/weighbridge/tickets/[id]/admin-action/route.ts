@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 
 type AdminAction = "void" | "archive" | "force_close";
@@ -22,7 +21,7 @@ export async function POST(
     }
 
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
-      allowedRoles: ["company_admin", "global_admin"],
+      allowedRoles: ["global_admin"],
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
     const { data: ticket, error: ticketError } = await supabase
@@ -40,9 +39,8 @@ export async function POST(
         if (action !== "void") {
           return NextResponse.json({ error: "Закрытый талон можно только аннулировать через storno." }, { status: 400 });
         }
-        const { error: voidError } = await supabase.rpc("void_ticket_with_storno_v2", {
+        const { error: voidError } = await supabase.rpc("void_finalized_weighbridge_ticket_for_session_v1", {
           p_ticket_id: id,
-          p_actor_user_id: actor.id,
           p_reason: reason || "Admin void finalized ticket",
         });
         if (voidError) {
@@ -133,10 +131,12 @@ export async function POST(
         return NextResponse.json({ error: patchError.message }, { status: 400 });
       }
 
-      const { error: finalizeError } = await supabase.rpc("finalize_weighbridge_ticket_v2", {
-        p_ticket_id: id,
-        p_actor_user_id: actor.id,
-      });
+      const { error: finalizeError } = ticket.op_type === "weighbridge_impurities"
+        ? await supabase.rpc("finalize_weighbridge_impurity_ticket_for_session_v1", { p_ticket_id: id })
+        : await supabase.rpc("finalize_weighbridge_ticket_authenticated_v1", {
+            p_ticket_id: id,
+            p_actor_user_id: actor.id,
+          });
       if (finalizeError) {
         return NextResponse.json({ error: finalizeError.message }, { status: 400 });
       }

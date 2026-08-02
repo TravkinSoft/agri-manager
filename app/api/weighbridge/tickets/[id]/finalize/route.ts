@@ -25,7 +25,7 @@ export async function POST(
     const dbStartedAt = Date.now();
     const { data: ticketBefore, error: ticketBeforeError } = await supabase
       .from("tickets")
-      .select("id, company_id, linked_request_id, warehouse_from_id, vehicle_id")
+      .select("id, company_id, linked_request_id, warehouse_from_id, vehicle_id, op_type, is_finalized, status, net_weight_kg")
       .eq("id", id)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -33,24 +33,24 @@ export async function POST(
     if (ticketBeforeError || !ticketBefore?.id) {
       return NextResponse.json({ error: ticketBeforeError?.message || "Ticket not found" }, { status: 404 });
     }
+    if (ticketBefore.is_finalized || ticketBefore.status === "finalized") {
+      timing.validationMs = Date.now() - dbStartedAt;
+      timing.totalMs = Date.now() - startedAt;
+      return NextResponse.json({ ticket: ticketBefore, idempotent_replay: true, debug: timing });
+    }
     timing.validationMs = Date.now() - dbStartedAt;
 
     const rpcStartedAt = Date.now();
-    const { error: finalizeError } = await supabase.rpc("finalize_weighbridge_ticket_v2", {
+    const finalizeRpc = ticketBefore.op_type === "weighbridge_impurities"
+      ? "finalize_weighbridge_impurity_ticket_for_session_v1"
+      : "finalize_weighbridge_ticket_for_session_v1";
+    const { error: finalizeError } = await supabase.rpc(finalizeRpc, {
       p_ticket_id: id,
-      p_actor_user_id: actor.id,
     });
     timing.rpcMs = Date.now() - rpcStartedAt;
 
     if (finalizeError) {
       return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
-    }
-
-    const { error: backfillError } = await supabase.rpc("backfill_ticket_operation_line_links_v1", {
-      p_ticket_id: id,
-    });
-    if (backfillError) {
-      return NextResponse.json({ error: backfillError.message || "Operation line linkage backfill failed" }, { status: 400 });
     }
 
     const { data: lineLinks, error: lineLinksError } = await supabase

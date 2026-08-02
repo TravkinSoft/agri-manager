@@ -30,7 +30,8 @@ end
 where batch_class is null;
 
 alter table public.inventory_batches
-  alter column batch_class set default 'commodity';
+  alter column batch_class set default 'commodity',
+  alter column batch_class set not null;
 
 -- 2) Carry class on ledger for stable warehouse reads
 alter table public.stock_ledger_entries
@@ -61,10 +62,18 @@ set batch_class = coalesce(
 )
 where sle.batch_class is null;
 
-create index if not exists idx_stock_ledger_company_wh_identity_class
-  on public.stock_ledger_entries(company_id, warehouse_id, product_id, variety_id, reproduction_id, batch_class);
+alter table public.stock_ledger_entries
+  drop constraint if exists stock_ledger_entries_variety_id_fkey,
+  drop constraint if exists stock_ledger_entries_reproduction_id_fkey;
+
+drop index if exists public.idx_stock_ledger_company_wh_identity_class;
+drop index if exists public.idx_stock_ledger_company_wh_identity;
+
+create index idx_stock_ledger_company_wh_identity
+  on public.stock_ledger_entries(company_id, warehouse_id, product_id, variety_id, reproduction_id);
 
 -- 3) Identity view includes class
+drop view if exists public.v_stock_balance_identity;
 create or replace view public.v_stock_balance_identity as
 select
   sle.company_id,
@@ -73,7 +82,6 @@ select
   sle.variety_id,
   sle.reproduction_id,
   nullif(trim(coalesce(sle.batch_id_text, sle.batch_id, '')), '') as batch_id,
-  coalesce(sle.batch_class, 'commodity') as batch_class,
   sum(
     case
       when sle.direction = 'in' then coalesce(sle.quantity, 0)
@@ -81,7 +89,8 @@ select
       else coalesce(sle.delta_qty_signed, 0)
     end
   )::numeric as quantity,
-  max(sle.occurred_at) as last_movement_at
+  max(sle.occurred_at) as last_movement_at,
+  coalesce(sle.batch_class, 'commodity') as batch_class
 from public.stock_ledger_entries sle
 group by
   sle.company_id,
@@ -96,4 +105,3 @@ comment on view public.v_stock_balance_identity is
   'Identity-aware stock balances grouped by warehouse+product+variety+reproduction+batch+batch_class.';
 
 commit;
-

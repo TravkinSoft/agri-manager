@@ -10,7 +10,7 @@ returns trigger
 language plpgsql
 as $$
 declare
-  master_row public.products%rowtype;
+  master_row record;
 begin
   if new.type not in ('pesticide', 'fertilizer') then
     return new;
@@ -21,12 +21,19 @@ begin
       raise exception 'Company agrochemical must reference global master_product_id';
     end if;
 
-    select *
+    select
+      id,
+      type,
+      name,
+      active_ingredient,
+      unit,
+      archived,
+      company_id
     into master_row
     from public.products
     where id = new.master_product_id
       and company_id is null
-      and archived = false
+      and coalesce(archived, false) = false
     limit 1;
 
     if not found then
@@ -38,21 +45,13 @@ begin
     end if;
 
     new.name := master_row.name;
-    new.trade_name := master_row.trade_name;
-    new.active_ingredient := master_row.active_ingredient;
-    new.pesticide_category := master_row.pesticide_category;
-    new.pesticide_subcategories := master_row.pesticide_subcategories;
-    new.fertilizer_type := master_row.fertilizer_type;
-    new.formulation := master_row.formulation;
-    new.manufacturer := master_row.manufacturer;
-    new.package_size := master_row.package_size;
-    new.package_unit := master_row.package_unit;
-    new.default_unit := master_row.default_unit;
-    new.unit := master_row.unit;
+    new.active_ingredient := coalesce(master_row.active_ingredient, new.active_ingredient, 'unknown');
+    new.unit := coalesce(master_row.unit, new.unit, case when new.type = 'pesticide' then 'l' else 'kg' end);
   end if;
 
   if tg_op = 'UPDATE' and old.company_id is not null then
-    if old.master_product_id is distinct from new.master_product_id then
+    if old.master_product_id is not null
+       and old.master_product_id is distinct from new.master_product_id then
       raise exception 'Company agrochemical cannot change master_product_id';
     end if;
   end if;
@@ -73,3 +72,62 @@ create unique index if not exists ux_products_company_master_agrochem
     and type in ('pesticide', 'fertilizer')
     and archived = false;
 
+-- Canonical production trigger implementation.
+CREATE OR REPLACE FUNCTION public.enforce_agrochem_master_only()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $$
+declare
+  master_row record;
+begin
+  if new.type not in ('pesticide', 'fertilizer') then
+    return new;
+  end if;
+
+  if new.company_id is not null then
+    if new.master_product_id is null then
+      raise exception 'Company agrochemical must reference global master_product_id';
+    end if;
+
+    select
+      id,
+      type,
+      name,
+      active_ingredient,
+      unit,
+      archived,
+      company_id
+    into master_row
+    from public.products
+    where id = new.master_product_id
+      and company_id is null
+      and coalesce(archived, false) = false
+    limit 1;
+
+    if not found then
+      raise exception 'master_product_id must point to active global agrochemical';
+    end if;
+
+    if master_row.type <> new.type then
+      raise exception 'Master product type mismatch';
+    end if;
+
+    -- синхронизация базовых полей
+    new.name := master_row.name;
+    new.active_ingredient := coalesce(master_row.active_ingredient, new.active_ingredient, 'unknown');
+    new.unit := coalesce(master_row.unit, new.unit, case when new.type = 'pesticide' then 'l' else 'kg' end);
+  end if;
+
+  -- ВАЖНО:
+  -- Разрешаем только первичную установку (old null -> new not null)
+  -- Запрещаем любую последующую смену master_product_id
+  if tg_op = 'UPDATE' and old.company_id is not null then
+    if old.master_product_id is not null
+       and old.master_product_id is distinct from new.master_product_id then
+      raise exception 'Company agrochemical cannot change master_product_id';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;

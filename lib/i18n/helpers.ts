@@ -194,6 +194,34 @@ export function localizeUnit(unit: unknown, language: Language): string {
   return unitByLocale[language][code];
 }
 
+const operationTypeByLocale: Record<string, Record<Language, string>> = {
+  spraying: { ru: "Опрыскивание", kz: "Бүрку", en: "Spraying" },
+  fertilizer_application: { ru: "Внесение удобрений", kz: "Тыңайтқыш енгізу", en: "Fertilizer application" },
+  fertilization: { ru: "Внесение удобрений", kz: "Тыңайтқыш енгізу", en: "Fertilization" },
+  planting: { ru: "Посев / посадка", kz: "Егу / отырғызу", en: "Seeding / planting" },
+  seeding: { ru: "Посев", kz: "Егу", en: "Seeding" },
+  irrigation: { ru: "Полив", kz: "Суару", en: "Irrigation" },
+  harvesting: { ru: "Уборка", kz: "Жинау", en: "Harvesting" },
+  soil_operation: { ru: "Работа с почвой", kz: "Топырақпен жұмыс", en: "Soil operation" },
+};
+
+const materialTypeByLocale: Record<string, Record<Language, string>> = {
+  seed: { ru: "семена", kz: "тұқым", en: "seed" },
+  fertilizer: { ru: "удобрение", kz: "тыңайтқыш", en: "fertilizer" },
+  pesticide: { ru: "пестицид", kz: "пестицид", en: "pesticide" },
+  produce: { ru: "урожай", kz: "өнім", en: "produce" },
+};
+
+export function localizeOperationType(value: unknown, language: Language): string {
+  const raw = String(value || "").trim();
+  return operationTypeByLocale[raw.toLowerCase()]?.[language] || raw || "—";
+}
+
+export function localizeMaterialType(value: unknown, language: Language): string {
+  const raw = String(value || "").trim();
+  return materialTypeByLocale[raw.toLowerCase()]?.[language] || raw || "—";
+}
+
 export function localizedName<T extends Record<string, unknown>>(
   row: T | null | undefined,
   language: Language,

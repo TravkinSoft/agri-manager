@@ -69,7 +69,7 @@ export default function MachinesPage() {
     resolver: zodResolver(vehicleSchema),
     defaultValues: {
       name: "",
-      vehicle_type: "truck",
+      type: "truck",
       plate_number: "",
       capacity_kg: 0,
       body_volume_m3: null,
@@ -112,7 +112,7 @@ export default function MachinesPage() {
     setEditing(null);
     form.reset({
       name: "",
-      vehicle_type: "truck",
+      type: "truck",
       plate_number: "",
       capacity_kg: 0,
       body_volume_m3: null,
@@ -126,7 +126,7 @@ export default function MachinesPage() {
     setEditing(item);
     form.reset({
       name: item.name,
-      vehicle_type: item.vehicle_type,
+      type: item.type,
       plate_number: item.plate_number,
       capacity_kg: Number(item.capacity_kg || 0),
       body_volume_m3: item.body_volume_m3 == null ? null : Number(item.body_volume_m3),
@@ -211,7 +211,7 @@ export default function MachinesPage() {
                 rows.map((item) => (
                   <TableRow key={item.id}>
                     <TableCell className="font-medium">{item.name}</TableCell>
-                    <TableCell>{VEHICLE_TYPE_LABELS[item.vehicle_type] || item.vehicle_type}</TableCell>
+                    <TableCell>{VEHICLE_TYPE_LABELS[item.type] || item.type}</TableCell>
                     <TableCell>{item.plate_number}</TableCell>
                     <TableCell>{Number(item.capacity_kg || 0).toLocaleString("ru-RU")} кг</TableCell>
                     <TableCell>{VEHICLE_STATUS_LABELS[item.status] || item.status}</TableCell>
@@ -263,7 +263,7 @@ export default function MachinesPage() {
               />
               <FormField
                 control={form.control}
-                name="vehicle_type"
+                name="type"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Тип *</FormLabel>

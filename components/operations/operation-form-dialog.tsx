@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { FieldErrors, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { Check, ChevronsUpDown, Plus, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -29,6 +30,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { PesticideCardLink } from "@/components/platform/pesticide-card-link";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Command,
@@ -79,6 +81,7 @@ import {
   TANK_MIX_COMPONENT_DEFINITIONS,
   getDefaultUnitForComponent,
   getIrrigationTypeLabel,
+  getOperationCropRequirement,
   getOperationTemplateAvailability,
   getPurposeDefinitionsForOperation,
   getTankMixComponentDefinition,
@@ -90,7 +93,17 @@ import {
   type OperationPurposeSlug,
   type TankMixComponentType,
 } from "@/lib/operations/operation-engine";
+import {
+  getOperationWorkUiSection,
+  OPERATION_WORK_UI_SECTIONS,
+} from "@/lib/operations/operation-work-ui";
 import { formatCropIdentity, resolveCropIdentity } from "@/lib/operations/crop-identity";
+import { todayDateOnlyLocal } from "@/lib/dates/date-only";
+import {
+  isMachineryCompatible,
+  type MachineryAssetLike,
+} from "@/lib/operations/machinery-compatibility";
+import { patchMaterialWithRateReset } from "@/lib/operations/material-rate-reset";
 
 interface OperationFormDialogProps {
   open: boolean;
@@ -105,13 +118,6 @@ interface OperationFormDialogProps {
   specialists: SpecialistAssignee[];
 }
 
-type OperationCategory = {
-  id: string;
-  slug: string;
-  name_ru: string;
-  is_active?: boolean;
-};
-
 type OperationTypeMaster = {
   id: string;
   slug: string;
@@ -125,9 +131,10 @@ type OperationTypeMaster = {
   is_active?: boolean;
 };
 
-type RefOption = { id: string; name: string; hint?: string };
+type RefOption = { id: string; name: string; hint?: string; asset?: MachineryAssetLike };
 type ProductOption = {
   id: string;
+  master_product_id?: string | null;
   name: string;
   trade_name?: string | null;
   normalized_name?: string | null;
@@ -146,6 +153,7 @@ type ProductOption = {
   application_unit?: string | null;
   default_rate_type?: string | null;
   default_rate_unit?: string | null;
+  aliases?: string[];
   availableQty: number;
   warehouseNames: string[];
 };
@@ -154,13 +162,7 @@ type VarietyCatalogOption = { id: string; name: string; crop_id: string; archive
 type ReproductionCatalogOption = { id: string; name: string; archived?: boolean | null; is_active?: boolean | null };
 
 type SearchOption = { id: string; label: string; hint?: string };
-
-const FALLBACK_CATEGORIES: OperationCategory[] = OPERATION_TYPE_DEFINITIONS.map((definition) => ({
-  id: definition.categorySlug,
-  slug: definition.categorySlug,
-  name_ru: definition.label,
-  is_active: true,
-}));
+type WorkOptionGroup = { id: string; label: string; options: SearchOption[]; directWorkId?: string };
 
 const FALLBACK_TYPES: OperationTypeMaster[] = [
   ...OPERATION_TYPE_DEFINITIONS.map((definition) => ({
@@ -192,23 +194,23 @@ const FALLBACK_TYPES: OperationTypeMaster[] = [
   }),
 ];
 
-const HIDDEN_PLANTING_SUBTYPE_SLUGS = new Set([
-  "seeding_with_fertilizer",
-  "seeding_with_microgranules",
+const DEPTH_ENABLED_WORKS = new Set([
+  "stubble_peeling",
+  "disking",
+  "plowing",
+  "deep_ripping",
+  "cultivation",
+  "interrow_cultivation",
+  "harrowing",
+  "rotary_tilling",
+  "ridge_forming",
+  "hilling",
+  "seeding",
+  "planting_generic",
+  "overseeding",
 ]);
 
-const HIDDEN_OPERATION_CATEGORY_SLUGS = new Set([
-  "sampling",
-]);
-
-const WHOLE_FIELD_ALLOWED_CATEGORIES = new Set([
-  "harvesting",
-  "service_operation",
-  "transport",
-  "logistics_operation",
-  "post_harvest",
-  "post_harvest_operation",
-]);
+const SEEDING_WORKS = new Set(["seeding", "planting_generic", "overseeding"]);
 
 const ADDITIONAL_COMPONENT_TYPES = new Set<TankMixComponentType>([
   "adjuvant",
@@ -301,6 +303,7 @@ function productMetadataText(product: ProductOption | undefined): string {
     product.subcategory,
     product.pesticide_category,
     product.fertilizer_type,
+    ...(product.aliases || []),
   ]
     .filter(Boolean)
     .join(" ")
@@ -553,23 +556,15 @@ function createTargetKey() {
 
 function requiresCropStructureForType(type: OperationTypeMaster | null): boolean {
   if (!type) return false;
+  if (getOperationCropRequirement({ categorySlug: type.category_slug, typeSlug: type.slug }) === "crop_not_required") {
+    return false;
+  }
   const canonical = resolveCanonicalOperationType({
     categorySlug: type.category_slug,
     typeSlug: type.slug,
     operationType: type.name_ru,
   });
   return canonical ? canonical.requiresCropStructure : type.requires_field !== false && type.affects_field_history !== false;
-}
-
-function mergeCanonicalCategories(rows: OperationCategory[]): OperationCategory[] {
-  const bySlug = new Map<string, OperationCategory>();
-  FALLBACK_CATEGORIES.forEach((item) => bySlug.set(item.slug, item));
-  rows.forEach((item) => {
-    const canonical = resolveCanonicalOperationType({ categorySlug: item.slug });
-    if (canonical) return;
-    bySlug.set(item.slug, item);
-  });
-  return Array.from(bySlug.values());
 }
 
 function mergeCanonicalTypes(rows: OperationTypeMaster[]): OperationTypeMaster[] {
@@ -585,7 +580,33 @@ function mergeCanonicalTypes(rows: OperationTypeMaster[]): OperationTypeMaster[]
     if (canonical && item.slug === canonical.slug) return;
     bySlug.set(item.slug, item);
   });
+  const canonicalSubtypeSlugs = new Set(OPERATION_SUBTYPE_DEFINITIONS.map((item) => item.slug));
+  FALLBACK_TYPES.forEach((item) => {
+    if (canonicalSubtypeSlugs.has(item.slug)) bySlug.set(item.slug, item);
+  });
   return Array.from(bySlug.values());
+}
+
+async function loadOperationCatalogProducts(companyId: string) {
+  const { data, error } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (error || !accessToken) {
+    return { data: [] as any[], error: new Error("Сессия не найдена") };
+  }
+  const response = await fetch(
+    `/api/warehouses/products?companyId=${encodeURIComponent(companyId)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  );
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { data: [] as any[], error: new Error(payload?.error || "Не удалось загрузить каталог материалов") };
+  }
+  return {
+    data: Array.isArray(payload?.products)
+      ? payload.products.filter((row: any) => row.is_active !== false && !row.archived)
+      : [],
+    error: null,
+  };
 }
 
 function SearchableSelect(props: {
@@ -608,6 +629,7 @@ function SearchableSelect(props: {
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          aria-label={placeholder}
           disabled={disabled}
           className="w-full justify-between"
         >
@@ -645,6 +667,167 @@ function SearchableSelect(props: {
   );
 }
 
+function handleRadioOptionKeyDown(
+  event: ReactKeyboardEvent<HTMLButtonElement>,
+  onValueChange: (value: string) => void
+) {
+  const value = event.currentTarget.dataset.operationRadioValue;
+  if (!value) return;
+
+  if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+    event.preventDefault();
+    event.stopPropagation();
+    onValueChange(value);
+    return;
+  }
+
+  const items = Array.from(
+    event.currentTarget
+      .closest('[role="radiogroup"]')
+      ?.querySelectorAll<HTMLButtonElement>("[data-operation-radio-value]") || []
+  );
+  const currentIndex = items.indexOf(event.currentTarget);
+  if (currentIndex === -1 || items.length === 0) return;
+
+  let nextIndex: number | null = null;
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % items.length;
+  if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex - 1 + items.length) % items.length;
+  if (event.key === "Home") nextIndex = 0;
+  if (event.key === "End") nextIndex = items.length - 1;
+  if (nextIndex === null) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  const nextItem = items[nextIndex];
+  const nextValue = nextItem.dataset.operationRadioValue;
+  if (!nextValue) return;
+  onValueChange(nextValue);
+  nextItem.focus();
+}
+
+function OperationWorkSelector(props: {
+  categoryValue: string;
+  workValue: string;
+  onCategoryChange: (value: string) => void;
+  onWorkChange: (value: string) => void;
+  groups: WorkOptionGroup[];
+  disabled?: boolean;
+}) {
+  const {
+    categoryValue,
+    workValue,
+    onCategoryChange,
+    onWorkChange,
+    groups,
+    disabled,
+  } = props;
+  const selectorId = useId();
+  const selectedGroup = groups.find((group) => group.id === categoryValue) || null;
+  const showsConcreteWorks = selectedGroup?.directWorkId == null;
+  const headingId = `${selectorId}-heading`;
+  const helpId = `${selectorId}-help`;
+  const categoryLabelId = `${selectorId}-category-label`;
+  const workLabelId = `${selectorId}-work-label`;
+
+  return (
+    <section aria-labelledby={headingId}>
+      <div>
+        <h2 id={headingId} className="text-base font-semibold leading-[22px] text-white">
+          Работа *
+        </h2>
+        <p id={helpId} className="mt-1 text-[13px] leading-[18px] text-slate-400">
+          Выберите раздел. Для почвы, посева и уборки уточните конкретную работу.
+        </p>
+      </div>
+
+      <div className="mt-3">
+        <div id={categoryLabelId} className="sr-only">Раздел работы</div>
+        <RadioGroupPrimitive.Root
+          value={categoryValue}
+          onValueChange={onCategoryChange}
+          disabled={disabled}
+          aria-labelledby={categoryLabelId}
+          aria-describedby={helpId}
+          className="grid grid-cols-2 gap-2 md:grid-cols-3"
+        >
+          {groups.map((group) => {
+            const checked = categoryValue === group.id;
+            return (
+              <RadioGroupPrimitive.Item
+                key={group.id}
+                value={group.id}
+                aria-label={group.label}
+                data-operation-radio-value={group.id}
+                onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onCategoryChange)}
+                className={cn(
+                  "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-semibold leading-5 transition-colors sm:min-h-[52px]",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
+                  checked
+                    ? "border-yellow-400 bg-yellow-400/10 text-yellow-100"
+                    : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
+                  disabled && "cursor-not-allowed opacity-55"
+                )}
+              >
+                <span className="break-words">{group.label}</span>
+              </RadioGroupPrimitive.Item>
+            );
+          })}
+        </RadioGroupPrimitive.Root>
+      </div>
+
+      {disabled ? (
+        <p className="mt-3 text-[13px] leading-[18px] text-slate-400">
+          Сначала выберите участок структуры посевов.
+        </p>
+      ) : null}
+
+      {categoryValue && showsConcreteWorks ? (
+        <div className="mt-5 border-t border-slate-800/90 pt-5">
+          <div id={workLabelId} className="mb-3 text-sm font-semibold leading-5 text-slate-200">
+            Конкретная работа
+          </div>
+          {!selectedGroup || selectedGroup.options.length === 0 ? (
+            <p className="text-[13px] leading-[18px] text-slate-400">
+              Для выбранного участка нет доступных работ этого раздела.
+            </p>
+          ) : (
+            <RadioGroupPrimitive.Root
+              value={workValue}
+              onValueChange={onWorkChange}
+              disabled={disabled}
+              aria-labelledby={workLabelId}
+              className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+            >
+              {selectedGroup.options.map((option) => {
+                const checked = workValue === option.id;
+                return (
+                  <RadioGroupPrimitive.Item
+                    key={option.id}
+                    value={option.id}
+                    aria-label={option.label}
+                    data-operation-radio-value={option.id}
+                    onKeyDownCapture={(event) => handleRadioOptionKeyDown(event, onWorkChange)}
+                    className={cn(
+                      "flex min-h-12 w-full cursor-pointer items-center rounded-[10px] border px-3.5 py-3 text-left text-sm font-medium leading-5 transition-colors",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b1017]",
+                      checked
+                        ? "border-transparent bg-yellow-400 font-semibold text-slate-950"
+                        : "border-slate-700 bg-slate-900/70 text-slate-100 hover:border-slate-500 hover:bg-slate-800/80",
+                      disabled && "cursor-not-allowed opacity-55"
+                    )}
+                  >
+                    <span className="break-words">{option.label}</span>
+                  </RadioGroupPrimitive.Item>
+                );
+              })}
+            </RadioGroupPrimitive.Root>
+          )}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function OperationFormDialog({
   open,
   onOpenChange,
@@ -658,7 +841,6 @@ export function OperationFormDialog({
   specialists,
 }: OperationFormDialogProps) {
   const { profile } = useAuth();
-  const [categories, setCategories] = useState<OperationCategory[]>(FALLBACK_CATEGORIES);
   const [types, setTypes] = useState<OperationTypeMaster[]>(FALLBACK_TYPES);
   const [categorySlug, setCategorySlug] = useState("");
   const [typeSlug, setTypeSlug] = useState("");
@@ -704,7 +886,7 @@ export function OperationFormDialog({
       row_spacing_m: null,
       seed_spacing_cm: null,
       operation_params: null,
-      date: new Date().toISOString().slice(0, 10),
+      date: todayDateOnlyLocal(),
       responsible_user_id: null,
       notes: "",
       materials: [],
@@ -725,6 +907,11 @@ export function OperationFormDialog({
     [categorySlug, form, selectedType, typeSlug]
   );
   const canonicalSlug = canonicalType?.slug as CanonicalOperationTypeSlug | undefined;
+  const cropRequirement = getOperationCropRequirement({
+    categorySlug: canonicalType?.categorySlug || selectedType?.category_slug || categorySlug,
+    typeSlug,
+  });
+  const cropIndependent = cropRequirement === "crop_not_required";
   const purposeOptions = useMemo(() => getPurposeDefinitionsForOperation(canonicalSlug), [canonicalSlug]);
   const impliedPurpose = typeSlug ? IMPLIED_PURPOSE_BY_TEMPLATE[typeSlug] || null : null;
   const visiblePurposeOptions = useMemo(
@@ -732,8 +919,13 @@ export function OperationFormDialog({
     [impliedPurpose, purposeOptions]
   );
   const selectedCropStructure = useMemo(
-    () => cropStructures.find((item) => item.id === selectedCropStructureId) || null,
-    [cropStructures, selectedCropStructureId]
+    () => {
+      const structure = cropStructures.find((item) => item.id === selectedCropStructureId) || null;
+      // React Hook Form can expose the previous structure for one render after a field change.
+      if (structure && selectedFieldId && structure.field_id !== selectedFieldId) return null;
+      return structure;
+    },
+    [cropStructures, selectedCropStructureId, selectedFieldId]
   );
   const cropNameById = useMemo(
     () => new Map(cropCatalog.map((item) => [item.id, item.name])),
@@ -764,14 +956,15 @@ export function OperationFormDialog({
     [cropNameById, reproductionNameById, varietyNameById]
   );
   const selectedCropIdentity = useMemo(
-    () => (selectedCropStructure ? resolveStructureCropIdentity(selectedCropStructure) : null),
+    () => (selectedCropStructure && selectedCropStructure.land_use_type !== "crop_mix" ? resolveStructureCropIdentity(selectedCropStructure) : null),
     [resolveStructureCropIdentity, selectedCropStructure]
   );
+  const selectedIsCropMix = selectedCropStructure?.land_use_type === "crop_mix";
   const selectedField = useMemo(
     () => fields.find((item) => item.id === selectedFieldId) || null,
     [fields, selectedFieldId]
   );
-  const isWholeFieldScope = operationParams.scope === "whole_field" || (lockedContext && !!selectedFieldId && !selectedCropStructureId);
+  const isWholeFieldScope = operationParams.scope === "whole_field";
   const selectedIrrigationType = normalizeIrrigationType((selectedCropStructure as any)?.irrigation_type);
   const hasExplicitIrrigationType = selectedIrrigationType !== "unknown";
   const selectedIsPotato = isPotatoCropContext(
@@ -795,44 +988,36 @@ export function OperationFormDialog({
     [cropStructures, selectedFieldId]
   );
   const selectedCropStructureArea = selectedCropStructure ? Number(selectedCropStructure.area || 0) : null;
-  const availableCategories = useMemo(() => {
-    return categories.filter((category) => {
-      if (HIDDEN_OPERATION_CATEGORY_SLUGS.has(category.slug)) return false;
-      if (isWholeFieldScope && !WHOLE_FIELD_ALLOWED_CATEGORIES.has(category.slug)) return false;
-      const expectedSubtypeSlugs = new Set(
-        OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === category.slug).map((item) => item.slug)
-      );
-      const rows = types.filter((item) => {
-        if (item.category_slug !== category.slug) return false;
-        if (expectedSubtypeSlugs.size > 0 && !expectedSubtypeSlugs.has(item.slug)) return false;
-        return getOperationTemplateAvailability({
-          ...availabilityContext,
-          categorySlug: item.category_slug,
-          typeSlug: item.slug,
-          operationType: item.name_ru,
-        }).allowed;
-      });
-      return rows.length > 0;
-    });
-  }, [availabilityContext, categories, isWholeFieldScope, types]);
+  const visibleCategorySlugs = useMemo(
+    () => new Set<string>(OPERATION_WORK_UI_SECTIONS.map((section) => section.categorySlug)),
+    []
+  );
   const typeOptions = useMemo(() => {
     const rows = types.filter((item) => !categorySlug || item.category_slug === categorySlug);
-    const expectedSubtypeSlugs = new Set(
-      OPERATION_SUBTYPE_DEFINITIONS.filter((item) => item.categorySlug === categorySlug).map((item) => item.slug)
-    );
-    const subtypeRows = expectedSubtypeSlugs.size > 0 ? rows.filter((item) => expectedSubtypeSlugs.has(item.slug)) : rows;
-    return subtypeRows.filter((item) => {
-      if (HIDDEN_OPERATION_CATEGORY_SLUGS.has(item.category_slug)) return false;
-      if (isWholeFieldScope && !WHOLE_FIELD_ALLOWED_CATEGORIES.has(item.category_slug)) return false;
-      if (item.category_slug === "planting" && HIDDEN_PLANTING_SUBTYPE_SLUGS.has(item.slug)) return false;
-      return getOperationTemplateAvailability({
-        ...availabilityContext,
-        categorySlug: item.category_slug,
-        typeSlug: item.slug,
-        operationType: item.name_ru,
-      }).allowed;
-    });
-  }, [availabilityContext, types, categorySlug, isWholeFieldScope]);
+    const section = getOperationWorkUiSection(categorySlug);
+    if (!section || section.selection === "direct") return rows;
+    const approvedSlugs = new Set(section.works.map((work) => work.slug));
+    return rows.filter((item) => approvedSlugs.has(item.slug));
+  }, [types, categorySlug]);
+  const workGroups = useMemo<WorkOptionGroup[]>(() => {
+    const cropIndependentContext = isWholeFieldScope || selectedCropStructure?.land_use_type === "fallow";
+    return OPERATION_WORK_UI_SECTIONS.map((section) => {
+      const options = section.works.filter((work) =>
+        !cropIndependentContext ||
+        getOperationCropRequirement({ categorySlug: section.categorySlug, typeSlug: work.slug }) === "crop_not_required"
+      ).map((work) => {
+        const type = types.find((item) => item.slug === work.slug && item.category_slug === section.categorySlug);
+        const definition = OPERATION_SUBTYPE_DEFINITIONS.find((item) => item.slug === work.slug);
+        return { id: work.slug, label: type?.name_ru || definition?.label || work.slug };
+      });
+      return {
+        id: section.categorySlug,
+        label: section.label,
+        options,
+        directWorkId: section.directOperationSlug,
+      };
+    }).filter((group) => !cropIndependentContext || group.options.length > 0);
+  }, [isWholeFieldScope, selectedCropStructure?.land_use_type, types]);
   const fieldLabelWithArea = (field: Field) => {
     const title = getFieldDisplayName(field).trim();
     const prefixedTitle = title.toLowerCase().startsWith("поле") ? title : `Поле ${title}`;
@@ -849,18 +1034,28 @@ export function OperationFormDialog({
   }, [fields]);
 
   const cropStructureLabel = useCallback(
-    (structure: CropStructureWithDetails) => formatCropIdentity(resolveStructureCropIdentity(structure)),
+    (structure: CropStructureWithDetails) =>
+      structure.land_use_type === "fallow"
+        ? "Пар"
+        : structure.land_use_type === "crop_mix"
+          ? structure.crop_name || "Зерносмесь"
+          : formatCropIdentity(resolveStructureCropIdentity(structure)),
     [resolveStructureCropIdentity]
   );
   const cropStructureOptions = useMemo(
     () =>
       cropStructures
-        .filter((item) => !item.archived && (!selectedFieldId || item.field_id === selectedFieldId))
+        .filter(
+          (item) =>
+            !item.archived &&
+            (!selectedFieldId || item.field_id === selectedFieldId) &&
+            (cropIndependent ? item.land_use_type === "fallow" : item.land_use_type !== "fallow")
+        )
         .map((item) => ({
           id: item.id,
           label: `${cropStructureLabel(item)} — ${Number(item.area || 0).toFixed(2)} га`,
         })),
-    [cropStructureLabel, cropStructures, selectedFieldId]
+    [cropIndependent, cropStructureLabel, cropStructures, selectedFieldId]
   );
 
   const createTargetFromStructure = (structure: CropStructureWithDetails): OperationTargetDraft => ({
@@ -884,20 +1079,47 @@ export function OperationFormDialog({
     [specialists]
   );
 
-  const machineOptions = useMemo(() => machines.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [machines]);
-  const equipmentOptions = useMemo(() => equipment.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [equipment]);
+  const machineOptions = useMemo(
+    () =>
+      machines
+        .filter((item) =>
+          isMachineryCompatible({
+            operationCategory: canonicalType?.categorySlug || categorySlug,
+            operationType: canonicalType?.slug || typeSlug,
+            assetKind: "machine",
+            asset: item.asset || item,
+          })
+        )
+        .map((item) => ({ id: item.id, label: item.name, hint: item.hint })),
+    [canonicalType?.categorySlug, canonicalType?.slug, categorySlug, machines, typeSlug]
+  );
+  const equipmentOptions = useMemo(
+    () =>
+      equipment
+        .filter((item) =>
+          isMachineryCompatible({
+            operationCategory: canonicalType?.categorySlug || categorySlug,
+            operationType: canonicalType?.slug || typeSlug,
+            assetKind: "equipment",
+            asset: item.asset || item,
+          })
+        )
+        .map((item) => ({ id: item.id, label: item.name, hint: item.hint })),
+    [canonicalType?.categorySlug, canonicalType?.slug, categorySlug, equipment, typeSlug]
+  );
   const transportOptions = useMemo(() => transports.map((item) => ({ id: item.id, label: item.name, hint: item.hint })), [transports]);
   const productOptions = useMemo(
     () =>
       products.map((item) => ({
         id: item.id,
         label: operationProductTradeName(item) || item.name,
-        hint:
+        hint: `${item.aliases?.length ? `Также: ${item.aliases.slice(0, 5).join(", ")} • ` : ""}${
           Number(item.availableQty || 0) > 0
             ? `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Есть на складе: ${Number(item.availableQty || 0).toLocaleString("ru-RU")} ${formatStorageUnit(item.unit)}${
                 item.warehouseNames.length > 0 ? ` • ${item.warehouseNames.slice(0, 2).join(", ")}` : ""
               }`
-            : `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Нет на складе • Можно планировать`,
+            : `${operationProductManufacturer(item) ? `Производитель: ${operationProductManufacturer(item)} • ` : ""}Нет на складе • Можно планировать`
+        }`,
       })),
     [products]
   );
@@ -964,7 +1186,6 @@ export function OperationFormDialog({
     if (!open || !profile?.company_id) return;
     (async () => {
       const [
-        catRes,
         typeRes,
         machinesRes,
         equipmentRes,
@@ -975,7 +1196,6 @@ export function OperationFormDialog({
         varietiesRes,
         reproductionsRes,
       ] = await Promise.all([
-        supabase.from("operation_categories").select("id,slug,name_ru,is_active").eq("is_active", true).order("name_ru"),
         supabase
           .from("operation_types")
           .select("id,slug,name_ru,category_slug,requires_machine,requires_product,requires_field,affects_inventory,affects_field_history,is_active")
@@ -997,18 +1217,12 @@ export function OperationFormDialog({
           .order("name"),
         supabase
           .from("reference_vehicles")
-          .select("id,name,full_name,brand,series,model,type,vehicle_type,fleet_type,plate_number,license_plate,inventory_number,vin,manufacture_year,transport_model:transport_model_id(id,full_name,category,brand,series,model)")
+          .select("id,name,full_name,brand,series,model,type,fleet_type,plate_number,license_plate,inventory_number,vin,manufacture_year,transport_model:transport_model_id(id,full_name,category,brand,series,model)")
           .eq("company_id", profile.company_id)
           .eq("archived", false)
           .eq("is_active", true)
           .order("name"),
-        supabase
-          .from("products")
-          .select("id,name,trade_name,normalized_name,manufacturer,notes,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,default_unit,base_uom,application_unit,default_rate_type,default_rate_unit")
-          .eq("company_id", profile.company_id)
-          .eq("archived", false)
-          .eq("is_active", true)
-          .order("name"),
+        loadOperationCatalogProducts(profile.company_id!),
         supabase
           .from("v_stock_balance_identity")
           .select("product_id,warehouse_id,quantity")
@@ -1019,13 +1233,13 @@ export function OperationFormDialog({
         supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code,archived,is_active").order("name"),
       ]);
 
-      if (!catRes.error) setCategories(mergeCanonicalCategories((catRes.data || []) as OperationCategory[]));
       if (!typeRes.error) setTypes(mergeCanonicalTypes((typeRes.data || []) as OperationTypeMaster[]));
       if (!machinesRes.error) {
         setMachines((machinesRes.data || []).map((row: any) => ({
           id: String(row.id),
           name: buildAssetSelectorLabel(row, "machine"),
           hint: buildAssetSelectorHint(row),
+          asset: row,
         })));
       }
       if (!equipmentRes.error) {
@@ -1033,6 +1247,7 @@ export function OperationFormDialog({
           id: String(row.id),
           name: buildAssetSelectorLabel(row, "equipment"),
           hint: buildAssetSelectorHint(row),
+          asset: row,
         })));
       }
       if (!transportRes.error) {
@@ -1086,6 +1301,7 @@ export function OperationFormDialog({
             Pick<
               ProductOption,
               | "name"
+              | "master_product_id"
               | "trade_name"
               | "normalized_name"
               | "manufacturer"
@@ -1103,11 +1319,13 @@ export function OperationFormDialog({
               | "application_unit"
               | "default_rate_type"
               | "default_rate_unit"
+              | "aliases"
             >
           >(
             (companyProductsRes.data || []).map((row: any) => [
               String(row.id),
               {
+                master_product_id: row.master_product_id ? String(row.master_product_id) : null,
                 name:
                   stripManufacturerPrefixCandidate({
                     id: String(row.id),
@@ -1138,6 +1356,7 @@ export function OperationFormDialog({
                 application_unit: row.application_unit ? String(row.application_unit) : null,
                 default_rate_type: row.default_rate_type ? String(row.default_rate_type) : null,
                 default_rate_unit: row.default_rate_unit ? String(row.default_rate_unit) : null,
+                aliases: Array.isArray(row.aliases) ? row.aliases.map(String) : [],
               },
             ])
           );
@@ -1155,6 +1374,7 @@ export function OperationFormDialog({
           productMetaById.forEach((meta, productId) => {
             grouped.set(productId, {
               id: productId,
+              master_product_id: meta.master_product_id,
               name: meta.name,
               trade_name: meta.trade_name,
               normalized_name: meta.normalized_name,
@@ -1173,6 +1393,7 @@ export function OperationFormDialog({
               application_unit: meta.application_unit,
               default_rate_type: meta.default_rate_type,
               default_rate_unit: meta.default_rate_unit,
+              aliases: meta.aliases,
               availableQty: 0,
               warehouseNames: [],
             });
@@ -1187,6 +1408,7 @@ export function OperationFormDialog({
               grouped.get(productId) ||
               ({
                 id: productId,
+                master_product_id: meta.master_product_id,
                 name: meta.name,
                 trade_name: meta.trade_name,
                 normalized_name: meta.normalized_name,
@@ -1205,6 +1427,7 @@ export function OperationFormDialog({
                 application_unit: meta.application_unit,
                 default_rate_type: meta.default_rate_type,
                 default_rate_unit: meta.default_rate_unit,
+                aliases: meta.aliases,
                 availableQty: 0,
                 warehouseNames: [],
               } satisfies ProductOption);
@@ -1269,7 +1492,7 @@ export function OperationFormDialog({
       row_spacing_m: initial.row_spacing_m ?? null,
       seed_spacing_cm: initial.seed_spacing_cm ?? null,
       operation_params: initial.operation_params || null,
-      date: String(initial.date || new Date().toISOString().slice(0, 10)),
+      date: String(initial.date || todayDateOnlyLocal()),
       responsible_user_id: initial.responsible_user_id || null,
       notes: String(initial.notes || ""),
       purposes: Array.isArray(initial.purposes) ? initial.purposes : [],
@@ -1311,8 +1534,10 @@ export function OperationFormDialog({
 
   useEffect(() => {
     if (!open || !selectedCropStructure) return;
-    form.setValue("field_id", selectedCropStructure.field_id);
-    form.setValue("crop_id", selectedCropStructure.crop_id);
+    if (!selectedFieldId) {
+      form.setValue("field_id", selectedCropStructure.field_id);
+    }
+    form.setValue("crop_id", selectedIsCropMix ? null : selectedCropStructure.crop_id);
     form.setValue("planned_area_ha", Number(selectedCropStructure.area || 0));
     setOperationTargets((prev) => {
       const primaryTarget = createTargetFromStructure(selectedCropStructure);
@@ -1333,15 +1558,17 @@ export function OperationFormDialog({
       }
       return [primaryTarget, ...prev.filter((target) => target.crop_structure_id !== selectedCropStructure.id)];
     });
-    const structureRowSpacing = Number((selectedCropStructure as any).row_spacing_m || 0);
-    const structureSeedSpacing = Number((selectedCropStructure as any).seed_spacing_cm || 0);
-    const nextRowSpacing = structureRowSpacing > 0 ? structureRowSpacing : selectedIsPotato ? 0.75 : null;
-    const nextSeedSpacing = structureSeedSpacing > 0 ? structureSeedSpacing : selectedIsPotato ? 32 : null;
-    if (!form.getValues("row_spacing_m") && nextRowSpacing) {
-      form.setValue("row_spacing_m", nextRowSpacing);
-    }
-    if (!form.getValues("seed_spacing_cm") && nextSeedSpacing) {
-      form.setValue("seed_spacing_cm", nextSeedSpacing);
+    if (typeSlug === "potato_planting") {
+      const structureRowSpacing = Number((selectedCropStructure as any).row_spacing_m || 0);
+      const structureSeedSpacing = Number((selectedCropStructure as any).seed_spacing_cm || 0);
+      const nextRowSpacing = structureRowSpacing > 0 ? structureRowSpacing : selectedIsPotato ? 0.75 : null;
+      const nextSeedSpacing = structureSeedSpacing > 0 ? structureSeedSpacing : selectedIsPotato ? 32 : null;
+      if (!form.getValues("row_spacing_m") && nextRowSpacing) {
+        form.setValue("row_spacing_m", nextRowSpacing);
+      }
+      if (!form.getValues("seed_spacing_cm") && nextSeedSpacing) {
+        form.setValue("seed_spacing_cm", nextSeedSpacing);
+      }
     }
     setOperationParams((prev) => ({
       ...prev,
@@ -1352,8 +1579,10 @@ export function OperationFormDialog({
         reproduction: selectedCropStructure.reproduction_name || null,
         area_ha: Number(selectedCropStructure.area || 0),
       },
+      crop_mix: selectedIsCropMix,
+      composition: selectedIsCropMix ? selectedCropStructure.mix_components || [] : undefined,
     }));
-  }, [form, open, selectedCropStructure, selectedIrrigationType, selectedIsPotato]);
+  }, [form, open, selectedCropStructure, selectedFieldId, selectedIrrigationType, selectedIsCropMix, selectedIsPotato, typeSlug]);
 
   useEffect(() => {
     if (!open || !selectedFieldId || isWholeFieldScope) return;
@@ -1381,18 +1610,52 @@ export function OperationFormDialog({
   ]);
 
   useEffect(() => {
-    if (!open || categorySlug !== "planting" || !operationIsPotato) return;
+    if (!open || !typeSlug) return;
+    if (cropIndependent) {
+      if (isWholeFieldScope) {
+        form.setValue("crop_structure_id", null);
+        form.setValue("crop_id", null);
+        if (selectedField) form.setValue("planned_area_ha", Number(selectedField.area || 0));
+        return;
+      }
+      if (selectedCropStructure?.land_use_type !== "fallow") {
+        const fallowRows = selectedFieldCropStructures.filter((item) => item.land_use_type === "fallow");
+        const next = fallowRows.length === 1 ? fallowRows[0] : null;
+        form.setValue("crop_structure_id", next?.id || null);
+        form.setValue("crop_id", null);
+        form.setValue("planned_area_ha", next ? Number(next.area || 0) : null);
+      }
+      return;
+    }
+    if (selectedCropStructure?.land_use_type === "fallow") {
+      form.setValue("crop_structure_id", null);
+      form.setValue("crop_id", null);
+      form.setValue("planned_area_ha", null);
+    }
+  }, [
+    cropIndependent,
+    form,
+    isWholeFieldScope,
+    open,
+    selectedCropStructure,
+    selectedField,
+    selectedFieldCropStructures,
+    typeSlug,
+  ]);
+
+  useEffect(() => {
+    if (!open || typeSlug !== "potato_planting" || !operationIsPotato) return;
     if (!form.getValues("row_spacing_m")) {
       form.setValue("row_spacing_m", 0.75);
     }
     if (!form.getValues("seed_spacing_cm")) {
       form.setValue("seed_spacing_cm", 32);
     }
-  }, [categorySlug, form, open, operationIsPotato]);
+  }, [form, open, operationIsPotato, typeSlug]);
 
   useEffect(() => {
     if (!open) return;
-    if (categorySlug && !availableCategories.some((category) => category.slug === categorySlug)) {
+    if (categorySlug && !visibleCategorySlugs.has(categorySlug) && !isEdit) {
       setCategorySlug("");
       setTypeSlug("");
       form.setValue("operation_category_slug", "");
@@ -1405,7 +1668,7 @@ export function OperationFormDialog({
       form.setValue("operation_type_slug", "");
       form.setValue("operation_type", "");
     }
-  }, [availableCategories, categorySlug, form, open, typeOptions, typeSlug]);
+  }, [categorySlug, form, isEdit, open, typeOptions, typeSlug, visibleCategorySlugs]);
 
   useEffect(() => {
     if (!open) return;
@@ -1419,46 +1682,6 @@ export function OperationFormDialog({
     form.setValue("operation_category_slug", inferred.category_slug);
     form.setValue("operation_type_slug", inferred.slug);
   }, [form, open, typeSlug, types]);
-
-  useEffect(() => {
-    if (!open) return;
-    if (!categorySlug || typeSlug) return;
-    if (typeOptions.length !== 1) return;
-    const singleType = typeOptions[0];
-    const canonical = resolveCanonicalOperationType({
-      categorySlug: singleType.category_slug,
-      typeSlug: singleType.slug,
-      operationType: singleType.name_ru,
-    });
-    setCategorySlug(canonical?.categorySlug || singleType.category_slug);
-    setTypeSlug(singleType.slug);
-    form.setValue("operation_category_slug", canonical?.categorySlug || singleType.category_slug);
-    form.setValue("operation_type_slug", singleType.slug);
-    form.setValue("operation_type", singleType.name_ru);
-  }, [categorySlug, form, open, typeOptions, typeSlug]);
-
-  useEffect(() => {
-    if (!open) return;
-    if (categorySlug !== "planting" || typeSlug || !selectedCropStructure) return;
-    const desiredSlug = operationIsPotato ? "potato_planting" : "seeding";
-    const desiredType = typeOptions.find((item) => item.slug === desiredSlug);
-    if (!desiredType) return;
-    setTypeSlug(desiredType.slug);
-    form.setValue("operation_type_slug", desiredType.slug);
-    form.setValue("operation_type", desiredType.name_ru);
-  }, [categorySlug, form, open, operationIsPotato, selectedCropStructure, typeOptions, typeSlug]);
-
-  useEffect(() => {
-    if (!open || categorySlug !== "planting" || !selectedCropStructure) return;
-    const desiredSlug = operationIsPotato ? "potato_planting" : "seeding";
-    if (typeSlug === desiredSlug) return;
-    if (typeSlug !== "potato_planting" && typeSlug !== "seeding") return;
-    const desiredType = typeOptions.find((item) => item.slug === desiredSlug);
-    if (!desiredType) return;
-    setTypeSlug(desiredType.slug);
-    form.setValue("operation_type_slug", desiredType.slug);
-    form.setValue("operation_type", desiredType.name_ru);
-  }, [categorySlug, form, open, operationIsPotato, selectedCropStructure, typeOptions, typeSlug]);
 
   useEffect(() => {
     if (!open) return;
@@ -1503,19 +1726,24 @@ export function OperationFormDialog({
   const usesChemistryMix = isSpraying || isFertigation;
   const supportsMultiTarget = usesChemistryMix;
   const isPotatoPlanting = operationIsPotato && typeSlug === "potato_planting";
-  const compactAutoPlantingType =
-    categorySlug === "planting" &&
-    !!selectedCropStructure &&
-    (typeSlug === "potato_planting" || typeSlug === "seeding");
+  const isSeedWork = SEEDING_WORKS.has(typeSlug);
+  const showDepth = DEPTH_ENABLED_WORKS.has(typeSlug);
+  const isTopRemoval = typeSlug === "haulm_topping";
   const isDripTapeRidge = typeSlug === "ridge_forming_with_drip_tape";
   const isDripTapeCollection = typeSlug === "drip_tape_collection" || typeSlug === "tape_residue_collection";
   const showPurposeEngine = false;
   const showTankMix = !!canonicalType?.supportsTankMix;
-  const showMaterials = (!!canonicalType?.supportsMaterials || isDripTapeRidge) && !isHarvest;
+  const showMaterials = (!!canonicalType?.supportsMaterials || isDripTapeRidge) && !isHarvest && !(selectedIsCropMix && isSeedWork);
   const showMachine = canonicalType ? canonicalType.requiresMachine || isDripTapeCollection || typeSlug === "haulm_topping" : !!selectedType?.requires_machine;
   const showTransport = canonicalType?.slug === "harvesting" || canonicalType?.slug === "transport";
-  const showField = canonicalType ? canonicalType.requiresCropStructure : true;
-  const cropStructureRequired = isWholeFieldScope ? false : canonicalType ? canonicalType.requiresCropStructure : requiresCropStructureForType(selectedType);
+  const showField = canonicalType ? canonicalType.requiresCropStructure || isTopRemoval : true;
+  const cropStructureRequired = isWholeFieldScope
+    ? false
+    : cropIndependent
+      ? operationParams.scope === "structure_line"
+      : canonicalType
+        ? canonicalType.requiresCropStructure || isTopRemoval
+        : requiresCropStructureForType(selectedType);
   const totalTargetArea = operationTargets.reduce((sum, target) => sum + Number(target.planned_area_ha || 0), 0);
   const targetCount = operationTargets.filter((target) => Number(target.planned_area_ha || 0) > 0).length;
   const targetFieldCount = new Set(operationTargets.map((target) => target.field_id).filter(Boolean)).size;
@@ -1541,6 +1769,36 @@ export function OperationFormDialog({
       return next.length === prev.length ? prev : next;
     });
   }, [isPotatoPlanting, open, products]);
+
+  useEffect(() => {
+    if (!open || !canonicalType) return;
+    if (!canonicalType.supportsMaterials && !isDripTapeRidge && materials.length > 0) {
+      setMaterials([]);
+    }
+  }, [canonicalType, isDripTapeRidge, materials.length, open]);
+
+  useEffect(() => {
+    if (!open || !selectedIsCropMix || !isSeedWork || materials.length === 0) return;
+    setMaterials([]);
+  }, [isSeedWork, materials.length, open, selectedIsCropMix]);
+
+  useEffect(() => {
+    if (!open || !isSeedWork || selectedIsCropMix || materials.length > 0) return;
+    setMaterials([
+      {
+        component_type: "seed",
+        material_type: "seed",
+        product_id: "",
+        batch_id: null,
+        planned_rate: null,
+        actual_rate: null,
+        rate_basis: "per_ha",
+        planned_quantity: null,
+        unit: "kg",
+        notes: null,
+      },
+    ]);
+  }, [isSeedWork, materials.length, open, selectedIsCropMix]);
 
   useEffect(() => {
     if (!open || products.length === 0 || materials.length === 0) return;
@@ -1670,20 +1928,37 @@ export function OperationFormDialog({
 
   const addOperationTarget = () => {
     const used = new Set(operationTargets.map((target) => target.crop_structure_id).filter(Boolean));
-    const nextStructure =
-      cropStructures.find((item) => !item.archived && item.id !== selectedCropStructureId && !used.has(item.id)) ||
-      cropStructures.find((item) => !item.archived && !used.has(item.id));
-    if (!nextStructure) {
+    const candidates = cropStructures.filter((item) => !item.archived && !used.has(item.id));
+    if (candidates.length === 0) {
       setSubmitError("Нет доступных участков для добавления.");
       return;
     }
     setSubmitError(null);
-    setOperationTargets((prev) => [...prev, createTargetFromStructure(nextStructure)]);
+    setOperationTargets((prev) => [
+      ...prev,
+      candidates.length === 1
+        ? createTargetFromStructure(candidates[0])
+        : {
+            key: createTargetKey(),
+            field_id: "",
+            crop_structure_id: null,
+            crop_id: null,
+            variety_id: null,
+            reproduction_id: null,
+            planned_area_ha: 0,
+            notes: null,
+          },
+    ]);
   };
 
   const updateOperationTargetStructure = (key: string, cropStructureId: string) => {
     const structure = cropStructures.find((item) => item.id === cropStructureId);
     if (!structure) return;
+    if (operationTargets.some((target) => target.key !== key && target.crop_structure_id === cropStructureId)) {
+      setSubmitError("Этот участок уже добавлен в операцию.");
+      return;
+    }
+    setSubmitError(null);
     setOperationTargets((prev) =>
       prev.map((target) =>
         target.key === key
@@ -1763,7 +2038,11 @@ export function OperationFormDialog({
   };
 
   const updateMaterial = (index: number, patch: Partial<OperationMaterialFormData>) => {
-    setMaterials((prev) => prev.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+    setMaterials((prev) =>
+      prev.map((row, rowIndex) =>
+        rowIndex === index ? patchMaterialWithRateReset(row, patch) : row
+      )
+    );
   };
 
   const removeMaterial = (index: number) => {
@@ -1877,6 +2156,10 @@ export function OperationFormDialog({
 
   const renderMaterialRow = (material: OperationMaterialFormData, index: number) => {
     const component = getTankMixComponentDefinition(material.component_type || material.material_type);
+    const selectedProduct = products.find((item) => item.id === material.product_id);
+    const pesticideCardId = productMatchesChemistryGroup(selectedProduct, "pesticides")
+      ? selectedProduct?.master_product_id
+      : null;
     const materialTotal = calculateMaterialTotal(material, preliminaryWaterTotalL);
     const rateBasis = normalizeRateBasisForOperationMaterial(material.rate_basis, usesChemistryMix);
     const rateBasisOptions = usesChemistryMix ? CHEMISTRY_MATERIAL_RATE_BASIS : MATERIAL_RATE_BASIS;
@@ -1915,6 +2198,7 @@ export function OperationFormDialog({
         <div className="md:col-span-2">
           <div className="mb-1 text-xs text-slate-500">Продукт</div>
           {getTankMixComponentDefinition(material.component_type || material.material_type).productRequired ? (
+            <div className="flex items-center gap-1">
             <SearchableSelect
               value={material.product_id || ""}
               onChange={(productId) => {
@@ -1938,6 +2222,8 @@ export function OperationFormDialog({
               placeholder={isPotatoPlanting ? "Выберите удобрение или препарат" : "Выберите продукт"}
               emptyLabel="Материалы компании не найдены"
             />
+            <PesticideCardLink productId={pesticideCardId} />
+            </div>
           ) : (
             <div className="flex h-8 items-center rounded-md border bg-muted/40 px-3 text-xs text-muted-foreground">
               Без складского продукта
@@ -1980,7 +2266,13 @@ export function OperationFormDialog({
             value={material.planned_rate ?? ""}
             onChange={(event) => updateMaterial(index, { planned_rate: normalizeNumber(event.target.value) })}
             placeholder={formatRateUnit(material.unit || getDefaultUnitForComponent(component.slug), rateBasis)}
+            aria-describedby={material.product_id && material.planned_rate == null ? `material-rate-help-${index}` : undefined}
           />
+          {material.product_id && material.planned_rate == null ? (
+            <div id={`material-rate-help-${index}`} className="mt-1 text-[11px] text-amber-300">
+              Укажите норму для выбранного материала
+            </div>
+          ) : null}
         </div>
         <div>
           <div className="mb-1 text-xs text-slate-500">Итого</div>
@@ -2036,18 +2328,57 @@ export function OperationFormDialog({
   const handleCategoryChange = (slug: string) => {
     const canonical = resolveCanonicalOperationType({ categorySlug: slug });
     const nextCategory = canonical?.categorySlug || slug;
+    const section = getOperationWorkUiSection(nextCategory);
+    const directType = section?.selection === "direct" ? section.directOperationSlug || nextCategory : "";
+    if (nextCategory === categorySlug && (!directType || directType === typeSlug)) return;
+
     setSubmitError(null);
     setCategorySlug(nextCategory);
+    setTypeSlug(directType);
     form.setValue("operation_category_slug", nextCategory);
-    setTypeSlug("");
-    form.setValue("operation_type_slug", "");
-    form.setValue("operation_type", "");
+    form.setValue("operation_type_slug", directType);
+    form.setValue("operation_type", section?.selection === "direct" ? section.label : "");
+
+    form.setValue("machine_id", null);
+    form.setValue("equipment_id", null);
     form.setValue("transport_id", null);
+    form.setValue("operation_target", null);
+    form.setValue("rate_per_ha", null);
+    form.setValue("spray_volume_per_ha", null);
+    form.setValue("row_spacing_m", null);
+    form.setValue("seed_spacing_cm", null);
+
+    setPurposes([]);
+    setTankMixEnabled(false);
+    setTankMixWaterRate(null);
+    setMaterials([]);
+    setOperationTargets(selectedCropStructure ? [createTargetFromStructure(selectedCropStructure)] : []);
+    setOperationParams((prev) => {
+      const next: Record<string, unknown> = {};
+      ["scope", "irrigation_type", "crop_context"].forEach((key) => {
+        if (key in prev) next[key] = prev[key];
+      });
+      return next;
+    });
+    setStructureChangeMode("none");
+    setStructureChangeCropId("");
+    setStructureChangeVarietyId("none");
+    setStructureChangeReproductionId("none");
     form.clearErrors(["operation_type", "operation_type_slug"]);
   };
 
   const handleTypeChange = (slug: string) => {
     const type = types.find((item) => item.slug === slug);
+    const availability = getOperationTemplateAvailability({
+      ...availabilityContext,
+      categorySlug: type?.category_slug || categorySlug,
+      typeSlug: slug,
+      operationType: type?.name_ru || "",
+    });
+    if (!availability.allowed) {
+      setSubmitError(availability.reason || "Эта работа недоступна для выбранной культуры.");
+      return;
+    }
     const canonical = resolveCanonicalOperationType({
       categorySlug: type?.category_slug || categorySlug,
       typeSlug: slug,
@@ -2061,6 +2392,17 @@ export function OperationFormDialog({
     form.setValue("operation_category_slug", nextCategory);
     form.setValue("operation_type_slug", nextType);
     form.setValue("operation_type", type?.name_ru || canonical?.label || "");
+    setOperationParams((prev) => {
+      const next = { ...prev };
+      if (!DEPTH_ENABLED_WORKS.has(nextType)) delete next.depth_cm;
+      if (nextType !== "haulm_topping") delete next.top_removal_method;
+      return next;
+    });
+    if (!SEEDING_WORKS.has(nextType)) {
+      form.setValue("row_spacing_m", null);
+      form.setValue("seed_spacing_cm", null);
+      form.setValue("rate_per_ha", null);
+    }
     form.clearErrors(["operation_type", "operation_type_slug"]);
   };
 
@@ -2069,7 +2411,7 @@ export function OperationFormDialog({
     setSubmitting(false);
     const hasOperationTypeError = Boolean(errors.operation_type || errors.operation_type_slug);
     if (hasOperationTypeError) {
-      const message = "Выберите производственный блок и работу.";
+      const message = "Выберите работу.";
       form.setError("operation_type", { message });
       setSubmitError(message);
       return;
@@ -2082,13 +2424,13 @@ export function OperationFormDialog({
     if (submitInFlightRef.current) return;
     setSubmitError(null);
     if (!selectedType) {
-      const message = "Выберите производственный блок и работу.";
+      const message = "Выберите работу.";
       form.setError("operation_type", { message });
       setSubmitError(message);
       return;
     }
-    if (isWholeFieldScope && !WHOLE_FIELD_ALLOWED_CATEGORIES.has(canonicalType?.categorySlug || selectedType.category_slug)) {
-      const message = "Для всего поля доступны только уборка, логистика, сервис и послеуборочные работы.";
+    if (isWholeFieldScope && !cropIndependent) {
+      const message = "Без культуры на всё поле доступны только вспашка и снегозадержание.";
       form.setError("operation_type", { message });
       setSubmitError(message);
       return;
@@ -2100,7 +2442,7 @@ export function OperationFormDialog({
       return;
     }
     if (cropStructureRequired && !data.crop_structure_id) {
-      const message = "Выберите культуру на поле.";
+      const message = cropIndependent ? "Выберите участок пара." : "Выберите участок структуры с культурой.";
       form.setError("crop_structure_id", { message });
       setSubmitError(message);
       return;
@@ -2113,16 +2455,34 @@ export function OperationFormDialog({
     }
     const targetsForSubmit =
       supportsMultiTarget && operationTargets.length > 0
-        ? operationTargets
-            .map(({ key: _key, ...target }) => ({
-              ...target,
-              planned_area_ha: Number(target.planned_area_ha || 0),
-            }))
-            .filter((target) => target.field_id && target.planned_area_ha > 0)
+        ? operationTargets.map(({ key: _key, ...target }) => ({
+            ...target,
+            planned_area_ha: Number(target.planned_area_ha || 0),
+          }))
         : [];
     if (supportsMultiTarget && targetsForSubmit.length === 0) {
       const message = "Добавьте хотя бы один участок обработки.";
       setSubmitError(message);
+      return;
+    }
+    if (
+      supportsMultiTarget &&
+      targetsForSubmit.some(
+        (target) =>
+          !target.field_id ||
+          !target.crop_structure_id ||
+          !Number.isFinite(target.planned_area_ha) ||
+          target.planned_area_ha <= 0
+      )
+    ) {
+      setSubmitError("Для каждого участка явно выберите строку структуры посевов и площадь.");
+      return;
+    }
+    if (
+      supportsMultiTarget &&
+      new Set(targetsForSubmit.map((target) => target.crop_structure_id)).size !== targetsForSubmit.length
+    ) {
+      setSubmitError("Один участок нельзя добавить дважды.");
       return;
     }
     if (isPotatoPlanting && (!data.seed_spacing_cm || data.seed_spacing_cm <= 0)) {
@@ -2181,6 +2541,19 @@ export function OperationFormDialog({
       const component = getTankMixComponentDefinition(item.component_type);
       return component.productRequired ? String(item.product_id || "").trim().length > 0 : true;
     });
+    if (isSeedWork && !selectedIsCropMix) {
+      const seedMaterial = materialsForSubmit.find((item) => item.component_type === "seed");
+      if (!seedMaterial?.product_id) {
+        const message = "Выберите семенной или посадочный материал.";
+        setSubmitError(message);
+        return;
+      }
+      if (!seedMaterial.planned_rate || seedMaterial.planned_rate <= 0) {
+        const message = "Укажите норму семенного или посадочного материала.";
+        setSubmitError(message);
+        return;
+      }
+    }
     const inferredPurposesForSubmit = Array.from(
       new Set<OperationPurposeSlug>([
         ...purposes,
@@ -2197,6 +2570,9 @@ export function OperationFormDialog({
     }
     const operationParamsForSubmit: Record<string, unknown> = {
       ...operationParams,
+      scope: isWholeFieldScope ? "whole_field" : "structure_line",
+      target_scope: isWholeFieldScope ? "field" : "structure_line",
+      crop_requirement: cropRequirement,
       irrigation_type: selectedIrrigationType,
       operation_template: typeSlug || null,
       row_spacing_m: data.row_spacing_m ?? null,
@@ -2317,6 +2693,8 @@ export function OperationFormDialog({
     !categorySlug ? "тип работы" : null,
     !selectedType ? "работа" : null,
     !responsibleUserId ? "ответственный" : null,
+    isSeedWork && !selectedIsCropMix && !materials.some((item) => item.component_type === "seed" && item.product_id) ? "семенной материал" : null,
+    isSeedWork && !selectedIsCropMix && !materials.some((item) => item.component_type === "seed" && Number(item.planned_rate || 0) > 0) ? "норма" : null,
     isPotatoPlanting && (!seedSpacingCm || seedSpacingCm <= 0) ? "межклубневое расстояние" : null,
     isPotatoPlanting && (!seedRateKgHa || seedRateKgHa <= 0) ? "норма посадки" : null,
     (isIrrigation || isFertigation) && !operationParams.water_norm_mm && !operationParams.water_volume_m3 ? "норма воды" : null,
@@ -2391,6 +2769,41 @@ export function OperationFormDialog({
               </div>
             ) : null}
 
+            {cropIndependent && selectedField ? (
+              <div className="rounded-lg border border-slate-700 bg-[#111827] p-3">
+                <div className="text-xs font-medium text-slate-300">Область работы</div>
+                <div className="mt-2 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Область работы">
+                  <Button
+                    type="button"
+                    variant={isWholeFieldScope ? "default" : "outline"}
+                    onClick={() => {
+                      setOperationParams((prev) => ({ ...prev, scope: "whole_field", target_scope: "field" }));
+                      form.setValue("crop_structure_id", null);
+                      form.setValue("crop_id", null);
+                      form.setValue("planned_area_ha", Number(selectedField.area || 0));
+                      setOperationTargets([]);
+                    }}
+                  >
+                    Всё поле
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={!isWholeFieldScope ? "default" : "outline"}
+                    onClick={() => {
+                      const fallowRows = selectedFieldCropStructures.filter((item) => item.land_use_type === "fallow");
+                      const next = fallowRows.length === 1 ? fallowRows[0] : null;
+                      setOperationParams((prev) => ({ ...prev, scope: "structure_line", target_scope: "structure_line" }));
+                      form.setValue("crop_structure_id", next?.id || null);
+                      form.setValue("crop_id", null);
+                      form.setValue("planned_area_ha", next ? Number(next.area || 0) : null);
+                    }}
+                  >
+                    Участок структуры
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
             {selectedCropStructure ? (
               <div className="rounded-lg border border-slate-700 bg-[#111827] p-3 text-sm text-slate-100">
                 <div className="font-semibold">
@@ -2416,7 +2829,7 @@ export function OperationFormDialog({
                   <span className="font-medium text-slate-100">Всё поле — {Number(selectedField.area || 0).toFixed(2)} га</span>
                 </div>
                 <div className="mt-1 text-xs text-slate-400">
-                  Доступны только уборка, логистика, сервис и послеуборочные работы.
+                  Без культуры доступны вспашка и снегозадержание.
                 </div>
               </div>
             ) : null}
@@ -2457,7 +2870,15 @@ export function OperationFormDialog({
                         <SearchableSelect
                           value={target.crop_structure_id || ""}
                           onChange={(value) => updateOperationTargetStructure(target.key, value)}
-                          options={targetOptions}
+                          options={targetOptions.filter(
+                            (option) =>
+                              option.id === target.crop_structure_id ||
+                              !operationTargets.some(
+                                (candidate) =>
+                                  candidate.key !== target.key &&
+                                  candidate.crop_structure_id === option.id
+                              )
+                          )}
                           placeholder="Выберите участок"
                           emptyLabel="Участки не найдены"
                           disabled={lockedContext && index === 0}
@@ -2510,82 +2931,20 @@ export function OperationFormDialog({
 
               <main className="min-h-0 space-y-4 overflow-y-auto p-5 [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700 [&::-webkit-scrollbar-track]:bg-transparent">
 
-            <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-semibold text-white">1. Работа</div>
-                  <div className="text-xs text-slate-500">Сначала производственный блок, затем конкретная работа.</div>
+            <section className="py-2">
+              <OperationWorkSelector
+                categoryValue={categorySlug}
+                workValue={typeSlug}
+                onCategoryChange={handleCategoryChange}
+                onWorkChange={handleTypeChange}
+                groups={workGroups}
+                disabled={!selectedFieldId}
+              />
+              {form.formState.errors.operation_type?.message ? (
+                <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+                  {form.formState.errors.operation_type.message}
                 </div>
-                {selectedType ? (
-                  <span className="rounded-full border border-yellow-400/40 bg-yellow-400/10 px-3 py-1 text-xs font-semibold text-yellow-200">
-                    {selectedType.name_ru}
-                  </span>
-                ) : null}
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
-                {availableCategories.map((category) => {
-                  const active = categorySlug === category.slug;
-                  return (
-                    <button
-                      key={category.id}
-                      type="button"
-                      className={cn(
-                        "min-h-[58px] rounded-xl border px-3 py-2 text-left text-sm font-semibold transition",
-                        active
-                          ? "border-yellow-400 bg-yellow-400 text-slate-950 shadow-[0_0_0_1px_rgba(250,204,21,0.35)]"
-                          : "border-slate-800 bg-slate-950/45 text-slate-200 hover:border-slate-600 hover:bg-slate-900"
-                      )}
-                      onClick={() => handleCategoryChange(category.slug)}
-                    >
-                      <span className="line-clamp-2">{category.name_ru}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-4">
-                <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Конкретная работа</div>
-                {compactAutoPlantingType && selectedType ? (
-                  <div className="rounded-xl border border-emerald-400/40 bg-emerald-400/10 px-3 py-3 text-sm font-semibold text-emerald-100">
-                    {selectedType.name_ru}
-                  </div>
-                ) : !categorySlug ? (
-                  <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-3 py-4 text-sm text-slate-500">
-                    Выберите блок выше, и здесь появятся доступные работы.
-                  </div>
-                ) : typeOptions.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-3 py-4 text-sm text-slate-500">
-                    Для выбранного участка нет доступных работ этого блока.
-                  </div>
-                ) : (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {typeOptions.map((type) => {
-                      const active = typeSlug === type.slug;
-                      return (
-                        <button
-                          key={type.id}
-                          type="button"
-                          className={cn(
-                            "rounded-xl border px-3 py-2 text-left text-sm transition",
-                            active
-                              ? "border-yellow-400 bg-yellow-400/15 text-yellow-100"
-                              : "border-slate-800 bg-slate-950/45 text-slate-300 hover:border-slate-600"
-                          )}
-                          onClick={() => handleTypeChange(type.slug)}
-                        >
-                          <span className="font-semibold">{type.name_ru}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {form.formState.errors.operation_type?.message ? (
-                  <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-                    {form.formState.errors.operation_type.message}
-                  </div>
-                ) : null}
-              </div>
+              ) : null}
 
               {showPurposeEngine ? (
                 <div className="mt-4 rounded-xl border border-slate-800 bg-slate-950/35 p-3">
@@ -2614,83 +2973,46 @@ export function OperationFormDialog({
               ) : null}
             </section>
 
-            {selectedCropStructure && categorySlug === "planting" ? (
+            {selectedCropStructure && categorySlug === "planting" && selectedIsCropMix ? (
+              <section className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold text-white">Зерносмесь из структуры посевов</div>
+                  <div className="text-xs text-slate-400">Одна операция и одна заявка. Склад выдаёт каждый компонент отдельной строкой.</div>
+                </div>
+                <div className="space-y-2">
+                  {(selectedCropStructure.mix_components || []).map((component, index) => (
+                    <div key={component.id || `${component.crop_id}-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/45 px-3 py-2 text-sm">
+                      <div className="min-w-0 truncate font-medium text-slate-100">
+                        {[component.crop_name, component.variety_name, component.reproduction_name].filter(Boolean).join(", ")}
+                      </div>
+                      <div className="whitespace-nowrap text-slate-300">{Number(component.seed_rate_kg_ha || 0)} кг/га</div>
+                      <div className="whitespace-nowrap font-semibold text-yellow-300">
+                        {(Number(selectedCropStructure.area || 0) * Number(component.seed_rate_kg_ha || 0)).toLocaleString("ru-RU")} кг
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : selectedCropStructure && categorySlug === "planting" ? (
               <section className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
                 <div className="mb-3">
-                  <div className="text-sm font-semibold text-white">2. Уточнение посева</div>
-                  <div className="text-xs text-slate-500">Меняйте культуру только если операция должна изменить план участка.</div>
+                  <div className="text-sm font-semibold text-white">Культура из структуры посевов</div>
+                  <div className="text-xs text-slate-500">Культура и сорт подставляются автоматически и не меняют план участка.</div>
                 </div>
-                <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
                   <div>
-                    <div className="mb-1 text-xs font-medium text-slate-400">Культура</div>
-                    <SearchableSelect
-                      value={structureEditorCropId}
-                      onChange={(value) => {
-                        setStructureChangeCropId(value);
-                        setStructureChangeVarietyId("none");
-                      }}
-                      options={cropCatalogOptions}
-                      placeholder="Выберите культуру"
-                      emptyLabel="Культуры не найдены"
-                    />
+                    <div className="text-xs text-slate-500">Культура</div>
+                    <div className="font-medium text-slate-100">{selectedCropIdentity?.cropName || "Не указана"}</div>
                   </div>
                   <div>
-                    <div className="mb-1 text-xs font-medium text-slate-400">Сорт</div>
-                    <SearchableSelect
-                      value={structureEditorVarietyId}
-                      onChange={(value) => {
-                        if (!structureChangeCropId && selectedCropStructure.crop_id) {
-                          setStructureChangeCropId(selectedCropStructure.crop_id);
-                        }
-                        setStructureChangeVarietyId(value);
-                      }}
-                      options={[{ id: "none", label: "Без сорта" }, ...structureChangeVarietyOptions]}
-                      placeholder="Выберите сорт"
-                      emptyLabel="Сорта не найдены"
-                    />
+                    <div className="text-xs text-slate-500">Сорт</div>
+                    <div className="font-medium text-slate-100">{selectedCropIdentity?.varietyName || "Не указан"}</div>
                   </div>
                   <div>
-                    <div className="mb-1 text-xs font-medium text-slate-400">Репродукция</div>
-                    <SearchableSelect
-                      value={structureEditorReproductionId}
-                      onChange={(value) => {
-                        if (!structureChangeCropId && selectedCropStructure.crop_id) {
-                          setStructureChangeCropId(selectedCropStructure.crop_id);
-                        }
-                        setStructureChangeReproductionId(value);
-                      }}
-                      options={[{ id: "none", label: "Без репродукции" }, ...structureChangeReproductionOptions]}
-                      placeholder="Выберите репродукцию"
-                      emptyLabel="Репродукции не найдены"
-                    />
+                    <div className="text-xs text-slate-500">Репродукция</div>
+                    <div className="font-medium text-slate-100">{selectedCropIdentity?.reproductionName || "Не указана"}</div>
                   </div>
                 </div>
-                {structureChangeActive ? (
-                  <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-100">
-                    <div className="font-semibold">План структуры отличается от операции. Что сделать?</div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <Button
-                        type="button"
-                        variant={structureChangeMode === "crop_replace" ? "default" : "outline"}
-                        onClick={() => setStructureChangeMode("crop_replace")}
-                      >
-                        Заменить культуру на участке
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={structureChangeMode === "area_split" ? "default" : "outline"}
-                        onClick={() => setStructureChangeMode("area_split")}
-                      >
-                        Выделить часть площади
-                      </Button>
-                    </div>
-                    {structureChangeMode === "area_split" ? (
-                      <div className="mt-2 text-xs text-yellow-100/80">
-                        Укажите площадь ниже. Она станет новым участком, остаток останется за текущей культурой.
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
               </section>
             ) : null}
 
@@ -2727,7 +3049,42 @@ export function OperationFormDialog({
                   </FormItem>
                 )}
               />
+              {showDepth ? (
+                <FormItem>
+                  <FormLabel>Глубина, см</FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={getOperationParam("depth_cm")}
+                      onChange={(event) => updateOperationParam("depth_cm", normalizeNumber(event.target.value))}
+                      placeholder="Необязательно"
+                    />
+                  </FormControl>
+                </FormItem>
+              ) : null}
             </div>
+
+            {isTopRemoval ? (
+              <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
+                <div className="mb-2 text-sm font-semibold text-white">Способ удаления ботвы</div>
+                <Select
+                  value={String(operationParams.top_removal_method || "none")}
+                  onValueChange={(value) => updateOperationParam("top_removal_method", value === "none" ? null : value)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Необязательно" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Не указывать</SelectItem>
+                    <SelectItem value="mowing">Скашивание</SelectItem>
+                    <SelectItem value="shredding">Измельчение</SelectItem>
+                    <SelectItem value="other_mechanical">Другое механическое удаление</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
 
             {isPotatoPlanting ? (
               <div className="rounded-lg border border-emerald-800/60 bg-emerald-950/20 p-3">
@@ -3043,7 +3400,7 @@ export function OperationFormDialog({
                       name="spray_volume_per_ha"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Норма вылива, л/га</FormLabel>
+                          <FormLabel>Норма расхода рабочей жидкости, л/га</FormLabel>
                           <FormControl>
                             <Input
                               type="number"
@@ -3107,12 +3464,12 @@ export function OperationFormDialog({
                         <div className="font-semibold text-slate-100">{formatOperationNumber(operationAreaForCalculation)} га</div>
                       </div>
                       <div>
-                        <div className="text-slate-500">Норма вылива</div>
+                        <div className="text-slate-500">Норма рабочей жидкости</div>
                         <div className="font-semibold text-slate-100">{solutionRateLHa ? `${formatOperationNumber(solutionRateLHa)} л/га` : "—"}</div>
                       </div>
                       <div>
-                        <div className="text-slate-500">Итого раствора</div>
-                        <div className="font-semibold text-slate-100">{totalSolutionL != null ? `${formatOperationNumber(totalSolutionL)} л` : "—"}</div>
+                        <div className="text-slate-500">Жидкие материалы</div>
+                        <div className="font-semibold text-slate-100">{formatOperationNumber(liquidProductsTotalL)} л</div>
                       </div>
                       <div>
                         <div className="text-slate-500">Концентрация</div>
@@ -3138,6 +3495,12 @@ export function OperationFormDialog({
                         <span className="font-semibold text-slate-100">{formatOperationNumber(calculatedWaterTotalL)} л</span>
                       </div>
                     ) : null}
+                    <div className="mt-3 flex items-center justify-between rounded-lg border border-emerald-400/30 bg-emerald-400/10 px-3 py-2 text-sm">
+                      <span className="font-semibold text-emerald-100">Итого готового раствора</span>
+                      <span className="font-bold text-emerald-100">
+                        {totalSolutionL != null ? `${formatOperationNumber(totalSolutionL)} л` : "—"}
+                      </span>
+                    </div>
                   </div>
                 ) : null}
               </div>

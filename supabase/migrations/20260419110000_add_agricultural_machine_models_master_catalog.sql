@@ -53,16 +53,7 @@ create table if not exists public.agricultural_machine_models (
   brand text not null,
   series text,
   model text not null,
-  full_name text generated always as (
-    btrim(
-      concat_ws(
-        ' ',
-        nullif(btrim(brand), ''),
-        nullif(btrim(series), ''),
-        nullif(btrim(model), '')
-      )
-    )
-  ) stored,
+  full_name text not null,
   power_hp numeric(10,2),
   engine text,
   tank_volume_l numeric(12,2),
@@ -78,19 +69,17 @@ create table if not exists public.agricultural_machine_models (
   archived boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  brand_norm text generated always as (
-    lower(regexp_replace(btrim(brand), '\s+', ' ', 'g'))
-  ) stored,
-  series_norm text generated always as (
-    lower(regexp_replace(coalesce(btrim(series), ''), '\s+', ' ', 'g'))
-  ) stored,
-  model_norm text generated always as (
-    lower(regexp_replace(btrim(model), '\s+', ' ', 'g'))
-  ) stored
+  brand_norm text not null,
+  series_norm text not null default '',
+  model_norm text not null
 );
 
 alter table public.agricultural_machine_models
   add column if not exists user_id uuid,
+  add column if not exists full_name text,
+  add column if not exists brand_norm text,
+  add column if not exists series_norm text not null default '',
+  add column if not exists model_norm text,
   add column if not exists power_hp numeric(10,2),
   add column if not exists engine text,
   add column if not exists tank_volume_l numeric(12,2),
@@ -106,6 +95,22 @@ alter table public.agricultural_machine_models
   add column if not exists archived boolean not null default false,
   add column if not exists created_at timestamptz not null default now(),
   add column if not exists updated_at timestamptz not null default now();
+
+update public.agricultural_machine_models
+set
+  full_name = btrim(concat_ws(' ', nullif(btrim(brand), ''), nullif(btrim(series), ''), nullif(btrim(model), ''))),
+  brand_norm = lower(regexp_replace(btrim(brand), '\s+', ' ', 'g')),
+  series_norm = lower(regexp_replace(coalesce(btrim(series), ''), '\s+', ' ', 'g')),
+  model_norm = lower(regexp_replace(btrim(model), '\s+', ' ', 'g'))
+where full_name is null
+   or brand_norm is null
+   or model_norm is null;
+
+alter table public.agricultural_machine_models
+  alter column full_name set not null,
+  alter column brand_norm set not null,
+  alter column series_norm set not null,
+  alter column model_norm set not null;
 
 do $$
 begin
@@ -170,18 +175,94 @@ begin
   new.model := regexp_replace(coalesce(new.model, ''), '\s+', ' ', 'g');
   new.model := nullif(btrim(new.model), '');
 
+  if new.brand is null or new.model is null then
+    raise exception 'brand and model are required';
+  end if;
+
+  new.full_name := btrim(concat_ws(' ', new.brand, new.series, new.model));
+  new.brand_norm := lower(new.brand);
+  new.series_norm := lower(coalesce(new.series, ''));
+  new.model_norm := lower(new.model);
+
   new.engine := nullif(btrim(coalesce(new.engine, '')), '');
   new.power_class := nullif(btrim(coalesce(new.power_class, '')), '');
   new.dealer_name := nullif(btrim(coalesce(new.dealer_name, '')), '');
   new.source_url := nullif(btrim(coalesce(new.source_url, '')), '');
   new.notes := nullif(btrim(coalesce(new.notes, '')), '');
 
-  if new.brand is null or new.model is null then
-    raise exception 'brand and model are required';
-  end if;
-
   new.updated_at := now();
   return new;
+end;
+$$;
+
+-- Canonical source for the production import staging/review contract.
+create table if not exists public.stg_equipment_raw_persistent (
+  id bigserial primary key,
+  category text,
+  brand text,
+  series text,
+  model text,
+  working_width_m text,
+  dealer_name text,
+  presence_in_kz text,
+  is_active text,
+  notes text,
+  batch_tag text not null default 'manual'::text,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.equipment_import_review_queue (
+  id uuid primary key default gen_random_uuid(),
+  category text,
+  brand text,
+  series text,
+  model text,
+  payload jsonb not null,
+  reason text not null,
+  created_at timestamptz not null default now()
+);
+
+create or replace function public.import_agricultural_machine_models_safe(
+  _rows jsonb,
+  _actor uuid default null::uuid
+)
+returns table(
+  processed_count integer,
+  upserted_count integer,
+  skipped_count integer,
+  skipped_rows jsonb
+)
+language plpgsql
+security definer
+as $$
+declare
+  v_clean_rows jsonb;
+begin
+  if _rows is null or jsonb_typeof(_rows) <> 'array' then
+    raise exception 'rows must be a json array';
+  end if;
+
+  with normalized as (
+    select
+      case
+        when lower(coalesce(nullif(btrim(value ->> 'source_type'), ''), 'manual')) in
+             ('manufacturer', 'official_dealer', 'registry', 'import_feed', 'manual')
+        then jsonb_set(
+               value,
+               '{source_type}',
+               to_jsonb(lower(coalesce(nullif(btrim(value ->> 'source_type'), ''), 'manual'))),
+               true
+             )
+        else jsonb_set(value, '{source_type}', '"manual"'::jsonb, true)
+      end as row_json
+    from jsonb_array_elements(_rows) as t(value)
+  )
+  select jsonb_agg(row_json) into v_clean_rows
+  from normalized;
+
+  return query
+  select *
+  from public.import_agricultural_machine_models(v_clean_rows, _actor);
 end;
 $$;
 
@@ -425,5 +506,183 @@ begin
     v_upserted,
     v_skipped_count,
     v_skipped;
+end;
+$$;
+
+-- Canonical production import implementation.
+CREATE OR REPLACE FUNCTION public.import_agricultural_machine_models(_rows jsonb, _actor uuid DEFAULT NULL::uuid)
+ RETURNS TABLE(processed_count integer, upserted_count integer, skipped_count integer, skipped_rows jsonb)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $$
+declare
+  v_row jsonb;
+  v_category_text text;
+  v_category public.agricultural_machine_category;
+  v_brand text;
+  v_series text;
+  v_model text;
+  v_power_hp numeric(10,2);
+  v_engine text;
+  v_tank_volume_l numeric(12,2);
+  v_grain_tank_l numeric(12,2);
+  v_working_width_m numeric(10,2);
+  v_power_class text;
+  v_dealer_name text;
+  v_presence_in_kz boolean;
+  v_source_url text;
+  v_source_type_text text;
+  v_source_type public.agricultural_machine_source_type;
+  v_is_active boolean;
+  v_notes text;
+  v_presence_text text;
+  v_is_active_text text;
+  v_actor uuid;
+  v_skipped jsonb := '[]'::jsonb;
+  v_processed integer := 0;
+  v_upserted integer := 0;
+  v_skipped_count integer := 0;
+begin
+  if _rows is null or jsonb_typeof(_rows) <> 'array' then
+    raise exception 'rows must be a json array';
+  end if;
+
+  v_actor := _actor;
+
+  if v_actor is null then
+    select p.id
+      into v_actor
+    from public.profiles p
+    where p.role = 'global_admin'
+      and coalesce(p.status, 'active') = 'active'
+    order by p.created_at
+    limit 1;
+  end if;
+
+  if v_actor is null then
+    select p.id into v_actor
+    from public.profiles p
+    order by p.created_at
+    limit 1;
+  end if;
+
+  if v_actor is null then
+    raise exception 'no actor available for import';
+  end if;
+
+  for v_row in
+    select value from jsonb_array_elements(_rows)
+  loop
+    v_processed := v_processed + 1;
+
+    v_category_text := lower(btrim(coalesce(v_row ->> 'category', '')));
+    v_brand := nullif(btrim(regexp_replace(coalesce(v_row ->> 'brand', ''), '\s+', ' ', 'g')), '');
+    v_series := nullif(btrim(regexp_replace(coalesce(v_row ->> 'series', ''), '\s+', ' ', 'g')), '');
+    v_model := nullif(btrim(regexp_replace(coalesce(v_row ->> 'model', ''), '\s+', ' ', 'g')), '');
+
+    if v_category_text = '' or v_brand is null or v_model is null then
+      v_skipped_count := v_skipped_count + 1;
+      v_skipped := v_skipped || jsonb_build_array(
+        jsonb_build_object('row', v_processed, 'reason', 'missing_required_fields')
+      );
+      continue;
+    end if;
+
+    begin
+      v_category := v_category_text::public.agricultural_machine_category;
+    exception when others then
+      v_skipped_count := v_skipped_count + 1;
+      v_skipped := v_skipped || jsonb_build_array(
+        jsonb_build_object('row', v_processed, 'reason', 'invalid_category', 'category', v_category_text)
+      );
+      continue;
+    end;
+
+    begin
+      v_source_type_text := lower(nullif(btrim(coalesce(v_row ->> 'source_type', '')), ''));
+      if v_source_type_text is null then
+        v_source_type := null;
+      else
+        v_source_type := v_source_type_text::public.agricultural_machine_source_type;
+      end if;
+    exception when others then
+      v_skipped_count := v_skipped_count + 1;
+      v_skipped := v_skipped || jsonb_build_array(
+        jsonb_build_object('row', v_processed, 'reason', 'invalid_source_type')
+      );
+      continue;
+    end;
+
+    begin
+      v_power_hp := nullif(btrim(coalesce(v_row ->> 'power_hp', '')), '')::numeric;
+      v_tank_volume_l := nullif(btrim(coalesce(v_row ->> 'tank_volume_l', '')), '')::numeric;
+      v_grain_tank_l := nullif(btrim(coalesce(v_row ->> 'grain_tank_l', '')), '')::numeric;
+      v_working_width_m := nullif(btrim(coalesce(v_row ->> 'working_width_m', '')), '')::numeric;
+    exception when others then
+      v_skipped_count := v_skipped_count + 1;
+      v_skipped := v_skipped || jsonb_build_array(
+        jsonb_build_object('row', v_processed, 'reason', 'invalid_numeric_value')
+      );
+      continue;
+    end;
+
+    v_engine := nullif(btrim(coalesce(v_row ->> 'engine', '')), '');
+    v_power_class := nullif(btrim(coalesce(v_row ->> 'power_class', '')), '');
+    v_dealer_name := nullif(btrim(coalesce(v_row ->> 'dealer_name', '')), '');
+
+    v_presence_text := lower(nullif(btrim(coalesce(v_row ->> 'presence_in_kz', '')), ''));
+    if v_presence_text in ('true','t','1','yes','y','да','д','истина') then
+      v_presence_in_kz := true;
+    elsif v_presence_text in ('false','f','0','no','n','нет','н','ложь') then
+      v_presence_in_kz := false;
+    else
+      v_presence_in_kz := false;
+    end if;
+
+    v_source_url := nullif(btrim(coalesce(v_row ->> 'source_url', '')), '');
+
+    v_is_active_text := lower(nullif(btrim(coalesce(v_row ->> 'is_active', '')), ''));
+    if v_is_active_text in ('false','f','0','no','n','нет','н','ложь') then
+      v_is_active := false;
+    else
+      v_is_active := true;
+    end if;
+
+    v_notes := nullif(btrim(coalesce(v_row ->> 'notes', '')), '');
+
+    insert into public.agricultural_machine_models (
+      user_id, category, brand, series, model,
+      power_hp, engine, tank_volume_l, grain_tank_l, working_width_m,
+      power_class, dealer_name, presence_in_kz,
+      source_url, source_type, is_active, notes
+    )
+    values (
+      v_actor, v_category, v_brand, v_series, v_model,
+      v_power_hp, v_engine, v_tank_volume_l, v_grain_tank_l, v_working_width_m,
+      v_power_class, v_dealer_name, v_presence_in_kz,
+      v_source_url, v_source_type, v_is_active, v_notes
+    )
+    on conflict on constraint uq_agricultural_machine_models_identity
+    do update set
+      power_hp = excluded.power_hp,
+      engine = excluded.engine,
+      tank_volume_l = excluded.tank_volume_l,
+      grain_tank_l = excluded.grain_tank_l,
+      working_width_m = excluded.working_width_m,
+      power_class = excluded.power_class,
+      dealer_name = excluded.dealer_name,
+      presence_in_kz = excluded.presence_in_kz,
+      source_url = excluded.source_url,
+      source_type = excluded.source_type,
+      is_active = excluded.is_active,
+      notes = excluded.notes,
+      archived = false,
+      user_id = excluded.user_id;
+
+    v_upserted := v_upserted + 1;
+  end loop;
+
+  return query
+  select v_processed, v_upserted, v_skipped_count, v_skipped;
 end;
 $$;

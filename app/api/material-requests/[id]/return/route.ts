@@ -5,9 +5,17 @@ import {
   asMaterialRequestError,
   resolveMaterialRequestSession,
 } from "@/app/api/material-requests/_helpers";
+import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
+import { toStockContractColumns } from "@/lib/warehouse/stock-unit-contract";
+import {
+  OperationMutationInputError,
+  operationMutationError,
+  requireOperationIdempotency,
+} from "@/lib/server/operation-mutation";
 
 type ReturnItemInput = {
   itemId: string;
+  consumedQuantity?: number | null;
   returnedQuantity: number;
   lossQuantity?: number | null;
 };
@@ -37,13 +45,14 @@ export async function POST(
       return NextResponse.json({ error: "request id is required" }, { status: 400 });
     }
 
-    const body = await request.json().catch(() => ({}));
+    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const acceptReturn = Boolean(body.acceptReturn);
     let itemsRaw = Array.isArray(body.items) ? body.items : [];
     const closeWithoutReturn = Boolean(body.closeWithoutReturn);
     if (!acceptReturn && itemsRaw.length === 0) {
       return NextResponse.json({ error: "Return items are required" }, { status: 400 });
     }
+    const idempotency = requireOperationIdempotency(request, { ...body, requestId, action: "return" });
 
     const { actor, companyId, supabase } = await resolveMaterialRequestSession(request, {
       allowedRoles: acceptReturn ? MATERIAL_REQUEST_WAREHOUSE_WRITE_ROLES : MATERIAL_REQUEST_SPECIALIST_WRITE_ROLES,
@@ -75,7 +84,7 @@ export async function POST(
 
     const requestItemsResult = await supabase
       .from("warehouse_issue_request_items")
-      .select("id,product_id,issued_quantity,returned_quantity,consumed_quantity,planned_quantity,required_quantity,unit,return_received_quantity,loss_quantity,expected_return_quantity,reconciliation_status")
+      .select("id,product_id,actual_product_id,issued_quantity,returned_quantity,consumed_quantity,planned_quantity,required_quantity,unit,return_received_quantity,loss_quantity,expected_return_quantity,reconciliation_status")
       .eq("request_id", requestId)
       .eq("company_id", companyId);
     let requestItems: any[] | null = requestItemsResult.data as any[] | null;
@@ -106,41 +115,22 @@ export async function POST(
 
     if (itemsRaw.length === 0) {
       if (acceptReturn) {
-        const nowIso = new Date().toISOString();
-        const closePatch: Record<string, unknown> = {
-          updated_at: nowIso,
-          warehouse_request_status: "closed",
-          return_closed_at: nowIso,
-          return_received_by_user_id: actor.id,
-        };
-        let closeResult = await supabase
-          .from("warehouse_issue_requests")
-          .update(closePatch)
-          .eq("id", requestId)
-          .eq("company_id", companyId);
-
-        if (closeResult.error && isV5WarehouseSchemaError(closeResult.error)) {
-          closeResult = await supabase
-            .from("warehouse_issue_requests")
-            .update({ updated_at: nowIso })
-            .eq("id", requestId)
-            .eq("company_id", companyId);
-        }
-
-        if (closeResult.error) {
-          return NextResponse.json(
-            { error: closeResult.error.message || "Failed to close return workflow" },
-            { status: 400 }
-          );
-        }
-
-        return NextResponse.json({
-          success: true,
-          returned_items: 0,
-          return_movements: 0,
-          already_received: true,
-          request_id: requestId,
+        const { data, error } = await supabase.rpc("return_material_request_atomic_v1", {
+          p_company_id: companyId,
+          p_actor_profile_id: actor.id,
+          p_request_id: requestId,
+          p_accept_return: true,
+          p_close_without_return: closeWithoutReturn,
+          p_items: [],
+          p_transactions: [],
+          p_idempotency_key: idempotency.key,
+          p_request_fingerprint: idempotency.fingerprint,
         });
+        if (error || !data) {
+          const failure = operationMutationError(error, "Return workflow was not closed");
+          return NextResponse.json({ error: failure.message }, { status: failure.status });
+        }
+        return NextResponse.json(data);
       }
       return NextResponse.json({ error: "Return items are required" }, { status: 400 });
     }
@@ -181,9 +171,14 @@ export async function POST(
     for (const raw of itemsRaw) {
       const item = raw as ReturnItemInput;
       const itemId = String(item?.itemId || "").trim();
+      const submittedConsumedQty = toNonNegativeNumber(item?.consumedQuantity);
       const returnedQty = toNonNegativeNumber(item?.returnedQuantity);
       const lossQty = toNonNegativeNumber(item?.lossQuantity ?? 0) ?? 0;
-      if (!itemId || returnedQty == null || (!closeWithoutReturn && returnedQty <= MATERIAL_QTY_EPS)) {
+      if (
+        !itemId ||
+        returnedQty == null ||
+        (!acceptReturn && !closeWithoutReturn && returnedQty <= MATERIAL_QTY_EPS && lossQty <= MATERIAL_QTY_EPS)
+      ) {
         return NextResponse.json({ error: "Invalid return item payload" }, { status: 400 });
       }
       const dbItem = itemById.get(itemId);
@@ -192,7 +187,9 @@ export async function POST(
       }
       const issuedQty = Number(dbItem.issued_quantity || 0);
       const operationMaterial = operationMaterialByProduct.get(String(dbItem.product_id || ""));
-      const consumedRaw = dbItem.consumed_quantity ?? operationMaterial?.consumed_quantity ?? null;
+      const consumedRaw = acceptReturn
+        ? dbItem.consumed_quantity ?? operationMaterial?.consumed_quantity ?? null
+        : submittedConsumedQty ?? dbItem.consumed_quantity ?? operationMaterial?.consumed_quantity ?? null;
       const returnedRaw = dbItem.returned_quantity ?? operationMaterial?.returned_quantity ?? null;
       const consumptionKnown = consumedRaw !== null && consumedRaw !== undefined;
       const consumedQty = consumptionKnown ? Number(consumedRaw || 0) : null;
@@ -200,8 +197,8 @@ export async function POST(
       const alreadyReceived = Number(dbItem.return_received_quantity || 0);
       const existingLoss = Number(dbItem.loss_quantity || 0);
       const dueReturnQty = consumptionKnown
-        ? Math.max(issuedQty - Number(consumedQty || 0) - alreadyReturned, 0)
-        : Math.max(issuedQty - alreadyReturned, 0);
+        ? Math.max(issuedQty - Number(consumedQty || 0) - alreadyReturned - existingLoss, 0)
+        : Math.max(issuedQty - alreadyReturned - existingLoss, 0);
 
       if (!consumptionKnown) {
         return NextResponse.json(
@@ -241,14 +238,24 @@ export async function POST(
     }
 
     const nowIso = new Date().toISOString();
-    const txPayload = normalized
-      .filter((row) => acceptReturn && row.returnedQuantity > MATERIAL_QTY_EPS)
-      .map((row) => ({
+    const txPayload: any[] = [];
+    for (const row of normalized.filter((item) => acceptReturn && item.returnedQuantity > MATERIAL_QTY_EPS)) {
+      const stockProductId = String(row.dbItem.actual_product_id || row.dbItem.product_id || "").trim();
+      const contract = await resolveWarehouseStockContract(supabase, {
+        companyId,
+        productId: stockProductId,
+        quantity: row.returnedQuantity,
+        inputUom: row.dbItem.unit,
+        event: "material_return",
+      });
+      txPayload.push({
         warehouse_id: requestRow.source_warehouse_id,
         source_warehouse_id: null,
         destination_warehouse_id: requestRow.source_warehouse_id,
-        product_id: row.dbItem.product_id,
-        quantity: row.returnedQuantity,
+        product_id: stockProductId,
+        quantity: contract.baseQuantity,
+        unit: contract.baseUom,
+        base_quantity_kg: contract.massKg,
         transaction_type: "in",
         movement_type: "adjustment",
         status: "confirmed",
@@ -263,124 +270,43 @@ export async function POST(
         warehouse_issue_request_item_id: row.itemId,
         operation_id: requestRow.operation_id || null,
         field_id: requestRow.field_id || null,
-      }));
-
-    if (acceptReturn && txPayload.length > 0) {
-      const { data: insertedTransactions, error: insertError } = await supabase
-        .from("inventory_transactions")
-        .insert(txPayload)
-        .select("id");
-      if (insertError) {
-        return NextResponse.json({ error: insertError.message || "Failed to register return movement" }, { status: 400 });
-      }
-
-      for (const tx of insertedTransactions || []) {
-        if (!tx?.id) continue;
-        const { error: ledgerPostError } = await supabase.rpc("post_inventory_transaction_to_ledger", {
-          p_transaction_id: tx.id,
-        });
-        if (ledgerPostError) {
-          return NextResponse.json(
-            { error: ledgerPostError.message || "Failed to post return movement to stock ledger" },
-            { status: 400 }
-          );
-        }
-      }
+        quantity_input: row.returnedQuantity,
+        input_uom: row.dbItem.unit,
+        ...toStockContractColumns(contract),
+      });
     }
 
-    for (const row of normalized) {
-      const nextReturned = acceptReturn ? row.alreadyReturned : row.alreadyReturned + row.returnedQuantity;
-      const nextReceived = acceptReturn ? row.alreadyReceived + row.returnedQuantity : row.alreadyReceived;
-      const nextLoss = acceptReturn ? row.existingLoss : row.existingLoss + row.lossQuantity;
-      const nextStatus = acceptReturn
-        ? nextReceived + MATERIAL_QTY_EPS >= nextReturned
-          ? "return_received"
-          : "return_declared"
-        : nextReturned > MATERIAL_QTY_EPS
-          ? "return_declared"
-          : nextLoss > MATERIAL_QTY_EPS
-            ? "loss_review"
-            : "reconciled";
-      const baseItemPatch = {
-        returned_quantity: Number(nextReturned.toFixed(4)),
-        consumed_quantity: Number(row.consumedQuantity.toFixed(4)),
-      };
-      const v5ItemPatch = {
-        ...baseItemPatch,
-        return_received_quantity: Number(nextReceived.toFixed(4)),
-        loss_quantity: Number(nextLoss.toFixed(4)),
-        reconciliation_status: nextStatus,
-      };
-      let itemUpdateResult = await supabase
-        .from("warehouse_issue_request_items")
-        .update(v5ItemPatch)
-        .eq("id", row.itemId)
-        .eq("company_id", companyId);
-
-      if (itemUpdateResult.error && isV5WarehouseSchemaError(itemUpdateResult.error)) {
-        itemUpdateResult = await supabase
-          .from("warehouse_issue_request_items")
-          .update(baseItemPatch)
-          .eq("id", row.itemId)
-          .eq("company_id", companyId);
-      }
-
-      if (itemUpdateResult.error) {
-        return NextResponse.json({ error: itemUpdateResult.error.message || "Failed to update return quantities" }, { status: 400 });
-      }
-    }
-
-    const baseRequestPatch = {
-      updated_at: nowIso,
-    };
-    const v5RequestPatch: Record<string, unknown> = {
-      ...baseRequestPatch,
-      warehouse_request_status: acceptReturn ? "closed" : "return_expected",
-    };
-    if (acceptReturn) {
-      v5RequestPatch.return_received_at = txPayload.length > 0 ? nowIso : null;
-      v5RequestPatch.return_closed_at = nowIso;
-      v5RequestPatch.return_received_by_user_id = actor.id;
-    } else {
-      v5RequestPatch.return_expected_at = nowIso;
-      v5RequestPatch.return_requested_by_user_id = actor.id;
-    }
-    let requestUpdateResult = await supabase
-      .from("warehouse_issue_requests")
-      .update(v5RequestPatch)
-      .eq("id", requestId)
-      .eq("company_id", companyId);
-
-    if (requestUpdateResult.error && isV5WarehouseSchemaError(requestUpdateResult.error)) {
-      requestUpdateResult = await supabase
-        .from("warehouse_issue_requests")
-        .update(baseRequestPatch)
-        .eq("id", requestId)
-        .eq("company_id", companyId);
-    }
-
-    if (requestUpdateResult.error) {
-      return NextResponse.json(
-        { error: requestUpdateResult.error.message || "Failed to update return workflow status" },
-        { status: 400 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      returned_items: normalized.length,
-      return_movements: txPayload.length,
-      closed_without_return: closeWithoutReturn,
-      request_id: requestId,
+    const rpcItems = normalized.map((row) => ({
+      item_id: row.itemId,
+      returned_quantity: Number(row.returnedQuantity.toFixed(4)),
+      loss_quantity: Number(row.lossQuantity.toFixed(4)),
+      consumed_quantity: Number(row.consumedQuantity.toFixed(4)),
+    }));
+    const { data, error } = await supabase.rpc("return_material_request_atomic_v1", {
+      p_company_id: companyId,
+      p_actor_profile_id: actor.id,
+      p_request_id: requestId,
+      p_accept_return: acceptReturn,
+      p_close_without_return: closeWithoutReturn,
+      p_items: rpcItems,
+      p_transactions: txPayload,
+      p_idempotency_key: idempotency.key,
+      p_request_fingerprint: idempotency.fingerprint,
     });
+    if (error || !data) {
+      const failure = operationMutationError(error, "Material return was not saved");
+      return NextResponse.json({ error: failure.message }, { status: failure.status });
+    }
+    return NextResponse.json(data);
   } catch (error) {
     const sessionError = asMaterialRequestError(error);
     if (sessionError) {
       return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
     }
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 }
-    );
+    if (error instanceof OperationMutationInputError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+    const failure = operationMutationError(error, "Unknown error");
+    return NextResponse.json({ error: failure.message }, { status: failure.status });
   }
 }

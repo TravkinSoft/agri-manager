@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
 import { assertActorAccess } from "@/lib/auth/server-acl";
-import { SessionAuthError, getServerActorFromSession, resolveCompanyForActor } from "@/lib/auth/server-session";
+import {
+  SessionAuthError,
+  getServerActorFromSession,
+  getUserScopedClientFromRequest,
+  resolveCompanyForActor,
+} from "@/lib/auth/server-session";
+import { normalizeStockUom } from "@/lib/warehouse/stock-unit-contract";
+import { isAgrochemicalProductType } from "@/lib/warehouse/warehouse-scope";
+import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
 
 const READ_ROLES = [
   "global_admin",
@@ -15,11 +22,6 @@ const READ_ROLES = [
 
 const WRITE_ROLES = [
   "global_admin",
-  "company_admin",
-  "warehouse",
-  "warehouse_operator",
-  "agronomist",
-  "director",
 ] as const;
 
 const PRODUCT_TYPES = new Set([
@@ -62,7 +64,7 @@ export async function GET(request: NextRequest) {
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
     const includeArchived = parseIncludeArchived(request.nextUrl.searchParams.get("includeArchived"));
 
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,
@@ -73,7 +75,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from("products")
       .select("*")
-      .eq("company_id", companyId)
+      .or(`company_id.eq.${companyId},company_id.is.null`)
       .order("name", { ascending: true });
 
     if (!includeArchived) {
@@ -83,8 +85,42 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
+    const rows = data || [];
+    const companyRows = rows.filter((row: any) => String(row.company_id || "") === companyId);
+    const overriddenGlobalIds = new Set(
+      companyRows.map((row: any) => String(row.master_product_id || "")).filter(Boolean)
+    );
+    const deduped = rows.filter(
+      (row: any) => row.company_id != null || !overriddenGlobalIds.has(String(row.id))
+    );
+    const agrochemicalOnly = request.nextUrl.searchParams.get("scope") === "agrochemical";
+    const scopedProducts = agrochemicalOnly
+      ? deduped.filter((row: any) =>
+          isAgrochemicalProductType(row.product_type || row.type || row.category)
+        )
+      : deduped;
+    const products = dedupeProductsForSelect(scopedProducts);
+    const productIds = products.map((row: any) => String(row.id));
+    const { data: aliases } = productIds.length
+      ? await supabase
+          .from("global_product_aliases")
+          .select("product_id,alias")
+          .in("product_id", productIds)
+      : { data: [] as any[] };
+    const aliasesByProduct = new Map<string, string[]>();
+    for (const row of aliases || []) {
+      const key = String((row as any).product_id || "");
+      aliasesByProduct.set(key, [
+        ...(aliasesByProduct.get(key) || []),
+        String((row as any).alias || ""),
+      ]);
+    }
+
     return NextResponse.json({
-      products: data || [],
+      products: products.map((row: any) => ({
+        ...row,
+        aliases: aliasesByProduct.get(String(row.id)) || [],
+      })),
     });
   } catch (error) {
     if (error instanceof SessionAuthError) {
@@ -104,7 +140,7 @@ export async function POST(request: NextRequest) {
     const requestedCompanyId = String(body.companyId || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
 
-    const supabase = getServiceClient();
+    const supabase = await getUserScopedClientFromRequest(request);
     await assertActorAccess({
       supabase,
       actorUserId: actor.id,
@@ -116,6 +152,7 @@ export async function POST(request: NextRequest) {
     const type = String(body.type || "").trim().toLowerCase();
     if (!name) return NextResponse.json({ error: "Product name is required" }, { status: 400 });
     if (!PRODUCT_TYPES.has(type)) return NextResponse.json({ error: "Invalid product type" }, { status: 400 });
+    const baseUom = normalizeStockUom(toNullableText(body.base_uom) || toNullableText(body.unit)).baseUom;
 
     const payload = {
       company_id: companyId,
@@ -129,11 +166,11 @@ export async function POST(request: NextRequest) {
       accounting_mode: ACCOUNTING_MODES.has(String(body.accounting_mode || ""))
         ? String(body.accounting_mode)
         : "bulk_mass",
-      base_uom: toNullableText(body.base_uom) || "kg",
+      base_uom: baseUom,
       pack_uom: toNullableText(body.pack_uom),
       unit_weight_kg: toNullableNumber(body.unit_weight_kg),
       units_per_pack: toNullableNumber(body.units_per_pack),
-      unit: toNullableText(body.unit) || "kg",
+      unit: baseUom,
       description: toNullableText(body.description),
       archived: false,
       is_active: body.is_active !== false,

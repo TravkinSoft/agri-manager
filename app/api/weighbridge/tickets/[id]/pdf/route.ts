@@ -168,7 +168,7 @@ export async function GET(
       const price = item.unit_price == null ? "" : `, price: ${item.unit_price}`;
       const lot = item.lot_id ? `, lot: ${item.lot_id}` : "";
       const warehouse = lineWarehouse && lineWarehouse !== "-" ? `, warehouse: ${lineWarehouse}` : "";
-      return `${index + 1}. ${productName(item)} - ${item.quantity ?? "-"} ${item.uom || "kg"}${warehouse}${lot}${price}`;
+      return `${index + 1}. ${productName(item)} - ${item.quantity ?? "-"} ${item.uom || "legacy/unknown"}${warehouse}${lot}${price}`;
     });
 
     const directSupplierPdf = [

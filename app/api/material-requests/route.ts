@@ -7,39 +7,26 @@ import {
   toWorkflowStatus,
 } from "@/app/api/material-requests/_helpers";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
-import { calculatePackagePlan, roundMaterialQuantity } from "@/lib/materials/reconciliation";
 import { resolveWorkTitle } from "@/lib/operations/work-title";
+import {
+  OperationMutationInputError,
+  operationMutationError,
+  requireOperationIdempotency,
+} from "@/lib/server/operation-mutation";
 
 type MaterialRequestItemInput = {
   id?: unknown;
   itemId?: unknown;
-  packageSize?: unknown;
   preparedQuantity?: unknown;
-  packageCount?: unknown;
+  allocations?: unknown;
 };
 import { buildProductPassport } from "@/lib/products/product-passport";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import { isAgrochemicalProductType } from "@/lib/warehouse/warehouse-scope";
 
 function toNumber(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
-}
-
-async function getWarehouseProductBalance(
-  supabase: any,
-  companyId: string,
-  warehouseId: string,
-  productId: string
-): Promise<number> {
-  const { data, error } = await supabase
-    .from("v_stock_balance_identity")
-    .select("quantity")
-    .eq("company_id", companyId)
-    .eq("warehouse_id", warehouseId)
-    .eq("product_id", productId);
-
-  if (error) throw error;
-  return (data || []).reduce((sum: number, row: any) => sum + toNumber(row.quantity), 0);
 }
 
 function workflowToRawStatuses(status: string): string[] {
@@ -63,13 +50,15 @@ function workflowToRawStatuses(status: string): string[] {
 
 function isV5WarehouseSchemaError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String((error as any)?.message || error || "");
-  return /warehouse_request_status|collecting_at|prepared_quantity|received_quantity|expected_consumed_quantity|shortage_quantity|package_size|package_count|reconciliation_status|substitution_status|planned_product_id|actual_product_id|schema cache|column/i.test(message);
+  return /warehouse_request_status|collecting_at|prepared_quantity|received_quantity|expected_consumed_quantity|shortage_quantity|reconciliation_status|substitution_status|planned_product_id|actual_product_id|schema cache|column/i.test(message);
 }
 
 export async function GET(request: NextRequest) {
   try {
     const statusFilter = String(request.nextUrl.searchParams.get("status") || "").trim();
     const onlyMine = String(request.nextUrl.searchParams.get("mine") || "false").toLowerCase() === "true";
+    const includeTestData =
+      String(request.nextUrl.searchParams.get("includeTestData") || "false").toLowerCase() === "true";
 
     const { actor, companyId, supabase } = await resolveMaterialRequestSession(request, {
       allowedRoles: MATERIAL_REQUEST_READ_ROLES,
@@ -97,7 +86,7 @@ export async function GET(request: NextRequest) {
           return_comment,
           batch_id,
           created_at,
-          products:product_id(name, trade_name, normalized_name, type, unit)
+          products:product_id(name, trade_name, normalized_name, type, unit, base_uom)
     `;
     const reconciliationItemSelect = `
           ${legacyItemSelect},
@@ -108,17 +97,34 @@ export async function GET(request: NextRequest) {
           received_unit,
           expected_consumed_quantity,
           shortage_quantity,
-          package_size,
-          package_count,
-          package_unit,
           reconciliation_status,
           substitution_status,
           planned_product_id,
           actual_product_id,
+          crop_id,
+          variety_id,
+          reproduction_id,
+          material_kind,
+          source_mix_component_id,
+          component_crop:crops!warehouse_issue_request_items_crop_id_fkey(name,name_ru,name_kz,name_en,slug),
+          component_variety:varieties!warehouse_issue_request_items_variety_id_fkey(name),
+          component_reproduction:seed_reproductions!warehouse_issue_request_items_reproduction_id_fkey(name,name_ru,name_kz,name_en,code),
           substitution_reason,
           substitution_requested_by,
           substitution_approved_by,
-          substitution_approved_at
+          substitution_approved_at,
+          allocations:warehouse_issue_request_item_allocations(
+            id,
+            request_id,
+            request_item_id,
+            warehouse_id,
+            batch_id,
+            batch_id_text,
+            batch_class,
+            batch_label,
+            prepared_quantity,
+            issued_quantity
+          )
     `;
 
     const buildQuery = (itemSelect: string) => {
@@ -126,8 +132,8 @@ export async function GET(request: NextRequest) {
         .from("warehouse_issue_requests")
         .select(`
         *,
-        fields:field_id(name),
-        operations:operation_id(operation_type, date, work_status, status, notes),
+        fields:field_id(name,field_code,is_test_data,test_run_code),
+        operations:operation_id(operation_type, operation_number, date, work_status, status, notes, archived, is_test_data, test_run_code),
         source_warehouse:source_warehouse_id(name, name_ru, name_kz, name_en),
         assigned_specialist:assigned_specialist_id(id, full_name, email),
         recipient:recipient_user_id(id, full_name, email),
@@ -166,6 +172,8 @@ export async function GET(request: NextRequest) {
 
     const rows = (data || []).filter((row: any) => {
       const operation = row.operations || {};
+      if (operation.archived === true) return false;
+      if (includeTestData) return true;
       const qaText = [
         row.request_number,
         row.comment,
@@ -175,9 +183,13 @@ export async function GET(request: NextRequest) {
         row.source_warehouse?.name,
         row.source_warehouse?.name_ru,
       ].join(" ");
-      return !hasQaDataMarker(qaText);
+      return (
+        !row.fields?.is_test_data &&
+        !operation.is_test_data &&
+        !hasQaDataMarker(qaText)
+      );
     }).map((row: any) => {
-      const items = (row.items || []).map((item: any) => {
+      const normalizedItems = (row.items || []).map((item: any) => {
         const plannedQty = toNumber(item.planned_quantity ?? item.required_quantity);
         const issuedQty = toNumber(item.issued_quantity);
         const preparedQty = item.prepared_quantity == null ? null : toNumber(item.prepared_quantity);
@@ -189,13 +201,19 @@ export async function GET(request: NextRequest) {
         const returnReceivedQty = item.return_received_quantity == null ? null : toNumber(item.return_received_quantity);
         const shortageQty = item.shortage_quantity == null ? null : toNumber(item.shortage_quantity);
         const lossQty = item.loss_quantity == null ? null : toNumber(item.loss_quantity);
-        const packageSize = item.package_size == null ? null : toNumber(item.package_size);
-        const packageCount = item.package_count == null ? null : toNumber(item.package_count);
+        const allocations = Array.isArray(item.allocations)
+          ? item.allocations.map((allocation: any) => ({
+              ...allocation,
+              prepared_quantity: toNumber(allocation.prepared_quantity),
+              issued_quantity: toNumber(allocation.issued_quantity),
+            }))
+          : [];
         const passport = item.products
           ? buildProductPassport({ ...item.products, id: String(item.product_id || item.products.id || "") })
           : null;
         return {
           ...item,
+          product_id: item.product_id ? String(item.product_id) : "",
           planned_quantity: plannedQty,
           prepared_quantity: preparedQty,
           received_quantity: receivedQty,
@@ -207,23 +225,37 @@ export async function GET(request: NextRequest) {
           return_received_quantity: returnReceivedQty,
           shortage_quantity: shortageQty,
           loss_quantity: lossQty,
-          package_size: packageSize,
-          package_count: packageCount,
-          product_name: passport?.displayName || brandName(item.products) || "-",
+          allocations,
+          product_name:
+            passport?.displayName ||
+            brandName(item.products) ||
+            [
+              localizedName(item.component_crop, "ru"),
+              brandName(item.component_variety),
+              localizedName(item.component_reproduction, "ru", ["name", "code"]),
+            ].filter(Boolean).join(", ") ||
+            "Семенной компонент не оприходован",
           product_type: item.products?.type || item.product_category || "-",
           product_unit:
             passport?.units.stockUnit && passport.units.stockUnit !== "unknown"
               ? passport.units.stockUnit
-              : item.products?.unit || item.unit || "kg",
+              : item.products?.base_uom || item.products?.unit || item.unit || "",
         };
       });
 
+      const items =
+        actor.role === "warehouse" || actor.role === "warehouse_operator"
+          ? normalizedItems.filter((item: any) =>
+              item.material_kind === "seed" || item.product_category === "seed" ||
+              isAgrochemicalProductType(item.product_type || item.product_category)
+            )
+          : normalizedItems;
       const totalPlanned = items.reduce((sum: number, item: any) => sum + toNumber(item.planned_quantity), 0);
       const totalIssued = items.reduce((sum: number, item: any) => sum + toNumber(item.issued_quantity), 0);
 
       return {
         ...row,
-        workflow_status: toWorkflowStatus(row.status),
+        workflow_status: toWorkflowStatus(row.warehouse_request_status || row.status),
         field_name: row.fields?.name || "-",
         operation_type: resolveWorkTitle({
           operationType: row.operations?.operation_type || null,
@@ -234,8 +266,15 @@ export async function GET(request: NextRequest) {
           })),
         }),
         operation_date: row.operations?.date || null,
+        operation_number: row.operations?.operation_number || null,
         operation_notes: row.operations?.notes || null,
         operation_work_status: row.operations?.work_status || row.operations?.status || null,
+        field_code: row.fields?.field_code || null,
+        is_test_data: Boolean(
+          row.fields?.is_test_data || row.operations?.is_test_data
+        ),
+        test_run_code:
+          row.operations?.test_run_code || row.fields?.test_run_code || null,
         crop_name: localizedName(row.crops, "ru") || null,
         variety_name: brandName(row.varieties) || null,
         reproduction_name: localizedName(row.reproductions, "ru", ["name", "code"]) || null,
@@ -252,6 +291,9 @@ export async function GET(request: NextRequest) {
         fully_issued: totalPlanned > 0 && totalIssued >= totalPlanned,
         items,
       };
+    }).filter((row: any) => {
+      if (actor.role !== "warehouse" && actor.role !== "warehouse_operator") return true;
+      return row.items.length > 0;
     });
 
     return NextResponse.json({ requests: rows });
@@ -280,7 +322,7 @@ export async function PATCH(request: NextRequest) {
     if (!requestId) {
       return NextResponse.json({ error: "requestId is required" }, { status: 400 });
     }
-    if (!["preparing", "ready", "cancel"].includes(action)) {
+    if (action !== "ready") {
       return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
     }
 
@@ -288,6 +330,7 @@ export async function PATCH(request: NextRequest) {
       allowedRoles: MATERIAL_REQUEST_WAREHOUSE_WRITE_ROLES,
       requestedCompanyId: String(body.companyId || "").trim() || null,
     });
+    const idempotency = requireOperationIdempotency(request, { ...body, requestId, action });
 
     const { data: existing, error: existingError } = await supabase
       .from("warehouse_issue_requests")
@@ -303,197 +346,88 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    const readyItemPlans = new Map<
-      string,
-      { preparedQuantity: number; packageSize: number | null; packageCount: number | null }
-    >();
-    if (action === "ready") {
-      if (!sourceWarehouseId) {
-        return NextResponse.json({ error: "Source warehouse is required before materials can be prepared" }, { status: 400 });
-      }
-      if (itemsInput.length === 0) {
-        return NextResponse.json({ error: "Prepared quantities are required before materials can be marked ready" }, { status: 400 });
-      }
-
-      const { data: requestItems, error: requestItemsError } = await supabase
-        .from("warehouse_issue_request_items")
-        .select("id,product_id,planned_quantity,required_quantity,unit")
-        .eq("request_id", requestId)
-        .eq("company_id", companyId);
-      if (requestItemsError) {
-        return NextResponse.json({ error: requestItemsError.message || "Failed to load request materials" }, { status: 400 });
-      }
-
-      const inputByItemId = new Map(itemsInput.map((item) => [String(item.itemId || item.id || ""), item]));
-      for (const item of requestItems || []) {
-        const raw = inputByItemId.get(String(item.id));
-        if (!raw) {
-          return NextResponse.json({ error: `Prepared quantity is required for request item ${item.id}` }, { status: 400 });
-        }
-        const planned = toNumber(item.planned_quantity ?? item.required_quantity);
-        const packageSize =
-          raw.packageSize === null || raw.packageSize === undefined || raw.packageSize === ""
-            ? null
-            : toNumber(raw.packageSize);
-        const packagePlan = calculatePackagePlan({ plannedQuantity: planned, packageSize });
-        const preparedQuantity =
-          raw.preparedQuantity === null || raw.preparedQuantity === undefined || raw.preparedQuantity === ""
-            ? packagePlan.preparedQuantity
-            : roundMaterialQuantity(Math.max(toNumber(raw.preparedQuantity), 0));
-        const available = await getWarehouseProductBalance(supabase, companyId, sourceWarehouseId, String(item.product_id || ""));
-        if (preparedQuantity > available + 0.000001) {
-          return NextResponse.json(
-            {
-              error: `Insufficient stock for product ${item.product_id}. Available: ${available}, requested preparation: ${preparedQuantity}`,
-              product_id: item.product_id,
-              available_quantity: available,
-              requested_prepared_quantity: preparedQuantity,
-            },
-            { status: 409 }
-          );
-        }
-        readyItemPlans.set(String(item.id), {
-          preparedQuantity,
-          packageSize,
-          packageCount:
-            raw.packageCount === null || raw.packageCount === undefined || raw.packageCount === ""
-              ? packagePlan.packageCount
-              : Math.max(toNumber(raw.packageCount), 0),
-        });
-      }
-
-      if (!Array.from(readyItemPlans.values()).some((item) => item.preparedQuantity > 0.000001)) {
-        return NextResponse.json({ error: "No available materials were prepared for this request" }, { status: 409 });
-      }
+    if (!sourceWarehouseId) {
+      return NextResponse.json(
+        { error: "Source warehouse is required before materials can be prepared" },
+        { status: 400 }
+      );
+    }
+    if (itemsInput.length === 0) {
+      return NextResponse.json(
+        { error: "Prepared allocations are required before materials can be marked ready" },
+        { status: 400 }
+      );
     }
 
-    const nowIso = new Date().toISOString();
-    const patch: Record<string, unknown> = {
-      updated_at: nowIso,
-    };
-
-    if (action === "preparing") {
-      patch.status = "preparing";
-      patch.warehouse_request_status = "collecting";
-      patch.collecting_at = nowIso;
-      patch.prepared_at = nowIso;
-      if (sourceWarehouseId) patch.source_warehouse_id = sourceWarehouseId;
-    }
-    if (action === "ready") {
-      patch.status = "ready";
-      patch.warehouse_request_status = "ready_for_pickup";
-      patch.ready_at = nowIso;
-      if (sourceWarehouseId) patch.source_warehouse_id = sourceWarehouseId;
-    }
-    if (action === "cancel") {
-      patch.status = "cancelled";
-      patch.warehouse_request_status = "cancelled";
-      patch.cancelled_at = nowIso;
-    }
-
-    let updateResult = await supabase
-      .from("warehouse_issue_requests")
-      .update(patch)
-      .eq("id", requestId)
-      .eq("company_id", companyId)
-      .select("id,status,source_warehouse_id,ready_at,prepared_at,cancelled_at,updated_at")
-      .single();
-
-    if (updateResult.error && isV5WarehouseSchemaError(updateResult.error)) {
-      const fallbackPatch = { ...patch };
-      delete fallbackPatch.warehouse_request_status;
-      delete fallbackPatch.collecting_at;
-      updateResult = await supabase
-        .from("warehouse_issue_requests")
-        .update(fallbackPatch)
-        .eq("id", requestId)
-        .eq("company_id", companyId)
-        .select("id,status,source_warehouse_id,ready_at,prepared_at,cancelled_at,updated_at")
-        .single();
-    }
-
-    if (updateResult.error || !updateResult.data?.id) {
-      return NextResponse.json({ error: updateResult.error?.message || "Failed to update request status" }, { status: 400 });
-    }
-
-    if ((action === "preparing" || action === "ready") && itemsInput.length > 0) {
-      const { data: existingItems, error: existingItemsError } = await supabase
-        .from("warehouse_issue_request_items")
-        .select("id,planned_quantity,required_quantity,unit")
-        .eq("request_id", requestId)
-        .eq("company_id", companyId);
-
-      if (existingItemsError) {
-        return NextResponse.json({ error: existingItemsError.message || "Failed to load request items" }, { status: 400 });
-      }
-
-      const existingById = new Map((existingItems || []).map((row: any) => [String(row.id), row]));
-      for (const raw of itemsInput) {
-        const itemId = String(raw?.itemId || raw?.id || "").trim();
-        if (!itemId) continue;
-        const dbItem = existingById.get(itemId);
-        if (!dbItem) {
-          return NextResponse.json({ error: `Request item ${itemId} not found` }, { status: 404 });
-        }
-        const planned = toNumber(dbItem.planned_quantity ?? dbItem.required_quantity);
-        const readyPlan = readyItemPlans.get(itemId);
-        const packageSize =
-          readyPlan
-            ? readyPlan.packageSize
-            : raw?.packageSize === null || raw?.packageSize === undefined || raw?.packageSize === ""
-            ? null
-            : toNumber(raw.packageSize);
-        const packagePlan = calculatePackagePlan({ plannedQuantity: planned, packageSize });
-        const preparedQuantity =
-          readyPlan
-            ? readyPlan.preparedQuantity
-            : raw?.preparedQuantity === null || raw?.preparedQuantity === undefined || raw?.preparedQuantity === ""
-            ? packagePlan.preparedQuantity
-            : roundMaterialQuantity(Math.max(toNumber(raw.preparedQuantity), 0));
-        const packageCount =
-          readyPlan
-            ? readyPlan.packageCount
-            : raw?.packageCount === null || raw?.packageCount === undefined || raw?.packageCount === ""
-            ? packagePlan.packageCount
-            : Math.max(toNumber(raw.packageCount), 0);
-
-        let itemUpdateResult = await supabase
-          .from("warehouse_issue_request_items")
-          .update({
-            prepared_quantity: preparedQuantity,
-            prepared_unit: dbItem.unit || null,
-            package_size: packageSize,
-            package_count: packageCount,
-            package_unit: dbItem.unit || null,
-            reconciliation_status: action === "ready" ? "prepared" : "pending",
+    const rpcItems = itemsInput.map((raw) => {
+      const itemId = String(raw?.itemId || raw?.id || "").trim();
+      const preparedQuantity = Number(toNumber(raw?.preparedQuantity).toFixed(4));
+      const allocations = Array.isArray(raw?.allocations)
+        ? raw.allocations.map((value) => {
+            const allocation = (value || {}) as Record<string, unknown>;
+            return {
+              batch_id: String(allocation.batchId || "").trim() || null,
+              batch_id_text:
+                String(allocation.batchIdText || allocation.batchId || "").trim() ||
+                null,
+              batch_class: String(allocation.batchClass || "").trim(),
+              batch_label:
+                String(allocation.batchLabel || "").trim() || "Партия не указана",
+              quantity: Number(toNumber(allocation.quantity).toFixed(4)),
+            };
           })
-          .eq("id", itemId)
-          .eq("company_id", companyId);
-
-        if (itemUpdateResult.error && isV5WarehouseSchemaError(itemUpdateResult.error)) {
-          itemUpdateResult = { error: null } as any;
-        }
-
-        if (itemUpdateResult.error) {
-          return NextResponse.json(
-            { error: itemUpdateResult.error.message || "Failed to update prepared quantities" },
-            { status: 400 }
-          );
-        }
-      }
+        : [];
+      return {
+        item_id: itemId,
+        prepared_quantity: preparedQuantity,
+        allocations,
+      };
+    }).filter((item) => item.item_id);
+    if (rpcItems.some((item) => item.allocations.length === 0)) {
+      return NextResponse.json(
+        { error: "Choose at least one stock batch for every request item" },
+        { status: 400 }
+      );
+    }
+    if (
+      rpcItems.some(
+        (item) =>
+          item.prepared_quantity <= 0 ||
+          Math.abs(
+            item.allocations.reduce(
+              (sum, allocation) => sum + toNumber(allocation.quantity),
+              0
+            ) - item.prepared_quantity
+          ) > 0.0001
+      )
+    ) {
+      return NextResponse.json(
+        { error: "Prepared quantity must be positive and match stock allocations" },
+        { status: 400 }
+      );
     }
 
-    return NextResponse.json({
-      request: {
-        ...updateResult.data,
-        workflow_status: toWorkflowStatus(updateResult.data.status),
-        actor_id: actor.id,
-      },
+    const { data, error } = await supabase.rpc("prepare_material_request_atomic_v3", {
+      p_company_id: companyId,
+      p_actor_profile_id: actor.id,
+      p_request_id: requestId,
+      p_source_warehouse_id: sourceWarehouseId,
+      p_items: rpcItems,
+      p_idempotency_key: idempotency.key,
+      p_request_fingerprint: idempotency.fingerprint,
     });
+    if (error || !data) {
+      const failure = operationMutationError(error, "Material request stage was not saved");
+      return NextResponse.json({ error: failure.message }, { status: failure.status });
+    }
+    return NextResponse.json(data);
   } catch (error) {
     const sessionError = asMaterialRequestError(error);
     if (sessionError) {
       return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
+    }
+    if (error instanceof OperationMutationInputError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
     }
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },

@@ -41,9 +41,9 @@ begin
 
   update public.crop_structure cs
      set crop_id = m.global_id
-  from tmp_crop_map m
-  join public.seasons s on s.id = cs.season_id
+  from tmp_crop_map m, public.seasons s
   where cs.crop_id = m.local_id
+    and s.id = cs.season_id
     and s.year between 2021 and 2025
     and coalesce(cs.archived, false) = false;
 
@@ -62,9 +62,9 @@ begin
 
   update public.crop_structure cs
      set variety_id = vm.global_id
-  from tmp_variety_map vm
-  join public.seasons s on s.id = cs.season_id
+  from tmp_variety_map vm, public.seasons s
   where cs.variety_id = vm.local_id
+    and s.id = cs.season_id
     and s.year between 2021 and 2025
     and coalesce(cs.archived, false) = false;
 
@@ -81,25 +81,29 @@ begin
 
   update public.crop_structure cs
      set reproduction_id = rm.global_id
-  from tmp_rep_map rm
-  join public.seasons s on s.id = cs.season_id
+  from tmp_rep_map rm, public.seasons s
   where cs.reproduction_id = rm.local_id
+    and s.id = cs.season_id
     and s.year between 2021 and 2025
     and coalesce(cs.archived, false) = false;
 
   -- 4) Delete unmappable obvious junk rows for 2021-2025
   delete from public.crop_structure cs
   using public.seasons s
-  left join public.crops c on c.id = cs.crop_id
   where s.id = cs.season_id
     and s.year between 2021 and 2025
     and coalesce(cs.archived, false) = false
     and (
       cs.crop_id is null
-      or (c.id is null)
+      or not exists (select 1 from public.crops c where c.id = cs.crop_id)
       or (
-        c.company_id is not null
-        and lower(coalesce(c.name_ru, c.name_en, c.name, '')) ~ '(test|demo|tmp|local|junk)'
+        exists (
+          select 1
+          from public.crops c
+          where c.id = cs.crop_id
+            and c.company_id is not null
+            and lower(coalesce(c.name_ru, c.name_en, c.name, '')) ~ '(test|demo|tmp|local|junk)'
+        )
       )
     );
 
@@ -135,13 +139,18 @@ begin
     select exists(select 1 from information_schema.columns where table_schema = 'public' and table_name = 'crops' and column_name = 'is_active') into v_has_col_is_active;
     select exists(select 1 from information_schema.columns where table_schema = 'public' and table_name = 'crops' and column_name = 'archived') into v_has_col_archived;
 
+    if v_has_col_user_id and v_owner_user is null then
+      raise notice 'Skipping legacy fallow seed: no real owner profile exists';
+      return;
+    end if;
+
     if v_has_col_company_id then
       v_cols := v_cols || ',company_id';
       v_vals := v_vals || ',null';
     end if;
     if v_has_col_user_id then
       v_cols := v_cols || ',user_id';
-      v_vals := v_vals || ',''' || coalesce(v_owner_user::text, '00000000-0000-0000-0000-000000000000') || '''::uuid';
+      v_vals := v_vals || ',''' || v_owner_user::text || '''::uuid';
     end if;
     if v_has_col_slug then
       v_cols := v_cols || ',slug';

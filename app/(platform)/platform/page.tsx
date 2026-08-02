@@ -17,6 +17,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  loadPlatformRuntimeStatus,
+  type PlatformRuntimeStatus,
+} from "@/lib/platform/platform-status-client";
 
 type CompanyItem = {
   id: string;
@@ -84,6 +88,9 @@ export default function PlatformCompaniesPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [companies, setCompanies] = useState<CompanyItem[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null);
+  const [platformStatus, setPlatformStatus] = useState<PlatformRuntimeStatus | null>(null);
+  const [platformStatusError, setPlatformStatusError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -103,6 +110,15 @@ export default function PlatformCompaniesPage() {
     ? `Да полностью удалить компанию ${deleteTarget.name} из проекта`
     : "";
   const canDelete = Boolean(deleteTarget) && deleteConfirmation.trim() === expectedDeletePhrase;
+  const selectedCompany = companies.find((company) => company.id === selectedCompanyId) || null;
+  const runtime = platformStatus?.runtime || null;
+  const productCounts = platformStatus?.catalog.products || null;
+  const importStatus = platformStatus?.catalog.pesticideImport || null;
+  const statusValue = (value: number | undefined) => {
+    if (platformStatusError) return "Не удалось загрузить данные";
+    if (!platformStatus || value == null) return "Загрузка...";
+    return String(value);
+  };
 
   const loadCompanies = async () => {
     if (!user?.id) return;
@@ -113,6 +129,7 @@ export default function PlatformCompaniesPage() {
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить компании");
       setCompanies(Array.isArray(payload?.companies) ? payload.companies : []);
+      setSelectedCompanyId(payload?.selectedCompanyId ? String(payload.selectedCompanyId) : null);
     } catch (error: any) {
       toast({
         title: "Ошибка",
@@ -128,6 +145,22 @@ export default function PlatformCompaniesPage() {
     void loadCompanies();
   }, [user?.id]);
 
+  const loadStatus = async () => {
+    try {
+      setPlatformStatusError(null);
+      const status = await loadPlatformRuntimeStatus();
+      setPlatformStatus(status);
+    } catch (error) {
+      setPlatformStatus(null);
+      setPlatformStatusError(error instanceof Error ? error.message : "Не удалось загрузить данные");
+    }
+  };
+
+  useEffect(() => {
+    if (!user?.id) return;
+    void loadStatus();
+  }, [user?.id]);
+
   const openCompanyContext = async (companyId: string) => {
     if (!user?.id) return;
     try {
@@ -139,7 +172,12 @@ export default function PlatformCompaniesPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || "Не удалось открыть компанию");
-      window.location.href = "/dashboard";
+      setSelectedCompanyId(payload?.selectedCompanyId ? String(payload.selectedCompanyId) : null);
+      toast({
+        title: "Контекст компании выбран",
+        description: companies.find((company) => company.id === companyId)?.name || companyId,
+      });
+      window.location.reload();
     } catch (error: any) {
       toast({
         title: "Ошибка",
@@ -254,7 +292,12 @@ export default function PlatformCompaniesPage() {
             <span className="border border-slate-400/25 px-2 py-1">kno:v0</span>
             <span className="border border-slate-400/25 px-2 py-1">pp:v1</span>
             <span className="border border-slate-400/25 px-2 py-1">rls:draft</span>
-            <span className="border border-slate-400/25 px-2 py-1">branch:master</span>
+            <span className="border border-slate-400/25 px-2 py-1">
+              env:{runtime?.environment || (platformStatusError ? "error" : "loading")}
+            </span>
+            <span className="border border-slate-400/25 px-2 py-1">
+              branch:{runtime?.branch || (platformStatusError ? "unknown" : "loading")}
+            </span>
           </div>
         </div>
       </div>
@@ -277,10 +320,38 @@ export default function PlatformCompaniesPage() {
           </ConsolePanel>
 
           <ConsolePanel title="Состояние каталога" code="CAT">
-            <ConsoleRow label="Продукты" value="1254" tone="ok" />
-            <ConsoleRow label="Пестициды / удобрения / добавки" value="активно" tone="ok" />
-            <ConsoleRow label="Семена / болезни / вредители / сорняки" value="включено" tone="ok" />
-            <ConsoleRow label="Техника" value="schema v1" tone="ok" />
+            <ConsoleRow label="Всего глобальных продуктов" value={statusValue(productCounts?.total)} tone={platformStatusError ? "warn" : "ok"} />
+            <ConsoleRow label="Пестициды" value={statusValue(productCounts?.pesticides)} tone={platformStatusError ? "warn" : "ok"} />
+            <ConsoleRow label="Удобрения" value={statusValue(productCounts?.fertilizers)} tone={platformStatusError ? "warn" : "ok"} />
+            <ConsoleRow label="Добавки" value={statusValue(productCounts?.additives)} tone={platformStatusError ? "warn" : "ok"} />
+            <ConsoleRow
+              label="Регуляторы роста"
+              value={statusValue(productCounts?.growthRegulators)}
+              tone={platformStatusError ? "warn" : "ok"}
+            />
+            <ConsoleRow label="Прочие" value={statusValue(productCounts?.other)} tone={platformStatusError ? "warn" : "ok"} />
+            <ConsoleRow
+              label="Пестициды пакета GLBD"
+              value={
+                importStatus
+                  ? `${importStatus.found} / ${importStatus.expected}`
+                  : platformStatusError
+                    ? "Не удалось загрузить данные"
+                    : "Загрузка..."
+              }
+              tone={importStatus && importStatus.found === importStatus.expected ? "ok" : "warn"}
+            />
+            <ConsoleRow
+              label="Обновлено"
+              value={
+                platformStatus?.generatedAt
+                  ? new Date(platformStatus.generatedAt).toLocaleString("ru-RU")
+                  : platformStatusError
+                    ? "Не удалось загрузить данные"
+                    : "Загрузка..."
+              }
+              tone={platformStatusError ? "warn" : "neutral"}
+            />
           </ConsolePanel>
 
           <ConsolePanel title="Качество данных" code="DQ">
@@ -317,6 +388,19 @@ export default function PlatformCompaniesPage() {
         </ConsolePanel>
       </div>
 
+      <div
+        className={
+          selectedCompany
+            ? "border border-emerald-700/35 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-900"
+            : "border border-amber-700/35 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900"
+        }
+        role="status"
+      >
+        {selectedCompany
+          ? `Контекст компании: ${selectedCompany.name}`
+          : "Сначала выберите компанию. До выбора контекста тест ассистента недоступен."}
+      </div>
+
       <Card className="rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
         <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-[#9aa8ba] bg-[#d7dde6] text-[#111827]">
           <div>
@@ -342,7 +426,7 @@ export default function PlatformCompaniesPage() {
               <div className="flex items-center gap-2">
                 <Button variant="outline" onClick={() => openCompanyContext(company.id)}>
                 <ArrowRightCircle className="mr-2 h-4 w-4" />
-                Открыть компанию
+                {company.id === selectedCompanyId ? "Контекст выбран" : "Выбрать контекст"}
                 </Button>
                 <Button
                   variant="destructive"
