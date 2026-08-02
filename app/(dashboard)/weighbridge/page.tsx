@@ -642,6 +642,7 @@ export default function WeighbridgeOperationsPage() {
   });
   const [commentOpen, setCommentOpen] = useState(false);
   const [historyPreviewTicket, setHistoryPreviewTicket] = useState<WeighbridgeTicket | null>(null);
+  const notificationDeepLinkHandledRef = useRef(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState("Подтвердите действие");
@@ -1045,6 +1046,23 @@ export default function WeighbridgeOperationsPage() {
     if (authLoading) return;
     void load();
   }, [authLoading, profile?.company_id, profile?.id, profile?.role, language]);
+
+  useEffect(() => {
+    if (loading || notificationDeepLinkHandledRef.current) return;
+    const ticketId = new URLSearchParams(window.location.search).get("ticket");
+    if (!ticketId) {
+      notificationDeepLinkHandledRef.current = true;
+      return;
+    }
+    const ticket = tickets.find((item) => item.id === ticketId);
+    if (!ticket) return;
+    if (ticket.status === "finalized" || ticket.status === "voided") {
+      setHistoryPreviewTicket(ticket);
+    } else {
+      setActiveTicket(ticket);
+    }
+    notificationDeepLinkHandledRef.current = true;
+  }, [loading, tickets]);
 
   useEffect(() => {
     if (!persistKey) return;

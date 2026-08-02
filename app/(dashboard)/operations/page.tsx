@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, ChevronDown, ChevronUp, Pencil, Plus } from "lucide-react";
 import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 import { PageHeader } from "@/components/layout/page-header";
@@ -189,6 +189,7 @@ export default function OperationsPage() {
   const [selectedOperation, setSelectedOperation] = useState<OperationWithDetails | null>(null);
   const [varianceReviewComment, setVarianceReviewComment] = useState("");
   const [varianceReviewBusy, setVarianceReviewBusy] = useState(false);
+  const notificationDeepLinkHandledRef = useRef(false);
 
   const [explorerField, setExplorerField] = useState<string>("all");
   const [explorerOperationType, setExplorerOperationType] = useState<string>("all");
@@ -256,6 +257,19 @@ export default function OperationsPage() {
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.operations,
   });
+
+  useEffect(() => {
+    if (loading || notificationDeepLinkHandledRef.current) return;
+    const operationId = new URLSearchParams(window.location.search).get("operation");
+    if (!operationId) {
+      notificationDeepLinkHandledRef.current = true;
+      return;
+    }
+    const operation = operations.find((item) => item.id === operationId);
+    if (!operation) return;
+    notificationDeepLinkHandledRef.current = true;
+    setSelectedOperation(operation);
+  }, [loading, operations]);
 
   const reviewVariance = async (operation: OperationWithDetails, decision: "approve" | "reject") => {
     if (!profile?.company_id) return;

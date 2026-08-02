@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
   CheckCircle2,
@@ -263,6 +263,7 @@ export default function WarehouseRequestsPage() {
   const [adminReason, setAdminReason] = useState("");
   const [isQaCompany, setIsQaCompany] = useState(false);
   const [showTestData, setShowTestData] = useState(false);
+  const notificationDeepLinkHandledRef = useRef(false);
 
   const canProcess =
     profile?.role === "warehouse" ||
@@ -366,6 +367,22 @@ export default function WarehouseRequestsPage() {
 
   const selectedRequest =
     requests.find((row) => row.id === selectedId) || null;
+
+  useEffect(() => {
+    if (loading || notificationDeepLinkHandledRef.current) return;
+    const requestId = new URLSearchParams(window.location.search).get("request");
+    if (!requestId) {
+      notificationDeepLinkHandledRef.current = true;
+      return;
+    }
+    const request = requests.find((item) => item.id === requestId);
+    if (!request) return;
+    setActiveTab(tabForRequest(request));
+    setSelectedId(request.id);
+    setDetailDismissed(false);
+    setMobileDetailOpen(true);
+    notificationDeepLinkHandledRef.current = true;
+  }, [loading, requests]);
 
   useEffect(() => {
     if (visibleRequests.length === 0) {

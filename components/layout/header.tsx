@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bell, LogOut, Menu, Settings as SettingsIcon, Shield, User } from "lucide-react";
+import { LogOut, Menu, Settings as SettingsIcon, Shield, User } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +21,7 @@ import { TravkinLogo } from "@/components/layout/travkin-logo";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { isGlobalAdmin } from "@/lib/auth/roles";
 import { supabase } from "@/lib/supabase/client";
+import { NotificationCenter } from "@/components/notifications/notification-center";
 
 type CompanyContextItem = {
   id: string;
@@ -366,15 +367,7 @@ export function Header() {
         ) : null}
 
         <LanguageSwitcher />
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 text-[#F3F4F6] hover:bg-[#202738] hover:text-[#F3F4F6]"
-          aria-label={t("notifications")}
-          title={t("notifications")}
-        >
-          <Bell className="h-5 w-5" />
-        </Button>
+        {user ? <NotificationCenter userId={user.id} companyId={activeUserCompanyId} /> : null}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
