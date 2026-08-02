@@ -619,13 +619,16 @@ export default function ReferencesPage() {
                 Здесь отображаются только препараты, удобрения и добавки, уже подключённые к компании.
               </p>
               <DataTable
-                headers={["Название", "Тип", "Категория/подтип", "Производитель", "ДВ/состав"]}
+                headers={["Название", "Тип", "Категория/подтип", "Производитель", "ДВ/состав", "Статусы"]}
                 rows={companyMaterials.map((x) => [
                   x.trade_name || x.name,
                   materialKind(x),
                   materialCategory(x),
                   x.manufacturer || "—",
                   x.active_ingredient || "—",
+                  Array.isArray(x.reference_statuses) && x.reference_statuses.length > 0
+                    ? x.reference_statuses.join(" · ")
+                    : "Добавлен компанией",
                 ])}
                 loading={loading}
                 empty="Материалы компании не добавлены"
