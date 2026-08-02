@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/service";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
 import { localizedName } from "@/lib/i18n/helpers";
@@ -1267,6 +1268,10 @@ export async function GET(
     }
 
     const search = String(request.nextUrl.searchParams.get("search") || "").trim();
+    const rowId = String(request.nextUrl.searchParams.get("id") || "").trim();
+    if (rowId && !isUuidLike(rowId)) {
+      return NextResponse.json({ error: "Некорректный идентификатор записи" }, { status: 400 });
+    }
     const productEntity =
       entity === "pesticides" ||
       entity === "fertilizers" ||
@@ -1324,6 +1329,7 @@ export async function GET(
     let query = supabase.from(config.table).select(config.select);
     query = config.scopeWhere(query);
     query = query.eq("archived", false);
+    if (rowId) query = query.eq("id", rowId);
 
     if (search && entity !== "active_ingredients") {
       const searchTerms =
@@ -1553,6 +1559,7 @@ export async function POST(
     }
     const row = hydratedRows[0];
 
+    revalidateTag("global-pesticide-catalog-v1");
     return NextResponse.json({ row: config.normalizeRow ? config.normalizeRow(row) : row });
   } catch (error) {
     if (error instanceof SessionAuthError) {
@@ -1667,6 +1674,7 @@ export async function PATCH(
     }
     const row = hydratedRows[0];
 
+    revalidateTag("global-pesticide-catalog-v1");
     return NextResponse.json({ row: config.normalizeRow ? config.normalizeRow(row) : row });
   } catch (error) {
     if (error instanceof SessionAuthError) {
@@ -1697,6 +1705,7 @@ export async function DELETE(
       .eq("id", id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    revalidateTag("global-pesticide-catalog-v1");
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof SessionAuthError) {

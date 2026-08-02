@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, ChevronDown, ChevronUp, Pencil, Plus } from "lucide-react";
 import { todayDateOnlyLocal } from "@/lib/dates/date-only";
 import { PageHeader } from "@/components/layout/page-header";
@@ -62,6 +62,7 @@ import { getWarehouseIssueRequests } from "@/lib/services/warehouse-requests";
 import type { WarehouseIssueRequest } from "@/lib/types/warehouse-request";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import {
   OperationFormData,
   OperationLine,
@@ -188,6 +189,7 @@ export default function OperationsPage() {
   const [selectedOperation, setSelectedOperation] = useState<OperationWithDetails | null>(null);
   const [varianceReviewComment, setVarianceReviewComment] = useState("");
   const [varianceReviewBusy, setVarianceReviewBusy] = useState(false);
+  const notificationDeepLinkHandledRef = useRef(false);
 
   const [explorerField, setExplorerField] = useState<string>("all");
   const [explorerOperationType, setExplorerOperationType] = useState<string>("all");
@@ -203,10 +205,10 @@ export default function OperationsPage() {
     profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "agronomist";
   const canUpdateOperationFacts = canManageOperationLines || profile?.role === "brigadier";
 
-  const loadData = async () => {
+  const loadData = async ({ foreground = true }: { foreground?: boolean } = {}) => {
     if (authLoading || !profile?.company_id) return;
     const companyId = profile.company_id;
-    setLoading(true);
+    if (foreground) setLoading(true);
     try {
       const [opsRes, fieldsRes, cropRes, specialistRes, requestsRes] = await Promise.allSettled([
         getOperations(companyId),
@@ -236,9 +238,11 @@ export default function OperationsPage() {
 
     } catch (error) {
       console.error(error);
-      toast({ title: "Ошибка", description: "Не удалось загрузить операции", variant: "destructive" });
+      if (foreground) {
+        toast({ title: "Ошибка", description: "Не удалось загрузить операции", variant: "destructive" });
+      }
     } finally {
-      setLoading(false);
+      if (foreground) setLoading(false);
     }
   };
 
@@ -246,6 +250,26 @@ export default function OperationsPage() {
     if (authLoading) return;
     if (profile?.company_id) void loadData();
   }, [authLoading, profile?.company_id, language]);
+
+  useLiveRefresh({
+    enabled: !authLoading && Boolean(profile?.company_id),
+    onRefresh: () => loadData({ foreground: false }),
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.operations,
+  });
+
+  useEffect(() => {
+    if (loading || notificationDeepLinkHandledRef.current) return;
+    const operationId = new URLSearchParams(window.location.search).get("operation");
+    if (!operationId) {
+      notificationDeepLinkHandledRef.current = true;
+      return;
+    }
+    const operation = operations.find((item) => item.id === operationId);
+    if (!operation) return;
+    notificationDeepLinkHandledRef.current = true;
+    setSelectedOperation(operation);
+  }, [loading, operations]);
 
   const reviewVariance = async (operation: OperationWithDetails, decision: "approve" | "reject") => {
     if (!profile?.company_id) return;

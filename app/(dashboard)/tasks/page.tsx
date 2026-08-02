@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from '@/hooks/use-live-refresh';
 import { useAuth } from '@/lib/contexts/auth-context';
 import { useLanguage } from '@/lib/contexts/language-context';
 import { supabase } from '@/lib/supabase/client';
@@ -485,6 +486,7 @@ export default function TasksPage() {
   const [materialFactDrafts, setMaterialFactDrafts] = useState<
     Record<string, MaterialFactDraft>
   >({});
+  const notificationDeepLinkHandledRef = useRef(false);
 
   const isTaskRole = profile?.role === 'specialist' || profile?.role === 'brigadier';
 
@@ -510,9 +512,9 @@ export default function TasksPage() {
     return Array.isArray(payload?.identities) ? payload.identities : [];
   };
 
-  const loadTasks = async () => {
+  const loadTasks = async ({ foreground = true }: { foreground?: boolean } = {}) => {
     if (!profile?.id || !profile.company_id) return;
-    setLoading(true);
+    if (foreground) setLoading(true);
     try {
       const [operationsResult, requestsResult, assetCatalog, companyResult] = await Promise.all([
         supabase
@@ -669,19 +671,30 @@ export default function TasksPage() {
       setMaterialRequests(cleanRequests);
 
     } catch (error: any) {
-      toast({
-        title: 'Ошибка',
-        description: error?.message || 'Не удалось загрузить задачи',
-        variant: 'destructive',
-      });
+      if (foreground) {
+        toast({
+          title: 'Ошибка',
+          description: error?.message || 'Не удалось загрузить задачи',
+          variant: 'destructive',
+        });
+      } else {
+        console.error('Background task refresh failed', error);
+      }
     } finally {
-      setLoading(false);
+      if (foreground) setLoading(false);
     }
   };
 
   useEffect(() => {
     if (profile?.id && profile.company_id) void loadTasks();
   }, [profile?.id, profile?.company_id, language, showTestData]);
+
+  useLiveRefresh({
+    enabled: Boolean(profile?.id && profile?.company_id),
+    onRefresh: () => loadTasks({ foreground: false }),
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.operations,
+  });
 
   const requestsByOperation = useMemo(() => {
     const map = new Map<string, WarehouseIssueRequest[]>();
@@ -706,6 +719,22 @@ export default function TasksPage() {
     );
   });
   const completedOperations = operations.filter((operation) => getTaskPhase(operation) === 'completed');
+
+  useEffect(() => {
+    if (loading || notificationDeepLinkHandledRef.current) return;
+    const operationId = new URLSearchParams(window.location.search).get('operation');
+    if (!operationId) {
+      notificationDeepLinkHandledRef.current = true;
+      return;
+    }
+    const operation = operations.find((item) => item.id === operationId);
+    if (!operation) return;
+    const phase = getTaskPhase(operation);
+    setTaskTab(phase === 'active' ? 'new' : phase === 'completed' ? 'completed' : 'work');
+    setSelectedOperationId(operation.id);
+    setMobileDetailOpen(true);
+    notificationDeepLinkHandledRef.current = true;
+  }, [loading, operations]);
 
   const selectedOperation = useMemo(
     () => operations.find((operation) => operation.id === selectedOperationId) || null,

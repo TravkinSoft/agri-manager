@@ -319,7 +319,7 @@ export default function PlatformCompaniesPage() {
             <Button
               variant="outline"
               className="mt-3 h-8 rounded-none border-[#9aa8ba] bg-[#eef1f5] text-[12px]"
-              onClick={() => (window.location.href = "/platform/knowledge/intake")}
+              onClick={() => router.push("/platform/knowledge/intake")}
             >
               <FileText className="mr-2 h-3.5 w-3.5" />
               Открыть проверку препаратов

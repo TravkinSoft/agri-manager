@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
+import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
@@ -641,6 +642,7 @@ export default function WeighbridgeOperationsPage() {
   });
   const [commentOpen, setCommentOpen] = useState(false);
   const [historyPreviewTicket, setHistoryPreviewTicket] = useState<WeighbridgeTicket | null>(null);
+  const notificationDeepLinkHandledRef = useRef(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [confirmTitle, setConfirmTitle] = useState("Подтвердите действие");
@@ -1015,6 +1017,13 @@ export default function WeighbridgeOperationsPage() {
     setHarvestBatches(batchRows || []);
   };
 
+  useLiveRefresh({
+    enabled: Boolean(!authLoading && profile?.company_id && profile?.id && canView),
+    onRefresh: refreshTickets,
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.weighbridge,
+  });
+
   const siteConfirm = async (opts: { title: string; description: string; actionLabel: string }) => {
     setConfirmTitle(opts.title);
     setConfirmDescription(opts.description);
@@ -1037,6 +1046,23 @@ export default function WeighbridgeOperationsPage() {
     if (authLoading) return;
     void load();
   }, [authLoading, profile?.company_id, profile?.id, profile?.role, language]);
+
+  useEffect(() => {
+    if (loading || notificationDeepLinkHandledRef.current) return;
+    const ticketId = new URLSearchParams(window.location.search).get("ticket");
+    if (!ticketId) {
+      notificationDeepLinkHandledRef.current = true;
+      return;
+    }
+    const ticket = tickets.find((item) => item.id === ticketId);
+    if (!ticket) return;
+    if (ticket.status === "finalized" || ticket.status === "voided") {
+      setHistoryPreviewTicket(ticket);
+    } else {
+      setActiveTicket(ticket);
+    }
+    notificationDeepLinkHandledRef.current = true;
+  }, [loading, tickets]);
 
   useEffect(() => {
     if (!persistKey) return;
