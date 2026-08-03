@@ -103,6 +103,14 @@ import {
   type MachineryAssetLike,
 } from "@/lib/operations/machinery-compatibility";
 import { patchMaterialWithRateReset } from "@/lib/operations/material-rate-reset";
+import {
+  calculateSeedRequirementKg,
+  formatSeedMassRu,
+  isCompleteSeedIdentity,
+  seedIdentityKey,
+  toCanonicalSeedRateKgHa,
+  type SeedRateDisplayUnit,
+} from "@/lib/operations/seed-material";
 
 interface OperationFormDialogProps {
   open: boolean;
@@ -161,6 +169,7 @@ type ProductOption = {
 type CropCatalogOption = { id: string; name: string; archived?: boolean | null; is_active?: boolean | null };
 type VarietyCatalogOption = { id: string; name: string; crop_id: string; archived?: boolean | null; is_active?: boolean | null };
 type ReproductionCatalogOption = { id: string; name: string; archived?: boolean | null; is_active?: boolean | null };
+type SeedStockSummary = { availableKg: number; batchCount: number; loading: boolean };
 
 type SearchOption = { id: string; label: string; hint?: string };
 type WorkOptionGroup = { id: string; label: string; options: SearchOption[]; directWorkId?: string };
@@ -1039,6 +1048,7 @@ export function OperationFormDialog({
   const [varietyCatalog, setVarietyCatalog] = useState<VarietyCatalogOption[]>([]);
   const [reproductionCatalog, setReproductionCatalog] = useState<ReproductionCatalogOption[]>([]);
   const [materials, setMaterials] = useState<OperationMaterialFormData[]>([]);
+  const [seedStock, setSeedStock] = useState<SeedStockSummary>({ availableKg: 0, batchCount: 0, loading: false });
   const [operationTargets, setOperationTargets] = useState<OperationTargetDraft[]>([]);
   const [purposes, setPurposes] = useState<OperationPurposeSlug[]>([]);
   const [tankMixEnabled, setTankMixEnabled] = useState(false);
@@ -1741,9 +1751,9 @@ export function OperationFormDialog({
   const isIrrigation = canonicalType?.slug === "irrigation";
   const isSpraying = canonicalType?.slug === "spraying";
   const usesChemistryMix = isSpraying || isFertigation;
-  const supportsMultiTarget = usesChemistryMix;
   const isPotatoPlanting = operationIsPotato && typeSlug === "potato_planting";
   const isSeedWork = SEEDING_WORKS.has(typeSlug);
+  const supportsMultiTarget = usesChemistryMix || (isSeedWork && !selectedIsCropMix);
   const showDepth = DEPTH_ENABLED_WORKS.has(typeSlug);
   const isTopRemoval = typeSlug === "haulm_topping";
   const isDripTapeRidge = typeSlug === "ridge_forming_with_drip_tape";
@@ -1776,18 +1786,6 @@ export function OperationFormDialog({
   }, [form, open, supportsMultiTarget, totalTargetArea]);
 
   useEffect(() => {
-    if (!open || !isPotatoPlanting) return;
-    setMaterials((prev) => {
-      const next = prev.filter((material) => {
-        const component = getTankMixComponentDefinition(material.component_type || material.material_type);
-        const product = products.find((item) => item.id === material.product_id);
-        return component.slug !== "seed" && !isPotatoSeedProduct(product);
-      });
-      return next.length === prev.length ? prev : next;
-    });
-  }, [isPotatoPlanting, open, products]);
-
-  useEffect(() => {
     if (!open || !canonicalType) return;
     if (!canonicalType.supportsMaterials && !isDripTapeRidge && materials.length > 0) {
       setMaterials([]);
@@ -1800,22 +1798,37 @@ export function OperationFormDialog({
   }, [isSeedWork, materials.length, open, selectedIsCropMix]);
 
   useEffect(() => {
-    if (!open || !isSeedWork || selectedIsCropMix || materials.length > 0) return;
-    setMaterials([
-      {
+    if (!open || !isSeedWork || selectedIsCropMix || !selectedCropStructure) return;
+    const identityLabel = [
+      selectedCropIdentity?.cropName,
+      selectedCropIdentity?.varietyName,
+      selectedCropIdentity?.reproductionName,
+    ].filter(Boolean).join(" · ");
+    setMaterials((prev) => {
+      const seedIndex = prev.findIndex((item) => item.component_type === "seed" || item.material_type === "seed");
+      const current = seedIndex >= 0 ? prev[seedIndex] : null;
+      const seedRow: OperationMaterialFormData = {
+        ...current,
         component_type: "seed",
         material_type: "seed",
-        product_id: "",
+        product_id: null,
         batch_id: null,
-        planned_rate: null,
+        planned_rate: current?.planned_rate ?? null,
         actual_rate: null,
         rate_basis: "per_ha",
-        planned_quantity: null,
+        planned_quantity: current?.planned_quantity ?? null,
         unit: "kg",
         notes: null,
-      },
-    ]);
-  }, [isSeedWork, materials.length, open, selectedIsCropMix]);
+        crop_id: selectedCropStructure.crop_id || null,
+        variety_id: selectedCropStructure.variety_id || null,
+        reproduction_id: selectedCropStructure.reproduction_id || null,
+        identity_label: identityLabel || null,
+        rate_display_unit: current?.rate_display_unit || (isPotatoPlanting ? "t_ha" : "kg_ha"),
+      };
+      if (seedIndex < 0) return [seedRow, ...prev];
+      return prev.map((item, index) => index === seedIndex ? seedRow : item);
+    });
+  }, [isPotatoPlanting, isSeedWork, open, selectedCropIdentity, selectedCropStructure, selectedIsCropMix]);
 
   useEffect(() => {
     if (!open || products.length === 0 || materials.length === 0) return;
@@ -1877,7 +1890,7 @@ export function OperationFormDialog({
           "other",
         ])
       : isSeeding
-      ? new Set<TankMixComponentType>(["seed", "fertilizer", "micro_fertilizer", "crop_protection", "biological", "biostimulant", "other"])
+      ? new Set<TankMixComponentType>(["fertilizer", "micro_fertilizer", "crop_protection", "biological", "biostimulant", "other"])
       : showTankMix
         ? new Set<TankMixComponentType>([
             "crop_protection",
@@ -1899,7 +1912,11 @@ export function OperationFormDialog({
   const rowSpacingM = form.watch("row_spacing_m");
   const seedSpacingCm = form.watch("seed_spacing_cm");
   const plannedAreaHa = form.watch("planned_area_ha");
-  const seedRateKgHa = form.watch("rate_per_ha");
+  const seedMaterialRow = materials.find((item) => item.component_type === "seed" || item.material_type === "seed") || null;
+  const seedMaterialIndex = materials.findIndex((item) => item.component_type === "seed" || item.material_type === "seed");
+  const seedRateDisplayUnit = (seedMaterialRow?.rate_display_unit || (isPotatoPlanting ? "t_ha" : "kg_ha")) as SeedRateDisplayUnit;
+  const seedRateDisplay = Number(seedMaterialRow?.planned_rate || 0) || null;
+  const seedRateKgHa = toCanonicalSeedRateKgHa(seedRateDisplay, seedRateDisplayUnit);
   const sprayVolumePerHa = form.watch("spray_volume_per_ha");
   const plantsPerHa =
     rowSpacingM && seedSpacingCm && rowSpacingM > 0 && seedSpacingCm > 0
@@ -1910,11 +1927,50 @@ export function OperationFormDialog({
       ? Math.round(plantsPerHa * plannedAreaHa)
       : null;
   const seedRateTHa = seedRateKgHa && seedRateKgHa > 0 ? seedRateKgHa / 1000 : null;
-  const totalSeedKg =
-    seedRateKgHa && seedRateKgHa > 0 && plannedAreaHa && plannedAreaHa > 0
-      ? seedRateKgHa * plannedAreaHa
-      : null;
+  const totalSeedKg = calculateSeedRequirementKg(
+    supportsMultiTarget && totalTargetArea > 0 ? totalTargetArea : plannedAreaHa,
+    seedRateDisplay,
+    seedRateDisplayUnit
+  );
   const totalSeedT = totalSeedKg && totalSeedKg > 0 ? totalSeedKg / 1000 : null;
+
+  useEffect(() => {
+    if (!open || !isSeedWork || selectedIsCropMix) return;
+    form.setValue("rate_per_ha", seedRateKgHa);
+  }, [form, isSeedWork, open, seedRateKgHa, selectedIsCropMix]);
+
+  useEffect(() => {
+    const identity = {
+      cropId: selectedCropStructure?.crop_id || null,
+      varietyId: selectedCropStructure?.variety_id || null,
+      reproductionId: selectedCropStructure?.reproduction_id || null,
+    };
+    if (!open || !isSeedWork || selectedIsCropMix || !profile?.company_id || !isCompleteSeedIdentity(identity)) {
+      setSeedStock({ availableKg: 0, batchCount: 0, loading: false });
+      return;
+    }
+    let cancelled = false;
+    setSeedStock((current) => ({ ...current, loading: true }));
+    void supabase.rpc("get_seed_material_stock_v1", {
+      p_company_id: profile.company_id,
+      p_crop_id: identity.cropId,
+      p_variety_id: identity.varietyId,
+      p_reproduction_id: identity.reproductionId,
+    }).then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) {
+        setSeedStock({ availableKg: 0, batchCount: 0, loading: false });
+        return;
+      }
+      const payload = (data || {}) as Record<string, unknown>;
+      setSeedStock({
+        availableKg: Number(payload.available_kg || 0),
+        batchCount: Number(payload.batch_count || 0),
+        loading: false,
+      });
+    });
+    return () => { cancelled = true; };
+  }, [isSeedWork, open, profile?.company_id, selectedCropStructure, selectedIsCropMix]);
 
   const updateOperationParam = (key: string, value: unknown) => {
     setOperationParams((prev) => ({
@@ -2071,8 +2127,10 @@ export function OperationFormDialog({
     index,
     component: getTankMixComponentDefinition(material.component_type || material.material_type),
   }));
-  const mainMaterialRows = materialRows.filter((row) => !isAdditionalComponent(row.component.slug));
-  const additionalMaterialRows = materialRows.filter((row) => isAdditionalComponent(row.component.slug));
+  const mainMaterialRows = materialRows.filter((row) => row.component.slug !== "seed" && !isAdditionalComponent(row.component.slug));
+  const additionalMaterialRows = isSeedWork && !selectedIsCropMix
+    ? materialRows.filter((row) => row.component.slug !== "seed")
+    : materialRows.filter((row) => isAdditionalComponent(row.component.slug));
 
   const productOptionsForMaterial = (material: OperationMaterialFormData) => {
     const component = getTankMixComponentDefinition(material.component_type || material.material_type);
@@ -2503,15 +2561,20 @@ export function OperationFormDialog({
       setSubmitError("Один участок нельзя добавить дважды.");
       return;
     }
+    if (isSeedWork && !selectedIsCropMix && supportsMultiTarget) {
+      const targetIdentityKeys = targetsForSubmit.map((target) => seedIdentityKey({
+        cropId: target.crop_id || null,
+        varietyId: target.variety_id || null,
+        reproductionId: target.reproduction_id || null,
+      }));
+      if (targetIdentityKeys.some((key) => key == null) || new Set(targetIdentityKeys).size !== 1) {
+        setSubmitError("Выбранные участки имеют разные культуры, сорта или репродукции. Создайте отдельные планы.");
+        return;
+      }
+    }
     if (isPotatoPlanting && (!data.seed_spacing_cm || data.seed_spacing_cm <= 0)) {
       const message = "Укажите межклубневое расстояние для посадки картофеля.";
       form.setError("seed_spacing_cm", { message });
-      setSubmitError(message);
-      return;
-    }
-    if (isPotatoPlanting && (!data.rate_per_ha || data.rate_per_ha <= 0)) {
-      const message = "Укажите норму посадки картофеля в кг/га.";
-      form.setError("rate_per_ha", { message });
       setSubmitError(message);
       return;
     }
@@ -2532,7 +2595,10 @@ export function OperationFormDialog({
     const normalizedMaterials = materials.map((item, index) => {
       const component = getTankMixComponentDefinition(item.component_type || item.material_type);
       const rateBasis = normalizeRateBasisForOperationMaterial(item.rate_basis, usesChemistryMix);
-      const plannedQuantity = materialTotalsByIndex.get(index) ?? item.planned_quantity ?? null;
+      const isPrimarySeed = component.slug === "seed" && isSeedWork && !selectedIsCropMix;
+      const plannedQuantity = isPrimarySeed
+        ? totalSeedKg
+        : materialTotalsByIndex.get(index) ?? item.planned_quantity ?? null;
       const rateLabel = formatRateUnit(item.unit || getDefaultUnitForComponent(component.slug), rateBasis);
       const existingNotes = String(item.notes || "").trim();
       return {
@@ -2540,11 +2606,16 @@ export function OperationFormDialog({
         material_type: toStorageMaterialType(component.slug),
         product_id: item.product_id || null,
         batch_id: item.batch_id || null,
-        planned_rate: item.planned_rate ?? null,
+        planned_rate: isPrimarySeed ? seedRateKgHa : item.planned_rate ?? null,
         actual_rate: item.actual_rate ?? null,
         rate_basis: rateBasis,
         planned_quantity: plannedQuantity,
-        unit: item.unit || getDefaultUnitForComponent(component.slug),
+        unit: isPrimarySeed ? "kg" : item.unit || getDefaultUnitForComponent(component.slug),
+        crop_id: isPrimarySeed ? selectedCropStructure?.crop_id || null : item.crop_id || null,
+        variety_id: isPrimarySeed ? selectedCropStructure?.variety_id || null : item.variety_id || null,
+        reproduction_id: isPrimarySeed ? selectedCropStructure?.reproduction_id || null : item.reproduction_id || null,
+        identity_label: isPrimarySeed ? item.identity_label || null : null,
+        rate_display_unit: isPrimarySeed ? seedRateDisplayUnit : null,
         notes: [
           existingNotes || null,
           usesChemistryMix ? `rate_basis:${rateBasis}` : null,
@@ -2557,12 +2628,17 @@ export function OperationFormDialog({
     });
     const materialsForSubmit = normalizedMaterials.filter((item) => {
       const component = getTankMixComponentDefinition(item.component_type);
+      if (component.slug === "seed" && isSeedWork && !selectedIsCropMix) return true;
       return component.productRequired ? String(item.product_id || "").trim().length > 0 : true;
     });
     if (isSeedWork && !selectedIsCropMix) {
       const seedMaterial = materialsForSubmit.find((item) => item.component_type === "seed");
-      if (!seedMaterial?.product_id) {
-        const message = "Выберите семенной или посадочный материал.";
+      if (!seedMaterial || !isCompleteSeedIdentity({
+        cropId: seedMaterial.crop_id || null,
+        varietyId: seedMaterial.variety_id || null,
+        reproductionId: seedMaterial.reproduction_id || null,
+      })) {
+        const message = "В структуре посевов должны быть указаны культура, сорт и репродукция.";
         setSubmitError(message);
         return;
       }
@@ -2595,20 +2671,24 @@ export function OperationFormDialog({
       operation_template: typeSlug || null,
       row_spacing_m: data.row_spacing_m ?? null,
       seed_spacing_cm: data.seed_spacing_cm ?? null,
-      seed_rate_kg_ha: isPotatoPlanting ? data.rate_per_ha ?? null : undefined,
-      seed_rate_t_ha: isPotatoPlanting ? seedRateTHa : undefined,
-      seed_requirement_kg: isPotatoPlanting ? totalSeedKg : undefined,
-      seed_requirement_t: isPotatoPlanting ? totalSeedT : undefined,
+      seed_rate_kg_ha: isSeedWork && !selectedIsCropMix ? seedRateKgHa : undefined,
+      seed_rate_t_ha: isSeedWork && !selectedIsCropMix ? seedRateTHa : undefined,
+      seed_rate_display_unit: isSeedWork && !selectedIsCropMix ? seedRateDisplayUnit : undefined,
+      seed_requirement_kg: isSeedWork && !selectedIsCropMix ? totalSeedKg : undefined,
+      seed_requirement_t: isSeedWork && !selectedIsCropMix ? totalSeedT : undefined,
       calculated_plants_per_ha: plantsPerHa,
       calculated_total_plants: totalPlants,
       calculated_tubers_per_ha: isPotatoPlanting ? plantsPerHa : undefined,
       calculated_total_tubers: isPotatoPlanting ? totalPlants : undefined,
       expected_density_plants_per_ha: isPotatoPlanting ? plantsPerHa : undefined,
-      seed_material_context: isPotatoPlanting
+      seed_material_context: isSeedWork && !selectedIsCropMix
         ? {
-            crop: operationCropName || "Картофель",
+            crop: operationCropName || null,
             variety: operationVarietyName || null,
             reproduction: operationReproductionName || null,
+            crop_id: selectedCropStructure?.crop_id || null,
+            variety_id: selectedCropStructure?.variety_id || null,
+            reproduction_id: selectedCropStructure?.reproduction_id || null,
             area_ha: data.planned_area_ha ?? null,
           }
         : undefined,
@@ -2711,7 +2791,11 @@ export function OperationFormDialog({
     !categorySlug ? "тип работы" : null,
     !selectedType ? "работа" : null,
     !responsibleUserId ? "ответственный" : null,
-    isSeedWork && !selectedIsCropMix && !materials.some((item) => item.component_type === "seed" && item.product_id) ? "семенной материал" : null,
+    isSeedWork && !selectedIsCropMix && !isCompleteSeedIdentity({
+      cropId: seedMaterialRow?.crop_id || null,
+      varietyId: seedMaterialRow?.variety_id || null,
+      reproductionId: seedMaterialRow?.reproduction_id || null,
+    }) ? "культура, сорт и репродукция" : null,
     isSeedWork && !selectedIsCropMix && !materials.some((item) => item.component_type === "seed" && Number(item.planned_rate || 0) > 0) ? "норма" : null,
     isPotatoPlanting && (!seedSpacingCm || seedSpacingCm <= 0) ? "межклубневое расстояние" : null,
     isPotatoPlanting && (!seedRateKgHa || seedRateKgHa <= 0) ? "норма посадки" : null,
@@ -3034,6 +3118,85 @@ export function OperationFormDialog({
               </section>
             ) : null}
 
+            {selectedCropStructure && isSeedWork && !selectedIsCropMix ? (
+              <section className="rounded-2xl border border-emerald-500/35 bg-emerald-500/5 p-4">
+                <div className="mb-3">
+                  <div className="text-sm font-semibold text-emerald-100">
+                    {operationIsPotato ? "Посадочный материал" : "Семенной материал"}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    Identity берётся из структуры посевов и не редактируется в операции.
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-sm md:grid-cols-4">
+                  <div>
+                    <div className="text-xs text-slate-500">Культура</div>
+                    <div className="truncate font-medium text-slate-100">{selectedCropIdentity?.cropName || "Не указана"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500">Сорт</div>
+                    <div className="truncate font-medium text-slate-100">{selectedCropIdentity?.varietyName || "Не указан"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500">Репродукция</div>
+                    <div className="truncate font-medium text-slate-100">{selectedCropIdentity?.reproductionName || "Не указана"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-500">Площадь</div>
+                    <div className="font-medium text-slate-100">{formatOperationNumber(operationAreaForCalculation)} га</div>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr)_160px_minmax(0,1fr)_minmax(0,1fr)]">
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Норма *</div>
+                    <MaterialRateInput
+                      value={seedRateDisplay}
+                      onValueChange={(value) => seedMaterialIndex >= 0 && updateMaterial(seedMaterialIndex, { planned_rate: value })}
+                      placeholder={seedRateDisplayUnit === "t_ha" ? "т/га" : "кг/га"}
+                    />
+                  </div>
+                  <div>
+                    <div className="mb-1 text-xs text-slate-500">Единица нормы</div>
+                    <Select
+                      value={seedRateDisplayUnit}
+                      onValueChange={(value) => {
+                        if (seedMaterialIndex < 0) return;
+                        const nextUnit = value as SeedRateDisplayUnit;
+                        const canonical = toCanonicalSeedRateKgHa(seedRateDisplay, seedRateDisplayUnit);
+                        updateMaterial(seedMaterialIndex, {
+                          rate_display_unit: nextUnit,
+                          planned_rate: canonical == null ? null : nextUnit === "t_ha" ? canonical / 1000 : canonical,
+                        });
+                      }}
+                    >
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="kg_ha">кг/га</SelectItem>
+                        <SelectItem value="t_ha">т/га</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                    <div className="text-xs text-slate-500">Потребность</div>
+                    <div className="mt-1 font-semibold text-slate-100">{formatSeedMassRu(totalSeedKg)}</div>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2">
+                    <div className="text-xs text-slate-500">На складах</div>
+                    <div className="mt-1 font-semibold text-slate-100">
+                      {seedStock.loading ? "Проверка..." : formatSeedMassRu(seedStock.availableKg)}
+                    </div>
+                    {!seedStock.loading && totalSeedKg != null ? (
+                      <div className={cn("mt-1 text-xs", seedStock.availableKg >= totalSeedKg ? "text-emerald-300" : "text-amber-300")}>
+                        {seedStock.availableKg >= totalSeedKg
+                          ? `Достаточно · партий: ${seedStock.batchCount}`
+                          : `Дефицит ${formatSeedMassRu(totalSeedKg - seedStock.availableKg)}`}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <FormField
                 control={form.control}
@@ -3107,29 +3270,9 @@ export function OperationFormDialog({
             {isPotatoPlanting ? (
               <div className="rounded-lg border border-emerald-800/60 bg-emerald-950/20 p-3">
                 <div className="mb-3">
-                  <div className="text-sm font-semibold uppercase tracking-wide text-emerald-100">Семенной материал</div>
+                  <div className="text-sm font-semibold uppercase tracking-wide text-emerald-100">Схема посадки</div>
                   <div className="text-xs text-emerald-200/75">
-                    Семенной картофель задаётся сортом, репродукцией, схемой посадки и нормой. В обычные материалы он не добавляется.
-                  </div>
-                </div>
-                <div className="mb-3 grid grid-cols-1 gap-2 rounded-md border border-emerald-900/70 bg-slate-950/35 p-3 text-sm md:grid-cols-4">
-                  <div>
-                    <div className="text-xs text-slate-400">Культура</div>
-                    <div className="font-medium text-slate-100">{operationCropName || "Картофель"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400">Сорт</div>
-                    <div className="font-medium text-slate-100">{operationVarietyName || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400">Репродукция</div>
-                    <div className="font-medium text-slate-100">{operationReproductionName || "-"}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-slate-400">Площадь</div>
-                    <div className="font-medium text-slate-100">
-                      {plannedAreaHa && plannedAreaHa > 0 ? `${plannedAreaHa.toFixed(2)} га` : "-"}
-                    </div>
+                    Геометрия посадки картофеля. Норма и потребность указаны в основном посадочном материале выше.
                   </div>
                 </div>
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -3161,24 +3304,6 @@ export function OperationFormDialog({
                           <Input
                             type="number"
                             step="0.1"
-                            value={field.value ?? ""}
-                            onChange={(event) => field.onChange(normalizeNumber(event.target.value))}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="rate_per_ha"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Норма посадки, кг/га *</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="number"
-                            step="0.01"
                             value={field.value ?? ""}
                             onChange={(event) => field.onChange(normalizeNumber(event.target.value))}
                           />
@@ -3403,7 +3528,9 @@ export function OperationFormDialog({
             {showMaterials ? (
               <div className="rounded-2xl border border-slate-800 bg-[#111827] p-4">
                 <div className="mb-3">
-                  <div className="text-sm font-semibold">{usesChemistryMix ? "Баковая смесь" : "Основные материалы"}</div>
+                  <div className="text-sm font-semibold">
+                    {usesChemistryMix ? "Баковая смесь" : isSeedWork && !selectedIsCropMix ? "Дополнительные материалы" : "Основные материалы"}
+                  </div>
                   {usesChemistryMix ? (
                     <div className="mt-1 text-xs text-slate-500">
                       Один проход опрыскивателя. Нормы можно считать на гектар, раствор, 1000 л или литр воды.
@@ -3433,34 +3560,36 @@ export function OperationFormDialog({
                   </div>
                 ) : null}
 
-                {productsLoadError ? (
+                {!isSeedWork && productsLoadError ? (
                   <div className="flex items-center justify-between gap-3 rounded border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-200">
                     <span>{productsLoadError}</span>
                     <Button type="button" size="sm" variant="outline" onClick={() => setCatalogReloadKey((current) => current + 1)}>
                       Повторить
                     </Button>
                   </div>
-                ) : productOptions.length === 0 && materials.length === 0 ? (
+                ) : !isSeedWork && productOptions.length === 0 && materials.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">
                     На складах пока нет подходящих материалов. Выберите продукт из глобального каталога.
                   </div>
-                ) : mainMaterialRows.length === 0 ? (
+                ) : !isSeedWork && mainMaterialRows.length === 0 ? (
                   <div className="rounded border border-dashed p-3 text-xs text-slate-500">
                     Основные материалы не добавлены.
                   </div>
-                ) : (
+                ) : !isSeedWork ? (
                   <div className="space-y-2">
                     {mainMaterialRows.map((row) => renderMaterialRow(row.material, row.index))}
                   </div>
-                )}
-                <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => addMaterial("main")}>
-                  <Plus className="mr-1 h-4 w-4" />
-                  Добавить строку
-                </Button>
+                ) : null}
+                {!isSeedWork ? (
+                  <Button type="button" size="sm" variant="outline" className="mt-3" onClick={() => addMaterial("main")}>
+                    <Plus className="mr-1 h-4 w-4" />
+                    Добавить строку
+                  </Button>
+                ) : null}
 
-                <div className="mt-4 border-t pt-3">
+                <div className={cn(!isSeedWork && "mt-4 border-t pt-3")}>
                   <div className="mb-2 flex items-center justify-between">
-                    <div className="text-sm font-semibold">Дополнительные материалы</div>
+                    {!isSeedWork ? <div className="text-sm font-semibold">Дополнительные материалы</div> : null}
                   </div>
                   {additionalMaterialRows.length === 0 ? (
                     <div className="rounded border border-dashed p-3 text-xs text-slate-500">
