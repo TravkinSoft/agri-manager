@@ -26,12 +26,13 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 
 ## TZ-248 seed and planting material lifecycle
 
-- TZ-248 QA status: `QA_PASS_PREVIEW_READY`; report: [task-reports/core/TZ-248.md](task-reports/core/TZ-248.md).
+- TZ-248 status: `PARTIAL_PRODUCTION_DEPLOY_BLOCKED`; report: [task-reports/core/TZ-248.md](task-reports/core/TZ-248.md).
 - Ordinary sowing/planting takes the exact crop, variety and reproduction identity from crop structure; the agronomist enters only rate and presentation unit.
 - Company-local derived product identities satisfy the legacy `product_id` contract without creating global seed products or fake stock movements.
 - Exact identity persists through receipt, batch, one material request, multi-batch issue, return, reconciliation and field history. Wrong varieties/reproductions are blocked.
 - Automated acceptance passed `57/57`; the potato lifecycle, role/RLS matrix, season guard, idempotency, crop-mix regression and two Preview viewports passed.
-- Three migrations are applied only to QA `gsglkmudcwkdetqtocae`; all temporary QA rows were cleaned and audited fingerprints restored. Production release is still gated by PR, backup, migration apply and `travkinflow.com` smoke.
+- Three migrations passed QA and were applied to production after a fresh verified backup. Business rows and four audited fingerprints stayed unchanged; production contains no new seed identity or derived seed product rows.
+- PR `#8` was merged without force at `df5d2bd617f0c049b51bf8d71dd4705557ca9d92`. Vercel blocked both automatic and manual production deployment because the team exceeded fair-use limits, so `travkinflow.com` remains on the previous build and new-build authenticated smoke is pending. Father pilot readiness is `NO`.
 
 ## TZ-241 global crops and regional varieties
 

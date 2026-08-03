@@ -114,11 +114,11 @@
 | TZ-241 | CATALOG / AGRONOMY / QA DATABASE / UI | Global crops catalog and regional varieties import V1 | copilot-v1 | DONE | TZ-239 | [task-reports/core/TZ-241.md](task-reports/core/TZ-241.md) | `SELF` |
 | TZ-242 | CROP STRUCTURE / OPERATIONS / WAREHOUSE / WEIGHBRIDGE / QA DATABASE | Grain mix V1 end-to-end lifecycle | copilot-v1 | DONE | TZ-241 | [task-reports/core/TZ-242.md](task-reports/core/TZ-242.md) | `SELF` |
 | TZ-243 | CATALOG / AGROCHEMISTRY / QA DATABASE / UI | Global fertilizers catalog V1 and unified agrochemistry menu | copilot-v1 | DONE | TZ-242 | [task-reports/core/TZ-243.md](task-reports/core/TZ-243.md) | `SELF` |
-| TZ-248 | CROP STRUCTURE / OPERATIONS / WAREHOUSE / QA DATABASE | Seed and planting material lifecycle V1 | feat/seed-planting-material-lifecycle-v1 | IN_PROGRESS | TZ-242,TZ-245,TZ-246 | [task-reports/core/TZ-248.md](task-reports/core/TZ-248.md) | `SELF` |
+| TZ-248 | CROP STRUCTURE / OPERATIONS / WAREHOUSE / QA DATABASE | Seed and planting material lifecycle V1 | feat/seed-planting-material-lifecycle-v1 | PARTIAL_BLOCKED | TZ-242,TZ-245,TZ-246 | [task-reports/core/TZ-248.md](task-reports/core/TZ-248.md) | `df5d2bd` |
 
 ## Status values
 
-Use one of: `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `DONE`, `DONE_WITH_SCHEMA_GATE`, `CANCELLED`, `SUPERSEDED`.
+Use one of: `PLANNED`, `IN_PROGRESS`, `BLOCKED`, `PARTIAL_BLOCKED`, `DONE`, `DONE_WITH_SCHEMA_GATE`, `CANCELLED`, `SUPERSEDED`.
 
 ## Registration rule
 
