@@ -28,7 +28,11 @@ TZ248_INTEGRATION_CONTRACT_IMPACT: `NO`; company-local technical seed identities
 
 TZ248_ACCEPTANCE: `QA PASS - 57/57 automated checks, exact potato lifecycle, role/RLS and season gates, cleanup fingerprints, authenticated Preview and two viewports`.
 
-TZ248_TEST_ENVIRONMENT: `gsglkmudcwkdetqtocae and Vercel Preview`; production remains gated by PR, backup, migrations and authenticated production smoke.
+TZ248_TEST_ENVIRONMENT: `gsglkmudcwkdetqtocae and Vercel Preview`; QA acceptance remains PASS.
+
+TZ248_PRODUCTION_STATE: `PARTIAL_PRODUCTION_DEPLOY_BLOCKED`; three migrations were applied after verified backup with zero business-data change, and PR `#8` merged to `master` at `df5d2bd617f0c049b51bf8d71dd4705557ca9d92`.
+
+TZ248_PRODUCTION_DEPLOY: `BLOCKED`; Vercel reported that the team exceeded fair-use limits, no new production deployment exists, and authenticated new-build smoke on `travkinflow.com` remains pending. Assistant contracts are unchanged and father pilot readiness is `NO`.
 
 ## TZ-241 review result
 
