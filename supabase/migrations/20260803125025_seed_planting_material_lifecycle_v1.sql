@@ -355,6 +355,8 @@ begin
   if v_definition is null then
     raise exception 'Atomic operation creation RPC is missing';
   end if;
+  -- pg_get_functiondef can preserve CRLF from legacy function bodies.
+  v_definition := replace(v_definition, E'\r\n', E'\n');
   if position('m.crop_id, m.variety_id, m.reproduction_id, m.material_type' in v_definition) = 0 then
     v_definition := replace(
       v_definition,
@@ -977,6 +979,8 @@ begin
   if v_definition is null then
     raise exception 'Atomic material return RPC is missing';
   end if;
+  -- Keep the textual patch stable for both LF and CRLF function bodies.
+  v_definition := replace(v_definition, E'\r\n', E'\n');
   if position('warehouse_issue_allocation_id' in v_definition) = 0 then
     v_definition := replace(
       v_definition,
