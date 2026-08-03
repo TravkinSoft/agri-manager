@@ -84,7 +84,7 @@ export async function POST(
 
     const requestItemsResult = await supabase
       .from("warehouse_issue_request_items")
-      .select("id,product_id,actual_product_id,issued_quantity,returned_quantity,consumed_quantity,planned_quantity,required_quantity,unit,return_received_quantity,loss_quantity,expected_return_quantity,reconciliation_status")
+        .select("id,product_id,actual_product_id,issued_quantity,returned_quantity,consumed_quantity,planned_quantity,required_quantity,unit,return_received_quantity,loss_quantity,expected_return_quantity,reconciliation_status,material_kind,product_category,source_mix_component_id,crop_id,variety_id,reproduction_id")
       .eq("request_id", requestId)
       .eq("company_id", companyId);
     let requestItems: any[] | null = requestItemsResult.data as any[] | null;
@@ -135,6 +135,50 @@ export async function POST(
       return NextResponse.json({ error: "Return items are required" }, { status: 400 });
     }
     const itemById = new Map((requestItems || []).map((row: any) => [String(row.id), row]));
+    const seedItemIds = (requestItems || [])
+      .filter((row: any) =>
+        String(row.material_kind || row.product_category || "") === "seed" &&
+        !row.source_mix_component_id
+      )
+      .map((row: any) => String(row.id));
+    let seedAllocations: any[] = [];
+    const acceptedByAllocation = new Map<string, number>();
+    if (acceptReturn && seedItemIds.length) {
+      const [{ data: allocations, error: allocationsError }, { data: acceptedRows, error: acceptedError }] = await Promise.all([
+        supabase
+          .from("warehouse_issue_request_item_allocations")
+          .select("id,request_item_id,batch_id,warehouse_id,issued_quantity,created_at")
+          .eq("request_id", requestId)
+          .eq("company_id", companyId)
+          .in("request_item_id", seedItemIds)
+          .gt("issued_quantity", 0)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("inventory_transactions")
+          .select("warehouse_issue_allocation_id,base_quantity")
+          .eq("warehouse_issue_request_id", requestId)
+          .eq("company_id", companyId)
+          .eq("status", "confirmed")
+          .eq("movement_type", "adjustment")
+          .eq("transaction_type", "in")
+          .not("warehouse_issue_allocation_id", "is", null),
+      ]);
+      if (allocationsError || acceptedError) {
+        return NextResponse.json(
+          { error: allocationsError?.message || acceptedError?.message || "Failed to load issued seed batches" },
+          { status: 400 }
+        );
+      }
+      seedAllocations = allocations || [];
+      for (const row of acceptedRows || []) {
+        const allocationId = String((row as any).warehouse_issue_allocation_id || "");
+        if (!allocationId) continue;
+        acceptedByAllocation.set(
+          allocationId,
+          (acceptedByAllocation.get(allocationId) || 0) + Number((row as any).base_quantity || 0)
+        );
+      }
+    }
 
     const operationMaterialByProduct = new Map<string, any>();
     if (requestRow.operation_id) {
@@ -241,6 +285,85 @@ export async function POST(
     const txPayload: any[] = [];
     for (const row of normalized.filter((item) => acceptReturn && item.returnedQuantity > MATERIAL_QTY_EPS)) {
       const stockProductId = String(row.dbItem.actual_product_id || row.dbItem.product_id || "").trim();
+      const isExactSeed = String(row.dbItem.material_kind || row.dbItem.product_category || "") === "seed"
+        && !row.dbItem.source_mix_component_id;
+      if (isExactSeed) {
+        if (
+          !row.dbItem.crop_id || !row.dbItem.variety_id || !row.dbItem.reproduction_id ||
+          String(row.dbItem.unit || "") !== "kg"
+        ) {
+          return NextResponse.json(
+            { error: `Seed request item ${row.itemId} has no exact canonical identity` },
+            { status: 409 }
+          );
+        }
+        let remainingReturn = row.returnedQuantity;
+        const allocations = seedAllocations.filter(
+          (allocation: any) => String(allocation.request_item_id) === row.itemId
+        );
+        for (const allocation of allocations) {
+          const allocationId = String(allocation.id || "");
+          const batchId = String(allocation.batch_id || "");
+          const availableForReturn = Math.max(
+            Number(allocation.issued_quantity || 0) - (acceptedByAllocation.get(allocationId) || 0),
+            0
+          );
+          const allocationReturn = Math.min(remainingReturn, availableForReturn);
+          if (allocationReturn <= MATERIAL_QTY_EPS) continue;
+          if (!batchId || String(allocation.warehouse_id || "") !== String(requestRow.source_warehouse_id)) {
+            return NextResponse.json(
+              { error: `Issued seed allocation ${allocationId} has no source batch` },
+              { status: 409 }
+            );
+          }
+          const contract = await resolveWarehouseStockContract(supabase, {
+            companyId,
+            productId: stockProductId,
+            quantity: allocationReturn,
+            inputUom: "kg",
+            requestedBatchClass: "seed",
+            event: "material_return",
+            unitSourceOverride: "stock_identity",
+          });
+          txPayload.push({
+            warehouse_id: requestRow.source_warehouse_id,
+            source_warehouse_id: null,
+            destination_warehouse_id: requestRow.source_warehouse_id,
+            product_id: stockProductId,
+            quantity: contract.baseQuantity,
+            unit: contract.baseUom,
+            base_quantity_kg: contract.massKg,
+            transaction_type: "in",
+            movement_type: "adjustment",
+            status: "confirmed",
+            operation_datetime: nowIso,
+            date: nowIso.slice(0, 10),
+            notes: `Warehouse accepted seed return from request ${requestId}`,
+            responsible_user_id: assignedSpecialistId || null,
+            confirmed_at: nowIso,
+            user_id: actor.id,
+            company_id: companyId,
+            warehouse_issue_request_id: requestId,
+            warehouse_issue_request_item_id: row.itemId,
+            allocation_id: allocationId,
+            inventory_batch_id: batchId,
+            operation_id: requestRow.operation_id || null,
+            field_id: requestRow.field_id || null,
+            quantity_input: allocationReturn,
+            input_uom: "kg",
+            ...toStockContractColumns(contract),
+          });
+          remainingReturn -= allocationReturn;
+          acceptedByAllocation.set(allocationId, (acceptedByAllocation.get(allocationId) || 0) + allocationReturn);
+        }
+        if (remainingReturn > MATERIAL_QTY_EPS) {
+          return NextResponse.json(
+            { error: `Seed return exceeds issued source batches for item ${row.itemId}` },
+            { status: 409 }
+          );
+        }
+        continue;
+      }
       const contract = await resolveWarehouseStockContract(supabase, {
         companyId,
         productId: stockProductId,

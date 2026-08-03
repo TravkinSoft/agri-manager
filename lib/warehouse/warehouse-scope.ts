@@ -16,6 +16,15 @@ export const HARVEST_WAREHOUSE_TYPES = [
   "temporary",
 ] as const;
 
+export const SEED_MATERIAL_WAREHOUSE_TYPES = [
+  "seed",
+  "grain",
+  "vegetable",
+  "potato_storage",
+  "universal",
+  "temporary",
+] as const;
+
 export function isAgrochemicalWarehouseType(value: unknown): boolean {
   return (AGROCHEMICAL_WAREHOUSE_TYPES as readonly string[]).includes(
     String(value || "").trim().toLowerCase()
@@ -32,6 +41,16 @@ export function isHarvestWarehouseType(value: unknown): boolean {
   return (HARVEST_WAREHOUSE_TYPES as readonly string[]).includes(
     String(value || "").trim().toLowerCase()
   );
+}
+
+export function isSeedMaterialWarehouseType(value: unknown): boolean {
+  return (SEED_MATERIAL_WAREHOUSE_TYPES as readonly string[]).includes(
+    String(value || "").trim().toLowerCase()
+  );
+}
+
+export function isReceiptWarehouseType(value: unknown): boolean {
+  return isAgrochemicalWarehouseType(value) || isSeedMaterialWarehouseType(value);
 }
 
 export function warehouseProductTypeLabel(value: unknown): string {

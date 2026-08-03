@@ -60,7 +60,8 @@ export interface WarehouseReceiptLineInput {
   notes?: string | null;
 }
 
-export interface WarehouseReceiptInput {
+export interface AgrochemicalWarehouseReceiptInput {
+  receipt_type?: "agrochemical";
   warehouse_id: string;
   received_at?: string;
   supplier_company_counterparty_id?: string | null;
@@ -68,6 +69,47 @@ export interface WarehouseReceiptInput {
   document_no?: string | null;
   notes?: string | null;
   lines: WarehouseReceiptLineInput[];
+}
+
+export type SeedMaterialOrigin = "purchase" | "own_production" | "opening_balance";
+
+export interface SeedMaterialWarehouseReceiptInput {
+  receipt_type: "seed";
+  warehouse_id: string;
+  crop_id: string;
+  variety_id: string;
+  reproduction_id: string;
+  quantity_kg: number;
+  origin_type: SeedMaterialOrigin;
+  batch_code?: string | null;
+  supplier_lot?: string | null;
+  supplier_company_counterparty_id?: string | null;
+  supplier_global_counterparty_id?: string | null;
+  notes?: string | null;
+}
+
+export type WarehouseReceiptInput =
+  | AgrochemicalWarehouseReceiptInput
+  | SeedMaterialWarehouseReceiptInput;
+
+export interface SeedMaterialReference {
+  id: string;
+  name: string;
+  name_ru?: string | null;
+  name_kz?: string | null;
+  name_en?: string | null;
+  crop_id?: string | null;
+  code?: string | null;
+  company_id?: string | null;
+  archived?: boolean | null;
+  is_active?: boolean | null;
+  level_order?: number | null;
+}
+
+export interface SeedMaterialReferences {
+  crops: SeedMaterialReference[];
+  varieties: SeedMaterialReference[];
+  reproductions: SeedMaterialReference[];
 }
 
 export interface WarehouseReceipt {

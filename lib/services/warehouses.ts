@@ -373,6 +373,25 @@ export async function createWarehouseReceipt(
   return payload.receipt;
 }
 
+export async function getSeedMaterialReferences(
+  companyId: string
+): Promise<import("@/lib/types/warehouse").SeedMaterialReferences> {
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(
+    `/api/crop-structure/bootstrap?companyId=${encodeURIComponent(companyId)}`,
+    { method: "GET", headers, cache: "no-store" }
+  );
+  const payload = await parseJsonOrThrow(response);
+  const active = (row: any) => !row?.archived && row?.is_active !== false;
+  return {
+    crops: (Array.isArray(payload?.crops) ? payload.crops : []).filter(active),
+    varieties: (Array.isArray(payload?.varieties) ? payload.varieties : []).filter(active),
+    reproductions: (Array.isArray(payload?.reproductions) ? payload.reproductions : [])
+      .filter(active)
+      .sort((left: any, right: any) => Number(left.level_order || 999) - Number(right.level_order || 999)),
+  };
+}
+
 export async function createProduct(
   companyId: string,
   productData: ProductFormData
