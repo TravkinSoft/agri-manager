@@ -143,6 +143,9 @@ export interface OperationMaterial {
   consumed_quantity: number | null;
   returned_quantity: number | null;
   loss_quantity?: number | null;
+  crop_id?: string | null;
+  variety_id?: string | null;
+  reproduction_id?: string | null;
   notes: string | null;
   product_name?: string | null;
   master_product_id?: string | null;
@@ -187,6 +190,11 @@ export interface OperationMaterialFormData {
   planned_quantity?: number | null;
   unit: OperationMaterialUnit;
   notes?: string | null;
+  crop_id?: string | null;
+  variety_id?: string | null;
+  reproduction_id?: string | null;
+  identity_label?: string | null;
+  rate_display_unit?: "kg_ha" | "t_ha" | null;
 }
 
 export interface OperationTankMixFormData {
@@ -278,6 +286,11 @@ export const operationSchema = z.object({
         planned_quantity: z.number().min(0).nullable().optional(),
         unit: z.enum(["kg", "l", "ml", "g", "pcs"]),
         notes: z.string().nullable().optional(),
+        crop_id: z.string().uuid().nullable().optional(),
+        variety_id: z.string().uuid().nullable().optional(),
+        reproduction_id: z.string().uuid().nullable().optional(),
+        identity_label: z.string().nullable().optional(),
+        rate_display_unit: z.enum(["kg_ha", "t_ha"]).nullable().optional(),
       })
     )
     .optional(),

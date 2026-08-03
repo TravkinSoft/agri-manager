@@ -1524,6 +1524,22 @@ export default function OperationsPage() {
                 </TabsContent>
                 <TabsContent value="warehouse" className="space-y-3 text-sm">
                   <div><span className="text-muted-foreground">Статус заявки:</span> {requestStatusByOperationId[selectedOperation.id] || "заявка не создана"}</div>
+                  {warehouseRequests.find((row) => row.operation_id === selectedOperation.id)?.items
+                    ?.filter((item) => String(item.material_kind || item.product_category || "") === "seed" && !item.source_mix_component_id)
+                    .map((item) => (
+                      <div key={`seed-trace-${item.id}`} className="rounded-md border p-3">
+                        <div className="font-medium">{item.product_name || "Семенной / посадочный материал"}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">Точная культура, сорт и репродукция зафиксированы из структуры посевов.</div>
+                        <div className="mt-2 text-sm">
+                          Партии: {(item.allocations || []).filter((allocation) => Number(allocation.issued_quantity || 0) > 0)
+                            .map((allocation) => allocation.batch_label || allocation.batch_id_text || allocation.batch_id)
+                            .filter(Boolean).join(", ") || "ещё не выданы"}
+                        </div>
+                        <div className="mt-1 text-sm">
+                          Фактическая норма: {item.actual_rate_per_ha == null ? "—" : `${item.actual_rate_per_ha} кг/га`}
+                        </div>
+                      </div>
+                    ))}
                   <div className="rounded-md border border-dashed p-4 text-muted-foreground">
                     Цепочка V2: План операции → Потребность → Выдача склада → Выполнение → Факт расхода → Возврат → История поля.
                   </div>
@@ -1776,6 +1792,9 @@ export default function OperationsPage() {
                   planned_rate: item.planned_rate,
                   actual_rate: item.actual_rate,
                   unit: item.unit,
+                  crop_id: item.crop_id,
+                  variety_id: item.variety_id,
+                  reproduction_id: item.reproduction_id,
                   notes: item.notes,
                 })),
               }

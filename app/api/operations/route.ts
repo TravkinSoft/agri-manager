@@ -30,6 +30,11 @@ import {
   isMachineryCompatible,
   machineryCompatibilityMessage,
 } from "@/lib/operations/machinery-compatibility";
+import {
+  calculateSeedRequirementKg,
+  isCompleteSeedIdentity,
+  seedIdentityKey,
+} from "@/lib/operations/seed-material";
 
 const CREATE_ALLOWED_ROLES = ["global_admin", "company_admin", "agronomist"] as const;
 type OperationCreateTiming = {
@@ -44,6 +49,24 @@ type OperationCreateTiming = {
   fast_path_ms?: number;
   total_ms: number;
   actor_breakdown?: ServerActorTiming;
+};
+
+type OperationMaterialInput = {
+  component_type?: string | null;
+  material_type?: string | null;
+  product_id?: string | null;
+  batch_id?: string | null;
+  planned_rate?: number | null;
+  actual_rate?: number | null;
+  rate_basis?: string | null;
+  planned_quantity?: number | null;
+  unit?: string | null;
+  notes?: string | null;
+  crop_id?: string | null;
+  variety_id?: string | null;
+  reproduction_id?: string | null;
+  identity_label?: string | null;
+  rate_display_unit?: "kg_ha" | "t_ha" | null;
 };
 
 type CreateOperationBody = {
@@ -70,18 +93,7 @@ type CreateOperationBody = {
     enabled?: boolean | null;
     water_rate_l_ha?: number | null;
     total_solution_l_ha?: number | null;
-    components?: Array<{
-      component_type?: string | null;
-      material_type?: string | null;
-      product_id?: string | null;
-      batch_id?: string | null;
-      planned_rate?: number | null;
-      actual_rate?: number | null;
-      rate_basis?: string | null;
-      planned_quantity?: number | null;
-      unit?: string | null;
-      notes?: string | null;
-    }>;
+    components?: OperationMaterialInput[];
   } | null;
   structure_change?: {
     mode?: "area_split" | "crop_replace" | null;
@@ -91,18 +103,7 @@ type CreateOperationBody = {
     new_reproduction_id?: string | null;
     area_ha?: number | null;
   } | null;
-  materials?: Array<{
-    component_type?: string | null;
-    material_type?: string | null;
-    product_id?: string | null;
-    batch_id?: string | null;
-    planned_rate?: number | null;
-    actual_rate?: number | null;
-    rate_basis?: string | null;
-    planned_quantity?: number | null;
-    unit?: string | null;
-    notes?: string | null;
-  }>;
+  materials?: OperationMaterialInput[];
   targets?: Array<{
     field_id?: string | null;
     crop_structure_id?: string | null;
@@ -693,6 +694,32 @@ export async function POST(request: NextRequest) {
     const targetsPlannedArea = normalizedTargets.reduce((sum, target) => sum + Number(target.planned_area_ha || 0), 0);
     const effectivePlannedArea =
       targetsPlannedArea > 0 ? Number(targetsPlannedArea.toFixed(4)) : plannedArea && plannedArea > 0 ? plannedArea : resolvedStructureArea;
+    const isOrdinarySeedPlanting = canonicalCategorySlug === "planting" && resolvedLandUseType !== "crop_mix";
+    if (isOrdinarySeedPlanting) {
+      const rootIdentity = {
+        cropId: resolvedCropId,
+        varietyId: resolvedVarietyId,
+        reproductionId: resolvedReproductionId,
+      };
+      if (!isCompleteSeedIdentity(rootIdentity)) {
+        return NextResponse.json(
+          { error: "Для посева или посадки в структуре должны быть указаны культура, сорт и репродукция." },
+          { status: 409 }
+        );
+      }
+      const rootKey = seedIdentityKey(rootIdentity);
+      const mismatchedIdentity = normalizedTargets.some((target) => seedIdentityKey({
+        cropId: target.crop_id,
+        varietyId: target.variety_id,
+        reproductionId: target.reproduction_id,
+      }) !== rootKey);
+      if (mismatchedIdentity) {
+        return NextResponse.json(
+          { error: "Выбранные участки имеют разные культуры, сорта или репродукции. Создайте отдельные планы." },
+          { status: 409 }
+        );
+      }
+    }
 
     let resolvedFieldArea: number | null = null;
     if (fieldId) {
@@ -828,6 +855,11 @@ export async function POST(request: NextRequest) {
         planned_quantity: calculatedPlannedQuantity && calculatedPlannedQuantity > 0 ? calculatedPlannedQuantity : null,
         unit,
         notes: toNullableText(item?.notes),
+        crop_id: toNullableUuid(item?.crop_id),
+        variety_id: toNullableUuid(item?.variety_id),
+        reproduction_id: toNullableUuid(item?.reproduction_id),
+        identity_label: toNullableText(item?.identity_label),
+        rate_display_unit: item?.rate_display_unit === "t_ha" ? "t_ha" : "kg_ha",
         product_required: definition.productRequired,
       };
     });
@@ -866,6 +898,24 @@ export async function POST(request: NextRequest) {
         ? seedRateKgHa * effectivePlannedArea
         : null;
     const seedRequirementT = seedRequirementKg && seedRequirementKg > 0 ? seedRequirementKg / 1000 : null;
+    const primarySeedComponent = isOrdinarySeedPlanting
+      ? tankMixComponents.find((item) => item.component_type === "seed") || null
+      : null;
+    if (isOrdinarySeedPlanting) {
+      if (!primarySeedComponent || primarySeedComponent.product_id) {
+        return NextResponse.json(
+          { error: "Основной семенной материал должен автоматически браться из структуры посевов." },
+          { status: 409 }
+        );
+      }
+      if (!primarySeedComponent.planned_rate || primarySeedComponent.planned_rate <= 0) {
+        return NextResponse.json({ error: "Укажите норму семенного или посадочного материала." }, { status: 400 });
+      }
+    }
+    const canonicalSeedRateKgHa = isOrdinarySeedPlanting ? Number(primarySeedComponent?.planned_rate || 0) : seedRateKgHa;
+    const canonicalSeedRequirementKg = isOrdinarySeedPlanting
+      ? calculateSeedRequirementKg(effectivePlannedArea, canonicalSeedRateKgHa, "kg_ha")
+      : seedRequirementKg;
 
     const operationConfig = {
       operation_engine_type: canonicalType?.slug || operationTypeSlug || null,
@@ -881,16 +931,17 @@ export async function POST(request: NextRequest) {
         irrigation_type: resolvedIrrigationType,
         row_spacing_m: resolvedRowSpacingM,
         seed_spacing_cm: resolvedSeedSpacingCm,
-        seed_rate_kg_ha: isPotatoPlantingTemplate ? seedRateKgHa : requestedOperationParams.seed_rate_kg_ha,
-        seed_rate_t_ha: isPotatoPlantingTemplate ? seedRateTHa : requestedOperationParams.seed_rate_t_ha,
-        seed_requirement_kg: isPotatoPlantingTemplate ? seedRequirementKg : requestedOperationParams.seed_requirement_kg,
-        seed_requirement_t: isPotatoPlantingTemplate ? seedRequirementT : requestedOperationParams.seed_requirement_t,
+        seed_rate_kg_ha: isOrdinarySeedPlanting ? canonicalSeedRateKgHa : isPotatoPlantingTemplate ? seedRateKgHa : requestedOperationParams.seed_rate_kg_ha,
+        seed_rate_t_ha: isOrdinarySeedPlanting ? Number(canonicalSeedRateKgHa || 0) / 1000 : isPotatoPlantingTemplate ? seedRateTHa : requestedOperationParams.seed_rate_t_ha,
+        seed_rate_display_unit: isOrdinarySeedPlanting ? primarySeedComponent?.rate_display_unit : requestedOperationParams.seed_rate_display_unit,
+        seed_requirement_kg: isOrdinarySeedPlanting ? canonicalSeedRequirementKg : isPotatoPlantingTemplate ? seedRequirementKg : requestedOperationParams.seed_requirement_kg,
+        seed_requirement_t: isOrdinarySeedPlanting && canonicalSeedRequirementKg ? canonicalSeedRequirementKg / 1000 : isPotatoPlantingTemplate ? seedRequirementT : requestedOperationParams.seed_requirement_t,
         calculated_plants_per_ha: calculatedPlantsPerHa,
         calculated_total_plants: calculatedTotalPlants,
         calculated_tubers_per_ha: isPotatoPlantingTemplate ? calculatedPlantsPerHa : requestedOperationParams.calculated_tubers_per_ha,
         calculated_total_tubers: isPotatoPlantingTemplate ? calculatedTotalPlants : requestedOperationParams.calculated_total_tubers,
         expected_density_plants_per_ha: isPotatoPlantingTemplate ? calculatedPlantsPerHa : requestedOperationParams.expected_density_plants_per_ha,
-        seed_material_context: isPotatoPlantingTemplate
+        seed_material_context: isOrdinarySeedPlanting
           ? {
               crop_id: resolvedCropId,
               variety_id: resolvedVarietyId,
@@ -1000,6 +1051,23 @@ export async function POST(request: NextRequest) {
         };
       })
       .filter(Boolean) as Array<Record<string, unknown>>;
+    if (isOrdinarySeedPlanting && primarySeedComponent && canonicalSeedRequirementKg) {
+      materialRows.unshift({
+        operation_line_id: null,
+        product_id: null,
+        batch_id: null,
+        material_type: "seed",
+        unit: "kg",
+        planned_rate: canonicalSeedRateKgHa,
+        actual_rate: null,
+        planned_quantity: canonicalSeedRequirementKg,
+        crop_id: resolvedCropId,
+        variety_id: resolvedVarietyId,
+        reproduction_id: resolvedReproductionId,
+        identity_label: primarySeedComponent.identity_label,
+        notes: `rate_display_unit:${primarySeedComponent.rate_display_unit}`,
+      });
+    }
 
     const lineRows = normalizedTargets.length > 0
       ? normalizedTargets.map((target) => ({
@@ -1054,7 +1122,23 @@ export async function POST(request: NextRequest) {
           p_idempotency_key: idempotencyKey,
           p_request_fingerprint: requestFingerprint,
         })
-      : await supabase.rpc("create_operation_plan_atomic_v12", {
+      : isOrdinarySeedPlanting
+        ? await supabase.rpc("create_seed_planting_operation_plan_atomic_v1", {
+            p_company_id: companyId,
+            p_actor_profile_id: actor.id,
+            p_operation: {
+              ...operationPayload,
+              crop_id: resolvedCropId,
+              variety_id: resolvedVarietyId,
+              reproduction_id: resolvedReproductionId,
+            },
+            p_lines: lineRows,
+            p_materials: materialRows,
+            p_structure_change: pendingStructureChangeEvent || {},
+            p_idempotency_key: idempotencyKey,
+            p_request_fingerprint: requestFingerprint,
+          })
+        : await supabase.rpc("create_operation_plan_atomic_v12", {
           p_company_id: companyId,
           p_actor_profile_id: actor.id,
           p_operation: {

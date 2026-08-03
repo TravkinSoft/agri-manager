@@ -617,7 +617,7 @@ export async function updateOperation(
   if (!materialSource) {
     const { data: currentMaterials, error: currentMaterialsError } = await supabase
       .from("operation_materials")
-      .select("product_id,batch_id,material_type,unit,planned_rate,actual_rate,planned_quantity,notes")
+      .select("product_id,batch_id,material_type,unit,planned_rate,actual_rate,planned_quantity,crop_id,variety_id,reproduction_id,notes")
       .eq("company_id", companyId)
       .eq("operation_id", operationId)
       .order("created_at", { ascending: true });
@@ -641,6 +641,9 @@ export async function updateOperation(
           planned_rate: item?.planned_rate ?? null,
           actual_rate: item?.actual_rate ?? null,
           planned_quantity: item?.planned_quantity ?? null,
+          crop_id: item?.crop_id || null,
+          variety_id: item?.variety_id || null,
+          reproduction_id: item?.reproduction_id || null,
           notes: serializeMaterialNotes({
             notes: item?.notes,
             componentType: item?.component_type,

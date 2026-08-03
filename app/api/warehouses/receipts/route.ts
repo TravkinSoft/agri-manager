@@ -7,8 +7,13 @@ import {
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
 import { AGROCHEMICAL_WAREHOUSE_TYPES } from "@/lib/warehouse/warehouse-scope";
-import { isAgrochemicalProductType, isAgrochemicalWarehouseType } from "@/lib/warehouse/warehouse-scope";
+import {
+  isAgrochemicalProductType,
+  isAgrochemicalWarehouseType,
+  isSeedMaterialWarehouseType,
+} from "@/lib/warehouse/warehouse-scope";
 import { COUNTERPARTY_SELECT, normalizeCounterpartyRow } from "@/lib/counterparties/rows";
+import { operationMutationError, requireOperationIdempotency } from "@/lib/server/operation-mutation";
 
 const READ_ROLES = ["global_admin", "company_admin", "warehouse", "warehouse_operator"] as const;
 const WRITE_ROLES = ["global_admin", "warehouse", "warehouse_operator"] as const;
@@ -126,29 +131,106 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Idempotency-Key must be a UUID" }, { status: 400 });
     }
 
+    const warehouseId = String(body.warehouse_id || "").trim();
+    if (!UUID_RE.test(warehouseId)) {
+      return NextResponse.json({ error: "Выберите склад назначения" }, { status: 400 });
+    }
+    const { data: warehouse, error: warehouseError } = await supabase
+      .from("warehouses")
+      .select("id,warehouse_type")
+      .eq("id", warehouseId)
+      .eq("company_id", companyId)
+      .eq("archived", false)
+      .eq("is_archived", false)
+      .maybeSingle();
+    if (warehouseError) throw new Error(warehouseError.message);
+    if (!warehouse?.id) {
+      return NextResponse.json({ error: "Склад недоступен в выбранной компании" }, { status: 403 });
+    }
+
+    if (String(body.receipt_type || "") === "seed") {
+      if (!isSeedMaterialWarehouseType(warehouse.warehouse_type)) {
+        return NextResponse.json(
+          { error: "Семенной и посадочный материал нельзя принять на этот тип склада" },
+          { status: 403 }
+        );
+      }
+      const cropId = String(body.crop_id || "").trim();
+      const varietyId = String(body.variety_id || "").trim();
+      const reproductionId = String(body.reproduction_id || "").trim();
+      if (![cropId, varietyId, reproductionId].every((value) => UUID_RE.test(value))) {
+        return NextResponse.json(
+          { error: "Укажите точные культуру, сорт и репродукцию" },
+          { status: 400 }
+        );
+      }
+      const quantityKg = Number(body.quantity_kg);
+      if (!Number.isFinite(quantityKg) || quantityKg <= 0) {
+        return NextResponse.json({ error: "Количество должно быть больше нуля" }, { status: 400 });
+      }
+      const originType = String(body.origin_type || "").trim();
+      if (!["purchase", "own_production", "opening_balance"].includes(originType)) {
+        return NextResponse.json({ error: "Укажите происхождение материала" }, { status: 400 });
+      }
+      const supplierCompanyId = String(body.supplier_company_counterparty_id || "").trim() || null;
+      const supplierGlobalId = String(body.supplier_global_counterparty_id || "").trim() || null;
+      if (supplierCompanyId && !UUID_RE.test(supplierCompanyId)) {
+        return NextResponse.json({ error: "Некорректный поставщик компании" }, { status: 400 });
+      }
+      if (supplierGlobalId && !UUID_RE.test(supplierGlobalId)) {
+        return NextResponse.json({ error: "Некорректный глобальный поставщик" }, { status: 400 });
+      }
+      if (originType === "purchase" && !supplierCompanyId && !supplierGlobalId) {
+        return NextResponse.json({ error: "Для закупки выберите поставщика" }, { status: 400 });
+      }
+      if (originType !== "purchase" && (supplierCompanyId || supplierGlobalId)) {
+        return NextResponse.json(
+          { error: "Поставщик указывается только для закупленного материала" },
+          { status: 400 }
+        );
+      }
+
+      const idempotency = requireOperationIdempotency(request, {
+        ...body,
+        companyId,
+        action: "seed_receipt",
+      });
+      const { data, error } = await supabase.rpc("create_seed_material_receipt_atomic_v1", {
+        p_company_id: companyId,
+        p_actor_profile_id: actor.id,
+        p_warehouse_id: warehouseId,
+        p_crop_id: cropId,
+        p_variety_id: varietyId,
+        p_reproduction_id: reproductionId,
+        p_quantity_kg: Number(quantityKg.toFixed(4)),
+        p_origin_type: originType,
+        p_batch_code: String(body.batch_code || "").trim() || null,
+        p_supplier_lot: String(body.supplier_lot || "").trim() || null,
+        p_supplier_company_counterparty_id: supplierCompanyId,
+        p_supplier_global_counterparty_id: supplierGlobalId,
+        p_notes: String(body.notes || "").trim() || null,
+        p_idempotency_key: idempotency.key,
+        p_request_fingerprint: idempotency.fingerprint,
+      });
+      if (error || !data) {
+        const failure = operationMutationError(error, "Приход семенного материала не проведён");
+        return NextResponse.json({ error: failure.message }, { status: failure.status });
+      }
+      return NextResponse.json({ receipt: { ...data, status: "completed" } });
+    }
+
     const lines = Array.isArray(body.lines) ? body.lines : [];
     if (!lines.length) {
       return NextResponse.json({ error: "Добавьте хотя бы одну строку прихода" }, { status: 400 });
     }
     const productIds = Array.from(new Set(lines.map((line: any) => String(line.product_id || "")).filter(Boolean)));
-    const warehouseId = String(body.warehouse_id || "").trim();
-    const [{ data: warehouse }, { data: products, error: productError }] = await Promise.all([
-      supabase
-        .from("warehouses")
-        .select("id,warehouse_type")
-        .eq("id", warehouseId)
-        .eq("company_id", companyId)
-        .eq("archived", false)
-        .eq("is_archived", false)
-        .maybeSingle(),
-      productIds.length
-        ? supabase
-            .from("products")
-            .select("id,type,product_type,category,company_id")
-            .in("id", productIds)
-            .or(`company_id.eq.${companyId},company_id.is.null`)
-        : Promise.resolve({ data: [] as any[], error: null }),
-    ]);
+    const { data: products, error: productError } = productIds.length
+      ? await supabase
+          .from("products")
+          .select("id,type,product_type,category,company_id")
+          .in("id", productIds)
+          .or(`company_id.eq.${companyId},company_id.is.null`)
+      : { data: [] as any[], error: null };
     if (productError) throw new Error(productError.message);
     if (!warehouse?.id || !isAgrochemicalWarehouseType(warehouse.warehouse_type)) {
       return NextResponse.json(

@@ -1,6 +1,6 @@
 # Core Live State
 
-LAST_UPDATED: 2026-08-01
+LAST_UPDATED: 2026-08-03
 CORE_BRANCH: `copilot-v1`
 CORE_COMMIT: `SELF` (commit containing this Live-state update; TZ-241 feature commit: `2f3adbd`)
 PRODUCTION_COMMIT: `321e45fa681fecff89307545d0ec3fa600b4c982`
@@ -23,6 +23,15 @@ PRODUCTION_STATUS: `READY_WITH_CONTROLLED_P1_GAPS`; production работает,
 | Сезоны | LIMITED | Контекст 2026 используется. В live есть несколько исторических season rows с `archived=false`; принудительный read-only режим закрытого сезона требует отдельной проверки. |
 | Пользователи и роли | READY | Company isolation, role switcher и основные роли Test1 проверены. Доступ всегда должен подтверждаться серверной сессией и RLS/ACL. |
 | Travkin Assistant | A110_READ_ONLY_GATE_READY | TZ-195 preview принят владельцем. TZ-197 закрыл preview-pending GLBD actions; A110 может начинать read-only с safety matrix и блокировкой десяти `BLOCKED_NO_DATA`. Agronomic recommendations остаются запрещены. |
+
+## TZ-248 seed and planting material lifecycle
+
+- TZ-248 QA status: `QA_PASS_PREVIEW_READY`; report: [task-reports/core/TZ-248.md](task-reports/core/TZ-248.md).
+- Ordinary sowing/planting takes the exact crop, variety and reproduction identity from crop structure; the agronomist enters only rate and presentation unit.
+- Company-local derived product identities satisfy the legacy `product_id` contract without creating global seed products or fake stock movements.
+- Exact identity persists through receipt, batch, one material request, multi-batch issue, return, reconciliation and field history. Wrong varieties/reproductions are blocked.
+- Automated acceptance passed `57/57`; the potato lifecycle, role/RLS matrix, season guard, idempotency, crop-mix regression and two Preview viewports passed.
+- Three migrations are applied only to QA `gsglkmudcwkdetqtocae`; all temporary QA rows were cleaned and audited fingerprints restored. Production release is still gated by PR, backup, migration apply and `travkinflow.com` smoke.
 
 ## TZ-241 global crops and regional varieties
 

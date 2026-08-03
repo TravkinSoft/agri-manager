@@ -1,6 +1,6 @@
 # Core Assistant Sync State
 
-LAST_REVIEW_AT: 2026-08-01T00:00:00+05:00
+LAST_REVIEW_AT: 2026-08-03T00:00:00+05:00
 CORE_BRANCH: `copilot-v1`
 CORE_COMMIT: `SELF` (TZ-241 feature commit: `2f3adbd`)
 
@@ -17,6 +17,18 @@ INTEGRATION_CONTRACT_VERSION: `0.4`
 INTEGRATION_CONTRACT_SHA256: `23F7C742DAA9C991933D3298404A8E8C2AF58A2DC0222B1523923F9E59038FF1`
 CORE_ACTION_REQUIRED: COMPLETED_BY_TZ169 — Memory Policy V2 applied only to `gsglkmudcwkdetqtocae`; real JWT acceptance passed without production mutation.
 NEXT_SAFE_ACTION: Accept a separately approved owner-supplied regional variety package. Do not start grain mixtures, refresh the Assistant snapshot or enable agronomic recommendations without a separate approved task.
+
+## TZ-248 review result
+
+TZ248_ASSISTANT_CHANGES_FOUND: `NO`; Assistant runtime, memory, Contract 0.4 and GLBD recommendation boundaries were not changed.
+
+TZ248_CORE_IMPACT_FOUND: `YES - crop-structure seed identity, planting demand, warehouse batches, material requests, issue/return reconciliation and field history`.
+
+TZ248_INTEGRATION_CONTRACT_IMPACT: `NO`; company-local technical seed identities are not GLBD entities and are not exposed as Assistant recommendation data.
+
+TZ248_ACCEPTANCE: `QA PASS - 57/57 automated checks, exact potato lifecycle, role/RLS and season gates, cleanup fingerprints, authenticated Preview and two viewports`.
+
+TZ248_TEST_ENVIRONMENT: `gsglkmudcwkdetqtocae and Vercel Preview`; production remains gated by PR, backup, migrations and authenticated production smoke.
 
 ## TZ-241 review result
 

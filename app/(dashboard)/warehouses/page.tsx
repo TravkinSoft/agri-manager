@@ -56,6 +56,7 @@ import type {
 } from "@/lib/types/warehouse";
 import {
   isAgrochemicalWarehouseType,
+  isReceiptWarehouseType,
   warehouseProductTypeLabel,
   warehouseTypeLabel,
 } from "@/lib/warehouse/warehouse-scope";
@@ -224,7 +225,13 @@ export default function WarehousesPage() {
           row.destination_warehouse_id === selectedWarehouseId
       ).slice(0, 20)
     : [];
-  const selectedCanOperate = Boolean(
+  const selectedCanReceive = Boolean(
+    selectedSummary &&
+    canStockOperate &&
+    isReceiptWarehouseType(selectedSummary.warehouse.warehouse_type) &&
+    !isArchived(selectedSummary.warehouse)
+  );
+  const selectedCanTransfer = Boolean(
     selectedSummary &&
     canStockOperate &&
     isAgrochemicalWarehouseType(selectedSummary.warehouse.warehouse_type) &&
@@ -366,14 +373,14 @@ export default function WarehousesPage() {
                       {warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)} · последнее движение {formatDate(selectedSummary.latest?.operation_datetime || selectedSummary.latest?.created_at)}
                     </DialogDescription>
                   </div>
-                  {selectedCanOperate ? (
+                  {selectedCanReceive ? (
                     <div className="flex flex-wrap gap-2">
                       <Button onClick={() => setReceiptWarehouseId(selectedSummary.warehouse.id)}>
                         <PackagePlus className="mr-2 h-4 w-4" />Создать приход
                       </Button>
-                      <Button variant="outline" onClick={() => setTransferOpen(true)}>
+                      {selectedCanTransfer ? <Button variant="outline" onClick={() => setTransferOpen(true)}>
                         <ArrowRightLeft className="mr-2 h-4 w-4" />Переместить
-                      </Button>
+                      </Button> : null}
                       <Button asChild variant="outline">
                         <Link href="/warehouses/requests"><ClipboardList className="mr-2 h-4 w-4" />Заявки</Link>
                       </Button>
@@ -538,7 +545,7 @@ export default function WarehousesPage() {
           open={receiptWarehouseId !== null}
           onOpenChange={(open) => !open && setReceiptWarehouseId(null)}
           companyId={profile.company_id}
-          warehouses={warehouses.filter((warehouse) => !isArchived(warehouse) && isAgrochemicalWarehouseType(warehouse.warehouse_type))}
+          warehouses={warehouses.filter((warehouse) => !isArchived(warehouse) && isReceiptWarehouseType(warehouse.warehouse_type))}
           products={products}
           defaultWarehouseId={receiptWarehouseId}
           onCreated={async (receipt) => {
@@ -547,7 +554,7 @@ export default function WarehousesPage() {
           }}
         />
       ) : null}
-      {profile?.company_id && selectedCanOperate ? (
+      {profile?.company_id && selectedCanTransfer ? (
         <WarehouseTransferDialog
           open={transferOpen}
           onOpenChange={setTransferOpen}
