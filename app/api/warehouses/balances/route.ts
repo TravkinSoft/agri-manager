@@ -69,6 +69,41 @@ function isOpenRequest(row: any): boolean {
   return ["new", "active", "preparing", "ready"].includes(String(row.status || ""));
 }
 
+const LEDGER_SELECT = `
+  id,
+  company_id,
+  warehouse_id,
+  product_id,
+  direction,
+  quantity,
+  delta_qty_signed,
+  uom,
+  occurred_at,
+  created_at,
+  warehouses:warehouse_id (id,name,name_ru,name_kz,name_en,warehouse_type)
+`;
+
+async function loadLedgerRows(
+  supabase: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>,
+  companyId: string
+) {
+  const withUnitContract = await supabase
+    .from("stock_ledger_entries")
+    .select(`${LEDGER_SELECT},unit_contract_version`)
+    .eq("company_id", companyId)
+    .order("occurred_at", { ascending: true });
+
+  if (!withUnitContract.error || !String(withUnitContract.error.message || "").includes("unit_contract_version")) {
+    return withUnitContract;
+  }
+
+  return supabase
+    .from("stock_ledger_entries")
+    .select(LEDGER_SELECT)
+    .eq("company_id", companyId)
+    .order("occurred_at", { ascending: true });
+}
+
 export async function GET(request: NextRequest) {
   try {
     const actor = await getServerActorFromSession(request);
@@ -85,22 +120,7 @@ export async function GET(request: NextRequest) {
     });
 
     const [ledgerResult, catalogResult, requestResult] = await Promise.all([
-      supabase.from("stock_ledger_entries").select(`
-        id,
-        company_id,
-        warehouse_id,
-        product_id,
-        direction,
-        quantity,
-        delta_qty_signed,
-        uom,
-        unit_contract_version,
-        occurred_at,
-        created_at,
-        warehouses:warehouse_id (id,name,name_ru,name_kz,name_en,warehouse_type)
-      `)
-      .eq("company_id", companyId)
-      .order("occurred_at", { ascending: true }),
+      loadLedgerRows(supabase, companyId),
       supabase
         .from("products")
         .select("id,master_product_id,name,trade_name,normalized_name,manufacturer,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,base_uom,company_id,archived,is_active,created_at")
