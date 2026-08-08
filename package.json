@@ -16,6 +16,7 @@
     "qa:tz243": "npx --no-install tsx scripts/qa-tz243-global-fertilizers.ts",
     "qa:tz245": "npx --no-install tsx scripts/qa-tz245-global-material-select.ts",
     "qa:tz246": "npx --no-install tsx scripts/qa-tz246-global-catalog-stability.ts",
+    "qa:tz247": "npx --no-install tsx scripts/qa-tz247-unified-preparation.ts",
     "qa:tz248": "npx --no-install tsx scripts/qa-tz248-seed-lifecycle.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
     "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",
