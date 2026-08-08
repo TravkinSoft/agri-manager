@@ -33,8 +33,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: '/brand/v1/travkinflow-logo.png',
-        width: 1078,
-        height: 227,
+        width: 1055,
+        height: 195,
         alt: 'TravkinFlow',
       },
     ],
@@ -44,8 +44,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: '/brand/v1/travkinflow-logo.png',
-        width: 1078,
-        height: 227,
+        width: 1055,
+        height: 195,
         alt: 'TravkinFlow',
       },
     ],

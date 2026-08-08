@@ -49,7 +49,7 @@ export default function LoginPage() {
     <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
-          <TravkinLogo className="mx-auto mb-4 h-12 w-[230px] shadow-none" />
+          <TravkinLogo size="large" className="mx-auto mb-4" />
           <CardTitle className="text-center text-2xl font-bold">Вход</CardTitle>
           <CardDescription className="text-center">Введите email и пароль</CardDescription>
         </CardHeader>

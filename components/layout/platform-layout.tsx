@@ -154,7 +154,7 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
       <header className="border-b border-[#061329] bg-[#0b1f3a] text-slate-100 shadow-[0_1px_0_rgba(255,255,255,0.08)_inset]">
         <div className="flex min-h-10 flex-col gap-2 px-3 py-2 text-[11px] sm:flex-row sm:items-center sm:justify-between sm:px-4">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <TravkinLogo className="h-8 w-36 border-slate-300/50 px-1.5 py-0.5 shadow-none" />
+            <TravkinLogo size="mobile" />
             <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em]">
               ГЛОБАЛЬНАЯ КОНСОЛЬ
             </span>
