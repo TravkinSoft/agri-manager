@@ -22,13 +22,20 @@ export const metadata: Metadata = {
     statusBarStyle: 'black-translucent',
   },
   icons: {
-    icon: '/travkin-icon.svg',
-    apple: '/travkin-icon.svg',
+    icon: [
+      { url: '/brand/v1/icons/favicon-16.png', type: 'image/png', sizes: '16x16' },
+      { url: '/brand/v1/icons/favicon-32.png', type: 'image/png', sizes: '32x32' },
+    ],
+    shortcut: [{ url: '/brand/v1/icons/shortcut-48.png', type: 'image/png', sizes: '48x48' }],
+    apple: [{ url: '/brand/v1/icons/apple-touch-icon-180.png', type: 'image/png', sizes: '180x180' }],
   },
   openGraph: {
     images: [
       {
-        url: 'https://bolt.new/static/og_default.png',
+        url: '/brand/v1/travkinflow-logo.png',
+        width: 1078,
+        height: 227,
+        alt: 'TravkinFlow',
       },
     ],
   },
@@ -36,7 +43,10 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     images: [
       {
-        url: 'https://bolt.new/static/og_default.png',
+        url: '/brand/v1/travkinflow-logo.png',
+        width: 1078,
+        height: 227,
+        alt: 'TravkinFlow',
       },
     ],
   },

@@ -10,9 +10,9 @@ import {
   Play,
   Scale,
   ShieldCheck,
-  Sprout,
   Warehouse,
 } from "lucide-react";
+import { TravkinLogo } from "@/components/layout/travkin-logo";
 
 const features = [
   {
@@ -60,17 +60,7 @@ const copilotPrompts = [
 ];
 
 function ProductLogo() {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-yellow-400/35 bg-yellow-400/10 text-yellow-300">
-        <Sprout className="h-5 w-5" />
-      </div>
-      <div>
-        <div className="text-sm font-black tracking-wide text-white">TRAVKINFLOW</div>
-        <div className="text-[11px] text-slate-400">Created by farmers for farmers</div>
-      </div>
-    </div>
-  );
+  return <TravkinLogo className="h-11 w-[210px]" />;
 }
 
 function ProductMockup() {

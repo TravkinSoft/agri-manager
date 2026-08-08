@@ -6,7 +6,6 @@ import {
   ArrowLeftRight,
   Brain,
   Building2,
-  Shield,
   Sprout,
   FlaskConical,
   Tractor,
@@ -19,6 +18,7 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import { Button } from "@/components/ui/button";
+import { TravkinLogo } from "@/components/layout/travkin-logo";
 import {
   loadPlatformRuntimeStatus,
   type PlatformRuntimeStatus,
@@ -154,9 +154,9 @@ export function PlatformLayout({ children }: { children: React.ReactNode }) {
       <header className="border-b border-[#061329] bg-[#0b1f3a] text-slate-100 shadow-[0_1px_0_rgba(255,255,255,0.08)_inset]">
         <div className="flex min-h-10 flex-col gap-2 px-3 py-2 text-[11px] sm:flex-row sm:items-center sm:justify-between sm:px-4">
           <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <Shield className="h-4 w-4 text-slate-200" />
+            <TravkinLogo className="h-8 w-36 border-slate-300/50 px-1.5 py-0.5 shadow-none" />
             <span className="font-mono text-[12px] font-semibold uppercase tracking-[0.18em]">
-              TRAVKINFLOW / ГЛОБАЛЬНАЯ КОНСОЛЬ
+              ГЛОБАЛЬНАЯ КОНСОЛЬ
             </span>
             <span className="border border-slate-400/30 bg-white/5 px-2 py-0.5 font-mono uppercase text-slate-300">
               внутренний доступ администратора

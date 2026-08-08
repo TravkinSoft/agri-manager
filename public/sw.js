@@ -1,8 +1,18 @@
-const CACHE_VERSION = "travkinflow-v3";
+const CACHE_VERSION = "travkinflow-v4-brand-v1";
 const STATIC_CACHE = `${CACHE_VERSION}:static`;
 const PAGE_CACHE = `${CACHE_VERSION}:pages`;
 
-const STATIC_ASSETS = ["/manifest.webmanifest", "/travkin-icon.svg"];
+const STATIC_ASSETS = [
+  "/manifest.webmanifest",
+  "/brand/v1/travkinflow-logo.png",
+  "/brand/v1/travkinflow-symbol.png",
+  "/brand/v1/icons/favicon-32.png",
+  "/brand/v1/icons/icon-192.png",
+  "/brand/v1/icons/icon-512.png",
+  "/brand/v1/icons/maskable-192.png",
+  "/brand/v1/icons/maskable-512.png",
+  "/brand/v1/icons/apple-touch-icon-180.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

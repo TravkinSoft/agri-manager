@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader as Loader2 } from "lucide-react";
+import { TravkinLogo } from "@/components/layout/travkin-logo";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -48,7 +49,8 @@ export default function LoginPage() {
     <div className="mobile-safe-bottom mobile-safe-top flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 px-4 py-6">
       <Card className="w-full max-w-md shadow-xl">
         <CardHeader className="space-y-1">
-          <CardTitle className="text-center text-2xl font-bold">Вход в TravkinFlow</CardTitle>
+          <TravkinLogo className="mx-auto mb-4 h-12 w-[230px] shadow-none" />
+          <CardTitle className="text-center text-2xl font-bold">Вход</CardTitle>
           <CardDescription className="text-center">Введите email и пароль</CardDescription>
         </CardHeader>
         <form onSubmit={handleSubmit}>
