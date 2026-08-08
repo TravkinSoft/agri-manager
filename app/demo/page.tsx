@@ -10,9 +10,9 @@ import {
   Map,
   Scale,
   ShieldCheck,
-  Sprout,
   Warehouse,
 } from "lucide-react";
+import { TravkinLogo } from "@/components/layout/travkin-logo";
 
 type DemoModule = "fields" | "operations" | "warehouses" | "weighbridge" | "copilot";
 
@@ -53,14 +53,8 @@ const tickets = [
 
 function DemoLogo() {
   return (
-    <Link href="/" className="flex items-center gap-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-yellow-400/35 bg-yellow-400/10 text-yellow-300">
-        <Sprout className="h-5 w-5" />
-      </div>
-      <div>
-        <div className="text-sm font-black tracking-wide text-white">TRAVKINFLOW</div>
-        <div className="text-[11px] text-slate-400">Demo Farm</div>
-      </div>
+    <Link href="/" aria-label="TravkinFlow">
+      <TravkinLogo className="h-11 w-[210px]" />
     </Link>
   );
 }

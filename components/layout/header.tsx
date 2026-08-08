@@ -281,13 +281,10 @@ export function Header() {
         <Menu className="h-5 w-5" />
       </Button>
 
-      <div className="flex min-w-0 items-center gap-2 md:hidden">
-        <TravkinLogo compact />
-        <div className="min-w-0 leading-tight">
-          <div className="truncate text-sm font-semibold text-[#F3F4F6]">TRAVKINFLOW</div>
-          <div className="truncate text-[11px] text-[#9CA3AF]">
-            {activeCompanyName || (isGlobal ? t("platform_mode") : getRoleLabel(profile?.role))}
-          </div>
+      <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
+        <TravkinLogo className="h-8 w-[138px] px-1.5 py-0.5" />
+        <div className="max-w-[138px] truncate text-[10px] leading-none text-[#9CA3AF]">
+          {activeCompanyName || (isGlobal ? t("platform_mode") : getRoleLabel(profile?.role))}
         </div>
       </div>
 
