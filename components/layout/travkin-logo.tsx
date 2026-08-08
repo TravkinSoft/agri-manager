@@ -3,33 +3,71 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
-const FULL_LOGO = "/brand/v1/travkinflow-logo.png";
 const SYMBOL = "/brand/v1/travkinflow-symbol.png";
 
 export function TravkinLogo({
   compact = false,
+  size = "default",
   className,
 }: {
   compact?: boolean;
+  size?: "default" | "mobile" | "large";
   className?: string;
 }) {
+  const isLarge = !compact && size === "large";
+  const isMobile = !compact && size === "mobile";
+
   return (
     <div
+      role="img"
+      aria-label="TravkinFlow"
       className={cn(
-        "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-md border border-[#b69a55]/45 bg-[#d8d5ce] shadow-[0_0_18px_rgba(224,177,0,0.12)]",
-        compact ? "h-9 w-12 px-1" : "h-11 w-[208px] px-2 py-1",
+        "inline-flex shrink-0 items-center justify-center bg-transparent",
+        compact
+          ? "h-10 w-14"
+          : isLarge
+            ? "h-14 w-[270px] gap-2"
+            : isMobile
+              ? "h-9 w-[166px] gap-1"
+              : "h-10 w-[180px] gap-1",
         className
       )}
     >
-      <Image
-        src={compact ? SYMBOL : FULL_LOGO}
-        alt="TravkinFlow"
-        width={compact ? 740 : 1078}
-        height={compact ? 309 : 227}
-        className="max-h-full w-auto max-w-full object-contain"
-        sizes={compact ? "48px" : "208px"}
-        priority
-      />
+      <span
+        className={cn(
+          "relative block shrink-0",
+          compact
+            ? "h-9 w-14"
+            : isLarge
+              ? "h-14 w-[100px]"
+              : isMobile
+                ? "h-8 w-[62px]"
+                : "h-9 w-[68px]"
+        )}
+      >
+        <Image
+          src={SYMBOL}
+          alt=""
+          aria-hidden="true"
+          fill
+          className="object-contain"
+          sizes={compact ? "56px" : isLarge ? "100px" : isMobile ? "62px" : "68px"}
+          priority
+        />
+      </span>
+
+      {!compact ? (
+        <span
+          aria-hidden="true"
+          className={cn(
+            "flex min-w-0 items-baseline whitespace-nowrap font-semibold leading-none",
+            isLarge ? "text-[32px]" : isMobile ? "text-[20px]" : "text-[22px]"
+          )}
+        >
+          <span className="text-[#F3F4F6]">Travkin</span>
+          <span className="text-[#E0B100]">Flow</span>
+        </span>
+      ) : null}
     </div>
   );
 }

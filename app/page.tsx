@@ -60,7 +60,7 @@ const copilotPrompts = [
 ];
 
 function ProductLogo() {
-  return <TravkinLogo className="h-11 w-[210px]" />;
+  return <TravkinLogo />;
 }
 
 function ProductMockup() {

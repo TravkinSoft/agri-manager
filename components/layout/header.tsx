@@ -282,8 +282,8 @@ export function Header() {
       </Button>
 
       <div className="flex min-w-0 flex-col gap-0.5 md:hidden">
-        <TravkinLogo className="h-8 w-[138px] px-1.5 py-0.5" />
-        <div className="max-w-[138px] truncate text-[10px] leading-none text-[#9CA3AF]">
+        <TravkinLogo size="mobile" />
+        <div className="max-w-[166px] truncate text-[10px] leading-none text-[#9CA3AF]">
           {activeCompanyName || (isGlobal ? t("platform_mode") : getRoleLabel(profile?.role))}
         </div>
       </div>

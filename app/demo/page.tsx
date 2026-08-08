@@ -54,7 +54,7 @@ const tickets = [
 function DemoLogo() {
   return (
     <Link href="/" aria-label="TravkinFlow">
-      <TravkinLogo className="h-11 w-[210px]" />
+      <TravkinLogo />
     </Link>
   );
 }
