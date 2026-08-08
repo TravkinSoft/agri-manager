@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
-const SYMBOL = "/brand/v1/travkinflow-symbol.png";
+const SYMBOL = "/brand/v1/travkinflow-symbol-006f2efc.png";
 
 export function TravkinLogo({
   compact = false,
