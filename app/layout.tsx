@@ -32,7 +32,7 @@ export const metadata: Metadata = {
   openGraph: {
     images: [
       {
-        url: '/brand/v1/travkinflow-logo.png',
+        url: '/brand/v1/travkinflow-logo-154a0d68.png',
         width: 1055,
         height: 195,
         alt: 'TravkinFlow',
@@ -43,7 +43,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     images: [
       {
-        url: '/brand/v1/travkinflow-logo.png',
+        url: '/brand/v1/travkinflow-logo-154a0d68.png',
         width: 1055,
         height: 195,
         alt: 'TravkinFlow',

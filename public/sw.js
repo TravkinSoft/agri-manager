@@ -4,8 +4,8 @@ const PAGE_CACHE = `${CACHE_VERSION}:pages`;
 
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
-  "/brand/v1/travkinflow-logo.png",
-  "/brand/v1/travkinflow-symbol.png",
+  "/brand/v1/travkinflow-logo-154a0d68.png",
+  "/brand/v1/travkinflow-symbol-006f2efc.png",
   "/brand/v1/icons/favicon-32.png",
   "/brand/v1/icons/icon-192.png",
   "/brand/v1/icons/icon-512.png",
