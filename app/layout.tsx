@@ -23,11 +23,11 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: '/brand/v1/icons/favicon-16.png', type: 'image/png', sizes: '16x16' },
-      { url: '/brand/v1/icons/favicon-32.png', type: 'image/png', sizes: '32x32' },
+      { url: '/brand/v1/icons/favicon-16-compact-v2.png', type: 'image/png', sizes: '16x16' },
+      { url: '/brand/v1/icons/favicon-32-compact-v2.png', type: 'image/png', sizes: '32x32' },
     ],
-    shortcut: [{ url: '/brand/v1/icons/shortcut-48.png', type: 'image/png', sizes: '48x48' }],
-    apple: [{ url: '/brand/v1/icons/apple-touch-icon-180.png', type: 'image/png', sizes: '180x180' }],
+    shortcut: [{ url: '/brand/v1/icons/favicon-32-compact-v2.png', type: 'image/png', sizes: '32x32' }],
+    apple: [{ url: '/brand/v1/icons/apple-touch-icon-180-compact-v2.png', type: 'image/png', sizes: '180x180' }],
   },
   openGraph: {
     images: [

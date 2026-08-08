@@ -1,4 +1,4 @@
-const CACHE_VERSION = "travkinflow-v4-brand-v1";
+const CACHE_VERSION = "travkinflow-v5-compact-icons";
 const STATIC_CACHE = `${CACHE_VERSION}:static`;
 const PAGE_CACHE = `${CACHE_VERSION}:pages`;
 
@@ -6,12 +6,12 @@ const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/brand/v1/travkinflow-logo-154a0d68.png",
   "/brand/v1/travkinflow-symbol-006f2efc.png",
-  "/brand/v1/icons/favicon-32.png",
-  "/brand/v1/icons/icon-192.png",
-  "/brand/v1/icons/icon-512.png",
-  "/brand/v1/icons/maskable-192.png",
-  "/brand/v1/icons/maskable-512.png",
-  "/brand/v1/icons/apple-touch-icon-180.png",
+  "/brand/v1/icons/favicon-32-compact-v2.png",
+  "/brand/v1/icons/icon-192-compact-v2.png",
+  "/brand/v1/icons/icon-512-compact-v2.png",
+  "/brand/v1/icons/maskable-192-compact-v2.png",
+  "/brand/v1/icons/maskable-512-compact-v2.png",
+  "/brand/v1/icons/apple-touch-icon-180-compact-v2.png",
 ];
 
 self.addEventListener("install", (event) => {
