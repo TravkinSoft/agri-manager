@@ -27,11 +27,12 @@ const READ_ROLES = [
   "director",
 ] as const;
 
-const GROUPS = new Set<MaterialProductGroup>(["pesticides", "additives", "fertilizers"]);
+const GROUPS = new Set<MaterialProductGroup>(["pesticides", "additives", "fertilizers", "preparations"]);
 const TYPES_BY_GROUP: Record<MaterialProductGroup, string[]> = {
   pesticides: ["pesticide", "growth_regulator"],
   additives: ["additive", "adjuvant"],
   fertilizers: ["fertilizer"],
+  preparations: ["pesticide", "growth_regulator", "additive", "adjuvant", "fertilizer"],
 };
 
 function parseGroup(value: unknown): MaterialProductGroup {

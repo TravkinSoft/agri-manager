@@ -6,7 +6,7 @@ import {
   type CatalogProductLike,
 } from "@/lib/catalog/catalog-identity";
 
-export type MaterialProductGroup = "pesticides" | "additives" | "fertilizers";
+export type MaterialProductGroup = "pesticides" | "additives" | "fertilizers" | "preparations";
 export type MaterialSourceType = "company" | "company_override" | "linked_global" | "global";
 
 export type MaterialCatalogProduct = CatalogProductLike & {
@@ -58,6 +58,7 @@ const TYPES_BY_GROUP: Record<MaterialProductGroup, Set<string>> = {
   pesticides: new Set(["pesticide", "growth_regulator"]),
   additives: new Set(["additive", "adjuvant"]),
   fertilizers: new Set(["fertilizer"]),
+  preparations: new Set(["pesticide", "growth_regulator", "additive", "adjuvant", "fertilizer"]),
 };
 
 function productType(product: MaterialCatalogProduct): string {
