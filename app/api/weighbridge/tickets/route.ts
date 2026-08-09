@@ -7,7 +7,7 @@ import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/we
 import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
 import type { StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
 import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context";
-import { isHarvestProductForAllocation } from "@/lib/weighbridge/harvest-contract";
+import { ensureHarvestProductIdentity } from "@/lib/server/harvest-product-identity";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 
@@ -20,10 +20,25 @@ function buildTicketNo(companyId: string): string {
 const sameNullable = (a: unknown, b: unknown) => String(a || "") === String(b || "");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-async function cleanupCreatedTicket(supabase: SupabaseClient, ticketId: string) {
+async function cleanupCreatedHarvestProduct(supabase: SupabaseClient, productId: string | null) {
+  if (!productId) return;
+  await supabase
+    .from("products")
+    .delete()
+    .eq("id", productId)
+    .eq("is_derived_inventory", true)
+    .like("derived_identity_key", "harvest-crop-v1:%");
+}
+
+async function cleanupCreatedTicket(
+  supabase: SupabaseClient,
+  ticketId: string,
+  createdHarvestProductId: string | null = null
+) {
   await supabase.from("ticket_weighings").delete().eq("ticket_id", ticketId);
   await supabase.from("ticket_lines").delete().eq("ticket_id", ticketId);
   await supabase.from("tickets").delete().eq("id", ticketId);
+  await cleanupCreatedHarvestProduct(supabase, createdHarvestProductId);
 }
 
 async function resolveActiveSeasonId(
@@ -80,6 +95,7 @@ export async function GET(request: NextRequest) {
           warehouse_to_id,
           unit_price,
           amount,
+          moisture_percent,
           notes,
           product_name_snapshot,
           variety_id,
@@ -125,6 +141,7 @@ export async function GET(request: NextRequest) {
         warehouse_to_id: line.warehouse_to_id ? String(line.warehouse_to_id) : null,
         unit_price: line.unit_price == null ? null : Number(line.unit_price),
         amount: line.amount == null ? null : Number(line.amount),
+        moisture_percent: line.moisture_percent == null ? null : Number(line.moisture_percent),
         notes: line.notes ? String(line.notes) : null,
         product_name: String(line.product_name_snapshot || brandName(line.products) || "-"),
         variety_id: line.variety_id ? String(line.variety_id) : null,
@@ -162,6 +179,15 @@ export async function POST(request: NextRequest) {
     dbMs: 0,
     rpcMs: 0,
     totalMs: 0,
+    steps: {} as Record<string, number>,
+  };
+  const measure = async <T,>(name: string, task: () => PromiseLike<T>): Promise<T> => {
+    const stepStartedAt = Date.now();
+    try {
+      return await task();
+    } finally {
+      timing.steps[name] = Date.now() - stepStartedAt;
+    }
   };
   try {
     const body = await request.json();
@@ -190,12 +216,12 @@ export async function POST(request: NextRequest) {
       : null;
 
     if (idempotencyKey) {
-      const { data: existingTicket, error: existingTicketError } = await supabase
+      const { data: existingTicket, error: existingTicketError } = await measure("idempotency_lookup", () => supabase
         .from("tickets")
         .select("*")
         .eq("id", idempotencyKey)
         .eq("company_id", companyId)
-        .maybeSingle();
+        .maybeSingle());
       if (existingTicketError) {
         return NextResponse.json({ error: existingTicketError.message }, { status: 400 });
       }
@@ -235,6 +261,14 @@ export async function POST(request: NextRequest) {
     let harvestIsCropMix = false;
     let harvestCompositionSnapshot: Array<Record<string, unknown>> = [];
     let harvestCompositionHash: string | null = null;
+    let harvestCropForProduct: {
+      id: string;
+      name?: string | null;
+      name_ru?: string | null;
+      name_kz?: string | null;
+      name_en?: string | null;
+    } | null = null;
+    let createdHarvestProductId: string | null = null;
     const isImpurityRemoval =
       String(ticket.direction || "") === "outgoing" &&
       String(ticket.op_type || "").toLowerCase() === "weighbridge_impurities";
@@ -247,12 +281,25 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const harvestContext = await resolveHarvestTicketContext({
+      const destinationKind = String(ticket.destination_kind || "warehouse").trim().toLowerCase();
+      const warehouseId = String(ticket.warehouse_to_id || ticket.destination_id || "").trim();
+      const destinationWarehouseStartedAt = Date.now();
+      const destinationWarehousePromise = destinationKind === "warehouse"
+        ? Promise.resolve(supabase
+            .from("warehouses")
+            .select("id,company_id,warehouse_type,archived,is_archived")
+            .eq("company_id", companyId)
+            .eq("id", warehouseId)
+            .maybeSingle()).finally(() => {
+              timing.steps.destination_warehouse = Date.now() - destinationWarehouseStartedAt;
+            })
+        : Promise.resolve({ data: null, error: null } as any);
+      const harvestContext = await measure("harvest_context", () => resolveHarvestTicketContext({
         supabase,
         companyId,
         fieldId: String(ticket.field_id),
         allocationId: String(ticket.crop_structure_allocation_id),
-      });
+      }));
       if (harvestContext.status !== "ready") {
         return NextResponse.json({ error: harvestContext.message }, { status: 409 });
       }
@@ -291,68 +338,43 @@ export async function POST(request: NextRequest) {
         (lines[0] as any).composition_hash = harvestCompositionHash;
         (lines[0] as any).is_mixed_harvest = true;
       } else {
-        if (!lines[0]?.product_id) {
+        const { data: crop, error: cropError } = await measure("harvest_crop", () => supabase
+          .from("crops")
+          .select("id,name,name_ru,name_kz,name_en")
+          .eq("id", harvestContext.allocation?.cropId || "")
+          .maybeSingle());
+        if (cropError || !crop?.id) {
           return NextResponse.json(
-            { error: "Приход урожая должен содержать одну складскую номенклатуру." },
+            { error: cropError?.message || "Не удалось подтвердить культуру урожая." },
             { status: 400 }
           );
         }
-
-      const [{ data: crop, error: cropError }, { data: harvestProduct, error: harvestProductError }] =
-        await Promise.all([
-          supabase
-            .from("crops")
-            .select("id,name,name_ru,name_kz,name_en")
-            .eq("id", harvestContext.allocation?.cropId || "")
-            .maybeSingle(),
-          supabase
-            .from("products")
-            .select("id,name,trade_name,normalized_name,type,product_type,crop_id,variety_id,seed_reproduction_id")
-            .eq("id", lines[0].product_id)
-            .or(`company_id.eq.${companyId},company_id.is.null`)
-            .eq("archived", false)
-            .maybeSingle(),
-        ]);
-      if (cropError || !crop?.id || harvestProductError || !harvestProduct?.id) {
-        return NextResponse.json(
-          { error: "Не удалось подтвердить культуру и складскую номенклатуру урожая." },
-          { status: 400 }
-        );
-      }
-      const allocationIdentity = {
-        cropId: String(harvestContext.allocation?.cropId || ""),
-        varietyId: harvestContext.allocation?.varietyId || null,
-        reproductionId: harvestContext.allocation?.reproductionId || null,
-      };
-      const cropNames = [crop.name, crop.name_ru, crop.name_kz, crop.name_en]
-        .map((value) => String(value || "").trim())
-        .filter(Boolean);
-      if (
-        !isHarvestProductForAllocation(
-          {
-            id: String(harvestProduct.id),
-            name: harvestProduct.name,
-            tradeName: harvestProduct.trade_name,
-            normalizedName: harvestProduct.normalized_name,
-            type: harvestProduct.type,
-            productType: harvestProduct.product_type,
-            cropId: harvestProduct.crop_id,
-            varietyId: harvestProduct.variety_id,
-            reproductionId: harvestProduct.seed_reproduction_id,
-          },
-          allocationIdentity,
-          cropNames
-        )
-      ) {
-        return NextResponse.json(
-          { error: "Складская номенклатура не соответствует культуре, сорту или репродукции урожая." },
-          { status: 409 }
-        );
-      }
+        harvestCropForProduct = {
+          id: String(crop.id),
+          name: crop.name,
+          name_ru: crop.name_ru,
+          name_kz: crop.name_kz,
+          name_en: crop.name_en,
+        };
       }
 
       ticket.season_id = harvestContext.seasonId;
       ticket.linked_operation_id = harvestContext.operationId || null;
+      const identityReviewReasons = harvestIsCropMix
+        ? []
+        : [
+            !harvestContext.allocation?.varietyId ? "missing_variety" : "",
+            !harvestContext.allocation?.reproductionId ? "missing_reproduction" : "",
+          ].filter(Boolean);
+      ticket.requires_review = identityReviewReasons.length > 0;
+      ticket.review_reason = identityReviewReasons.join(",") || null;
+      ticket.audit_json = identityReviewReasons.length > 0
+        ? {
+            ...((ticket.audit_json || {}) as Record<string, unknown>),
+            identity_review_reasons: identityReviewReasons,
+            identity_backfill_allocation_id: String(ticket.crop_structure_allocation_id),
+          }
+        : ticket.audit_json || null;
       for (const line of lines) {
         line.operation_line_id = harvestContext.operationLineId || null;
         line.crop_id = harvestIsCropMix ? null : harvestContext.allocation?.cropId || null;
@@ -360,15 +382,8 @@ export async function POST(request: NextRequest) {
         line.reproduction_id = harvestIsCropMix ? null : harvestContext.allocation?.reproductionId || null;
       }
 
-      const destinationKind = String(ticket.destination_kind || "warehouse").trim().toLowerCase();
       if (destinationKind === "warehouse") {
-        const warehouseId = String(ticket.warehouse_to_id || ticket.destination_id || "").trim();
-        const { data: destinationWarehouse, error: destinationWarehouseError } = await supabase
-          .from("warehouses")
-          .select("id,company_id,warehouse_type,archived,is_archived")
-          .eq("company_id", companyId)
-          .eq("id", warehouseId)
-          .maybeSingle();
+        const { data: destinationWarehouse, error: destinationWarehouseError } = await destinationWarehousePromise;
         if (
           destinationWarehouseError ||
           !destinationWarehouse?.id ||
@@ -406,9 +421,32 @@ export async function POST(request: NextRequest) {
       isImpurityRemoval ||
       (isWarehouseTransfer && !isDirectWarehouseTransfer) ||
       (isFieldIssue && !isDirectFieldIssue);
+    const activeShiftStartedAt = Date.now();
     const activeShiftIdPromise = isDirectSupplierReceipt
       ? Promise.resolve<string | null>(null)
-      : resolveActiveShiftId(supabase, ticket.company_id);
+        : resolveActiveShiftId(supabase, ticket.company_id).finally(() => {
+          timing.steps.active_shift = Date.now() - activeShiftStartedAt;
+        });
+    const vehicleGuardStartedAt = Date.now();
+    const vehicleGuardPromise = ticket.vehicle_id
+      ? Promise.all([
+          supabase
+            .from("reference_vehicles")
+            .select("id, name, plate_number, status, is_active, archived")
+            .eq("company_id", ticket.company_id)
+            .eq("id", ticket.vehicle_id)
+            .maybeSingle(),
+          supabase
+            .from("tickets")
+            .select("id, ticket_no")
+            .eq("company_id", ticket.company_id)
+            .eq("vehicle_id", ticket.vehicle_id)
+            .in("status", ["draft", "active", "ready_to_close"])
+            .limit(1),
+        ]).finally(() => {
+          timing.steps.vehicle_guard = Date.now() - vehicleGuardStartedAt;
+        })
+      : null;
     if (requiresVehicle && !ticket.vehicle_id) {
       return NextResponse.json({ error: "vehicle_id is required" }, { status: 400 });
     }
@@ -599,6 +637,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (isHarvestIncoming && !harvestIsCropMix && harvestCropForProduct) {
+      try {
+        const cropForProduct = harvestCropForProduct;
+        const harvestProduct = await measure("harvest_product_identity", () => ensureHarvestProductIdentity({
+          supabase,
+          companyId,
+          actorProfileId: actor.id,
+          crop: cropForProduct,
+        }));
+        lines[0].product_id = harvestProduct.id;
+        createdHarvestProductId = harvestProduct.created ? harvestProduct.id : null;
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Не удалось подготовить номенклатуру урожая." },
+          { status: 400 }
+        );
+      }
+    }
+
     const stockEvent: StockBusinessEvent = isHarvestIncoming
       ? "harvest_incoming"
       : isImpurityRemoval
@@ -616,13 +673,16 @@ export async function POST(request: NextRequest) {
                 : "processing";
 
     for (const line of lines) {
-      const { data: product, error: productError } = await supabase
-        .from("products")
-        .select("id,product_type,type,category,stock_unit,base_uom,unit,physical_state,is_seed_material")
-        .eq("id", line.product_id)
-        .or(`company_id.eq.${ticket.company_id},company_id.is.null`)
-        .maybeSingle();
-      if (productError || !product?.id) {
+      const productAccess = isHarvestIncoming
+        ? { data: { id: line.product_id }, error: null }
+        : await measure("product_access", () => supabase
+            .from("products")
+            .select("id,product_type,type,category,stock_unit,base_uom,unit,physical_state,is_seed_material")
+            .eq("id", line.product_id)
+            .or(`company_id.eq.${ticket.company_id},company_id.is.null`)
+            .maybeSingle());
+      const product = productAccess.data as any;
+      if (productAccess.error || !product?.id) {
         return NextResponse.json({ error: "Номенклатура недоступна выбранной компании" }, { status: 400 });
       }
       const catalogStockUnit = String(product.stock_unit || "").trim().toLowerCase();
@@ -637,7 +697,7 @@ export async function POST(request: NextRequest) {
       })) {
         return NextResponse.json({ error: "Эта номенклатура не принимается через весовую" }, { status: 400 });
       }
-      const contract = await resolveWarehouseStockContract(supabase, {
+      const contract = await measure("stock_contract", () => resolveWarehouseStockContract(supabase, {
         companyId: ticket.company_id,
         productId: line.product_id,
         quantity: line.quantity,
@@ -645,7 +705,7 @@ export async function POST(request: NextRequest) {
         requestedBatchClass: line.batch_class,
         event: stockEvent,
         fieldMaterialCategory: ticket.field_material_category,
-      });
+      }));
       if (!isDirectSupplierReceipt && contract.baseUom !== "kg" && !isDirectWarehouseTransfer && !isDirectFieldIssue) {
         return NextResponse.json(
           { error: "Литры и штуки нельзя подменять весом нетто. Используйте прямой документ с количеством в единице товара." },
@@ -853,10 +913,30 @@ export async function POST(request: NextRequest) {
       if (!Number.isFinite(gross) || gross <= 0) {
         return NextResponse.json({ error: "gross_weight_kg is required and must be positive for harvest incoming" }, { status: 400 });
       }
+      const grossWeighings = weighings.filter((item) => Number(item.weighing_no) === 1);
+      if (weighings.some((item) => Number(item.weighing_no) !== 1) || grossWeighings.length > 1) {
+        return NextResponse.json({ error: "При создании талона допускается только первое взвешивание брутто." }, { status: 400 });
+      }
+      if (grossWeighings.length === 0) {
+        weighings.push({
+          weighing_no: 1,
+          measured_weight_kg: gross,
+          measured_at: new Date().toISOString(),
+          device_source: "manual",
+          operator_user_id: actor.id,
+        });
+      } else {
+        const grossEvent = grossWeighings[0];
+        if (Math.abs(Number(grossEvent.measured_weight_kg || 0) - gross) > 0.001) {
+          return NextResponse.json({ error: "Первое взвешивание должно совпадать с брутто талона." }, { status: 400 });
+        }
+        grossEvent.device_source = "manual";
+        grossEvent.operator_user_id = actor.id;
+      }
       for (const line of lines) {
-        if (!harvestIsCropMix && (!line.crop_id || !line.variety_id || !line.reproduction_id)) {
+        if (!harvestIsCropMix && !line.crop_id) {
           return NextResponse.json(
-            { error: "crop_id, variety_id and reproduction_id are required for harvest incoming lines" },
+            { error: "crop_id is required for harvest incoming lines" },
             { status: 400 }
           );
         }
@@ -966,21 +1046,8 @@ export async function POST(request: NextRequest) {
     }
 
     if (ticket.vehicle_id) {
-      const vehiclePromise = supabase
-        .from("reference_vehicles")
-        .select("id, name, plate_number, status, is_active, archived")
-        .eq("company_id", ticket.company_id)
-        .eq("id", ticket.vehicle_id)
-        .maybeSingle();
-      const activeByVehiclePromise = supabase
-        .from("tickets")
-        .select("id, ticket_no")
-        .eq("company_id", ticket.company_id)
-        .eq("vehicle_id", ticket.vehicle_id)
-        .in("status", ["draft", "active", "ready_to_close"])
-        .limit(1);
       const [{ data: vehicle, error: vehicleError }, { data: activeByVehicle, error: activeByVehicleError }] =
-        await Promise.all([vehiclePromise, activeByVehiclePromise]);
+        await (vehicleGuardPromise as NonNullable<typeof vehicleGuardPromise>);
       if (vehicleError || !vehicle?.id) {
         return NextResponse.json({ error: "Vehicle not found in current company" }, { status: 400 });
       }
@@ -995,64 +1062,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (isHarvestIncoming) {
-      const seasonId = await resolveActiveSeasonId(supabase, ticket.company_id);
-      if (!seasonId) {
-        return NextResponse.json({ error: "Active season not found for company" }, { status: 400 });
-      }
-      const { data: structureRows, error: structureError } = await supabase
-        .from("crop_structure")
-        .select("id,field_id,season_id,land_use_type,crop_id,variety_id,reproduction_id,company_id")
-        .eq("company_id", ticket.company_id)
-        .eq("season_id", seasonId)
-        .eq("field_id", ticket.field_id)
-        .eq("archived", false);
-      if (structureError) {
-        return NextResponse.json({ error: structureError.message }, { status: 400 });
-      }
-      const allocation = (structureRows || []).find(
-        (x: any) => String(x.id || "") === String(ticket.crop_structure_allocation_id || "")
-      );
-      if (!allocation) {
-        return NextResponse.json(
-          { error: "Selected crop_structure_allocation_id does not belong to this field/company/active season" },
-          { status: 400 }
-        );
-      }
-      if (harvestIsCropMix) {
-        if ((allocation as any).land_use_type !== "crop_mix") {
-          return NextResponse.json({ error: "Selected crop structure is not a crop mix" }, { status: 409 });
-        }
-        if (lines.some((line) => line.crop_id || line.variety_id || line.reproduction_id)) {
-          return NextResponse.json({ error: "Crop mix harvest line must use the mixed inventory identity" }, { status: 409 });
-        }
-      } else {
-      const allowed = new Set(
-        (structureRows || []).map(
-          (x: any) => `${String(x.crop_id || "")}:${String(x.variety_id || "")}:${String(x.reproduction_id || "")}`
-        )
-      );
-      for (const line of lines) {
-        const keyV2 = `${String(line.crop_id || "")}:${String(line.variety_id || "")}:${String(line.reproduction_id || "")}`;
-        if (!allowed.has(keyV2)) {
-          return NextResponse.json(
-            { error: "Line crop identity is not linked to field crop structure for active season" },
-            { status: 400 }
-          );
-        }
-        if (
-          String(line.crop_id || "") !== String(allocation.crop_id || "") ||
-          String(line.variety_id || "") !== String(allocation.variety_id || "") ||
-          String(line.reproduction_id || "") !== String(allocation.reproduction_id || "")
-        ) {
-          return NextResponse.json(
-            { error: "Line crop/variety/reproduction must match selected crop_structure_allocation_id" },
-            { status: 400 }
-          );
-        }
-      }
-      }
-    }
     if (isDirectSupplierReceipt) {
       if (!idempotencyKey || !requestFingerprint) {
         return NextResponse.json({ error: "Idempotency-Key is required for invoice receipt" }, { status: 400 });
@@ -1106,8 +1115,18 @@ export async function POST(request: NextRequest) {
     const reproductionsPromise = reproductionIds.length > 0
       ? Promise.resolve(supabase.from("seed_reproductions").select("id, name").in("id", reproductionIds))
       : Promise.resolve({ data: [] } as any);
+    const companyLookupStartedAt = Date.now();
+    const companyPromise = Promise.resolve(
+      supabase
+        .from("companies")
+        .select("id,name")
+        .eq("id", ticket.company_id)
+        .maybeSingle()
+    ).finally(() => {
+      timing.steps.company_lookup = Date.now() - companyLookupStartedAt;
+    });
 
-    const { data: createdTicket, error: ticketError } = await supabase
+    const { data: createdTicket, error: ticketError } = await measure("ticket_insert", () => supabase
       .from("tickets")
       .insert({
         ...ticket,
@@ -1124,20 +1143,21 @@ export async function POST(request: NextRequest) {
         status: isDirectSupplierReceipt ? "ready_to_close" : "active",
       })
       .select("*")
-      .single();
+      .single());
 
     if (ticketError || !createdTicket?.id) {
+      await cleanupCreatedHarvestProduct(supabase, createdHarvestProductId);
       return NextResponse.json({ error: ticketError?.message || "Failed to create ticket" }, { status: 400 });
     }
 
     const productsMap = new Map<string, string>();
     const varietiesMap = new Map<string, string>();
     const reproductionsMap = new Map<string, string>();
-    const [productsResult, varietiesResult, reproductionsResult] = await Promise.all([
+    const [productsResult, varietiesResult, reproductionsResult] = await measure("snapshot_lookup", () => Promise.all([
       productsPromise,
       varietiesPromise,
       reproductionsPromise,
-    ]);
+    ]));
     for (const p of productsResult.data || []) {
       productsMap.set(String((p as any).id), brandName(p) || String((p as any).name || ""));
     }
@@ -1188,14 +1208,7 @@ export async function POST(request: NextRequest) {
       is_mixed_harvest: Boolean((line as any).is_mixed_harvest),
     }));
 
-    const { error: linesError } = await supabase.from("ticket_lines").insert(linesPayload);
-    if (linesError) {
-      await cleanupCreatedTicket(supabase, createdTicket.id);
-      return NextResponse.json({ error: linesError.message }, { status: 400 });
-    }
-
-    if (weighings.length > 0) {
-      const weighingsPayload = weighings.map((item) => ({
+    const weighingsPayload = weighings.map((item) => ({
         ticket_id: createdTicket.id,
         company_id: ticket.company_id,
         weighing_no: item.weighing_no,
@@ -1205,19 +1218,24 @@ export async function POST(request: NextRequest) {
         operator_user_id: item.operator_user_id || ticket.created_by,
         comment: item.comment || null,
       }));
-      const { error: weighingsError } = await supabase.from("ticket_weighings").insert(weighingsPayload);
-      if (weighingsError) {
-        await cleanupCreatedTicket(supabase, createdTicket.id);
-        return NextResponse.json({ error: weighingsError.message }, { status: 400 });
-      }
-    }
-
-    if (ticket.vehicle_id) {
-      await supabase
-        .from("reference_vehicles")
-        .update({ status: "in_trip" })
-        .eq("id", ticket.vehicle_id)
-        .eq("company_id", ticket.company_id);
+    const [linesInsertResult, weighingsInsertResult] = await Promise.all([
+      measure("ticket_line_insert", () => supabase.from("ticket_lines").insert(linesPayload)),
+      weighingsPayload.length > 0
+        ? measure("gross_event_insert", () => supabase.from("ticket_weighings").insert(weighingsPayload))
+        : Promise.resolve({ error: null } as any),
+      ticket.vehicle_id
+        ? measure("vehicle_status_update", () => supabase
+            .from("reference_vehicles")
+            .update({ status: "in_trip" })
+            .eq("id", ticket.vehicle_id)
+            .eq("company_id", ticket.company_id))
+        : Promise.resolve({ error: null } as any),
+    ]);
+    const linesError = linesInsertResult.error;
+    const weighingsError = weighingsInsertResult.error;
+    if (linesError || weighingsError) {
+      await cleanupCreatedTicket(supabase, createdTicket.id, createdHarvestProductId);
+      return NextResponse.json({ error: linesError?.message || weighingsError?.message || "Failed to create ticket details" }, { status: 400 });
     }
     timing.dbMs = Date.now() - dbStartedAt;
 
@@ -1230,7 +1248,7 @@ export async function POST(request: NextRequest) {
       timing.rpcMs = Date.now() - rpcStartedAt;
 
       if (finalizeError) {
-        await cleanupCreatedTicket(supabase, createdTicket.id);
+        await cleanupCreatedTicket(supabase, createdTicket.id, createdHarvestProductId);
         return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
       }
 
@@ -1256,11 +1274,7 @@ export async function POST(request: NextRequest) {
     }
 
     timing.totalMs = Date.now() - startedAt;
-    const { data: company } = await supabase
-      .from("companies")
-      .select("id,name")
-      .eq("id", ticket.company_id)
-      .maybeSingle();
+    const { data: company } = await companyPromise;
     return NextResponse.json({
       ticket: {
         ...createdTicket,

@@ -186,12 +186,34 @@ export async function resolveHarvestTicketContext(params: {
     return empty("invalid", "Выберите поле и участок / культуру.");
   }
 
-  const { data: seasons, error: seasonsError } = await supabase
+  const seasonsPromise = supabase
     .from("seasons")
     .select("id,year")
     .eq("company_id", companyId)
     .eq("archived", false)
     .order("year", { ascending: false });
+  const allocationPromise = supabase
+    .from("crop_structure")
+    .select("id,company_id,season_id,field_id,land_use_type,crop_id,variety_id,reproduction_id,area,archived,identity_review_required,identity_review_reason,crop_structure_mix_components(id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order)")
+    .eq("id", allocationId)
+    .eq("company_id", companyId)
+    .eq("field_id", fieldId)
+    .eq("archived", false)
+    .maybeSingle();
+  const operationsPromise = supabase
+    .from("operations")
+    .select("id,company_id,field_id,crop_structure_id,archived,status,work_status,operation_status,operation_category_slug,operation_type_slug")
+    .eq("company_id", companyId)
+    .eq("field_id", fieldId)
+    .eq("crop_structure_id", allocationId)
+    .eq("archived", false)
+    .or("operation_category_slug.eq.harvesting,operation_type_slug.eq.harvesting");
+  const [seasonsResult, initialAllocationResult, operationsResult] = await Promise.all([
+    seasonsPromise,
+    allocationPromise,
+    operationsPromise,
+  ]);
+  const { data: seasons, error: seasonsError } = seasonsResult;
   if (seasonsError) throw seasonsError;
 
   const nowYear = new Date().getFullYear();
@@ -200,22 +222,13 @@ export async function resolveHarvestTicketContext(params: {
     return empty("missing", "В компании нет активного сезона.");
   }
 
-  let { data: allocation, error: allocationError } = await supabase
-    .from("crop_structure")
-    .select("id,company_id,season_id,field_id,land_use_type,crop_id,variety_id,reproduction_id,area,archived,identity_review_required,identity_review_reason,crop_structure_mix_components(id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order)")
-    .eq("id", allocationId)
-    .eq("company_id", companyId)
-    .eq("season_id", activeSeason.id)
-    .eq("field_id", fieldId)
-    .eq("archived", false)
-    .maybeSingle();
+  let { data: allocation, error: allocationError } = initialAllocationResult;
   if (allocationError && /identity_review_/i.test(allocationError.message || "")) {
     const fallback = await supabase
       .from("crop_structure")
       .select("id,company_id,season_id,field_id,land_use_type,crop_id,variety_id,reproduction_id,area,archived,crop_structure_mix_components(id,crop_id,variety_id,reproduction_id,seed_rate_kg_ha,sort_order)")
       .eq("id", allocationId)
       .eq("company_id", companyId)
-      .eq("season_id", activeSeason.id)
       .eq("field_id", fieldId)
       .eq("archived", false)
       .maybeSingle();
@@ -223,6 +236,9 @@ export async function resolveHarvestTicketContext(params: {
     allocationError = fallback.error;
   }
   if (allocationError) throw allocationError;
+  if (String(allocation?.season_id || "") !== String(activeSeason.id)) {
+    return empty("invalid", "Участок не относится к активному сезону.");
+  }
   const isCropMix = allocation?.land_use_type === "crop_mix";
   if (!allocation?.id || (!isCropMix && !allocation.crop_id)) {
     return empty("invalid", "Участок не относится к выбранному полю или активному сезону.");
@@ -251,26 +267,26 @@ export async function resolveHarvestTicketContext(params: {
         sortOrder: Number(component.sort_order || 0),
       })),
   };
-  if (
-    (isCropMix && allocationValue.composition.length < 2) ||
-    (!isCropMix && (
-      allocationValue.identityReviewRequired ||
-      !allocationValue.varietyId ||
-      !allocationValue.reproductionId
-    ))
-  ) {
+  if (isCropMix && allocationValue.composition.length < 2) {
     return {
       ...empty(
         "invalid",
-        "Для выбранной строки структуры посевов требуется проверить культуру, сорт и репродукцию."
+        "Для выбранной зерносмеси требуется проверить состав."
       ),
       seasonId: String(activeSeason.id),
       allocation: allocationValue,
     };
   }
+  const identityReviewMessage = !isCropMix && (
+    allocationValue.identityReviewRequired ||
+    !allocationValue.varietyId ||
+    !allocationValue.reproductionId
+  )
+    ? " Сорт или репродукция не указаны: талон можно принять, но он будет отмечен для проверки."
+    : "";
   const readyWithoutOperation = (message: string): HarvestTicketContext => ({
     status: "ready",
-    message,
+    message: `${message}${identityReviewMessage}`,
     seasonId: String(activeSeason.id),
     allocation: allocationValue,
     operationId: null,
@@ -282,14 +298,7 @@ export async function resolveHarvestTicketContext(params: {
     yieldStatus: "not_available",
   });
 
-  const { data: operations, error: operationsError } = await supabase
-    .from("operations")
-    .select("id,company_id,field_id,crop_structure_id,archived,status,work_status,operation_status,operation_category_slug,operation_type_slug")
-    .eq("company_id", companyId)
-    .eq("field_id", fieldId)
-    .eq("crop_structure_id", allocationId)
-    .eq("archived", false)
-    .or("operation_category_slug.eq.harvesting,operation_type_slug.eq.harvesting");
+  const { data: operations, error: operationsError } = operationsResult;
   if (operationsError) throw operationsError;
 
   const normalizedOperations = (operations || [])
@@ -359,7 +368,7 @@ export async function resolveHarvestTicketContext(params: {
 
   return {
     status: "ready",
-    message: "Уборка определена автоматически.",
+    message: `Уборка определена автоматически.${identityReviewMessage}`,
     seasonId: String(activeSeason.id),
     allocation: allocationValue,
     operationId: String(operation.id),

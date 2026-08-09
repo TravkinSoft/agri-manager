@@ -1,6 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceClient } from "@/lib/supabase/service";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+
+async function loadHarvestClosureState(supabase: SupabaseClient, companyId: string, ticketId: string) {
+  const [linesResult, weighingsResult] = await Promise.all([
+    supabase
+      .from("ticket_lines")
+      .select("id,moisture_percent")
+      .eq("company_id", companyId)
+      .eq("ticket_id", ticketId)
+      .limit(2),
+    supabase
+      .from("ticket_weighings")
+      .select("weighing_no,measured_weight_kg")
+      .eq("company_id", companyId)
+      .eq("ticket_id", ticketId)
+      .order("weighing_no", { ascending: true }),
+  ]);
+  if (linesResult.error) throw linesResult.error;
+  if (weighingsResult.error) throw weighingsResult.error;
+  return {
+    lines: linesResult.data || [],
+    weighings: weighingsResult.data || [],
+  };
+}
+
+async function syncHarvestBatchMoisture(supabase: SupabaseClient, companyId: string, ticketId: string) {
+  const { lines } = await loadHarvestClosureState(supabase, companyId, ticketId);
+  const moisture = Number((lines[0] as any)?.moisture_percent);
+  if (lines.length !== 1 || !Number.isFinite(moisture) || moisture <= 0 || moisture > 60) {
+    throw new Error("Влажность рейса не сохранена в талоне.");
+  }
+  const { data: batches, error } = await supabase
+    .from("inventory_batches")
+    .update({ moisture_percent: moisture })
+    .eq("company_id", companyId)
+    .eq("source_ticket_id", ticketId)
+    .select("id,moisture_percent");
+  if (error) throw error;
+  if ((batches || []).length === 0) {
+    throw new Error("Партия урожая не найдена после закрытия талона.");
+  }
+}
 
 export async function POST(
   request: NextRequest,
@@ -34,9 +75,28 @@ export async function POST(
       return NextResponse.json({ error: ticketBeforeError?.message || "Ticket not found" }, { status: 404 });
     }
     if (ticketBefore.is_finalized || ticketBefore.status === "finalized") {
+      if (ticketBefore.op_type === "harvest_incoming") {
+        await syncHarvestBatchMoisture(supabase, companyId, id);
+      }
       timing.validationMs = Date.now() - dbStartedAt;
       timing.totalMs = Date.now() - startedAt;
       return NextResponse.json({ ticket: ticketBefore, idempotent_replay: true, debug: timing });
+    }
+    if (ticketBefore.op_type === "harvest_incoming") {
+      const closureState = await loadHarvestClosureState(supabase, companyId, id);
+      const weighingNumbers = closureState.weighings.map((row: any) => Number(row.weighing_no));
+      const moisture = Number((closureState.lines[0] as any)?.moisture_percent);
+      if (
+        closureState.lines.length !== 1 ||
+        weighingNumbers.length !== 2 ||
+        weighingNumbers[0] !== 1 ||
+        weighingNumbers[1] !== 2
+      ) {
+        return NextResponse.json({ error: "Перед закрытием нужны два фактических взвешивания: брутто и тара." }, { status: 409 });
+      }
+      if (!Number.isFinite(moisture) || moisture <= 0 || moisture > 60) {
+        return NextResponse.json({ error: "Перед закрытием укажите влажность рейса." }, { status: 409 });
+      }
     }
     timing.validationMs = Date.now() - dbStartedAt;
 
@@ -51,6 +111,16 @@ export async function POST(
 
     if (finalizeError) {
       return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
+    }
+    if (ticketBefore.op_type === "harvest_incoming") {
+      try {
+        await syncHarvestBatchMoisture(supabase, companyId, id);
+      } catch (error) {
+        return NextResponse.json(
+          { error: error instanceof Error ? error.message : "Не удалось перенести влажность в партию урожая." },
+          { status: 409 }
+        );
+      }
     }
 
     const { data: lineLinks, error: lineLinksError } = await supabase
