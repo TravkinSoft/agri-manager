@@ -196,7 +196,7 @@ export async function PATCH(
       return NextResponse.json({ error: "ticket id is required" }, { status: 400 });
     }
 
-    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
@@ -245,6 +245,17 @@ export async function PATCH(
           ? null
           : Number(ticket.tare_weight_kg);
 
+    let harvestMoisture: number | null = null;
+    if (ticket.op_type === "harvest_incoming" && body?.tare_weight_kg !== undefined) {
+      harvestMoisture = Number(body?.moisture_percent);
+      if (!Number.isFinite(harvestMoisture) || harvestMoisture <= 0 || harvestMoisture > 60) {
+        return NextResponse.json(
+          { error: "Влажность должна быть больше 0 и не превышать 60 %." },
+          { status: 400 }
+        );
+      }
+    }
+
     if (nextGross != null && nextTare != null) {
       const weightValidation = validateHarvestWeights(nextGross, nextTare);
       if (!weightValidation.ok) {
@@ -276,6 +287,77 @@ export async function PATCH(
       });
       if (atomicUpdateError) {
         return NextResponse.json({ error: atomicUpdateError.message }, { status: 400 });
+      }
+
+      const { data: harvestLines, error: harvestLinesError } = await supabase
+        .from("ticket_lines")
+        .select("id,moisture_percent")
+        .eq("ticket_id", id)
+        .eq("company_id", companyId)
+        .limit(2);
+      if (harvestLinesError || (harvestLines || []).length !== 1) {
+        return NextResponse.json(
+          { error: harvestLinesError?.message || "Harvest ticket must contain exactly one line." },
+          { status: 400 }
+        );
+      }
+      if (harvestMoisture != null) {
+        const { error: moistureError } = await supabase
+          .from("ticket_lines")
+          .update({ moisture_percent: harvestMoisture })
+          .eq("id", String((harvestLines || [])[0]?.id || ""))
+          .eq("company_id", companyId);
+        if (moistureError) {
+          return NextResponse.json({ error: moistureError.message }, { status: 400 });
+        }
+      }
+
+      const tareWeight = Number(nextTare || 0);
+      const { data: existingTare, error: existingTareError } = await supabase
+        .from("ticket_weighings")
+        .select("id,measured_weight_kg")
+        .eq("ticket_id", id)
+        .eq("weighing_no", 2)
+        .maybeSingle();
+      if (existingTareError) {
+        return NextResponse.json({ error: existingTareError.message }, { status: 400 });
+      }
+      if (existingTare?.id && Math.abs(Number(existingTare.measured_weight_kg || 0) - tareWeight) > 0.001) {
+        return NextResponse.json(
+          { error: "Второе взвешивание уже сохранено с другим значением тары." },
+          { status: 409 }
+        );
+      }
+      if (!existingTare?.id) {
+        const { error: tareEventError } = await supabase.from("ticket_weighings").insert({
+          ticket_id: id,
+          company_id: companyId,
+          weighing_no: 2,
+          measured_weight_kg: tareWeight,
+          measured_at: new Date().toISOString(),
+          device_source: "manual",
+          operator_user_id: actor.id,
+        });
+        if (tareEventError) {
+          if (String((tareEventError as any)?.code || "") !== "23505") {
+            return NextResponse.json({ error: tareEventError.message }, { status: 400 });
+          }
+          const { data: racedTare, error: racedTareError } = await supabase
+            .from("ticket_weighings")
+            .select("measured_weight_kg")
+            .eq("ticket_id", id)
+            .eq("weighing_no", 2)
+            .maybeSingle();
+          if (racedTareError) {
+            return NextResponse.json({ error: racedTareError.message }, { status: 400 });
+          }
+          if (Math.abs(Number(racedTare?.measured_weight_kg || 0) - tareWeight) > 0.001) {
+            return NextResponse.json(
+              { error: "Второе взвешивание уже сохранено с другим значением тары." },
+              { status: 409 }
+            );
+          }
+        }
       }
       const { data: updated, error: updatedError } = await supabase
         .from("tickets")

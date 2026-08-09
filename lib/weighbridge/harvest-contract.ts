@@ -93,13 +93,18 @@ export function findHarvestProductForAllocation<T extends HarvestProductCandidat
   return best;
 }
 
-export function automaticHarvestAllocation<T extends HarvestAllocationIdentity>(options: T[]): T | null {
+export function automaticHarvestAllocation<T extends HarvestAllocationIdentity>(
+  options: T[],
+  config: { allowIncompleteIdentity?: boolean } = {}
+): T | null {
   const complete = options.filter(
     (option) =>
-      !option.isIncomplete &&
       Boolean(option.cropId) &&
-      Boolean(option.varietyId) &&
-      Boolean(option.reproductionId)
+      (config.allowIncompleteIdentity || (
+        !option.isIncomplete &&
+        Boolean(option.varietyId) &&
+        Boolean(option.reproductionId)
+      ))
   );
   return options.length === 1 && complete.length === 1 ? complete[0] : null;
 }

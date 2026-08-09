@@ -38,6 +38,8 @@ export interface TicketInput {
   company_id: string;
   batch_id?: string | null;
   audit_json?: Record<string, unknown> | null;
+  requires_review?: boolean;
+  review_reason?: string | null;
   season_id?: string | null;
   ticket_type: string;
   op_type: string;
@@ -91,12 +93,15 @@ export interface WeighbridgeTicket {
   company_id: string;
   batch_id?: string | null;
   audit_json?: Record<string, unknown> | null;
+  requires_review?: boolean;
+  review_reason?: string | null;
   season_id?: string | null;
   company_name?: string | null;
   ticket_no: string;
   ticket_type: string;
   op_type: string;
   status: TicketStatus;
+  shift_id?: string | null;
   direction: TicketDirection;
   source_kind: string;
   destination_kind: string;
@@ -149,6 +154,7 @@ export interface WeighbridgeTicket {
     warehouse_to_name?: string | null;
     unit_price?: number | null;
     amount?: number | null;
+    moisture_percent?: number | null;
     notes?: string | null;
     operation_line_id?: string | null;
   }>;
