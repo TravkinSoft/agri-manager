@@ -8,13 +8,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DRIVER_PERSONNEL_TYPES = [
-  "driver",
-  "machine_operator",
-  "combine_operator",
-  "worker",
-  "responsible",
-];
+const WEIGHBRIDGE_PERSONNEL_ROLES = ["driver", "mechanic_operator"];
 
 export async function GET(request: NextRequest) {
   try {
@@ -22,25 +16,33 @@ export async function GET(request: NextRequest) {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
 
-    const [vehiclesRes, driversRes] = await Promise.all([
+    const [vehiclesRes, peopleRes, legacyDriversRes, profilesRes] = await Promise.all([
       supabase
         .from("reference_vehicles")
-        .select("id,name,custom_name,plate_number,primary_responsible_personnel_id,is_active,archived")
+        .select("id,name,custom_name,plate_number,type,fleet_type,primary_responsible_personnel_id,is_active,archived")
         .eq("company_id", companyId)
         .eq("is_active", true)
         .eq("archived", false)
         .order("name", { ascending: true }),
       supabase
-        .from("reference_specialists")
-        .select("id,full_name,name_ru,name_kz,name_en,personnel_type,status,archived")
+        .from("company_people")
+        .select("id,full_name,role_type,position,department,status,deleted_at")
         .eq("company_id", companyId)
-        .eq("archived", false)
         .eq("status", "active")
-        .in("personnel_type", DRIVER_PERSONNEL_TYPES)
+        .is("deleted_at", null)
+        .in("role_type", WEIGHBRIDGE_PERSONNEL_ROLES)
         .order("full_name", { ascending: true }),
+      supabase
+        .from("reference_specialists")
+        .select("id,person_id,full_name,name_ru,name_kz,name_en")
+        .eq("company_id", companyId),
+      supabase
+        .from("profiles")
+        .select("id,full_name,email")
+        .eq("company_id", companyId),
     ]);
 
-    const error = vehiclesRes.error || driversRes.error;
+    const error = vehiclesRes.error || peopleRes.error || legacyDriversRes.error || profilesRes.error;
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
@@ -49,28 +51,52 @@ export async function GET(request: NextRequest) {
       id: String(row.id),
       name: String(row.custom_name || row.name || "Машина"),
       plate: String(row.plate_number || ""),
+      type: String(row.type || ""),
+      fleetType: String(row.fleet_type || ""),
       primaryPersonnelId: row.primary_responsible_personnel_id
         ? String(row.primary_responsible_personnel_id)
         : null,
     }));
 
+    const legacyPersonById = new Map<string, string>();
+    const driverNames: Record<string, string> = {};
+    (legacyDriversRes.data || []).forEach((row: any) => {
+      const legacyId = String(row.id);
+      if (row.person_id) legacyPersonById.set(legacyId, String(row.person_id));
+      driverNames[legacyId] = String(
+        row.name_ru || row.full_name || row.name_en || row.name_kz || "Водитель"
+      );
+    });
+    (profilesRes.data || []).forEach((row: any) => {
+      driverNames[String(row.id)] = String(row.full_name || row.email || "Водитель");
+    });
+
     const byDriver = new Map<string, string[]>();
     vehicles.forEach((vehicle) => {
       if (!vehicle.primaryPersonnelId) return;
-      const assigned = byDriver.get(vehicle.primaryPersonnelId) || [];
+      const canonicalPersonId = legacyPersonById.get(vehicle.primaryPersonnelId);
+      if (!canonicalPersonId) return;
+      const assigned = byDriver.get(canonicalPersonId) || [];
       assigned.push(vehicle.id);
-      byDriver.set(vehicle.primaryPersonnelId, assigned);
+      byDriver.set(canonicalPersonId, assigned);
     });
 
-    const drivers = (driversRes.data || []).map((row: any) => ({
+    const drivers = (peopleRes.data || []).map((row: any) => {
+      const id = String(row.id);
+      const name = String(row.full_name || "Сотрудник");
+      driverNames[id] = name;
+      return {
       id: String(row.id),
-      name: String(row.name_ru || row.full_name || row.name_en || row.name_kz || "Ответственный"),
+      name,
       machineId: null as string | null,
-      personnelType: row.personnel_type ? String(row.personnel_type) : null,
-      assignedVehicleIds: byDriver.get(String(row.id)) || [],
-    }));
+      roleType: String(row.role_type),
+      position: String(row.position || ""),
+      department: String(row.department || ""),
+      assignedVehicleIds: byDriver.get(id) || [],
+    };
+    });
 
-    return NextResponse.json({ companyId, vehicles, drivers });
+    return NextResponse.json({ companyId, vehicles, drivers, driverNames });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {

@@ -83,7 +83,7 @@ export async function GET(
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
     }
 
-    const [{ data: lines }, { data: company }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: drivers }, { data: vehicles }, { data: operators }, { data: counterparties }] = await Promise.all([
+    const [{ data: lines }, { data: company }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: people }, { data: legacyDrivers }, { data: drivers }, { data: vehicles }, { data: operators }, { data: counterparties }] = await Promise.all([
       supabase.from("ticket_lines").select("*").eq("ticket_id", id).order("created_at", { ascending: true }),
       supabase.from("companies").select("id,name").eq("id", ticket.company_id).maybeSingle(),
       supabase.from("fields").select("id,name").eq("company_id", ticket.company_id),
@@ -91,6 +91,8 @@ export async function GET(
       supabase.from("products").select("id,name,trade_name,normalized_name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
       supabase.from("varieties").select("id,name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
       supabase.from("seed_reproductions").select("id,name,company_id").or(`company_id.eq.${ticket.company_id},company_id.is.null`),
+      supabase.from("company_people").select("id,full_name").eq("company_id", ticket.company_id),
+      supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", ticket.company_id),
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
       supabase.from("reference_vehicles").select("id,name,plate_number").eq("company_id", ticket.company_id),
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
@@ -125,7 +127,12 @@ export async function GET(
       ? (reproductions || []).find((x: any) => x.id === line.reproduction_id)?.name || "-"
       : "-";
     const driverName = ticket.driver_id
-      ? (drivers || []).find((x: any) => x.id === ticket.driver_id)?.full_name ||
+      ? (people || []).find((x: any) => x.id === ticket.driver_id)?.full_name ||
+        (legacyDrivers || []).find((x: any) => x.id === ticket.driver_id)?.name_ru ||
+        (legacyDrivers || []).find((x: any) => x.id === ticket.driver_id)?.full_name ||
+        (legacyDrivers || []).find((x: any) => x.id === ticket.driver_id)?.name_en ||
+        (legacyDrivers || []).find((x: any) => x.id === ticket.driver_id)?.name_kz ||
+        (drivers || []).find((x: any) => x.id === ticket.driver_id)?.full_name ||
         (drivers || []).find((x: any) => x.id === ticket.driver_id)?.email ||
         "-"
       : "-";
