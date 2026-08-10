@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
+import { formatWeightKg, formatWeightNumber } from "@/lib/weighbridge/weight-format";
 
 const opLabel = (opType: string) => {
   if (opType === "harvest_incoming") return "Урожай с поля";
@@ -37,12 +38,6 @@ const fmt = (value: string | null | undefined) => {
   }).format(d);
 };
 
-const kg = (value: unknown) => {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "-";
-  return n.toLocaleString("ru-RU", { maximumFractionDigits: 3 });
-};
-
 const unitLabel = (unit: string | null | undefined) => {
   const value = String(unit || "").trim().toLowerCase();
   if (value === "kg" || value === "кг") return "кг";
@@ -54,7 +49,7 @@ const unitLabel = (unit: string | null | undefined) => {
   return value || "ед.";
 };
 
-const qty = (value: unknown, unit?: string | null) => `${kg(value)} ${unitLabel(unit)}`;
+const qty = (value: unknown, unit?: string | null) => `${formatWeightNumber(value, "-")} ${unitLabel(unit)}`;
 
 const productSummary = (lines: any[], limit = 3) => {
   const names = (lines || []).map((line) => String(line.product_name || line.product_name_snapshot || "").trim()).filter(Boolean);
@@ -190,9 +185,9 @@ export default function WeighbridgePrintPage() {
         {!isDirectSupplierReceipt ? <div className="mb-3 rounded border border-[#b8a788] p-2 text-sm">
           <div className="mb-2 text-center text-lg font-bold">{weightLabel}</div>
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{kg(ticket.gross_weight_kg)} кг</div></div>
-            <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{kg(ticket.tare_weight_kg)} кг</div></div>
-            <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{kg(ticket.net_weight_kg)} кг</div></div>
+            <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{formatWeightKg(ticket.gross_weight_kg)}</div></div>
+            <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{formatWeightKg(ticket.tare_weight_kg)}</div></div>
+            <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{formatWeightKg(ticket.net_weight_kg)}</div></div>
           </div>
         </div> : null}
 

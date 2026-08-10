@@ -262,8 +262,12 @@ export async function PATCH(
           ? null
           : Number(ticket.tare_weight_kg);
 
+    const hasMoisturePatch = body?.moisture_percent !== undefined;
     let harvestMoisture: number | null = null;
-    if (ticket.op_type === "harvest_incoming" && body?.tare_weight_kg !== undefined) {
+    if (hasMoisturePatch) {
+      if (ticket.op_type !== "harvest_incoming") {
+        return NextResponse.json({ error: "Влажность доступна только для урожая с поля." }, { status: 400 });
+      }
       const rawMoisture = body?.moisture_percent;
       harvestMoisture = rawMoisture == null || String(rawMoisture).trim() === ""
         ? null
@@ -296,7 +300,24 @@ export async function PATCH(
       patch.status = status;
     }
 
-    if (Object.keys(patch).length === 0) {
+    let harvestLineId: string | null = null;
+    if (hasMoisturePatch) {
+      const { data: harvestLines, error: harvestLinesError } = await supabase
+        .from("ticket_lines")
+        .select("id")
+        .eq("ticket_id", id)
+        .eq("company_id", companyId)
+        .limit(2);
+      if (harvestLinesError || (harvestLines || []).length !== 1) {
+        return NextResponse.json(
+          { error: harvestLinesError?.message || "Harvest ticket must contain exactly one line." },
+          { status: 400 }
+        );
+      }
+      harvestLineId = String((harvestLines || [])[0]?.id || "");
+    }
+
+    if (Object.keys(patch).length === 0 && !hasMoisturePatch) {
       return NextResponse.json({ error: "No patch fields provided" }, { status: 400 });
     }
 
@@ -309,25 +330,15 @@ export async function PATCH(
         return NextResponse.json({ error: atomicUpdateError.message }, { status: 400 });
       }
 
-      const { data: harvestLines, error: harvestLinesError } = await supabase
-        .from("ticket_lines")
-        .select("id,moisture_percent")
-        .eq("ticket_id", id)
-        .eq("company_id", companyId)
-        .limit(2);
-      if (harvestLinesError || (harvestLines || []).length !== 1) {
-        return NextResponse.json(
-          { error: harvestLinesError?.message || "Harvest ticket must contain exactly one line." },
-          { status: 400 }
-        );
-      }
-      const { error: moistureError } = await supabase
-        .from("ticket_lines")
-        .update({ moisture_percent: harvestMoisture })
-        .eq("id", String((harvestLines || [])[0]?.id || ""))
-        .eq("company_id", companyId);
-      if (moistureError) {
-        return NextResponse.json({ error: moistureError.message }, { status: 400 });
+      if (hasMoisturePatch && harvestLineId) {
+        const { error: moistureError } = await supabase
+          .from("ticket_lines")
+          .update({ moisture_percent: harvestMoisture })
+          .eq("id", harvestLineId)
+          .eq("company_id", companyId);
+        if (moistureError) {
+          return NextResponse.json({ error: moistureError.message }, { status: 400 });
+        }
       }
 
       const tareWeight = Number(nextTare || 0);
@@ -387,6 +398,26 @@ export async function PATCH(
         return NextResponse.json({ error: updatedError?.message || "Ticket not found after update" }, { status: 400 });
       }
       return NextResponse.json({ ticket: updated });
+    }
+
+    if (hasMoisturePatch && harvestLineId) {
+      const { error: moistureError } = await supabase
+        .from("ticket_lines")
+        .update({ moisture_percent: harvestMoisture })
+        .eq("id", harvestLineId)
+        .eq("company_id", companyId);
+      if (moistureError) {
+        return NextResponse.json({ error: moistureError.message }, { status: 400 });
+      }
+    }
+
+    if (Object.keys(patch).length === 0) {
+      return NextResponse.json({
+        ticket: {
+          ...ticket,
+          lines: [{ id: harvestLineId, moisture_percent: harvestMoisture }],
+        },
+      });
     }
 
     const { data: updated, error: updateError } = await supabase
