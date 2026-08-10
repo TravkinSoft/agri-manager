@@ -56,6 +56,7 @@ function isV5WarehouseSchemaError(error: unknown): boolean {
 export async function GET(request: NextRequest) {
   try {
     const statusFilter = String(request.nextUrl.searchParams.get("status") || "").trim();
+    const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;
     const onlyMine = String(request.nextUrl.searchParams.get("mine") || "false").toLowerCase() === "true";
     const includeTestData =
       String(request.nextUrl.searchParams.get("includeTestData") || "false").toLowerCase() === "true";
@@ -152,6 +153,10 @@ export async function GET(request: NextRequest) {
         if (rawStatuses.length > 0) {
           query = query.in("status", rawStatuses);
         }
+      }
+
+      if (warehouseId) {
+        query = query.eq("source_warehouse_id", warehouseId);
       }
 
       if (onlyMine && (actor.role === "specialist" || actor.role === "brigadier")) {

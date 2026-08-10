@@ -14,14 +14,17 @@ export async function GET(request: NextRequest) {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
+    const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;
 
-    const { data: batchRows, error: batchError } = await supabase
+    let batchQuery = supabase
       .from("inventory_batches")
-      .select("id,batch_code,product_id,crop_id,variety_id,reproduction_id,source_field_id,source_ticket_id,season_id,batch_class,origin_type")
+      .select("id,batch_code,product_id,crop_id,variety_id,reproduction_id,source_field_id,source_ticket_id,season_id,batch_class,origin_type,warehouse_id")
       .eq("company_id", companyId)
       .eq("origin_type", "harvest")
       .order("created_at", { ascending: false })
       .limit(500);
+    if (warehouseId) batchQuery = batchQuery.eq("warehouse_id", warehouseId);
+    const { data: batchRows, error: batchError } = await batchQuery;
     if (batchError) throw batchError;
 
     const batches = batchRows || [];

@@ -110,6 +110,8 @@ type Summary = {
   latest: InventoryTransactionWithDetails | null;
   openRequests: WarehouseIssueRequest[];
   receipts: WarehouseReceipt[];
+  summaryLoaded: boolean;
+  detailsLoaded: boolean;
 };
 
 export default function WarehousesPage() {
@@ -125,6 +127,12 @@ export default function WarehousesPage() {
   const [receipts, setReceipts] = useState<WarehouseReceipt[]>([]);
   const [requests, setRequests] = useState<WarehouseIssueRequest[]>([]);
   const [harvestBatches, setHarvestBatches] = useState<HarvestBatchSummary[]>([]);
+  const [loadedWarehouseIds, setLoadedWarehouseIds] = useState<string[]>([]);
+  const [detailsLoading, setDetailsLoading] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [searchDataLoaded, setSearchDataLoaded] = useState(false);
+  const [searchDataLoading, setSearchDataLoading] = useState(false);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string | null>(null);
   const [receiptWarehouseId, setReceiptWarehouseId] = useState<string | null>(null);
@@ -138,29 +146,15 @@ export default function WarehousesPage() {
   const canView = canStockOperate || canManageWarehouses || ["agronomist", "director", "weighman"].includes(role);
   const isReadOnlyRole = ["weighman", "agronomist", "director"].includes(role);
 
-  const loadData = async ({ foreground = true }: { foreground?: boolean } = {}) => {
+  const loadWarehouseList = async ({ foreground = true }: { foreground?: boolean } = {}) => {
     if (!profile?.company_id) return;
     if (foreground) {
       setLoading(true);
       setError(null);
     }
     try {
-      const [warehouseRows, productRows, balanceRows, movementRows, receiptRows, requestRows, batchRows] = await Promise.all([
-        getWarehouses(profile.company_id, canManageWarehouses, language),
-        canStockOperate ? getProducts(profile.company_id, false, language, "agrochemical") : Promise.resolve([]),
-        getInventoryBalances(profile.company_id, language),
-        getInventoryTransactions(profile.company_id, language),
-        canStockOperate ? getWarehouseReceipts(profile.company_id) : Promise.resolve([]),
-        canStockOperate ? getWarehouseIssueRequests(profile.company_id) : Promise.resolve([]),
-        listHarvestBatchSummaries(profile.company_id),
-      ]);
+      const warehouseRows = await getWarehouses(profile.company_id, canManageWarehouses, language);
       setWarehouses(warehouseRows);
-      setProducts(productRows);
-      setBalances(balanceRows);
-      setMovements(movementRows);
-      setReceipts(receiptRows);
-      setRequests(requestRows);
-      setHarvestBatches(batchRows);
       setError(null);
     } catch (cause) {
       if (foreground) {
@@ -173,15 +167,128 @@ export default function WarehousesPage() {
     }
   };
 
+  const loadWarehouseDetails = async (
+    warehouseId: string,
+    { foreground = true }: { foreground?: boolean } = {}
+  ) => {
+    if (!profile?.company_id) return;
+    if (foreground) {
+      setDetailsLoading(true);
+      setDetailsError(null);
+    }
+    try {
+      const [balanceRows, movementRows, receiptRows, requestRows, batchRows] = await Promise.all([
+        getInventoryBalances(profile.company_id, language, { warehouseId }),
+        getInventoryTransactions(profile.company_id, language, { warehouseId, limit: 50 }),
+        canStockOperate ? getWarehouseReceipts(profile.company_id, { warehouseId }) : Promise.resolve([]),
+        canStockOperate
+          ? getWarehouseIssueRequests(profile.company_id, { warehouseId })
+          : Promise.resolve([]),
+        listHarvestBatchSummaries(profile.company_id, { warehouseId }),
+      ]);
+      setBalances((current) => [
+        ...current.filter((row) => row.warehouse_id !== warehouseId),
+        ...balanceRows,
+      ]);
+      setMovements((current) => [
+        ...current.filter(
+          (row) =>
+            row.warehouse_id !== warehouseId &&
+            row.source_warehouse_id !== warehouseId &&
+            row.destination_warehouse_id !== warehouseId
+        ),
+        ...movementRows,
+      ]);
+      setReceipts((current) => [
+        ...current.filter((row) => row.warehouse_to_id !== warehouseId),
+        ...receiptRows,
+      ]);
+      setRequests((current) => [
+        ...current.filter((row) => row.source_warehouse_id !== warehouseId),
+        ...requestRows,
+      ]);
+      setHarvestBatches((current) => [
+        ...current.filter((row) => row.warehouseId !== warehouseId),
+        ...batchRows,
+      ]);
+      setLoadedWarehouseIds((current) => current.includes(warehouseId) ? current : [...current, warehouseId]);
+      setDetailsError(null);
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Не удалось загрузить данные склада";
+      if (foreground) setDetailsError(message);
+      else console.error("Background warehouse details refresh failed", cause);
+    } finally {
+      if (foreground) setDetailsLoading(false);
+    }
+  };
+
+  const loadSearchData = async () => {
+    if (!profile?.company_id || searchDataLoading) return;
+    setSearchDataLoading(true);
+    try {
+      const [balanceRows, batchRows] = await Promise.all([
+        getInventoryBalances(profile.company_id, language),
+        listHarvestBatchSummaries(profile.company_id),
+      ]);
+      setBalances(balanceRows);
+      setHarvestBatches(batchRows);
+      setSearchDataLoaded(true);
+    } catch (cause) {
+      console.error("Warehouse content search preload failed", cause);
+    } finally {
+      setSearchDataLoading(false);
+    }
+  };
+
+  const openWarehouse = (warehouseId: string) => {
+    setSelectedWarehouseId(warehouseId);
+    void loadWarehouseDetails(warehouseId);
+  };
+
+  const openReceiptDialog = async (warehouseId: string) => {
+    if (!profile?.company_id) return;
+    if (products.length === 0) {
+      setProductsLoading(true);
+      try {
+        setProducts(await getProducts(profile.company_id, false, language, "agrochemical"));
+      } catch (cause) {
+        toast({
+          title: "Не удалось загрузить каталог",
+          description: cause instanceof Error ? cause.message : "Повторите попытку",
+          variant: "destructive",
+        });
+        return;
+      } finally {
+        setProductsLoading(false);
+      }
+    }
+    setReceiptWarehouseId(warehouseId);
+  };
+
   useEffect(() => {
-    void loadData();
-    // loadData is intentionally tied to the selected company and role contract.
+    setWarehouses([]);
+    setProducts([]);
+    setBalances([]);
+    setMovements([]);
+    setReceipts([]);
+    setRequests([]);
+    setHarvestBatches([]);
+    setLoadedWarehouseIds([]);
+    setSelectedWarehouseId(null);
+    setSearchDataLoaded(false);
+    void loadWarehouseList();
+    // Loading is intentionally tied to the selected company and role contract.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.company_id, profile?.role, language]);
 
   useLiveRefresh({
     enabled: Boolean(profile?.company_id && canView),
-    onRefresh: () => loadData({ foreground: false }),
+    onRefresh: async () => {
+      await loadWarehouseList({ foreground: false });
+      if (selectedWarehouseId) {
+        await loadWarehouseDetails(selectedWarehouseId, { foreground: false });
+      }
+    },
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.warehouses,
   });
@@ -199,12 +306,30 @@ export default function WarehousesPage() {
       (row) => isRequestOpen(row) && (!row.source_warehouse_id || row.source_warehouse_id === warehouse.id)
     );
     const warehouseReceipts = receipts.filter((row) => row.warehouse_to_id === warehouse.id);
-    return { warehouse, stock, batches, latest, openRequests, receipts: warehouseReceipts };
-  }), [warehouses, balances, harvestBatches, movements, requests, receipts]);
+    const detailsLoaded = loadedWarehouseIds.includes(warehouse.id);
+    return {
+      warehouse,
+      stock,
+      batches,
+      latest,
+      openRequests,
+      receipts: warehouseReceipts,
+      summaryLoaded: detailsLoaded || searchDataLoaded,
+      detailsLoaded,
+    };
+  }), [warehouses, balances, harvestBatches, movements, requests, receipts, loadedWarehouseIds, searchDataLoaded]);
 
   const query = search.trim().toLowerCase();
+  useEffect(() => {
+    if (!query || searchDataLoaded || searchDataLoading) return;
+    const timer = window.setTimeout(() => void loadSearchData(), 300);
+    return () => window.clearTimeout(timer);
+    // Search data is intentionally loaded only after the user searches warehouse contents.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, profile?.company_id, language, searchDataLoaded]);
+
   const filteredSummaries = useMemo(() => summaries.filter(({ warehouse, stock, batches }) => {
-    if (!query) return true;
+    if (!query || searchDataLoading) return true;
     const haystack = [
       warehouse.name,
       warehouseTypeLabel(warehouse.warehouse_type),
@@ -212,7 +337,7 @@ export default function WarehousesPage() {
       ...batches.map(searchableBatch),
     ].join(" ").toLowerCase();
     return haystack.includes(query);
-  }), [summaries, query]);
+  }), [summaries, query, searchDataLoading]);
 
   const activeSummaries = filteredSummaries.filter((row) => !isArchived(row.warehouse));
   const archivedSummaries = filteredSummaries.filter((row) => isArchived(row.warehouse));
@@ -256,27 +381,27 @@ export default function WarehousesPage() {
 
   const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || !query || filteredSummaries.length === 0) return;
-    setSelectedWarehouseId(filteredSummaries[0].warehouse.id);
+    openWarehouse(filteredSummaries[0].warehouse.id);
   };
 
   if (!canView) {
     return <Alert variant="destructive"><AlertDescription>Доступ к складам запрещён для текущей роли.</AlertDescription></Alert>;
   }
 
-  const renderWarehouseCard = ({ warehouse, stock, batches, latest }: Summary) => {
+  const renderWarehouseCard = ({ warehouse, stock, batches, latest, summaryLoaded, detailsLoaded }: Summary) => {
     const cleanMass = batches.reduce((sum, batch) => sum + batch.cleanMassKg, 0);
-    const empty = stock.length === 0 && batches.length === 0;
+    const empty = summaryLoaded && stock.length === 0 && batches.length === 0;
     return (
       <Card
         key={warehouse.id}
         role="button"
         tabIndex={0}
         aria-label={`Открыть склад ${warehouse.name}`}
-        onClick={() => setSelectedWarehouseId(warehouse.id)}
+        onClick={() => openWarehouse(warehouse.id)}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            setSelectedWarehouseId(warehouse.id);
+            openWarehouse(warehouse.id);
           }
         }}
         className="cursor-pointer rounded-md border-slate-800 bg-slate-900/60 transition-colors hover:border-yellow-500/60 hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
@@ -294,15 +419,15 @@ export default function WarehousesPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><div className="text-slate-500">Позиций</div><div className="mt-1 text-lg font-semibold">{stock.length}</div></div>
-            <div><div className="text-slate-500">Партий</div><div className="mt-1 text-lg font-semibold">{batches.length}</div></div>
+            <div><div className="text-slate-500">Позиций</div><div className="mt-1 text-lg font-semibold">{summaryLoaded ? stock.length : "—"}</div></div>
+            <div><div className="text-slate-500">Партий</div><div className="mt-1 text-lg font-semibold">{summaryLoaded ? batches.length : "—"}</div></div>
           </div>
           {cleanMass > 0 ? (
             <div className="text-sm"><div className="text-slate-500">Чистая масса урожая</div><div className="mt-1 font-semibold text-emerald-300">{quantity(cleanMass)} кг</div></div>
           ) : null}
           <div className="text-sm">
             <div className="text-slate-500">Последнее движение</div>
-            <div className="mt-1 text-slate-200">{formatDate(latest?.operation_datetime || latest?.created_at)}</div>
+            <div className="mt-1 text-slate-200">{detailsLoaded ? formatDate(latest?.operation_datetime || latest?.created_at) : "—"}</div>
           </div>
         </CardContent>
       </Card>
@@ -338,6 +463,9 @@ export default function WarehousesPage() {
           placeholder="Найти склад, материал, культуру, поле или партию"
         />
       </div>
+      {searchDataLoading ? (
+        <div className="text-xs text-slate-500" role="status">Ищем по остаткам и партиям...</div>
+      ) : null}
 
       {loading ? (
         <div className="py-12 text-center text-sm text-slate-400">Загрузка складов...</div>
@@ -375,10 +503,13 @@ export default function WarehousesPage() {
                   </div>
                   {selectedCanReceive ? (
                     <div className="flex flex-wrap gap-2">
-                      <Button onClick={() => setReceiptWarehouseId(selectedSummary.warehouse.id)}>
-                        <PackagePlus className="mr-2 h-4 w-4" />Создать приход
+                      <Button
+                        disabled={productsLoading}
+                        onClick={() => void openReceiptDialog(selectedSummary.warehouse.id)}
+                      >
+                        <PackagePlus className="mr-2 h-4 w-4" />{productsLoading ? "Загрузка каталога..." : "Создать приход"}
                       </Button>
-                      {selectedCanTransfer ? <Button variant="outline" onClick={() => setTransferOpen(true)}>
+                      {selectedCanTransfer ? <Button variant="outline" disabled={!selectedSummary.detailsLoaded || detailsLoading} onClick={() => setTransferOpen(true)}>
                         <ArrowRightLeft className="mr-2 h-4 w-4" />Переместить
                       </Button> : null}
                       <Button asChild variant="outline">
@@ -392,6 +523,14 @@ export default function WarehousesPage() {
               </DialogHeader>
 
               <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-4">
+                {detailsLoading ? (
+                  <div className="rounded-md border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-400" role="status">
+                    Загружаем остатки, партии и последние движения...
+                  </div>
+                ) : null}
+                {detailsError ? (
+                  <Alert variant="destructive"><AlertDescription>{detailsError}</AlertDescription></Alert>
+                ) : null}
                 <section>
                   <h3 className="mb-3 text-base font-semibold">Сводка</h3>
                   <div className="grid gap-3 border-y border-slate-800 py-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
@@ -550,7 +689,7 @@ export default function WarehousesPage() {
           defaultWarehouseId={receiptWarehouseId}
           onCreated={async (receipt) => {
             toast({ title: "Приход проведён", description: `Документ ${receipt.receipt_no} создан, ledger IN записан.` });
-            await loadData();
+            if (receiptWarehouseId) await loadWarehouseDetails(receiptWarehouseId, { foreground: false });
           }}
         />
       ) : null}
@@ -564,7 +703,7 @@ export default function WarehousesPage() {
           balances={balances.filter((row) => ["pesticide", "fertilizer", "additive"].includes(String(row.product_type || "").toLowerCase()))}
           onCreated={async (result) => {
             toast({ title: "Перемещение проведено", description: `${result.transfer_no}: OUT и IN записаны атомарно.` });
-            await loadData();
+            if (selectedWarehouseId) await loadWarehouseDetails(selectedWarehouseId, { foreground: false });
           }}
         />
       ) : null}

@@ -299,6 +299,7 @@ export async function GET(request: NextRequest) {
     const actor = await getServerActorFromSession(request);
     const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
+    const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;
     const limitRaw = Number(request.nextUrl.searchParams.get("limit") || 500);
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 2000) : 500;
 
@@ -310,7 +311,7 @@ export async function GET(request: NextRequest) {
       allowedRoles: [...READ_ROLES],
     });
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("stock_ledger_entries")
       .select(`
         *,
@@ -323,6 +324,8 @@ export async function GET(request: NextRequest) {
       .order("occurred_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(limit);
+    if (warehouseId) query = query.eq("warehouse_id", warehouseId);
+    const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     const transactions = (data || []).map((row: any) => {

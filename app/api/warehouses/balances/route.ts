@@ -83,25 +83,30 @@ const LEDGER_SELECT = `
   warehouses:warehouse_id (id,name,name_ru,name_kz,name_en,warehouse_type)
 `;
 
+const PRODUCT_SELECT = "id,master_product_id,name,trade_name,normalized_name,manufacturer,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,base_uom,company_id,archived,is_active,created_at";
+
 async function loadLedgerRows(
   supabase: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>,
-  companyId: string
+  companyId: string,
+  warehouseId: string | null
 ) {
-  const withUnitContract = await supabase
-    .from("stock_ledger_entries")
-    .select(`${LEDGER_SELECT},unit_contract_version`)
-    .eq("company_id", companyId)
-    .order("occurred_at", { ascending: true });
+  const buildQuery = (select: string) => {
+    let query = supabase
+      .from("stock_ledger_entries")
+      .select(select)
+      .eq("company_id", companyId)
+      .order("occurred_at", { ascending: true });
+    if (warehouseId) query = query.eq("warehouse_id", warehouseId);
+    return query;
+  };
+
+  const withUnitContract = await buildQuery(`${LEDGER_SELECT},unit_contract_version`);
 
   if (!withUnitContract.error || !String(withUnitContract.error.message || "").includes("unit_contract_version")) {
     return withUnitContract;
   }
 
-  return supabase
-    .from("stock_ledger_entries")
-    .select(LEDGER_SELECT)
-    .eq("company_id", companyId)
-    .order("occurred_at", { ascending: true });
+  return buildQuery(LEDGER_SELECT);
 }
 
 export async function GET(request: NextRequest) {
@@ -109,6 +114,7 @@ export async function GET(request: NextRequest) {
     const actor = await getServerActorFromSession(request);
     const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
+    const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;
     const language = parseLanguage(request.nextUrl.searchParams.get("language"));
     const supabase = await getUserScopedClientFromRequest(request);
 
@@ -119,27 +125,60 @@ export async function GET(request: NextRequest) {
       allowedRoles: [...WAREHOUSE_READ_ROLES],
     });
 
-    const [ledgerResult, catalogResult, requestResult] = await Promise.all([
-      loadLedgerRows(supabase, companyId),
-      supabase
-        .from("products")
-        .select("id,master_product_id,name,trade_name,normalized_name,manufacturer,type,product_type,category,subcategory,pesticide_category,fertilizer_type,unit,stock_unit,base_uom,company_id,archived,is_active,created_at")
-        .or(`company_id.eq.${companyId},company_id.is.null`)
-        .eq("archived", false),
-      supabase
-        .from("warehouse_issue_requests")
-        .select("id,request_number,status,warehouse_request_status,source_warehouse_id,operation_id,field_id,operations:operation_id(operation_type),fields:field_id(name),warehouse_issue_request_items(id,product_id,actual_product_id,prepared_quantity,issued_quantity,unit,prepared_unit,issued_unit)")
-        .eq("company_id", companyId),
+    let requestQuery = supabase
+      .from("warehouse_issue_requests")
+      .select("id,request_number,status,warehouse_request_status,source_warehouse_id,operation_id,field_id,operations:operation_id(operation_type),fields:field_id(name),warehouse_issue_request_items(id,product_id,actual_product_id,prepared_quantity,issued_quantity,unit,prepared_unit,issued_unit)")
+      .eq("company_id", companyId);
+    if (warehouseId) requestQuery = requestQuery.eq("source_warehouse_id", warehouseId);
+
+    const [ledgerResult, requestResult] = await Promise.all([
+      loadLedgerRows(supabase, companyId, warehouseId),
+      requestQuery,
     ]);
 
-    if (ledgerResult.error || catalogResult.error || requestResult.error) {
+    if (ledgerResult.error || requestResult.error) {
       return NextResponse.json(
-        { error: ledgerResult.error?.message || catalogResult.error?.message || requestResult.error?.message },
+        { error: ledgerResult.error?.message || requestResult.error?.message },
         { status: 400 }
       );
     }
 
-    const catalog = (catalogResult.data || []).filter((row: any) => row.is_active !== false);
+    const ledgerRows = ledgerResult.data || [];
+    const requestRows = requestResult.data || [];
+    const referencedProductIds = new Set<string>();
+    for (const row of ledgerRows as any[]) {
+      if (row.product_id) referencedProductIds.add(String(row.product_id));
+    }
+    for (const requestRow of requestRows as any[]) {
+      for (const item of requestRow.warehouse_issue_request_items || []) {
+        if (item.product_id) referencedProductIds.add(String(item.product_id));
+        if (item.actual_product_id) referencedProductIds.add(String(item.actual_product_id));
+      }
+    }
+
+    let catalogRows: any[] = [];
+    if (!warehouseId || referencedProductIds.size > 0) {
+      let catalogQuery = supabase
+        .from("products")
+        .select(PRODUCT_SELECT)
+        .or(`company_id.eq.${companyId},company_id.is.null`)
+        .eq("archived", false);
+
+      if (warehouseId) {
+        const ids = Array.from(referencedProductIds).join(",");
+        catalogQuery = catalogQuery.or(
+          `company_id.eq.${companyId},id.in.(${ids}),master_product_id.in.(${ids})`
+        );
+      }
+
+      const catalogResult = await catalogQuery;
+      if (catalogResult.error) {
+        return NextResponse.json({ error: catalogResult.error.message }, { status: 400 });
+      }
+      catalogRows = catalogResult.data || [];
+    }
+
+    const catalog = catalogRows.filter((row: any) => row.is_active !== false);
     const productById = new Map(catalog.map((row: any) => [String(row.id), row] as const));
     const companyOverrideByMaster = new Map(
       catalog
@@ -160,8 +199,6 @@ export async function GET(request: NextRequest) {
       if (override) return override;
       return preferredByIdentity.get(buildCatalogIdentityKey(raw as any)) || raw;
     };
-
-    const ledgerRows = ledgerResult.data || [];
 
     const balances = new Map<string, BalanceAccumulator>();
     for (const raw of ledgerRows) {
@@ -202,7 +239,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    for (const requestRow of requestResult.data || []) {
+    for (const requestRow of requestRows) {
       if (!isOpenRequest(requestRow)) continue;
       const warehouseId = String((requestRow as any).source_warehouse_id || "");
       if (!warehouseId) continue;

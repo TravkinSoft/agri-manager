@@ -29,6 +29,7 @@ async function contextForRequest(request: NextRequest, requestedCompanyId: strin
 export async function GET(request: NextRequest) {
   try {
     const requestedCompanyId = String(request.nextUrl.searchParams.get("companyId") || "").trim() || null;
+    const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;
     const { actor, companyId, supabase } = await contextForRequest(request, requestedCompanyId);
     await assertActorAccess({
       supabase,
@@ -60,6 +61,7 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(100);
     if (allowedWarehouseIds) ticketQuery = ticketQuery.in("warehouse_to_id", allowedWarehouseIds);
+    if (warehouseId) ticketQuery = ticketQuery.eq("warehouse_to_id", warehouseId);
     const { data: tickets, error: ticketError } = await ticketQuery;
     if (ticketError) throw new Error(ticketError.message);
 
