@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -30,12 +30,26 @@ import { createWarehouseTransfer } from "@/lib/services/warehouses";
 import { isWeighedFieldMaterial, isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
 import { automaticHarvestAllocation, validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
+import { personnelRoleForVehicle, personnelRoleLabel, type WeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 
 type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "impurity_removal" | "drying";
 type MovementGroup = "warehouse_inbound" | "field_issue" | "internal_transfer" | "shipment" | "writeoff" | "impurities";
 type Option = { id: string; name: string };
 type WarehouseOption = Option & { warehouseType: string };
+type VehicleOption = Option & {
+  plate: string;
+  type: string;
+  fleetType: string;
+  primaryPersonnelId: string | null;
+};
+type DriverOption = Option & {
+  machineId: string | null;
+  roleType: WeighbridgePersonnelRole;
+  position: string;
+  department: string;
+  assignedVehicleIds: string[];
+};
 type SupplierOption = Option & { source?: "counterparty" | "global_supplier"; globalSupplierId?: string };
 type SupplierReceiptLineDraft = {
   localId: string;
@@ -622,7 +636,7 @@ export default function WeighbridgeOperationsPage() {
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [buyers, setBuyers] = useState<Option[]>([]);
-  const [vehicles, setVehicles] = useState<{ id: string; name: string; plate: string; primaryPersonnelId: string | null }[]>([]);
+  const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
   const [processingPoints, setProcessingPoints] = useState<Option[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [stockIdentityOptions, setStockIdentityOptions] = useState<StockIdentityOption[]>([]);
@@ -633,7 +647,8 @@ export default function WeighbridgeOperationsPage() {
   const [crops, setCrops] = useState<Option[]>([]);
   const [varieties, setVarieties] = useState<{ id: string; name: string; cropId: string; cropName: string }[]>([]);
   const [reproductions, setReproductions] = useState<Option[]>([]);
-  const [drivers, setDrivers] = useState<{ id: string; name: string; machineId: string | null; assignedVehicleIds: string[] }[]>([]);
+  const [drivers, setDrivers] = useState<DriverOption[]>([]);
+  const [driverNames, setDriverNames] = useState<Record<string, string>>({});
   const [harvestStructureByField, setHarvestStructureByField] = useState<Record<string, HarvestStructureOption[]>>({});
   const [harvestIncompleteFields, setHarvestIncompleteFields] = useState<Record<string, boolean>>({});
   const [activeTicket, setActiveTicket] = useState<WeighbridgeTicket | null>(null);
@@ -700,85 +715,6 @@ export default function WeighbridgeOperationsPage() {
     () => (profile?.company_id && profile?.id ? `travkin.weighbridge.formDraft.${profile.company_id}.${profile.id}` : ""),
     [profile?.company_id, profile?.id]
   );
-
-  const loadDrivers = async (companyId: string) => {
-    const queryProfiles = async (select: string, withArchivedFilter: boolean) => {
-      let query = supabase
-        .from("profiles")
-        .select(select)
-        .eq("company_id", companyId)
-        .eq("status", "active")
-        .eq("role", "specialist")
-        .order("full_name");
-      if (withArchivedFilter) query = query.eq("archived", false);
-      return query;
-    };
-
-    const tryLoad = async (select: string) => {
-      const first = await queryProfiles(select, true);
-      if (!first.error) return first;
-      if (!first.error.message?.toLowerCase().includes("archived")) return first;
-      return queryProfiles(select, false);
-    };
-
-    const withMachine = await tryLoad("id,full_name,email,machine_id");
-    if (!withMachine.error) {
-      return (withMachine.data || []).map((r: any) => ({
-        id: String(r.id),
-        name: String(r.full_name || r.email || "Специалист"),
-        machineId: r.machine_id ? String(r.machine_id) : null,
-      }));
-    }
-
-    if (!withMachine.error.message?.toLowerCase().includes("machine_id")) {
-      throw withMachine.error;
-    }
-
-    const fallback = await tryLoad("id,full_name,email");
-    if (fallback.error) throw fallback.error;
-
-    return (fallback.data || []).map((r: any) => ({
-      id: String(r.id),
-      name: String(r.full_name || r.email || "Специалист"),
-      machineId: null as string | null,
-    }));
-  };
-
-  const loadDriversV2 = async (companyId: string) => {
-    const { data: specialists, error: specialistsError } = await supabase
-      .from("reference_specialists")
-      .select("id,full_name,personnel_type,status,archived")
-      .eq("company_id", companyId)
-      .eq("archived", false)
-      .eq("status", "active")
-      .eq("personnel_type", "driver")
-      .order("full_name");
-    if (specialistsError) throw specialistsError;
-
-    const { data: assignments, error: assignmentsError } = await supabase
-      .from("reference_vehicles")
-      .select("id,primary_responsible_personnel_id")
-      .eq("company_id", companyId)
-      .eq("archived", false)
-      .eq("is_active", true);
-    if (assignmentsError) throw assignmentsError;
-
-    const byDriver = new Map<string, string[]>();
-    (assignments || []).forEach((row: any) => {
-      const key = String(row.primary_responsible_personnel_id || "");
-      if (!key) return;
-      const arr = byDriver.get(key) || [];
-      arr.push(String(row.id));
-      byDriver.set(key, arr);
-    });
-
-    return (specialists || []).map((r: any) => ({
-      id: String(r.id),
-      name: String(r.full_name || "Водитель"),
-      machineId: null as string | null,
-      assignedVehicleIds: byDriver.get(String(r.id)) || [],
-    }));
-  };
 
   const loadSuppliers = async (companyId: string) => {
     const headers = await getSessionAuthHeaders();
@@ -900,7 +836,14 @@ export default function WeighbridgeOperationsPage() {
       setBuyers(buyerRows);
       setFields((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
       setWarehouses((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
-      setVehicles(((resourceRows?.vehicles || []) as any[]).map((r: any) => ({ id: String(r.id), name: String(r.name || "Машина"), plate: String(r.plate || ""), primaryPersonnelId: r.primaryPersonnelId ? String(r.primaryPersonnelId) : null })));
+      setVehicles(((resourceRows?.vehicles || []) as any[]).map((r: any) => ({
+        id: String(r.id),
+        name: String(r.name || "Машина"),
+        plate: String(r.plate || ""),
+        type: String(r.type || ""),
+        fleetType: String(r.fleetType || ""),
+        primaryPersonnelId: r.primaryPersonnelId ? String(r.primaryPersonnelId) : null,
+      })));
       setProcessingPoints([]);
       const dedupeByName = (rows: any[]) => {
         const map = new Map<string, any>();
@@ -981,10 +924,21 @@ export default function WeighbridgeOperationsPage() {
       );
       setDrivers(((resourceRows?.drivers || []) as any[]).map((r: any) => ({
         id: String(r.id),
-        name: String(r.name || "Ответственный"),
+        name: String(r.name || "Сотрудник"),
         machineId: r.machineId ? String(r.machineId) : null,
+        roleType: r.roleType === "mechanic_operator" ? "mechanic_operator" : "driver",
+        position: String(r.position || ""),
+        department: String(r.department || ""),
         assignedVehicleIds: Array.isArray(r.assignedVehicleIds) ? r.assignedVehicleIds.map(String) : [],
       })));
+      setDriverNames(
+        Object.fromEntries(
+          Object.entries((resourceRows?.driverNames || {}) as Record<string, unknown>).map(([id, name]) => [
+            String(id),
+            String(name || "Водитель"),
+          ])
+        )
+      );
       setTickets(ticketRows || []);
       setHarvestBatches(harvestBatchRows || []);
       const fieldNameById = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "Поле")]));
@@ -1190,6 +1144,16 @@ export default function WeighbridgeOperationsPage() {
     // if driver's assigned list does not include current vehicle, switch to driver's default vehicle.
     if (!form.vehicleId || !assigned.includes(form.vehicleId)) {
       setForm((prev) => ({ ...prev, vehicleId: assigned[0] || prev.vehicleId }));
+    }
+  }, [form.driverId, form.vehicleId, drivers, vehicles]);
+
+  useEffect(() => {
+    if (!form.driverId || !form.vehicleId) return;
+    const driver = drivers.find((item) => item.id === form.driverId);
+    const vehicle = vehicles.find((item) => item.id === form.vehicleId);
+    const requiredRole = personnelRoleForVehicle(vehicle);
+    if (driver && requiredRole && driver.roleType !== requiredRole) {
+      setForm((prev) => ({ ...prev, driverId: "" }));
     }
   }, [form.driverId, form.vehicleId, drivers, vehicles]);
 
@@ -1583,15 +1547,38 @@ export default function WeighbridgeOperationsPage() {
     });
   }, [stockIdentityOptions, form.fieldMaterialCategory, selectedHarvestAllocation]);
   const selectableDrivers = useMemo(() => {
+    const selectedVehicle = vehicles.find((vehicle) => vehicle.id === form.vehicleId) || null;
+    const requiredRole = personnelRoleForVehicle(selectedVehicle);
+    const compatibleDrivers = requiredRole
+      ? drivers.filter((driver) => driver.roleType === requiredRole)
+      : drivers;
     const ordered = !form.vehicleId
-      ? drivers
+      ? compatibleDrivers
       : [
-          ...drivers.filter((d) => d.assignedVehicleIds.includes(form.vehicleId)),
-          ...drivers.filter((d) => !d.assignedVehicleIds.includes(form.vehicleId)),
+          ...compatibleDrivers.filter((d) => d.assignedVehicleIds.includes(form.vehicleId)),
+          ...compatibleDrivers.filter((d) => !d.assignedVehicleIds.includes(form.vehicleId)),
         ];
     const query = driverSearch.trim().toLocaleLowerCase("ru");
-    return query ? ordered.filter((driver) => driver.name.toLocaleLowerCase("ru").includes(query)) : ordered;
-  }, [drivers, form.vehicleId, driverSearch]);
+    return query
+      ? ordered.filter((driver) =>
+          [driver.name, driver.position, driver.department]
+            .join(" ")
+            .toLocaleLowerCase("ru")
+            .includes(query)
+        )
+      : ordered;
+  }, [drivers, vehicles, form.vehicleId, driverSearch]);
+  const driverGroups = useMemo(
+    () =>
+      (["driver", "mechanic_operator"] as const)
+        .map((roleType) => ({
+          roleType,
+          label: personnelRoleLabel(roleType),
+          people: selectableDrivers.filter((driver) => driver.roleType === roleType),
+        }))
+        .filter((group) => group.people.length > 0),
+    [selectableDrivers]
+  );
   const gross = activeTicket?.gross_weight_kg != null ? String(activeTicket.gross_weight_kg) : activeTicket?.weigh_method === "manual_override_with_reason" && activeTicketLineTotal > 0 ? String(activeTicketLineTotal) : "";
   const pure = net(gross, closingTare);
   const liveWeightKg = useMemo(() => {
@@ -2265,7 +2252,11 @@ export default function WeighbridgeOperationsPage() {
     }
   };
 
-  const activeDriver = activeTicket ? drivers.find((d) => d.id === activeTicket.driver_id) : null;
+  const driverNameForId = (driverId: string | null | undefined) => {
+    if (!driverId) return "";
+    return driverNames[String(driverId)] || drivers.find((driver) => driver.id === driverId)?.name || "";
+  };
+  const activeDriverName = activeTicket ? driverNameForId(activeTicket.driver_id) : "";
   const activeVehicle = activeTicket ? vehicles.find((v) => v.id === activeTicket.vehicle_id) : null;
   const activeLine = activeTicket?.lines?.[0] ?? null;
   const allocationLabelById = new Map<string, string>();
@@ -2870,7 +2861,25 @@ export default function WeighbridgeOperationsPage() {
                   />
                   <Select value={form.driverId} onValueChange={(v) => { setForm((p) => ({ ...p, driverId: v })); setDriverSearch(""); }}>
                     <SelectTrigger className="h-8"><SelectValue placeholder="Выберите водителя" /></SelectTrigger>
-                    <SelectContent>{selectableDrivers.map((d) => <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>)}</SelectContent>
+                    <SelectContent>
+                      {driverGroups.map((group) => (
+                        <SelectGroup key={group.roleType}>
+                          <SelectLabel className="text-xs uppercase text-slate-400">
+                            {group.label}
+                          </SelectLabel>
+                          {group.people.map((person) => (
+                            <SelectItem key={person.id} value={person.id} className="py-2">
+                              <span className="flex min-w-0 flex-col">
+                                <span className="truncate font-medium">{person.name}</span>
+                                <span className="truncate text-xs text-slate-400">
+                                  {[person.position, person.department].filter(Boolean).join(" · ")}
+                                </span>
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
                   </Select>
                 </div>
               </div>
@@ -2964,7 +2973,7 @@ export default function WeighbridgeOperationsPage() {
           <CardContent className="max-h-[720px] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
             {loading ? <div className="text-sm text-slate-400">Загрузка...</div> : activeTickets.length === 0 ? <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/45 p-6 text-center text-sm text-slate-500">Открытых талонов нет</div> : [...activeTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
-              const driverName = drivers.find((d) => d.id === t.driver_id)?.name || "Без водителя";
+              const driverName = driverNameForId(t.driver_id) || "Без водителя";
               const meta = ticketCardMeta(t, vehicleName, driverName);
               return (
                 <button key={`open-${t.id}`} type="button" onClick={() => setActiveTicket(t)} className="w-full rounded-xl border border-slate-800 bg-slate-950/55 px-3 py-3 text-left transition hover:border-yellow-500/50 hover:bg-slate-900">
@@ -3006,7 +3015,7 @@ export default function WeighbridgeOperationsPage() {
             {!loading && historyTickets.length === 0 ? <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">Закрытых талонов пока нет</div> : null}
             {!loading && historyTickets.slice(0, 80).map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
-              const driverName = drivers.find((d) => d.id === t.driver_id)?.name || "Без водителя";
+              const driverName = driverNameForId(t.driver_id) || "Без водителя";
               const meta = ticketCardMeta(t, vehicleName, driverName);
               const dt = fmt(t.finalized_at || t.updated_at || t.created_at, lang);
               return (
@@ -3080,7 +3089,7 @@ export default function WeighbridgeOperationsPage() {
                   <div className="mb-2 text-center text-lg font-bold">ТРАНСПОРТ И ВОДИТЕЛЬ</div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><span className="text-[#5d4f3d]">Машина:</span> <span className="font-bold">{activeVehicle?.name || "-"}</span></div>
-                    <div><span className="text-[#5d4f3d]">Водитель:</span> <span className="font-bold">{activeDriver?.name || "-"}</span></div>
+                    <div><span className="text-[#5d4f3d]">Водитель:</span> <span className="font-bold">{activeDriverName || "-"}</span></div>
                     <div><span className="text-[#5d4f3d]">Госномер:</span> <span className="font-semibold">{activeVehicle?.plate || "-"}</span></div>
                     <div />
                   </div>
@@ -3205,7 +3214,7 @@ export default function WeighbridgeOperationsPage() {
                   <div className="mb-2 text-center text-lg font-bold">ТРАНСПОРТ И ВОДИТЕЛЬ</div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><span className="text-[#5d4f3d]">Машина:</span> <span className="font-bold">{vehicles.find((v) => v.id === historyPreviewTicket.vehicle_id)?.name || "-"}</span></div>
-                    <div><span className="text-[#5d4f3d]">Водитель:</span> <span className="font-bold">{drivers.find((d) => d.id === historyPreviewTicket.driver_id)?.name || "-"}</span></div>
+                    <div><span className="text-[#5d4f3d]">Водитель:</span> <span className="font-bold">{driverNameForId(historyPreviewTicket.driver_id) || "-"}</span></div>
                     <div><span className="text-[#5d4f3d]">Госномер:</span> <span className="font-semibold">{vehicles.find((v) => v.id === historyPreviewTicket.vehicle_id)?.plate || "-"}</span></div>
                     <div />
                   </div>

@@ -64,7 +64,7 @@ export async function GET(
       }
     }
 
-    const [companyRes, fieldRes, warehouseFromRes, warehouseToRes, supplierRes, buyerRes, vehicleRes, driverRes, creatorRes] = await Promise.all([
+    const [companyRes, fieldRes, warehouseFromRes, warehouseToRes, supplierRes, buyerRes, vehicleRes, driverPersonRes, legacyDriverRes, driverProfileRes, creatorRes] = await Promise.all([
       supabase.from("companies").select("id,name").eq("id", ticket.company_id).maybeSingle(),
       ticket.field_id
         ? supabase.from("fields").select("id,name").eq("company_id", companyId).eq("id", ticket.field_id).maybeSingle()
@@ -85,7 +85,13 @@ export async function GET(
         ? supabase.from("reference_vehicles").select("id,name,plate_number").eq("company_id", companyId).eq("id", ticket.vehicle_id).maybeSingle()
         : Promise.resolve({ data: null } as any),
       ticket.driver_id
-        ? supabase.from("profiles").select("id,full_name,email").eq("id", ticket.driver_id).maybeSingle()
+        ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).eq("id", ticket.driver_id).maybeSingle()
+        : Promise.resolve({ data: null } as any),
+      ticket.driver_id
+        ? supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).eq("id", ticket.driver_id).maybeSingle()
+        : Promise.resolve({ data: null } as any),
+      ticket.driver_id
+        ? supabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).eq("id", ticket.driver_id).maybeSingle()
         : Promise.resolve({ data: null } as any),
       ticket.created_by
         ? supabase.from("profiles").select("id,full_name,email").eq("id", ticket.created_by).maybeSingle()
@@ -138,7 +144,11 @@ export async function GET(
     const supplier = (supplierRes as any)?.data || null;
     const buyer = (buyerRes as any)?.data || null;
     const vehicle = (vehicleRes as any)?.data || null;
-    const driver = (driverRes as any)?.data || null;
+    const driver =
+      (driverPersonRes as any)?.data ||
+      (legacyDriverRes as any)?.data ||
+      (driverProfileRes as any)?.data ||
+      null;
     const creator = (creatorRes as any)?.data || null;
     timing.dbMs = Date.now() - dbStartedAt;
     timing.renderMs = Date.now() - startedAt - timing.authMs - timing.dbMs;
@@ -164,7 +174,7 @@ export async function GET(
         buyer_name_snapshot: buyer?.name || null,
         vehicle_name_snapshot: vehicle?.name || null,
         vehicle_plate_snapshot: vehicle?.plate_number || null,
-        driver_name_snapshot: driver?.full_name || driver?.email || null,
+        driver_name_snapshot: driver?.name_ru || driver?.full_name || driver?.name_en || driver?.name_kz || driver?.email || null,
         created_by_name_snapshot: creator?.full_name || creator?.email || null,
         crop_structure_allocation_label: cropStructureAllocationLabel,
         lines: enrichedLines,

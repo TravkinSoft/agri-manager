@@ -10,6 +10,7 @@ import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context
 import { ensureHarvestProductIdentity } from "@/lib/server/harvest-product-identity";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
+import { personnelRoleMatchesVehicle } from "@/lib/weighbridge/personnel";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -432,7 +433,7 @@ export async function POST(request: NextRequest) {
       ? Promise.all([
           supabase
             .from("reference_vehicles")
-            .select("id, name, plate_number, status, is_active, archived")
+            .select("id, name, plate_number, type, fleet_type, status, is_active, archived")
             .eq("company_id", ticket.company_id)
             .eq("id", ticket.vehicle_id)
             .maybeSingle(),
@@ -446,6 +447,18 @@ export async function POST(request: NextRequest) {
         ]).finally(() => {
           timing.steps.vehicle_guard = Date.now() - vehicleGuardStartedAt;
         })
+      : null;
+    const driverGuardPromise = ticket.driver_id
+      ? Promise.resolve(
+          supabase
+            .from("company_people")
+            .select("id,company_id,role_type,status,deleted_at")
+            .eq("id", ticket.driver_id)
+            .eq("company_id", ticket.company_id)
+            .eq("status", "active")
+            .is("deleted_at", null)
+            .maybeSingle()
+        )
       : null;
     if (requiresVehicle && !ticket.vehicle_id) {
       return NextResponse.json({ error: "vehicle_id is required" }, { status: 400 });
@@ -1045,6 +1058,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let selectedVehicle: { type?: string | null; fleet_type?: string | null } | null = null;
     if (ticket.vehicle_id) {
       const [{ data: vehicle, error: vehicleError }, { data: activeByVehicle, error: activeByVehicleError }] =
         await (vehicleGuardPromise as NonNullable<typeof vehicleGuardPromise>);
@@ -1054,11 +1068,29 @@ export async function POST(request: NextRequest) {
       if (!vehicle.is_active || vehicle.archived) {
         return NextResponse.json({ error: "Vehicle is inactive or archived" }, { status: 400 });
       }
+      selectedVehicle = vehicle;
       if (activeByVehicleError) {
         return NextResponse.json({ error: activeByVehicleError.message }, { status: 400 });
       }
       if ((activeByVehicle || []).length > 0) {
         return NextResponse.json({ error: "This vehicle already has an active ticket" }, { status: 400 });
+      }
+    }
+    if (ticket.driver_id) {
+      const { data: driver, error: driverError } = await (
+        driverGuardPromise as NonNullable<typeof driverGuardPromise>
+      );
+      if (driverError || !driver?.id) {
+        return NextResponse.json(
+          { error: "Driver is unavailable in the current company personnel directory" },
+          { status: 400 }
+        );
+      }
+      if (!personnelRoleMatchesVehicle(driver.role_type, selectedVehicle)) {
+        return NextResponse.json(
+          { error: "Selected employee role is incompatible with the selected vehicle" },
+          { status: 400 }
+        );
       }
     }
 
