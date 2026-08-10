@@ -2,14 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, ClipboardList, Clock3, FileDown, Info, MoreHorizontal, Scale, Trash2 } from "lucide-react";
+import { CheckCircle2, ClipboardList, Clock3, FileDown, Info, MoreHorizontal, Scale, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -31,6 +31,13 @@ import { isWeighedFieldMaterial, isWeighedSupplierProduct } from "@/lib/weighbri
 import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
 import { automaticHarvestAllocation, validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 import { personnelRoleForVehicle, personnelRoleLabel, type WeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
+import { SearchableCombobox, type SearchableComboboxOption } from "@/components/weighbridge/searchable-combobox";
+import {
+  parseWeighbridgeFastRepeatContext,
+  pickWeighbridgeFastRepeatContext,
+  weighbridgeFastRepeatStorageKey,
+} from "@/lib/weighbridge/fast-repeat";
+import { formatWeightKg, formatWeightNumber } from "@/lib/weighbridge/weight-format";
 
 type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "impurity_removal" | "drying";
@@ -216,7 +223,6 @@ type FormState = {
   grossKg: string;
   harvestMoisture: string;
   vehicleId: string;
-  trailerId: string;
   driverId: string;
   disposalCategory: DisposalCategory;
   disposalReason: string;
@@ -261,7 +267,6 @@ const INITIAL_FORM: FormState = {
   grossKg: "",
   harvestMoisture: "",
   vehicleId: "",
-  trailerId: "",
   driverId: "",
   disposalCategory: "utilization",
   disposalReason: "",
@@ -278,40 +283,6 @@ const createSupplierReceiptLineDraft = (warehouseToId = ""): SupplierReceiptLine
   unitPrice: "",
   notes: "",
 });
-
-const PERSIST_KEYS: Array<keyof FormState> = [
-  "operationType",
-  "fieldId",
-  "warehouseFromId",
-  "warehouseToId",
-  "processingPointId",
-  "cropId",
-  "varietyId",
-  "reproductionId",
-  "cropStructureAllocationId",
-  "supplierId",
-  "buyerId",
-  "supplierDocumentNo",
-  "shipmentPurpose",
-  "destinationText",
-  "externalDocumentNo",
-  "supplierReceiptMode",
-  "supplierItemMode",
-  "transferMode",
-  "fieldIssueMode",
-  "fieldMaterialCategory",
-  "supplierLot",
-  "harvestYear",
-  "productId",
-  "stockIdentityKey",
-  "sourceBatchId",
-  "impurityType",
-  "linkedOperationId",
-  "linkedOperationLineId",
-  "quantityUom",
-  "disposalCategory",
-  "notes",
-];
 
 const LEGACY_MOVEMENT_GROUPS: Array<{ id: MovementGroup; title: string; hint: string }> = [
   { id: "warehouse_inbound", title: "Приход на склад", hint: "Урожай или поставка" },
@@ -602,9 +573,8 @@ const inferProductUnit = (product: ProductOption | null | undefined) => {
   return "";
 };
 const formatQuantityWithUnit = (quantity: unknown, unit?: string | null) => {
-  const n = Number(quantity || 0);
-  if (!Number.isFinite(n)) return "-";
-  return `${n.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} ${unitLabel(unit)}`;
+  const formatted = formatWeightNumber(quantity, "-");
+  return formatted === "-" ? formatted : `${formatted} ${unitLabel(unit)}`;
 };
 const getLang = (language: string): Lang => (language === "kz" || language === "en" ? language : "ru");
 const normName = (value: string) => value.toLowerCase().replace(/[^a-zа-яё0-9]+/gi, " ").trim();
@@ -662,9 +632,8 @@ export default function WeighbridgeOperationsPage() {
   const [activeTicket, setActiveTicket] = useState<WeighbridgeTicket | null>(null);
   const [closingTare, setClosingTare] = useState("");
   const [closingMoisture, setClosingMoisture] = useState("");
-  const [vehicleSearch, setVehicleSearch] = useState("");
-  const [trailerSearch, setTrailerSearch] = useState("");
-  const [driverSearch, setDriverSearch] = useState("");
+  const [moistureSaving, setMoistureSaving] = useState(false);
+  const [moistureSavedValue, setMoistureSavedValue] = useState("");
   const [suggestedFieldId, setSuggestedFieldId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
   const [shiftHandoverNote, setShiftHandoverNote] = useState("");
@@ -721,10 +690,15 @@ export default function WeighbridgeOperationsPage() {
   const canView = canOperate || profile?.role === "agronomist" || profile?.role === "specialist";
   const canVoid = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director";
   const canUseInventory = ["company_admin", "global_admin", "warehouse", "warehouse_operator", "weighman"].includes(String(profile?.role || ""));
-  const persistKey = useMemo(
-    () => (profile?.company_id && profile?.id ? `travkin.weighbridge.formDraft.${profile.company_id}.${profile.id}` : ""),
+  const idempotencyPersistKey = useMemo(
+    () => (profile?.company_id && profile?.id ? `travkin.weighbridge.formDraft.${profile.company_id}.${profile.id}.idempotency` : ""),
     [profile?.company_id, profile?.id]
   );
+  const fastRepeatPersistKey = useMemo(
+    () => weighbridgeFastRepeatStorageKey(profile?.company_id, activeShift?.id),
+    [profile?.company_id, activeShift?.id]
+  );
+  const [hydratedFastRepeatKey, setHydratedFastRepeatKey] = useState("");
 
   const loadSuppliers = async (companyId: string) => {
     const headers = await getSessionAuthHeaders();
@@ -1067,31 +1041,37 @@ export default function WeighbridgeOperationsPage() {
   }, [loading, tickets]);
 
   useEffect(() => {
-    if (!persistKey) return;
-    try {
-      createTicketIdempotencyRef.current = localStorage.getItem(`${persistKey}.idempotency`) || null;
-      const raw = localStorage.getItem(persistKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Partial<FormState>;
-      const safe: Partial<FormState> = {};
-      for (const key of PERSIST_KEYS) {
-        const val = parsed[key];
-        if (typeof val === "string" && val.trim().length > 0) safe[key] = val as any;
-      }
-      setForm((prev) => ({ ...prev, ...safe }));
-    } catch {
-      // ignore broken local snapshot
-    }
-  }, [persistKey]);
+    if (!idempotencyPersistKey) return;
+    createTicketIdempotencyRef.current = localStorage.getItem(idempotencyPersistKey) || null;
+  }, [idempotencyPersistKey]);
 
   useEffect(() => {
-    if (!persistKey) return;
-    const payload = PERSIST_KEYS.reduce((acc, key) => {
-      (acc as Record<string, string>)[key] = form[key];
-      return acc;
-    }, {} as Partial<FormState>);
-    localStorage.setItem(persistKey, JSON.stringify(payload));
-  }, [persistKey, form]);
+    setHydratedFastRepeatKey("");
+    if (!fastRepeatPersistKey) return;
+    const saved = parseWeighbridgeFastRepeatContext(localStorage.getItem(fastRepeatPersistKey));
+    setForm({
+      ...INITIAL_FORM,
+      ...(saved || {}),
+      operationType: "harvest_incoming",
+    });
+    setClosingTare("");
+    setClosingMoisture("");
+    setMoistureSavedValue("");
+    setCommentOpen(false);
+    setHydratedFastRepeatKey(fastRepeatPersistKey);
+  }, [fastRepeatPersistKey]);
+
+  useEffect(() => {
+    if (
+      !fastRepeatPersistKey ||
+      hydratedFastRepeatKey !== fastRepeatPersistKey ||
+      form.operationType !== "harvest_incoming"
+    ) return;
+    localStorage.setItem(
+      fastRepeatPersistKey,
+      JSON.stringify(pickWeighbridgeFastRepeatContext(form))
+    );
+  }, [fastRepeatPersistKey, hydratedFastRepeatKey, form]);
 
   useEffect(() => {
     const needsStockIdentity =
@@ -1151,7 +1131,9 @@ export default function WeighbridgeOperationsPage() {
   useEffect(() => {
     if (!activeTicket) return;
     setClosingTare(activeTicket.tare_weight_kg != null ? String(activeTicket.tare_weight_kg) : "");
-    setClosingMoisture(activeTicket.lines?.[0]?.moisture_percent != null ? String(activeTicket.lines[0].moisture_percent) : "");
+    const moisture = activeTicket.lines?.[0]?.moisture_percent != null ? String(activeTicket.lines[0].moisture_percent) : "";
+    setClosingMoisture(moisture);
+    setMoistureSavedValue(moisture);
     setVoidReason("");
     if (activeTicket.status !== "finalized" && activeTicket.status !== "voided") {
       window.setTimeout(() => tareInputRef.current?.focus(), 80);
@@ -1183,22 +1165,30 @@ export default function WeighbridgeOperationsPage() {
       }),
     [harvestStructureByField, form.fieldId]
   );
+  const harvestTargetOptions = useMemo<SearchableComboboxOption[]>(() => {
+    const fieldById = new Map(fields.map((field) => [field.id, field]));
+    return Object.entries(harvestStructureByField).flatMap(([fieldId, allocations]) => {
+      const field = fieldById.get(fieldId);
+      if (!field) return [];
+      return allocations
+        .slice()
+        .sort((a, b) => Number(a.isIncomplete) - Number(b.isIncomplete))
+        .map((allocation) => ({
+          value: `${fieldId}:${allocation.allocationId}`,
+          label: `${field.name} · ${allocation.cropName}`,
+          description: [
+            allocation.varietyName,
+            allocation.reproductionName,
+            `${allocation.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`,
+          ].filter(Boolean).join(" · "),
+          keywords: [field.name, allocation.cropName, allocation.varietyName, allocation.reproductionName],
+        }));
+    });
+  }, [fields, harvestStructureByField]);
   const selectedHarvestAllocation = useMemo(
     () => fieldHarvestOptions.find((x) => x.allocationId === form.cropStructureAllocationId) || null,
     [fieldHarvestOptions, form.cropStructureAllocationId]
   );
-  const harvestIdentityLabel = useMemo(() => {
-    if (!selectedHarvestAllocation) return "";
-    const parts = [selectedHarvestAllocation.cropName];
-    if (selectedHarvestAllocation.varietyId && !/^без\s/i.test(selectedHarvestAllocation.varietyName)) {
-      parts.push(selectedHarvestAllocation.varietyName);
-    }
-    if (selectedHarvestAllocation.reproductionId && !/^без\s/i.test(selectedHarvestAllocation.reproductionName)) {
-      parts.push(selectedHarvestAllocation.reproductionName);
-    }
-    parts.push(`${selectedHarvestAllocation.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`);
-    return parts.filter(Boolean).join(" · ");
-  }, [selectedHarvestAllocation]);
   const harvestContextRevision = useMemo(
     () => tickets
       .filter((ticket) => ticket.op_type === "harvest_incoming")
@@ -1542,20 +1532,7 @@ export default function WeighbridgeOperationsPage() {
     [vehicles, form.vehicleId]
   );
   const recommendedPersonnelRole = personnelRoleForVehicle(selectedVehicle);
-  const selectableVehicles = useMemo(() => {
-    const query = vehicleSearch.trim().toLocaleLowerCase("ru");
-    if (!query) return vehicles;
-    return vehicles.filter((vehicle) =>
-      [vehicle.name, vehicle.model, vehicle.plate].join(" ").toLocaleLowerCase("ru").includes(query)
-    );
-  }, [vehicles, vehicleSearch]);
-  const selectableTrailers = useMemo(() => {
-    const query = trailerSearch.trim().toLocaleLowerCase("ru");
-    if (!query) return trailers;
-    return trailers.filter((trailer) =>
-      [trailer.name, trailer.model, trailer.plate].join(" ").toLocaleLowerCase("ru").includes(query)
-    );
-  }, [trailers, trailerSearch]);
+  const selectableVehicles = vehicles;
   const selectableDrivers = useMemo(() => {
     const ordered = [...drivers].sort((a, b) => {
       const rolePriority = Number(b.roleType === recommendedPersonnelRole) - Number(a.roleType === recommendedPersonnelRole);
@@ -1564,29 +1541,25 @@ export default function WeighbridgeOperationsPage() {
       if (assignmentPriority !== 0) return assignmentPriority;
       return a.name.localeCompare(b.name, "ru");
     });
-    const query = driverSearch.trim().toLocaleLowerCase("ru");
-    return query
-      ? ordered.filter((driver) =>
-          [driver.name, driver.position, driver.department]
-            .join(" ")
-            .toLocaleLowerCase("ru")
-            .includes(query)
-        )
-      : ordered;
-  }, [drivers, recommendedPersonnelRole, form.vehicleId, driverSearch]);
-  const driverGroups = useMemo(
-    () => {
-      const roleOrder: WeighbridgePersonnelRole[] = recommendedPersonnelRole === "mechanic_operator"
-        ? ["mechanic_operator", "driver"]
-        : ["driver", "mechanic_operator"];
-      return roleOrder
-        .map((roleType) => ({
-          roleType,
-          label: `${personnelRoleLabel(roleType)}${roleType === recommendedPersonnelRole ? " · рекомендуется" : ""}`,
-          people: selectableDrivers.filter((driver) => driver.roleType === roleType),
-        }))
-        .filter((group) => group.people.length > 0);
-    },
+    return ordered;
+  }, [drivers, recommendedPersonnelRole, form.vehicleId]);
+  const vehicleComboboxOptions = useMemo<SearchableComboboxOption[]>(
+    () => selectableVehicles.map((vehicle) => ({
+      value: vehicle.id,
+      label: vehicle.name,
+      description: [vehicle.model !== vehicle.name ? vehicle.model : "", vehicle.plate].filter(Boolean).join(" · "),
+      keywords: [vehicle.name, vehicle.model, vehicle.plate],
+    })),
+    [selectableVehicles]
+  );
+  const driverComboboxOptions = useMemo<SearchableComboboxOption[]>(
+    () => selectableDrivers.map((driver) => ({
+      value: driver.id,
+      label: driver.name,
+      description: [driver.position, driver.department].filter(Boolean).join(" · "),
+      group: `${personnelRoleLabel(driver.roleType)}${driver.roleType === recommendedPersonnelRole ? " · рекомендуется" : ""}`,
+      keywords: [driver.name, driver.position, driver.department],
+    })),
     [selectableDrivers, recommendedPersonnelRole]
   );
   const gross = activeTicket?.gross_weight_kg != null ? String(activeTicket.gross_weight_kg) : activeTicket?.weigh_method === "manual_override_with_reason" && activeTicketLineTotal > 0 ? String(activeTicketLineTotal) : "";
@@ -1725,7 +1698,6 @@ export default function WeighbridgeOperationsPage() {
       // Explicit volatile reset for every type switch.
       next.driverId = "";
       next.vehicleId = "";
-      next.trailerId = "";
       next.grossKg = "";
       next.harvestMoisture = "";
       next.quantityKg = "";
@@ -1948,7 +1920,6 @@ export default function WeighbridgeOperationsPage() {
           ? {
               transport: {
                 vehicle_source: selectedVehicle?.source || "reference_vehicles",
-                trailer_id: form.trailerId || null,
               },
             }
           : {}),
@@ -2051,7 +2022,7 @@ export default function WeighbridgeOperationsPage() {
     try {
       const idempotencyKey = createTicketIdempotencyRef.current || crypto.randomUUID();
       createTicketIdempotencyRef.current = idempotencyKey;
-      if (persistKey) localStorage.setItem(`${persistKey}.idempotency`, idempotencyKey);
+      if (idempotencyPersistKey) localStorage.setItem(idempotencyPersistKey, idempotencyKey);
       if (isTransferDirect && selectedTransferStock) {
         await createWarehouseTransfer(profile.company_id, form.warehouseFromId, {
           destination_warehouse_id: form.warehouseToId,
@@ -2062,7 +2033,7 @@ export default function WeighbridgeOperationsPage() {
           notes: form.notes.trim() || null,
         }, idempotencyKey);
         createTicketIdempotencyRef.current = null;
-        if (persistKey) localStorage.removeItem(`${persistKey}.idempotency`);
+        if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
         toast({ title: "Перемещение проведено", description: "Ledger OUT/IN создан существующим складским lifecycle." });
         setForm((prev) => ({ ...INITIAL_FORM, operationType: prev.operationType, transferMode: prev.transferMode }));
         await load();
@@ -2070,7 +2041,7 @@ export default function WeighbridgeOperationsPage() {
       }
       const result = await createTicket(ticket, linesToCreate, [], idempotencyKey);
       createTicketIdempotencyRef.current = null;
-      if (persistKey) localStorage.removeItem(`${persistKey}.idempotency`);
+      if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
       const createdStatus = String(result?.ticket?.status || "");
       if (isSupplierDirect || createdStatus === "finalized") {
         toast({
@@ -2086,39 +2057,53 @@ export default function WeighbridgeOperationsPage() {
             : "Талон добавлен в активные",
         });
       }
-      setForm((prev) => ({
-        ...INITIAL_FORM,
-        operationType: prev.operationType,
-        fieldId: prev.fieldId,
-        warehouseFromId: prev.warehouseFromId,
-        warehouseToId: prev.warehouseToId,
-        processingPointId: prev.processingPointId,
-        cropId: prev.cropId,
-        varietyId: prev.varietyId,
-        reproductionId: prev.reproductionId,
-        cropStructureAllocationId: prev.cropStructureAllocationId,
-        supplierId: form.operationType === "supplier_receipt" ? supplierCounterpartyId : prev.supplierId,
-        buyerId: prev.buyerId,
-        supplierDocumentNo: prev.supplierDocumentNo,
-        shipmentPurpose: prev.shipmentPurpose,
-        destinationText: prev.destinationText,
-        externalDocumentNo: prev.externalDocumentNo,
-        supplierReceiptMode: prev.supplierReceiptMode,
-        supplierItemMode: prev.supplierItemMode,
-        transferMode: prev.transferMode,
-        fieldIssueMode: prev.fieldIssueMode,
-        fieldMaterialCategory: prev.fieldMaterialCategory,
-        supplierLot: "",
-        harvestYear: prev.harvestYear,
-        productId: prev.productId,
-        stockIdentityKey: prev.stockIdentityKey,
-        linkedOperationId: prev.linkedOperationId,
-        linkedOperationLineId: prev.linkedOperationLineId,
-        disposalCategory: prev.disposalCategory,
-        disposalReason: prev.disposalReason,
-        unitPrice: "",
-        notes: prev.notes,
-      }));
+      setForm((prev) => {
+        if (prev.operationType === "harvest_incoming") {
+          return {
+            ...INITIAL_FORM,
+            operationType: "harvest_incoming",
+            fieldId: prev.fieldId,
+            cropStructureAllocationId: prev.cropStructureAllocationId,
+            warehouseToId: prev.warehouseToId,
+          };
+        }
+        return {
+          ...INITIAL_FORM,
+          operationType: prev.operationType,
+          fieldId: prev.fieldId,
+          warehouseFromId: prev.warehouseFromId,
+          warehouseToId: prev.warehouseToId,
+          processingPointId: prev.processingPointId,
+          cropId: prev.cropId,
+          varietyId: prev.varietyId,
+          reproductionId: prev.reproductionId,
+          cropStructureAllocationId: prev.cropStructureAllocationId,
+          supplierId: form.operationType === "supplier_receipt" ? supplierCounterpartyId : prev.supplierId,
+          buyerId: prev.buyerId,
+          supplierDocumentNo: prev.supplierDocumentNo,
+          shipmentPurpose: prev.shipmentPurpose,
+          destinationText: prev.destinationText,
+          externalDocumentNo: prev.externalDocumentNo,
+          supplierReceiptMode: prev.supplierReceiptMode,
+          supplierItemMode: prev.supplierItemMode,
+          transferMode: prev.transferMode,
+          fieldIssueMode: prev.fieldIssueMode,
+          fieldMaterialCategory: prev.fieldMaterialCategory,
+          supplierLot: "",
+          harvestYear: prev.harvestYear,
+          productId: prev.productId,
+          stockIdentityKey: prev.stockIdentityKey,
+          linkedOperationId: prev.linkedOperationId,
+          linkedOperationLineId: prev.linkedOperationLineId,
+          disposalCategory: prev.disposalCategory,
+          disposalReason: prev.disposalReason,
+          unitPrice: "",
+          notes: prev.notes,
+        };
+      });
+      if (form.operationType === "harvest_incoming") {
+        setCommentOpen(false);
+      }
       setSupplierReceiptLines([]);
       setShowSupplierExtraFields(false);
       await refreshTickets();
@@ -2126,6 +2111,51 @@ export default function WeighbridgeOperationsPage() {
       toast({ title: "Ошибка создания", description: e?.message || "Не удалось создать талон", variant: "destructive" });
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const selectHarvestTarget = (value: string) => {
+    const [fieldId, allocationId] = value.split(":");
+    const allocation = harvestStructureByField[fieldId]?.find((item) => item.allocationId === allocationId);
+    if (!fieldId || !allocation) return;
+    setForm((prev) => ({
+      ...prev,
+      fieldId,
+      cropStructureAllocationId: allocation.allocationId,
+      cropId: allocation.cropId,
+      varietyId: allocation.varietyId,
+      reproductionId: allocation.reproductionId,
+      linkedOperationId: "",
+      linkedOperationLineId: "",
+    }));
+  };
+
+  const saveActiveTicketMoisture = async () => {
+    if (!activeTicket || activeTicket.op_type !== "harvest_incoming" || !profile?.id || !canOperate || moistureSaving) return;
+    const raw = closingMoisture.trim().replace(",", ".");
+    const moisture = raw === "" ? null : Number(raw);
+    if (moisture != null && (!Number.isFinite(moisture) || moisture < 0 || moisture > 100)) {
+      toast({ title: "Ошибка", description: "Влажность должна быть от 0 до 100 %.", variant: "destructive" });
+      return;
+    }
+    const normalized = moisture == null ? "" : String(moisture);
+    if (normalized === moistureSavedValue) return;
+
+    setMoistureSaving(true);
+    try {
+      await patchTicket(activeTicket.id, profile.id, { moisture_percent: moisture });
+      const applyMoisture = (ticket: WeighbridgeTicket) => ({
+        ...ticket,
+        lines: (ticket.lines || []).map((line, index) => index === 0 ? { ...line, moisture_percent: moisture } : line),
+      });
+      setActiveTicket((current) => current?.id === activeTicket.id ? applyMoisture(current) : current);
+      setTickets((current) => current.map((ticket) => ticket.id === activeTicket.id ? applyMoisture(ticket) : ticket));
+      setClosingMoisture(normalized);
+      setMoistureSavedValue(normalized);
+    } catch (error: any) {
+      toast({ title: "Влажность не сохранена", description: error?.message || "Повторите ввод", variant: "destructive" });
+    } finally {
+      setMoistureSaving(false);
     }
   };
 
@@ -2165,6 +2195,8 @@ export default function WeighbridgeOperationsPage() {
       await finalizeTicket(activeTicket.id, profile.id);
       toast({ title: "Талон закрыт", description: "Движение зафиксировано" });
       setActiveTicket(null);
+      setClosingTare("");
+      setClosingMoisture("");
       await refreshTickets();
     } catch (e: any) {
       const message = String(e?.message || "");
@@ -2176,6 +2208,8 @@ export default function WeighbridgeOperationsPage() {
         }
         toast({ title: "Талон уже закрыт", description: "Обновляю список талонов и остатки.", variant: "default" });
         setActiveTicket(null);
+        setClosingTare("");
+        setClosingMoisture("");
         await refreshTickets();
         return;
       }
@@ -2273,6 +2307,13 @@ export default function WeighbridgeOperationsPage() {
         closingNote: "manual close from weighbridge page",
         handoverNote: shiftHandoverNote.trim() || undefined,
       });
+      if (fastRepeatPersistKey) localStorage.removeItem(fastRepeatPersistKey);
+      setHydratedFastRepeatKey("");
+      setForm(INITIAL_FORM);
+      setClosingTare("");
+      setClosingMoisture("");
+      setMoistureSavedValue("");
+      setCommentOpen(false);
       toast({ title: "Смена закрыта", description: "Смена успешно закрыта." });
       setShiftHandoverNote("");
       setShiftDialogOpen(false);
@@ -2377,83 +2418,75 @@ export default function WeighbridgeOperationsPage() {
     active
       ? "h-9 border-yellow-500/70 bg-yellow-500/15 text-yellow-100 hover:bg-yellow-500/20"
       : "h-9 border-slate-800 bg-slate-950/60 text-slate-200 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-50";
+  const intakeStatusMessages = [
+    loading ? "Данные загружаются" : "",
+    canOperate && !activeShift ? "Смена не открыта" : "",
+    canOperate && harvestWarehouses.length === 0
+      ? profile?.role === "company_admin" || profile?.role === "global_admin"
+        ? "Добавьте место приёмки урожая перед началом работы весовой."
+        : "Нет места приёмки. Обратитесь к администратору компании."
+      : "",
+    canOperate && drivers.length === 0 ? "Нет водителей" : "",
+    activeShift && shiftGuard.stale ? `Смена открыта ${Math.max(1, Math.floor(shiftGuard.ageHours))} ч` : "",
+  ].filter(Boolean);
+  const intakeStatusLabel = intakeStatusMessages.length
+    ? `Требуется внимание · ${intakeStatusMessages.length}`
+    : activeShift
+      ? "Смена открыта"
+      : "Режим просмотра";
 
   return (
-    <div className="mx-auto max-w-[1680px] space-y-3 px-2 pb-4 sm:px-4">
-      <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
-        <div className="text-lg font-semibold text-slate-50">Весовые талоны</div>
-        <div className="flex items-center gap-2">
-        {canUseInventory ? (
-          <Button asChild variant="outline" className="border-slate-700 bg-slate-950 text-slate-100">
-            <Link href="/warehouses/inventory"><ClipboardList className="mr-2 h-4 w-4" />Инвентаризация</Link>
-          </Button>
-        ) : null}
+    <div className="mx-auto max-w-[1680px] space-y-2 px-2 pb-4 sm:px-3">
+      <div className="flex h-9 items-center justify-between gap-2">
+        <details className="group relative">
+          <summary className={`flex h-8 cursor-pointer list-none items-center gap-2 rounded-md border px-3 text-xs font-medium ${intakeStatusMessages.length ? "border-amber-500/40 bg-amber-500/10 text-amber-100" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"}`}>
+            <span className={`h-2 w-2 rounded-full ${intakeStatusMessages.length ? "bg-amber-400" : "bg-emerald-400"}`} />
+            {intakeStatusLabel}
+          </summary>
+          <div className="absolute left-0 top-10 z-40 w-80 rounded-md border border-slate-700 bg-slate-950 p-3 text-xs text-slate-200 shadow-xl">
+            {intakeStatusMessages.length ? (
+              <div className="space-y-1.5">
+                {intakeStatusMessages.map((message) => <div key={message}>• {message}</div>)}
+              </div>
+            ) : (
+              <div>Весовая готова принимать машины.</div>
+            )}
+          </div>
+        </details>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon" className="h-11 w-11 border-slate-700 bg-slate-950 text-slate-100" aria-label="Управление сменой">
-              <MoreHorizontal className="h-5 w-5" />
+            <Button variant="outline" size="icon" className="h-8 w-8 border-slate-700 bg-slate-950 text-slate-100" aria-label="Дополнительные действия">
+              <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-64">
             <DropdownMenuItem onClick={() => setShiftDialogOpen(true)}>
               <Info className="mr-2 h-4 w-4" />Информация о смене
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => historyRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              <Clock3 className="mr-2 h-4 w-4" />История талонов
+            </DropdownMenuItem>
+            {canUseInventory ? (
+              <DropdownMenuItem asChild>
+                <Link href="/warehouses/inventory"><ClipboardList className="mr-2 h-4 w-4" />Инвентаризация</Link>
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             {activeShift ? (
               <DropdownMenuItem onClick={() => setShiftDialogOpen(true)}>Закрыть смену</DropdownMenuItem>
             ) : (
               <DropdownMenuItem onClick={openShiftAction}>Открыть смену</DropdownMenuItem>
             )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => selectOperation("harvest_incoming")}>Урожай с поля</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => selectOperation("supplier_receipt")}>Поставка от контрагента</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => selectOperation("issue_to_field")}>Выдача в поле</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => selectOperation("transfer_between_warehouses")}>Перемещение между складами</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => selectOperation("shipment_outbound")}>Отгрузка</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => selectOperation("disposal_writeoff")}>Списание</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => selectOperation("impurity_removal")}>Вывоз примесей</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        </div>
-      </div>
-
-      {!activeShift && canOperate ? (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-          <div className="flex items-center gap-2 font-medium">
-            <AlertTriangle className="h-4 w-4" />
-            Действия весовой заблокированы: сначала откройте смену.
-          </div>
-        </div>
-      ) : null}
-
-      {activeShift && shiftGuard.stale ? (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
-          <div className="flex items-center gap-2 font-medium">
-            <AlertTriangle className="h-4 w-4" />
-            Смена открыта более {Math.max(1, Math.floor(shiftGuard.ageHours))} ч. Проверьте незакрытые талоны и закройте старую смену перед новой работой.
-          </div>
-        </div>
-      ) : null}
-
-      {canOperate && harvestWarehouses.length === 0 ? (
-        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-100">
-          {profile?.role === "company_admin" || profile?.role === "global_admin"
-            ? "Добавьте место приёмки урожая перед началом работы весовой."
-            : "Место приёмки урожая не настроено. Обратитесь к администратору компании."}
-        </div>
-      ) : null}
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        <section className={`${terminalPanelClass} px-4 py-3`} aria-label="Сводка за сегодня">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Сегодня</div>
-          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div><div className="text-xs text-slate-400">Нетто</div><div className="mt-1 text-xl font-bold text-slate-50">{formatTonnes(harvestSummary.today.netKg)}</div></div>
-            <div><div className="text-xs text-slate-400">Рейсов</div><div className="mt-1 text-xl font-bold text-slate-50">{harvestSummary.today.trips}</div></div>
-            <div><div className="text-xs text-slate-400">Средний рейс</div><div className="mt-1 text-xl font-bold text-slate-50">{formatTonnes(harvestSummary.today.averageTripKg)}</div></div>
-            <div><div className="text-xs text-slate-400">Средняя влажность</div><div className="mt-1 text-xl font-bold text-slate-50">{formatMoisture(harvestSummary.today.averageMoisture)}</div></div>
-          </div>
-        </section>
-        <section className={`${terminalPanelClass} px-4 py-3`} aria-label="Сводка по текущему полю">
-          <div className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Текущее поле</div>
-          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <div><div className="text-xs text-slate-400">Сегодня</div><div className="mt-1 text-xl font-bold text-slate-50">{formatTonnes(currentFieldSummary?.today.netKg || 0)}</div></div>
-            <div><div className="text-xs text-slate-400">За сезон</div><div className="mt-1 text-xl font-bold text-slate-50">{formatTonnes(currentFieldSummary?.cumulative.netKg || 0)}</div></div>
-            <div><div className="text-xs text-slate-400">Рейсов</div><div className="mt-1 text-xl font-bold text-slate-50">{currentFieldSummary?.cumulative.trips || 0}</div></div>
-            <div><div className="text-xs text-slate-400">Средняя влажность</div><div className="mt-1 text-xl font-bold text-slate-50">{formatMoisture(currentFieldSummary?.cumulative.averageMoisture ?? null)}</div></div>
-          </div>
-        </section>
       </div>
 
       <div className="grid gap-3 xl:grid-cols-[minmax(760px,1fr)_340px]">
@@ -2477,6 +2510,7 @@ export default function WeighbridgeOperationsPage() {
               </div>
             ) : null}
 
+            {form.operationType !== "harvest_incoming" ? (
             <div className={formSectionClass}>
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div>
@@ -2529,13 +2563,15 @@ export default function WeighbridgeOperationsPage() {
               </div>
             ) : null}
             </div>
+            ) : null}
 
+            {form.operationType !== "harvest_incoming" ? (
             <div className={formSectionClass}>
               <div className="mb-3">
                 <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Маршрут и документ</Label>
               </div>
             <div className="grid gap-3 md:grid-cols-2">
-              {(form.operationType === "harvest_incoming" || isFieldIssue) ? (
+              {isFieldIssue ? (
                 <div className="space-y-1">
                   <Label>Поле *</Label>
                   <Select value={form.fieldId} onValueChange={(v) => setForm((p) => ({ ...p, fieldId: v, cropStructureAllocationId: "", cropId: "", varietyId: "", reproductionId: "", stockIdentityKey: "", linkedOperationId: "", linkedOperationLineId: "" }))}>
@@ -2585,51 +2621,28 @@ export default function WeighbridgeOperationsPage() {
               ) : null}
             </div>
             </div>
+            ) : null}
 
             {form.operationType === "harvest_incoming" ? (
-              <div className={formSectionClass}>
-                {fieldHarvestOptions.length > 1 ? (
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Участок / культура *</Label>
-                    <Select value={form.cropStructureAllocationId} onValueChange={(v) => setForm((p) => ({ ...p, cropStructureAllocationId: v }))}>
-                      <SelectTrigger className="h-11"><SelectValue placeholder="Выберите участок / культуру" /></SelectTrigger>
-                      <SelectContent>
-                        {fieldHarvestOptions.map((x) => (
-                          <SelectItem key={x.allocationId} value={x.allocationId}>{x.cropName} — {x.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                ) : null}
-                {selectedHarvestAllocation ? (
-                  <div className="mt-3 rounded-md border border-slate-700 bg-slate-950/55 px-3 py-2.5 text-sm font-medium text-slate-100">
-                    {harvestIdentityLabel}
-                  </div>
-                ) : form.fieldId ? (
-                  <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100">
-                    Для поля нет доступной структуры посевов активного сезона.
-                  </div>
-                ) : null}
-
-                {form.fieldId && selectedHarvestAllocation ? (
-                  <div className={`mt-3 rounded-md border px-3 py-2.5 text-sm ${harvestContext.status === "ready" ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100" : harvestContext.status === "loading" ? "border-slate-700 bg-slate-950/55 text-slate-300" : "border-amber-500/30 bg-amber-500/10 text-amber-100"}`}>
-                    {harvestContext.message}
-                    {harvestContext.yieldTPerHa != null ? (
-                      <span className="ml-2 font-semibold">
-                        {harvestContext.yieldStatus === "final" ? "Итоговая" : "Предварительная"} урожайность: {harvestContext.yieldTPerHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т/га
-                      </span>
-                    ) : (
-                      <span className="ml-2 font-semibold">Урожайность появится после фиксации убранной площади</span>
-                    )}
-                  </div>
-                ) : null}
-
-                <div className="mt-4 space-y-1.5">
-                  <Label className="text-sm">Склад назначения *</Label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Поле / участок *</Label>
+                  <SearchableCombobox
+                    value={form.fieldId && form.cropStructureAllocationId ? `${form.fieldId}:${form.cropStructureAllocationId}` : ""}
+                    options={harvestTargetOptions}
+                    onValueChange={selectHarvestTarget}
+                    placeholder="Выберите поле или участок"
+                    searchPlaceholder="Поле, культура, сорт или репродукция"
+                    emptyLabel="Участок не найден"
+                    ariaLabel="Поле или участок"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Место приёмки *</Label>
                   <Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}>
-                    <SelectTrigger className="h-11"><SelectValue placeholder="Выберите склад урожая" /></SelectTrigger>
+                    <SelectTrigger className="h-10"><SelectValue placeholder="Выберите место приёмки" /></SelectTrigger>
                     <SelectContent>
-                      {harvestWarehouses.length === 0 ? <SelectItem value="__empty" disabled>Склады для урожая не настроены</SelectItem> : null}
+                      {harvestWarehouses.length === 0 ? <SelectItem value="__empty" disabled>Места приёмки не настроены</SelectItem> : null}
                       {harvestWarehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
@@ -2892,96 +2905,44 @@ export default function WeighbridgeOperationsPage() {
             ) : null}
 
             {isFieldIssueDirect ? null : (
-              <div className={formSectionClass}>
-                <div className="mb-3">
+              <div className={form.operationType === "harvest_incoming" ? "" : formSectionClass}>
+                {form.operationType !== "harvest_incoming" ? <div className="mb-3">
                   <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Транспорт</Label>
-                </div>
-              <div className="grid gap-3 lg:grid-cols-3">
+                </div> : null}
+              <div className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-1">
                   <Label>Транспорт{form.operationType === "supplier_receipt" ? " (необязательно)" : " *"}</Label>
-                  <Input
-                    className="h-8"
-                    value={vehicleSearch}
-                    onChange={(event) => setVehicleSearch(event.target.value)}
-                    placeholder="Название, модель или госномер"
-                    aria-label="Поиск транспорта"
+                  <SearchableCombobox
+                    value={form.vehicleId}
+                    options={vehicleComboboxOptions}
+                    onValueChange={(vehicleId) => setForm((prev) => ({ ...prev, vehicleId }))}
+                    placeholder="Выберите транспорт"
+                    searchPlaceholder="Название, модель или госномер"
+                    emptyLabel="Транспорт не найден"
+                    ariaLabel="Транспорт"
                   />
-                  <Select value={form.vehicleId} onValueChange={(v) => setForm((p) => ({ ...p, vehicleId: v }))}>
-                    <SelectTrigger className="h-8"><SelectValue placeholder="Выберите транспорт" /></SelectTrigger>
-                    <SelectContent>
-                      {selectableVehicles.map((vehicle) => (
-                        <SelectItem key={vehicle.id} value={vehicle.id}>
-                          {vehicle.name}{vehicle.plate ? ` · ${vehicle.plate}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label>Прицеп (необязательно)</Label>
-                  <Input
-                    className="h-8"
-                    value={trailerSearch}
-                    onChange={(event) => setTrailerSearch(event.target.value)}
-                    placeholder="Название, модель или госномер"
-                    aria-label="Поиск прицепа"
-                  />
-                  <Select
-                    value={form.trailerId || "__none__"}
-                    onValueChange={(value) => setForm((prev) => ({ ...prev, trailerId: value === "__none__" ? "" : value }))}
-                  >
-                    <SelectTrigger className="h-8"><SelectValue placeholder="Без прицепа" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Без прицепа</SelectItem>
-                      {selectableTrailers.map((trailer) => (
-                        <SelectItem key={trailer.id} value={trailer.id}>
-                          {trailer.name}{trailer.plate ? ` · ${trailer.plate}` : ""}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label>Водитель{form.operationType === "supplier_receipt" ? " (необязательно)" : " *"}</Label>
-                  <Input
-                    className="h-8"
-                    value={driverSearch}
-                    onChange={(event) => setDriverSearch(event.target.value)}
-                    placeholder="Поиск водителя"
-                    aria-label="Поиск водителя"
+                  <SearchableCombobox
+                    value={form.driverId}
+                    options={driverComboboxOptions}
+                    onValueChange={(driverId) => setForm((prev) => ({ ...prev, driverId }))}
+                    placeholder="Выберите водителя"
+                    searchPlaceholder="Фамилия, имя или ФИО"
+                    emptyLabel="Водитель не найден"
+                    ariaLabel="Водитель"
                   />
-                  <Select value={form.driverId} onValueChange={(v) => { setForm((p) => ({ ...p, driverId: v })); setDriverSearch(""); }}>
-                    <SelectTrigger className="h-8"><SelectValue placeholder="Выберите водителя" /></SelectTrigger>
-                    <SelectContent>
-                      {driverGroups.map((group) => (
-                        <SelectGroup key={group.roleType}>
-                          <SelectLabel className="text-xs uppercase text-slate-400">
-                            {group.label}
-                          </SelectLabel>
-                          {group.people.map((person) => (
-                            <SelectItem key={person.id} value={person.id} className="py-2">
-                              <span className="flex min-w-0 flex-col">
-                                <span className="truncate font-medium">{person.name}</span>
-                                <span className="truncate text-xs text-slate-400">
-                                  {[person.position, person.department].filter(Boolean).join(" · ")}
-                                </span>
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
               </div>
-              {drivers.length === 0 ? (
+              {drivers.length === 0 && form.operationType !== "harvest_incoming" ? (
                 <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
                   {profile?.role === "company_admin" || profile?.role === "global_admin"
                     ? "Добавьте водителей в справочнике сотрудников до начала уборки."
                     : "Водители не настроены. Обратитесь к администратору компании."}
                 </div>
               ) : null}
-              {suggestedFieldId && suggestedFieldId !== form.fieldId ? (
+              {suggestedFieldId && suggestedFieldId !== form.fieldId && form.operationType !== "harvest_incoming" ? (
                 <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200">
                   <span>Последнее поле этой машины: {fields.find((field) => field.id === suggestedFieldId)?.name || "поле"}</span>
                   <Button type="button" size="sm" variant="outline" onClick={() => setForm((prev) => ({ ...prev, fieldId: suggestedFieldId }))}>
@@ -2989,13 +2950,13 @@ export default function WeighbridgeOperationsPage() {
                   </Button>
                 </div>
               ) : null}
-              {openVehicleTicket ? (
+              {openVehicleTicket && form.operationType !== "harvest_incoming" ? (
                 <button
                   type="button"
                   className="mt-3 flex w-full items-center justify-between rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-3 text-left text-sm text-emerald-100"
                   onClick={() => setActiveTicket(openVehicleTicket)}
                 >
-                  <span>У машины уже есть открытый талон: брутто {Number(openVehicleTicket.gross_weight_kg || 0).toLocaleString("ru-RU")} кг</span>
+                  <span>У машины уже есть открытый талон: брутто {formatWeightKg(openVehicleTicket.gross_weight_kg)}</span>
                   <span className="font-semibold">Принять тару</span>
                 </button>
               ) : null}
@@ -3003,41 +2964,39 @@ export default function WeighbridgeOperationsPage() {
             )}
 
             {isWeighbridgeForm ? (
-              <div className={formSectionClass}>
-                <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Вес</Label>
-              <div className="mt-3">
-                <div className="space-y-1">
+              <div className={form.operationType === "harvest_incoming" ? "" : formSectionClass}>
+                {form.operationType !== "harvest_incoming" ? <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Вес</Label> : null}
+              <div className={form.operationType === "harvest_incoming" ? "" : "mt-3"}>
+                <div className={form.operationType === "harvest_incoming" ? "grid items-end gap-3 md:grid-cols-[1fr_220px]" : "space-y-1"}>
+                  <div className="space-y-1">
                   <Label>Брутто / вес (кг) *</Label>
-                  <Input className="h-8" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} />
-                </div>
-                {form.operationType === "harvest_incoming" ? (
-                  <div className="mt-3 space-y-1">
-                    <Label>Влажность, % (необязательно)</Label>
-                    <Input
-                      className="h-8"
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      value={form.harvestMoisture}
-                      onChange={(event) => setForm((prev) => ({ ...prev, harvestMoisture: event.target.value }))}
-                      placeholder="14,6"
-                    />
+                  <Input className="h-10" inputMode="decimal" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} placeholder="0" />
                   </div>
+                  {form.operationType === "harvest_incoming" && canOperate ? (
+                    <Button
+                      className="h-10 w-full font-semibold"
+                      onClick={() => openVehicleTicket ? setActiveTicket(openVehicleTicket) : void create()}
+                      disabled={!openVehicleTicket && (submitting || Boolean(currentValidationError) || !activeShift)}
+                    >
+                      {openVehicleTicket ? "Принять тару" : submitting ? "Открытие..." : "Открыть талон"}
+                    </Button>
+                  ) : null}
+                </div>
+                {form.operationType === "harvest_incoming" && !loading && currentValidationError && !openVehicleTicket ? (
+                  <div className="mt-1 truncate text-xs text-amber-300" title={currentValidationError}>{currentValidationError}</div>
                 ) : null}
               </div>
               </div>
             ) : null}
 
-            <div className="space-y-1">
+            {form.operationType !== "harvest_incoming" ? <div className="space-y-1">
               <Button type="button" variant="ghost" size="sm" className="h-7 px-0 text-xs" onClick={() => setCommentOpen((v) => !v)}>
                 {commentOpen ? "− Комментарий" : "+ Комментарий"}
               </Button>
               {commentOpen ? <Textarea value={form.notes} onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))} rows={2} /> : null}
-            </div>
+            </div> : null}
 
-            {canOperate ? (
+            {canOperate && form.operationType !== "harvest_incoming" ? (
               <div className="sticky bottom-0 z-10 -mx-4 border-t border-slate-800 bg-[#101724]/95 px-4 pt-3 backdrop-blur">
                 <Button
                   className="h-11 w-full text-base font-semibold"
@@ -3054,9 +3013,7 @@ export default function WeighbridgeOperationsPage() {
                     ? "Принять тару"
                     : submitting
                       ? "Сохранение..."
-                      : form.operationType === "harvest_incoming"
-                        ? "Сохранить брутто"
-                        : "Создать талон"}
+                      : "Создать талон"}
                 </Button>
                 {loading ? <div className="mt-1 text-xs text-amber-300">Данные ещё загружаются. Повторите через пару секунд.</div> : null}
                 {!loading && !activeShift && !isSupplierDirect ? <div className="mt-1 text-xs text-amber-300">Смена закрыта: откройте её через меню ⋯.</div> : null}
@@ -3102,6 +3059,38 @@ export default function WeighbridgeOperationsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <details className={`${terminalPanelClass} group`}>
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-slate-200">
+          <span>Статистика</span>
+          <span className="text-xs font-normal text-slate-500">Сегодня и текущее поле</span>
+        </summary>
+        <div className="grid gap-4 border-t border-slate-800 px-4 py-3 lg:grid-cols-2">
+          <section aria-label="Сводка за сегодня">
+            <div className="text-xs font-semibold uppercase text-slate-500">Сегодня</div>
+            <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div><div className="text-xs text-slate-400">Нетто</div><div className="mt-1 text-lg font-bold text-slate-50">{formatTonnes(harvestSummary.today.netKg)}</div></div>
+              <div><div className="text-xs text-slate-400">Рейсов</div><div className="mt-1 text-lg font-bold text-slate-50">{harvestSummary.today.trips}</div></div>
+              <div><div className="text-xs text-slate-400">Средний рейс</div><div className="mt-1 text-lg font-bold text-slate-50">{formatTonnes(harvestSummary.today.averageTripKg)}</div></div>
+              <div><div className="text-xs text-slate-400">Влажность</div><div className="mt-1 text-lg font-bold text-slate-50">{formatMoisture(harvestSummary.today.averageMoisture)}</div></div>
+            </div>
+          </section>
+          <section aria-label="Сводка по текущему полю">
+            <div className="text-xs font-semibold uppercase text-slate-500">Текущее поле</div>
+            <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div><div className="text-xs text-slate-400">Сегодня</div><div className="mt-1 text-lg font-bold text-slate-50">{formatTonnes(currentFieldSummary?.today.netKg || 0)}</div></div>
+              <div><div className="text-xs text-slate-400">За сезон</div><div className="mt-1 text-lg font-bold text-slate-50">{formatTonnes(currentFieldSummary?.cumulative.netKg || 0)}</div></div>
+              <div><div className="text-xs text-slate-400">Рейсов</div><div className="mt-1 text-lg font-bold text-slate-50">{currentFieldSummary?.cumulative.trips || 0}</div></div>
+              <div><div className="text-xs text-slate-400">Влажность</div><div className="mt-1 text-lg font-bold text-slate-50">{formatMoisture(currentFieldSummary?.cumulative.averageMoisture ?? null)}</div></div>
+            </div>
+            <div className="mt-2 text-xs text-slate-500">
+              {harvestContext.yieldTPerHa != null
+                ? `${harvestContext.yieldStatus === "final" ? "Итоговая" : "Предварительная"} урожайность: ${harvestContext.yieldTPerHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т/га`
+                : "Урожайность появится после фиксации убранной площади"}
+            </div>
+          </section>
+        </div>
+      </details>
 
       <div ref={historyRef}>
         <Card className={terminalPanelClass}>
@@ -3175,6 +3164,29 @@ export default function WeighbridgeOperationsPage() {
                 <SheetDescription>{operationUiLabel(activeTicket.op_type)}</SheetDescription>
               </SheetHeader>
 
+              <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-semibold text-slate-50">
+                      {isHarvestTicket(activeTicket) ? fields.find((field) => field.id === activeTicket.field_id)?.name || "Поле" : ticketRouteSummary(activeTicket)}
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-slate-400">
+                      {[activeLine?.product_name, activeVehicle?.name, activeDriverName].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <Badge className="shrink-0 border border-amber-500/30 bg-amber-500/10 text-amber-100">
+                    {activeTicket.tare_weight_kg == null ? "Ожидает тару" : ticketStageLabel(activeTicket)}
+                  </Badge>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
+                  <div><span className="text-slate-500">Брутто</span><div className="font-semibold text-slate-100">{formatWeightKg(activeTicket.gross_weight_kg)}</div></div>
+                  <div><span className="text-slate-500">Влажность</span><div className="font-semibold text-slate-100">{formatMoisture(activeLine?.moisture_percent ?? null)}</div></div>
+                  <div><span className="text-slate-500">Время GROSS</span><div className="font-semibold text-slate-100">{fmt(activeTicket.created_at, lang)}</div></div>
+                </div>
+              </div>
+
+              <details className="rounded-lg border border-slate-800 bg-slate-950/60">
+                <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium text-slate-300">Печатная форма талона</summary>
               <div className="mx-auto w-full max-w-[540px] min-h-[960px] rounded-md border bg-[#f7f1e3] p-4 text-[#1f1b16]" style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}>
                 <div className="mb-3 border-b border-[#b8a788] pb-2 text-center">
                   <div className="text-sm font-semibold tracking-wide">{ticketCompanyLabel(activeTicket)}</div>
@@ -3206,9 +3218,9 @@ export default function WeighbridgeOperationsPage() {
                 {!isDirectSupplierTicket(activeTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
                   <div className="mb-2 text-center text-lg font-bold">ВЕСОВЫЕ ДАННЫЕ</div>
                   <div className="grid grid-cols-3 gap-2 text-center">
-                    <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{activeTicket.gross_weight_kg ?? "-"} кг</div></div>
-                    <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{activeTicket.tare_weight_kg ?? "-"} кг</div></div>
-                    <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{activeTicket.net_weight_kg ?? "-"} кг</div></div>
+                    <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{formatWeightKg(activeTicket.gross_weight_kg)}</div></div>
+                    <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{formatWeightKg(activeTicket.tare_weight_kg)}</div></div>
+                    <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{formatWeightKg(activeTicket.net_weight_kg)}</div></div>
                   </div>
                 </div> : null}
 
@@ -3238,19 +3250,19 @@ export default function WeighbridgeOperationsPage() {
                   <div><span className="text-[#5d4f3d]">Примечание:</span> <span className="font-semibold">{activeTicket.notes || "-"}</span></div>
                 </div>
               </div>
+              </details>
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3">
                 <div className="space-y-2">
                   <Label>Брутто (кг)</Label>
                   <Input value={gross} readOnly className="border-slate-700 bg-slate-950 font-semibold text-slate-100" />
                 </div>
-                <div className="mt-3 space-y-2">
-                  <Label>Тара (кг)</Label>
-                  <Input ref={tareInputRef} value={closingTare} onChange={(e) => setClosingTare(e.target.value)} />
-                </div>
                 {activeTicket.op_type === "harvest_incoming" ? (
                   <div className="mt-3 space-y-2">
-                    <Label>Влажность, % (необязательно)</Label>
+                    <div className="flex items-center justify-between gap-3">
+                      <Label>Влажность, %</Label>
+                      <span className="text-xs text-slate-500">{moistureSaving ? "Сохранение..." : closingMoisture === moistureSavedValue ? "Сохранено" : "Enter или уход из поля"}</span>
+                    </div>
                     <Input
                       type="number"
                       inputMode="decimal"
@@ -3259,15 +3271,26 @@ export default function WeighbridgeOperationsPage() {
                       step="0.1"
                       value={closingMoisture}
                       onChange={(e) => setClosingMoisture(e.target.value)}
+                      onBlur={() => void saveActiveTicketMoisture()}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        void saveActiveTicketMoisture();
+                      }}
+                      disabled={!canOperate || moistureSaving}
                       placeholder="13,8"
                     />
                   </div>
                 ) : null}
+                <div className="mt-3 space-y-2">
+                  <Label>Тара (кг)</Label>
+                  <Input ref={tareInputRef} value={closingTare} onChange={(e) => setClosingTare(e.target.value)} disabled={!canOperate} />
+                </div>
                 <div className="mt-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-sm text-slate-100">
-                  <div className="flex items-center justify-between"><span>Брутто</span><span>{gross || "-"}</span></div>
-                  <div className="flex items-center justify-between"><span>Тара</span><span>{closingTare || "-"}</span></div>
+                  <div className="flex items-center justify-between"><span>Брутто</span><span>{formatWeightKg(gross)}</span></div>
+                  <div className="flex items-center justify-between"><span>Тара</span><span>{formatWeightKg(closingTare)}</span></div>
                   <div className="my-2 border-t border-slate-700" />
-                  <div className="flex items-center justify-between font-semibold"><span>Чистый вес (нетто)</span><span>{pure == null ? "-" : pure.toFixed(3)}</span></div>
+                  <div className="flex items-center justify-between font-semibold"><span>Чистый вес (нетто)</span><span>{formatWeightKg(pure)}</span></div>
                   <div className="mt-2 text-xs text-slate-400">Формула: net = gross - tare</div>
                   {pure != null && pure <= 0 ? <div className="mt-2 text-xs text-red-300">Ошибка: тара не может быть больше или равна брутто</div> : null}
                 </div>
@@ -3279,7 +3302,7 @@ export default function WeighbridgeOperationsPage() {
                     <Button variant="outline" onClick={async () => { if (!profile?.id) return; try { await downloadTicketPdf(activeTicket.id, profile.id); } catch (error: any) { toast({ title: "Ошибка PDF", description: error?.message || "Не удалось скачать PDF", variant: "destructive" }); } }}>
                       <FileDown className="mr-2 h-4 w-4" />Скачать PDF
                     </Button>
-                    <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={closeTicket} disabled={finalizing || (pure != null && pure <= 0)}>
+                    <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={closeTicket} disabled={finalizing || !closingTare || (pure != null && pure <= 0)}>
                       <CheckCircle2 className="mr-2 h-4 w-4" />{finalizing ? "Закрытие..." : "Закрыть талон"}
                     </Button>
                   </div>
@@ -3335,9 +3358,9 @@ export default function WeighbridgeOperationsPage() {
                 {!isDirectSupplierTicket(historyPreviewTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-2 text-sm">
                   <div className="mb-2 text-center text-lg font-bold">ВЕСОВЫЕ ДАННЫЕ</div>
                   <div className="grid grid-cols-3 gap-2">
-                    <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{historyPreviewTicket.gross_weight_kg ?? "-"} кг</div></div>
-                    <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{historyPreviewTicket.tare_weight_kg ?? "-"} кг</div></div>
-                    <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{historyPreviewTicket.net_weight_kg ?? "-"} кг</div></div>
+                    <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{formatWeightKg(historyPreviewTicket.gross_weight_kg)}</div></div>
+                    <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{formatWeightKg(historyPreviewTicket.tare_weight_kg)}</div></div>
+                    <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{formatWeightKg(historyPreviewTicket.net_weight_kg)}</div></div>
                   </div>
                 </div> : null}
                 {(historyPreviewTicket.lines || []).length > 0 ? (

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { formatWeightNumber } from "@/lib/weighbridge/weight-format";
 
 function escapePdfText(text: string) {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -223,9 +224,9 @@ export async function GET(
       `Vehicle: ${vehicleName}`,
       `Trailer: ${trailerName}`,
       `Cashier / Operator: ${operatorName}`,
-      `Gross: ${ticket.gross_weight_kg ?? "-"} kg`,
-      `Tare: ${ticket.tare_weight_kg ?? "-"} kg`,
-      `Net: ${ticket.net_weight_kg ?? "-"} kg`,
+      `Gross: ${formatWeightNumber(ticket.gross_weight_kg, "-")} kg`,
+      `Tare: ${formatWeightNumber(ticket.tare_weight_kg, "-")} kg`,
+      `Net: ${formatWeightNumber(ticket.net_weight_kg, "-")} kg`,
       `Comment: ${ticket.notes || "-"}`,
       "",
       "Products in document:",

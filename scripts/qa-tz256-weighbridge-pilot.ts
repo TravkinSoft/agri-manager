@@ -51,7 +51,7 @@ check("API stores validated transport snapshot", () => {
 check("API permits both canonical personnel roles", () => assert.match(tickets, /isWeighbridgePersonnelRole/));
 
 check("UI has unified transport search", () => assert.match(page, /Название, модель или госномер/));
-check("UI has optional trailer picker", () => assert.match(page, /Прицеп \(необязательно\)/));
+check("legacy trailer remains visible on existing tickets", () => assert.match(page, /activeTrailer[\s\S]*Прицеп:/));
 check("UI does not auto-bind driver to vehicle", () => assert.doesNotMatch(page, /switch to driver's default vehicle|Soft autofill only/));
 check("UI labels recommended personnel group", () => assert.match(page, /рекомендуется/));
 check("UI accepts moisture at gross", () => assert.match(page, /harvestMoisture[\s\S]*step="0\.1"/));

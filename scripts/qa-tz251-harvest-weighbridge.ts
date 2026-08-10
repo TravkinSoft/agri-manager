@@ -71,7 +71,7 @@ check("27 repeat trip suggests field without auto-binding driver", () => {
 });
 check("28 open vehicle ticket has one-action tare", () => assert(has(page, ["openVehicleTicket", "Принять тару"])));
 check("29 destination empty state is explicit", () => assert(page.includes("Добавьте место приёмки урожая перед началом работы весовой.")));
-check("30 driver list is searchable", () => assert(has(page, ["driverSearch", "Поиск водителя"])));
+check("30 driver list is searchable", () => assert(has(page, ["SearchableCombobox", "Фамилия, имя или ФИО"])));
 check("31 stale shift guard exists", () => assert(has(bootstrapRoute, ["shiftGuard", "ageHours", "stale"])));
 check("32 bootstrap and allocations load in parallel", () => assert(has(page, ["getWeighbridgeBootstrap(profile.company_id", "loadHarvestAllocations(profile.company_id)"])));
 check("33 gross idempotency survives refresh", () => assert(has(page, [".idempotency", "localStorage.setItem", "localStorage.removeItem"])));
