@@ -21,6 +21,7 @@
     "qa:tz251": "npx --no-install tsx scripts/qa-tz251-harvest-weighbridge.ts",
     "qa:tz251:e2e": "npx --no-install tsx scripts/qa-tz251-harvest-e2e.ts",
     "qa:tz255": "npx --no-install tsx scripts/qa-tz255-company-personnel.ts",
+    "qa:tz256": "npx --no-install tsx scripts/qa-tz256-weighbridge-pilot.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
     "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",
     "qa:assistant:full": "npx tsx scripts/qa-assistant-copilot-full-check.ts",

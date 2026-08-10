@@ -10,7 +10,8 @@ import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context
 import { ensureHarvestProductIdentity } from "@/lib/server/harvest-product-identity";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
-import { personnelRoleMatchesVehicle } from "@/lib/weighbridge/personnel";
+import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
+import { isCargoTractor, isCargoVehicle, isTrailerTransport } from "@/lib/weighbridge/transport";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -429,11 +430,19 @@ export async function POST(request: NextRequest) {
           timing.steps.active_shift = Date.now() - activeShiftStartedAt;
         });
     const vehicleGuardStartedAt = Date.now();
+    const transportAudit = ticket.audit_json?.transport as Record<string, unknown> | undefined;
+    const requestedTrailerId = String(transportAudit?.trailer_id || "").trim() || null;
     const vehicleGuardPromise = ticket.vehicle_id
       ? Promise.all([
           supabase
             .from("reference_vehicles")
-            .select("id, name, plate_number, type, fleet_type, status, is_active, archived")
+            .select("id,name,model,plate_number,type,fleet_type,status,is_active,archived,transport_model:transport_model_id(category,full_name)")
+            .eq("company_id", ticket.company_id)
+            .eq("id", ticket.vehicle_id)
+            .maybeSingle(),
+          supabase
+            .from("reference_machines")
+            .select("id,name,model,license_plate,type,status,is_active,archived")
             .eq("company_id", ticket.company_id)
             .eq("id", ticket.vehicle_id)
             .maybeSingle(),
@@ -447,6 +456,23 @@ export async function POST(request: NextRequest) {
         ]).finally(() => {
           timing.steps.vehicle_guard = Date.now() - vehicleGuardStartedAt;
         })
+      : null;
+    const trailerGuardPromise = requestedTrailerId
+      ? Promise.all([
+          supabase
+            .from("reference_vehicles")
+            .select("id,name,model,plate_number,type,fleet_type,status,is_active,archived,transport_model:transport_model_id(category,full_name)")
+            .eq("company_id", ticket.company_id)
+            .eq("id", requestedTrailerId)
+            .maybeSingle(),
+          supabase
+            .from("tickets")
+            .select("id,ticket_no")
+            .eq("company_id", ticket.company_id)
+            .eq("audit_json->transport->>trailer_id", requestedTrailerId)
+            .in("status", ["draft", "active", "ready_to_close"])
+            .limit(1),
+        ])
       : null;
     const driverGuardPromise = ticket.driver_id
       ? Promise.resolve(
@@ -1058,17 +1084,58 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let selectedVehicle: { type?: string | null; fleet_type?: string | null } | null = null;
+    let selectedVehicle: {
+      id: string;
+      name: string;
+      plate_number?: string | null;
+      type?: string | null;
+      fleet_type?: string | null;
+      source: "reference_vehicles" | "reference_machines";
+    } | null = null;
     if (ticket.vehicle_id) {
-      const [{ data: vehicle, error: vehicleError }, { data: activeByVehicle, error: activeByVehicleError }] =
+      const [vehicleResult, machineResult, activeTicketResult] =
         await (vehicleGuardPromise as NonNullable<typeof vehicleGuardPromise>);
-      if (vehicleError || !vehicle?.id) {
+      const { data: vehicle, error: vehicleError } = vehicleResult;
+      const { data: machine, error: machineError } = machineResult;
+      const { data: activeByVehicle, error: activeByVehicleError } = activeTicketResult;
+      if (vehicleError || machineError) {
+        return NextResponse.json({ error: vehicleError?.message || machineError?.message }, { status: 400 });
+      }
+      const vehicleModel = Array.isArray((vehicle as any)?.transport_model)
+        ? (vehicle as any).transport_model[0]
+        : (vehicle as any)?.transport_model;
+      const cargoVehicle = vehicle?.id && isCargoVehicle({
+        type: vehicle.type,
+        fleet_type: vehicle.fleet_type,
+        category: vehicleModel?.category,
+      })
+        ? vehicle
+        : null;
+      const cargoTractor = machine?.id && isCargoTractor(machine) ? machine : null;
+      if (!cargoVehicle && !cargoTractor) {
         return NextResponse.json({ error: "Vehicle not found in current company" }, { status: 400 });
       }
-      if (!vehicle.is_active || vehicle.archived) {
+      const selected = cargoVehicle || cargoTractor;
+      if (!selected?.is_active || selected.archived) {
         return NextResponse.json({ error: "Vehicle is inactive or archived" }, { status: 400 });
       }
-      selectedVehicle = vehicle;
+      selectedVehicle = cargoVehicle
+        ? {
+            id: String(cargoVehicle.id),
+            name: String(cargoVehicle.name || "Транспорт"),
+            plate_number: cargoVehicle.plate_number || null,
+            type: cargoVehicle.type,
+            fleet_type: cargoVehicle.fleet_type,
+            source: "reference_vehicles",
+          }
+        : {
+            id: String(cargoTractor!.id),
+            name: String(cargoTractor!.name || "Трактор"),
+            plate_number: cargoTractor!.license_plate || null,
+            type: "tractor",
+            fleet_type: "tractor",
+            source: "reference_machines",
+          };
       if (activeByVehicleError) {
         return NextResponse.json({ error: activeByVehicleError.message }, { status: 400 });
       }
@@ -1086,12 +1153,59 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      if (!personnelRoleMatchesVehicle(driver.role_type, selectedVehicle)) {
+      if (!isWeighbridgePersonnelRole(driver.role_type)) {
         return NextResponse.json(
-          { error: "Selected employee role is incompatible with the selected vehicle" },
+          { error: "Selected employee is not a driver or machine operator" },
           { status: 400 }
         );
       }
+    }
+    let selectedTrailer: any | null = null;
+    if (requestedTrailerId) {
+      if (requestedTrailerId === String(ticket.vehicle_id || "")) {
+        return NextResponse.json({ error: "Trailer must differ from the main vehicle" }, { status: 400 });
+      }
+      const [{ data: trailer, error: trailerError }, { data: activeByTrailer, error: activeByTrailerError }] =
+        await (trailerGuardPromise as NonNullable<typeof trailerGuardPromise>);
+      const trailerTransportModel = (trailer as any)?.transport_model;
+      const trailerModel = Array.isArray(trailerTransportModel)
+        ? trailerTransportModel[0]
+        : trailerTransportModel;
+      if (
+        trailerError ||
+        activeByTrailerError ||
+        !trailer?.id ||
+        !trailer.is_active ||
+        trailer.archived ||
+        !isTrailerTransport({
+          type: trailer.type,
+          fleet_type: trailer.fleet_type,
+          category: trailerModel?.category,
+        })
+      ) {
+        return NextResponse.json(
+          { error: trailerError?.message || activeByTrailerError?.message || "Trailer is unavailable in current company" },
+          { status: 400 }
+        );
+      }
+      if ((activeByTrailer || []).length > 0) {
+        return NextResponse.json({ error: "This trailer already has an active ticket" }, { status: 400 });
+      }
+      selectedTrailer = trailer;
+    }
+    if (selectedVehicle) {
+      ticket.audit_json = {
+        ...((ticket.audit_json || {}) as Record<string, unknown>),
+        transport: {
+          ...((transportAudit || {}) as Record<string, unknown>),
+          vehicle_source: selectedVehicle.source,
+          vehicle_name_snapshot: selectedVehicle.name,
+          vehicle_plate_snapshot: selectedVehicle.plate_number || null,
+          trailer_id: selectedTrailer?.id ? String(selectedTrailer.id) : null,
+          trailer_name_snapshot: selectedTrailer?.id ? String(selectedTrailer.name || "Прицеп") : null,
+          trailer_plate_snapshot: selectedTrailer?.id ? String(selectedTrailer.plate_number || "") || null : null,
+        },
+      };
     }
 
     if (isDirectSupplierReceipt) {
@@ -1255,7 +1369,7 @@ export async function POST(request: NextRequest) {
       weighingsPayload.length > 0
         ? measure("gross_event_insert", () => supabase.from("ticket_weighings").insert(weighingsPayload))
         : Promise.resolve({ error: null } as any),
-      ticket.vehicle_id
+      ticket.vehicle_id && selectedVehicle?.source === "reference_vehicles"
         ? measure("vehicle_status_update", () => supabase
             .from("reference_vehicles")
             .update({ status: "in_trip" })

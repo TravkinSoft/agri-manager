@@ -4,6 +4,7 @@ import {
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
+import { isCargoTractor, isCargoVehicle, isTrailerTransport } from "@/lib/weighbridge/transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,13 +17,21 @@ export async function GET(request: NextRequest) {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
 
-    const [vehiclesRes, peopleRes, legacyDriversRes, profilesRes] = await Promise.all([
+    const [vehiclesRes, machinesRes, peopleRes, legacyDriversRes, profilesRes] = await Promise.all([
       supabase
         .from("reference_vehicles")
-        .select("id,name,custom_name,plate_number,type,fleet_type,primary_responsible_personnel_id,is_active,archived")
+        .select("id,name,custom_name,model,plate_number,type,fleet_type,primary_responsible_personnel_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
         .eq("company_id", companyId)
         .eq("is_active", true)
         .eq("archived", false)
+        .order("name", { ascending: true }),
+      supabase
+        .from("reference_machines")
+        .select("id,name,model,license_plate,type,status,is_active,archived")
+        .eq("company_id", companyId)
+        .eq("is_active", true)
+        .eq("archived", false)
+        .eq("type", "tractor")
         .order("name", { ascending: true }),
       supabase
         .from("company_people")
@@ -42,21 +51,46 @@ export async function GET(request: NextRequest) {
         .eq("company_id", companyId),
     ]);
 
-    const error = vehiclesRes.error || peopleRes.error || legacyDriversRes.error || profilesRes.error;
+    const error = vehiclesRes.error || machinesRes.error || peopleRes.error || legacyDriversRes.error || profilesRes.error;
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    const vehicles = (vehiclesRes.data || []).map((row: any) => ({
-      id: String(row.id),
-      name: String(row.custom_name || row.name || "Машина"),
-      plate: String(row.plate_number || ""),
-      type: String(row.type || ""),
-      fleetType: String(row.fleet_type || ""),
-      primaryPersonnelId: row.primary_responsible_personnel_id
-        ? String(row.primary_responsible_personnel_id)
-        : null,
-    }));
+    const vehicleRows = (vehiclesRes.data || []).map((row: any) => {
+      const transportModel = Array.isArray(row.transport_model)
+        ? row.transport_model[0]
+        : row.transport_model;
+      return {
+        id: String(row.id),
+        name: String(row.custom_name || row.name || "Машина"),
+        model: String(transportModel?.full_name || row.model || row.name || ""),
+        plate: String(row.plate_number || ""),
+        type: String(row.type || ""),
+        fleetType: String(row.fleet_type || ""),
+        transportCategory: String(transportModel?.category || ""),
+        source: "reference_vehicles" as const,
+        primaryPersonnelId: row.primary_responsible_personnel_id
+          ? String(row.primary_responsible_personnel_id)
+          : null,
+      };
+    });
+    const vehicles = [
+      ...vehicleRows.filter((row) => isCargoVehicle(row)),
+      ...(machinesRes.data || [])
+        .filter((row: any) => isCargoTractor(row))
+        .map((row: any) => ({
+          id: String(row.id),
+          name: String(row.name || row.model || "Трактор"),
+          model: String(row.model || row.name || ""),
+          plate: String(row.license_plate || ""),
+          type: "tractor",
+          fleetType: "tractor",
+          transportCategory: "tractor",
+          source: "reference_machines" as const,
+          primaryPersonnelId: null,
+        })),
+    ];
+    const trailers = vehicleRows.filter((row) => isTrailerTransport(row));
 
     const legacyPersonById = new Map<string, string>();
     const driverNames: Record<string, string> = {};
@@ -72,7 +106,7 @@ export async function GET(request: NextRequest) {
     });
 
     const byDriver = new Map<string, string[]>();
-    vehicles.forEach((vehicle) => {
+    vehicleRows.forEach((vehicle) => {
       if (!vehicle.primaryPersonnelId) return;
       const canonicalPersonId = legacyPersonById.get(vehicle.primaryPersonnelId);
       if (!canonicalPersonId) return;
@@ -96,7 +130,7 @@ export async function GET(request: NextRequest) {
     };
     });
 
-    return NextResponse.json({ companyId, vehicles, drivers, driverNames });
+    return NextResponse.json({ companyId, vehicles, trailers, drivers, driverNames });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {

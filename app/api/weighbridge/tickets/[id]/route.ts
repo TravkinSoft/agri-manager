@@ -64,7 +64,7 @@ export async function GET(
       }
     }
 
-    const [companyRes, fieldRes, warehouseFromRes, warehouseToRes, supplierRes, buyerRes, vehicleRes, driverPersonRes, legacyDriverRes, driverProfileRes, creatorRes] = await Promise.all([
+    const [companyRes, fieldRes, warehouseFromRes, warehouseToRes, supplierRes, buyerRes, vehicleRes, machineRes, driverPersonRes, legacyDriverRes, driverProfileRes, creatorRes] = await Promise.all([
       supabase.from("companies").select("id,name").eq("id", ticket.company_id).maybeSingle(),
       ticket.field_id
         ? supabase.from("fields").select("id,name").eq("company_id", companyId).eq("id", ticket.field_id).maybeSingle()
@@ -83,6 +83,9 @@ export async function GET(
         : Promise.resolve({ data: null } as any),
       ticket.vehicle_id
         ? supabase.from("reference_vehicles").select("id,name,plate_number").eq("company_id", companyId).eq("id", ticket.vehicle_id).maybeSingle()
+        : Promise.resolve({ data: null } as any),
+      ticket.vehicle_id
+        ? supabase.from("reference_machines").select("id,name,license_plate").eq("company_id", companyId).eq("id", ticket.vehicle_id).maybeSingle()
         : Promise.resolve({ data: null } as any),
       ticket.driver_id
         ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).eq("id", ticket.driver_id).maybeSingle()
@@ -143,7 +146,8 @@ export async function GET(
     const warehouseTo = (warehouseToRes as any)?.data || null;
     const supplier = (supplierRes as any)?.data || null;
     const buyer = (buyerRes as any)?.data || null;
-    const vehicle = (vehicleRes as any)?.data || null;
+    const vehicle = (vehicleRes as any)?.data || (machineRes as any)?.data || null;
+    const transportAudit = (ticket.audit_json?.transport || {}) as Record<string, unknown>;
     const driver =
       (driverPersonRes as any)?.data ||
       (legacyDriverRes as any)?.data ||
@@ -172,8 +176,11 @@ export async function GET(
         warehouse_to_name_snapshot: warehouseTo?.name || null,
         supplier_name_snapshot: supplier?.name || null,
         buyer_name_snapshot: buyer?.name || null,
-        vehicle_name_snapshot: vehicle?.name || null,
-        vehicle_plate_snapshot: vehicle?.plate_number || null,
+        vehicle_name_snapshot: vehicle?.name || transportAudit.vehicle_name_snapshot || null,
+        vehicle_plate_snapshot: vehicle?.plate_number || vehicle?.license_plate || transportAudit.vehicle_plate_snapshot || null,
+        trailer_id: transportAudit.trailer_id || null,
+        trailer_name_snapshot: transportAudit.trailer_name_snapshot || null,
+        trailer_plate_snapshot: transportAudit.trailer_plate_snapshot || null,
         driver_name_snapshot: driver?.name_ru || driver?.full_name || driver?.name_en || driver?.name_kz || driver?.email || null,
         created_by_name_snapshot: creator?.full_name || creator?.email || null,
         crop_structure_allocation_label: cropStructureAllocationLabel,
@@ -257,10 +264,13 @@ export async function PATCH(
 
     let harvestMoisture: number | null = null;
     if (ticket.op_type === "harvest_incoming" && body?.tare_weight_kg !== undefined) {
-      harvestMoisture = Number(body?.moisture_percent);
-      if (!Number.isFinite(harvestMoisture) || harvestMoisture <= 0 || harvestMoisture > 60) {
+      const rawMoisture = body?.moisture_percent;
+      harvestMoisture = rawMoisture == null || String(rawMoisture).trim() === ""
+        ? null
+        : Number(rawMoisture);
+      if (harvestMoisture != null && (!Number.isFinite(harvestMoisture) || harvestMoisture < 0 || harvestMoisture > 100)) {
         return NextResponse.json(
-          { error: "Влажность должна быть больше 0 и не превышать 60 %." },
+          { error: "Влажность должна быть от 0 до 100 %." },
           { status: 400 }
         );
       }
@@ -311,15 +321,13 @@ export async function PATCH(
           { status: 400 }
         );
       }
-      if (harvestMoisture != null) {
-        const { error: moistureError } = await supabase
-          .from("ticket_lines")
-          .update({ moisture_percent: harvestMoisture })
-          .eq("id", String((harvestLines || [])[0]?.id || ""))
-          .eq("company_id", companyId);
-        if (moistureError) {
-          return NextResponse.json({ error: moistureError.message }, { status: 400 });
-        }
+      const { error: moistureError } = await supabase
+        .from("ticket_lines")
+        .update({ moisture_percent: harvestMoisture })
+        .eq("id", String((harvestLines || [])[0]?.id || ""))
+        .eq("company_id", companyId);
+      if (moistureError) {
+        return NextResponse.json({ error: moistureError.message }, { status: 400 });
       }
 
       const tareWeight = Number(nextTare || 0);

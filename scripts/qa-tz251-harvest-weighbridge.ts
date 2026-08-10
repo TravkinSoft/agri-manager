@@ -56,7 +56,7 @@ check("18 correct net is calculated", () => {
   assert.equal(result.net, 19_240);
 });
 
-check("19 moisture is required at close", () => assert(ticketRoute.includes("Влажность должна быть больше 0")));
+check("19 moisture is optional and range-checked", () => assert(has(ticketRoute, ["rawMoisture == null", "от 0 до 100"]))) ;
 check("20 moisture is written to ticket line", () => assert(ticketRoute.includes("update({ moisture_percent: harvestMoisture })")));
 check("21 finalize requires two weighings", () => assert(finalizeRoute.includes("Перед закрытием нужны два фактических взвешивания")));
 check("22 moisture is copied to batch", () => assert(has(finalizeRoute, ["inventory_batches", "source_ticket_id", "moisture_percent: moisture"])));
@@ -65,7 +65,10 @@ check("23 finalize replay repairs moisture", () => assert(finalizeRoute.includes
 check("24 summary uses finalized harvest tickets", () => assert(has(bootstrapRoute, ['.eq("op_type", "harvest_incoming")', '.eq("status", "finalized")', '.eq("is_finalized", true)'])));
 check("25 today and current-field aggregates exist", () => assert(has(bootstrapRoute, ["today: aggregateHarvestTickets", "byField"])));
 check("26 yield fallback is honest", () => assert(page.includes("Урожайность появится после фиксации убранной площади")));
-check("27 repeat trip restores driver and suggests field", () => assert(has(page, ["lastShiftTicket?.driver_id", "setSuggestedFieldId", "Последнее поле этой машины"])));
+check("27 repeat trip suggests field without auto-binding driver", () => {
+  assert(has(page, ["setSuggestedFieldId", "Последнее поле этой машины"]));
+  assert(!page.includes("lastShiftTicket?.driver_id"));
+});
 check("28 open vehicle ticket has one-action tare", () => assert(has(page, ["openVehicleTicket", "Принять тару"])));
 check("29 destination empty state is explicit", () => assert(page.includes("Добавьте место приёмки урожая перед началом работы весовой.")));
 check("30 driver list is searchable", () => assert(has(page, ["driverSearch", "Поиск водителя"])));
