@@ -345,8 +345,12 @@ export async function getProducts(
   })).filter((row) => !hasQaDataMarker(`${row.name} ${row.product_type || ""} ${row.type || ""} ${row.description || ""}`));
 }
 
-export async function getWarehouseReceipts(companyId: string): Promise<import("@/lib/types/warehouse").WarehouseReceipt[]> {
+export async function getWarehouseReceipts(
+  companyId: string,
+  options?: { warehouseId?: string }
+): Promise<import("@/lib/types/warehouse").WarehouseReceipt[]> {
   const params = new URLSearchParams({ companyId });
+  if (options?.warehouseId) params.set("warehouseId", options.warehouseId);
   const headers = await buildAuthHeaders("none");
   const response = await fetch(`/api/warehouses/receipts?${params.toString()}`, {
     method: "GET",
@@ -474,9 +478,12 @@ export async function archiveProduct(productId: string, companyId?: string): Pro
 
 export async function getInventoryTransactions(
   companyId: string,
-  language: Language = "ru"
+  language: Language = "ru",
+  options?: { warehouseId?: string; limit?: number }
 ): Promise<InventoryTransactionWithDetails[]> {
   const params = new URLSearchParams({ companyId, language });
+  if (options?.warehouseId) params.set("warehouseId", options.warehouseId);
+  if (options?.limit != null) params.set("limit", String(options.limit));
   const headers = await buildAuthHeaders("none");
   const response = await fetch(`/api/warehouses/transactions?${params.toString()}`, {
     method: "GET",
@@ -554,8 +561,13 @@ export async function deleteInventoryTransaction(transactionId: string, companyI
   await parseJsonOrThrow(response);
 }
 
-export async function getInventoryBalances(companyId: string, language: Language = "ru"): Promise<InventoryBalance[]> {
+export async function getInventoryBalances(
+  companyId: string,
+  language: Language = "ru",
+  options?: { warehouseId?: string }
+): Promise<InventoryBalance[]> {
   const params = new URLSearchParams({ companyId, language });
+  if (options?.warehouseId) params.set("warehouseId", options.warehouseId);
   const headers = await buildAuthHeaders("none");
   const response = await fetch(`/api/warehouses/balances?${params.toString()}`, {
     method: "GET",

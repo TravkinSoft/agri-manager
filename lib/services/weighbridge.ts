@@ -42,11 +42,15 @@ export async function getWeighbridgeResources(companyId?: string) {
   return parseJsonOrThrow(response);
 }
 
-export async function listHarvestBatchSummaries(companyId?: string): Promise<HarvestBatchSummary[]> {
+export async function listHarvestBatchSummaries(
+  companyId?: string,
+  options?: { warehouseId?: string }
+): Promise<HarvestBatchSummary[]> {
   const headers = await buildClientAuthHeaders("none");
-  const url = companyId
-    ? `/api/weighbridge/harvest-batches?companyId=${encodeURIComponent(companyId)}`
-    : "/api/weighbridge/harvest-batches";
+  const query = new URLSearchParams();
+  if (companyId) query.set("companyId", companyId);
+  if (options?.warehouseId) query.set("warehouseId", options.warehouseId);
+  const url = `/api/weighbridge/harvest-batches${query.size ? `?${query.toString()}` : ""}`;
   const response = await fetch(url, { method: "GET", cache: "no-store", headers });
   const payload = await parseJsonOrThrow(response);
   return (payload.batches || []) as HarvestBatchSummary[];

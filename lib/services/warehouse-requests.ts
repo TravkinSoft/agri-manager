@@ -83,12 +83,13 @@ function normalizeRequestRow(row: any): WarehouseIssueRequest {
 
 export async function getWarehouseIssueRequests(
   companyId: string,
-  options?: { includeTestData?: boolean }
+  options?: { includeTestData?: boolean; warehouseId?: string }
 ): Promise<WarehouseIssueRequest[]> {
   const headers = await buildAuthHeaders("none");
   const params = new URLSearchParams();
   params.set("companyId", companyId);
   if (options?.includeTestData) params.set("includeTestData", "true");
+  if (options?.warehouseId) params.set("warehouseId", options.warehouseId);
   const response = await fetch(`/api/material-requests?${params.toString()}`, {
     method: "GET",
     headers,
