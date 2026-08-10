@@ -38,9 +38,12 @@ type MovementGroup = "warehouse_inbound" | "field_issue" | "internal_transfer" |
 type Option = { id: string; name: string };
 type WarehouseOption = Option & { warehouseType: string };
 type VehicleOption = Option & {
+  model: string;
   plate: string;
   type: string;
   fleetType: string;
+  transportCategory: string;
+  source: "reference_vehicles" | "reference_machines";
   primaryPersonnelId: string | null;
 };
 type DriverOption = Option & {
@@ -211,7 +214,9 @@ type FormState = {
   moistureIn: string;
   moistureOut: string;
   grossKg: string;
+  harvestMoisture: string;
   vehicleId: string;
+  trailerId: string;
   driverId: string;
   disposalCategory: DisposalCategory;
   disposalReason: string;
@@ -254,7 +259,9 @@ const INITIAL_FORM: FormState = {
   moistureIn: "",
   moistureOut: "",
   grossKg: "",
+  harvestMoisture: "",
   vehicleId: "",
+  trailerId: "",
   driverId: "",
   disposalCategory: "utilization",
   disposalReason: "",
@@ -637,6 +644,7 @@ export default function WeighbridgeOperationsPage() {
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
   const [buyers, setBuyers] = useState<Option[]>([]);
   const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
+  const [trailers, setTrailers] = useState<VehicleOption[]>([]);
   const [processingPoints, setProcessingPoints] = useState<Option[]>([]);
   const [products, setProducts] = useState<ProductOption[]>([]);
   const [stockIdentityOptions, setStockIdentityOptions] = useState<StockIdentityOption[]>([]);
@@ -654,6 +662,8 @@ export default function WeighbridgeOperationsPage() {
   const [activeTicket, setActiveTicket] = useState<WeighbridgeTicket | null>(null);
   const [closingTare, setClosingTare] = useState("");
   const [closingMoisture, setClosingMoisture] = useState("");
+  const [vehicleSearch, setVehicleSearch] = useState("");
+  const [trailerSearch, setTrailerSearch] = useState("");
   const [driverSearch, setDriverSearch] = useState("");
   const [suggestedFieldId, setSuggestedFieldId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
@@ -839,10 +849,24 @@ export default function WeighbridgeOperationsPage() {
       setVehicles(((resourceRows?.vehicles || []) as any[]).map((r: any) => ({
         id: String(r.id),
         name: String(r.name || "Машина"),
+        model: String(r.model || r.name || ""),
         plate: String(r.plate || ""),
         type: String(r.type || ""),
         fleetType: String(r.fleetType || ""),
+        transportCategory: String(r.transportCategory || ""),
+        source: r.source === "reference_machines" ? "reference_machines" : "reference_vehicles",
         primaryPersonnelId: r.primaryPersonnelId ? String(r.primaryPersonnelId) : null,
+      })));
+      setTrailers(((resourceRows?.trailers || []) as any[]).map((r: any) => ({
+        id: String(r.id),
+        name: String(r.name || "Прицеп"),
+        model: String(r.model || r.name || ""),
+        plate: String(r.plate || ""),
+        type: String(r.type || "trailer"),
+        fleetType: String(r.fleetType || "tractor_trailer"),
+        transportCategory: String(r.transportCategory || "trailer"),
+        source: "reference_vehicles",
+        primaryPersonnelId: null,
       })));
       setProcessingPoints([]);
       const dedupeByName = (rows: any[]) => {
@@ -1135,29 +1159,6 @@ export default function WeighbridgeOperationsPage() {
   }, [activeTicket?.id]);
 
   useEffect(() => {
-    if (!form.driverId) return;
-    const driver = drivers.find((d) => d.id === form.driverId);
-    if (!driver) return;
-    const assigned = driver.assignedVehicleIds.filter((id) => vehicles.some((v) => v.id === id));
-    if (!assigned.length) return;
-    // Driver is primary in this interaction:
-    // if driver's assigned list does not include current vehicle, switch to driver's default vehicle.
-    if (!form.vehicleId || !assigned.includes(form.vehicleId)) {
-      setForm((prev) => ({ ...prev, vehicleId: assigned[0] || prev.vehicleId }));
-    }
-  }, [form.driverId, form.vehicleId, drivers, vehicles]);
-
-  useEffect(() => {
-    if (!form.driverId || !form.vehicleId) return;
-    const driver = drivers.find((item) => item.id === form.driverId);
-    const vehicle = vehicles.find((item) => item.id === form.vehicleId);
-    const requiredRole = personnelRoleForVehicle(vehicle);
-    if (driver && requiredRole && driver.roleType !== requiredRole) {
-      setForm((prev) => ({ ...prev, driverId: "" }));
-    }
-  }, [form.driverId, form.vehicleId, drivers, vehicles]);
-
-  useEffect(() => {
     if (!form.vehicleId) {
       setSuggestedFieldId(null);
       return;
@@ -1172,17 +1173,7 @@ export default function WeighbridgeOperationsPage() {
     } else {
       setSuggestedFieldId(null);
     }
-    if (!form.driverId && lastShiftTicket?.driver_id && drivers.some((driver) => driver.id === lastShiftTicket.driver_id)) {
-      setForm((prev) => ({ ...prev, driverId: String(lastShiftTicket.driver_id) }));
-      return;
-    }
-    const linkedDrivers = drivers.filter((d) => d.assignedVehicleIds.includes(form.vehicleId));
-    if (!linkedDrivers.length) return;
-    // Soft autofill only: set default driver only when none is selected.
-    if (!form.driverId) {
-      setForm((prev) => ({ ...prev, driverId: linkedDrivers[0].id }));
-    }
-  }, [form.vehicleId, form.driverId, drivers, tickets, activeShift?.id, fields]);
+  }, [form.vehicleId, tickets, activeShift?.id, fields]);
 
   const fieldHarvestOptions = useMemo(
     () =>
@@ -1546,18 +1537,33 @@ export default function WeighbridgeOperationsPage() {
       return Number(bMatch) - Number(aMatch);
     });
   }, [stockIdentityOptions, form.fieldMaterialCategory, selectedHarvestAllocation]);
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => vehicle.id === form.vehicleId) || null,
+    [vehicles, form.vehicleId]
+  );
+  const recommendedPersonnelRole = personnelRoleForVehicle(selectedVehicle);
+  const selectableVehicles = useMemo(() => {
+    const query = vehicleSearch.trim().toLocaleLowerCase("ru");
+    if (!query) return vehicles;
+    return vehicles.filter((vehicle) =>
+      [vehicle.name, vehicle.model, vehicle.plate].join(" ").toLocaleLowerCase("ru").includes(query)
+    );
+  }, [vehicles, vehicleSearch]);
+  const selectableTrailers = useMemo(() => {
+    const query = trailerSearch.trim().toLocaleLowerCase("ru");
+    if (!query) return trailers;
+    return trailers.filter((trailer) =>
+      [trailer.name, trailer.model, trailer.plate].join(" ").toLocaleLowerCase("ru").includes(query)
+    );
+  }, [trailers, trailerSearch]);
   const selectableDrivers = useMemo(() => {
-    const selectedVehicle = vehicles.find((vehicle) => vehicle.id === form.vehicleId) || null;
-    const requiredRole = personnelRoleForVehicle(selectedVehicle);
-    const compatibleDrivers = requiredRole
-      ? drivers.filter((driver) => driver.roleType === requiredRole)
-      : drivers;
-    const ordered = !form.vehicleId
-      ? compatibleDrivers
-      : [
-          ...compatibleDrivers.filter((d) => d.assignedVehicleIds.includes(form.vehicleId)),
-          ...compatibleDrivers.filter((d) => !d.assignedVehicleIds.includes(form.vehicleId)),
-        ];
+    const ordered = [...drivers].sort((a, b) => {
+      const rolePriority = Number(b.roleType === recommendedPersonnelRole) - Number(a.roleType === recommendedPersonnelRole);
+      if (rolePriority !== 0) return rolePriority;
+      const assignmentPriority = Number(b.assignedVehicleIds.includes(form.vehicleId)) - Number(a.assignedVehicleIds.includes(form.vehicleId));
+      if (assignmentPriority !== 0) return assignmentPriority;
+      return a.name.localeCompare(b.name, "ru");
+    });
     const query = driverSearch.trim().toLocaleLowerCase("ru");
     return query
       ? ordered.filter((driver) =>
@@ -1567,17 +1573,21 @@ export default function WeighbridgeOperationsPage() {
             .includes(query)
         )
       : ordered;
-  }, [drivers, vehicles, form.vehicleId, driverSearch]);
+  }, [drivers, recommendedPersonnelRole, form.vehicleId, driverSearch]);
   const driverGroups = useMemo(
-    () =>
-      (["driver", "mechanic_operator"] as const)
+    () => {
+      const roleOrder: WeighbridgePersonnelRole[] = recommendedPersonnelRole === "mechanic_operator"
+        ? ["mechanic_operator", "driver"]
+        : ["driver", "mechanic_operator"];
+      return roleOrder
         .map((roleType) => ({
           roleType,
-          label: personnelRoleLabel(roleType),
+          label: `${personnelRoleLabel(roleType)}${roleType === recommendedPersonnelRole ? " · рекомендуется" : ""}`,
           people: selectableDrivers.filter((driver) => driver.roleType === roleType),
         }))
-        .filter((group) => group.people.length > 0),
-    [selectableDrivers]
+        .filter((group) => group.people.length > 0);
+    },
+    [selectableDrivers, recommendedPersonnelRole]
   );
   const gross = activeTicket?.gross_weight_kg != null ? String(activeTicket.gross_weight_kg) : activeTicket?.weigh_method === "manual_override_with_reason" && activeTicketLineTotal > 0 ? String(activeTicketLineTotal) : "";
   const pure = net(gross, closingTare);
@@ -1715,7 +1725,9 @@ export default function WeighbridgeOperationsPage() {
       // Explicit volatile reset for every type switch.
       next.driverId = "";
       next.vehicleId = "";
+      next.trailerId = "";
       next.grossKg = "";
+      next.harvestMoisture = "";
       next.quantityKg = "";
       next.quantityUom = "";
       next.unitPrice = "";
@@ -1737,6 +1749,12 @@ export default function WeighbridgeOperationsPage() {
       }
       if (!form.warehouseToId) {
         return "Выберите склад назначения";
+      }
+      if (form.harvestMoisture.trim()) {
+        const moisture = toNum(form.harvestMoisture);
+        if (moisture == null || moisture < 0 || moisture > 100) {
+          return "Влажность должна быть от 0 до 100 %";
+        }
       }
       if (!fieldHarvestOptions.some((x) => x.allocationId === form.cropStructureAllocationId)) {
         return "Выбранная посевная строка не связана с этим полем";
@@ -1924,7 +1942,17 @@ export default function WeighbridgeOperationsPage() {
     const ticket: TicketInput = {
       company_id: profile.company_id,
       batch_id: isImpurityRemoval ? form.sourceBatchId : null,
-      audit_json: isImpurityRemoval ? { impurity_type: form.impurityType } : null,
+      audit_json: {
+        ...(isImpurityRemoval ? { impurity_type: form.impurityType } : {}),
+        ...(form.vehicleId
+          ? {
+              transport: {
+                vehicle_source: selectedVehicle?.source || "reference_vehicles",
+                trailer_id: form.trailerId || null,
+              },
+            }
+          : {}),
+      },
       created_by: profile.id,
       ticket_type: meta.ticketType,
       op_type: meta.opType,
@@ -1986,7 +2014,11 @@ export default function WeighbridgeOperationsPage() {
       variety_id: isImpurityRemoval ? selectedHarvestBatch?.varietyId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" ? form.varietyId || null : null,
       reproduction_id: isImpurityRemoval ? selectedHarvestBatch?.reproductionId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" ? form.reproductionId || null : null,
       operation_line_id: isImpurityRemoval ? selectedHarvestBatch?.operationLineId || null : isFieldIssue ? form.linkedOperationLineId || null : null,
-      moisture_percent: form.operationType === "drying" ? toNum(form.moistureIn) : null,
+      moisture_percent: form.operationType === "harvest_incoming"
+        ? toNum(form.harvestMoisture)
+        : form.operationType === "drying"
+          ? toNum(form.moistureIn)
+          : null,
       net_line_weight_kg: form.operationType === "drying" ? toNum(form.dryingOutputKg) : null,
     };
     const linesToCreate: TicketLineInput[] =
@@ -2115,9 +2147,11 @@ export default function WeighbridgeOperationsPage() {
       }
     }
     const isHarvestClosure = activeTicket.op_type === "harvest_incoming";
-    const moisture = Number(String(closingMoisture || "").replace(",", "."));
-    if (isHarvestClosure && (!Number.isFinite(moisture) || moisture <= 0 || moisture > 60)) {
-      return toast({ title: "Ошибка", description: "Укажите влажность от 0 до 60 %.", variant: "destructive" });
+    const moisture = closingMoisture.trim()
+      ? Number(closingMoisture.replace(",", "."))
+      : null;
+    if (isHarvestClosure && moisture != null && (!Number.isFinite(moisture) || moisture < 0 || moisture > 100)) {
+      return toast({ title: "Ошибка", description: "Влажность должна быть от 0 до 100 %.", variant: "destructive" });
     }
     if (!(await siteConfirm({ title: "Закрыть талон", description: "После закрытия будет создано движение по складу.", actionLabel: "Закрыть" }))) return;
 
@@ -2256,8 +2290,28 @@ export default function WeighbridgeOperationsPage() {
     if (!driverId) return "";
     return driverNames[String(driverId)] || drivers.find((driver) => driver.id === driverId)?.name || "";
   };
+  const trailerForTicket = (ticket: WeighbridgeTicket | null | undefined) => {
+    const transport = ticket?.audit_json?.transport as Record<string, unknown> | undefined;
+    const trailerId = String(transport?.trailer_id || "");
+    const trailer = trailers.find((item) => item.id === trailerId);
+    if (trailer) return trailer;
+    const name = String(transport?.trailer_name_snapshot || "");
+    if (!name) return null;
+    return {
+      id: trailerId,
+      name,
+      model: name,
+      plate: String(transport?.trailer_plate_snapshot || ""),
+      type: "trailer",
+      fleetType: "tractor_trailer",
+      transportCategory: "trailer",
+      source: "reference_vehicles" as const,
+      primaryPersonnelId: null,
+    };
+  };
   const activeDriverName = activeTicket ? driverNameForId(activeTicket.driver_id) : "";
   const activeVehicle = activeTicket ? vehicles.find((v) => v.id === activeTicket.vehicle_id) : null;
+  const activeTrailer = trailerForTicket(activeTicket);
   const activeLine = activeTicket?.lines?.[0] ?? null;
   const allocationLabelById = new Map<string, string>();
   Object.values(harvestStructureByField).flat().forEach((item) => {
@@ -2842,12 +2896,49 @@ export default function WeighbridgeOperationsPage() {
                 <div className="mb-3">
                   <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Транспорт</Label>
                 </div>
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 lg:grid-cols-3">
                 <div className="space-y-1">
-                  <Label>Машина{form.operationType === "supplier_receipt" ? " (необязательно)" : " *"}</Label>
+                  <Label>Транспорт{form.operationType === "supplier_receipt" ? " (необязательно)" : " *"}</Label>
+                  <Input
+                    className="h-8"
+                    value={vehicleSearch}
+                    onChange={(event) => setVehicleSearch(event.target.value)}
+                    placeholder="Название, модель или госномер"
+                    aria-label="Поиск транспорта"
+                  />
                   <Select value={form.vehicleId} onValueChange={(v) => setForm((p) => ({ ...p, vehicleId: v }))}>
-                    <SelectTrigger className="h-8"><SelectValue placeholder="Выберите машину" /></SelectTrigger>
-                    <SelectContent>{vehicles.map((v) => <SelectItem key={v.id} value={v.id}>{v.name} ({v.plate})</SelectItem>)}</SelectContent>
+                    <SelectTrigger className="h-8"><SelectValue placeholder="Выберите транспорт" /></SelectTrigger>
+                    <SelectContent>
+                      {selectableVehicles.map((vehicle) => (
+                        <SelectItem key={vehicle.id} value={vehicle.id}>
+                          {vehicle.name}{vehicle.plate ? ` · ${vehicle.plate}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Прицеп (необязательно)</Label>
+                  <Input
+                    className="h-8"
+                    value={trailerSearch}
+                    onChange={(event) => setTrailerSearch(event.target.value)}
+                    placeholder="Название, модель или госномер"
+                    aria-label="Поиск прицепа"
+                  />
+                  <Select
+                    value={form.trailerId || "__none__"}
+                    onValueChange={(value) => setForm((prev) => ({ ...prev, trailerId: value === "__none__" ? "" : value }))}
+                  >
+                    <SelectTrigger className="h-8"><SelectValue placeholder="Без прицепа" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Без прицепа</SelectItem>
+                      {selectableTrailers.map((trailer) => (
+                        <SelectItem key={trailer.id} value={trailer.id}>
+                          {trailer.name}{trailer.plate ? ` · ${trailer.plate}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1">
@@ -2919,6 +3010,22 @@ export default function WeighbridgeOperationsPage() {
                   <Label>Брутто / вес (кг) *</Label>
                   <Input className="h-8" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} />
                 </div>
+                {form.operationType === "harvest_incoming" ? (
+                  <div className="mt-3 space-y-1">
+                    <Label>Влажность, % (необязательно)</Label>
+                    <Input
+                      className="h-8"
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      max="100"
+                      step="0.1"
+                      value={form.harvestMoisture}
+                      onChange={(event) => setForm((prev) => ({ ...prev, harvestMoisture: event.target.value }))}
+                      placeholder="14,6"
+                    />
+                  </div>
+                ) : null}
               </div>
               </div>
             ) : null}
@@ -3089,6 +3196,7 @@ export default function WeighbridgeOperationsPage() {
                   <div className="mb-2 text-center text-lg font-bold">ТРАНСПОРТ И ВОДИТЕЛЬ</div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><span className="text-[#5d4f3d]">Машина:</span> <span className="font-bold">{activeVehicle?.name || "-"}</span></div>
+                    {activeTrailer ? <div><span className="text-[#5d4f3d]">Прицеп:</span> <span className="font-bold">{activeTrailer.name}{activeTrailer.plate ? ` · ${activeTrailer.plate}` : ""}</span></div> : null}
                     <div><span className="text-[#5d4f3d]">Водитель:</span> <span className="font-bold">{activeDriverName || "-"}</span></div>
                     <div><span className="text-[#5d4f3d]">Госномер:</span> <span className="font-semibold">{activeVehicle?.plate || "-"}</span></div>
                     <div />
@@ -3142,9 +3250,13 @@ export default function WeighbridgeOperationsPage() {
                 </div>
                 {activeTicket.op_type === "harvest_incoming" ? (
                   <div className="mt-3 space-y-2">
-                    <Label>Влажность, %</Label>
+                    <Label>Влажность, % (необязательно)</Label>
                     <Input
+                      type="number"
                       inputMode="decimal"
+                      min="0"
+                      max="100"
+                      step="0.1"
                       value={closingMoisture}
                       onChange={(e) => setClosingMoisture(e.target.value)}
                       placeholder="13,8"
@@ -3214,6 +3326,7 @@ export default function WeighbridgeOperationsPage() {
                   <div className="mb-2 text-center text-lg font-bold">ТРАНСПОРТ И ВОДИТЕЛЬ</div>
                   <div className="grid grid-cols-2 gap-3">
                     <div><span className="text-[#5d4f3d]">Машина:</span> <span className="font-bold">{vehicles.find((v) => v.id === historyPreviewTicket.vehicle_id)?.name || "-"}</span></div>
+                    {trailerForTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Прицеп:</span> <span className="font-bold">{trailerForTicket(historyPreviewTicket)?.name || "-"}</span></div> : null}
                     <div><span className="text-[#5d4f3d]">Водитель:</span> <span className="font-bold">{driverNameForId(historyPreviewTicket.driver_id) || "-"}</span></div>
                     <div><span className="text-[#5d4f3d]">Госномер:</span> <span className="font-semibold">{vehicles.find((v) => v.id === historyPreviewTicket.vehicle_id)?.plate || "-"}</span></div>
                     <div />

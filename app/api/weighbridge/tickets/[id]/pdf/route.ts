@@ -83,7 +83,7 @@ export async function GET(
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
     }
 
-    const [{ data: lines }, { data: company }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: people }, { data: legacyDrivers }, { data: drivers }, { data: vehicles }, { data: operators }, { data: counterparties }] = await Promise.all([
+    const [{ data: lines }, { data: company }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: people }, { data: legacyDrivers }, { data: drivers }, { data: vehicles }, { data: machines }, { data: operators }, { data: counterparties }] = await Promise.all([
       supabase.from("ticket_lines").select("*").eq("ticket_id", id).order("created_at", { ascending: true }),
       supabase.from("companies").select("id,name").eq("id", ticket.company_id).maybeSingle(),
       supabase.from("fields").select("id,name").eq("company_id", ticket.company_id),
@@ -95,6 +95,7 @@ export async function GET(
       supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", ticket.company_id),
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
       supabase.from("reference_vehicles").select("id,name,plate_number").eq("company_id", ticket.company_id),
+      supabase.from("reference_machines").select("id,name,license_plate").eq("company_id", ticket.company_id),
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
       supabase.from("counterparties").select("id,name").eq("company_id", ticket.company_id),
     ]);
@@ -136,10 +137,15 @@ export async function GET(
         (drivers || []).find((x: any) => x.id === ticket.driver_id)?.email ||
         "-"
       : "-";
-    const vehicle = ticket.vehicle_id
-      ? (vehicles || []).find((x: any) => x.id === ticket.vehicle_id)
+    const vehicle: any = ticket.vehicle_id
+      ? (vehicles || []).find((x: any) => x.id === ticket.vehicle_id) ||
+        (machines || []).find((x: any) => x.id === ticket.vehicle_id)
       : null;
-    const vehicleName = vehicle ? `${vehicle.name || "-"} (${vehicle.plate_number || "-"})` : "-";
+    const vehicleName = vehicle ? `${vehicle.name || "-"} (${vehicle.plate_number || vehicle.license_plate || "-"})` : "-";
+    const transportAudit = (ticket.audit_json?.transport || {}) as Record<string, unknown>;
+    const trailerName = transportAudit.trailer_name_snapshot
+      ? `${String(transportAudit.trailer_name_snapshot)}${transportAudit.trailer_plate_snapshot ? ` (${String(transportAudit.trailer_plate_snapshot)})` : ""}`
+      : "-";
     const operatorName = ticket.created_by
       ? (operators || []).find((x: any) => x.id === ticket.created_by)?.full_name ||
         (operators || []).find((x: any) => x.id === ticket.created_by)?.email ||
@@ -215,6 +221,7 @@ export async function GET(
       ...(isHarvest ? [`Variety: ${varietyName}`, `Reproduction: ${reproductionName}`] : []),
       `Driver: ${driverName}`,
       `Vehicle: ${vehicleName}`,
+      `Trailer: ${trailerName}`,
       `Cashier / Operator: ${operatorName}`,
       `Gross: ${ticket.gross_weight_kg ?? "-"} kg`,
       `Tare: ${ticket.tare_weight_kg ?? "-"} kg`,

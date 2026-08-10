@@ -27,9 +27,14 @@ async function loadHarvestClosureState(supabase: SupabaseClient, companyId: stri
 
 async function syncHarvestBatchMoisture(supabase: SupabaseClient, companyId: string, ticketId: string) {
   const { lines } = await loadHarvestClosureState(supabase, companyId, ticketId);
-  const moisture = Number((lines[0] as any)?.moisture_percent);
-  if (lines.length !== 1 || !Number.isFinite(moisture) || moisture <= 0 || moisture > 60) {
-    throw new Error("Влажность рейса не сохранена в талоне.");
+  if (lines.length !== 1) {
+    throw new Error("Талон урожая должен содержать ровно одну строку.");
+  }
+  const rawMoisture = (lines[0] as any)?.moisture_percent;
+  if (rawMoisture == null || String(rawMoisture).trim() === "") return;
+  const moisture = Number(rawMoisture);
+  if (!Number.isFinite(moisture) || moisture < 0 || moisture > 100) {
+    throw new Error("Влажность рейса должна быть от 0 до 100 %.");
   }
   const { data: batches, error } = await supabase
     .from("inventory_batches")
@@ -85,7 +90,6 @@ export async function POST(
     if (ticketBefore.op_type === "harvest_incoming") {
       const closureState = await loadHarvestClosureState(supabase, companyId, id);
       const weighingNumbers = closureState.weighings.map((row: any) => Number(row.weighing_no));
-      const moisture = Number((closureState.lines[0] as any)?.moisture_percent);
       if (
         closureState.lines.length !== 1 ||
         weighingNumbers.length !== 2 ||
@@ -93,9 +97,6 @@ export async function POST(
         weighingNumbers[1] !== 2
       ) {
         return NextResponse.json({ error: "Перед закрытием нужны два фактических взвешивания: брутто и тара." }, { status: 409 });
-      }
-      if (!Number.isFinite(moisture) || moisture <= 0 || moisture > 60) {
-        return NextResponse.json({ error: "Перед закрытием укажите влажность рейса." }, { status: 409 });
       }
     }
     timing.validationMs = Date.now() - dbStartedAt;

@@ -38,11 +38,9 @@ export function isWeighbridgePersonnelRole(value: unknown): value is Weighbridge
 
 export function personnelRoleMatchesVehicle(
   role: unknown,
-  vehicle: WeighbridgeVehicleKind | null | undefined
+  _vehicle: WeighbridgeVehicleKind | null | undefined
 ) {
-  if (!isWeighbridgePersonnelRole(role)) return false;
-  const requiredRole = personnelRoleForVehicle(vehicle);
-  return requiredRole === null || requiredRole === role;
+  return isWeighbridgePersonnelRole(role);
 }
 
 export function personnelRoleLabel(role: WeighbridgePersonnelRole) {

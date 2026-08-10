@@ -106,7 +106,7 @@ export async function patchTicket(
   patch: {
     gross_weight_kg?: number;
     tare_weight_kg?: number;
-    moisture_percent?: number;
+    moisture_percent?: number | null;
     notes?: string | null;
     status?: "draft" | "active" | "ready_to_close";
   }
