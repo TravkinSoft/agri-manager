@@ -711,6 +711,7 @@ export async function POST(request: NextRequest) {
                 ? "disposal"
                 : "processing";
 
+    let stockContractPersistenceSchema: "v2" | "legacy" = "v2";
     for (const line of lines) {
       const productAccess = isHarvestIncoming
         ? { data: { id: line.product_id }, error: null }
@@ -745,6 +746,9 @@ export async function POST(request: NextRequest) {
         event: stockEvent,
         fieldMaterialCategory: ticket.field_material_category,
       }));
+      if (contract.persistenceSchema === "legacy") {
+        stockContractPersistenceSchema = "legacy";
+      }
       if (!isDirectSupplierReceipt && contract.baseUom !== "kg" && !isDirectWarehouseTransfer && !isDirectFieldIssue) {
         return NextResponse.json(
           { error: "Литры и штуки нельзя подменять весом нетто. Используйте прямой документ с количеством в единице товара." },
@@ -1341,14 +1345,18 @@ export async function POST(request: NextRequest) {
       operation_line_id: (line as any).operation_line_id ?? null,
       batch_id: line.batch_id ?? null,
       batch_class: line.batch_class ?? null,
-      mass_kg: line.mass_kg ?? null,
-      density_kg_per_l: line.density_kg_per_l ?? null,
-      density_unit: line.density_unit ?? null,
-      density_source: line.density_source ?? null,
-      density_verification_status: line.density_verification_status ?? null,
-      density_verified_at: line.density_verified_at ?? null,
-      unit_source: line.unit_source ?? null,
-      unit_contract_version: line.unit_contract_version ?? null,
+      ...(stockContractPersistenceSchema === "v2"
+        ? {
+            mass_kg: line.mass_kg ?? null,
+            density_kg_per_l: line.density_kg_per_l ?? null,
+            density_unit: line.density_unit ?? null,
+            density_source: line.density_source ?? null,
+            density_verification_status: line.density_verification_status ?? null,
+            density_verified_at: line.density_verified_at ?? null,
+            unit_source: line.unit_source ?? null,
+            unit_contract_version: line.unit_contract_version ?? null,
+          }
+        : {}),
       composition_snapshot: (line as any).composition_snapshot || [],
       composition_hash: (line as any).composition_hash || null,
       is_mixed_harvest: Boolean((line as any).is_mixed_harvest),
