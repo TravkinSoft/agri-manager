@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.travkin.flow",
+      "sha256_cert_fingerprints": [
+        "72:0D:D0:43:18:F8:A4:DC:38:CB:44:0E:53:E8:27:EE:B3:FA:EF:BF:3A:21:68:9E:D6:C9:A0:DB:A0:5E:3A:34"
+      ]
+    }
+  }
+]
