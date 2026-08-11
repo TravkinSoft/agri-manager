@@ -385,24 +385,6 @@ const legacyTicketStageLabel = (t: WeighbridgeTicket) => {
   if (t.tare_weight_kg == null) return "Ждёт тару";
   return "Брутто";
 };
-const MOVEMENT_GROUPS: Array<{ id: MovementGroup; title: string; hint: string }> = [
-  { id: "warehouse_inbound", title: "Приход на склад", hint: "Урожай или поставка" },
-  { id: "field_issue", title: "Выдача в поле", hint: "Материалы со склада" },
-  { id: "internal_transfer", title: "Внутреннее перемещение", hint: "Склад → склад" },
-  { id: "shipment", title: "Отгрузка", hint: "Склад → контрагент" },
-  { id: "writeoff", title: "Списание / выбытие", hint: "Порча, утилизация, недостача" },
-  { id: "impurities", title: "Вывоз примесей", hint: "Земля, мусор и некондиционный урожай" },
-];
-
-const GROUP_DEFAULT_OPERATION: Record<MovementGroup, OperationType> = {
-  warehouse_inbound: "harvest_incoming",
-  field_issue: "issue_to_field",
-  internal_transfer: "transfer_between_warehouses",
-  shipment: "shipment_outbound",
-  writeoff: "disposal_writeoff",
-  impurities: "impurity_removal",
-};
-
 const OPERATION_GROUP: Partial<Record<OperationType, MovementGroup>> = {
   harvest_incoming: "warehouse_inbound",
   supplier_receipt: "warehouse_inbound",
@@ -413,17 +395,15 @@ const OPERATION_GROUP: Partial<Record<OperationType, MovementGroup>> = {
   impurity_removal: "impurities",
 };
 
-const GROUP_SUBTYPES: Record<MovementGroup, Array<{ type: OperationType; title: string; hint: string }>> = {
-  warehouse_inbound: [
-    { type: "harvest_incoming", title: "Урожай с поля", hint: "Поле → склад" },
-    { type: "supplier_receipt", title: "Поставка от контрагента", hint: "Поставщик → склад" },
-  ],
-  field_issue: [{ type: "issue_to_field", title: "Склад → поле", hint: "Выдача материалов" }],
-  internal_transfer: [{ type: "transfer_between_warehouses", title: "Склад → склад", hint: "Перемещение остатка" }],
-  shipment: [{ type: "shipment_outbound", title: "Отгрузка", hint: "Покупатель, экспорт, возврат" }],
-  writeoff: [{ type: "disposal_writeoff", title: "Списание со склада", hint: "Утилизация, порча, недостача" }],
-  impurities: [{ type: "impurity_removal", title: "Вывоз примесей", hint: "Земля, мусор и некондиционный урожай" }],
-};
+const WEIGHBRIDGE_MODES: Array<{ type: OperationType; label: string }> = [
+  { type: "harvest_incoming", label: "Урожай с поля" },
+  { type: "supplier_receipt", label: "От контрагента" },
+  { type: "issue_to_field", label: "Выдача в поле" },
+  { type: "transfer_between_warehouses", label: "Перемещение" },
+  { type: "shipment_outbound", label: "Отгрузка" },
+  { type: "disposal_writeoff", label: "Списание" },
+  { type: "impurity_removal", label: "Примеси" },
+];
 
 const movementGroupForOperation = (operationType: OperationType): MovementGroup =>
   OPERATION_GROUP[operationType] || "warehouse_inbound";
@@ -1574,8 +1554,6 @@ export default function WeighbridgeOperationsPage() {
     : form.grossKg
       ? "Ждёт тару"
       : "Ждёт брутто";
-  const selectedMovementGroup = movementGroupForOperation(form.operationType);
-  const selectedSubtypes = GROUP_SUBTYPES[selectedMovementGroup];
   const isFieldIssue = form.operationType === "issue_to_field";
   const isTransfer = form.operationType === "transfer_between_warehouses";
   const isShipment = form.operationType === "shipment_outbound";
@@ -2418,41 +2396,34 @@ export default function WeighbridgeOperationsPage() {
     active
       ? "h-9 border-yellow-500/70 bg-yellow-500/15 text-yellow-100 hover:bg-yellow-500/20"
       : "h-9 border-slate-800 bg-slate-950/60 text-slate-200 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-50";
-  const intakeStatusMessages = [
-    loading ? "Данные загружаются" : "",
-    canOperate && !activeShift ? "Смена не открыта" : "",
-    canOperate && harvestWarehouses.length === 0
-      ? profile?.role === "company_admin" || profile?.role === "global_admin"
-        ? "Добавьте место приёмки урожая перед началом работы весовой."
-        : "Нет места приёмки. Обратитесь к администратору компании."
-      : "",
-    canOperate && drivers.length === 0 ? "Нет водителей" : "",
-    activeShift && shiftGuard.stale ? `Смена открыта ${Math.max(1, Math.floor(shiftGuard.ageHours))} ч` : "",
-  ].filter(Boolean);
-  const intakeStatusLabel = intakeStatusMessages.length
-    ? `Требуется внимание · ${intakeStatusMessages.length}`
-    : activeShift
-      ? "Смена открыта"
-      : "Режим просмотра";
-
   return (
     <div className="mx-auto max-w-[1680px] space-y-2 px-2 pb-4 sm:px-3">
-      <div className="flex h-9 items-center justify-between gap-2">
-        <details className="group relative">
-          <summary className={`flex h-8 cursor-pointer list-none items-center gap-2 rounded-md border px-3 text-xs font-medium ${intakeStatusMessages.length ? "border-amber-500/40 bg-amber-500/10 text-amber-100" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"}`}>
-            <span className={`h-2 w-2 rounded-full ${intakeStatusMessages.length ? "bg-amber-400" : "bg-emerald-400"}`} />
-            {intakeStatusLabel}
-          </summary>
-          <div className="absolute left-0 top-10 z-40 w-80 rounded-md border border-slate-700 bg-slate-950 p-3 text-xs text-slate-200 shadow-xl">
-            {intakeStatusMessages.length ? (
-              <div className="space-y-1.5">
-                {intakeStatusMessages.map((message) => <div key={message}>• {message}</div>)}
-              </div>
-            ) : (
-              <div>Весовая готова принимать машины.</div>
-            )}
-          </div>
-        </details>
+      <div className="flex h-10 min-w-0 items-center gap-2">
+        <div
+          role="tablist"
+          aria-label="Режим весовой"
+          className="travkin-scrollbar flex h-10 min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-md border border-slate-800 bg-slate-950/70 p-1"
+        >
+          {WEIGHBRIDGE_MODES.map((mode) => {
+            const active = form.operationType === mode.type;
+            return (
+              <button
+                key={mode.type}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                className={
+                  active
+                    ? "h-8 shrink-0 whitespace-nowrap rounded px-3 text-xs font-semibold text-slate-950 bg-yellow-400"
+                    : "h-8 shrink-0 whitespace-nowrap rounded px-3 text-xs font-medium text-slate-300 hover:bg-slate-900 hover:text-slate-50"
+                }
+                onClick={() => selectOperation(mode.type)}
+              >
+                {mode.label}
+              </button>
+            );
+          })}
+        </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="icon" className="h-8 w-8 border-slate-700 bg-slate-950 text-slate-100" aria-label="Дополнительные действия">
@@ -2477,14 +2448,6 @@ export default function WeighbridgeOperationsPage() {
             ) : (
               <DropdownMenuItem onClick={openShiftAction}>Открыть смену</DropdownMenuItem>
             )}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => selectOperation("harvest_incoming")}>Урожай с поля</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => selectOperation("supplier_receipt")}>Поставка от контрагента</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => selectOperation("issue_to_field")}>Выдача в поле</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => selectOperation("transfer_between_warehouses")}>Перемещение между складами</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => selectOperation("shipment_outbound")}>Отгрузка</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => selectOperation("disposal_writeoff")}>Списание</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => selectOperation("impurity_removal")}>Вывоз примесей</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -2508,61 +2471,6 @@ export default function WeighbridgeOperationsPage() {
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
                 Режим просмотра: создание и закрытие талонов недоступны.
               </div>
-            ) : null}
-
-            {form.operationType !== "harvest_incoming" ? (
-            <div className={formSectionClass}>
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div>
-                  <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Сценарий движения</Label>
-                  <div className="mt-1 text-sm text-slate-300">Сначала выберите, что происходит с товаром.</div>
-                </div>
-                <Badge className="border border-yellow-500/30 bg-yellow-500/10 text-yellow-100">{opMeta(form.operationType).title}</Badge>
-              </div>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {MOVEMENT_GROUPS.map((group) => {
-                  const active = selectedMovementGroup === group.id;
-                  return (
-                    <Button
-                      key={group.id}
-                      type="button"
-                      variant="outline"
-                      className={
-                        active
-                          ? "h-auto min-h-[64px] justify-start rounded-xl border-yellow-500/70 bg-yellow-500/15 px-3 py-2 text-left text-yellow-50 hover:bg-yellow-500/20"
-                          : "h-auto min-h-[64px] justify-start rounded-xl border-slate-800 bg-slate-950/60 px-3 py-2 text-left text-slate-200 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-50"
-                      }
-                      onClick={() => selectOperation(GROUP_DEFAULT_OPERATION[group.id])}
-                    >
-                      <span className="min-w-0">
-                        <span className="block whitespace-normal text-sm font-semibold leading-snug">{group.title}</span>
-                        <span className={active ? "block text-[11px] text-yellow-200/80" : "block text-[11px] text-slate-500"}>{group.hint}</span>
-                      </span>
-                    </Button>
-                  );
-                })}
-              </div>
-
-              {selectedSubtypes.length > 1 ? (
-              <div className="mt-3 space-y-2">
-                <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Уточнение</Label>
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-                  {selectedSubtypes.map((subtype) => (
-                    <Button
-                      key={subtype.type}
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className={`${segmentClass(form.operationType === subtype.type)} justify-start`}
-                      onClick={() => selectOperation(subtype.type)}
-                    >
-                      {subtype.title}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-            </div>
             ) : null}
 
             {form.operationType !== "harvest_incoming" ? (
@@ -2646,6 +2554,13 @@ export default function WeighbridgeOperationsPage() {
                       {harvestWarehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}
                     </SelectContent>
                   </Select>
+                  {harvestWarehouses.length === 0 ? (
+                    <div className="text-xs text-amber-300">
+                      {profile?.role === "company_admin" || profile?.role === "global_admin"
+                        ? "Добавьте место приёмки урожая перед началом работы весовой."
+                        : "Место приёмки не настроено. Обратитесь к администратору."}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -2933,15 +2848,15 @@ export default function WeighbridgeOperationsPage() {
                     emptyLabel="Водитель не найден"
                     ariaLabel="Водитель"
                   />
+                  {drivers.length === 0 ? (
+                    <div className="text-xs text-amber-300">
+                      {profile?.role === "company_admin" || profile?.role === "global_admin"
+                        ? "Добавьте водителей в справочнике сотрудников до начала уборки."
+                        : "Водители не настроены. Обратитесь к администратору компании."}
+                    </div>
+                  ) : null}
                 </div>
               </div>
-              {drivers.length === 0 && form.operationType !== "harvest_incoming" ? (
-                <div className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-                  {profile?.role === "company_admin" || profile?.role === "global_admin"
-                    ? "Добавьте водителей в справочнике сотрудников до начала уборки."
-                    : "Водители не настроены. Обратитесь к администратору компании."}
-                </div>
-              ) : null}
               {suggestedFieldId && suggestedFieldId !== form.fieldId && form.operationType !== "harvest_incoming" ? (
                 <div className="mt-3 flex items-center justify-between gap-3 rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-sm text-slate-200">
                   <span>Последнее поле этой машины: {fields.find((field) => field.id === suggestedFieldId)?.name || "поле"}</span>
@@ -3401,7 +3316,9 @@ export default function WeighbridgeOperationsPage() {
           <DialogHeader>
             <DialogTitle>Смена весовой</DialogTitle>
             <DialogDescription>
-              {activeShift ? `Открыта ${fmt(activeShift.opened_at, lang)}` : "Смена сейчас закрыта"}
+              {activeShift
+                ? `Открыта ${fmt(activeShift.opened_at, lang)}${shiftGuard.stale ? ` · ${Math.max(1, Math.floor(shiftGuard.ageHours))} ч без закрытия` : ""}`
+                : "Смена сейчас закрыта"}
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 text-sm">

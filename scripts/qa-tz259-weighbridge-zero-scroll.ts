@@ -21,7 +21,10 @@ function check(name: string, run: () => void) {
 check("page title removed from primary flow", () => assert.doesNotMatch(page, />Весовые талоны</));
 check("large shift blocker removed", () => assert.doesNotMatch(page, /Действия весовой заблокированы: сначала откройте смену/));
 check("large reception blocker removed", () => assert.doesNotMatch(page, /Место приёмки урожая не настроено\. Обратитесь/));
-check("compact status control exists", () => assert.match(page, /intakeStatusLabel/));
+check("compact mode bar replaces the attention control", () => {
+  assert.doesNotMatch(page, /intakeStatusLabel|Требуется внимание/);
+  assert.match(page, /aria-label="Режим весовой"/);
+});
 check("secondary actions share one menu", () => assert.match(page, /aria-label="Дополнительные действия"/));
 check("inventory moved into secondary menu", () => assert.match(page, /DropdownMenuItem asChild>[\s\S]*\/warehouses\/inventory/));
 check("history moved into secondary menu", () => assert.match(page, /История талонов/));
