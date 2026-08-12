@@ -11,6 +11,7 @@ import type { AppRole } from "@/lib/auth/roles";
 import { useLanguage } from "@/lib/contexts/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
+import { canUseAssistantShell } from "@/lib/assistant/shell";
 
 type BottomItem = {
   labelKey: TranslationKey;
@@ -24,6 +25,14 @@ const DASHBOARD_ITEM: BottomItem = { labelKey: "dashboard", href: "/dashboard", 
 
 function getMobileRouteCandidates(role?: string | null): BottomItem[] {
   switch (role) {
+    case "agronomist":
+      return [
+        { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
+        { labelKey: "tickets_nav", href: "/tickets", icon: Scale, kind: "route" },
+      ];
+    case "director":
+      return [{ labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" }];
     case "specialist":
       return [
         { labelKey: "my_tasks", href: "/tasks", icon: CheckSquare, kind: "route" },
@@ -71,7 +80,7 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
   const routeItems = getMobileRouteCandidates(role)
     .filter((item) => canAccessPath(normalizedRole, item.href || ""))
     .slice(0, 4);
-  return [...routeItems, COPILOT_ITEM];
+  return canUseAssistantShell(normalizedRole) ? [...routeItems, COPILOT_ITEM] : routeItems;
 }
 
 export function MobileBottomNav() {

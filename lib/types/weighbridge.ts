@@ -93,6 +93,7 @@ export interface WeighingInput {
 export interface WeighbridgeTicket {
   id: string;
   company_id: string;
+  harvest_lot_id?: string | null;
   batch_id?: string | null;
   audit_json?: Record<string, unknown> | null;
   requires_review?: boolean;
@@ -165,6 +166,9 @@ export interface WeighbridgeTicket {
   is_finalized: boolean;
   is_voided: boolean;
   finalized_at?: string | null;
+  voided_at?: string | null;
+  weighing_1_at?: string | null;
+  weighing_2_at?: string | null;
   created_at: string;
   updated_at: string;
   notes?: string | null;
@@ -173,6 +177,7 @@ export interface WeighbridgeTicket {
   lines?: Array<{
     id: string;
     product_id: string;
+    crop_id?: string | null;
     product_name: string;
     quantity: number;
     uom: string;
@@ -218,6 +223,7 @@ export interface HarvestBatchSummary {
   operationLineId: string | null;
   cropStructureLabel: string;
   seasonLabel: string;
+  seasonId?: string | null;
   operationName: string;
   firstReceivedAt: string | null;
   lastReceivedAt: string | null;

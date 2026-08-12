@@ -35,16 +35,14 @@ export class SessionAuthError extends Error {
 
 const ASSISTANT_ALLOWED_ROLES = new Set<ServerRole>([
   "global_admin",
-  "company_admin",
-  "agronomist",
-  "director",
-  "warehouse_operator",
-  "weighman",
-  "specialist",
-  "brigadier",
-  "legal_operator",
-  "fuel_operator",
 ]);
+
+function enforceDirectorReadOnly(request: NextRequest, actor: ServerActorContext): ServerActorContext {
+  if (actor.role === "director" && !["GET", "HEAD", "OPTIONS"].includes(request.method.toUpperCase())) {
+    throw new SessionAuthError("Director access is read-only", 403);
+  }
+  return actor;
+}
 
 function isAssistantAccessStrict(): boolean {
   return process.env.ASSISTANT_ACCESS_STRICT !== "0";
@@ -620,7 +618,7 @@ export async function getServerActorFromSession(
         options.timing.impersonation_ms = 0;
         options.timing.total_ms = Date.now() - totalStarted;
       }
-      return cached.actor;
+      return enforceDirectorReadOnly(request, cached.actor);
     }
     actorContextCache.delete(cacheKey);
   }
@@ -643,7 +641,7 @@ export async function getServerActorFromSession(
       if (cacheKey) {
         actorContextCache.set(cacheKey, { actor: sessionFastActor, expiresAt: Date.now() + ACTOR_CONTEXT_CACHE_TTL_MS });
       }
-      return sessionFastActor;
+      return enforceDirectorReadOnly(request, sessionFastActor);
     }
   }
 
@@ -668,7 +666,7 @@ export async function getServerActorFromSession(
     if (cacheKey) {
       actorContextCache.set(cacheKey, { actor: fastActor, expiresAt: Date.now() + ACTOR_CONTEXT_CACHE_TTL_MS });
     }
-    return fastActor;
+    return enforceDirectorReadOnly(request, fastActor);
   }
 
   const profileStarted = Date.now();
@@ -758,7 +756,7 @@ export async function getServerActorFromSession(
       if (cacheKey) {
         actorContextCache.set(cacheKey, { actor, expiresAt: Date.now() + ACTOR_CONTEXT_CACHE_TTL_MS });
       }
-      return actor;
+      return enforceDirectorReadOnly(request, actor);
     }
   }
 
@@ -783,7 +781,7 @@ export async function getServerActorFromSession(
   if (cacheKey) {
     actorContextCache.set(cacheKey, { actor, expiresAt: Date.now() + ACTOR_CONTEXT_CACHE_TTL_MS });
   }
-  return actor;
+  return enforceDirectorReadOnly(request, actor);
 }
 
 export function ensureAssistantRole(actor: ServerActorContext): void {

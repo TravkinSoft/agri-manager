@@ -22,8 +22,16 @@ import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { getInventoryBalances, getInventoryTransactions, getWarehouses } from "@/lib/services/warehouses";
 import { localizeOperationType } from "@/lib/i18n/helpers";
+import { HarvestDashboard } from "@/components/dashboard/harvest-dashboard";
 
 export default function DashboardPage() {
+  const { profile, loading } = useAuth();
+  if (loading) return <div className="py-12 text-center text-sm text-slate-400">Загрузка...</div>;
+  if (profile?.role === "agronomist" || profile?.role === "director") return <HarvestDashboard />;
+  return <LegacyDashboard />;
+}
+
+function LegacyDashboard() {
   const { profile, loading: authLoading } = useAuth();
   const { t, language } = useLanguage();
   const [metrics, setMetrics] = useState<DashboardMetrics>({
