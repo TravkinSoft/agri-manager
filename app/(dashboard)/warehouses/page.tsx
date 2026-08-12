@@ -6,7 +6,6 @@ import {
   ArrowRightLeft,
   Boxes,
   ClipboardList,
-  PackageOpen,
   PackagePlus,
   Search,
   Settings2,
@@ -25,7 +24,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PageHeader } from "@/components/layout/page-header";
 import { HarvestBatchDialog } from "@/components/warehouses/harvest-batch-dialog";
 import { WarehouseReceiptDialog } from "@/components/warehouses/warehouse-receipt-dialog";
@@ -36,28 +34,22 @@ import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { localizeUnit } from "@/lib/i18n/helpers";
-import { getWarehouseIssueRequests } from "@/lib/services/warehouse-requests";
 import { listHarvestBatchSummaries } from "@/lib/services/weighbridge";
 import {
   getInventoryBalances,
-  getInventoryTransactions,
   getProducts,
-  getWarehouseReceipts,
-  getWarehouses,
+  getWarehouseSummaries,
 } from "@/lib/services/warehouses";
-import type { WarehouseIssueRequest } from "@/lib/types/warehouse-request";
 import type { HarvestBatchSummary } from "@/lib/types/weighbridge";
 import type {
   InventoryBalance,
-  InventoryTransactionWithDetails,
   Product,
   Warehouse,
-  WarehouseReceipt,
+  WarehouseSummary,
 } from "@/lib/types/warehouse";
 import {
   isAgrochemicalWarehouseType,
   isReceiptWarehouseType,
-  warehouseProductTypeLabel,
   warehouseTypeLabel,
 } from "@/lib/warehouse/warehouse-scope";
 
@@ -65,22 +57,6 @@ function formatDate(value?: string | null): string {
   if (!value) return "Движений пока нет";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "Движений пока нет" : date.toLocaleString("ru-RU");
-}
-
-function movementLabel(row: InventoryTransactionWithDetails): string {
-  if (row.reason_type === "warehouse_inventory_adjustment") return "Инвентаризация";
-  if (row.reason_type?.includes("return")) return "Возврат";
-  if (row.reason_type?.includes("transfer")) return row.transaction_type === "in" ? "Перемещение IN" : "Перемещение OUT";
-  if (row.reason_type?.includes("harvest")) return "Поступление урожая";
-  if (row.reason_type?.includes("impurit")) return "Вывоз примесей";
-  if (row.movement_type === "receipt") return "Приход";
-  if (row.movement_type === "writeoff") return "Списание";
-  return "Выдача";
-}
-
-function isRequestOpen(row: WarehouseIssueRequest): boolean {
-  return !["issued", "issued_by_warehouse", "cancelled"].includes(String(row.status || "")) &&
-    !["closed", "return_received", "cancelled"].includes(String(row.warehouse_request_status || ""));
 }
 
 function quantity(value: number): string {
@@ -107,12 +83,18 @@ type Summary = {
   warehouse: Warehouse;
   stock: InventoryBalance[];
   batches: HarvestBatchSummary[];
-  latest: InventoryTransactionWithDetails | null;
-  openRequests: WarehouseIssueRequest[];
-  receipts: WarehouseReceipt[];
+  positionCount: number;
+  lastMovementAt: string | null;
   summaryLoaded: boolean;
   detailsLoaded: boolean;
 };
+
+const warehousePageCache = new Map<string, {
+  summaries: WarehouseSummary[];
+  balances?: InventoryBalance[];
+  harvestBatches?: HarvestBatchSummary[];
+  loadedWarehouseIds?: string[];
+}>();
 
 export default function WarehousesPage() {
   const { profile } = useAuth();
@@ -121,11 +103,9 @@ export default function WarehousesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
+  const [warehouseSummaryRows, setWarehouseSummaryRows] = useState<WarehouseSummary[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [balances, setBalances] = useState<InventoryBalance[]>([]);
-  const [movements, setMovements] = useState<InventoryTransactionWithDetails[]>([]);
-  const [receipts, setReceipts] = useState<WarehouseReceipt[]>([]);
-  const [requests, setRequests] = useState<WarehouseIssueRequest[]>([]);
   const [harvestBatches, setHarvestBatches] = useState<HarvestBatchSummary[]>([]);
   const [loadedWarehouseIds, setLoadedWarehouseIds] = useState<string[]>([]);
   const [detailsLoading, setDetailsLoading] = useState(false);
@@ -139,6 +119,7 @@ export default function WarehousesPage() {
   const [transferOpen, setTransferOpen] = useState(false);
   const [detailBalance, setDetailBalance] = useState<InventoryBalance | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<HarvestBatchSummary | null>(null);
+  const [detailRevision, setDetailRevision] = useState(0);
 
   const role = String(profile?.role || "");
   const canStockOperate = ["warehouse", "warehouse_operator", "global_admin"].includes(role);
@@ -153,8 +134,11 @@ export default function WarehousesPage() {
       setError(null);
     }
     try {
-      const warehouseRows = await getWarehouses(profile.company_id, canManageWarehouses, language);
-      setWarehouses(warehouseRows);
+      const summaryRows = await getWarehouseSummaries(profile.company_id, canManageWarehouses, language);
+      setWarehouseSummaryRows(summaryRows);
+      setWarehouses(summaryRows.map((row) => row.warehouse));
+      const cacheKey = `${profile.company_id}:${language}:${canManageWarehouses}`;
+      warehousePageCache.set(cacheKey, { ...warehousePageCache.get(cacheKey), summaries: summaryRows });
       setError(null);
     } catch (cause) {
       if (foreground) {
@@ -177,41 +161,27 @@ export default function WarehousesPage() {
       setDetailsError(null);
     }
     try {
-      const [balanceRows, movementRows, receiptRows, requestRows, batchRows] = await Promise.all([
+      const [balanceRows, batchRows] = await Promise.all([
         getInventoryBalances(profile.company_id, language, { warehouseId }),
-        getInventoryTransactions(profile.company_id, language, { warehouseId, limit: 50 }),
-        canStockOperate ? getWarehouseReceipts(profile.company_id, { warehouseId }) : Promise.resolve([]),
-        canStockOperate
-          ? getWarehouseIssueRequests(profile.company_id, { warehouseId })
-          : Promise.resolve([]),
-        listHarvestBatchSummaries(profile.company_id, { warehouseId }),
+        listHarvestBatchSummaries(profile.company_id, { warehouseId, aggregateLots: true }),
       ]);
       setBalances((current) => [
         ...current.filter((row) => row.warehouse_id !== warehouseId),
         ...balanceRows,
-      ]);
-      setMovements((current) => [
-        ...current.filter(
-          (row) =>
-            row.warehouse_id !== warehouseId &&
-            row.source_warehouse_id !== warehouseId &&
-            row.destination_warehouse_id !== warehouseId
-        ),
-        ...movementRows,
-      ]);
-      setReceipts((current) => [
-        ...current.filter((row) => row.warehouse_to_id !== warehouseId),
-        ...receiptRows,
-      ]);
-      setRequests((current) => [
-        ...current.filter((row) => row.source_warehouse_id !== warehouseId),
-        ...requestRows,
       ]);
       setHarvestBatches((current) => [
         ...current.filter((row) => row.warehouseId !== warehouseId),
         ...batchRows,
       ]);
       setLoadedWarehouseIds((current) => current.includes(warehouseId) ? current : [...current, warehouseId]);
+      const cacheKey = `${profile.company_id}:${language}:${canManageWarehouses}`;
+      const cached = warehousePageCache.get(cacheKey) || { summaries: warehouseSummaryRows };
+      warehousePageCache.set(cacheKey, {
+        ...cached,
+        balances: [...(cached.balances || []).filter((row) => row.warehouse_id !== warehouseId), ...balanceRows],
+        harvestBatches: [...(cached.harvestBatches || []).filter((row) => row.warehouseId !== warehouseId), ...batchRows],
+        loadedWarehouseIds: Array.from(new Set([...(cached.loadedWarehouseIds || []), warehouseId])),
+      });
       setDetailsError(null);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Не удалось загрузить данные склада";
@@ -228,7 +198,7 @@ export default function WarehousesPage() {
     try {
       const [balanceRows, batchRows] = await Promise.all([
         getInventoryBalances(profile.company_id, language),
-        listHarvestBatchSummaries(profile.company_id),
+        listHarvestBatchSummaries(profile.company_id, { aggregateLots: true }),
       ]);
       setBalances(balanceRows);
       setHarvestBatches(batchRows);
@@ -242,7 +212,7 @@ export default function WarehousesPage() {
 
   const openWarehouse = (warehouseId: string) => {
     setSelectedWarehouseId(warehouseId);
-    void loadWarehouseDetails(warehouseId);
+    void loadWarehouseDetails(warehouseId, { foreground: !loadedWarehouseIds.includes(warehouseId) });
   };
 
   const openReceiptDialog = async (warehouseId: string) => {
@@ -266,17 +236,17 @@ export default function WarehousesPage() {
   };
 
   useEffect(() => {
-    setWarehouses([]);
+    const cacheKey = `${profile?.company_id || ""}:${language}:${canManageWarehouses}`;
+    const cached = warehousePageCache.get(cacheKey);
+    setWarehouses(cached?.summaries.map((row) => row.warehouse) || []);
+    setWarehouseSummaryRows(cached?.summaries || []);
     setProducts([]);
-    setBalances([]);
-    setMovements([]);
-    setReceipts([]);
-    setRequests([]);
-    setHarvestBatches([]);
-    setLoadedWarehouseIds([]);
+    setBalances(cached?.balances || []);
+    setHarvestBatches(cached?.harvestBatches || []);
+    setLoadedWarehouseIds(cached?.loadedWarehouseIds || []);
     setSelectedWarehouseId(null);
     setSearchDataLoaded(false);
-    void loadWarehouseList();
+    void loadWarehouseList({ foreground: !cached });
     // Loading is intentionally tied to the selected company and role contract.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.company_id, profile?.role, language]);
@@ -284,40 +254,39 @@ export default function WarehousesPage() {
   useLiveRefresh({
     enabled: Boolean(profile?.company_id && canView),
     onRefresh: async () => {
-      await loadWarehouseList({ foreground: false });
+      const tasks: Promise<unknown>[] = [loadWarehouseList({ foreground: false })];
       if (selectedWarehouseId) {
-        await loadWarehouseDetails(selectedWarehouseId, { foreground: false });
+        tasks.push(loadWarehouseDetails(selectedWarehouseId, { foreground: false }));
       }
+      await Promise.all(tasks);
+      setDetailRevision((current) => current + 1);
     },
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.warehouses,
+    intervalMs: 60_000,
   });
+
+  useEffect(() => {
+    if (!selectedBatch) return;
+    const current = harvestBatches.find((batch) => batch.id === selectedBatch.id);
+    if (current && current !== selectedBatch) setSelectedBatch(current);
+  }, [harvestBatches, selectedBatch]);
 
   const summaries = useMemo<Summary[]>(() => warehouses.map((warehouse) => {
     const stock = balances.filter((row) => row.warehouse_id === warehouse.id);
     const batches = harvestBatches.filter((row) => row.warehouseId === warehouse.id);
-    const latest = movements.find(
-      (row) =>
-        row.warehouse_id === warehouse.id ||
-        row.source_warehouse_id === warehouse.id ||
-        row.destination_warehouse_id === warehouse.id
-    ) || null;
-    const openRequests = requests.filter(
-      (row) => isRequestOpen(row) && (!row.source_warehouse_id || row.source_warehouse_id === warehouse.id)
-    );
-    const warehouseReceipts = receipts.filter((row) => row.warehouse_to_id === warehouse.id);
+    const serverSummary = warehouseSummaryRows.find((row) => row.warehouse.id === warehouse.id);
     const detailsLoaded = loadedWarehouseIds.includes(warehouse.id);
     return {
       warehouse,
       stock,
       batches,
-      latest,
-      openRequests,
-      receipts: warehouseReceipts,
-      summaryLoaded: detailsLoaded || searchDataLoaded,
+      positionCount: serverSummary?.position_count || 0,
+      lastMovementAt: serverSummary?.last_movement_at || null,
+      summaryLoaded: Boolean(serverSummary),
       detailsLoaded,
     };
-  }), [warehouses, balances, harvestBatches, movements, requests, receipts, loadedWarehouseIds, searchDataLoaded]);
+  }), [warehouses, balances, harvestBatches, warehouseSummaryRows, loadedWarehouseIds]);
 
   const query = search.trim().toLowerCase();
   useEffect(() => {
@@ -342,14 +311,6 @@ export default function WarehousesPage() {
   const activeSummaries = filteredSummaries.filter((row) => !isArchived(row.warehouse));
   const archivedSummaries = filteredSummaries.filter((row) => isArchived(row.warehouse));
   const selectedSummary = summaries.find((row) => row.warehouse.id === selectedWarehouseId) || null;
-  const selectedMovements = selectedWarehouseId
-    ? movements.filter(
-        (row) =>
-          row.warehouse_id === selectedWarehouseId ||
-          row.source_warehouse_id === selectedWarehouseId ||
-          row.destination_warehouse_id === selectedWarehouseId
-      ).slice(0, 20)
-    : [];
   const selectedCanReceive = Boolean(
     selectedSummary &&
     canStockOperate &&
@@ -362,22 +323,13 @@ export default function WarehousesPage() {
     isAgrochemicalWarehouseType(selectedSummary.warehouse.warehouse_type) &&
     !isArchived(selectedSummary.warehouse)
   );
-
-  const unitBreakdown = (rows: InventoryBalance[], key: "quantity" | "reserved_quantity" | "available_quantity") => {
-    const totals = new Map<string, number>();
-    for (const row of rows) {
-      const value = key === "quantity"
-        ? Number(row.quantity || 0)
-        : key === "reserved_quantity"
-          ? Number(row.reserved_quantity || 0)
-          : Number(row.available_quantity ?? row.quantity ?? 0);
-      totals.set(row.unit, (totals.get(row.unit) || 0) + value);
-    }
-    if (!totals.size) return "0";
-    return Array.from(totals.entries())
-      .map(([unit, value]) => `${quantity(value)} ${localizeUnit(unit, language)}`)
-      .join(" · ");
-  };
+  const selectedHarvestProductIds = new Set(
+    (selectedSummary?.batches || []).flatMap((batch) => batch.productIds || [batch.productId]).filter(Boolean)
+  );
+  const selectedMaterialStock = (selectedSummary?.stock || []).filter((row) => {
+    const productIds = row.product_ids?.length ? row.product_ids : [row.product_id];
+    return !productIds.some((productId) => selectedHarvestProductIds.has(productId));
+  });
 
   const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key !== "Enter" || !query || filteredSummaries.length === 0) return;
@@ -388,9 +340,8 @@ export default function WarehousesPage() {
     return <Alert variant="destructive"><AlertDescription>Доступ к складам запрещён для текущей роли.</AlertDescription></Alert>;
   }
 
-  const renderWarehouseCard = ({ warehouse, stock, batches, latest, summaryLoaded, detailsLoaded }: Summary) => {
-    const cleanMass = batches.reduce((sum, batch) => sum + batch.cleanMassKg, 0);
-    const empty = summaryLoaded && stock.length === 0 && batches.length === 0;
+  const renderWarehouseCard = ({ warehouse, positionCount, lastMovementAt, summaryLoaded }: Summary) => {
+    const empty = summaryLoaded && positionCount === 0;
     return (
       <Card
         key={warehouse.id}
@@ -418,16 +369,13 @@ export default function WarehousesPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><div className="text-slate-500">Позиций</div><div className="mt-1 text-lg font-semibold">{summaryLoaded ? stock.length : "—"}</div></div>
-            <div><div className="text-slate-500">Партий</div><div className="mt-1 text-lg font-semibold">{summaryLoaded ? batches.length : "—"}</div></div>
+          <div className="text-sm">
+            <div className="text-slate-500">Позиций</div>
+            {summaryLoaded ? <div className="mt-1 text-lg font-semibold">{positionCount}</div> : <div className="mt-2 h-6 w-12 animate-pulse rounded bg-slate-800" />}
           </div>
-          {cleanMass > 0 ? (
-            <div className="text-sm"><div className="text-slate-500">Чистая масса урожая</div><div className="mt-1 font-semibold text-emerald-300">{quantity(cleanMass)} кг</div></div>
-          ) : null}
           <div className="text-sm">
             <div className="text-slate-500">Последнее движение</div>
-            <div className="mt-1 text-slate-200">{detailsLoaded ? formatDate(latest?.operation_datetime || latest?.created_at) : "—"}</div>
+            {summaryLoaded ? <div className="mt-1 text-slate-200">{formatDate(lastMovementAt)}</div> : <div className="mt-2 h-5 w-32 animate-pulse rounded bg-slate-800" />}
           </div>
         </CardContent>
       </Card>
@@ -498,7 +446,7 @@ export default function WarehousesPage() {
                       {selectedSummary.warehouse.name}
                     </DialogTitle>
                     <DialogDescription className="mt-1">
-                      {warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)} · последнее движение {formatDate(selectedSummary.latest?.operation_datetime || selectedSummary.latest?.created_at)}
+                      {warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)} · {selectedSummary.positionCount} поз. · последнее движение {formatDate(selectedSummary.lastMovementAt)}
                     </DialogDescription>
                   </div>
                   {selectedCanReceive ? (
@@ -522,153 +470,56 @@ export default function WarehousesPage() {
                 </div>
               </DialogHeader>
 
-              <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-4">
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                 {detailsLoading ? (
                   <div className="rounded-md border border-slate-800 bg-slate-900/60 px-4 py-3 text-sm text-slate-400" role="status">
-                    Загружаем остатки, партии и последние движения...
+                    Обновляем остатки...
                   </div>
                 ) : null}
                 {detailsError ? (
                   <Alert variant="destructive"><AlertDescription>{detailsError}</AlertDescription></Alert>
                 ) : null}
-                <section>
-                  <h3 className="mb-3 text-base font-semibold">Сводка</h3>
-                  <div className="grid gap-3 border-y border-slate-800 py-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
-                    <div><div className="text-slate-500">Позиций</div><div className="mt-1 font-semibold">{selectedSummary.stock.length}</div></div>
-                    <div><div className="text-slate-500">Партий</div><div className="mt-1 font-semibold">{selectedSummary.batches.length}</div></div>
-                    <div><div className="text-slate-500">Текущий остаток</div><div className="mt-1 font-semibold">{unitBreakdown(selectedSummary.stock, "quantity")}</div></div>
-                    <div><div className="text-slate-500">Зарезервировано</div><div className="mt-1 font-semibold text-amber-300">{unitBreakdown(selectedSummary.stock, "reserved_quantity")}</div></div>
-                    <div><div className="text-slate-500">Доступно</div><div className={`mt-1 font-semibold ${selectedSummary.stock.some((row) => Number(row.available_quantity ?? row.quantity) < 0) ? "text-red-300" : "text-emerald-300"}`}>{unitBreakdown(selectedSummary.stock, "available_quantity")}</div></div>
-                    <div><div className="text-slate-500">Последнее движение</div><div className="mt-1 font-semibold">{formatDate(selectedSummary.latest?.operation_datetime || selectedSummary.latest?.created_at)}</div></div>
-                  </div>
-                </section>
-
-                <section>
-                  <h3 className="mb-3 flex items-center gap-2 text-base font-semibold"><Boxes className="h-4 w-4 text-yellow-400" />Материалы / культуры</h3>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Материал / культура</TableHead>
-                          <TableHead>Категория</TableHead>
-                          <TableHead className="text-right">Всего</TableHead>
-                          <TableHead className="text-right">Доступно</TableHead>
-                          <TableHead className="text-right">Резерв</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selectedSummary.stock.length ? selectedSummary.stock.map((row) => {
-                          const matched = Boolean(query && `${row.product_name} ${row.identity_name || ""}`.toLowerCase().includes(query));
-                          return (
-                            <TableRow
-                              key={`${row.product_id}-${row.unit}`}
-                              className={`cursor-pointer hover:bg-slate-900 ${matched ? "bg-yellow-500/10" : ""}`}
-                              tabIndex={0}
-                              onClick={() => setDetailBalance(row)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault();
-                                  setDetailBalance(row);
-                                }
-                              }}
-                            >
-                              <TableCell className="font-medium">{row.product_name}</TableCell>
-                              <TableCell>{warehouseProductTypeLabel(row.product_type)}</TableCell>
-                              <TableCell className="text-right">{quantity(row.quantity)} {localizeUnit(row.unit, language)}</TableCell>
-                              <TableCell className={`text-right ${Number(row.available_quantity ?? row.quantity) < 0 ? "font-semibold text-red-300" : "text-emerald-300"}`}>
-                                {quantity(Number(row.available_quantity ?? row.quantity))} {localizeUnit(row.unit, language)}
-                                {Number(row.deficit_quantity || 0) > 0 ? <div className="text-xs">Дефицит {quantity(Number(row.deficit_quantity))} {localizeUnit(row.unit, language)}</div> : null}
-                              </TableCell>
-                              <TableCell className="text-right text-amber-300">{quantity(Number(row.reserved_quantity || 0))} {localizeUnit(row.unit, language)}</TableCell>
-                            </TableRow>
-                          );
-                        }) : (
-                          <TableRow><TableCell colSpan={5} className="text-center text-slate-500">Остатков нет</TableCell></TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  {selectedSummary.stock.length > 0 ? <div className="mt-2 text-xs text-slate-500">Нажмите позицию, чтобы увидеть её партии и движения.</div> : null}
-                </section>
-
-                <section>
-                  <h3 className="mb-3 flex items-center gap-2 text-base font-semibold"><PackageOpen className="h-4 w-4 text-emerald-400" />Партии урожая</h3>
-                  {selectedSummary.batches.length ? (
-                    <div className="grid gap-3 lg:grid-cols-2">
-                      {selectedSummary.batches.map((batch) => {
-                        const matched = Boolean(query && searchableBatch(batch).toLowerCase().includes(query));
-                        return (
-                          <button
-                            key={batch.id}
-                            type="button"
-                            onClick={() => setSelectedBatch(batch)}
-                            className={`min-h-[178px] rounded-md border p-4 text-left transition-colors hover:border-yellow-500/60 hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400 ${matched ? "border-yellow-500/70 bg-yellow-500/10" : "border-slate-800 bg-slate-900/50"}`}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="truncate font-semibold">{batch.cropName} / {batch.varietyName}</div>
-                                <div className="mt-1 text-sm text-slate-400">{batch.reproductionName} · {batch.fieldName}</div>
-                              </div>
-                              <Badge variant="outline" className="shrink-0">{batch.batchCode}</Badge>
-                            </div>
-                            <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                              <div><div className="text-slate-500">Принято</div><div className="mt-1 font-semibold">{quantity(batch.receivedKg)} кг</div></div>
-                              <div><div className="text-slate-500">Примеси</div><div className="mt-1 font-semibold text-amber-300">{quantity(batch.removedKg)} кг</div></div>
-                              <div><div className="text-slate-500">Чистая масса</div><div className="mt-1 font-semibold text-emerald-300">{quantity(batch.cleanMassKg)} кг</div></div>
-                            </div>
-                            <div className="mt-4 border-t border-slate-800 pt-3 text-xs text-slate-400">
-                              Примеси {batch.impurityPercent.toLocaleString("ru-RU", { maximumFractionDigits: 3 })}% · валовая урожайность {batch.grossYieldTPerHa == null ? "—" : `${quantity(batch.grossYieldTPerHa)} т/га`} · чистая {batch.cleanYieldTPerHa == null ? "—" : `${quantity(batch.cleanYieldTPerHa)} т/га`}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : <div className="text-sm text-slate-500">Партий урожая нет</div>}
-                </section>
-
-                <section>
-                  <h3 className="mb-3 text-base font-semibold">Последние движения</h3>
-                  <div className="space-y-2">
-                    {selectedMovements.length ? selectedMovements.map((row) => (
-                      <div key={row.id} className="grid gap-1 border-b border-slate-800 py-2 text-sm sm:grid-cols-[170px_1fr_150px_140px]">
-                        <span className="text-slate-400">{formatDate(row.operation_datetime || row.created_at)}</span>
-                        <span className="font-medium">{row.product_name}</span>
-                        <span>{movementLabel(row)}</span>
-                        <span className={Number(row.quantity_delta || 0) >= 0 ? "text-emerald-300" : "text-red-300"}>
-                          {Number(row.quantity_delta || 0) >= 0 ? "+" : ""}{quantity(Number(row.quantity_delta || row.quantity))} {localizeUnit(row.product_unit || "", language)}
-                        </span>
-                      </div>
-                    )) : <div className="text-sm text-slate-500">Движений нет</div>}
-                  </div>
-                </section>
-
-                {canStockOperate ? (
-                  <>
-                    <section>
-                      <h3 className="mb-3 text-base font-semibold">Открытые заявки</h3>
-                      <div className="space-y-2">
-                        {selectedSummary.openRequests.length ? selectedSummary.openRequests.map((row) => (
-                          <div key={row.id} className="flex items-center justify-between gap-3 border-b border-slate-800 py-2 text-sm">
-                            <span>{row.request_number} · {row.field_name || "Поле не указано"}</span>
-                            <Badge variant="outline">{row.status}</Badge>
+                <section className="mt-4">
+                  <h3 className="mb-3 flex items-center gap-2 text-base font-semibold"><Boxes className="h-4 w-4 text-yellow-400" />Остатки</h3>
+                  <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
+                    {selectedSummary.batches.map((batch) => {
+                      const identity = batch.reviewState === "requires_review"
+                        ? "Требуется уточнение"
+                        : [batch.varietyName, batch.reproductionName].filter(Boolean).join(" · ");
+                      return (
+                        <button
+                          key={`harvest-${batch.id}`}
+                          type="button"
+                          onClick={() => setSelectedBatch(batch)}
+                          className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate font-semibold text-slate-100">{batch.cropName}</div>
+                            <div className={`mt-0.5 truncate text-sm ${batch.reviewState === "requires_review" ? "text-amber-300" : "text-slate-400"}`}>{identity}</div>
                           </div>
-                        )) : <div className="text-sm text-slate-500">Открытых заявок нет</div>}
-                      </div>
-                    </section>
-                    <section>
-                      <h3 className="mb-3 text-base font-semibold">Последние приходы агрохимии</h3>
-                      <div className="space-y-2">
-                        {selectedSummary.receipts.length ? selectedSummary.receipts.slice(0, 10).map((row) => (
-                          <div key={row.id} className="grid gap-1 border-b border-slate-800 py-2 text-sm sm:grid-cols-[180px_1fr_130px]">
-                            <span className="font-medium">{row.ticket_no}</span>
-                            <span>{row.supplier || "Поставщик не указан"} · {row.lines.length} поз.</span>
-                            <span className="text-slate-400">{formatDate(row.finalized_at || row.created_at)}</span>
-                          </div>
-                        )) : <div className="text-sm text-slate-500">Приходов пока нет</div>}
-                      </div>
-                    </section>
-                  </>
-                ) : null}
+                          <div className="shrink-0 font-semibold text-emerald-300">{quantity(batch.cleanMassKg)} кг</div>
+                        </button>
+                      );
+                    })}
+                    {selectedMaterialStock.map((row) => (
+                      <button
+                        key={`material-${row.product_id}-${row.unit}`}
+                        type="button"
+                        onClick={() => setDetailBalance(row)}
+                        className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold text-slate-100">{row.product_name}</div>
+                          {row.identity_name ? <div className="mt-0.5 truncate text-sm text-slate-400">{row.identity_name}</div> : null}
+                        </div>
+                        <div className="shrink-0 font-semibold text-slate-100">{quantity(row.quantity)} {localizeUnit(row.unit, language)}</div>
+                      </button>
+                    ))}
+                    {!detailsLoading && selectedSummary.batches.length === 0 && selectedMaterialStock.length === 0 ? (
+                      <div className="px-4 py-10 text-center text-sm text-slate-500">Склад пуст</div>
+                    ) : null}
+                  </div>
+                </section>
               </div>
 
               <DialogFooter className="shrink-0 border-t border-slate-800 px-5 py-3">
@@ -689,7 +540,11 @@ export default function WarehousesPage() {
           defaultWarehouseId={receiptWarehouseId}
           onCreated={async (receipt) => {
             toast({ title: "Приход проведён", description: `Документ ${receipt.receipt_no} создан, ledger IN записан.` });
-            if (receiptWarehouseId) await loadWarehouseDetails(receiptWarehouseId, { foreground: false });
+            await Promise.all([
+              loadWarehouseList({ foreground: false }),
+              receiptWarehouseId ? loadWarehouseDetails(receiptWarehouseId, { foreground: false }) : Promise.resolve(),
+            ]);
+            setDetailRevision((current) => current + 1);
           }}
         />
       ) : null}
@@ -703,12 +558,17 @@ export default function WarehousesPage() {
           balances={balances.filter((row) => ["pesticide", "fertilizer", "additive"].includes(String(row.product_type || "").toLowerCase()))}
           onCreated={async (result) => {
             toast({ title: "Перемещение проведено", description: `${result.transfer_no}: OUT и IN записаны атомарно.` });
-            if (selectedWarehouseId) await loadWarehouseDetails(selectedWarehouseId, { foreground: false });
+            await Promise.all([
+              loadWarehouseList({ foreground: false }),
+              selectedWarehouseId ? loadWarehouseDetails(selectedWarehouseId, { foreground: false }) : Promise.resolve(),
+            ]);
+            setDetailRevision((current) => current + 1);
           }}
         />
       ) : null}
       {profile?.company_id ? (
         <WarehouseStockDetailsDialog
+          key={`${detailBalance?.warehouse_id || "none"}:${detailBalance?.product_id || "none"}:${detailRevision}`}
           open={detailBalance !== null}
           onOpenChange={(open) => !open && setDetailBalance(null)}
           companyId={profile.company_id}

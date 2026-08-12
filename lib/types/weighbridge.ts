@@ -70,6 +70,8 @@ export interface TicketInput {
   driver_id?: string | null;
   responsible_user_id?: string | null;
   created_by: string;
+  created_by_person_id?: string | null;
+  finalized_by_person_id?: string | null;
   weigh_method?: WeighMethod;
   gross_weight_kg?: number | null;
   tare_weight_kg?: number | null;
@@ -97,6 +99,38 @@ export interface WeighbridgeTicket {
   review_reason?: string | null;
   season_id?: string | null;
   company_name?: string | null;
+  supplier_name_snapshot?: string | null;
+  buyer_name_snapshot?: string | null;
+  crop_name_snapshot?: string | null;
+  variety_name_snapshot?: string | null;
+  reproduction_name_snapshot?: string | null;
+  created_by?: string | null;
+  created_by_name_snapshot?: string | null;
+  created_by_person_id?: string | null;
+  void_reason?: string | null;
+  correction_of_ticket_id?: string | null;
+  replacement_ticket_id?: string | null;
+  correction_reason?: string | null;
+  correction_started_at?: string | null;
+  correction_completed_at?: string | null;
+  correction_of_ticket?: { id: string; ticket_no: string; status: TicketStatus } | null;
+  replacement_ticket?: { id: string; ticket_no: string; status: TicketStatus } | null;
+  correction_audit?: Array<{
+    id: string;
+    action: string;
+    when_at: string;
+    reason?: string | null;
+    old_values?: Record<string, unknown> | null;
+    new_values?: Record<string, unknown> | null;
+  }>;
+  field_name_snapshot?: string | null;
+  warehouse_from_name_snapshot?: string | null;
+  warehouse_to_name_snapshot?: string | null;
+  vehicle_name_snapshot?: string | null;
+  vehicle_plate_snapshot?: string | null;
+  trailer_name_snapshot?: string | null;
+  trailer_plate_snapshot?: string | null;
+  driver_name_snapshot?: string | null;
   ticket_no: string;
   ticket_type: string;
   op_type: string;
@@ -155,6 +189,11 @@ export interface WeighbridgeTicket {
     unit_price?: number | null;
     amount?: number | null;
     moisture_percent?: number | null;
+    dockage_percent?: number | null;
+    dirt_tare_percent?: number | null;
+    product_name_snapshot?: string | null;
+    variety_name_snapshot?: string | null;
+    reproduction_name_snapshot?: string | null;
     notes?: string | null;
     operation_line_id?: string | null;
   }>;
@@ -166,6 +205,7 @@ export interface HarvestBatchSummary {
   warehouseId: string;
   warehouseName: string;
   productId: string;
+  productIds?: string[];
   productName: string;
   cropId: string | null;
   cropName: string;
@@ -182,12 +222,89 @@ export interface HarvestBatchSummary {
   firstReceivedAt: string | null;
   lastReceivedAt: string | null;
   receivedKg: number;
+  companyReceivedKg?: number;
+  companyCurrentKg?: number;
+  voidedKg?: number;
   removedKg: number;
   cleanMassKg: number;
   impurityPercent: number;
+  processingInputKg?: number;
+  processingOutputKg?: number;
+  transferInKg?: number;
+  transferOutKg?: number;
+  writeoffKg?: number;
+  issueKg?: number;
+  otherAdjustmentKg?: number;
+  reservedKg?: number;
+  availableKg?: number;
+  reconciliationDeltaKg?: number;
   harvestedAreaHa: number | null;
   grossYieldTPerHa: number | null;
   cleanYieldTPerHa: number | null;
+  aggregateLot?: boolean;
+  aggregateLotId?: string | null;
+  tripCount?: number;
+  reviewState?: "confirmed" | "requires_review";
+  reviewReasons?: string[];
+  fieldSummaries?: Array<{
+    fieldId: string | null;
+    fieldName: string;
+    netWeightKg: number;
+    tripCount: number;
+  }>;
+  tripBatches?: Array<{
+    id: string;
+    batchCode: string;
+    ticketId: string | null;
+    ticketNo: string;
+    fieldId: string | null;
+    fieldName: string;
+    netWeightKg: number;
+    moisturePercent: number | null;
+    vehicleName?: string | null;
+    driverName?: string | null;
+    status: string;
+    occurredAt: string | null;
+  }>;
+  outgoingDocuments?: Array<{
+    id: string;
+    label: string;
+    quantityKg: number;
+    occurredAt: string | null;
+    warehouseName: string;
+    actorName: string | null;
+    sourceType: "weighbridge_ticket" | "processing_document" | "missing";
+    sourceId: string | null;
+    documentNo: string | null;
+    ticketId: string | null;
+    ticketNo: string | null;
+    vehicleName: string | null;
+    driverName: string | null;
+    notes: string | null;
+    processingDocument?: {
+      id: string;
+      transformationType: string;
+      status: string;
+      processingNodeName: string | null;
+      startedAt: string | null;
+      completedAt: string | null;
+      sourceWarehouseName: string | null;
+      inputBatchId: string | null;
+      inputBatchCode: string | null;
+      inputWeightKg: number;
+      sourceTicketId: string | null;
+      sourceTicketNo: string | null;
+      createdByName: string | null;
+      completedByName: string | null;
+      note: string | null;
+      outputs: Array<{
+        lineType: string;
+        batchClass: string;
+        warehouseName: string | null;
+        weightKg: number;
+      }>;
+    } | null;
+  }>;
   tickets: Array<{
     id: string;
     ticketNo: string;
@@ -204,3 +321,27 @@ export interface HarvestBatchSummary {
     ticketNo: string;
   }>;
 }
+
+export interface WeighbridgeHumanOperator {
+  id: string;
+  name: string;
+  has_pin?: boolean;
+  pin_active?: boolean;
+  locked_until?: string | null;
+}
+
+export interface WeighbridgeOperatorState {
+  shift: Record<string, any> | null;
+  unlocked: boolean;
+  session_expires_at?: string | null;
+  operator?: WeighbridgeHumanOperator | null;
+  operators: WeighbridgeHumanOperator[];
+}
+
+export type TareVarianceConfirmation = {
+  requires_confirmation: true;
+  code: "tare_variance_confirmation_required";
+  previous_tare_kg: number;
+  current_tare_kg: number;
+  difference_percent: number;
+};

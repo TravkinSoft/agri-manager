@@ -48,6 +48,12 @@ export interface Warehouse {
   company_id?: string | null;
 }
 
+export interface WarehouseSummary {
+  warehouse: Warehouse;
+  position_count: number;
+  last_movement_at: string | null;
+}
+
 export interface WarehouseReceiptLineInput {
   product_id: string;
   quantity: number;

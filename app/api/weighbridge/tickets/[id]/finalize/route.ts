@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 
 async function loadHarvestClosureState(supabase: SupabaseClient, companyId: string, ticketId: string) {
   const [linesResult, weighingsResult] = await Promise.all([
@@ -71,7 +71,7 @@ export async function POST(
     const dbStartedAt = Date.now();
     const { data: ticketBefore, error: ticketBeforeError } = await supabase
       .from("tickets")
-      .select("id, company_id, linked_request_id, warehouse_from_id, vehicle_id, op_type, is_finalized, status, net_weight_kg")
+      .select("id, company_id, linked_request_id, warehouse_from_id, vehicle_id, op_type, weigh_method, is_finalized, status, net_weight_kg, correction_of_ticket_id")
       .eq("id", id)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -79,6 +79,9 @@ export async function POST(
     if (ticketBeforeError || !ticketBefore?.id) {
       return NextResponse.json({ error: ticketBeforeError?.message || "Ticket not found" }, { status: 404 });
     }
+    const operatorSession = ticketBefore.weigh_method === "manual_override_with_reason"
+      ? null
+      : await requireWeighbridgeOperatorSession(request, { companyId, supabase });
     if (ticketBefore.is_finalized || ticketBefore.status === "finalized") {
       if (ticketBefore.op_type === "harvest_incoming") {
         await syncHarvestBatchMoisture(supabase, companyId, id);
@@ -102,16 +105,33 @@ export async function POST(
     timing.validationMs = Date.now() - dbStartedAt;
 
     const rpcStartedAt = Date.now();
-    const finalizeRpc = ticketBefore.op_type === "weighbridge_impurities"
-      ? "finalize_weighbridge_impurity_ticket_for_session_v1"
-      : "finalize_weighbridge_ticket_for_session_v1";
-    const { error: finalizeError } = await supabase.rpc(finalizeRpc, {
-      p_ticket_id: id,
-    });
+    const finalizeRpc = ticketBefore.correction_of_ticket_id
+      ? "finalize_weighbridge_ticket_correction_v1"
+      : ticketBefore.op_type === "weighbridge_impurities"
+        ? "finalize_weighbridge_impurity_ticket_for_session_v1"
+        : "finalize_weighbridge_ticket_for_session_v1";
+    const finalizeArgs = ticketBefore.correction_of_ticket_id
+      ? {
+          p_ticket_id: id,
+          p_operator_person_id: operatorSession?.operator.id || null,
+          p_shift_id: operatorSession?.shift.id || null,
+        }
+      : { p_ticket_id: id };
+    const { error: finalizeError } = await supabase.rpc(finalizeRpc, finalizeArgs);
     timing.rpcMs = Date.now() - rpcStartedAt;
 
     if (finalizeError) {
       return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
+    }
+    if (operatorSession?.operator.id) {
+      const { error: attributionError } = await supabase
+        .from("tickets")
+        .update({ finalized_by_person_id: operatorSession.operator.id })
+        .eq("id", id)
+        .eq("company_id", companyId);
+      if (attributionError) {
+        return NextResponse.json({ error: attributionError.message }, { status: 400 });
+      }
     }
     if (ticketBefore.op_type === "harvest_incoming") {
       try {

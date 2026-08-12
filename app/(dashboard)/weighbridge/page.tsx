@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ClipboardList, Clock3, FileDown, Info, MoreHorizontal, Scale, Trash2 } from "lucide-react";
+import { CheckCircle2, ClipboardList, Clock3, FileDown, Info, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,8 +22,8 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
-import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getWeighbridgeBootstrap, getWeighbridgeResources, listHarvestBatchSummaries, listTickets, openShift, patchTicket, voidTicket } from "@/lib/services/weighbridge";
-import type { HarvestBatchSummary, TicketDirection, TicketInput, TicketLineInput, WeighbridgeTicket } from "@/lib/types/weighbridge";
+import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, handoverWeighbridgeOperator, listHarvestBatchSummaries, listTickets, lockWeighbridgeOperator, patchTicket, setWeighbridgeOperatorPin, startTicketCorrection, unlockWeighbridgeOperator, voidTicket } from "@/lib/services/weighbridge";
+import type { HarvestBatchSummary, TicketDirection, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { createWarehouseTransfer } from "@/lib/services/warehouses";
@@ -32,12 +32,14 @@ import { dedupeProductsForSelect } from "@/lib/catalog/catalog-identity";
 import { automaticHarvestAllocation, validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 import { personnelRoleForVehicle, personnelRoleLabel, type WeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 import { SearchableCombobox, type SearchableComboboxOption } from "@/components/weighbridge/searchable-combobox";
+import { WeighbridgeTicketPaper, type WeighbridgeTicketPaperLabels } from "@/components/weighbridge/weighbridge-ticket-paper";
 import {
   parseWeighbridgeFastRepeatContext,
   pickWeighbridgeFastRepeatContext,
   weighbridgeFastRepeatStorageKey,
 } from "@/lib/weighbridge/fast-repeat";
 import { formatWeightKg, formatWeightNumber } from "@/lib/weighbridge/weight-format";
+import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 
 type Lang = "ru" | "kz" | "en";
 type OperationType = "harvest_incoming" | "supplier_receipt" | "issue_to_field" | "transfer_between_warehouses" | "shipment_outbound" | "disposal_writeoff" | "impurity_removal" | "drying";
@@ -573,6 +575,8 @@ const formatDate = (value: string) => {
   return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
 };
 
+const weighbridgePageCache = new Map<string, Record<string, unknown>>();
+
 export default function WeighbridgeOperationsPage() {
   const { profile, loading: authLoading } = useAuth();
   const { toast } = useToast();
@@ -580,6 +584,7 @@ export default function WeighbridgeOperationsPage() {
   const lang = getLang(language);
 
   const [loading, setLoading] = useState(true);
+  const [ticketsLoading, setTicketsLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const createTicketIdempotencyRef = useRef<string | null>(null);
   const [finalizing, setFinalizing] = useState(false);
@@ -640,6 +645,13 @@ export default function WeighbridgeOperationsPage() {
     byField: {},
   });
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
+  const [operatorState, setOperatorState] = useState<WeighbridgeOperatorState>({ shift: null, unlocked: false, operators: [] });
+  const [operatorSessionStatus, setOperatorSessionStatus] = useState<"unknown" | "checking" | "ready" | "error">("unknown");
+  const [operatorDialogOpen, setOperatorDialogOpen] = useState(false);
+  const [operatorPersonId, setOperatorPersonId] = useState("");
+  const [operatorPin, setOperatorPin] = useState("");
+  const [operatorBusy, setOperatorBusy] = useState(false);
+  const [operatorPinSetup, setOperatorPinSetup] = useState(false);
   const [harvestContext, setHarvestContext] = useState<HarvestContextState>({
     status: "idle",
     message: "Выберите поле.",
@@ -650,6 +662,13 @@ export default function WeighbridgeOperationsPage() {
   });
   const [commentOpen, setCommentOpen] = useState(false);
   const [historyPreviewTicket, setHistoryPreviewTicket] = useState<WeighbridgeTicket | null>(null);
+  const [openTicketEditOpen, setOpenTicketEditOpen] = useState(false);
+  const [editGrossKg, setEditGrossKg] = useState("");
+  const [editTareKg, setEditTareKg] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [ticketCorrectionOpen, setTicketCorrectionOpen] = useState(false);
+  const [ticketCorrectionReason, setTicketCorrectionReason] = useState("");
+  const [ticketCorrectionBusy, setTicketCorrectionBusy] = useState(false);
   const notificationDeepLinkHandledRef = useRef(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -669,7 +688,10 @@ export default function WeighbridgeOperationsPage() {
     profile?.role === "weighman";
   const canView = canOperate || profile?.role === "agronomist" || profile?.role === "specialist";
   const canVoid = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director";
+  const canCorrectTicket = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director" || profile?.role === "weighman";
   const canUseInventory = ["company_admin", "global_admin", "warehouse", "warehouse_operator", "weighman"].includes(String(profile?.role || ""));
+  const canUseOperatorSession = ["company_admin", "global_admin", "director", "weighman"].includes(String(profile?.role || ""));
+  const canManageOperatorPin = ["company_admin", "global_admin", "director"].includes(String(profile?.role || ""));
   const idempotencyPersistKey = useMemo(
     () => (profile?.company_id && profile?.id ? `travkin.weighbridge.formDraft.${profile.company_id}.${profile.id}.idempotency` : ""),
     [profile?.company_id, profile?.id]
@@ -760,9 +782,10 @@ export default function WeighbridgeOperationsPage() {
 
   const load = async () => {
     if (authLoading || !profile?.company_id || !profile?.id || !canView) return;
-    setLoading(true);
+    const cacheKey = `${profile.company_id}:${language}`;
+    if (!weighbridgePageCache.has(cacheKey)) setLoading(true);
     try {
-      const [fieldsRes, warehousesRes, resourceRows, productsRes, identityRefs, supplierRows, buyerRows, ticketRows, harvestBatchRows, operationsRes, bootstrap, harvestAllocations] = await Promise.all([
+      const [fieldsRes, warehousesRes, resourceRows, productsRes, identityRefs, supplierRows, buyerRows, operationsRes, bootstrap, harvestAllocations] = await Promise.all([
         supabase.from("fields").select("id,name,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en,warehouse_type").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         getWeighbridgeResources(profile.company_id),
@@ -775,8 +798,6 @@ export default function WeighbridgeOperationsPage() {
         loadMasterIdentityRefs(profile.company_id),
         loadSuppliers(profile.company_id),
         loadBuyers(profile.company_id),
-        listTickets(profile.company_id, profile.id),
-        listHarvestBatchSummaries(profile.company_id),
         supabase
           .from("operations")
           .select("id,field_id,operation_type,operation_category_slug,operation_type_slug,date,status")
@@ -917,8 +938,6 @@ export default function WeighbridgeOperationsPage() {
           ])
         )
       );
-      setTickets(ticketRows || []);
-      setHarvestBatches(harvestBatchRows || []);
       const fieldNameById = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "Поле")]));
       setLinkedOperations(
         (operationsRes.data || []).map((row: any) => {
@@ -957,15 +976,24 @@ export default function WeighbridgeOperationsPage() {
     }
   };
 
-  const refreshTickets = async () => {
+  const refreshTickets = async (showLoading = false) => {
     if (!profile?.company_id || !profile?.id) return;
-    const [rows, batchRows, bootstrap] = await Promise.all([
-      listTickets(profile.company_id, profile.id),
-      listHarvestBatchSummaries(profile.company_id),
-      getWeighbridgeBootstrap(profile.company_id, profile.id),
-    ]);
-    setTickets(rows || []);
-    setHarvestBatches(batchRows || []);
+    if (showLoading) setTicketsLoading(true);
+    try {
+      const [rows, batchRows] = await Promise.all([
+        listTickets(profile.company_id, profile.id),
+        listHarvestBatchSummaries(profile.company_id),
+      ]);
+      setTickets(rows || []);
+      setHarvestBatches(batchRows || []);
+    } finally {
+      setTicketsLoading(false);
+    }
+  };
+
+  const refreshBootstrap = async () => {
+    if (!profile?.company_id || !profile?.id) return;
+    const bootstrap = await getWeighbridgeBootstrap(profile.company_id, profile.id);
     setActiveShift(bootstrap?.shift || null);
     setShiftCounters(bootstrap?.counters || shiftCounters);
     setShiftGuard(bootstrap?.shiftGuard || { stale: false, ageHours: 0 });
@@ -973,11 +1001,42 @@ export default function WeighbridgeOperationsPage() {
     setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {} });
   };
 
+  const verifyOperatorSession = async () => {
+    if (!profile?.company_id) return;
+    if (!canUseOperatorSession) {
+      setOperatorSessionStatus("ready");
+      return;
+    }
+    setOperatorSessionStatus("checking");
+    try {
+      const nextState = await getWeighbridgeOperatorState(profile.company_id);
+      setOperatorState(nextState);
+      if (nextState.operator?.id) setOperatorPersonId(nextState.operator.id);
+      setOperatorSessionStatus("ready");
+    } catch (error) {
+      setOperatorSessionStatus("error");
+      console.error("Operator session verification failed", error);
+    }
+  };
+
+  const refreshLiveData = async (event?: { source: string; table?: string }) => {
+    const isForeground = !event || event.source !== "realtime";
+    const table = event?.table || "";
+    const ticketChanged = !table || ["tickets", "ticket_lines", "ticket_weighings", "inventory_batches", "stock_ledger_entries"].includes(table);
+    const shiftChanged = !table || table === "weighbridge_shifts";
+    const tasks: Promise<unknown>[] = [];
+    if (ticketChanged) tasks.push(refreshTickets());
+    if (ticketChanged || shiftChanged) tasks.push(refreshBootstrap());
+    if (isForeground || shiftChanged) tasks.push(verifyOperatorSession());
+    await Promise.all(tasks);
+  };
+
   useLiveRefresh({
     enabled: Boolean(!authLoading && profile?.company_id && profile?.id && canView),
-    onRefresh: refreshTickets,
+    onRefresh: refreshLiveData,
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.weighbridge,
+    intervalMs: 60_000,
   });
 
   const siteConfirm = async (opts: { title: string; description: string; actionLabel: string }) => {
@@ -1000,25 +1059,118 @@ export default function WeighbridgeOperationsPage() {
 
   useEffect(() => {
     if (authLoading) return;
+    if (!profile?.company_id) return;
+    const cached = weighbridgePageCache.get(`${profile.company_id}:${language}`) as any;
+    if (cached) {
+      setFields(cached.fields || []);
+      setWarehouses(cached.warehouses || []);
+      setSuppliers(cached.suppliers || []);
+      setBuyers(cached.buyers || []);
+      setVehicles(cached.vehicles || []);
+      setTrailers(cached.trailers || []);
+      setProducts(cached.products || []);
+      setCrops(cached.crops || []);
+      setVarieties(cached.varieties || []);
+      setReproductions(cached.reproductions || []);
+      setDrivers(cached.drivers || []);
+      setDriverNames(cached.driverNames || {});
+      setLinkedOperations(cached.linkedOperations || []);
+      setHarvestStructureByField(cached.harvestStructureByField || {});
+      setHarvestIncompleteFields(cached.harvestIncompleteFields || {});
+      setTickets(cached.tickets || []);
+      setHarvestBatches(cached.harvestBatches || []);
+      setActiveShift(cached.activeShift || null);
+      setOperatorState(cached.operatorState || { shift: null, unlocked: false, operators: [] });
+      setShiftCounters(cached.shiftCounters || shiftCounters);
+      setShiftGuard(cached.shiftGuard || { stale: false, ageHours: 0 });
+      setShiftSummary(cached.shiftSummary || shiftSummary);
+      setHarvestSummary(cached.harvestSummary || harvestSummary);
+      setLoading(false);
+      setTicketsLoading(false);
+      setOperatorSessionStatus("checking");
+    }
     void load();
+    void refreshTickets(!cached);
+    void verifyOperatorSession();
   }, [authLoading, profile?.company_id, profile?.id, profile?.role, language]);
 
   useEffect(() => {
-    if (loading || notificationDeepLinkHandledRef.current) return;
+    if (loading || !profile?.company_id) return;
+    weighbridgePageCache.set(`${profile.company_id}:${language}`, {
+      fields,
+      warehouses,
+      suppliers,
+      buyers,
+      vehicles,
+      trailers,
+      products,
+      crops,
+      varieties,
+      reproductions,
+      drivers,
+      driverNames,
+      linkedOperations,
+      harvestStructureByField,
+      harvestIncompleteFields,
+      tickets,
+      harvestBatches,
+      activeShift,
+      operatorState,
+      shiftCounters,
+      shiftGuard,
+      shiftSummary,
+      harvestSummary,
+    });
+  }, [loading, profile?.company_id, language, fields, warehouses, suppliers, buyers, vehicles, trailers, products, crops, varieties, reproductions, drivers, driverNames, linkedOperations, harvestStructureByField, harvestIncompleteFields, tickets, harvestBatches, activeShift, operatorState, shiftCounters, shiftGuard, shiftSummary, harvestSummary]);
+
+  useEffect(() => {
+    if (loading || operatorSessionStatus !== "ready" || !canUseOperatorSession || operatorState.unlocked || operatorState.operators.length === 0) return;
+    setOperatorPersonId((current) => current || operatorState.operators[0]?.id || "");
+    setOperatorPinSetup(false);
+    setOperatorDialogOpen(true);
+  }, [loading, operatorSessionStatus, canUseOperatorSession, operatorState.unlocked, operatorState.operators]);
+
+  useEffect(() => {
+    if (!profile?.id || notificationDeepLinkHandledRef.current) return;
     const ticketId = new URLSearchParams(window.location.search).get("ticket");
     if (!ticketId) {
       notificationDeepLinkHandledRef.current = true;
       return;
     }
-    const ticket = tickets.find((item) => item.id === ticketId);
-    if (!ticket) return;
-    if (ticket.status === "finalized" || ticket.status === "voided") {
-      setHistoryPreviewTicket(ticket);
-    } else {
-      setActiveTicket(ticket);
+    const cachedTicket = tickets.find((item) => item.id === ticketId) || null;
+    if (cachedTicket) {
+      notificationDeepLinkHandledRef.current = true;
+      if (cachedTicket.status === "finalized" || cachedTicket.status === "voided") {
+        setHistoryPreviewTicket(cachedTicket);
+      } else {
+        setActiveTicket(cachedTicket);
+      }
+      return;
     }
+    if (ticketsLoading) return;
+
     notificationDeepLinkHandledRef.current = true;
-  }, [loading, tickets]);
+    void (async () => {
+      try {
+        const payload = await getTicketDetails(ticketId, profile?.id);
+        const ticket = {
+          ...(payload.ticket || {}),
+          lines: payload.lines || payload.ticket?.lines || [],
+        } as WeighbridgeTicket;
+        if (ticket.status === "finalized" || ticket.status === "voided") {
+          setHistoryPreviewTicket(ticket);
+        } else {
+          setActiveTicket(ticket);
+        }
+      } catch (error) {
+        toast({
+          title: "Талон не найден",
+          description: error instanceof Error ? error.message : "Не удалось открыть документ",
+          variant: "destructive",
+        });
+      }
+    })();
+  }, [profile?.id, tickets, ticketsLoading, toast]);
 
   useEffect(() => {
     if (!idempotencyPersistKey) return;
@@ -1454,12 +1606,6 @@ export default function WeighbridgeOperationsPage() {
   ]);
 
   const activeTickets = useMemo(() => tickets.filter((t) => ["draft", "active", "ready_to_close"].includes(t.status)), [tickets]);
-  const openVehicleTicket = useMemo(
-    () => form.operationType === "harvest_incoming" && form.vehicleId
-      ? activeTickets.find((ticket) => ticket.op_type === "harvest_incoming" && ticket.vehicle_id === form.vehicleId) || null
-      : null,
-    [activeTickets, form.operationType, form.vehicleId]
-  );
   const harvestWarehouses = useMemo(
     () => warehouses.filter((warehouse) => isHarvestWarehouseType(warehouse.warehouseType)),
     [warehouses]
@@ -1544,6 +1690,8 @@ export default function WeighbridgeOperationsPage() {
   );
   const gross = activeTicket?.gross_weight_kg != null ? String(activeTicket.gross_weight_kg) : activeTicket?.weigh_method === "manual_override_with_reason" && activeTicketLineTotal > 0 ? String(activeTicketLineTotal) : "";
   const pure = net(gross, closingTare);
+  const grossInputValidation = form.grossKg.trim() ? parseStrictWeightKg(form.grossKg, "Брутто") : null;
+  const closingTareValidation = closingTare.trim() ? parseStrictWeightKg(closingTare, "Тара") : null;
   const liveWeightKg = useMemo(() => {
     if (form.grossKg && Number.isFinite(Number(form.grossKg))) return Number(form.grossKg);
     if (gross && Number.isFinite(Number(gross))) return Number(gross);
@@ -2014,13 +2162,35 @@ export default function WeighbridgeOperationsPage() {
         if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
         toast({ title: "Перемещение проведено", description: "Ledger OUT/IN создан существующим складским lifecycle." });
         setForm((prev) => ({ ...INITIAL_FORM, operationType: prev.operationType, transferMode: prev.transferMode }));
-        await load();
+        void refreshLiveData({ source: "local", table: "stock_ledger_entries" });
         return;
       }
       const result = await createTicket(ticket, linesToCreate, [], idempotencyKey);
       createTicketIdempotencyRef.current = null;
       if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
       const createdStatus = String(result?.ticket?.status || "");
+      const createdTicket = result?.ticket as WeighbridgeTicket | undefined;
+      if (createdTicket?.id && createdStatus !== "finalized") {
+        const localLines = createdTicket.lines || linesToCreate.map((item, index) => ({
+          id: `local-${createdTicket.id}-${index}`,
+          product_id: item.product_id,
+          product_name: productById.get(item.product_id)?.name || "Материал",
+          quantity: item.quantity,
+          uom: item.uom || "kg",
+          variety_id: item.variety_id || null,
+          reproduction_id: item.reproduction_id || null,
+          batch_class: item.batch_class || null,
+          lot_id: item.lot_id || null,
+          warehouse_from_id: item.warehouse_from_id || null,
+          warehouse_to_id: item.warehouse_to_id || null,
+          moisture_percent: item.moisture_percent || null,
+          operation_line_id: item.operation_line_id || null,
+        }));
+        setTickets((current) => [
+          ...current.filter((item) => item.id !== createdTicket.id),
+          { ...createdTicket, lines: localLines },
+        ]);
+      }
       if (isSupplierDirect || createdStatus === "finalized") {
         toast({
           title: "Приход по накладной проведён",
@@ -2084,7 +2254,8 @@ export default function WeighbridgeOperationsPage() {
       }
       setSupplierReceiptLines([]);
       setShowSupplierExtraFields(false);
-      await refreshTickets();
+      void refreshBootstrap();
+      if (createdStatus === "finalized") void refreshTickets();
     } catch (e: any) {
       toast({ title: "Ошибка создания", description: e?.message || "Не удалось создать талон", variant: "destructive" });
     } finally {
@@ -2137,6 +2308,102 @@ export default function WeighbridgeOperationsPage() {
     }
   };
 
+  const patchTicketWithTareConfirmation = async (
+    ticketId: string,
+    patch: Parameters<typeof patchTicket>[2]
+  ) => {
+    try {
+      return await patchTicket(ticketId, profile?.id || "", patch);
+    } catch (error: any) {
+      const payload = error?.payload as Record<string, any> | undefined;
+      if (!payload?.requires_confirmation) throw error;
+      const difference = Number(payload.difference_percent || 0);
+      const confirmed = await siteConfirm({
+        title: "Проверьте тару",
+        description: [
+          `Предыдущая тара этой машины: ${formatWeightKg(payload.previous_tare_kg)}.`,
+          `Сейчас: ${formatWeightKg(payload.current_tare_kg)}.`,
+          `Разница: ${difference > 0 ? "+" : ""}${difference.toLocaleString("ru-RU", { maximumFractionDigits: 2 })}%.`,
+        ].join(" "),
+        actionLabel: "Всё верно — продолжить",
+      });
+      if (!confirmed) throw new Error("Проверьте значение тары.");
+      return patchTicket(ticketId, profile?.id || "", { ...patch, confirm_tare_variance: true });
+    }
+  };
+
+  const openActiveTicketEditor = () => {
+    if (!activeTicket) return;
+    setEditGrossKg(activeTicket.gross_weight_kg == null ? "" : String(activeTicket.gross_weight_kg));
+    setEditTareKg(activeTicket.tare_weight_kg == null ? "" : String(activeTicket.tare_weight_kg));
+    setEditReason("");
+    setOpenTicketEditOpen(true);
+  };
+
+  const saveOpenTicketCorrection = async () => {
+    if (!activeTicket || !profile?.id || ticketCorrectionBusy) return;
+    const gross = parseStrictWeightKg(editGrossKg, "Брутто");
+    if (!gross.ok || gross.value <= 0) {
+      toast({ title: "Проверьте брутто", description: gross.ok ? "Брутто должно быть больше нуля." : gross.message, variant: "destructive" });
+      return;
+    }
+    const tare = editTareKg.trim() ? parseStrictWeightKg(editTareKg, "Тара") : null;
+    if (tare && (!tare.ok || tare.value <= 0)) {
+      toast({ title: "Проверьте тару", description: tare.ok ? "Тара должна быть больше нуля." : tare.message, variant: "destructive" });
+      return;
+    }
+    if (tare?.ok) {
+      const validation = validateHarvestWeights(gross.value, tare.value);
+      if (!validation.ok) {
+        toast({ title: "Проверьте вес", description: validation.message, variant: "destructive" });
+        return;
+      }
+    }
+
+    setTicketCorrectionBusy(true);
+    try {
+      await patchTicketWithTareConfirmation(activeTicket.id, {
+        gross_weight_kg: gross.value,
+        ...(tare?.ok ? { tare_weight_kg: tare.value } : {}),
+        reason: editReason.trim() || null,
+      });
+      const details = await getTicketDetails(activeTicket.id, profile.id);
+      const corrected = (details as any).ticket as WeighbridgeTicket;
+      setActiveTicket(corrected);
+      setTickets((current) => current.map((ticket) => ticket.id === corrected.id ? corrected : ticket));
+      setClosingTare(corrected.tare_weight_kg == null ? "" : String(corrected.tare_weight_kg));
+      setOpenTicketEditOpen(false);
+      toast({ title: "Талон исправлен", description: "Изменение и автор сохранены в истории." });
+    } catch (error: any) {
+      toast({ title: "Не удалось исправить талон", description: error?.message || "Повторите попытку", variant: "destructive" });
+    } finally {
+      setTicketCorrectionBusy(false);
+    }
+  };
+
+  const beginFinalizedTicketCorrection = async () => {
+    if (!historyPreviewTicket || !ticketCorrectionReason.trim() || ticketCorrectionBusy) return;
+    setTicketCorrectionBusy(true);
+    try {
+      const started = await startTicketCorrection(historyPreviewTicket.id, ticketCorrectionReason.trim());
+      const replacementId = String((started as any)?.ticket?.id || "");
+      if (!replacementId) throw new Error("Исправленный талон не создан.");
+      const details = await getTicketDetails(replacementId, profile?.id);
+      const replacement = (details as any).ticket as WeighbridgeTicket;
+      setHistoryPreviewTicket(null);
+      setTicketCorrectionOpen(false);
+      setTicketCorrectionReason("");
+      setActiveTicket(replacement);
+      setClosingTare(replacement.tare_weight_kg == null ? "" : String(replacement.tare_weight_kg));
+      setClosingMoisture(replacement.lines?.[0]?.moisture_percent == null ? "" : String(replacement.lines[0].moisture_percent));
+      toast({ title: "Создан исправленный талон", description: `Проверьте данные и завершите талон ${replacement.ticket_no}.` });
+    } catch (error: any) {
+      toast({ title: "Исправление недоступно", description: error?.message || "Повторите попытку", variant: "destructive" });
+    } finally {
+      setTicketCorrectionBusy(false);
+    }
+  };
+
   const closeTicket = async () => {
     if (!activeTicket || !profile?.id || !canOperate || finalizing) return;
     const isDirectSupplierTicket = activeTicket.op_type === "supplier_receipt" && String((activeTicket as any).receipt_mode || "") === "direct";
@@ -2146,7 +2413,9 @@ export default function WeighbridgeOperationsPage() {
     const g = isDirectQuantityTicket
       ? Number(activeTicket.gross_weight_kg || 0) || activeTicketLineTotal
       : Number(activeTicket.gross_weight_kg || 0);
-    const t = isDirectQuantityTicket ? 0 : Number(closingTare || 0);
+    const strictTare = isDirectQuantityTicket ? null : parseStrictWeightKg(closingTare, "Тара");
+    if (strictTare && !strictTare.ok) return toast({ title: "Ошибка", description: strictTare.message, variant: "destructive" });
+    const t = isDirectQuantityTicket ? 0 : strictTare?.ok ? strictTare.value : 0;
     if (!Number.isFinite(g) || g <= 0) return toast({ title: "Ошибка", description: "Брутто не заполнено", variant: "destructive" });
     if (!isDirectQuantityTicket) {
       const weightValidation = validateHarvestWeights(g, t);
@@ -2165,7 +2434,7 @@ export default function WeighbridgeOperationsPage() {
 
     setFinalizing(true);
     try {
-      await patchTicket(activeTicket.id, profile.id, {
+      await patchTicketWithTareConfirmation(activeTicket.id, {
         tare_weight_kg: isDirectQuantityTicket ? 0 : toNum(closingTare) ?? undefined,
         moisture_percent: isHarvestClosure ? moisture : undefined,
         status: "ready_to_close",
@@ -2173,9 +2442,10 @@ export default function WeighbridgeOperationsPage() {
       await finalizeTicket(activeTicket.id, profile.id);
       toast({ title: "Талон закрыт", description: "Движение зафиксировано" });
       setActiveTicket(null);
+      setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
       setClosingTare("");
       setClosingMoisture("");
-      await refreshTickets();
+      void refreshBootstrap();
     } catch (e: any) {
       const message = String(e?.message || "");
       if (message.toLowerCase().includes("read-only") || message.toLowerCase().includes("already finalized")) {
@@ -2186,9 +2456,10 @@ export default function WeighbridgeOperationsPage() {
         }
         toast({ title: "Талон уже закрыт", description: "Обновляю список талонов и остатки.", variant: "default" });
         setActiveTicket(null);
+        setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
         setClosingTare("");
         setClosingMoisture("");
-        await refreshTickets();
+        void refreshLiveData({ source: "local", table: "tickets" });
         return;
       }
       toast({ title: "Ошибка закрытия", description: e?.message || "Не удалось закрыть талон", variant: "destructive" });
@@ -2198,7 +2469,7 @@ export default function WeighbridgeOperationsPage() {
   };
 
   const handleVoid = async () => {
-    if (!activeTicket || !profile?.id || !canVoid || voiding) return;
+    if (!activeTicket || !profile?.id || !canCorrectTicket || voiding) return;
     if (!voidReason.trim()) return toast({ title: "Ошибка", description: "Укажите причину аннулирования", variant: "destructive" });
     const confirmed = await siteConfirm({
       title: "Аннулировать талон",
@@ -2211,7 +2482,8 @@ export default function WeighbridgeOperationsPage() {
       await voidTicket(activeTicket.id, profile.id, voidReason.trim());
       toast({ title: "Талон аннулирован", description: "Отмена выполнена через storno" });
       setActiveTicket(null);
-      await refreshTickets();
+      setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
+      void refreshBootstrap();
     } catch (e: any) {
       toast({ title: "Ошибка", description: e?.message || "Не удалось аннулировать талон", variant: "destructive" });
     } finally {
@@ -2242,7 +2514,8 @@ export default function WeighbridgeOperationsPage() {
       toast({ title: "Выполнено", description: "Админ-действие применено успешно" });
       setVoidReason("");
       setActiveTicket(null);
-      await load();
+      setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
+      void refreshLiveData({ source: "local", table: "tickets" });
     } catch (e: any) {
       toast({
         title: "Ошибка admin cleanup",
@@ -2256,17 +2529,64 @@ export default function WeighbridgeOperationsPage() {
   if (!canView) return <PageHeader title="Весовая и движения" description="Доступ ограничен по роли" />;
 
   const openShiftAction = async () => {
-    if (!profile?.company_id || !profile?.id) return;
+    const selected = operatorState.operator?.id || operatorState.operators[0]?.id || "";
+    setOperatorPersonId(selected);
+    setOperatorPin("");
+    setOperatorPinSetup(false);
+    setOperatorDialogOpen(true);
+  };
+
+  const submitOperatorAction = async () => {
+    if (!profile?.company_id || !operatorPersonId || !/^\d{6}$/.test(operatorPin)) return;
+    setOperatorBusy(true);
     try {
-      await openShift(profile.company_id, profile.id);
-      toast({ title: "Смена открыта", description: "Весовая разблокирована для операций." });
-      await load();
-    } catch (e: any) {
+      if (operatorPinSetup) {
+        await setWeighbridgeOperatorPin(profile.company_id, operatorPersonId, operatorPin);
+        toast({ title: "PIN сохранён", description: "Теперь весовщик может открыть или принять смену." });
+        setOperatorPinSetup(false);
+        setOperatorPin("");
+        setOperatorState(await getWeighbridgeOperatorState(profile.company_id));
+        setOperatorSessionStatus("ready");
+        return;
+      }
+      const isHandover = Boolean(
+        activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
+      );
+      const nextState = isHandover
+        ? await handoverWeighbridgeOperator(profile.company_id, operatorPersonId, operatorPin, shiftHandoverNote.trim() || undefined)
+        : await unlockWeighbridgeOperator(profile.company_id, operatorPersonId, operatorPin);
+      const completeOperatorState = {
+        ...nextState,
+        operators: Array.isArray(nextState.operators) ? nextState.operators : operatorState.operators,
+      };
+      setOperatorState(completeOperatorState);
+      setOperatorSessionStatus("ready");
+      setActiveShift(nextState.shift || null);
+      setOperatorPin("");
+      setShiftHandoverNote("");
+      setOperatorDialogOpen(false);
       toast({
-        title: "Ошибка открытия смены",
-        description: e?.message || "Не удалось открыть смену",
-        variant: "destructive",
+        title: isHandover ? "Смена передана" : activeShift?.id ? "Терминал разблокирован" : "Смена открыта",
+        description: nextState.operator?.name || "Весовщик подтверждён.",
       });
+      void Promise.all([refreshTickets(), refreshBootstrap()]);
+    } catch (e: any) {
+      toast({ title: "PIN не подтверждён", description: e?.message || "Проверьте PIN весовщика.", variant: "destructive" });
+    } finally {
+      setOperatorBusy(false);
+    }
+  };
+
+  const lockOperatorAction = async () => {
+    if (!profile?.company_id) return;
+    try {
+      await lockWeighbridgeOperator(profile.company_id);
+      setOperatorState((state) => ({ ...state, unlocked: false, operator: null, session_expires_at: null }));
+      setOperatorSessionStatus("ready");
+      setOperatorPin("");
+      setOperatorDialogOpen(true);
+    } catch (e: any) {
+      toast({ title: "Не удалось заблокировать терминал", description: e?.message, variant: "destructive" });
     }
   };
 
@@ -2295,7 +2615,7 @@ export default function WeighbridgeOperationsPage() {
       toast({ title: "Смена закрыта", description: "Смена успешно закрыта." });
       setShiftHandoverNote("");
       setShiftDialogOpen(false);
-      await load();
+      await Promise.all([refreshTickets(), refreshBootstrap(), verifyOperatorSession()]);
     } catch (e: any) {
       toast({
         title: "Не удалось закрыть смену",
@@ -2383,6 +2703,24 @@ export default function WeighbridgeOperationsPage() {
     }
     return `${warehouseName(ticket.warehouse_from_id)} → ${ticket.destination_text || ticket.destination_kind || "-"}`;
   };
+  const ticketPaperLabels = (ticket: WeighbridgeTicket): WeighbridgeTicketPaperLabels => {
+    const vehicle = vehicles.find((item) => item.id === ticket.vehicle_id);
+    const trailer = trailerForTicket(ticket);
+    return {
+      company: ticketCompanyLabel(ticket),
+      field: fields.find((item) => item.id === ticket.field_id)?.name || ticket.field_name_snapshot,
+      warehouseFrom: warehouses.find((item) => item.id === ticket.warehouse_from_id)?.name || ticket.warehouse_from_name_snapshot,
+      warehouseTo: warehouses.find((item) => item.id === ticket.warehouse_to_id)?.name || ticket.warehouse_to_name_snapshot,
+      supplier: supplierName(ticket),
+      buyer: buyerName(ticket),
+      vehicle: vehicle?.name || ticket.vehicle_name_snapshot,
+      vehiclePlate: vehicle?.plate || ticket.vehicle_plate_snapshot,
+      trailer: trailer?.name || ticket.trailer_name_snapshot,
+      trailerPlate: trailer?.plate || ticket.trailer_plate_snapshot,
+      driver: driverNameForId(ticket.driver_id) || ticket.driver_name_snapshot,
+      operator: ticket.created_by_name_snapshot || profile?.full_name?.trim() || profile?.email,
+    };
+  };
   const from = activeTicket ? (activeTicket.direction === "incoming" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_from_id)?.name) || "-" : "-";
   const to = activeTicket ? (activeTicket.direction === "incoming" ? warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name : activeTicket.direction === "outgoing" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name) || "-" : "-";
   const currentFieldSummary = form.fieldId ? harvestSummary.byField[form.fieldId] || null : null;
@@ -2402,7 +2740,7 @@ export default function WeighbridgeOperationsPage() {
         <div
           role="tablist"
           aria-label="Режим весовой"
-          className="travkin-scrollbar flex h-10 min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-md border border-slate-800 bg-slate-950/70 p-1"
+          className="travkin-scrollbar flex h-10 min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden rounded-md border border-slate-800 bg-slate-950/70 p-1"
         >
           {WEIGHBRIDGE_MODES.map((mode) => {
             const active = form.operationType === mode.type;
@@ -2424,6 +2762,19 @@ export default function WeighbridgeOperationsPage() {
             );
           })}
         </div>
+        {canUseOperatorSession ? (
+          <Button
+            type="button"
+            variant="outline"
+            className={operatorState.unlocked
+              ? "h-8 max-w-[210px] shrink-0 border-emerald-500/40 bg-emerald-500/10 px-2 text-xs text-emerald-100"
+              : "h-8 shrink-0 border-amber-500/40 bg-amber-500/10 px-2 text-xs text-amber-100"}
+            onClick={openShiftAction}
+          >
+            {operatorState.unlocked ? <UserRound className="mr-1 h-3.5 w-3.5" /> : <LockKeyhole className="mr-1 h-3.5 w-3.5" />}
+            <span className="truncate">{operatorState.operator?.name || "Введите PIN"}</span>
+          </Button>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="icon" className="h-8 w-8 border-slate-700 bg-slate-950 text-slate-100" aria-label="Дополнительные действия">
@@ -2448,6 +2799,11 @@ export default function WeighbridgeOperationsPage() {
             ) : (
               <DropdownMenuItem onClick={openShiftAction}>Открыть смену</DropdownMenuItem>
             )}
+            {operatorState.unlocked ? (
+              <DropdownMenuItem onClick={() => void lockOperatorAction()}>
+                <LockKeyhole className="mr-2 h-4 w-4" />Заблокировать терминал
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -2865,16 +3221,6 @@ export default function WeighbridgeOperationsPage() {
                   </Button>
                 </div>
               ) : null}
-              {openVehicleTicket && form.operationType !== "harvest_incoming" ? (
-                <button
-                  type="button"
-                  className="mt-3 flex w-full items-center justify-between rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-3 text-left text-sm text-emerald-100"
-                  onClick={() => setActiveTicket(openVehicleTicket)}
-                >
-                  <span>У машины уже есть открытый талон: брутто {formatWeightKg(openVehicleTicket.gross_weight_kg)}</span>
-                  <span className="font-semibold">Принять тару</span>
-                </button>
-              ) : null}
               </div>
             )}
 
@@ -2886,18 +3232,19 @@ export default function WeighbridgeOperationsPage() {
                   <div className="space-y-1">
                   <Label>Брутто / вес (кг) *</Label>
                   <Input className="h-10" inputMode="decimal" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} placeholder="0" />
+                  {grossInputValidation && !grossInputValidation.ok ? <div className="text-xs text-rose-300">{grossInputValidation.message}</div> : null}
                   </div>
                   {form.operationType === "harvest_incoming" && canOperate ? (
                     <Button
                       className="h-10 w-full font-semibold"
-                      onClick={() => openVehicleTicket ? setActiveTicket(openVehicleTicket) : void create()}
-                      disabled={!openVehicleTicket && (submitting || Boolean(currentValidationError) || !activeShift)}
+                      onClick={() => void create()}
+                      disabled={submitting || Boolean(currentValidationError) || !activeShift || (canUseOperatorSession && !operatorState.unlocked)}
                     >
-                      {openVehicleTicket ? "Принять тару" : submitting ? "Открытие..." : "Открыть талон"}
+                      {submitting ? "Открытие..." : "Открыть талон"}
                     </Button>
                   ) : null}
                 </div>
-                {form.operationType === "harvest_incoming" && !loading && currentValidationError && !openVehicleTicket ? (
+                {form.operationType === "harvest_incoming" && !loading && currentValidationError ? (
                   <div className="mt-1 truncate text-xs text-amber-300" title={currentValidationError}>{currentValidationError}</div>
                 ) : null}
               </div>
@@ -2915,24 +3262,24 @@ export default function WeighbridgeOperationsPage() {
               <div className="sticky bottom-0 z-10 -mx-4 border-t border-slate-800 bg-[#101724]/95 px-4 pt-3 backdrop-blur">
                 <Button
                   className="h-11 w-full text-base font-semibold"
-                  onClick={() => openVehicleTicket ? setActiveTicket(openVehicleTicket) : void create()}
+                  onClick={() => void create()}
                   disabled={
-                    !openVehicleTicket && (
-                      submitting ||
-                      Boolean(currentValidationError) ||
-                      (!activeShift && !isSupplierDirect)
-                    )
+                    submitting ||
+                    Boolean(currentValidationError) ||
+                    (!activeShift && !isSupplierDirect) ||
+                    (canUseOperatorSession && !operatorState.unlocked && !isSupplierDirect)
                   }
                 >
-                  {openVehicleTicket
-                    ? "Принять тару"
-                    : submitting
-                      ? "Сохранение..."
-                      : "Создать талон"}
+                  {submitting ? "Сохранение..." : "Создать талон"}
                 </Button>
                 {loading ? <div className="mt-1 text-xs text-amber-300">Данные ещё загружаются. Повторите через пару секунд.</div> : null}
                 {!loading && !activeShift && !isSupplierDirect ? <div className="mt-1 text-xs text-amber-300">Смена закрыта: откройте её через меню ⋯.</div> : null}
-                {!loading && activeShift && currentValidationError && !openVehicleTicket ? (
+                {!loading && activeShift && canUseOperatorSession && !operatorState.unlocked && !isSupplierDirect ? (
+                  <button type="button" className="mt-1 text-left text-xs font-medium text-amber-300 underline underline-offset-2" onClick={openShiftAction}>
+                    Терминал заблокирован: введите PIN весовщика.
+                  </button>
+                ) : null}
+                {!loading && activeShift && currentValidationError ? (
                   <div className="mt-1 text-xs text-amber-300">{currentValidationError}</div>
                 ) : null}
               </div>
@@ -2950,7 +3297,7 @@ export default function WeighbridgeOperationsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="max-h-[720px] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
-            {loading ? <div className="text-sm text-slate-400">Загрузка...</div> : activeTickets.length === 0 ? <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/45 p-6 text-center text-sm text-slate-500">Открытых талонов нет</div> : [...activeTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
+            {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка очереди...</div> : activeTickets.length === 0 ? <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/45 p-6 text-center text-sm text-slate-500">Открытых талонов нет</div> : [...activeTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = driverNameForId(t.driver_id) || "Без водителя";
               const meta = ticketCardMeta(t, vehicleName, driverName);
@@ -3022,9 +3369,9 @@ export default function WeighbridgeOperationsPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-2 px-3 py-3 sm:px-4">
-            {loading ? <div className="text-sm text-slate-400">Загрузка...</div> : null}
-            {!loading && historyTickets.length === 0 ? <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">Закрытых талонов пока нет</div> : null}
-            {!loading && historyTickets.slice(0, 80).map((t) => {
+            {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка журнала...</div> : null}
+            {!ticketsLoading && historyTickets.length === 0 ? <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">Закрытых талонов пока нет</div> : null}
+            {!ticketsLoading && historyTickets.slice(0, 80).map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = driverNameForId(t.driver_id) || "Без водителя";
               const meta = ticketCardMeta(t, vehicleName, driverName);
@@ -3074,98 +3421,11 @@ export default function WeighbridgeOperationsPage() {
         <SheetContent side="right" className="w-full overflow-y-auto bg-slate-950 text-slate-100 sm:max-w-xl">
           {activeTicket ? (
             <div className="space-y-4">
-              <SheetHeader>
+              <SheetHeader className="sr-only">
                 <SheetTitle>Талон {activeTicket.ticket_no}</SheetTitle>
                 <SheetDescription>{operationUiLabel(activeTicket.op_type)}</SheetDescription>
               </SheetHeader>
-
-              <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-base font-semibold text-slate-50">
-                      {isHarvestTicket(activeTicket) ? fields.find((field) => field.id === activeTicket.field_id)?.name || "Поле" : ticketRouteSummary(activeTicket)}
-                    </div>
-                    <div className="mt-0.5 truncate text-xs text-slate-400">
-                      {[activeLine?.product_name, activeVehicle?.name, activeDriverName].filter(Boolean).join(" · ")}
-                    </div>
-                  </div>
-                  <Badge className="shrink-0 border border-amber-500/30 bg-amber-500/10 text-amber-100">
-                    {activeTicket.tare_weight_kg == null ? "Ожидает тару" : ticketStageLabel(activeTicket)}
-                  </Badge>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
-                  <div><span className="text-slate-500">Брутто</span><div className="font-semibold text-slate-100">{formatWeightKg(activeTicket.gross_weight_kg)}</div></div>
-                  <div><span className="text-slate-500">Влажность</span><div className="font-semibold text-slate-100">{formatMoisture(activeLine?.moisture_percent ?? null)}</div></div>
-                  <div><span className="text-slate-500">Время GROSS</span><div className="font-semibold text-slate-100">{fmt(activeTicket.created_at, lang)}</div></div>
-                </div>
-              </div>
-
-              <details className="rounded-lg border border-slate-800 bg-slate-950/60">
-                <summary className="cursor-pointer list-none px-3 py-2 text-sm font-medium text-slate-300">Печатная форма талона</summary>
-              <div className="mx-auto w-full max-w-[540px] min-h-[960px] rounded-md border bg-[#f7f1e3] p-4 text-[#1f1b16]" style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}>
-                <div className="mb-3 border-b border-[#b8a788] pb-2 text-center">
-                  <div className="text-sm font-semibold tracking-wide">{ticketCompanyLabel(activeTicket)}</div>
-                  <div className="mt-1 text-3xl font-black">ВЕСОВОЙ ТАЛОН</div>
-                  <div className="mt-1 text-lg font-bold">№ {activeTicket.ticket_no}</div>
-                </div>
-
-                <div className="mb-3 grid grid-cols-2 gap-3 text-sm">
-                  <div><span className="text-[#5d4f3d]">Тип операции:</span> <span className="font-bold">{operationUiLabel(activeTicket.op_type)}</span></div>
-                  {isDirectSupplierTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Контрагент:</span> <span className="font-semibold">{supplierName(activeTicket)}</span></div> : <div><span className="text-[#5d4f3d]">{isHarvestTicket(activeTicket) ? "Поле:" : "Контекст:"}</span> <span className="font-semibold">{isHarvestTicket(activeTicket) ? fields.find((f) => f.id === activeTicket.field_id)?.name || "-" : ticketRouteSummary(activeTicket)}</span></div>}
-                  {isDirectSupplierTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Склад назначения:</span> <span className="font-semibold">{warehouseName(activeTicket.warehouse_to_id)}</span></div> : <div><span className="text-[#5d4f3d]">Склад:</span> <span className="font-semibold">{warehouses.find((w) => w.id === activeTicket.warehouse_to_id)?.name || warehouses.find((w) => w.id === activeTicket.warehouse_from_id)?.name || "-"}</span></div>}
-                  {isHarvestTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Культура:</span> <span className="font-semibold">{activeLine?.product_name || "-"}</span></div> : (activeTicket.lines || []).length === 0 ? <div><span className="text-[#5d4f3d]">Товары:</span> <span className="font-semibold">{productSummary(activeTicket)}</span></div> : null}
-                  {isHarvestTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Сорт:</span> <span className="font-semibold">{activeLine?.variety_name || varieties.find((v) => v.id === activeLine?.variety_id)?.name || "-"}</span></div> : null}
-                  {isHarvestTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Посевная строка:</span> <span className="font-semibold">{ticketAllocationLabel(activeTicket)}</span></div> : null}
-                  {isHarvestTicket(activeTicket) ? <div><span className="text-[#5d4f3d]">Репродукция:</span> <span className="font-semibold">{activeLine?.reproduction_name || reproductions.find((r) => r.id === activeLine?.reproduction_id)?.name || "-"}</span></div> : null}
-                </div>
-
-                {!isDirectSupplierTicket(activeTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
-                  <div className="mb-2 text-center text-lg font-bold">ТРАНСПОРТ И ВОДИТЕЛЬ</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><span className="text-[#5d4f3d]">Машина:</span> <span className="font-bold">{activeVehicle?.name || "-"}</span></div>
-                    {activeTrailer ? <div><span className="text-[#5d4f3d]">Прицеп:</span> <span className="font-bold">{activeTrailer.name}{activeTrailer.plate ? ` · ${activeTrailer.plate}` : ""}</span></div> : null}
-                    <div><span className="text-[#5d4f3d]">Водитель:</span> <span className="font-bold">{activeDriverName || "-"}</span></div>
-                    <div><span className="text-[#5d4f3d]">Госномер:</span> <span className="font-semibold">{activeVehicle?.plate || "-"}</span></div>
-                    <div />
-                  </div>
-                </div> : null}
-
-                {!isDirectSupplierTicket(activeTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
-                  <div className="mb-2 text-center text-lg font-bold">ВЕСОВЫЕ ДАННЫЕ</div>
-                  <div className="grid grid-cols-3 gap-2 text-center">
-                    <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{formatWeightKg(activeTicket.gross_weight_kg)}</div></div>
-                    <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{formatWeightKg(activeTicket.tare_weight_kg)}</div></div>
-                    <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{formatWeightKg(activeTicket.net_weight_kg)}</div></div>
-                  </div>
-                </div> : null}
-
-                {(activeTicket.lines || []).length > 0 ? (
-                  <div className="mb-3 rounded border border-[#b8a788] p-2 text-xs">
-                    <div className="mb-2 text-center text-base font-bold">Товары в документе</div>
-                    <div className="space-y-1">
-                      {(activeTicket.lines || []).map((line: any, index: number) => (
-                        <div key={line.id || index} className="grid grid-cols-[22px_1fr_auto] gap-2 border-b border-[#c7b797] pb-1 last:border-0 last:pb-0">
-                          <div className="font-bold">{index + 1}.</div>
-                          <div>
-                            <div className="font-semibold">{line.product_name || "-"}</div>
-                            <div className="text-[#5d4f3d]">{lineWarehouseName(line, activeTicket)}{line.lot_id ? ` • партия ${lotLabel(line.lot_id)}` : ""}</div>
-                          </div>
-                          <div className="text-right font-bold">{formatQuantityWithUnit(line.quantity, line.uom)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="text-sm">
-                  <div><span className="text-[#5d4f3d]">Статус:</span> <span className="font-semibold">{statusLabel(activeTicket.status)}</span></div>
-                  <div><span className="text-[#5d4f3d]">{isDirectSupplierTicket(activeTicket) ? "Дата документа:" : "Время взвешивания:"}</span> <span className="font-semibold">{fmt(activeTicket.finalized_at || activeTicket.updated_at || activeTicket.created_at, lang)}</span></div>
-                  <div><span className="text-[#5d4f3d]">Создан:</span> <span className="font-semibold">{fmt(activeTicket.created_at, lang)}</span></div>
-                  <div><span className="text-[#5d4f3d]">Весовщик:</span> <span className="font-semibold">{profile?.full_name?.trim() || profile?.email || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Примечание:</span> <span className="font-semibold">{activeTicket.notes || "-"}</span></div>
-                </div>
-              </div>
-              </details>
+              <WeighbridgeTicketPaper ticket={activeTicket} labels={ticketPaperLabels(activeTicket)} />
 
               <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3">
                 <div className="space-y-2">
@@ -3200,6 +3460,7 @@ export default function WeighbridgeOperationsPage() {
                 <div className="mt-3 space-y-2">
                   <Label>Тара (кг)</Label>
                   <Input ref={tareInputRef} value={closingTare} onChange={(e) => setClosingTare(e.target.value)} disabled={!canOperate} />
+                  {closingTareValidation && !closingTareValidation.ok ? <div className="text-xs text-rose-300">{closingTareValidation.message}</div> : null}
                 </div>
                 <div className="mt-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-sm text-slate-100">
                   <div className="flex items-center justify-between"><span>Брутто</span><span>{formatWeightKg(gross)}</span></div>
@@ -3213,6 +3474,11 @@ export default function WeighbridgeOperationsPage() {
 
               {canOperate ? (
                 <div className="space-y-2">
+                  {canCorrectTicket ? (
+                    <Button variant="outline" className="w-full" onClick={openActiveTicketEditor}>
+                      <Pencil className="mr-2 h-4 w-4" />Исправить данные открытого талона
+                    </Button>
+                  ) : null}
                   <div className="grid grid-cols-2 gap-2">
                     <Button variant="outline" onClick={async () => { if (!profile?.id) return; try { await downloadTicketPdf(activeTicket.id, profile.id); } catch (error: any) { toast({ title: "Ошибка PDF", description: error?.message || "Не удалось скачать PDF", variant: "destructive" }); } }}>
                       <FileDown className="mr-2 h-4 w-4" />Скачать PDF
@@ -3221,7 +3487,7 @@ export default function WeighbridgeOperationsPage() {
                       <CheckCircle2 className="mr-2 h-4 w-4" />{finalizing ? "Закрытие..." : "Закрыть талон"}
                     </Button>
                   </div>
-                  {canVoid ? (
+                  {canCorrectTicket ? (
                     <div className="space-y-2 rounded-md border border-red-500/30 bg-red-950/30 p-3 text-red-50">
                       <Label>Причина аннулирования</Label>
                       <Textarea value={voidReason} onChange={(e) => setVoidReason(e.target.value)} rows={2} />
@@ -3240,70 +3506,17 @@ export default function WeighbridgeOperationsPage() {
         <SheetContent side="right" className="w-full overflow-y-auto bg-slate-950 text-slate-100 sm:max-w-2xl">
           {historyPreviewTicket ? (
             <div className="space-y-4">
-              <SheetHeader>
+              <SheetHeader className="sr-only">
                 <SheetTitle>Талон {historyPreviewTicket.ticket_no}</SheetTitle>
                 <SheetDescription>{operationUiLabel(historyPreviewTicket.op_type)}</SheetDescription>
               </SheetHeader>
-              <div className="mx-auto w-full max-w-[540px] min-h-[960px] rounded-md border bg-[#f7f1e3] p-4 text-[#1f1b16]" style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}>
-                <div className="mb-3 border-b border-[#b8a788] pb-2 text-center">
-                  <div className="text-sm font-semibold tracking-wide">{ticketCompanyLabel(historyPreviewTicket)}</div>
-                  <div className="mt-1 text-3xl font-black">ВЕСОВОЙ ТАЛОН</div>
-                  <div className="mt-1 text-lg font-bold">№ {historyPreviewTicket.ticket_no}</div>
-                </div>
-                <div className="mb-3 grid grid-cols-2 gap-3 text-sm">
-                  <div><span className="text-[#5d4f3d]">Статус:</span> <span className="font-bold">{statusLabel(historyPreviewTicket.status).toUpperCase()}</span></div>
-                  <div><span className="text-[#5d4f3d]">Тип операции:</span> <span className="font-bold">{operationUiLabel(historyPreviewTicket.op_type)}</span></div>
-                  {isDirectSupplierTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Контрагент:</span> <span className="font-semibold">{supplierName(historyPreviewTicket)}</span></div> : <div><span className="text-[#5d4f3d]">{isHarvestTicket(historyPreviewTicket) ? "Поле:" : "Контекст:"}</span> <span className="font-semibold">{isHarvestTicket(historyPreviewTicket) ? fields.find((f) => f.id === historyPreviewTicket.field_id)?.name || "-" : ticketRouteSummary(historyPreviewTicket)}</span></div>}
-                  {isDirectSupplierTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Склад назначения:</span> <span className="font-semibold">{warehouseName(historyPreviewTicket.warehouse_to_id)}</span></div> : <div><span className="text-[#5d4f3d]">Склад:</span> <span className="font-semibold">{warehouses.find((w) => w.id === historyPreviewTicket.warehouse_to_id)?.name || warehouses.find((w) => w.id === historyPreviewTicket.warehouse_from_id)?.name || "-"}</span></div>}
-                  {isHarvestTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Культура:</span> <span className="font-semibold">{historyPreviewTicket.lines?.[0]?.product_name || "-"}</span></div> : (historyPreviewTicket.lines || []).length === 0 ? <div><span className="text-[#5d4f3d]">Товары:</span> <span className="font-semibold">{productSummary(historyPreviewTicket)}</span></div> : null}
-                  {isHarvestTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Посевная строка:</span> <span className="font-semibold">{ticketAllocationLabel(historyPreviewTicket)}</span></div> : null}
-                  {isHarvestTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Сорт:</span> <span className="font-semibold">{historyPreviewTicket.lines?.[0]?.variety_name || varieties.find((v) => v.id === historyPreviewTicket.lines?.[0]?.variety_id)?.name || "-"}</span></div> : null}
-                  {isHarvestTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Репродукция:</span> <span className="font-semibold">{historyPreviewTicket.lines?.[0]?.reproduction_name || reproductions.find((r) => r.id === historyPreviewTicket.lines?.[0]?.reproduction_id)?.name || "-"}</span></div> : null}
-                </div>
-                {!isDirectSupplierTicket(historyPreviewTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
-                  <div className="mb-2 text-center text-lg font-bold">ТРАНСПОРТ И ВОДИТЕЛЬ</div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><span className="text-[#5d4f3d]">Машина:</span> <span className="font-bold">{vehicles.find((v) => v.id === historyPreviewTicket.vehicle_id)?.name || "-"}</span></div>
-                    {trailerForTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Прицеп:</span> <span className="font-bold">{trailerForTicket(historyPreviewTicket)?.name || "-"}</span></div> : null}
-                    <div><span className="text-[#5d4f3d]">Водитель:</span> <span className="font-bold">{driverNameForId(historyPreviewTicket.driver_id) || "-"}</span></div>
-                    <div><span className="text-[#5d4f3d]">Госномер:</span> <span className="font-semibold">{vehicles.find((v) => v.id === historyPreviewTicket.vehicle_id)?.plate || "-"}</span></div>
-                    <div />
-                  </div>
-                </div> : null}
-                {!isDirectSupplierTicket(historyPreviewTicket) ? <div className="mb-3 rounded border border-[#b8a788] p-2 text-sm">
-                  <div className="mb-2 text-center text-lg font-bold">ВЕСОВЫЕ ДАННЫЕ</div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-xl font-bold">{formatWeightKg(historyPreviewTicket.gross_weight_kg)}</div></div>
-                    <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-xl font-bold">{formatWeightKg(historyPreviewTicket.tare_weight_kg)}</div></div>
-                    <div><div className="text-xs text-[#5d4f3d]">Нетто</div><div className="text-xl font-bold">{formatWeightKg(historyPreviewTicket.net_weight_kg)}</div></div>
-                  </div>
-                </div> : null}
-                {(historyPreviewTicket.lines || []).length > 0 ? (
-                  <div className="mb-3 rounded border border-[#b8a788] p-2 text-xs">
-                    <div className="mb-2 text-center text-base font-bold">Товары в документе</div>
-                    <div className="space-y-1">
-                      {(historyPreviewTicket.lines || []).map((line: any, index: number) => (
-                        <div key={line.id || index} className="grid grid-cols-[22px_1fr_auto] gap-2 border-b border-[#c7b797] pb-1 last:border-0 last:pb-0">
-                          <div className="font-bold">{index + 1}.</div>
-                          <div>
-                            <div className="font-semibold">{line.product_name || "-"}</div>
-                            <div className="text-[#5d4f3d]">{lineWarehouseName(line, historyPreviewTicket)}{line.lot_id ? ` • партия ${lotLabel(line.lot_id)}` : ""}{line.unit_price ? ` • цена ${Number(line.unit_price).toLocaleString("ru-RU")}` : ""}</div>
-                          </div>
-                          <div className="text-right font-bold">{formatQuantityWithUnit(line.quantity, line.uom)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                <div className="text-sm">
-                  <div><span className="text-[#5d4f3d]">{isDirectSupplierTicket(historyPreviewTicket) ? "Дата документа:" : "Время взвешивания:"}</span> <span className="font-semibold">{fmt(historyPreviewTicket.finalized_at || historyPreviewTicket.updated_at || historyPreviewTicket.created_at, lang)}</span></div>
-                  {isHarvestTicket(historyPreviewTicket) ? <div><span className="text-[#5d4f3d]">Влажность:</span> <span className="font-semibold">{formatMoisture(historyPreviewTicket.lines?.[0]?.moisture_percent ?? null)}</span></div> : null}
-                  <div><span className="text-[#5d4f3d]">Создан:</span> <span className="font-semibold">{fmt(historyPreviewTicket.created_at, lang)}</span></div>
-                  <div><span className="text-[#5d4f3d]">Весовщик:</span> <span className="font-semibold">{profile?.full_name?.trim() || profile?.email || "-"}</span></div>
-                  <div><span className="text-[#5d4f3d]">Примечание:</span> <span className="font-semibold">{historyPreviewTicket.notes || "-"}</span></div>
-                </div>
-              </div>
+              <WeighbridgeTicketPaper ticket={historyPreviewTicket} labels={ticketPaperLabels(historyPreviewTicket)} />
               <div className="flex items-center justify-end gap-2">
+                {historyPreviewTicket.status === "finalized" && canCorrectTicket ? (
+                  <Button variant="outline" onClick={() => { setTicketCorrectionReason(""); setTicketCorrectionOpen(true); }}>
+                    <Pencil className="mr-1 h-4 w-4" />Исправить талон
+                  </Button>
+                ) : null}
                 <Button variant="outline" onClick={async () => { if (!profile?.id || !historyPreviewTicket) return; try { await downloadTicketPdf(historyPreviewTicket.id, profile.id); } catch (error: any) { toast({ title: "Ошибка PDF", description: error?.message || "Не удалось скачать PDF", variant: "destructive" }); } }}><FileDown className="mr-1 h-4 w-4" />Скачать PDF</Button>
                 <Button onClick={() => setHistoryPreviewTicket(null)}>Закрыть</Button>
               </div>
@@ -3311,6 +3524,123 @@ export default function WeighbridgeOperationsPage() {
           ) : null}
         </SheetContent>
       </Sheet>
+      <Dialog open={openTicketEditOpen} onOpenChange={(open) => { if (!ticketCorrectionBusy) setOpenTicketEditOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Исправить открытый талон</DialogTitle>
+            <DialogDescription>Талон останется тем же. Система сохранит прежние и новые значения в истории.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Брутто, кг</Label>
+              <Input inputMode="decimal" value={editGrossKg} onChange={(event) => setEditGrossKg(event.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Тара, кг</Label>
+              <Input inputMode="decimal" value={editTareKg} onChange={(event) => setEditTareKg(event.target.value)} placeholder="Ещё не введена" />
+            </div>
+            <div className="space-y-2">
+              <Label>Причина или комментарий</Label>
+              <Textarea value={editReason} onChange={(event) => setEditReason(event.target.value)} rows={2} placeholder="Например: исправлена опечатка веса" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenTicketEditOpen(false)} disabled={ticketCorrectionBusy}>Отмена</Button>
+            <Button onClick={saveOpenTicketCorrection} disabled={ticketCorrectionBusy}>{ticketCorrectionBusy ? "Сохранение..." : "Сохранить исправление"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={ticketCorrectionOpen} onOpenChange={(open) => { if (!ticketCorrectionBusy) setTicketCorrectionOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Исправить завершённый талон</DialogTitle>
+            <DialogDescription>Старый документ останется в истории. Склад будет пересчитан только после завершения исправленного талона.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Причина исправления *</Label>
+            <Textarea value={ticketCorrectionReason} onChange={(event) => setTicketCorrectionReason(event.target.value)} rows={3} placeholder="Что было указано неверно" />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTicketCorrectionOpen(false)} disabled={ticketCorrectionBusy}>Отмена</Button>
+            <Button onClick={beginFinalizedTicketCorrection} disabled={ticketCorrectionBusy || !ticketCorrectionReason.trim()}>{ticketCorrectionBusy ? "Подготовка..." : "Подготовить исправление"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={operatorDialogOpen} onOpenChange={(open) => { if (!operatorBusy) setOperatorDialogOpen(open); }}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{operatorPinSetup ? "Настроить PIN" : activeShift ? "Весовщик смены" : "Открыть смену"}</DialogTitle>
+            <DialogDescription>
+              {operatorPinSetup
+                ? "PIN состоит из шести цифр и принадлежит выбранному сотруднику."
+                : "Выберите сотрудника и подтвердите доступ личным PIN."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {operatorState.operators.length ? (
+              <div className="space-y-2">
+                <Label>Весовщик</Label>
+                <Select value={operatorPersonId} onValueChange={(value) => { setOperatorPersonId(value); setOperatorPin(""); }}>
+                  <SelectTrigger><SelectValue placeholder="Выберите весовщика" /></SelectTrigger>
+                  <SelectContent>
+                    {operatorState.operators.map((operator) => (
+                      <SelectItem key={operator.id} value={operator.id}>
+                        {operator.name}{operator.has_pin ? "" : " · PIN не задан"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                В справочнике сотрудников нет активных весовщиков.
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>PIN</Label>
+              <Input
+                autoFocus
+                type="password"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={operatorPin}
+                onChange={(event) => setOperatorPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                onKeyDown={(event) => { if (event.key === "Enter" && /^\d{6}$/.test(operatorPin)) void submitOperatorAction(); }}
+                placeholder="••••••"
+                className="text-center text-xl tracking-[0.35em]"
+              />
+            </div>
+            {!operatorPinSetup && activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId ? (
+              <div className="space-y-2">
+                <Label>Комментарий к передаче</Label>
+                <Textarea value={shiftHandoverNote} onChange={(event) => setShiftHandoverNote(event.target.value)} rows={2} placeholder="Необязательно" />
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <div>
+              {canManageOperatorPin && operatorPersonId ? (
+                <Button type="button" variant="ghost" onClick={() => { setOperatorPinSetup((value) => !value); setOperatorPin(""); }} disabled={operatorBusy}>
+                  {operatorPinSetup ? "Назад" : "Настроить PIN"}
+                </Button>
+              ) : null}
+            </div>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setOperatorDialogOpen(false)} disabled={operatorBusy}>Отмена</Button>
+              <Button type="button" onClick={() => void submitOperatorAction()} disabled={operatorBusy || !operatorPersonId || !/^\d{6}$/.test(operatorPin)}>
+                {operatorBusy
+                  ? "Проверка..."
+                  : operatorPinSetup
+                    ? "Сохранить PIN"
+                    : activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
+                      ? "Передать смену"
+                      : activeShift?.id ? "Продолжить смену" : "Открыть смену"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={shiftDialogOpen} onOpenChange={setShiftDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
@@ -3322,6 +3652,10 @@ export default function WeighbridgeOperationsPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="col-span-2 rounded-md border p-3">
+              <div className="text-slate-500">Весовщик</div>
+              <div className="mt-1 font-semibold">{operatorState.operator?.name || (activeShift ? "Требуется PIN" : "—")}</div>
+            </div>
             <div className="rounded-md border p-3"><div className="text-slate-500">Рейсы</div><div className="mt-1 text-xl font-semibold">{shiftSummary.trips}</div></div>
             <div className="rounded-md border p-3"><div className="text-slate-500">Нетто</div><div className="mt-1 text-xl font-semibold">{formatTonnes(shiftSummary.netKg)}</div></div>
             <div className="rounded-md border p-3"><div className="text-slate-500">Незакрытые</div><div className="mt-1 text-xl font-semibold">{shiftSummary.open}</div></div>

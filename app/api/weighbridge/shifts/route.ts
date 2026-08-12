@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import {
+  WEIGHBRIDGE_WRITE_ROLES,
+  asSessionErrorResponse,
+  requireWeighbridgeOperatorSession,
+  resolveWeighbridgeSession,
+} from "@/app/api/weighbridge/_auth";
 
 async function getActiveShift(supabase: SupabaseClient, companyId: string) {
   const { data, error } = await supabase
@@ -37,29 +42,18 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const openingNote = String(body?.openingNote || "").trim() || null;
-    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const body = await request.json().catch(() => ({}));
+    const { companyId } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
-
-    const current = await getActiveShift(supabase, companyId);
-    if (current?.id) return NextResponse.json({ shift: current });
-
-    const { data, error } = await supabase
-      .from("weighbridge_shifts")
-      .insert({
-        company_id: companyId,
-        operator_id: actor.id,
-        opened_by: actor.id,
-        opening_note: openingNote,
-        status: "open",
-      })
-      .select("*")
-      .single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ shift: data });
+    return NextResponse.json(
+      {
+        error: "Смена открывается после выбора весовщика и ввода PIN.",
+        companyId,
+      },
+      { status: 409 }
+    );
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {
@@ -86,6 +80,7 @@ export async function PATCH(request: NextRequest) {
     if (!shift?.id) {
       return NextResponse.json({ error: "No active shift found" }, { status: 400 });
     }
+    const operatorSession = await requireWeighbridgeOperatorSession(request, { companyId, supabase });
 
     const { count: unresolvedCount, error: unresolvedError } = await supabase
       .from("tickets")
@@ -123,6 +118,8 @@ export async function PATCH(request: NextRequest) {
         status: "closed",
         closed_at: new Date().toISOString(),
         closed_by: actor.id,
+        closed_by_person_id: operatorSession.operator.id,
+        close_reason: "manual_close",
         closing_note: closingNote,
         handover_note: handoverNote,
         ticket_count: ticketCount,

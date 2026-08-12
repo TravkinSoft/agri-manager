@@ -25,6 +25,7 @@
     "qa:tz258": "npx --no-install tsx scripts/qa-tz258-warehouses-performance.ts",
     "qa:tz257": "npx --no-install tsx scripts/qa-tz257-weighbridge-fast-repeat.ts",
     "qa:tz259": "npx --no-install tsx scripts/qa-tz259-weighbridge-zero-scroll.ts",
+    "qa:tz263": "npx --no-install tsx scripts/qa-tz263-weighbridge-v3.ts",
     "qa:p0:weighbridge-gross": "npx --no-install tsx scripts/qa-p0-weighbridge-gross-legacy-schema.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
     "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",

@@ -19,6 +19,7 @@ import {
   WarehouseStockDetails,
   WarehouseTransferInput,
   WarehouseTransferResult,
+  WarehouseSummary,
 } from "@/lib/types/warehouse";
 
 async function buildAuthHeaders(contentType: "json" | "none" = "none") {
@@ -216,6 +217,31 @@ export async function getWarehouses(
     ...row,
     name: localizedName(row, language) || row.name,
   })).filter((row) => !hasQaDataMarker(`${row.name} ${row.warehouse_type || ""} ${row.description || ""}`));
+}
+
+export async function getWarehouseSummaries(
+  companyId: string,
+  includeArchived = false,
+  language: Language = "ru"
+): Promise<WarehouseSummary[]> {
+  const query = new URLSearchParams({
+    companyId,
+    includeArchived: includeArchived ? "true" : "false",
+  });
+  const headers = await buildAuthHeaders("none");
+  const response = await fetch(`/api/warehouses/summaries?${query.toString()}`, {
+    method: "GET",
+    headers,
+    cache: "no-store",
+  });
+  const payload = await parseJsonOrThrow(response);
+  return ((payload?.summaries || []) as WarehouseSummary[]).map((summary) => ({
+    ...summary,
+    warehouse: {
+      ...summary.warehouse,
+      name: localizedName(summary.warehouse as unknown as Record<string, unknown>, language) || summary.warehouse.name,
+    },
+  })).filter((summary) => !hasQaDataMarker(`${summary.warehouse.name} ${summary.warehouse.warehouse_type || ""}`));
 }
 
 export async function createWarehouse(
