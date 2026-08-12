@@ -6,8 +6,520 @@ import {
 } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { calculateHarvestBatchMetrics } from "@/lib/weighbridge/harvest-batch-math";
+import { calculateHarvestLotAccounting } from "@/lib/weighbridge/harvest-lot-accounting";
 
 const ids = (values: unknown[]) => Array.from(new Set(values.map((value) => String(value || "")).filter(Boolean)));
+
+function movementLabel(reasonType: unknown): string {
+  const reason = String(reasonType || "").trim().toLowerCase();
+  if (reason.includes("impurit")) return "Примеси";
+  if (reason.includes("processing_input")) return "Передано в переработку";
+  if (reason.includes("transfer")) return "Перемещение со склада";
+  if (reason.includes("shipment")) return "Отгрузка";
+  if (reason.includes("issue")) return "Выдача";
+  if (["writeoff", "disposal", "spoilage", "shortage", "waste", "other_removal"].some((token) => reason.includes(token))) {
+    return "Списание";
+  }
+  return "Выбытие";
+}
+
+async function loadAggregateHarvestLots(supabase: any, companyId: string, warehouseId: string | null) {
+  const { data: lots, error: lotsError } = await supabase
+    .from("harvest_lots")
+    .select("id,lot_code,season_id,source_field_id,crop_id,variety_id,reproduction_id,composition_hash,identity_kind,review_state,review_reasons,status,created_at")
+    .eq("company_id", companyId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (lotsError) {
+    const missing = String(lotsError.code || "") === "42P01" || /harvest_lots/i.test(String(lotsError.message || ""));
+    if (missing) return null;
+    throw lotsError;
+  }
+  if (!(lots || []).length) return [];
+
+  const lotIds = ids((lots || []).map((row: any) => row.id));
+  const [linksResult, stockResult] = await Promise.all([
+    supabase
+      .from("harvest_lot_batches")
+      .select("harvest_lot_id,inventory_batch_id,source_ticket_id,crop_structure_id,created_at")
+      .eq("company_id", companyId)
+      .in("harvest_lot_id", lotIds),
+    (() => {
+      let query = supabase
+        .from("v_harvest_lot_stock_v1")
+        .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg")
+        .eq("company_id", companyId)
+        .in("harvest_lot_id", lotIds);
+      if (warehouseId) query = query.eq("warehouse_id", warehouseId);
+      return query;
+    })(),
+  ]);
+  if (linksResult.error || stockResult.error) throw linksResult.error || stockResult.error;
+
+  const links = (linksResult.data || []) as any[];
+  const batchIds = ids(links.map((row) => row.inventory_batch_id));
+  const ticketIds = ids(links.map((row) => row.source_ticket_id));
+  const lotRows = (lots || []) as any[];
+  const refIds = {
+    crop: ids(lotRows.map((row) => row.crop_id)),
+    variety: ids(lotRows.map((row) => row.variety_id)),
+    reproduction: ids(lotRows.map((row) => row.reproduction_id)),
+    season: ids(lotRows.map((row) => row.season_id)),
+  };
+  const [batchesResult, ticketsResult, cropsResult, varietiesResult, reproductionsResult, fieldsResult, seasonsResult, warehousesResult] = await Promise.all([
+    batchIds.length
+      ? supabase.from("inventory_batches").select("id,batch_code,product_id,display_name,moisture_percent,created_at,source_ticket_id").eq("company_id", companyId).in("id", batchIds)
+      : Promise.resolve({ data: [], error: null }),
+    ticketIds.length
+      ? supabase.from("tickets").select("id,ticket_no,field_id,vehicle_id,driver_id,warehouse_to_id,audit_json,net_weight_kg,status,is_finalized,is_voided,created_at,finalized_at").eq("company_id", companyId).in("id", ticketIds)
+      : Promise.resolve({ data: [], error: null }),
+    refIds.crop.length ? supabase.from("crops").select("id,name,name_ru,name_kz,name_en").in("id", refIds.crop) : Promise.resolve({ data: [], error: null }),
+    refIds.variety.length ? supabase.from("varieties").select("id,name").in("id", refIds.variety) : Promise.resolve({ data: [], error: null }),
+    refIds.reproduction.length ? supabase.from("seed_reproductions").select("id,name,name_ru,name_kz,name_en,code").in("id", refIds.reproduction) : Promise.resolve({ data: [], error: null }),
+    supabase.from("fields").select("id,name").eq("company_id", companyId),
+    refIds.season.length ? supabase.from("seasons").select("id,name,year").eq("company_id", companyId).in("id", refIds.season) : Promise.resolve({ data: [], error: null }),
+    supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en").eq("company_id", companyId),
+  ]);
+  const firstError = [batchesResult, ticketsResult, cropsResult, varietiesResult, reproductionsResult, fieldsResult, seasonsResult, warehousesResult]
+    .map((result: any) => result.error).find(Boolean);
+  if (firstError) throw firstError;
+
+  const ticketRows = (ticketsResult.data || []) as any[];
+  const vehicleIds = ids(ticketRows.map((row) => row.vehicle_id));
+  const driverIds = ids(ticketRows.map((row) => row.driver_id));
+  const [vehiclesResult, machinesResult, peopleResult, specialistsResult, profilesResult] = await Promise.all([
+    vehicleIds.length ? supabase.from("reference_vehicles").select("id,name,custom_name,plate_number").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
+    vehicleIds.length ? supabase.from("reference_machines").select("id,name,model,license_plate").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
+    driverIds.length ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
+    driverIds.length ? supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
+    driverIds.length ? supabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
+  ]);
+  const resourceError = [vehiclesResult, machinesResult, peopleResult, specialistsResult, profilesResult]
+    .map((result: any) => result.error).find(Boolean);
+  if (resourceError) throw resourceError;
+
+  const byId = (rows: any[]) => new Map(rows.map((row) => [String(row.id), row]));
+  const batchesById = byId(batchesResult.data || []);
+  const ticketsById = byId(ticketsResult.data || []);
+  const cropsById = byId(cropsResult.data || []);
+  const varietiesById = byId(varietiesResult.data || []);
+  const reproductionsById = byId(reproductionsResult.data || []);
+  const fieldsById = byId(fieldsResult.data || []);
+  const seasonsById = byId(seasonsResult.data || []);
+  const warehousesById = byId(warehousesResult.data || []);
+  const vehiclesById = byId([...(vehiclesResult.data || []), ...(machinesResult.data || [])]);
+  const driversById = byId([...(peopleResult.data || []), ...(specialistsResult.data || []), ...(profilesResult.data || [])]);
+  const allStockRows = (stockResult.data || []) as any[];
+
+  const ledgerSelect = "id,inventory_batch_id,batch_id_text,ticket_id,processing_id,reason_ref_id,warehouse_id,direction,delta_qty_signed,reason_type,occurred_at,created_by,is_storno,storno_of_entry_id,notes";
+  const [ledgerByBatchResult, ledgerByTextResult, ledgerByTicketResult, allocationsByBatchResult, allocationsByTextResult] = await Promise.all([
+    batchIds.length
+      ? supabase.from("stock_ledger_entries").select(ledgerSelect).eq("company_id", companyId).in("inventory_batch_id", batchIds)
+      : Promise.resolve({ data: [], error: null }),
+    batchIds.length
+      ? supabase.from("stock_ledger_entries").select(ledgerSelect).eq("company_id", companyId).in("batch_id_text", batchIds)
+      : Promise.resolve({ data: [], error: null }),
+    ticketIds.length
+      ? supabase.from("stock_ledger_entries").select(ledgerSelect).eq("company_id", companyId).in("ticket_id", ticketIds)
+      : Promise.resolve({ data: [], error: null }),
+    batchIds.length
+      ? supabase.from("warehouse_issue_request_item_allocations").select("id,request_id,batch_id,batch_id_text,prepared_quantity,issued_quantity").eq("company_id", companyId).in("batch_id", batchIds)
+      : Promise.resolve({ data: [], error: null }),
+    batchIds.length
+      ? supabase.from("warehouse_issue_request_item_allocations").select("id,request_id,batch_id,batch_id_text,prepared_quantity,issued_quantity").eq("company_id", companyId).in("batch_id_text", batchIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const accountingLoadError = [ledgerByBatchResult, ledgerByTextResult, ledgerByTicketResult, allocationsByBatchResult, allocationsByTextResult]
+    .map((result: any) => result.error).find(Boolean);
+  if (accountingLoadError) throw accountingLoadError;
+
+  const dedupeById = (rows: any[]) => Array.from(new Map(rows.map((row) => [String(row.id), row])).values());
+  const ledgerEntries = dedupeById([
+    ...(ledgerByBatchResult.data || []),
+    ...(ledgerByTextResult.data || []),
+    ...(ledgerByTicketResult.data || []),
+  ]);
+  const outgoingLedgerEntries = ledgerEntries.filter((entry: any) => {
+    const reason = String(entry.reason_type || "").toLowerCase();
+    return Number(entry.delta_qty_signed || 0) < -0.000001 && !entry.is_storno && !reason.includes("harvest_incoming");
+  });
+  const movementTicketIds = ids(outgoingLedgerEntries.map((entry: any) => entry.ticket_id));
+  const processingIds = ids(outgoingLedgerEntries
+    .filter((entry: any) => String(entry.reason_type || "").toLowerCase().includes("processing_input"))
+    .map((entry: any) => entry.processing_id || entry.reason_ref_id));
+  const [movementTicketsResult, transformationsResult] = await Promise.all([
+    movementTicketIds.length
+      ? supabase
+          .from("tickets")
+          .select("id,ticket_no,ticket_type,op_type,status,created_at,finalized_at,created_by,vehicle_id,driver_id,warehouse_from_id,warehouse_to_id,gross_weight_kg,tare_weight_kg,net_weight_kg,notes,is_voided,void_reason")
+          .eq("company_id", companyId)
+          .in("id", movementTicketIds)
+      : Promise.resolve({ data: [], error: null }),
+    processingIds.length
+      ? supabase
+          .from("batch_transformations")
+          .select("id,transformation_type,status,processing_node_id,source_ticket_id,started_at,completed_at,created_by,completed_by,note")
+          .eq("company_id", companyId)
+          .in("id", processingIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (movementTicketsResult.error || transformationsResult.error) {
+    throw movementTicketsResult.error || transformationsResult.error;
+  }
+  const movementTicketRows = (movementTicketsResult.data || []) as any[];
+  const transformationRows = (transformationsResult.data || []) as any[];
+  const traceVehicleIds = ids(movementTicketRows.map((row) => row.vehicle_id));
+  const traceDriverIds = ids(movementTicketRows.map((row) => row.driver_id));
+  const traceProfileIds = ids([
+    ...outgoingLedgerEntries.map((row: any) => row.created_by),
+    ...movementTicketRows.map((row) => row.created_by),
+    ...transformationRows.flatMap((row) => [row.created_by, row.completed_by]),
+  ]);
+  const processingNodeIds = ids(transformationRows.map((row) => row.processing_node_id));
+  const [transformationInputsResult, transformationOutputsResult, traceVehiclesResult, traceMachinesResult, tracePeopleResult, traceSpecialistsResult, traceDriversResult, traceProfilesResult, processingNodesResult] = await Promise.all([
+    processingIds.length
+      ? supabase.from("batch_transformation_inputs").select("transformation_id,batch_id,warehouse_from_id,input_weight_kg").eq("company_id", companyId).in("transformation_id", processingIds)
+      : Promise.resolve({ data: [], error: null }),
+    processingIds.length
+      ? supabase.from("batch_transformation_outputs").select("transformation_id,line_type,batch_class,warehouse_to_id,output_weight_kg").eq("company_id", companyId).in("transformation_id", processingIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceVehicleIds.length
+      ? supabase.from("reference_vehicles").select("id,name,custom_name,plate_number").eq("company_id", companyId).in("id", traceVehicleIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceVehicleIds.length
+      ? supabase.from("reference_machines").select("id,name,model,license_plate").eq("company_id", companyId).in("id", traceVehicleIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceDriverIds.length
+      ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).in("id", traceDriverIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceDriverIds.length
+      ? supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", traceDriverIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceDriverIds.length
+      ? supabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).in("id", traceDriverIds)
+      : Promise.resolve({ data: [], error: null }),
+    traceProfileIds.length
+      ? supabase.from("profiles").select("id,full_name,email").in("id", traceProfileIds)
+      : Promise.resolve({ data: [], error: null }),
+    processingNodeIds.length
+      ? supabase.from("processing_nodes").select("id,name").eq("company_id", companyId).in("id", processingNodeIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const traceError = [
+    transformationInputsResult,
+    transformationOutputsResult,
+    traceVehiclesResult,
+    traceMachinesResult,
+    tracePeopleResult,
+    traceSpecialistsResult,
+    traceDriversResult,
+    traceProfilesResult,
+    processingNodesResult,
+  ].map((result: any) => result.error).find(Boolean);
+  if (traceError) throw traceError;
+
+  const movementTicketsById = byId(movementTicketRows);
+  const transformationsById = byId(transformationRows);
+  const transformationInputsById = new Map<string, any>(
+    (transformationInputsResult.data || []).map((row: any) => [String(row.transformation_id), row])
+  );
+  const transformationOutputsById = new Map<string, any[]>();
+  for (const output of transformationOutputsResult.data || []) {
+    const key = String((output as any).transformation_id);
+    transformationOutputsById.set(key, [...(transformationOutputsById.get(key) || []), output]);
+  }
+  const traceVehiclesById = byId([...(traceVehiclesResult.data || []), ...(traceMachinesResult.data || [])]);
+  const traceDriversById = byId([...(tracePeopleResult.data || []), ...(traceSpecialistsResult.data || []), ...(traceDriversResult.data || [])]);
+  const traceProfilesById = byId(traceProfilesResult.data || []);
+  const processingNodesById = byId(processingNodesResult.data || []);
+  const allocations = dedupeById([
+    ...(allocationsByBatchResult.data || []),
+    ...(allocationsByTextResult.data || []),
+  ]);
+  const requestIds = ids(allocations.map((row) => row.request_id));
+  const requestsResult = requestIds.length
+    ? await supabase
+        .from("warehouse_issue_requests")
+        .select("id,status,warehouse_request_status,source_warehouse_id")
+        .eq("company_id", companyId)
+        .in("id", requestIds)
+    : { data: [], error: null };
+  if (requestsResult.error) throw requestsResult.error;
+  const requestsById = byId(requestsResult.data || []);
+  const openRequest = (request: any) => {
+    const canonical = String(request?.warehouse_request_status || "");
+    return canonical
+      ? ["pending", "collecting", "ready_for_pickup"].includes(canonical)
+      : ["new", "active", "preparing", "ready"].includes(String(request?.status || ""));
+  };
+  const sourceTicketToBatch = new Map<string, string>();
+  links.forEach((link) => {
+    if (link.source_ticket_id) sourceTicketToBatch.set(String(link.source_ticket_id), String(link.inventory_batch_id));
+  });
+  (batchesResult.data || []).forEach((batch: any) => {
+    if (batch.source_ticket_id) sourceTicketToBatch.set(String(batch.source_ticket_id), String(batch.id));
+  });
+  const resolveLedgerBatchId = (entry: any): string | null => {
+    const direct = String(entry.inventory_batch_id || entry.batch_id_text || "");
+    if (direct && batchIds.includes(direct)) return direct;
+    return sourceTicketToBatch.get(String(entry.ticket_id || "")) || null;
+  };
+  const resolveAllocationBatchId = (entry: any): string | null => {
+    const direct = String(entry.batch_id || entry.batch_id_text || "");
+    return direct && batchIds.includes(direct) ? direct : null;
+  };
+
+  return lotRows.flatMap((lot) => {
+    const memberLinks = links.filter((link) => String(link.harvest_lot_id) === String(lot.id));
+    const trips = memberLinks.map((link) => {
+      const batch = batchesById.get(String(link.inventory_batch_id)) || {};
+      const ticket = ticketsById.get(String(link.source_ticket_id || batch.source_ticket_id)) || {};
+      const fieldId = String(ticket.field_id || lot.source_field_id || "") || null;
+      const field = fieldsById.get(String(fieldId || ""));
+      const vehicle = vehiclesById.get(String(ticket.vehicle_id || ""));
+      const driver = driversById.get(String(ticket.driver_id || ""));
+      const transportAudit = (ticket.audit_json?.transport || {}) as Record<string, unknown>;
+      return {
+        id: String(batch.id || link.inventory_batch_id),
+        batchCode: String(batch.batch_code || "Рейс"),
+        ticketId: ticket.id ? String(ticket.id) : null,
+        ticketNo: String(ticket.ticket_no || "—"),
+        fieldId,
+        fieldName: String(field?.name || "Поле не уточнено"),
+        warehouseId: ticket.warehouse_to_id ? String(ticket.warehouse_to_id) : null,
+        netWeightKg: Number(ticket.net_weight_kg || 0),
+        moisturePercent: batch.moisture_percent == null ? null : Number(batch.moisture_percent),
+        vehicleName: String(vehicle?.custom_name || vehicle?.name || vehicle?.model || transportAudit.vehicle_name_snapshot || "") || null,
+        driverName: String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
+        status: ticket.is_voided || ticket.status === "voided" ? "voided" : String(ticket.status || "unknown"),
+        occurredAt: ticket.finalized_at || ticket.created_at || batch.created_at || null,
+      };
+    });
+    const validTrips = trips.filter((trip) => trip.status !== "voided");
+    const fieldSummaryMap = new Map<string, { fieldId: string | null; fieldName: string; netWeightKg: number; tripCount: number }>();
+    trips.forEach((trip) => {
+      const key = trip.fieldId || "missing";
+      const current = fieldSummaryMap.get(key) || {
+        fieldId: trip.fieldId,
+        fieldName: trip.fieldName,
+        netWeightKg: 0,
+        tripCount: 0,
+      };
+      if (trip.status !== "voided") {
+        current.netWeightKg += trip.netWeightKg;
+        current.tripCount += 1;
+      }
+      fieldSummaryMap.set(key, current);
+    });
+    const fieldSummaries = Array.from(fieldSummaryMap.values()).sort((a, b) => a.fieldName.localeCompare(b.fieldName, "ru"));
+    const fieldNames = fieldSummaries.map((item) => item.fieldName).join(", ") || "Поле не уточнено";
+    const receivedKg = validTrips.reduce((sum, trip) => sum + trip.netWeightKg, 0);
+    const voidedKg = trips.filter((trip) => trip.status === "voided").reduce((sum, trip) => sum + trip.netWeightKg, 0);
+    const dates = validTrips.map((trip) => trip.occurredAt).filter(Boolean).sort();
+    const stockRows = allStockRows.filter((row) => String(row.harvest_lot_id) === String(lot.id) && Number(row.current_weight_kg || 0) > 0.0001);
+    const totalCurrent = stockRows.reduce((sum, row) => sum + Number(row.current_weight_kg || 0), 0);
+    const crop = cropsById.get(String(lot.crop_id || ""));
+    const variety = varietiesById.get(String(lot.variety_id || ""));
+    const reproduction = reproductionsById.get(String(lot.reproduction_id || ""));
+    const season = seasonsById.get(String(lot.season_id || ""));
+    const sampleBatch = memberLinks.map((link) => batchesById.get(String(link.inventory_batch_id))).find(Boolean) || {};
+    const cropName = lot.identity_kind === "crop_mix"
+      ? String(sampleBatch.display_name || "Зерносмесь")
+      : localizedName(crop, "ru") || "Культура не уточнена";
+    const productId = String(sampleBatch.product_id || "");
+    const productIds = ids(memberLinks.map((link) => batchesById.get(String(link.inventory_batch_id))?.product_id));
+    const memberBatchIds = new Set(memberLinks.map((link) => String(link.inventory_batch_id)));
+    const lotLedgerEntries = ledgerEntries.filter((entry) => {
+      const resolvedBatchId = resolveLedgerBatchId(entry);
+      return Boolean(resolvedBatchId && memberBatchIds.has(resolvedBatchId));
+    });
+    const lotAllocations = allocations.filter((allocation) => {
+      const resolvedBatchId = resolveAllocationBatchId(allocation);
+      return Boolean(resolvedBatchId && memberBatchIds.has(resolvedBatchId));
+    });
+    const companyAccounting = calculateHarvestLotAccounting({
+      receivedKg,
+      voidedKg,
+      currentKg: totalCurrent,
+      ledgerEntries: lotLedgerEntries,
+    });
+
+    return stockRows.map((stock) => {
+      const warehouse = warehousesById.get(String(stock.warehouse_id || ""));
+      const currentWeight = Number(stock.current_weight_kg || 0);
+      const warehouseLedgerEntries = lotLedgerEntries.filter(
+        (entry) => String(entry.warehouse_id || "") === String(stock.warehouse_id || "")
+      );
+      const warehouseReceivedKg = validTrips
+        .filter((trip) => String(trip.warehouseId || "") === String(stock.warehouse_id || ""))
+        .reduce((sum, trip) => sum + trip.netWeightKg, 0);
+      const warehouseVoidedKg = trips
+        .filter((trip) => trip.status === "voided" && String(trip.warehouseId || "") === String(stock.warehouse_id || ""))
+        .reduce((sum, trip) => sum + trip.netWeightKg, 0);
+      const reservedKg = lotAllocations.reduce((sum, allocation) => {
+        const request = requestsById.get(String(allocation.request_id || ""));
+        if (!openRequest(request) || String(request?.source_warehouse_id || "") !== String(stock.warehouse_id || "")) return sum;
+        return sum + Math.max(Number(allocation.prepared_quantity || 0) - Number(allocation.issued_quantity || 0), 0);
+      }, 0);
+      const accounting = calculateHarvestLotAccounting({
+        receivedKg: warehouseReceivedKg,
+        voidedKg: warehouseVoidedKg,
+        currentKg: currentWeight,
+        reservedKg,
+        ledgerEntries: warehouseLedgerEntries,
+      });
+      const stornoTargetEntryIds = new Set(
+        warehouseLedgerEntries
+          .map((entry: any) => String(entry.storno_of_entry_id || ""))
+          .filter(Boolean)
+      );
+      const outgoingDocuments = warehouseLedgerEntries
+        .filter((entry: any) => {
+          const reason = String(entry.reason_type || "").toLowerCase();
+          return Number(entry.delta_qty_signed || 0) < -0.000001
+            && !entry.is_storno
+            && !stornoTargetEntryIds.has(String(entry.id || ""))
+            && !reason.includes("harvest_incoming");
+        })
+        .map((entry: any) => {
+          const reason = String(entry.reason_type || "").toLowerCase();
+          const processingId = reason.includes("processing_input")
+            ? String(entry.processing_id || entry.reason_ref_id || "")
+            : "";
+          const transformation = processingId ? transformationsById.get(processingId) : null;
+          const input = processingId ? transformationInputsById.get(processingId) : null;
+          const ticketId = String(entry.ticket_id || "");
+          const ticket = ticketId ? movementTicketsById.get(ticketId) : null;
+          const sourceTicket = transformation?.source_ticket_id
+            ? ticketsById.get(String(transformation.source_ticket_id))
+            : null;
+          const vehicle = ticket?.vehicle_id ? traceVehiclesById.get(String(ticket.vehicle_id)) : null;
+          const driver = ticket?.driver_id ? traceDriversById.get(String(ticket.driver_id)) : null;
+          const actorId = String(
+            transformation?.completed_by || transformation?.created_by || ticket?.created_by || entry.created_by || ""
+          );
+          const actor = actorId ? traceProfilesById.get(actorId) : null;
+          const outputs = processingId ? (transformationOutputsById.get(processingId) || []) : [];
+          const sourceType = transformation
+            ? "processing_document"
+            : ticket
+              ? "weighbridge_ticket"
+              : "missing";
+          return {
+            id: String(entry.id),
+            label: movementLabel(entry.reason_type),
+            quantityKg: Math.abs(Number(entry.delta_qty_signed || 0)),
+            occurredAt: entry.occurred_at || transformation?.completed_at || ticket?.finalized_at || null,
+            warehouseName: localizedName(warehouse, "ru", ["name"]) || "Склад",
+            actorName: String(actor?.full_name || actor?.email || "") || null,
+            sourceType,
+            sourceId: transformation?.id ? String(transformation.id) : ticket?.id ? String(ticket.id) : null,
+            documentNo: ticket?.ticket_no
+              ? String(ticket.ticket_no)
+              : transformation
+                ? "Документ переработки"
+                : null,
+            ticketId: ticket?.id ? String(ticket.id) : null,
+            ticketNo: ticket?.ticket_no ? String(ticket.ticket_no) : null,
+            vehicleName: String(vehicle?.custom_name || vehicle?.name || vehicle?.model || "") || null,
+            driverName: String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
+            notes: String(entry.notes || transformation?.note || ticket?.notes || "") || null,
+            processingDocument: transformation ? {
+              id: String(transformation.id),
+              transformationType: String(transformation.transformation_type || "processing"),
+              status: String(transformation.status || ""),
+              processingNodeName: String(processingNodesById.get(String(transformation.processing_node_id || ""))?.name || "") || null,
+              startedAt: transformation.started_at || null,
+              completedAt: transformation.completed_at || null,
+              sourceWarehouseName: String(warehousesById.get(String(input?.warehouse_from_id || ""))?.name || "") || null,
+              inputBatchId: input?.batch_id ? String(input.batch_id) : null,
+              inputBatchCode: String(batchesById.get(String(input?.batch_id || ""))?.batch_code || "") || null,
+              inputWeightKg: Number(input?.input_weight_kg || 0),
+              sourceTicketId: sourceTicket?.id ? String(sourceTicket.id) : null,
+              sourceTicketNo: sourceTicket?.ticket_no ? String(sourceTicket.ticket_no) : null,
+              createdByName: String(traceProfilesById.get(String(transformation.created_by || ""))?.full_name || traceProfilesById.get(String(transformation.created_by || ""))?.email || "") || null,
+              completedByName: String(traceProfilesById.get(String(transformation.completed_by || ""))?.full_name || traceProfilesById.get(String(transformation.completed_by || ""))?.email || "") || null,
+              note: transformation.note ? String(transformation.note) : null,
+              outputs: outputs.map((output: any) => ({
+                lineType: String(output.line_type || "other"),
+                batchClass: String(output.batch_class || ""),
+                warehouseName: String(warehousesById.get(String(output.warehouse_to_id || ""))?.name || "") || null,
+                weightKg: Number(output.output_weight_kg || 0),
+              })),
+            } : null,
+          } as const;
+        })
+        .sort((a, b) => new Date(b.occurredAt || 0).getTime() - new Date(a.occurredAt || 0).getTime());
+      return {
+        id: String(lot.id),
+        batchCode: String(lot.lot_code),
+        warehouseId: String(stock.warehouse_id || ""),
+        warehouseName: localizedName(warehouse, "ru", ["name"]) || "Склад",
+        productId,
+        productIds,
+        productName: cropName,
+        cropId: lot.crop_id ? String(lot.crop_id) : null,
+        cropName,
+        varietyId: lot.variety_id ? String(lot.variety_id) : null,
+        varietyName: brandName(variety) || "Не уточнён",
+        reproductionId: lot.reproduction_id ? String(lot.reproduction_id) : null,
+        reproductionName: localizedName(reproduction, "ru", ["name", "code"]) || "Не уточнена",
+        fieldId: fieldSummaries.length === 1 ? fieldSummaries[0].fieldId : null,
+        fieldName: fieldNames,
+        operationLineId: null,
+        cropStructureLabel: `Поля: ${fieldNames}`,
+        seasonLabel: String(season?.year || season?.name || "Сезон не уточнён"),
+        operationName: "Приёмка урожая",
+        firstReceivedAt: dates[0] || null,
+        lastReceivedAt: dates[dates.length - 1] || null,
+        receivedKg: accounting.receivedKg,
+        companyReceivedKg: receivedKg,
+        companyCurrentKg: companyAccounting.physicalKg,
+        voidedKg: accounting.voidedKg,
+        removedKg: accounting.impurityKg,
+        cleanMassKg: accounting.physicalKg,
+        impurityPercent: accounting.receivedKg > 0 ? (accounting.impurityKg / accounting.receivedKg) * 100 : 0,
+        processingInputKg: accounting.processingInputKg,
+        processingOutputKg: accounting.processingOutputKg,
+        transferInKg: accounting.transferInKg,
+        transferOutKg: accounting.transferOutKg,
+        writeoffKg: accounting.writeoffKg,
+        issueKg: accounting.issueKg,
+        otherAdjustmentKg: accounting.otherAdjustmentKg,
+        reservedKg: accounting.reservedKg,
+        availableKg: accounting.availableKg,
+        reconciliationDeltaKg: accounting.reconciliationDeltaKg,
+        harvestedAreaHa: null,
+        grossYieldTPerHa: null,
+        cleanYieldTPerHa: null,
+        aggregateLot: true,
+        aggregateLotId: String(lot.id),
+        tripCount: validTrips.length,
+        reviewState: lot.review_state,
+        reviewReasons: Array.isArray(lot.review_reasons) ? lot.review_reasons : [],
+        fieldSummaries,
+        tripBatches: trips,
+        outgoingDocuments,
+        tickets: trips.filter((trip) => trip.ticketId).map((trip) => ({
+          id: trip.ticketId,
+          ticketNo: trip.ticketNo,
+          operation: "harvest_incoming" as const,
+          netWeightKg: trip.netWeightKg,
+          occurredAt: trip.occurredAt,
+        })),
+        movements: trips.filter((trip) => trip.status !== "voided").map((trip) => ({
+          id: trip.id,
+          label: `Рейс ${trip.ticketNo}`,
+          quantityKg: trip.netWeightKg,
+          direction: "in" as const,
+          occurredAt: trip.occurredAt,
+          ticketNo: trip.ticketNo,
+        })),
+      };
+    });
+  });
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,6 +527,11 @@ export async function GET(request: NextRequest) {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
     const warehouseId = String(request.nextUrl.searchParams.get("warehouseId") || "").trim() || null;
+    const aggregateLots = request.nextUrl.searchParams.get("view") === "lots";
+    if (aggregateLots) {
+      const lots = await loadAggregateHarvestLots(supabase, companyId, warehouseId);
+      if (lots !== null) return NextResponse.json({ batches: lots });
+    }
 
     let batchQuery = supabase
       .from("inventory_batches")

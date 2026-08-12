@@ -20,9 +20,18 @@ export const WEIGHBRIDGE_READ_ROLES = [
 
 export const WEIGHBRIDGE_WRITE_ROLES = [
   "global_admin",
+  "company_admin",
   "director",
   "weighman",
 ] as const;
+
+export const WEIGHBRIDGE_OPERATOR_COOKIE = "travkin_wb_operator";
+
+export type WeighbridgeOperatorSession = {
+  operator: { id: string; name: string };
+  shift: { id: string; status: string };
+  session_expires_at: string;
+};
 
 export async function resolveWeighbridgeSession(
   request: NextRequest,
@@ -60,6 +69,28 @@ export async function resolveWeighbridgeSession(
   return { actor, companyId, supabase };
 }
 
+export async function requireWeighbridgeOperatorSession(
+  request: NextRequest,
+  context: {
+    companyId: string;
+    supabase: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>;
+  }
+): Promise<WeighbridgeOperatorSession> {
+  const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+  const { data, error } = await context.supabase.rpc("weighbridge_operator_session_state_v1", {
+    p_company_id: context.companyId,
+    p_session_token: token || null,
+  });
+  if (error) {
+    throw new SessionAuthError(error.message || "Operator session check failed", 400);
+  }
+  const state = (data || {}) as Record<string, any>;
+  if (!state.unlocked || !state.operator?.id || !state.shift?.id) {
+    throw new SessionAuthError("Введите PIN весовщика, чтобы продолжить смену.", 423);
+  }
+  return state as WeighbridgeOperatorSession;
+}
+
 export function asSessionErrorResponse(error: unknown) {
   if (error instanceof SessionAuthError) {
     return { error: error.message, status: error.status };
@@ -95,7 +126,10 @@ export function weighbridgeUserError(message: unknown): string {
     return "Нетто должно быть больше нуля. Проверьте брутто и тару.";
   }
   if (lower.includes("tare") && lower.includes("gross")) {
-    return "Тара не может быть больше или равна брутто.";
+    return "Тара должна быть меньше брутто.";
+  }
+  if (lower.includes("простое исправление невозможно") || lower.includes("downstream")) {
+    return "Этот приход уже использован в последующих движениях. Простое исправление невозможно.";
   }
   if (lower.includes("ticket already has ledger entries")) {
     return "По талону уже есть складские движения. Повторное закрытие запрещено.";

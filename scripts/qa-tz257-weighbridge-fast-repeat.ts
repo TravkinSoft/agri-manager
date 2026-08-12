@@ -11,6 +11,7 @@ const root = process.cwd();
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
+const ticketPaper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
 
 let passed = 0;
 function check(name: string, run: () => void) {
@@ -27,7 +28,7 @@ const context = pickWeighbridgeFastRepeatContext({
 
 check("new ticket form has no trailer selector", () => assert.doesNotMatch(page, /form\.trailerId|trailerSearch|Прицеп \(необязательно\)/));
 check("new ticket payload has no trailer", () => assert.doesNotMatch(page, /trailer_id:\s*form\./));
-check("legacy trailer remains readable", () => assert.match(page, /activeTrailer[\s\S]*Прицеп:/));
+check("legacy trailer remains readable", () => assert.match(ticketPaper, /trailer_name_snapshot[\s\S]*label="Прицеп"/));
 check("backend keeps optional legacy trailer support", () => assert.match(ticketRoute, /if \(requestedTrailerId\)/));
 check("carry-over key requires company", () => assert.equal(weighbridgeFastRepeatStorageKey("", "shift-1"), ""));
 check("carry-over key requires active shift", () => assert.equal(weighbridgeFastRepeatStorageKey("company-1", ""), ""));

@@ -18,6 +18,7 @@ const finalizeRoute = read("app/api/weighbridge/tickets/[id]/finalize/route.ts")
 const bootstrapRoute = read("app/api/weighbridge/bootstrap/route.ts");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const service = read("lib/services/weighbridge.ts");
+const correctionMigration = read("supabase/migrations/20260811233956_tz263_weighbridge_ticket_correction_v1.sql");
 
 const incompleteAllocation = {
   allocationId: "allocation-1",
@@ -46,8 +47,11 @@ check("12 route derives product automatically", () => assert(createRoute.include
 
 check("13 gross event is created", () => assert(has(createRoute, ["weighing_no: 1", "measured_weight_kg: gross"])));
 check("14 gross event is manual and attributed", () => assert(has(createRoute, ['device_source: "manual"', "operator_user_id: actor.id"])));
-check("15 tare event is created", () => assert(has(ticketRoute, ["weighing_no: 2", "measured_weight_kg: tareWeight"])));
-check("16 duplicate tare is rejected or reused", () => assert(has(ticketRoute, ["existingTare", '"23505"', "racedTare"])));
+check("15 tare event is created atomically", () => {
+  assert(ticketRoute.includes('rpc("update_open_weighbridge_ticket_v1"'));
+  assert(has(correctionMigration, ["weighing_no, measured_weight_kg", "p_ticket_id, v_ticket.company_id, 2, v_tare"]));
+});
+check("16 duplicate tare is atomically reused", () => assert(has(correctionMigration, ["on conflict (ticket_id, weighing_no) do update", "measured_weight_kg = excluded.measured_weight_kg"])));
 check("17 invalid net is rejected", () => assert.equal(validateHarvestWeights(12_000, 12_000).ok, false));
 check("18 correct net is calculated", () => {
   const result = validateHarvestWeights(31_420, 12_180);
@@ -69,7 +73,10 @@ check("27 repeat trip suggests field without auto-binding driver", () => {
   assert(has(page, ["setSuggestedFieldId", "Последнее поле этой машины"]));
   assert(!page.includes("lastShiftTicket?.driver_id"));
 });
-check("28 open vehicle ticket has one-action tare", () => assert(has(page, ["openVehicleTicket", "Принять тару"])));
+check("28 gross stays primary and tare opens from the selected queue ticket", () => {
+  assert(!page.includes("openVehicleTicket"));
+  assert(has(page, ["Открытые талоны", "onClick={() => setActiveTicket(t)}", "Открыть талон"]));
+});
 check("29 destination empty state is explicit", () => assert(page.includes("Добавьте место приёмки урожая перед началом работы весовой.")));
 check("30 driver list is searchable", () => assert(has(page, ["SearchableCombobox", "Фамилия, имя или ФИО"])));
 check("31 stale shift guard exists", () => assert(has(bootstrapRoute, ["shiftGuard", "ageHours", "stale"])));

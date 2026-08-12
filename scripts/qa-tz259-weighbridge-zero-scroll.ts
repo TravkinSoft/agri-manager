@@ -10,6 +10,7 @@ const ticketRoute = read("app/api/weighbridge/tickets/[id]/route.ts");
 const combobox = read("components/weighbridge/searchable-combobox.tsx");
 const printPage = read("app/(dashboard)/weighbridge/[id]/print/page.tsx");
 const pdfRoute = read("app/api/weighbridge/tickets/[id]/pdf/route.ts");
+const ticketPaper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
 
 let passed = 0;
 function check(name: string, run: () => void) {
@@ -24,6 +25,7 @@ check("large reception blocker removed", () => assert.doesNotMatch(page, /Мес
 check("compact mode bar replaces the attention control", () => {
   assert.doesNotMatch(page, /intakeStatusLabel|Требуется внимание/);
   assert.match(page, /aria-label="Режим весовой"/);
+  assert.match(page, /overflow-x-auto overflow-y-hidden/);
 });
 check("secondary actions share one menu", () => assert.match(page, /aria-label="Дополнительные действия"/));
 check("inventory moved into secondary menu", () => assert.match(page, /DropdownMenuItem asChild>[\s\S]*\/warehouses\/inventory/));
@@ -45,8 +47,8 @@ check("gross grid is compact", () => assert.match(page, /md:grid-cols-\[1fr_220p
 check("primary CTA says open ticket", () => assert.match(page, /"Открыть талон"/));
 check("primary moisture field removed from gross flow", () => assert.doesNotMatch(page, /Влажность, % \(необязательно\)/));
 check("new ticket UI has no trailer selector", () => assert.doesNotMatch(page, /form\.trailerId|Прицеп \(необязательно\)/));
-check("legacy trailer remains visible", () => assert.match(page, /activeTrailer[\s\S]*Прицеп:/));
-check("open ticket shows awaiting tare", () => assert.match(page, /Ожидает тару/));
+check("legacy trailer remains visible", () => assert.match(ticketPaper, /trailer_name_snapshot[\s\S]*label="Прицеп"/));
+check("open ticket shows awaiting tare", () => assert.match(page, /Ждёт тару/));
 check("moisture saves on blur", () => assert.match(page, /onBlur=\{\(\) => void saveActiveTicketMoisture\(\)\}/));
 check("moisture saves on Enter", () => assert.match(page, /event\.key !== "Enter"[\s\S]*saveActiveTicketMoisture/));
 check("moisture accepts decimals", () => assert.match(page, /step="0\.1"/));
@@ -62,8 +64,8 @@ check("gross remains manual connector-compatible input", () => assert.match(page
 check("whole kilogram weights omit zero decimals", () => assert.equal(formatWeightKg("8500.000"), "8 500 кг"));
 check("weight thousands use readable spaces", () => assert.equal(formatWeightKg(12600), "12 600 кг"));
 check("real weight fractions remain visible", () => assert.equal(formatWeightKg(8500.125), "8 500,125 кг"));
-check("weighbridge summaries share the weight formatter", () => assert.match(page, /formatWeightKg\(activeTicket\.gross_weight_kg\)/));
-check("print view shares the weight formatter", () => assert.match(printPage, /formatWeightKg\(ticket\.net_weight_kg\)/));
+check("weighbridge summaries share the weight formatter", () => assert.match(ticketPaper, /formatWeightKg\(ticket\.gross_weight_kg\)/));
+check("print view shares the canonical ticket component", () => assert.match(printPage, /<WeighbridgeTicketPaper ticket=\{ticket\}/));
 check("downloaded PDF shares the numeric formatter", () => assert.match(pdfRoute, /formatWeightNumber\(ticket\.net_weight_kg/));
 
 assert.equal(passed, 44);

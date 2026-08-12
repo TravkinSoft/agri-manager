@@ -23,7 +23,7 @@ export function HarvestWarehousesReadonly({ companyId }: { companyId: string }) 
     let cancelled = false;
     setLoading(true);
     setError(null);
-    listHarvestBatchSummaries(companyId)
+    listHarvestBatchSummaries(companyId, { aggregateLots: true })
       .then((data) => { if (!cancelled) setRows(data); })
       .catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Не удалось загрузить партии урожая"); })
       .finally(() => { if (!cancelled) setLoading(false); });

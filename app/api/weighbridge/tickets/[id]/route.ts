@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, requireWeighbridgeOperatorSession, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
+import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 
 export async function GET(
   request: NextRequest,
@@ -101,15 +102,25 @@ export async function GET(
         : Promise.resolve({ data: null } as any),
     ]);
 
-    const { data: lines } = await supabase
-      .from("ticket_lines")
-      .select("*")
-      .eq("ticket_id", id);
-    const { data: weighings } = await supabase
-      .from("ticket_weighings")
-      .select("*")
-      .eq("ticket_id", id)
-      .order("weighing_no", { ascending: true });
+    const [linesResult, weighingsResult, correctionAuditResult, correctionOfResult, replacementResult] = await Promise.all([
+      supabase.from("ticket_lines").select("*").eq("ticket_id", id),
+      supabase.from("ticket_weighings").select("*").eq("ticket_id", id).order("weighing_no", { ascending: true }),
+      supabase.from("audit_log")
+        .select("id,action,when_at,reason,old_values,new_values")
+        .eq("company_id", companyId)
+        .eq("entity_type", "weighbridge_ticket")
+        .eq("entity_id", id)
+        .in("action", ["open_ticket_corrected", "ticket_correction_started", "ticket_replaced"])
+        .order("when_at", { ascending: false }),
+      ticket.correction_of_ticket_id
+        ? supabase.from("tickets").select("id,ticket_no,status").eq("company_id", companyId).eq("id", ticket.correction_of_ticket_id).maybeSingle()
+        : Promise.resolve({ data: null } as any),
+      ticket.replacement_ticket_id
+        ? supabase.from("tickets").select("id,ticket_no,status").eq("company_id", companyId).eq("id", ticket.replacement_ticket_id).maybeSingle()
+        : Promise.resolve({ data: null } as any),
+    ]);
+    const lines = linesResult.data || [];
+    const weighings = weighingsResult.data || [];
 
     const productIds = Array.from(new Set((lines || []).map((line: any) => line.product_id).filter(Boolean).map(String)));
     const varietyIds = Array.from(new Set((lines || []).map((line: any) => line.variety_id).filter(Boolean).map(String)));
@@ -184,6 +195,9 @@ export async function GET(
         driver_name_snapshot: driver?.name_ru || driver?.full_name || driver?.name_en || driver?.name_kz || driver?.email || null,
         created_by_name_snapshot: creator?.full_name || creator?.email || null,
         crop_structure_allocation_label: cropStructureAllocationLabel,
+        correction_of_ticket: correctionOfResult.data || null,
+        replacement_ticket: replacementResult.data || null,
+        correction_audit: correctionAuditResult.data || [],
         lines: enrichedLines,
       },
       lines: enrichedLines,
@@ -213,7 +227,7 @@ export async function PATCH(
       return NextResponse.json({ error: "ticket id is required" }, { status: 400 });
     }
 
-    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
@@ -232,21 +246,29 @@ export async function PATCH(
       return NextResponse.json({ error: "Finalized/voided ticket is read-only" }, { status: 400 });
     }
 
+    const operatorSession = ticket.weigh_method === "manual_override_with_reason"
+      ? null
+      : await requireWeighbridgeOperatorSession(request, { companyId, supabase });
+
     const patch: Record<string, unknown> = {};
     if (body?.gross_weight_kg !== undefined) {
-      const value = Number(body.gross_weight_kg);
-      if (!Number.isFinite(value) || value < 0) {
-        return NextResponse.json({ error: "Брутто должно быть неотрицательным числом." }, { status: 400 });
+      const parsed = parseStrictWeightKg(body.gross_weight_kg, "Брутто");
+      if (!parsed.ok) {
+        return NextResponse.json({ error: parsed.message }, { status: 400 });
       }
-      patch.gross_weight_kg = value;
+      if (parsed.value <= 0) return NextResponse.json({ error: "Брутто должно быть больше нуля." }, { status: 400 });
+      patch.gross_weight_kg = parsed.value;
     }
 
     if (body?.tare_weight_kg !== undefined) {
-      const value = Number(body.tare_weight_kg);
-      if (!Number.isFinite(value) || value < 0) {
-        return NextResponse.json({ error: "Тара должна быть неотрицательным числом." }, { status: 400 });
+      const parsed = parseStrictWeightKg(body.tare_weight_kg, "Тара");
+      if (!parsed.ok) {
+        return NextResponse.json({ error: parsed.message }, { status: 400 });
       }
-      patch.tare_weight_kg = value;
+      if (parsed.value <= 0 && ticket.weigh_method !== "manual_override_with_reason") {
+        return NextResponse.json({ error: "Тара должна быть больше нуля." }, { status: 400 });
+      }
+      patch.tare_weight_kg = parsed.value;
     }
 
     const nextGross =
@@ -280,7 +302,7 @@ export async function PATCH(
       }
     }
 
-    if (nextGross != null && nextTare != null) {
+    if (nextGross != null && nextTare != null && ticket.weigh_method !== "manual_override_with_reason") {
       const weightValidation = validateHarvestWeights(nextGross, nextTare);
       if (!weightValidation.ok) {
         return NextResponse.json({ error: weightValidation.message }, { status: 400 });
@@ -321,13 +343,23 @@ export async function PATCH(
       return NextResponse.json({ error: "No patch fields provided" }, { status: 400 });
     }
 
-    if (ticket.op_type === "harvest_incoming" && patch.net_weight_kg !== undefined) {
-      const { error: atomicUpdateError } = await supabase.rpc("set_harvest_ticket_weights_for_session_v1", {
+    if (ticket.op_type === "harvest_incoming" && (patch.gross_weight_kg !== undefined || patch.tare_weight_kg !== undefined)) {
+      const { data: atomicUpdate, error: atomicUpdateError } = await supabase.rpc("update_open_weighbridge_ticket_v1", {
         p_ticket_id: id,
         p_patch: patch,
+        p_tare_variance_confirmed: Boolean(body?.confirm_tare_variance),
+        p_operator_person_id: operatorSession?.operator.id || null,
+        p_shift_id: operatorSession?.shift.id || null,
+        p_reason: String(body?.reason || "").trim() || null,
       });
       if (atomicUpdateError) {
         return NextResponse.json({ error: atomicUpdateError.message }, { status: 400 });
+      }
+      if ((atomicUpdate as any)?.requires_confirmation) {
+        return NextResponse.json({
+          error: "Проверьте тару.",
+          ...(atomicUpdate as Record<string, unknown>),
+        }, { status: 409 });
       }
 
       if (hasMoisturePatch && harvestLineId) {
@@ -341,53 +373,6 @@ export async function PATCH(
         }
       }
 
-      const tareWeight = Number(nextTare || 0);
-      const { data: existingTare, error: existingTareError } = await supabase
-        .from("ticket_weighings")
-        .select("id,measured_weight_kg")
-        .eq("ticket_id", id)
-        .eq("weighing_no", 2)
-        .maybeSingle();
-      if (existingTareError) {
-        return NextResponse.json({ error: existingTareError.message }, { status: 400 });
-      }
-      if (existingTare?.id && Math.abs(Number(existingTare.measured_weight_kg || 0) - tareWeight) > 0.001) {
-        return NextResponse.json(
-          { error: "Второе взвешивание уже сохранено с другим значением тары." },
-          { status: 409 }
-        );
-      }
-      if (!existingTare?.id) {
-        const { error: tareEventError } = await supabase.from("ticket_weighings").insert({
-          ticket_id: id,
-          company_id: companyId,
-          weighing_no: 2,
-          measured_weight_kg: tareWeight,
-          measured_at: new Date().toISOString(),
-          device_source: "manual",
-          operator_user_id: actor.id,
-        });
-        if (tareEventError) {
-          if (String((tareEventError as any)?.code || "") !== "23505") {
-            return NextResponse.json({ error: tareEventError.message }, { status: 400 });
-          }
-          const { data: racedTare, error: racedTareError } = await supabase
-            .from("ticket_weighings")
-            .select("measured_weight_kg")
-            .eq("ticket_id", id)
-            .eq("weighing_no", 2)
-            .maybeSingle();
-          if (racedTareError) {
-            return NextResponse.json({ error: racedTareError.message }, { status: 400 });
-          }
-          if (Math.abs(Number(racedTare?.measured_weight_kg || 0) - tareWeight) > 0.001) {
-            return NextResponse.json(
-              { error: "Второе взвешивание уже сохранено с другим значением тары." },
-              { status: 409 }
-            );
-          }
-        }
-      }
       const { data: updated, error: updatedError } = await supabase
         .from("tickets")
         .select("*")

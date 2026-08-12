@@ -182,20 +182,24 @@ export async function GET(
       : { data: [] as any[], error: null };
     if (batchError) throw new Error(batchError.message);
     const ticketIds = Array.from(new Set((batches || []).map((row: any) => String(row.source_ticket_id || "")).filter(Boolean)));
-    const { data: tickets, error: ticketError } = ticketIds.length
-      ? await supabase
-          .from("tickets")
-          .select("id,ticket_no,supplier_id,created_at,finalized_at")
-          .in("id", ticketIds)
-      : { data: [] as any[], error: null };
+    const [ticketResult, lineResult] = await Promise.all([
+      ticketIds.length
+        ? supabase
+            .from("tickets")
+            .select("id,ticket_no,supplier_id,created_at,finalized_at")
+            .in("id", ticketIds)
+        : Promise.resolve({ data: [] as any[], error: null }),
+      ticketIds.length
+        ? supabase
+            .from("ticket_lines")
+            .select("ticket_id,product_id,lot_id,quality_json")
+            .in("ticket_id", ticketIds)
+            .in("product_id", productIds)
+        : Promise.resolve({ data: [] as any[], error: null }),
+    ]);
+    const { data: tickets, error: ticketError } = ticketResult;
+    const { data: lines, error: lineError } = lineResult;
     if (ticketError) throw new Error(ticketError.message);
-    const { data: lines, error: lineError } = ticketIds.length
-      ? await supabase
-          .from("ticket_lines")
-          .select("ticket_id,product_id,lot_id,quality_json")
-          .in("ticket_id", ticketIds)
-          .in("product_id", productIds)
-      : { data: [] as any[], error: null };
     if (lineError) throw new Error(lineError.message);
     const supplierIds = Array.from(new Set([
       ...(batches || []).map((row: any) => String(row.supplier_id || "")),

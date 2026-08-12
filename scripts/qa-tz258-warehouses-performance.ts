@@ -18,16 +18,15 @@ const batchesRoute = read("app/api/weighbridge/harvest-batches/route.ts");
 const checks: Array<[string, () => void]> = [
   ["initial load fetches the warehouse list independently", () => {
     const body = page.match(/const loadWarehouseList = async[\s\S]*?\n  };/)?.[0] || "";
-    assert.match(body, /await getWarehouses\(/);
+    assert.match(body, /await getWarehouseSummaries\(/);
     assert.doesNotMatch(body, /getProducts|getInventoryBalances|getInventoryTransactions|getWarehouseReceipts|getWarehouseIssueRequests|listHarvestBatchSummaries|Promise\.all/);
   }],
   ["selected warehouse details are loaded separately", () => {
+    const body = page.match(/const loadWarehouseDetails = async[\s\S]*?\n  };/)?.[0] || "";
     assert.match(page, /const loadWarehouseDetails = async/);
-    assert.match(page, /getInventoryBalances\([^\n]+\{ warehouseId \}\)/);
-    assert.match(page, /getInventoryTransactions\([^\n]+\{ warehouseId, limit: 50 \}\)/);
-    assert.match(page, /getWarehouseReceipts\([^\n]+\{ warehouseId \}\)/);
-    assert.match(page, /getWarehouseIssueRequests\([^\n]+\{ warehouseId \}\)/);
-    assert.match(page, /listHarvestBatchSummaries\([^\n]+\{ warehouseId \}\)/);
+    assert.match(body, /getInventoryBalances\([^\n]+\{ warehouseId \}\)/);
+    assert.match(body, /listHarvestBatchSummaries\([^\n]+\{ warehouseId, aggregateLots: true \}\)/);
+    assert.doesNotMatch(body, /getProducts|getInventoryTransactions|getWarehouseReceipts|getWarehouseIssueRequests/);
   }],
   ["product catalog is lazy and tied to the receipt action", () => {
     const initialBody = page.match(/const loadWarehouseList = async[\s\S]*?\n  };/)?.[0] || "";
@@ -37,9 +36,9 @@ const checks: Array<[string, () => void]> = [
     assert.match(page, /productsLoading \? "Загрузка каталога\.\.\."/);
   }],
   ["warehouse cards render before secondary summaries", () => {
-    assert.match(page, /summaryLoaded \? stock\.length : "—"/);
-    assert.match(page, /summaryLoaded \? batches\.length : "—"/);
-    assert.match(page, /detailsLoaded \? formatDate/);
+    assert.match(page, /positionCount: serverSummary\?\.position_count \|\| 0/);
+    assert.match(page, /lastMovementAt: serverSummary\?\.last_movement_at \|\| null/);
+    assert.match(page, /summaryLoaded \? <div[^>]*>\{positionCount\}<\/div>/);
   }],
   ["content search loads only balances and harvest batches on demand", () => {
     const body = page.match(/const loadSearchData = async[\s\S]*?\n  };/)?.[0] || "";
@@ -48,7 +47,7 @@ const checks: Array<[string, () => void]> = [
     assert.doesNotMatch(body, /getProducts|getInventoryTransactions|getWarehouseReceipts|getWarehouseIssueRequests/);
   }],
   ["realtime refreshes the list and only the selected details", () => {
-    assert.match(page, /await loadWarehouseList\(\{ foreground: false \}\)/);
+    assert.match(page, /loadWarehouseList\(\{ foreground: false \}\)/);
     assert.match(page, /if \(selectedWarehouseId\)[\s\S]*loadWarehouseDetails\(selectedWarehouseId, \{ foreground: false \}\)/);
   }],
   ["client services send warehouseId filters", () => {

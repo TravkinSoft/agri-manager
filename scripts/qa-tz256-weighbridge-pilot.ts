@@ -12,6 +12,7 @@ const ticketPatch = read("app/api/weighbridge/tickets/[id]/route.ts");
 const finalize = read("app/api/weighbridge/tickets/[id]/finalize/route.ts");
 const voidRoute = read("app/api/weighbridge/tickets/[id]/void/route.ts");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
+const ticketPaper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
 
 let passed = 0;
 function check(name: string, run: () => void) {
@@ -51,7 +52,7 @@ check("API stores validated transport snapshot", () => {
 check("API permits both canonical personnel roles", () => assert.match(tickets, /isWeighbridgePersonnelRole/));
 
 check("UI has unified transport search", () => assert.match(page, /Название, модель или госномер/));
-check("legacy trailer remains visible on existing tickets", () => assert.match(page, /activeTrailer[\s\S]*Прицеп:/));
+check("legacy trailer remains visible on existing tickets", () => assert.match(ticketPaper, /trailer_name_snapshot[\s\S]*label="Прицеп"/));
 check("UI does not auto-bind driver to vehicle", () => assert.doesNotMatch(page, /switch to driver's default vehicle|Soft autofill only/));
 check("UI labels recommended personnel group", () => assert.match(page, /рекомендуется/));
 check("UI accepts moisture at gross", () => assert.match(page, /harvestMoisture[\s\S]*step="0\.1"/));

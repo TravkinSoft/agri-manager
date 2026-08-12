@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
 import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
@@ -10,6 +10,7 @@ import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context
 import { ensureHarvestProductIdentity } from "@/lib/server/harvest-product-identity";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
+import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 import { isCargoTractor, isCargoVehicle, isTrailerTransport } from "@/lib/weighbridge/transport";
 
@@ -208,6 +209,23 @@ export async function POST(request: NextRequest) {
     } as TicketInput;
     const lines = (Array.isArray(body?.lines) ? body.lines : []) as TicketLineInput[];
     const weighings = (Array.isArray(body?.weighings) ? body.weighings : []) as WeighingInput[];
+    if (rawTicket.gross_weight_kg != null) {
+      const parsed = parseStrictWeightKg(rawTicket.gross_weight_kg, "Брутто");
+      if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
+      ticket.gross_weight_kg = parsed.value;
+    }
+    if (rawTicket.tare_weight_kg != null) {
+      const parsed = parseStrictWeightKg(rawTicket.tare_weight_kg, "Тара");
+      if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
+      ticket.tare_weight_kg = parsed.value;
+    }
+    for (const weighing of weighings) {
+      const parsed = parseStrictWeightKg((weighing as any).measured_weight_kg, "Вес");
+      if (!parsed.ok || parsed.value <= 0) {
+        return NextResponse.json({ error: parsed.ok ? "Вес должен быть больше нуля." : parsed.message }, { status: 400 });
+      }
+      weighing.measured_weight_kg = parsed.value;
+    }
     const rawIdempotencyKey = String(request.headers.get("Idempotency-Key") || "").trim();
     if (rawIdempotencyKey && !UUID_RE.test(rawIdempotencyKey)) {
       return NextResponse.json({ error: "Idempotency-Key must be a UUID" }, { status: 400 });
@@ -417,6 +435,12 @@ export async function POST(request: NextRequest) {
       String(ticket.weigh_method || "").toLowerCase() === "manual_override_with_reason";
     const supplierReceiptMode = String((ticket as any).receipt_mode || "weighbridge");
     const isDirectSupplierReceipt = isSupplierReceipt && supplierReceiptMode === "direct";
+    const operatorSession = isDirectWarehouseTransfer || isDirectFieldIssue || isDirectSupplierReceipt
+      ? null
+      : await requireWeighbridgeOperatorSession(request, { companyId, supabase });
+    if (operatorSession) {
+      (ticket as any).created_by_person_id = operatorSession.operator.id;
+    }
     const requiresVehicle =
       isShipment ||
       isHarvestIncoming ||
@@ -424,7 +448,9 @@ export async function POST(request: NextRequest) {
       (isWarehouseTransfer && !isDirectWarehouseTransfer) ||
       (isFieldIssue && !isDirectFieldIssue);
     const activeShiftStartedAt = Date.now();
-    const activeShiftIdPromise = isDirectSupplierReceipt
+    const activeShiftIdPromise = operatorSession?.shift?.id
+      ? Promise.resolve<string | null>(operatorSession.shift.id)
+      : isDirectSupplierReceipt
       ? Promise.resolve<string | null>(null)
         : resolveActiveShiftId(supabase, ticket.company_id).finally(() => {
           timing.steps.active_shift = Date.now() - activeShiftStartedAt;
@@ -1370,6 +1396,8 @@ export async function POST(request: NextRequest) {
         measured_at: item.measured_at || new Date().toISOString(),
         device_source: item.device_source || "manual",
         operator_user_id: item.operator_user_id || ticket.created_by,
+        operator_person_id: operatorSession?.operator.id || null,
+        weighbridge_shift_id: operatorSession?.shift.id || activeShiftId || null,
         comment: item.comment || null,
       }));
     const [linesInsertResult, weighingsInsertResult] = await Promise.all([

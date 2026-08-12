@@ -35,11 +35,17 @@ export const LIVE_REFRESH_TABLES = {
 
 type UseLiveRefreshOptions = {
   enabled: boolean;
-  onRefresh: () => void | Promise<void>;
+  onRefresh: (event?: LiveRefreshEvent) => void | Promise<void>;
   companyId?: string | null;
   tables?: readonly string[];
   intervalMs?: number;
   debounceMs?: number;
+};
+
+export type LiveRefreshEvent = {
+  source: "realtime" | "focus" | "online" | "visibility" | "interval";
+  table?: string;
+  eventType?: string;
 };
 
 export function useLiveRefresh({
@@ -66,6 +72,7 @@ export function useLiveRefresh({
     let disposed = false;
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
     let realtimeChannel: ReturnType<typeof supabase.channel> | null = null;
+    let pendingEvent: LiveRefreshEvent | undefined;
 
     const runRefresh = async () => {
       if (disposed || document.visibilityState !== "visible") return;
@@ -76,7 +83,9 @@ export function useLiveRefresh({
 
       runningRef.current = true;
       try {
-        await refreshRef.current();
+        const event = pendingEvent;
+        pendingEvent = undefined;
+        await refreshRef.current(event);
       } catch (error) {
         console.error("Background refresh failed", error);
       } finally {
@@ -88,20 +97,25 @@ export function useLiveRefresh({
       }
     };
 
-    const scheduleRefresh = () => {
+    const scheduleRefresh = (event?: LiveRefreshEvent) => {
       if (disposed) return;
+      pendingEvent = event || pendingEvent;
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => void runRefresh(), debounceMs);
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") scheduleRefresh();
+      if (document.visibilityState === "visible") scheduleRefresh({ source: "visibility" });
     };
 
-    window.addEventListener("focus", scheduleRefresh);
-    window.addEventListener("online", scheduleRefresh);
+    const handleFocus = () => scheduleRefresh({ source: "focus" });
+    const handleOnline = () => scheduleRefresh({ source: "online" });
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("online", handleOnline);
     document.addEventListener("visibilitychange", handleVisibilityChange);
-    const interval = window.setInterval(scheduleRefresh, intervalMs);
+    const interval = intervalMs > 0
+      ? window.setInterval(() => scheduleRefresh({ source: "interval" }), intervalMs)
+      : null;
 
     const subscribeToChanges = async () => {
       const tableNames = tablesKey.split(",").filter(Boolean);
@@ -124,7 +138,11 @@ export function useLiveRefresh({
             table,
             filter: `company_id=eq.${companyId}`,
           },
-          scheduleRefresh
+          (payload) => scheduleRefresh({
+            source: "realtime",
+            table,
+            eventType: String(payload.eventType || ""),
+          })
         );
       }
 
@@ -141,9 +159,9 @@ export function useLiveRefresh({
       disposed = true;
       pendingRef.current = false;
       if (debounceTimer) clearTimeout(debounceTimer);
-      window.clearInterval(interval);
-      window.removeEventListener("focus", scheduleRefresh);
-      window.removeEventListener("online", scheduleRefresh);
+      if (interval) window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("online", handleOnline);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (realtimeChannel) void supabase.removeChannel(realtimeChannel);
     };
