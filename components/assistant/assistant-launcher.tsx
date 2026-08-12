@@ -4,10 +4,9 @@ import { Sparkles } from "lucide-react";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 
 export function AssistantLauncher() {
-  const { enabled, isOpen, open, access } = useAssistantShell();
+  const { enabled, isOpen, open } = useAssistantShell();
 
-  const canShowLauncher = enabled || access.status !== "denied" || Boolean(access.message);
-  if (!canShowLauncher) return null;
+  if (!enabled) return null;
   if (isOpen) return null;
 
   return (

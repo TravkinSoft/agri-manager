@@ -2,6 +2,8 @@ export type Language = "ru" | "kz" | "en";
 
 export const translations = {
   ru: {
+    harvest_summary: "Сводка",
+    tickets_nav: "Талоны",
     dashboard: "Панель",
     fields: "Поля",
     crop_structure: "Структура посевов",
@@ -223,6 +225,8 @@ export const translations = {
     tons: "т",
   },
   kz: {
+    harvest_summary: "Жиынтық",
+    tickets_nav: "Талондар",
     dashboard: "Басқару панелі",
     fields: "Алаңдар",
     crop_structure: "Егіс құрылымы",
@@ -444,6 +448,8 @@ export const translations = {
     tons: "т",
   },
   en: {
+    harvest_summary: "Summary",
+    tickets_nav: "Tickets",
     dashboard: "Dashboard",
     fields: "Fields",
     crop_structure: "Crop Structure",

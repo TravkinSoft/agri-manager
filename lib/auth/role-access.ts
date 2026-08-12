@@ -76,11 +76,7 @@ const LEGAL_OPERATOR_ALLOWED_PREFIXES = [
 
 const AGRONOMIST_ALLOWED_PREFIXES = [
   "/dashboard",
-  "/fields",
-  "/crop-structure",
-  "/operations",
-  "/analytics",
-  "/references",
+  "/tickets",
   "/auth",
 ];
 
@@ -88,15 +84,10 @@ const AGRONOMIST_ALLOWED_EXACT = ["/warehouses"];
 
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",
-  "/fields",
-  "/crop-structure",
-  "/operations",
-  "/analytics",
-  "/warehouses",
-  "/weighbridge",
-  "/references",
   "/auth",
 ];
+
+const DIRECTOR_ALLOWED_EXACT: string[] = [];
 
 export function canAccessPath(role: AppRole, pathname: string): boolean {
   const path = String(pathname || "").toLowerCase();
@@ -170,7 +161,8 @@ export function canAccessPath(role: AppRole, pathname: string): boolean {
   }
 
   if (role === "director") {
-    return DIRECTOR_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    const hasPrefixAccess = DIRECTOR_ALLOWED_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+    return hasPrefixAccess || DIRECTOR_ALLOWED_EXACT.includes(path);
   }
 
   return false;

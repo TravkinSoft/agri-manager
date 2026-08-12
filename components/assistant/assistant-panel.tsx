@@ -95,8 +95,7 @@ export function AssistantPanel() {
     [clampPanelWidth, getViewportWidth, isMobileView, setPanelWidth]
   );
 
-  const canRenderPanel = enabled || access.status !== "denied" || Boolean(access.message);
-  if (!canRenderPanel) return null;
+  if (!enabled) return null;
   const seasonLabel = runtimeContext.season || runtimeContext.defaultSeason || "2026";
   const contextLabel = [runtimeContext.companyName, seasonLabel, access.role].filter(Boolean).join(" · ");
   const width = clampPanelWidth(panelWidth);

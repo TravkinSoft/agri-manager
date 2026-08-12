@@ -21,7 +21,6 @@ export const WEIGHBRIDGE_READ_ROLES = [
 export const WEIGHBRIDGE_WRITE_ROLES = [
   "global_admin",
   "company_admin",
-  "director",
   "weighman",
 ] as const;
 

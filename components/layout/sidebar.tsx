@@ -73,23 +73,13 @@ const COMPANY_ADMIN_NAV: NavItem[] = [
 ];
 
 const AGRONOMIST_NAV: NavItem[] = [
-  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { labelKey: "fields", href: "/fields", icon: MapPin },
-  { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
-  { labelKey: "operations", href: "/operations", icon: Tractor },
+  { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
-  { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
-  { labelKey: "references", href: "/references", icon: BookOpen },
+  { labelKey: "tickets_nav", href: "/tickets", icon: Scale },
 ];
 
 const DIRECTOR_NAV: NavItem[] = [
-  { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { labelKey: "fields", href: "/fields", icon: MapPin },
-  { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
-  { labelKey: "operations", href: "/operations", icon: Tractor },
-  { labelKey: "warehouses", href: "/warehouses", icon: Package },
-  { labelKey: "analytics", href: "/analytics", icon: BarChart3 },
-  { labelKey: "references", href: "/references", icon: BookOpen },
+  { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard },
 ];
 
 const WAREHOUSE_NAV: NavItem[] = [

@@ -125,16 +125,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    const { data: company } = await supabase
-      .from("companies")
-      .select("id,name")
-      .eq("id", companyId)
-      .maybeSingle();
+    const fieldIds = Array.from(new Set((data || []).map((row: any) => String(row.field_id || "")).filter(Boolean)));
+    const [{ data: company }, { data: fields, error: fieldsError }] = await Promise.all([
+      supabase.from("companies").select("id,name").eq("id", companyId).maybeSingle(),
+      fieldIds.length
+        ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds)
+        : Promise.resolve({ data: [], error: null } as any),
+    ]);
+    if (fieldsError) return NextResponse.json({ error: fieldsError.message }, { status: 400 });
     const companyName = String((company as any)?.name || "").trim() || null;
+    const fieldById = new Map((fields || []).map((field: any) => [String(field.id), String(field.name || "")]));
 
     const tickets = (data || []).map((row: any) => ({
       ...row,
       company_name: companyName,
+      field_name_snapshot: fieldById.get(String(row.field_id || "")) || null,
       lines: (row.lines || []).map((line: any) => ({
         id: String(line.id),
         product_id: String(line.product_id),
