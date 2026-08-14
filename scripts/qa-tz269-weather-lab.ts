@@ -210,6 +210,7 @@ async function main() {
     assert.match(clientSource, /\[scrollbar-width:none\]/);
     assert.match(clientSource, /\[&::\-webkit-scrollbar\]:hidden/);
   });
+  check("picker resets scroll when mode or hierarchy changes", () => assert.match(clientSource, /scrollTo\(\{ top: 0 \}\)/));
   check("region-level cities select their locality directly", () => assert.match(clientSource, /localityPayload\.items\.length === 1/));
   check("UI supports official KATO search", () => assert.match(clientSource, /\/api\/weather-lab\/kato\?/));
   check("failed resolver keeps active location", () => {
