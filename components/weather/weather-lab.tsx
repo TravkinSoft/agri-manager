@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -20,7 +20,7 @@ import {
   Wind,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase/client";
@@ -145,6 +145,7 @@ function AdditionalMetric({ label, value }: { label: string; value: string }) {
 }
 
 export function WeatherLab() {
+  const pickerScrollRef = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<RecentLocation | null>(null);
   const [weather, setWeather] = useState<NormalizedWeather | null>(null);
   const [horizon, setHorizon] = useState<Horizon>("24h");
@@ -261,6 +262,10 @@ export function WeatherLab() {
       void loadRegions().catch((requestError) => setPickerError(requestError instanceof Error ? requestError.message : "Список КАТО недоступен"));
     }
   }, [loadRegions, pickerMode, pickerOpen]);
+
+  useEffect(() => {
+    pickerScrollRef.current?.scrollTo({ top: 0 });
+  }, [pickerMode, query, listRegion?.code, listDistrict?.code]);
 
   const chooseRegion = async (item: KatoRegion) => {
     setPickerError(null);
@@ -387,13 +392,14 @@ export function WeatherLab() {
         <DialogContent className="max-h-[85dvh] w-[calc(100vw-24px)] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-[#303A4D] bg-[#121722] p-0 text-[#D8DEE9] sm:w-full">
           <DialogHeader className="border-b border-[#293244] px-4 pb-3 pt-4 text-left">
             <DialogTitle className="text-lg text-white">Местоположение</DialogTitle>
+            <DialogDescription className="sr-only">Найдите населённый пункт в официальном КАТО или выберите его по списку.</DialogDescription>
             <div className="mt-3 grid grid-cols-2 rounded-md border border-[#303A4D] bg-[#0E121A] p-0.5">
               <button type="button" onClick={() => setPickerMode("search")} className={cn("h-8 rounded text-xs", pickerMode === "search" ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2] hover:text-white")}>Поиск</button>
               <button type="button" onClick={() => setPickerMode("list")} className={cn("h-8 rounded text-xs", pickerMode === "list" ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2] hover:text-white")}>По списку</button>
             </div>
           </DialogHeader>
 
-          <div className="min-h-0 touch-pan-y overscroll-contain overflow-y-auto p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:p-4">
+          <div ref={pickerScrollRef} className="min-h-0 touch-pan-y overscroll-contain overflow-y-auto p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:p-4">
             {pickerMode === "search" ? (
               <div className="space-y-3">
                 <div className="relative">
