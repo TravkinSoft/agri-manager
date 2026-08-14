@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import {
   BookOpen,
   ChartBar as BarChart3,
+  CloudSun,
   Droplets,
   History,
   LayoutDashboard,
@@ -39,6 +40,7 @@ interface NavItem {
 
 const GLOBAL_ADMIN_NAV: NavItem[] = [
   { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "weather", href: "/weather-lab", icon: CloudSun },
   { labelKey: "fields", href: "/fields", icon: MapPin },
   { labelKey: "field_map", href: "/fields-map", icon: Map },
   { labelKey: "land_legal", href: "/land-legal", icon: ScrollText },
