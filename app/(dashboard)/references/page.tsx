@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { KeyRound, ShieldOff } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
   FullPesticideCardDialog,
@@ -42,6 +43,12 @@ import type {
   GlobalMachineModel,
   GlobalTransportModel,
 } from "@/lib/types/references";
+import {
+  disableWeighbridgeOperatorAccess,
+  getWeighbridgeOperatorAccess,
+  setWeighbridgeOperatorPinForEmployee,
+  type WeighbridgeOperatorAccess,
+} from "@/lib/services/weighbridge-operator-access";
 
 type DomainTab = "agronomy" | "agrochemistry" | "machine-yard" | "fleet" | "personnel";
 type MachineYardTab = "machines" | "equipment";
@@ -266,6 +273,13 @@ export default function ReferencesPage() {
   const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("machines");
   const [modalType, setModalType] = useState<ModalType | null>(null);
   const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
+  const [editingWorkerRole, setEditingWorkerRole] = useState<string | null>(null);
+  const [workerAccess, setWorkerAccess] = useState<WeighbridgeOperatorAccess | null>(null);
+  const [workerAccessLoading, setWorkerAccessLoading] = useState(false);
+  const [workerAccessSaving, setWorkerAccessSaving] = useState(false);
+  const [workerPinEditorOpen, setWorkerPinEditorOpen] = useState(false);
+  const [workerPin, setWorkerPin] = useState("");
+  const [workerPinConfirm, setWorkerPinConfirm] = useState("");
 
   const [modelSearch, setModelSearch] = useState("");
   const [workerSearch, setWorkerSearch] = useState("");
@@ -383,6 +397,11 @@ export default function ReferencesPage() {
   const openModal = (type: ModalType, initialForm: Record<string, string> = {}) => {
     setModalType(type);
     setEditingWorkerId(type === "worker" && initialForm.id ? initialForm.id : null);
+    setEditingWorkerRole(type === "worker" ? initialForm.role_type || null : null);
+    setWorkerAccess(null);
+    setWorkerPinEditorOpen(false);
+    setWorkerPin("");
+    setWorkerPinConfirm("");
     setForm(initialForm);
     setModelSearch("");
   };
@@ -390,6 +409,13 @@ export default function ReferencesPage() {
   const closeModal = () => {
     setModalType(null);
     setEditingWorkerId(null);
+    setEditingWorkerRole(null);
+    setWorkerAccess(null);
+    setWorkerAccessLoading(false);
+    setWorkerAccessSaving(false);
+    setWorkerPinEditorOpen(false);
+    setWorkerPin("");
+    setWorkerPinConfirm("");
     setForm({});
   };
 
@@ -526,6 +552,23 @@ export default function ReferencesPage() {
     }
   };
 
+  const loadWorkerAccess = async (personId: string) => {
+    if (!profile?.company_id) return;
+    setWorkerAccessLoading(true);
+    try {
+      setWorkerAccess(await getWeighbridgeOperatorAccess(profile.company_id, personId));
+    } catch (error) {
+      setWorkerAccess(null);
+      toast({
+        title: "Доступ к Весовой",
+        description: error instanceof Error ? error.message : "Не удалось проверить доступ сотрудника",
+        variant: "destructive",
+      });
+    } finally {
+      setWorkerAccessLoading(false);
+    }
+  };
+
   const editWorker = (worker: any) => {
     openModal("worker", {
       id: worker.id,
@@ -538,6 +581,61 @@ export default function ReferencesPage() {
       status: worker.status || "active",
       notes: worker.notes || "",
     });
+    if (worker.role_type === "weighbridge_operator") void loadWorkerAccess(worker.id);
+  };
+
+  const saveWorkerPin = async () => {
+    if (!profile?.company_id || !editingWorkerId || workerAccessSaving) return;
+    if (!/^\d{6}$/.test(workerPin)) {
+      toast({ title: "PIN", description: "PIN должен содержать ровно 6 цифр.", variant: "destructive" });
+      return;
+    }
+    if (workerPin !== workerPinConfirm) {
+      toast({ title: "PIN", description: "Введённые PIN не совпадают.", variant: "destructive" });
+      return;
+    }
+    setWorkerAccessSaving(true);
+    try {
+      const next = await setWeighbridgeOperatorPinForEmployee(profile.company_id, editingWorkerId, workerPin);
+      setWorkerAccess(next);
+      setWorkerPin("");
+      setWorkerPinConfirm("");
+      setWorkerPinEditorOpen(false);
+      toast({
+        title: next.pin_configured ? "PIN установлен" : "PIN не установлен",
+        description: "Доступ сотрудника к Весовой обновлён. Активные операторские сессии отозваны.",
+      });
+    } catch (error) {
+      toast({
+        title: "PIN не сохранён",
+        description: error instanceof Error ? error.message : "Не удалось установить PIN",
+        variant: "destructive",
+      });
+    } finally {
+      setWorkerAccessSaving(false);
+    }
+  };
+
+  const disableWorkerWeighbridgeAccess = async () => {
+    if (!profile?.company_id || !editingWorkerId || workerAccessSaving) return;
+    if (!window.confirm("Отключить сотруднику доступ к Весовой и отозвать его активную сессию?")) return;
+    setWorkerAccessSaving(true);
+    try {
+      const next = await disableWeighbridgeOperatorAccess(profile.company_id, editingWorkerId);
+      setWorkerAccess(next);
+      setWorkerPin("");
+      setWorkerPinConfirm("");
+      setWorkerPinEditorOpen(false);
+      toast({ title: "Доступ отключён", description: "Новые смены недоступны, активная сессия отозвана." });
+    } catch (error) {
+      toast({
+        title: "Не удалось отключить доступ",
+        description: error instanceof Error ? error.message : "Не удалось изменить доступ к Весовой",
+        variant: "destructive",
+      });
+    } finally {
+      setWorkerAccessSaving(false);
+    }
   };
 
   const archiveWorker = async (worker: any) => {
@@ -828,8 +926,8 @@ export default function ReferencesPage() {
         adminMode={profile?.role === "global_admin"}
       />
 
-      <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && closeModal()}>
-        <DialogContent>
+      <Dialog open={!!modalType} onOpenChange={(open) => !open && !saving && !workerAccessSaving && closeModal()}>
+        <DialogContent className={modalType === "worker" ? "max-h-[90vh] overflow-y-auto sm:max-w-xl travkin-scrollbar" : undefined}>
           <DialogHeader>
             <DialogTitle>
               {modalType === "machine" ? "Добавить технику" : null}
@@ -947,6 +1045,128 @@ export default function ReferencesPage() {
                   <Label>Заметка</Label>
                   <Textarea value={form.notes || ""} onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))} />
                 </div>
+
+                {editingWorkerId && (editingWorkerRole === "weighbridge_operator" || form.role_type === "weighbridge_operator") ? (
+                  <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-950/40 p-4">
+                    <div>
+                      <div className="font-semibold text-slate-100">Доступ к Весовой</div>
+                      <div className="text-sm text-slate-400">PIN хранится в защищённом виде и никогда не показывается.</div>
+                    </div>
+
+                    {editingWorkerRole !== "weighbridge_operator" ? (
+                      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                        Сначала сохраните сотрудника с ролью «Весовщик», затем откройте карточку снова для установки PIN.
+                      </div>
+                    ) : workerAccessLoading ? (
+                      <div className="text-sm text-slate-400">Проверка доступа...</div>
+                    ) : workerAccess ? (
+                      <>
+                        <div className="grid gap-2 text-sm sm:grid-cols-2">
+                          <div className="rounded-md border border-slate-700 px-3 py-2">
+                            <div className="text-slate-400">Доступ</div>
+                            <div className={workerAccess.access_enabled ? "font-medium text-emerald-300" : "font-medium text-slate-200"}>
+                              {workerAccess.access_enabled ? "Включён" : "Отключён"}
+                            </div>
+                          </div>
+                          <div className="rounded-md border border-slate-700 px-3 py-2">
+                            <div className="text-slate-400">PIN</div>
+                            <div className="font-medium text-slate-200">
+                              {workerAccess.pin_configured ? "Установлен" : "Не установлен"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {workerPinEditorOpen ? (
+                          <div className="space-y-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="space-y-1.5">
+                                <Label htmlFor="worker-weighbridge-pin">Новый PIN</Label>
+                                <Input
+                                  id="worker-weighbridge-pin"
+                                  type="password"
+                                  inputMode="numeric"
+                                  autoComplete="new-password"
+                                  maxLength={6}
+                                  value={workerPin}
+                                  onChange={(event) => setWorkerPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                                  placeholder="6 цифр"
+                                  className="text-center tracking-[0.3em]"
+                                />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor="worker-weighbridge-pin-confirm">Повторите PIN</Label>
+                                <Input
+                                  id="worker-weighbridge-pin-confirm"
+                                  type="password"
+                                  inputMode="numeric"
+                                  autoComplete="new-password"
+                                  maxLength={6}
+                                  value={workerPinConfirm}
+                                  onChange={(event) => setWorkerPinConfirm(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter" && /^\d{6}$/.test(workerPin) && workerPin === workerPinConfirm) {
+                                      void saveWorkerPin();
+                                    }
+                                  }}
+                                  placeholder="Ещё раз"
+                                  className="text-center tracking-[0.3em]"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap justify-end gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  setWorkerPinEditorOpen(false);
+                                  setWorkerPin("");
+                                  setWorkerPinConfirm("");
+                                }}
+                                disabled={workerAccessSaving}
+                              >
+                                Отмена
+                              </Button>
+                              <Button
+                                type="button"
+                                onClick={() => void saveWorkerPin()}
+                                disabled={workerAccessSaving || !/^\d{6}$/.test(workerPin) || workerPin !== workerPinConfirm}
+                              >
+                                <KeyRound className="mr-2 h-4 w-4" />
+                                {workerAccessSaving ? "Сохранение..." : "Сохранить PIN"}
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => setWorkerPinEditorOpen(true)}
+                              disabled={workerAccessSaving || form.status !== "active"}
+                            >
+                              <KeyRound className="mr-2 h-4 w-4" />
+                              {workerAccess.pin_configured ? "Сменить PIN" : "Установить PIN"}
+                            </Button>
+                            {workerAccess.access_enabled ? (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => void disableWorkerWeighbridgeAccess()}
+                                disabled={workerAccessSaving}
+                                className="border-red-500/40 text-red-200 hover:bg-red-500/10 hover:text-red-100"
+                              >
+                                <ShieldOff className="mr-2 h-4 w-4" />
+                                Отключить доступ к Весовой
+                              </Button>
+                            ) : null}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-sm text-red-300">Не удалось получить состояние доступа.</div>
+                    )}
+                  </div>
+                ) : null}
               </>
             ) : null}
 
@@ -1012,10 +1232,10 @@ export default function ReferencesPage() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => !saving && closeModal()} disabled={saving}>
+            <Button variant="outline" onClick={() => !saving && !workerAccessSaving && closeModal()} disabled={saving || workerAccessSaving}>
               Отмена
             </Button>
-            <Button onClick={submitCreate} disabled={saving}>
+            <Button onClick={submitCreate} disabled={saving || workerAccessSaving}>
               {saving ? "Сохранение..." : editingWorkerId ? "Сохранить" : "Создать"}
             </Button>
           </DialogFooter>

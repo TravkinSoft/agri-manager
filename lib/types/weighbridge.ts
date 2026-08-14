@@ -342,6 +342,7 @@ export interface WeighbridgeOperatorState {
   session_expires_at?: string | null;
   operator?: WeighbridgeHumanOperator | null;
   operators: WeighbridgeHumanOperator[];
+  unconfigured_operator_count?: number;
 }
 
 export type TareVarianceConfirmation = {

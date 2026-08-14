@@ -22,7 +22,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
-import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, handoverWeighbridgeOperator, listHarvestBatchSummaries, listTickets, lockWeighbridgeOperator, patchTicket, setWeighbridgeOperatorPin, startTicketCorrection, unlockWeighbridgeOperator, voidTicket } from "@/lib/services/weighbridge";
+import { adminTicketAction, closeShift, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, handoverWeighbridgeOperator, listHarvestBatchSummaries, listTickets, lockWeighbridgeOperator, patchTicket, startTicketCorrection, unlockWeighbridgeOperator, voidTicket } from "@/lib/services/weighbridge";
 import type { HarvestBatchSummary, TicketDirection, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
@@ -651,7 +651,6 @@ export default function WeighbridgeOperationsPage() {
   const [operatorPersonId, setOperatorPersonId] = useState("");
   const [operatorPin, setOperatorPin] = useState("");
   const [operatorBusy, setOperatorBusy] = useState(false);
-  const [operatorPinSetup, setOperatorPinSetup] = useState(false);
   const [harvestContext, setHarvestContext] = useState<HarvestContextState>({
     status: "idle",
     message: "Выберите поле.",
@@ -691,7 +690,11 @@ export default function WeighbridgeOperationsPage() {
   const canCorrectTicket = profile?.role === "company_admin" || profile?.role === "global_admin" || profile?.role === "director" || profile?.role === "weighman";
   const canUseInventory = ["company_admin", "global_admin", "warehouse", "warehouse_operator", "weighman"].includes(String(profile?.role || ""));
   const canUseOperatorSession = ["company_admin", "global_admin", "director", "weighman"].includes(String(profile?.role || ""));
-  const canManageOperatorPin = ["company_admin", "global_admin", "director"].includes(String(profile?.role || ""));
+  const eligibleOperators = useMemo(
+    () => operatorState.operators.filter((operator) => operator.has_pin !== false && operator.pin_active !== false),
+    [operatorState.operators]
+  );
+  const unconfiguredOperatorCount = Number(operatorState.unconfigured_operator_count || 0);
   const idempotencyPersistKey = useMemo(
     () => (profile?.company_id && profile?.id ? `travkin.weighbridge.formDraft.${profile.company_id}.${profile.id}.idempotency` : ""),
     [profile?.company_id, profile?.id]
@@ -1124,11 +1127,10 @@ export default function WeighbridgeOperationsPage() {
   }, [loading, profile?.company_id, language, fields, warehouses, suppliers, buyers, vehicles, trailers, products, crops, varieties, reproductions, drivers, driverNames, linkedOperations, harvestStructureByField, harvestIncompleteFields, tickets, harvestBatches, activeShift, operatorState, shiftCounters, shiftGuard, shiftSummary, harvestSummary]);
 
   useEffect(() => {
-    if (loading || operatorSessionStatus !== "ready" || !canUseOperatorSession || operatorState.unlocked || operatorState.operators.length === 0) return;
-    setOperatorPersonId((current) => current || operatorState.operators[0]?.id || "");
-    setOperatorPinSetup(false);
+    if (loading || operatorSessionStatus !== "ready" || !canUseOperatorSession || operatorState.unlocked || eligibleOperators.length === 0) return;
+    setOperatorPersonId((current) => current || eligibleOperators[0]?.id || "");
     setOperatorDialogOpen(true);
-  }, [loading, operatorSessionStatus, canUseOperatorSession, operatorState.unlocked, operatorState.operators]);
+  }, [loading, operatorSessionStatus, canUseOperatorSession, operatorState.unlocked, eligibleOperators]);
 
   useEffect(() => {
     if (!profile?.id || notificationDeepLinkHandledRef.current) return;
@@ -2529,10 +2531,9 @@ export default function WeighbridgeOperationsPage() {
   if (!canView) return <PageHeader title="Весовая и движения" description="Доступ ограничен по роли" />;
 
   const openShiftAction = async () => {
-    const selected = operatorState.operator?.id || operatorState.operators[0]?.id || "";
+    const selected = operatorState.operator?.id || eligibleOperators[0]?.id || "";
     setOperatorPersonId(selected);
     setOperatorPin("");
-    setOperatorPinSetup(false);
     setOperatorDialogOpen(true);
   };
 
@@ -2540,15 +2541,6 @@ export default function WeighbridgeOperationsPage() {
     if (!profile?.company_id || !operatorPersonId || !/^\d{6}$/.test(operatorPin)) return;
     setOperatorBusy(true);
     try {
-      if (operatorPinSetup) {
-        await setWeighbridgeOperatorPin(profile.company_id, operatorPersonId, operatorPin);
-        toast({ title: "PIN сохранён", description: "Теперь весовщик может открыть или принять смену." });
-        setOperatorPinSetup(false);
-        setOperatorPin("");
-        setOperatorState(await getWeighbridgeOperatorState(profile.company_id));
-        setOperatorSessionStatus("ready");
-        return;
-      }
       const isHandover = Boolean(
         activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
       );
@@ -3569,23 +3561,19 @@ export default function WeighbridgeOperationsPage() {
       <Dialog open={operatorDialogOpen} onOpenChange={(open) => { if (!operatorBusy) setOperatorDialogOpen(open); }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>{operatorPinSetup ? "Настроить PIN" : activeShift ? "Весовщик смены" : "Открыть смену"}</DialogTitle>
-            <DialogDescription>
-              {operatorPinSetup
-                ? "PIN состоит из шести цифр и принадлежит выбранному сотруднику."
-                : "Выберите сотрудника и подтвердите доступ личным PIN."}
-            </DialogDescription>
+            <DialogTitle>{activeShift ? "Весовщик смены" : "Открыть смену"}</DialogTitle>
+            <DialogDescription>Выберите сотрудника и подтвердите доступ личным PIN.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
-            {operatorState.operators.length ? (
+            {eligibleOperators.length ? (
               <div className="space-y-2">
                 <Label>Весовщик</Label>
                 <Select value={operatorPersonId} onValueChange={(value) => { setOperatorPersonId(value); setOperatorPin(""); }}>
                   <SelectTrigger><SelectValue placeholder="Выберите весовщика" /></SelectTrigger>
                   <SelectContent>
-                    {operatorState.operators.map((operator) => (
+                    {eligibleOperators.map((operator) => (
                       <SelectItem key={operator.id} value={operator.id}>
-                        {operator.name}{operator.has_pin ? "" : " · PIN не задан"}
+                        {operator.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -3593,49 +3581,44 @@ export default function WeighbridgeOperationsPage() {
               </div>
             ) : (
               <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
-                В справочнике сотрудников нет активных весовщиков.
+                {unconfiguredOperatorCount > 0
+                  ? "PIN не настроен. Обратитесь к администратору компании."
+                  : "В справочнике сотрудников нет активных весовщиков."}
               </div>
             )}
-            <div className="space-y-2">
-              <Label>PIN</Label>
-              <Input
-                autoFocus
-                type="password"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                maxLength={6}
-                value={operatorPin}
-                onChange={(event) => setOperatorPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                onKeyDown={(event) => { if (event.key === "Enter" && /^\d{6}$/.test(operatorPin)) void submitOperatorAction(); }}
-                placeholder="••••••"
-                className="text-center text-xl tracking-[0.35em]"
-              />
-            </div>
-            {!operatorPinSetup && activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId ? (
+            {eligibleOperators.length ? (
+              <div className="space-y-2">
+                <Label>PIN</Label>
+                <Input
+                  autoFocus
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  value={operatorPin}
+                  onChange={(event) => setOperatorPin(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  onKeyDown={(event) => { if (event.key === "Enter" && /^\d{6}$/.test(operatorPin)) void submitOperatorAction(); }}
+                  placeholder="••••••"
+                  className="text-center text-xl tracking-[0.35em]"
+                />
+              </div>
+            ) : null}
+            {activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId ? (
               <div className="space-y-2">
                 <Label>Комментарий к передаче</Label>
                 <Textarea value={shiftHandoverNote} onChange={(event) => setShiftHandoverNote(event.target.value)} rows={2} placeholder="Необязательно" />
               </div>
             ) : null}
           </div>
-          <DialogFooter className="gap-2 sm:justify-between">
-            <div>
-              {canManageOperatorPin && operatorPersonId ? (
-                <Button type="button" variant="ghost" onClick={() => { setOperatorPinSetup((value) => !value); setOperatorPin(""); }} disabled={operatorBusy}>
-                  {operatorPinSetup ? "Назад" : "Настроить PIN"}
-                </Button>
-              ) : null}
-            </div>
+          <DialogFooter className="gap-2">
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => setOperatorDialogOpen(false)} disabled={operatorBusy}>Отмена</Button>
-              <Button type="button" onClick={() => void submitOperatorAction()} disabled={operatorBusy || !operatorPersonId || !/^\d{6}$/.test(operatorPin)}>
+              <Button type="button" onClick={() => void submitOperatorAction()} disabled={operatorBusy || !eligibleOperators.length || !operatorPersonId || !/^\d{6}$/.test(operatorPin)}>
                 {operatorBusy
                   ? "Проверка..."
-                  : operatorPinSetup
-                    ? "Сохранить PIN"
-                    : activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
-                      ? "Передать смену"
-                      : activeShift?.id ? "Продолжить смену" : "Открыть смену"}
+                  : activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
+                    ? "Передать смену"
+                    : activeShift?.id ? "Продолжить смену" : "Открыть смену"}
               </Button>
             </div>
           </DialogFooter>
