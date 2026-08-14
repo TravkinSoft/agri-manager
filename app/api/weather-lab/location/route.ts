@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { SessionAuthError } from "@/lib/auth/server-session";
 import { resolveKatoLocation, reverseKazakhstanLocation } from "@/lib/weather/location-resolver";
 import { WeatherProviderError } from "@/lib/weather/types";
-import { requireWeatherLabAdmin } from "../_auth";
+import { requireWeatherLabAccess } from "../_auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ function numberParam(value: string | null): number | null {
 
 export async function GET(request: NextRequest) {
   try {
-    await requireWeatherLabAdmin(request);
+    await requireWeatherLabAccess(request);
     const params = request.nextUrl.searchParams;
     const latitude = numberParam(params.get("lat"));
     const longitude = numberParam(params.get("lon"));

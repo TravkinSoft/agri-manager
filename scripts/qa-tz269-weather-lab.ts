@@ -10,6 +10,7 @@ import {
 } from "../lib/weather/cache";
 import {
   getKatoLocality,
+  getKatoLocalities,
   getKatoRegions,
   getKatoSource,
   searchKatoLocalities,
@@ -40,6 +41,9 @@ async function main() {
     ["596033100"]
   ));
   check("KATO lookup preserves hierarchy", () => assert.equal(getKatoLocality("596033100")?.districtRu, "Тайыншинский район"));
+  const astanaMatches = searchKatoLocalities("Астана", 100);
+  check("capital Astana is the primary exact search result", () => assert.equal(astanaMatches[0]?.code, "710000000"));
+  check("capital Astana is available in list mode", () => assert.equal(getKatoLocalities("710000000")[0]?.code, "710000000"));
 
   const location = {
     latitude: 51.1282804,
@@ -189,16 +193,24 @@ async function main() {
   check("provider uses official POST endpoint", () => assert.match(providerSource, /method:\s*"POST"/));
   check("provider uses bearer authorization", () => assert.match(providerSource, /Authorization:\s*`Bearer/));
   check("provider never sends key in query", () => assert.equal(/searchParams\.set\([^,]+,\s*key\)/.test(providerSource), false));
-  check("forecast API requires global admin", () => assert.match(forecastRoute, /requireWeatherLabAdmin\(request\)/));
-  check("KATO API requires global admin", () => assert.match(katoRoute, /requireWeatherLabAdmin\(request\)/));
+  check("forecast API requires Weather Lab role access", () => assert.match(forecastRoute, /requireWeatherLabAccess\(request\)/));
+  check("KATO API requires Weather Lab role access", () => assert.match(katoRoute, /requireWeatherLabAccess\(request\)/));
   check("location API resolves exact KATO code", () => assert.match(locationRoute, /resolveKatoLocation\(katoCode\)/));
   check("auth helper ignores impersonation", () => assert.match(authSource, /ignoreImpersonation:\s*true/));
-  check("auth helper enforces global admin", () => assert.match(authSource, /actor\.role !== "global_admin"/));
+  check("auth helper allows global admin", () => assert.match(authSource, /actor\.role !== "global_admin"/));
+  check("auth helper allows agronomist", () => assert.match(authSource, /actor\.role !== "agronomist"/));
   check("Weather Lab hides Assist surfaces", () => assert.match(layoutSource, /!isWeatherLab \? <AssistantLauncher/));
   check("Weather Lab hides mobile Copilot", () => assert.match(mobileBottomNavSource, /item\.kind !== "copilot"/));
   check("UI has no manual coordinate fields", () => assert.equal(/<Input[^>]+(?:lat|lon|latitude|longitude)/i.test(clientSource), false));
   check("UI removed three-field free-form location form", () => assert.equal(clientSource.includes("resolveTypedLocation"), false));
   check("UI uses compact location dialog", () => assert.match(clientSource, /\{pickerOpen \? \([\s\S]+<Dialog open onOpenChange=\{setPickerOpen\}/));
+  check("location row is compact on desktop", () => assert.match(clientSource, /md:max-w-\[360px\]/));
+  check("location results scroll without a visible scrollbar", () => {
+    assert.match(clientSource, /overflow-y-auto/);
+    assert.match(clientSource, /\[scrollbar-width:none\]/);
+    assert.match(clientSource, /\[&::\-webkit-scrollbar\]:hidden/);
+  });
+  check("region-level cities select their locality directly", () => assert.match(clientSource, /localityPayload\.items\.length === 1/));
   check("UI supports official KATO search", () => assert.match(clientSource, /\/api\/weather-lab\/kato\?/));
   check("failed resolver keeps active location", () => {
     assert.match(clientSource, /catch \(requestError\) \{[\s\S]+setError\([\s\S]+finally[\s\S]+setResolvingCode/);

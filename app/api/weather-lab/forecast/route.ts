@@ -3,7 +3,7 @@ import { SessionAuthError } from "@/lib/auth/server-session";
 import { getWeatherForLocation } from "@/lib/weather/service";
 import type { WeatherLocation } from "@/lib/weather/types";
 import { WeatherProviderError } from "@/lib/weather/types";
-import { requireWeatherLabAdmin } from "../_auth";
+import { requireWeatherLabAccess } from "../_auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ function cleanLabel(value: string | null, maxLength = 160): string | null {
 
 export async function GET(request: NextRequest) {
   try {
-    await requireWeatherLabAdmin(request);
+    await requireWeatherLabAccess(request);
     const params = request.nextUrl.searchParams;
     const latitude = finiteCoordinate(params.get("lat"), -90, 90);
     const longitude = finiteCoordinate(params.get("lon"), -180, 180);

@@ -7,14 +7,14 @@ import {
   getKatoSource,
   searchKatoLocalities,
 } from "@/lib/weather/kato-catalog";
-import { requireWeatherLabAdmin } from "../_auth";
+import { requireWeatherLabAccess } from "../_auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireWeatherLabAdmin(request);
+    await requireWeatherLabAccess(request);
     const params = request.nextUrl.searchParams;
     const mode = params.get("mode") || "search";
     const parent = String(params.get("parent") || "").trim();
