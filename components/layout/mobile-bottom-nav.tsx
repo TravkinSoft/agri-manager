@@ -33,6 +33,7 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
     case "agronomist":
       return [
         { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
+        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
         { labelKey: "tickets_nav", href: "/tickets", icon: Scale, kind: "route" },
       ];

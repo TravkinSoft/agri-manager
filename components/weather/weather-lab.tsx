@@ -271,6 +271,16 @@ export function WeatherLab() {
       const params = new URLSearchParams({ mode: "districts", parent: item.code });
       const payload = await authorizedJson<{ items: KatoDistrict[] }>(`/api/weather-lab/kato?${params}`);
       setDistricts(payload.items);
+      if (!payload.items.length) {
+        const localityParams = new URLSearchParams({ mode: "localities", parent: item.code });
+        const localityPayload = await authorizedJson<{ items: KatoLocality[] }>(`/api/weather-lab/kato?${localityParams}`);
+        if (localityPayload.items.length === 1) {
+          await chooseKatoLocation(localityPayload.items[0]);
+          return;
+        }
+        setLocalities(localityPayload.items);
+        setListDistrict({ ...item, regionCode: item.code });
+      }
     } catch (requestError) {
       setPickerError(requestError instanceof Error ? requestError.message : "Не удалось загрузить районы");
     }
@@ -334,7 +344,7 @@ export function WeatherLab() {
         </div>
       </header>
 
-      <section className="flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-[#2A3344] bg-[#121722] p-1.5 sm:px-2">
+      <section className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-[#2A3344] bg-[#121722] p-1.5 sm:px-2 md:max-w-[360px]">
         <button
           type="button"
           onClick={() => setPickerOpen(true)}
@@ -374,7 +384,7 @@ export function WeatherLab() {
 
       {pickerOpen ? (
       <Dialog open onOpenChange={setPickerOpen}>
-        <DialogContent className="max-h-[85dvh] w-[calc(100vw-24px)] max-w-2xl overflow-hidden border-[#303A4D] bg-[#121722] p-0 text-[#D8DEE9] sm:w-full">
+        <DialogContent className="max-h-[85dvh] w-[calc(100vw-24px)] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-[#303A4D] bg-[#121722] p-0 text-[#D8DEE9] sm:w-full">
           <DialogHeader className="border-b border-[#293244] px-4 pb-3 pt-4 text-left">
             <DialogTitle className="text-lg text-white">Местоположение</DialogTitle>
             <div className="mt-3 grid grid-cols-2 rounded-md border border-[#303A4D] bg-[#0E121A] p-0.5">
@@ -383,7 +393,7 @@ export function WeatherLab() {
             </div>
           </DialogHeader>
 
-          <div className="min-h-0 overflow-y-auto p-3 sm:p-4">
+          <div className="min-h-0 touch-pan-y overscroll-contain overflow-y-auto p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:p-4">
             {pickerMode === "search" ? (
               <div className="space-y-3">
                 <div className="relative">
@@ -405,7 +415,9 @@ export function WeatherLab() {
                       <MapPin className="h-4 w-4 shrink-0 text-[#E0B100]" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-white">{item.nameRu}</span>
-                        <span className="block truncate text-xs text-[#8F9BAD]">{item.districtRu} · {item.regionRu}</span>
+                        <span className="block truncate text-xs text-[#8F9BAD]">
+                          {item.districtCode === item.regionCode ? item.regionRu : `${item.districtRu} · ${item.regionRu}`}
+                        </span>
                       </span>
                       {resolvingCode === item.code ? <Loader2 className="h-4 w-4 shrink-0 animate-spin text-[#E0B100]" /> : null}
                     </button>

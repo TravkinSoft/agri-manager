@@ -76,6 +76,7 @@ const LEGAL_OPERATOR_ALLOWED_PREFIXES = [
 
 const AGRONOMIST_ALLOWED_PREFIXES = [
   "/dashboard",
+  "/weather-lab",
   "/tickets",
   "/auth",
 ];

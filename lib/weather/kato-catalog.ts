@@ -68,12 +68,14 @@ export function normalizeKatoSearch(value: string): string {
 
 function expand(row: KatoLocalityRow): KatoLocality | null {
   const district = districtByCode.get(row.districtCode);
-  const region = district ? regionByCode.get(district.regionCode) : null;
-  if (!district || !region) return null;
+  const region = district
+    ? regionByCode.get(district.regionCode)
+    : regionByCode.get(row.districtCode);
+  if (!region) return null;
   return {
     ...row,
-    districtRu: district.nameRu,
-    districtKz: district.nameKz,
+    districtRu: district?.nameRu || region.nameRu,
+    districtKz: district?.nameKz || region.nameKz,
     regionCode: region.code,
     regionRu: region.nameRu,
     regionKz: region.nameKz,

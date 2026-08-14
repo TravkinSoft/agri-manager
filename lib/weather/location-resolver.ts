@@ -114,30 +114,38 @@ function coordinates(row: NominatimRow): { latitude: number; longitude: number }
 function rowMatchesKato(row: NominatimRow, locality: KatoLocality): boolean {
   const address = row.address || {};
   const actualLocality = localityFromAddress(address) || row.display_name || "";
+  const regionLevelCity = locality.districtCode === locality.regionCode;
   return (
     (katoNamesEquivalent(actualLocality, locality.nameRu) || katoNamesEquivalent(actualLocality, locality.nameKz)) &&
-    (katoNamesEquivalent(districtFromAddress(address), locality.districtRu) || katoNamesEquivalent(districtFromAddress(address), locality.districtKz)) &&
+    (regionLevelCity || katoNamesEquivalent(districtFromAddress(address), locality.districtRu) || katoNamesEquivalent(districtFromAddress(address), locality.districtKz)) &&
     (katoNamesEquivalent(regionFromAddress(address), locality.regionRu) || katoNamesEquivalent(regionFromAddress(address), locality.regionKz))
   );
 }
 
 function katoResult(locality: KatoLocality, latitude: number, longitude: number, provider: LocationResolverResult["provider"]): LocationResolverResult {
+  const regionLevelCity = locality.districtCode === locality.regionCode;
   return {
     latitude,
     longitude,
     region: locality.regionRu,
-    district: locality.districtRu,
+    district: regionLevelCity ? null : locality.districtRu,
     locality: locality.nameRu,
-    displayName: [locality.nameRu, locality.districtRu, locality.regionRu].join(" · "),
+    displayName: regionLevelCity
+      ? locality.nameRu
+      : [locality.nameRu, locality.districtRu, locality.regionRu].join(" · "),
     katoCode: locality.code,
     provider,
   };
 }
 
 async function searchNominatim(locality: KatoLocality): Promise<LocationResolverResult | null> {
+  const regionLevelCity = locality.districtCode === locality.regionCode;
   for (const name of [locality.nameRu, locality.nameKz]) {
     const url = new URL("https://nominatim.openstreetmap.org/search");
-    url.searchParams.set("q", [name, locality.districtRu, locality.regionRu, "Казахстан"].join(", "));
+    url.searchParams.set("q", (regionLevelCity
+      ? [name, "Казахстан"]
+      : [name, locality.districtRu, locality.regionRu, "Казахстан"]
+    ).join(", "));
     url.searchParams.set("format", "jsonv2");
     url.searchParams.set("addressdetails", "1");
     url.searchParams.set("countrycodes", "kz");
@@ -193,13 +201,14 @@ async function reverseNominatim(latitude: number, longitude: number): Promise<No
 }
 
 async function searchOpenMeteo(locality: KatoLocality): Promise<LocationResolverResult | null> {
+  const regionLevelCity = locality.districtCode === locality.regionCode;
   const candidates = await geocodingCandidates(locality);
   for (const candidate of candidates) {
     const latitude = Number(candidate.latitude);
     const longitude = Number(candidate.longitude);
     const reverse = await reverseNominatim(latitude, longitude);
     const address = reverse.address || {};
-    const districtMatches = katoNamesEquivalent(districtFromAddress(address), locality.districtRu) || katoNamesEquivalent(districtFromAddress(address), locality.districtKz);
+    const districtMatches = regionLevelCity || katoNamesEquivalent(districtFromAddress(address), locality.districtRu) || katoNamesEquivalent(districtFromAddress(address), locality.districtKz);
     const regionMatches = katoNamesEquivalent(regionFromAddress(address), locality.regionRu) || katoNamesEquivalent(regionFromAddress(address), locality.regionKz);
     if (districtMatches && regionMatches) {
       return katoResult(locality, latitude, longitude, "KATO + Open-Meteo/OSM resolver");

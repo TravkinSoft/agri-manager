@@ -76,6 +76,7 @@ const COMPANY_ADMIN_NAV: NavItem[] = [
 
 const AGRONOMIST_NAV: NavItem[] = [
   { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "weather", href: "/weather-lab", icon: CloudSun },
   { labelKey: "warehouses", href: "/warehouses", icon: Package },
   { labelKey: "tickets_nav", href: "/tickets", icon: Scale },
 ];
