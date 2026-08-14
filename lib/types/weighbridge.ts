@@ -345,6 +345,31 @@ export interface WeighbridgeOperatorState {
   unconfigured_operator_count?: number;
 }
 
+export interface ActiveHarvestRoute {
+  id: string;
+  companyId: string;
+  seasonId: string;
+  seasonYear: number;
+  cropStructureId: string;
+  fieldId: string;
+  fieldName: string;
+  areaHa: number;
+  warehouseId: string;
+  warehouseName: string;
+  cropId: string;
+  cropName: string;
+  varietyId: string | null;
+  varietyName: string;
+  reproductionId: string | null;
+  reproductionName: string;
+  requiresReview: boolean;
+  status: "active" | "completed";
+  openTicketCount: number;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+
 export type TareVarianceConfirmation = {
   requires_confirmation: true;
   code: "tare_variance_confirmation_required";

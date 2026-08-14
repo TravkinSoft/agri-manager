@@ -11,6 +11,8 @@ const combobox = read("components/weighbridge/searchable-combobox.tsx");
 const printPage = read("app/(dashboard)/weighbridge/[id]/print/page.tsx");
 const pdfRoute = read("app/api/weighbridge/tickets/[id]/pdf/route.ts");
 const ticketPaper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
+const activeHarvestTabs = read("components/weighbridge/active-harvest-tabs.tsx");
+const transportPicker = read("components/weighbridge/transport-driver-picker.tsx");
 
 let passed = 0;
 function check(name: string, run: () => void) {
@@ -31,18 +33,24 @@ check("secondary actions share one menu", () => assert.match(page, /aria-label="
 check("inventory moved into secondary menu", () => assert.match(page, /DropdownMenuItem asChild>[\s\S]*\/warehouses\/inventory/));
 check("history moved into secondary menu", () => assert.match(page, /История талонов/));
 check("statistics are collapsible below intake", () => assert.match(page, /<details className=\{`\$\{terminalPanelClass\} group`\}>[\s\S]*Статистика/));
-check("harvest target is one searchable field", () => assert.match(page, /ariaLabel="Поле или участок"/));
-check("reception stays in gross form", () => assert.match(page, /Место приёмки \*/));
-check("transport uses one searchable combobox", () => assert.match(page, /ariaLabel="Транспорт"/));
-check("driver uses one searchable combobox", () => assert.match(page, /ariaLabel="Водитель"/));
+check("harvest target is one searchable field in the intake form", () => assert.match(activeHarvestTabs, /aria-label="Поле или участок"/));
+check("reception is selected once in the intake form", () => {
+  assert.match(page, /Место приёмки \*/);
+  assert.doesNotMatch(page, /<ActiveHarvestContextEditor/);
+});
+check("transport and driver use separate compact selects", () => assert.match(page, /<TransportDriverSelects/));
+check("transport and driver expose separate local search", () => {
+  assert.match(transportPicker, /Машина, модель или госномер/);
+  assert.match(transportPicker, /Имя или фамилия водителя/);
+});
 check("permanent transport search input removed", () => assert.doesNotMatch(page, /aria-label="Поиск транспорта"/));
 check("permanent driver search input removed", () => assert.doesNotMatch(page, /aria-label="Поиск водителя"/));
-check("vehicle search includes name model and plate", () => assert.match(page, /keywords: \[vehicle\.name, vehicle\.model, vehicle\.plate\]/));
-check("driver search includes full personnel label", () => assert.match(page, /keywords: \[driver\.name, driver\.position, driver\.department\]/));
-check("driver filtering remains personnel-based", () => assert.match(page, /personnelRoleForVehicle/));
-check("combobox search is inside dropdown", () => assert.match(combobox, /<CommandInput placeholder=\{searchPlaceholder\}/));
-check("combobox list scroll is bounded", () => assert.match(combobox, /max-h-60 travkin-scrollbar/));
-check("combobox keyboard selection uses cmdk", () => assert.match(combobox, /<CommandItem[\s\S]*onSelect=/));
+check("vehicle search includes name model and plate", () => assert.match(transportPicker, /vehicle\.name,[\s\S]*vehicle\.model,[\s\S]*vehicle\.plate/));
+check("driver search includes personnel name", () => assert.match(transportPicker, /driver\.name/));
+check("driver options remain personnel-based", () => assert.match(page, /roleType: WeighbridgePersonnelRole/));
+check("picker search does not issue requests", () => assert.doesNotMatch(transportPicker, /fetch\(|axios|supabase/));
+check("picker list scroll is bounded", () => assert.match(combobox, /max-h-60 travkin-scrollbar/));
+check("field picker keyboard selection supports arrows and enter", () => assert.match(activeHarvestTabs, /ArrowDown[\s\S]*ArrowUp[\s\S]*Enter/));
 check("gross grid is compact", () => assert.match(page, /md:grid-cols-\[1fr_220px\]/));
 check("primary CTA says open ticket", () => assert.match(page, /"Открыть талон"/));
 check("primary moisture field removed from gross flow", () => assert.doesNotMatch(page, /Влажность, % \(необязательно\)/));

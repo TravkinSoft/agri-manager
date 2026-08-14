@@ -157,7 +157,7 @@ const mobileNav = readFileSync(resolve(root, "components/layout/mobile-bottom-na
 const dashboardApi = readFileSync(resolve(root, "app/api/dashboard/harvest-summary/route.ts"), "utf8");
 const dashboardUi = readFileSync(resolve(root, "components/dashboard/harvest-dashboard.tsx"), "utf8");
 check("agronomist/director routes limited", () => {
-  assert.match(roleAccess, /AGRONOMIST_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/tickets",\s*"\/auth"/);
+  assert.match(roleAccess, /AGRONOMIST_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/weather-lab",\s*"\/tickets",\s*"\/auth"/);
   assert.match(roleAccess, /DIRECTOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/auth"/);
 });
 check("director cannot open warehouse or ticket routes", () => {

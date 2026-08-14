@@ -506,7 +506,7 @@ export async function POST(request: NextRequest) {
         ])
       : null;
     const driverGuardPromise = ticket.driver_id
-      ? Promise.resolve(
+      ? Promise.all([
           supabase
             .from("company_people")
             .select("id,company_id,role_type,status,deleted_at")
@@ -514,8 +514,15 @@ export async function POST(request: NextRequest) {
             .eq("company_id", ticket.company_id)
             .eq("status", "active")
             .is("deleted_at", null)
-            .maybeSingle()
-        )
+            .maybeSingle(),
+          supabase
+            .from("tickets")
+            .select("id,ticket_no,vehicle_id")
+            .eq("company_id", ticket.company_id)
+            .eq("driver_id", ticket.driver_id)
+            .in("status", ["draft", "active", "ready_to_close"])
+            .limit(1),
+        ])
       : null;
     if (requiresVehicle && !ticket.vehicle_id) {
       return NextResponse.json({ error: "vehicle_id is required" }, { status: 400 });
@@ -1174,14 +1181,24 @@ export async function POST(request: NextRequest) {
       if (activeByVehicleError) {
         return NextResponse.json({ error: activeByVehicleError.message }, { status: 400 });
       }
-      if ((activeByVehicle || []).length > 0) {
-        return NextResponse.json({ error: "This vehicle already has an active ticket" }, { status: 400 });
+      const activeVehicleTicket = (activeByVehicle || [])[0];
+      if (activeVehicleTicket?.id) {
+        return NextResponse.json(
+          {
+            error: "This vehicle already has an active ticket",
+            code: "vehicle_active_ticket",
+            ticketId: String(activeVehicleTicket.id),
+            ticketNo: String(activeVehicleTicket.ticket_no || ""),
+          },
+          { status: 409 }
+        );
       }
     }
     if (ticket.driver_id) {
-      const { data: driver, error: driverError } = await (
+      const [driverResult, activeDriverTicketResult] = await (
         driverGuardPromise as NonNullable<typeof driverGuardPromise>
       );
+      const { data: driver, error: driverError } = driverResult;
       if (driverError || !driver?.id) {
         return NextResponse.json(
           { error: "Driver is unavailable in the current company personnel directory" },
@@ -1192,6 +1209,22 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { error: "Selected employee is not a driver or machine operator" },
           { status: 400 }
+        );
+      }
+      if (activeDriverTicketResult.error) {
+        return NextResponse.json({ error: activeDriverTicketResult.error.message }, { status: 400 });
+      }
+      const activeDriverTicket = (activeDriverTicketResult.data || [])[0];
+      if (activeDriverTicket?.id) {
+        return NextResponse.json(
+          {
+            error: "This driver already has an active ticket",
+            code: "driver_active_ticket",
+            ticketId: String(activeDriverTicket.id),
+            ticketNo: String(activeDriverTicket.ticket_no || ""),
+            vehicleId: activeDriverTicket.vehicle_id ? String(activeDriverTicket.vehicle_id) : null,
+          },
+          { status: 409 }
         );
       }
     }

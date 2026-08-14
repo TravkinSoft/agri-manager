@@ -30,6 +30,7 @@ export const LIVE_REFRESH_TABLES = {
     "stock_ledger_entries",
     "operations",
     "operation_lines",
+    "weighbridge_active_harvests",
   ],
 } as const;
 

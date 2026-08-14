@@ -72,7 +72,7 @@ check("gross form always creates a new ticket", () => {
   assert.doesNotMatch(page, /openVehicleTicket/);
   assert.match(page, /onClick=\{\(\) => void create\(\)\}[\s\S]*Открыть талон/);
 });
-check("open ticket queue stays oldest first", () => assert.match(page, /activeTickets\]\.sort\(\(a, b\) => new Date\(a\.created_at \|\| 0\)\.getTime\(\) - new Date\(b\.created_at \|\| 0\)\.getTime\(\)\)/));
+check("open ticket queue stays oldest first", () => assert.match(page, /visibleActiveTickets\]\.sort\(\(a, b\) => new Date\(a\.created_at \|\| 0\)\.getTime\(\) - new Date\(b\.created_at \|\| 0\)\.getTime\(\)\)/));
 check("tare is opened only from the selected queue ticket", () => assert.match(page, /key=\{`open-\$\{t\.id\}`\}[\s\S]*onClick=\{\(\) => setActiveTicket\(t\)\}/));
 check("aggregate lot tables exist", () => assert.match(lotMigration, /create table if not exists public\.harvest_lots[\s\S]*create table if not exists public\.harvest_lot_batches/));
 check("technical batch belongs to one aggregate lot", () => assert.match(lotMigration, /unique \(inventory_batch_id\)/));

@@ -78,7 +78,11 @@ check("28 gross stays primary and tare opens from the selected queue ticket", ()
   assert(has(page, ["Открытые талоны", "onClick={() => setActiveTicket(t)}", "Открыть талон"]));
 });
 check("29 destination empty state is explicit", () => assert(page.includes("Добавьте место приёмки урожая перед началом работы весовой.")));
-check("30 driver list is searchable", () => assert(has(page, ["SearchableCombobox", "Фамилия, имя или ФИО"])));
+check("30 driver list is searchable", () => {
+  const picker = read("components/weighbridge/transport-driver-picker.tsx");
+  assert(page.includes("TransportDriverSelects"));
+  assert(has(picker, ["Машина, модель или госномер", "Имя или фамилия водителя"]));
+});
 check("31 stale shift guard exists", () => assert(has(bootstrapRoute, ["shiftGuard", "ageHours", "stale"])));
 check("32 bootstrap and allocations load in parallel", () => assert(has(page, ["getWeighbridgeBootstrap(profile.company_id", "loadHarvestAllocations(profile.company_id)"])));
 check("33 gross idempotency survives refresh", () => assert(has(page, [".idempotency", "localStorage.setItem", "localStorage.removeItem"])));
