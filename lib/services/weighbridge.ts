@@ -103,10 +103,6 @@ export function lockWeighbridgeOperator(companyId: string) {
   return mutateOperatorSession({ action: "lock", companyId });
 }
 
-export function setWeighbridgeOperatorPin(companyId: string, personId: string, pin: string) {
-  return mutateOperatorSession({ action: "set_pin", companyId, personId, pin, active: true });
-}
-
 export async function openShift(companyId?: string, _actorUserId?: string, openingNote?: string) {
   const headers = await buildClientAuthHeaders("json");
   const response = await fetch("/api/weighbridge/shifts", {

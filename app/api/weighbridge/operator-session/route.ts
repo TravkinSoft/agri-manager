@@ -67,17 +67,6 @@ export async function POST(request: NextRequest) {
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
 
-    if (action === "set_pin") {
-      const { data, error } = await supabase.rpc("set_weighbridge_operator_pin_v1", {
-        p_company_id: companyId,
-        p_person_id: String(body?.personId || ""),
-        p_pin: String(body?.pin || ""),
-        p_active: body?.active !== false,
-      });
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      return NextResponse.json(data || {});
-    }
-
     if (action === "lock") {
       const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
       const { data, error } = await supabase.rpc("lock_weighbridge_operator_session_v1", {
@@ -88,6 +77,10 @@ export async function POST(request: NextRequest) {
       const response = NextResponse.json(data || { ok: true });
       response.cookies.set(WEIGHBRIDGE_OPERATOR_COOKIE, "", { ...cookieOptions, maxAge: 0 });
       return response;
+    }
+
+    if (action !== "unlock" && action !== "handover") {
+      return NextResponse.json({ error: "Неизвестное действие операторской сессии." }, { status: 400 });
     }
 
     const rpcName = action === "handover"
