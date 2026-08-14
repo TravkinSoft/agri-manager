@@ -1,6 +1,7 @@
-import type { HarvestBatchSummary, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
+import type { ActiveHarvestRoute, HarvestBatchSummary, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket, WeighingInput } from "@/lib/types/weighbridge";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
+import type { WeighbridgeTransportPickerData } from "@/lib/weighbridge/transport-pairing";
 
 async function parseJsonOrThrow(response: Response) {
   const payload = await response.json().catch(() => ({}));
@@ -48,6 +49,17 @@ export async function getWeighbridgeResources(companyId?: string) {
   return parseJsonOrThrow(response);
 }
 
+export async function getWeighbridgeTransportPickerData(
+  companyId?: string
+): Promise<WeighbridgeTransportPickerData> {
+  const headers = await buildClientAuthHeaders("none");
+  const url = companyId
+    ? `/api/weighbridge/transport-pairs?companyId=${encodeURIComponent(companyId)}`
+    : "/api/weighbridge/transport-pairs";
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
+  return parseJsonOrThrow(response) as Promise<WeighbridgeTransportPickerData>;
+}
+
 export async function listHarvestBatchSummaries(
   companyId?: string,
   options?: { warehouseId?: string; aggregateLots?: boolean }
@@ -61,6 +73,74 @@ export async function listHarvestBatchSummaries(
   const response = await fetch(url, { method: "GET", cache: "no-store", headers });
   const payload = await parseJsonOrThrow(response);
   return (payload.batches || []) as HarvestBatchSummary[];
+}
+
+export type ActiveHarvestRouteList = {
+  seasonId: string | null;
+  seasonYear: number | null;
+  active: ActiveHarvestRoute[];
+  completed: ActiveHarvestRoute[];
+};
+
+export type ActiveHarvestRouteMutationResult = {
+  routeId: string;
+  seasonId: string;
+  seasonYear: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function listActiveHarvestRoutes(companyId: string): Promise<ActiveHarvestRouteList> {
+  const headers = await buildClientAuthHeaders("none");
+  const response = await fetch(
+    `/api/weighbridge/active-harvests?companyId=${encodeURIComponent(companyId)}`,
+    { method: "GET", cache: "no-store", headers }
+  );
+  return parseJsonOrThrow(response) as Promise<ActiveHarvestRouteList>;
+}
+
+export async function createActiveHarvestRoute(
+  companyId: string,
+  cropStructureId: string,
+  warehouseId: string
+): Promise<ActiveHarvestRouteMutationResult> {
+  const headers = await buildClientAuthHeaders("json");
+  const response = await fetch("/api/weighbridge/active-harvests", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ companyId, cropStructureId, warehouseId }),
+  });
+  return parseJsonOrThrow(response) as Promise<ActiveHarvestRouteMutationResult>;
+}
+
+export async function updateActiveHarvestRoute(
+  companyId: string,
+  routeId: string,
+  action: "complete" | "restore"
+): Promise<ActiveHarvestRouteList> {
+  const headers = await buildClientAuthHeaders("json");
+  const response = await fetch(`/api/weighbridge/active-harvests/${encodeURIComponent(routeId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ companyId, action }),
+  });
+  return parseJsonOrThrow(response) as Promise<ActiveHarvestRouteList>;
+}
+
+export async function changeActiveHarvestRouteContext(
+  companyId: string,
+  routeId: string,
+  cropStructureId: string,
+  fieldId: string,
+  warehouseId: string
+): Promise<{ routeId: string; updatedAt: string }> {
+  const headers = await buildClientAuthHeaders("json");
+  const response = await fetch(`/api/weighbridge/active-harvests/${encodeURIComponent(routeId)}`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ companyId, action: "change_context", cropStructureId, fieldId, warehouseId }),
+  });
+  return parseJsonOrThrow(response) as Promise<{ routeId: string; updatedAt: string }>;
 }
 
 export async function getActiveShift(companyId?: string, _userId?: string) {

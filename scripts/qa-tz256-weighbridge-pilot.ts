@@ -13,6 +13,7 @@ const finalize = read("app/api/weighbridge/tickets/[id]/finalize/route.ts");
 const voidRoute = read("app/api/weighbridge/tickets/[id]/void/route.ts");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const ticketPaper = read("components/weighbridge/weighbridge-ticket-paper.tsx");
+const transportPicker = read("components/weighbridge/transport-driver-picker.tsx");
 
 let passed = 0;
 function check(name: string, run: () => void) {
@@ -51,10 +52,16 @@ check("API stores validated transport snapshot", () => {
 });
 check("API permits both canonical personnel roles", () => assert.match(tickets, /isWeighbridgePersonnelRole/));
 
-check("UI has unified transport search", () => assert.match(page, /Название, модель или госномер/));
+check("UI has separate transport and driver searches", () => {
+  assert.match(transportPicker, /Машина, модель или госномер/);
+  assert.match(transportPicker, /Имя или фамилия водителя/);
+});
 check("legacy trailer remains visible on existing tickets", () => assert.match(ticketPaper, /trailer_name_snapshot[\s\S]*label="Прицеп"/));
-check("UI does not auto-bind driver to vehicle", () => assert.doesNotMatch(page, /switch to driver's default vehicle|Soft autofill only/));
-check("UI labels recommended personnel group", () => assert.match(page, /рекомендуется/));
+check("UI protects manual transport choices during pair autofill", () => {
+  assert.match(transportPicker, /if \(!nextDriverId\)/);
+  assert.match(transportPicker, /if \(!nextVehicleId\)/);
+});
+check("UI labels recent valid transport choices", () => assert.match(transportPicker, /Недавно использованные/));
 check("UI accepts moisture at gross", () => assert.match(page, /harvestMoisture[\s\S]*step="0\.1"/));
 check("gross persists moisture in ticket line", () => assert.match(page, /operationType === "harvest_incoming"[\s\S]*toNum\(form\.harvestMoisture\)/));
 check("moisture can remain null at tare", () => assert.match(ticketPatch, /harvestMoisture = rawMoisture == null/));

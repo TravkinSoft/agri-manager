@@ -29,6 +29,7 @@
     "qa:tz265": "npx --no-install tsx scripts/qa-tz265-harvest-dashboard.ts",
     "qa:tz269": "npx --no-install tsx scripts/qa-tz269-weather-lab.ts",
     "qa:tz270": "npx --no-install tsx scripts/qa-tz270-weighbridge-pin-management.ts",
+    "qa:tz266": "npx --no-install tsx scripts/qa-tz266-active-harvest-tabs.ts",
     "qa:p0:weighbridge-gross": "npx --no-install tsx scripts/qa-p0-weighbridge-gross-legacy-schema.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",
     "health:check:strict": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1 -Strict",
