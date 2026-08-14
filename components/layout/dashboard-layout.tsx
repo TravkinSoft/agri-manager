@@ -22,12 +22,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { t } = useLanguage();
   const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
+  const isWeatherLab = pathname === "/weather-lab" || pathname?.startsWith("/weather-lab/");
 
   useEffect(() => {
     if (loading || !profile?.role || !pathname) return;
 
     if (profile.role === "global_admin" && !profile.context_company_id) {
-      if (!pathname.startsWith("/platform")) {
+      if (!pathname.startsWith("/platform") && !pathname.startsWith("/weather-lab")) {
         router.replace("/platform");
       }
       return;
@@ -100,9 +101,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <MobileBottomNav />
-        <AssistantLauncher />
-        <AssistantPanel />
-        <AssistantDebugMonitor />
+        {!isWeatherLab ? <AssistantLauncher /> : null}
+        {!isWeatherLab ? <AssistantPanel /> : null}
+        {!isWeatherLab ? <AssistantDebugMonitor /> : null}
       </AssistantShellProvider>
     </SidebarProvider>
   );

@@ -3,7 +3,7 @@
 import type { ComponentType } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, CheckSquare, History, LayoutDashboard, MapPin, Package, Scale, Tractor } from "lucide-react";
+import { Bot, CheckSquare, CloudSun, History, LayoutDashboard, MapPin, Package, Scale, Tractor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { canAccessPath } from "@/lib/auth/role-access";
@@ -25,6 +25,11 @@ const DASHBOARD_ITEM: BottomItem = { labelKey: "dashboard", href: "/dashboard", 
 
 function getMobileRouteCandidates(role?: string | null): BottomItem[] {
   switch (role) {
+    case "global_admin":
+      return [
+        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
+        DASHBOARD_ITEM,
+      ];
     case "agronomist":
       return [
         { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
@@ -91,7 +96,10 @@ export function MobileBottomNav() {
 
   if (!pathname) return null;
 
-  const items = getRoleFilteredItems(profile?.role);
+  const isWeatherLab = pathname === "/weather-lab" || pathname.startsWith("/weather-lab/");
+  const items = getRoleFilteredItems(profile?.role).filter(
+    (item) => !isWeatherLab || item.kind !== "copilot"
+  );
   if (items.length === 0) return null;
 
   return (
