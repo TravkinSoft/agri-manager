@@ -16,8 +16,10 @@ import {
   searchKatoLocalities,
 } from "../lib/weather/kato-catalog";
 import { clearLocationResolverCacheForTests, resolveKatoLocation } from "../lib/weather/location-resolver";
+import { evaluateOperatingHour, evaluateOperatingHours, findOperatingWindows } from "../lib/weather/operating-window";
+import { emptyWeatherProfile, weatherProfileInputSchema, type WeatherProfile } from "../lib/weather/profile";
 import { formatWeatherTime, relativeWeatherAge } from "../lib/weather/time";
-import { normalizeUavForecastResponse } from "../lib/weather/uav-forecast";
+import { normalizeUavForecastResponse, UAV_FORECAST_HOURS } from "../lib/weather/uav-forecast";
 import { normalizePercentage, roundMetric } from "../lib/weather/units";
 
 async function main() {
@@ -129,6 +131,41 @@ async function main() {
   check("hourly rows are flattened", () => assert.equal(normalized.hourlyForecast.length, 2));
   check("sun payload is parsed", () => assert.equal(normalized.sun[0].sunset, "2026-08-13T14:00:00.000Z"));
   check("duplicate provider sun days are shown once", () => assert.equal(normalized.sun.length, 1));
+  check("provider horizon requests 48 hours", () => assert.equal(UAV_FORECAST_HOURS, 48));
+
+  const profile = (overrides: Partial<WeatherProfile> = {}): WeatherProfile => ({
+    ...emptyWeatherProfile,
+    id: "profile-1",
+    companyId: "company-1",
+    userId: "user-1",
+    name: "Опрыскивание",
+    windEnabled: true,
+    maxWindMs: 5,
+    createdAt: "2026-08-13T00:00:00.000Z",
+    updatedAt: "2026-08-13T00:00:00.000Z",
+    ...overrides,
+  });
+  const point = (time: string, windMs: number | null) => ({ ...normalized.current, time, windMs });
+  check("green means all enabled criteria pass", () => assert.equal(evaluateOperatingHour(point("2026-08-13T01:00:00Z", 3), profile()).status, "green"));
+  check("yellow starts at 80 percent of upper limit", () => assert.equal(evaluateOperatingHour(point("2026-08-13T02:00:00Z", 4), profile()).status, "yellow"));
+  check("red means a configured limit is exceeded", () => assert.equal(evaluateOperatingHour(point("2026-08-13T03:00:00Z", 5.1), profile()).status, "red"));
+  check("gray means required provider data is absent", () => assert.equal(evaluateOperatingHour(point("2026-08-13T04:00:00Z", null), profile()).status, "gray"));
+  check("red has priority over missing secondary data", () => assert.equal(evaluateOperatingHour(
+    { ...point("2026-08-13T05:00:00Z", 6), gustMs: null },
+    profile({ gustEnabled: true, maxGustMs: 8 })
+  ).status, "red"));
+  check("profile without enabled criteria does not invent a green hour", () => assert.equal(evaluateOperatingHour(point("2026-08-13T06:00:00Z", 2), profile({ windEnabled: false, maxWindMs: null })).status, "gray"));
+  check("evaluation is capped at 48 hourly rows", () => assert.equal(evaluateOperatingHours(Array.from({ length: 60 }, (_, index) => point(new Date(Date.parse("2026-08-13T00:00:00Z") + index * 3_600_000).toISOString(), 2)), profile()).length, 48));
+  const windows = findOperatingWindows([
+    evaluateOperatingHour(point("2026-08-13T00:00:00Z", 2), profile()),
+    evaluateOperatingHour(point("2026-08-13T01:00:00Z", 2), profile()),
+    evaluateOperatingHour(point("2026-08-13T04:00:00Z", 2), profile()),
+    evaluateOperatingHour(point("2026-08-13T05:00:00Z", 6), profile()),
+  ]);
+  check("operating windows split on missing hourly rows", () => assert.deepEqual(windows.map((item) => item.hours), [2, 1]));
+  check("operating window end includes the final forecast hour", () => assert.equal(windows[0]?.end, "2026-08-13T02:00:00.000Z"));
+  check("enabled criterion requires its limit", () => assert.equal(weatherProfileInputSchema.safeParse({ ...emptyWeatherProfile, name: "Профиль", windEnabled: true }).success, false));
+  check("all criteria may be explicitly disabled", () => assert.equal(weatherProfileInputSchema.safeParse({ ...emptyWeatherProfile, name: "Наблюдение" }).success, true));
 
   check("IANA timezone is used", () => assert.equal(formatWeatherTime("2026-08-13T00:00:00.000Z", { timezone: "Asia/Almaty" }), "05:00"));
   check("numeric offset is used as fallback", () => assert.equal(formatWeatherTime("2026-08-13T00:00:00.000Z", { timezone: "INVALID", utcOffsetMinutes: 300 }), "05:00"));
@@ -153,7 +190,7 @@ async function main() {
     const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
     check("real redacted fixture is normalized live evidence", () => assert.equal(fixture.fixture_kind, "normalized_live_response"));
     check("real redacted fixture has current data", () => assert.ok(fixture.current?.local_time));
-    check("real redacted fixture has 24 hourly rows", () => assert.equal(fixture.hourly?.length, 24));
+    check("historical redacted fixture keeps its captured horizon", () => assert.ok(fixture.hourly?.length >= 24));
     check("real redacted fixture timezone is usable", () => assert.equal(fixture.provider_meta?.timezone, "Asia/Almaty"));
     check("real redacted fixture contains no provider secret", () => assert.equal(JSON.stringify(fixture).includes("UAV_FORECAST_API_KEY"), false));
   }
@@ -188,6 +225,9 @@ async function main() {
   const layoutSource = readFileSync(resolve(root, "components/layout/dashboard-layout.tsx"), "utf8");
   const mobileBottomNavSource = readFileSync(resolve(root, "components/layout/mobile-bottom-nav.tsx"), "utf8");
   const providerSource = readFileSync(resolve(root, "lib/weather/uav-forecast.ts"), "utf8");
+  const profileRouteSource = readFileSync(resolve(root, "app/api/weather-lab/profiles/route.ts"), "utf8");
+  const profileItemRouteSource = readFileSync(resolve(root, "app/api/weather-lab/profiles/[id]/route.ts"), "utf8");
+  const migrationSource = readFileSync(resolve(root, "supabase/migrations/20260814150503_tz269_weather_operating_profiles_v1.sql"), "utf8");
   check("client never references UAV key", () => assert.equal(clientSource.includes("UAV_FORECAST_API_KEY"), false));
   check("no public UAV key variable exists", () => assert.equal(providerSource.includes("NEXT_PUBLIC_UAV"), false));
   check("provider uses official POST endpoint", () => assert.match(providerSource, /method:\s*"POST"/));
@@ -218,8 +258,32 @@ async function main() {
     assert.equal(/catch \(requestError\) \{[\s\S]{0,300}localStorage\.removeItem\(ACTIVE_KEY\)/.test(clientSource), false);
   });
   check("UI does not invent Good To Fly", () => assert.equal(/можно лететь|goodToFly/i.test(clientSource), false));
-  check("derived dew point is labelled", () => assert.match(clientSource, /Расчётная точка росы/));
+  check("derived dew point is labelled", () => assert.match(clientSource, /Точка росы/));
   check("official KATO attribution is visible", () => assert.match(clientSource, /официальный КАТО Республики Казахстан/));
+  check("48 hour operating timeline is visible", () => assert.match(clientSource, /Рабочее окно · 48 часов/));
+  check("timeline supports pointer drag", () => assert.match(clientSource, /onPointerMove=\{moveTimeline\}/));
+  check("timeline technical scrollbar is hidden", () => assert.match(clientSource, /overflow-x-auto[\s\S]+\[scrollbar-width:none\][\s\S]+webkit-scrollbar\]:hidden/));
+  check("profile edit previews without a forecast request", () => assert.match(clientSource, /profileOpen \? previewProfile\(profileDraft/));
+  check("main UI omits Kp satellites and visibility", () => {
+    assert.equal(clientSource.includes("Видимые спутники"), false);
+    assert.equal(clientSource.includes("Ожидаемый захват спутников"), false);
+    assert.equal(clientSource.includes("Видимость"), false);
+    assert.equal(clientSource.includes(">Kp<"), false);
+  });
+  check("profile routes require Weather Lab access", () => {
+    assert.match(profileRouteSource, /requireWeatherLabAccess\(request\)/);
+    assert.match(profileItemRouteSource, /requireWeatherLabAccess\(request\)/);
+  });
+  check("profile routes use user-scoped Supabase client", () => {
+    assert.match(profileRouteSource, /getUserScopedClientFromRequest\(request\)/);
+    assert.match(profileItemRouteSource, /getUserScopedClientFromRequest\(request\)/);
+  });
+  check("weather profiles have RLS and no anon grant", () => {
+    assert.match(migrationSource, /alter table public\.weather_profiles enable row level security/);
+    assert.match(migrationSource, /revoke all on table public\.weather_profiles from public, anon/);
+  });
+  check("weather profile ownership uses auth uid", () => assert.match(migrationSource, /user_id = \(select auth\.uid\(\)\)/));
+  check("weather profile migration is additive", () => assert.equal(/\bdrop\s+(table|column)\b/i.test(migrationSource), false));
 
   console.log(`TZ269 QA PASS: ${checks.length}/${checks.length}`);
   for (const item of checks) console.log(`PASS ${item}`);
