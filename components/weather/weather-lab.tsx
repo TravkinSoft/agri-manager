@@ -7,28 +7,30 @@ import {
   Cloud,
   CloudRain,
   Compass,
-  Gauge,
   LocateFixed,
   Loader2,
   MapPin,
   Navigation,
+  Plus,
   RefreshCw,
-  Satellite,
   Search,
-  SunMedium,
+  Settings2,
   Thermometer,
+  Trash2,
   Wind,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase/client";
+import { evaluateOperatingHours, findOperatingWindows, type OperatingHour, type OperatingStatus } from "@/lib/weather/operating-window";
+import { emptyWeatherProfile, weatherProfileInputSchema, type WeatherProfile, type WeatherProfileInput } from "@/lib/weather/profile";
 import { formatWeatherTime, relativeWeatherAge } from "@/lib/weather/time";
 import type { NormalizedWeather, WeatherLocation, WeatherPoint } from "@/lib/weather/types";
 
 type RecentLocation = WeatherLocation & { provider?: string };
-type Horizon = "24h" | "3d" | "all";
 type PickerMode = "search" | "list";
 type KatoRegion = { code: string; nameRu: string; nameKz: string };
 type KatoDistrict = KatoRegion & { regionCode: string };
@@ -46,7 +48,7 @@ type KatoLocality = {
 
 const RECENT_KEY = "travkin-weather-lab:recent:v1";
 const ACTIVE_KEY = "travkin-weather-lab:active-location:v2";
-const LOCAL_WEATHER_PREFIX = "travkin-weather-lab:forecast:v1";
+const LOCAL_WEATHER_PREFIX = "travkin-weather-lab:forecast:v2";
 const LOCAL_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function metric(value: number | null, maximumFractionDigits = 1): string {
@@ -57,6 +59,12 @@ function metric(value: number | null, maximumFractionDigits = 1): string {
 function signedTemperature(value: number | null): string {
   if (value == null) return "—";
   return `${value > 0 ? "+" : ""}${metric(value)} °C`;
+}
+
+function numberOrNull(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function localWeatherKey(location: WeatherLocation): string {
@@ -72,11 +80,16 @@ function readJson<T>(key: string): T | null {
   }
 }
 
-async function authorizedJson<T>(url: string): Promise<T> {
+async function authorizedJson<T>(url: string, init: RequestInit = {}): Promise<T> {
   const { data, error } = await supabase.auth.getSession();
   if (error || !data.session?.access_token) throw new Error("Сессия истекла. Войдите снова.");
   const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${data.session.access_token}` },
+    ...init,
+    headers: {
+      Authorization: `Bearer ${data.session.access_token}`,
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+      ...(init.headers || {}),
+    },
     cache: "no-store",
   });
   const payload = await response.json().catch(() => ({}));
@@ -117,24 +130,6 @@ function MetricTile({ label, value, hint, icon: Icon }: { label: string; value: 
   );
 }
 
-function HourlyRow({ point, weather }: { point: WeatherPoint; weather: NormalizedWeather }) {
-  const timeOptions = {
-    timezone: weather.providerMeta.timezone,
-    utcOffsetMinutes: weather.providerMeta.utcOffsetMinutes,
-    includeDate: true,
-  };
-  return (
-    <div className="grid grid-cols-[72px_repeat(5,minmax(74px,1fr))] items-center gap-2 border-b border-[#252D3C] px-2 py-2.5 text-xs last:border-0 md:grid-cols-[88px_repeat(5,minmax(90px,1fr))]">
-      <div className="font-medium text-[#F3F4F6]">{formatWeatherTime(point.time, timeOptions)}</div>
-      <div>{signedTemperature(point.temperatureC)}</div>
-      <div>{metric(point.windMs)} м/с</div>
-      <div>{metric(point.gustMs)} м/с</div>
-      <div>{metric(point.precipitationProbabilityPct, 0)}%</div>
-      <div>{point.precipitationRateMmH != null ? `${metric(point.precipitationRateMmH)} мм/ч` : "—"}</div>
-    </div>
-  );
-}
-
 function AdditionalMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex min-w-0 items-center justify-between gap-4 border-b border-[#252D3C] py-2 text-sm last:border-0">
@@ -144,11 +139,106 @@ function AdditionalMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
+const STATUS_STYLES: Record<OperatingStatus, string> = {
+  green: "border-emerald-500/70 bg-emerald-950/55 text-emerald-50",
+  yellow: "border-amber-400/80 bg-amber-950/55 text-amber-50",
+  red: "border-red-500/75 bg-red-950/55 text-red-50",
+  gray: "border-slate-600 bg-slate-800/75 text-slate-200",
+};
+
+const STATUS_LABELS: Record<OperatingStatus, string> = {
+  green: "Подходит",
+  yellow: "Близко к пределу",
+  red: "Не подходит",
+  gray: "Недостаточно данных",
+};
+
+function profileToInput(profile: WeatherProfile): WeatherProfileInput {
+  const { id: _id, companyId: _companyId, userId: _userId, createdAt: _createdAt, updatedAt: _updatedAt, ...input } = profile;
+  return input;
+}
+
+function previewProfile(input: WeatherProfileInput, existing?: WeatherProfile | null): WeatherProfile {
+  return {
+    ...input,
+    id: existing?.id || "preview",
+    companyId: existing?.companyId || "preview",
+    userId: existing?.userId || "preview",
+    createdAt: existing?.createdAt || new Date(0).toISOString(),
+    updatedAt: existing?.updatedAt || new Date(0).toISOString(),
+  };
+}
+
+function formatWeatherDay(value: string, weather: NormalizedWeather): string {
+  const date = new Date(value);
+  const options: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit", weekday: "short" };
+  try {
+    return new Intl.DateTimeFormat("ru-RU", { ...options, timeZone: weather.providerMeta.timezone || undefined }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat("ru-RU", options).format(date);
+  }
+}
+
+function dayKey(value: string, weather: NormalizedWeather): string {
+  const date = new Date(value);
+  try {
+    return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: weather.providerMeta.timezone || undefined }).format(date);
+  } catch {
+    return date.toISOString().slice(0, 10);
+  }
+}
+
+function formatWindow(value: string, weather: NormalizedWeather, includeDate: boolean): string {
+  return formatWeatherTime(value, {
+    timezone: weather.providerMeta.timezone,
+    utcOffsetMinutes: weather.providerMeta.utcOffsetMinutes,
+    includeDate,
+  });
+}
+
+function statusDot(status: OperatingStatus): string {
+  return status === "green" ? "bg-emerald-400" : status === "yellow" ? "bg-amber-300" : status === "red" ? "bg-red-400" : "bg-slate-400";
+}
+
+function OperatingHourDetails({ hour, weather }: { hour: OperatingHour; weather: NormalizedWeather }) {
+  const point = hour.point;
+  return (
+    <div className="grid gap-3 border-t border-[#2A3344] px-3 py-3 text-sm sm:grid-cols-[120px_1fr] sm:px-4">
+      <div>
+        <div className="font-semibold text-white">{formatWindow(point.time, weather, true)}</div>
+        <div className="mt-1 flex items-center gap-2 text-xs text-[#A7B2C3]"><span className={cn("h-2 w-2 rounded-full", statusDot(hour.status))} />{STATUS_LABELS[hour.status]}</div>
+      </div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#C5CEDA] sm:grid-cols-3 lg:grid-cols-6">
+        <span>Температура <b className="text-white">{signedTemperature(point.temperatureC)}</b></span>
+        <span>Точка росы <b className="text-white">{signedTemperature(point.dewPointC)}</b></span>
+        <span>Ветер <b className="text-white">{metric(point.windMs)} м/с</b></span>
+        <span>Порывы <b className="text-white">{metric(point.gustMs)} м/с</b></span>
+        <span>Осадки <b className="text-white">{metric(point.precipitationRateMmH)} мм/ч</b></span>
+        <span>Вероятность <b className="text-white">{metric(point.precipitationProbabilityPct, 0)}%</b></span>
+        {hour.reasons.length ? <span className="col-span-2 mt-1 text-[#AEB8C7] sm:col-span-3 lg:col-span-6">{hour.reasons.join(" · ")}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function CriterionRow({ label, enabled, onEnabledChange, children }: { label: string; enabled: boolean; onEnabledChange: (value: boolean) => void; children: React.ReactNode }) {
+  return (
+    <div className="grid gap-2 border-b border-[#293244] py-3 last:border-0 sm:grid-cols-[150px_1fr] sm:items-center">
+      <label className="flex items-center gap-2 text-sm font-medium text-white">
+        <Switch checked={enabled} onCheckedChange={onEnabledChange} aria-label={`Учитывать: ${label}`} />
+        {label}
+      </label>
+      <div className={cn("min-w-0", !enabled && "pointer-events-none opacity-45")}>{children}</div>
+    </div>
+  );
+}
+
 export function WeatherLab() {
   const pickerScrollRef = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const dragState = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null);
   const [selected, setSelected] = useState<RecentLocation | null>(null);
   const [weather, setWeather] = useState<NormalizedWeather | null>(null);
-  const [horizon, setHorizon] = useState<Horizon>("24h");
   const [resolving, setResolving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,6 +254,15 @@ export function WeatherLab() {
   const [localities, setLocalities] = useState<KatoLocality[]>([]);
   const [listRegion, setListRegion] = useState<KatoRegion | null>(null);
   const [listDistrict, setListDistrict] = useState<KatoDistrict | null>(null);
+  const [profiles, setProfiles] = useState<WeatherProfile[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(true);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [editingProfile, setEditingProfile] = useState<WeatherProfile | null>(null);
+  const [profileDraft, setProfileDraft] = useState<WeatherProfileInput>(emptyWeatherProfile);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [selectedHourTime, setSelectedHourTime] = useState<string | null>(null);
 
   const loadForecast = useCallback(async (location: RecentLocation, force = false) => {
     setSelected(location);
@@ -201,6 +300,25 @@ export function WeatherLab() {
     const active = readJson<RecentLocation>(ACTIVE_KEY) || storedRecent[0] || null;
     if (active) void loadForecast(active);
   }, [loadForecast]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProfilesLoading(true);
+    void authorizedJson<{ profiles: WeatherProfile[] }>("/api/weather-lab/profiles")
+      .then((payload) => {
+        if (cancelled) return;
+        setProfiles(payload.profiles);
+        const selectedProfile = payload.profiles.find((item) => item.isDefault) || payload.profiles[0] || null;
+        setActiveProfileId(selectedProfile?.id || null);
+      })
+      .catch((requestError) => {
+        if (!cancelled) setProfileError(requestError instanceof Error ? requestError.message : "Не удалось загрузить профили");
+      })
+      .finally(() => {
+        if (!cancelled) setProfilesLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const chooseLocation = useCallback(async (location: RecentLocation) => {
     saveRecent(location);
@@ -330,15 +448,110 @@ export function WeatherLab() {
     );
   };
 
-  const visibleForecast = useMemo(() => {
-    if (!weather) return [];
-    const limit = horizon === "24h" ? 24 : horizon === "3d" ? 72 : weather.hourlyForecast.length;
-    return weather.hourlyForecast.slice(0, limit);
-  }, [horizon, weather]);
-
+  const activeProfile = useMemo(
+    () => profiles.find((item) => item.id === activeProfileId) || profiles.find((item) => item.isDefault) || profiles[0] || null,
+    [activeProfileId, profiles]
+  );
+  const evaluationProfile = profileOpen ? previewProfile(profileDraft, editingProfile) : activeProfile;
+  const operatingHours = useMemo(
+    () => evaluateOperatingHours(weather?.hourlyForecast || [], evaluationProfile),
+    [evaluationProfile, weather?.hourlyForecast]
+  );
+  const operatingWindows = useMemo(() => findOperatingWindows(operatingHours), [operatingHours]);
+  const nearestWindow = operatingWindows[0] || null;
+  const longestWindow = operatingWindows.reduce<(typeof operatingWindows)[number] | null>((longest, item) => !longest || item.hours > longest.hours ? item : longest, null);
+  const selectedHour = operatingHours.find((item) => item.point.time === selectedHourTime) || operatingHours[0] || null;
   const current = weather?.current || null;
-  const hasThreeDays = (weather?.hourlyForecast.length || 0) >= 48;
-  const hasLongerHorizon = (weather?.hourlyForecast.length || 0) > 24;
+
+  const openProfileEditor = (profile: WeatherProfile | null = null) => {
+    setEditingProfile(profile);
+    setProfileDraft(profile ? profileToInput(profile) : { ...emptyWeatherProfile, name: "" });
+    setProfileError(null);
+    setProfileOpen(true);
+  };
+
+  const saveProfile = async () => {
+    const parsed = weatherProfileInputSchema.safeParse({
+      ...profileDraft,
+      isDefault: editingProfile ? editingProfile.id === activeProfile?.id : profiles.length === 0,
+    });
+    if (!parsed.success) {
+      setProfileError(parsed.error.issues[0]?.message || "Проверьте профиль");
+      return;
+    }
+    setProfileSaving(true);
+    setProfileError(null);
+    try {
+      const url = editingProfile ? `/api/weather-lab/profiles/${editingProfile.id}` : "/api/weather-lab/profiles";
+      const payload = await authorizedJson<{ profile: WeatherProfile }>(url, {
+        method: editingProfile ? "PATCH" : "POST",
+        body: JSON.stringify(parsed.data),
+      });
+      setProfiles((currentProfiles) => editingProfile
+        ? currentProfiles.map((item) => item.id === payload.profile.id ? payload.profile : item)
+        : [payload.profile, ...currentProfiles]);
+      if (payload.profile.isDefault || !activeProfileId) setActiveProfileId(payload.profile.id);
+      setProfileOpen(false);
+    } catch (requestError) {
+      setProfileError(requestError instanceof Error ? requestError.message : "Не удалось сохранить профиль");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const selectProfile = async (profile: WeatherProfile) => {
+    if (profile.id === activeProfileId) return;
+    const previousProfiles = profiles;
+    const previousActiveId = activeProfileId;
+    setActiveProfileId(profile.id);
+    setProfiles((items) => items.map((item) => ({ ...item, isDefault: item.id === profile.id })));
+    setProfileError(null);
+    try {
+      const payload = await authorizedJson<{ profile: WeatherProfile }>(`/api/weather-lab/profiles/${profile.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...profileToInput(profile), isDefault: true }),
+      });
+      setProfiles((items) => items.map((item) => item.id === payload.profile.id ? payload.profile : item));
+    } catch (requestError) {
+      setProfiles(previousProfiles);
+      setActiveProfileId(previousActiveId);
+      setProfileError(requestError instanceof Error ? requestError.message : "Не удалось выбрать профиль");
+    }
+  };
+
+  const deleteProfile = async (profile: WeatherProfile) => {
+    if (!window.confirm(`Удалить профиль «${profile.name}»?`)) return;
+    setProfileSaving(true);
+    setProfileError(null);
+    try {
+      await authorizedJson(`/api/weather-lab/profiles/${profile.id}`, { method: "DELETE" });
+      const remaining = profiles.filter((item) => item.id !== profile.id);
+      setProfiles(remaining);
+      if (activeProfileId === profile.id) setActiveProfileId(remaining[0]?.id || null);
+      setProfileOpen(false);
+    } catch (requestError) {
+      setProfileError(requestError instanceof Error ? requestError.message : "Не удалось удалить профиль");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const beginTimelineDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!timelineRef.current) return;
+    dragState.current = { pointerId: event.pointerId, x: event.clientX, scrollLeft: timelineRef.current.scrollLeft };
+    timelineRef.current.setPointerCapture(event.pointerId);
+  };
+
+  const moveTimeline = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!timelineRef.current || dragState.current?.pointerId !== event.pointerId) return;
+    timelineRef.current.scrollLeft = dragState.current.scrollLeft - (event.clientX - dragState.current.x);
+  };
+
+  const endTimelineDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragState.current?.pointerId !== event.pointerId) return;
+    dragState.current = null;
+    timelineRef.current?.releasePointerCapture(event.pointerId);
+  };
 
   return (
     <div className="mx-auto w-full max-w-[1560px] space-y-4 text-[#D8DEE9]">
@@ -474,6 +687,82 @@ export function WeatherLab() {
         </div>
       ) : null}
 
+      <section className="min-w-0 rounded-lg border border-[#2A3344] bg-[#121722] p-2.5 sm:p-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-xs font-medium text-[#98A4B7]">Рабочий профиль</span>
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {profilesLoading ? <Loader2 className="h-4 w-4 animate-spin text-[#E0B100]" /> : null}
+            {!profilesLoading && !profiles.length ? <span className="truncate text-xs text-[#7F8A9B]">Не создан</span> : null}
+            {profiles.map((profile) => (
+              <div key={profile.id} className="flex shrink-0 items-center rounded-md border border-[#303A4D] bg-[#0E121A] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => void selectProfile(profile)}
+                  className={cn("h-8 rounded px-3 text-xs", activeProfile?.id === profile.id ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#BAC4D2] hover:bg-[#1A2130] hover:text-white")}
+                >
+                  {profile.name}
+                </button>
+                <Button type="button" variant="ghost" size="icon" onClick={() => openProfileEditor(profile)} title="Изменить профиль" aria-label={`Изменить профиль ${profile.name}`} className="h-8 w-8 text-[#8F9BAD] hover:bg-[#202839] hover:text-white">
+                  <Settings2 className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <Button type="button" variant="outline" size="sm" onClick={() => openProfileEditor()} className="h-9 shrink-0 border-[#39445A] bg-transparent px-2.5 text-[#E5E9F0] hover:bg-[#202839] hover:text-white">
+            <Plus className="mr-1 h-4 w-4" /> Профиль
+          </Button>
+        </div>
+        {profileError && !profileOpen ? <div role="alert" className="mt-2 text-xs text-red-300">{profileError}</div> : null}
+      </section>
+
+      {profileOpen ? (
+        <Dialog open onOpenChange={(open) => !profileSaving && setProfileOpen(open)}>
+          <DialogContent className="max-h-[88dvh] w-[calc(100vw-24px)] max-w-xl grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden border-[#303A4D] bg-[#121722] p-0 text-[#D8DEE9] sm:w-full">
+            <DialogHeader className="border-b border-[#293244] px-4 pb-3 pt-4 text-left">
+              <DialogTitle className="text-lg text-white">{editingProfile ? "Параметры профиля" : "Новый профиль"}</DialogTitle>
+              <DialogDescription className="text-xs text-[#8F9BAD]">Статус часов рассчитывается только по включённым вами критериям.</DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 overflow-y-auto px-4 py-3 [scrollbar-width:thin]">
+              <label className="block text-xs font-medium text-[#AEB8C7]">
+                Название
+                <Input value={profileDraft.name} onChange={(event) => setProfileDraft((draft) => ({ ...draft, name: event.target.value }))} maxLength={80} autoFocus className="mt-1.5 h-10 border-[#323C50] bg-[#0E121A] text-white" />
+              </label>
+              <div className="mt-3 rounded-lg border border-[#293244] bg-[#10151F] px-3">
+                <CriterionRow label="Ветер" enabled={profileDraft.windEnabled} onEnabledChange={(windEnabled) => setProfileDraft((draft) => ({ ...draft, windEnabled }))}>
+                  <label className="text-xs text-[#98A4B7]">Максимум, м/с<Input inputMode="decimal" value={profileDraft.maxWindMs ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxWindMs: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
+                </CriterionRow>
+                <CriterionRow label="Порывы" enabled={profileDraft.gustEnabled} onEnabledChange={(gustEnabled) => setProfileDraft((draft) => ({ ...draft, gustEnabled }))}>
+                  <label className="text-xs text-[#98A4B7]">Максимум, м/с<Input inputMode="decimal" value={profileDraft.maxGustMs ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxGustMs: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
+                </CriterionRow>
+                <CriterionRow label="Осадки" enabled={profileDraft.precipitationEnabled} onEnabledChange={(precipitationEnabled) => setProfileDraft((draft) => ({ ...draft, precipitationEnabled }))}>
+                  <div className="grid gap-2 sm:grid-cols-[1fr_150px]">
+                    <div className="grid grid-cols-2 rounded-md border border-[#323C50] bg-[#0E121A] p-0.5">
+                      {(["forbidden", "maximum"] as const).map((mode) => <button key={mode} type="button" onClick={() => setProfileDraft((draft) => ({ ...draft, precipitationMode: mode }))} className={cn("h-8 rounded px-2 text-xs", profileDraft.precipitationMode === mode ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2]")}>{mode === "forbidden" ? "Запрещены" : "До предела"}</button>)}
+                    </div>
+                    {profileDraft.precipitationMode === "maximum" ? <label className="text-xs text-[#98A4B7]">Максимум, мм/ч<Input inputMode="decimal" value={profileDraft.maxPrecipitationMmH ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxPrecipitationMmH: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label> : null}
+                  </div>
+                </CriterionRow>
+                <CriterionRow label="Вероятность" enabled={profileDraft.precipitationProbabilityEnabled} onEnabledChange={(precipitationProbabilityEnabled) => setProfileDraft((draft) => ({ ...draft, precipitationProbabilityEnabled }))}>
+                  <label className="text-xs text-[#98A4B7]">Максимум, %<Input inputMode="decimal" value={profileDraft.maxPrecipitationProbabilityPct ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxPrecipitationProbabilityPct: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
+                </CriterionRow>
+                <CriterionRow label="Температура" enabled={profileDraft.temperatureEnabled} onEnabledChange={(temperatureEnabled) => setProfileDraft((draft) => ({ ...draft, temperatureEnabled }))}>
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs text-[#98A4B7]">Минимум, °C<Input inputMode="decimal" value={profileDraft.minTemperatureC ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, minTemperatureC: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
+                    <label className="text-xs text-[#98A4B7]">Максимум, °C<Input inputMode="decimal" value={profileDraft.maxTemperatureC ?? ""} onChange={(event) => setProfileDraft((draft) => ({ ...draft, maxTemperatureC: numberOrNull(event.target.value) }))} className="mt-1 h-9 border-[#323C50] bg-[#0E121A] text-white" /></label>
+                  </div>
+                </CriterionRow>
+              </div>
+              {profileError ? <div role="alert" className="mt-3 rounded-md border border-red-900/70 bg-red-950/25 p-2.5 text-xs text-red-200">{profileError}</div> : null}
+            </div>
+            <DialogFooter className="gap-2 border-t border-[#293244] px-4 py-3 sm:space-x-0">
+              {editingProfile ? <Button type="button" variant="ghost" onClick={() => void deleteProfile(editingProfile)} disabled={profileSaving} className="mr-auto text-red-300 hover:bg-red-950/40 hover:text-red-200"><Trash2 className="mr-1.5 h-4 w-4" />Удалить</Button> : null}
+              <Button type="button" variant="outline" onClick={() => setProfileOpen(false)} disabled={profileSaving} className="border-[#39445A] bg-transparent text-[#D8DEE9] hover:bg-[#202839] hover:text-white">Отмена</Button>
+              <Button type="button" onClick={() => void saveProfile()} disabled={profileSaving} className="bg-[#E0B100] text-[#111827] hover:bg-[#F0C400]">{profileSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Сохранить</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+
       {!weather && !loading ? (
         <div className="flex min-h-64 flex-col items-center justify-center rounded-lg border border-dashed border-[#303A4D] px-5 text-center">
           <Navigation className="h-8 w-8 text-[#E0B100]" />
@@ -491,75 +780,90 @@ export function WeatherLab() {
               {relativeWeatherAge(weather.updatedAt)}
               {weather.stale ? <span className="ml-2 text-amber-300">· показаны последние сохранённые данные</span> : null}
             </div>
-            <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
               <MetricTile label="Температура" value={signedTemperature(current.temperatureC)} icon={Thermometer} />
-              <MetricTile label="Интенсивность осадков" value={current.precipitationRateMmH != null ? `${metric(current.precipitationRateMmH)} мм/ч` : "—"} icon={CloudRain} />
-              <MetricTile label="Вероятность осадков" value={`${metric(current.precipitationProbabilityPct, 0)}%`} icon={Cloud} />
+              <MetricTile label="Точка росы" value={signedTemperature(current.dewPointC)} hint="расчётная" icon={Thermometer} />
               <MetricTile label="Ветер" value={`${metric(current.windMs)} м/с`} icon={Wind} />
               <MetricTile label="Порывы" value={`${metric(current.gustMs)} м/с`} icon={Compass} />
+              <MetricTile label="Осадки" value={current.precipitationRateMmH != null ? `${metric(current.precipitationRateMmH)} мм/ч` : "—"} icon={CloudRain} />
+              <MetricTile label="Вероятность" value={current.precipitationProbabilityPct != null ? `${metric(current.precipitationProbabilityPct, 0)}%` : "—"} icon={Cloud} />
             </div>
           </section>
 
-          <section className="rounded-lg border border-[#2A3344] bg-[#121722]">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#293244] p-3 sm:p-4">
-              <SectionTitle icon={Wind}>Почасовой прогноз</SectionTitle>
-              <div className="flex rounded-md border border-[#303A4D] bg-[#0E121A] p-0.5">
-                {(["24h", ...(hasThreeDays ? ["3d"] : []), ...(hasLongerHorizon ? ["all"] : [])] as Horizon[]).map((item) => (
-                  <button key={item} type="button" onClick={() => setHorizon(item)} className={cn("h-8 rounded px-3 text-xs", horizon === item ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2] hover:text-white")}>
-                    {item === "24h" ? "24 часа" : item === "3d" ? "3 дня" : "Весь прогноз"}
-                  </button>
-                ))}
+          <section className="min-w-0 overflow-hidden rounded-lg border border-[#2A3344] bg-[#121722]">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#293244] p-3 sm:p-4">
+              <div>
+                <SectionTitle icon={Wind}>Рабочее окно · 48 часов</SectionTitle>
+                <div className="mt-1 text-xs text-[#8995A7]">Оценка по вашим настройкам{activeProfile ? ` · ${activeProfile.name}` : ""}</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#9EABBC]">
+                {(["green", "yellow", "red", "gray"] as OperatingStatus[]).map((status) => <span key={status} className="flex items-center gap-1.5"><span className={cn("h-2 w-2 rounded-full", statusDot(status))} />{STATUS_LABELS[status]}</span>)}
               </div>
             </div>
-            <div className="hidden overflow-x-auto md:block">
-              <div className="min-w-[690px] px-2 py-1 text-[#C7CFDB]">
-                <div className="grid grid-cols-[88px_repeat(5,minmax(90px,1fr))] gap-2 border-b border-[#303A4D] px-2 py-2 text-[11px] uppercase text-[#778397]">
-                  <div>Время</div><div>Температура</div><div>Ветер</div><div>Порывы</div><div>Вероятность</div><div>Осадки</div>
+            {operatingHours.length ? (
+              <>
+                <div
+                  ref={timelineRef}
+                  onPointerDown={beginTimelineDrag}
+                  onPointerMove={moveTimeline}
+                  onPointerUp={endTimelineDrag}
+                  onPointerCancel={endTimelineDrag}
+                  className="min-w-0 cursor-grab touch-pan-x overflow-x-auto overscroll-x-contain px-3 py-3 active:cursor-grabbing [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                >
+                  <div className="flex w-max min-w-full select-none gap-1.5">
+                    {operatingHours.map((hour, index) => {
+                      const previous = operatingHours[index - 1];
+                      const startsDay = !previous || dayKey(previous.point.time, weather) !== dayKey(hour.point.time, weather);
+                      const isCurrentHour = Math.abs(Date.parse(hour.point.time) - Date.now()) < 30 * 60_000;
+                      return (
+                        <div key={hour.point.time} className="w-[88px] shrink-0">
+                          <div className="h-6 truncate text-[10px] font-medium uppercase text-[#7F8A9B]">{startsDay ? formatWeatherDay(hour.point.time, weather) : ""}</div>
+                          <button
+                            type="button"
+                            onMouseEnter={() => setSelectedHourTime(hour.point.time)}
+                            onFocus={() => setSelectedHourTime(hour.point.time)}
+                            onClick={() => setSelectedHourTime(hour.point.time)}
+                            title={`${formatWindow(hour.point.time, weather, true)} · ${STATUS_LABELS[hour.status]}`}
+                            className={cn("relative h-[118px] w-full rounded-md border p-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#E0B100]", STATUS_STYLES[hour.status], selectedHour?.point.time === hour.point.time && "ring-2 ring-[#E0B100]")}
+                          >
+                            {isCurrentHour ? <span className="absolute inset-x-2 top-0 h-0.5 bg-[#E0B100]" /> : null}
+                            <span className="block text-sm font-semibold">{formatWindow(hour.point.time, weather, false)}</span>
+                            <span className="mt-1 block text-base font-semibold">{signedTemperature(hour.point.temperatureC).replace(" °C", "°")}</span>
+                            <span className="mt-1 block text-[10px] opacity-80">В {metric(hour.point.windMs)} · П {metric(hour.point.gustMs)}</span>
+                            <span className="block text-[10px] opacity-80">{metric(hour.point.precipitationProbabilityPct, 0)}% · {metric(hour.point.precipitationRateMmH)} мм</span>
+                            <span className="mt-1.5 block truncate text-[10px] font-medium">{STATUS_LABELS[hour.status]}</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-                {visibleForecast.map((point) => <HourlyRow key={point.time} point={point} weather={weather} />)}
+                {selectedHour ? <OperatingHourDetails hour={selectedHour} weather={weather} /> : null}
+              </>
+            ) : <div className="p-6 text-center text-sm text-[#7F8A9B]">UAV Forecast не вернул почасовой ряд.</div>}
+            <div className="grid gap-2 border-t border-[#293244] p-3 text-xs sm:grid-cols-2 sm:p-4">
+              <div className="rounded-md border border-[#293244] bg-[#171D29] p-3">
+                <div className="text-[#8995A7]">Ближайшее подходящее окно</div>
+                <div className="mt-1 font-medium text-white">{nearestWindow ? `${formatWindow(nearestWindow.start, weather, true)} — ${formatWindow(nearestWindow.end, weather, true)} · ${nearestWindow.hours} ч` : "В пределах 48 часов не найдено"}</div>
               </div>
-            </div>
-            <div className="space-y-2 p-3 md:hidden">
-              {visibleForecast.map((point) => (
-                <div key={point.time} className="rounded-md border border-[#293244] bg-[#171D29] p-3 text-xs">
-                  <div className="flex items-center justify-between"><span className="font-semibold text-white">{formatWeatherTime(point.time, { timezone: weather.providerMeta.timezone, utcOffsetMinutes: weather.providerMeta.utcOffsetMinutes, includeDate: true })}</span><span className="text-base font-semibold text-white">{signedTemperature(point.temperatureC)}</span></div>
-                  <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[#9EABBC]"><span>Ветер {metric(point.windMs)} м/с</span><span>Порывы {metric(point.gustMs)} м/с</span><span>Вероятность {metric(point.precipitationProbabilityPct, 0)}%</span><span>{point.precipitationRateMmH != null ? `${metric(point.precipitationRateMmH)} мм/ч` : "Осадки —"}</span></div>
-                </div>
-              ))}
+              <div className="rounded-md border border-[#293244] bg-[#171D29] p-3">
+                <div className="text-[#8995A7]">Самое длинное подходящее окно</div>
+                <div className="mt-1 font-medium text-white">{longestWindow ? `${formatWindow(longestWindow.start, weather, true)} — ${formatWindow(longestWindow.end, weather, true)} · ${longestWindow.hours} ч` : "В пределах 48 часов не найдено"}</div>
+              </div>
             </div>
           </section>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-lg border border-[#2A3344] bg-[#121722] p-3 sm:p-4">
-              <SectionTitle icon={Gauge}>Дополнительно</SectionTitle>
-              <div className="mt-3">
-                {current.dewPointC != null ? <AdditionalMetric label="Расчётная точка росы" value={signedTemperature(current.dewPointC)} /> : null}
-                {current.humidityPct != null ? <AdditionalMetric label="Относительная влажность" value={`${metric(current.humidityPct, 0)}%`} /> : null}
+          {current.humidityPct != null || current.cloudCoverPct != null || current.cloudBaseM != null || current.pressureMslHpa != null ? (
+            <details className="rounded-lg border border-[#2A3344] bg-[#121722] p-3 text-sm sm:p-4">
+              <summary className="cursor-pointer font-medium text-[#D5DBE5]">Дополнительные погодные данные</summary>
+              <div className="mt-3 grid gap-x-6 sm:grid-cols-2 lg:grid-cols-4">
+                {current.humidityPct != null ? <AdditionalMetric label="Влажность воздуха" value={`${metric(current.humidityPct, 0)}%`} /> : null}
                 {current.cloudCoverPct != null ? <AdditionalMetric label="Облачность" value={`${metric(current.cloudCoverPct, 0)}%`} /> : null}
                 {current.cloudBaseM != null ? <AdditionalMetric label="Нижняя граница облаков" value={`${metric(current.cloudBaseM, 0)} м`} /> : null}
-                {current.visibilityKm != null ? <AdditionalMetric label="Видимость" value={`${metric(current.visibilityKm)} км`} /> : null}
-                {current.densityAltitudeM != null ? <AdditionalMetric label="Плотностная высота" value={`${metric(current.densityAltitudeM, 0)} м`} /> : null}
-                {current.pressureMslHpa != null ? <AdditionalMetric label="Давление MSL" value={`${metric(current.pressureMslHpa)} hPa`} /> : null}
-                {current.visibleSatellites != null ? <AdditionalMetric label="Видимые спутники" value={metric(current.visibleSatellites, 0)} /> : null}
-                {current.estimatedSatellitesLocked != null ? <AdditionalMetric label="Ожидаемый захват спутников" value={metric(current.estimatedSatellitesLocked, 0)} /> : null}
-                {current.kp != null ? <AdditionalMetric label="Kp" value={metric(current.kp)} /> : null}
+                {current.pressureMslHpa != null ? <AdditionalMetric label="Давление" value={`${metric(current.pressureMslHpa)} hPa`} /> : null}
               </div>
-            </section>
-
-            <section className="rounded-lg border border-[#2A3344] bg-[#121722] p-3 sm:p-4">
-              <SectionTitle icon={SunMedium}>Солнце</SectionTitle>
-              {weather.sun.length ? (
-                <div className="mt-3 space-y-2">
-                  {weather.sun.map((day) => (
-                    <div key={`${day.date}-${day.sunrise || ""}-${day.sunset || ""}`} className="rounded-md border border-[#293244] bg-[#171D29] p-3 text-sm">
-                      <div className="mb-2 font-medium text-white">{day.date}</div>
-                      <div className="grid grid-cols-3 gap-2 text-center text-xs text-[#98A4B7]"><div>Восход<div className="mt-1 text-white">{day.sunrise ? formatWeatherTime(day.sunrise, { timezone: weather.providerMeta.timezone, utcOffsetMinutes: weather.providerMeta.utcOffsetMinutes }) : "—"}</div></div><div>Полдень<div className="mt-1 text-white">{day.solarNoon ? formatWeatherTime(day.solarNoon, { timezone: weather.providerMeta.timezone, utcOffsetMinutes: weather.providerMeta.utcOffsetMinutes }) : "—"}</div></div><div>Закат<div className="mt-1 text-white">{day.sunset ? formatWeatherTime(day.sunset, { timezone: weather.providerMeta.timezone, utcOffsetMinutes: weather.providerMeta.utcOffsetMinutes }) : "—"}</div></div></div>
-                    </div>
-                  ))}
-                </div>
-              ) : <div className="mt-3 text-sm text-[#7F8A9B]">UAV Forecast не вернул данные о солнце.</div>}
-            </section>
-          </div>
+            </details>
+          ) : null}
 
           <details className="rounded-lg border border-[#2A3344] bg-[#10151F] p-3 text-xs text-[#909CAD]">
             <summary className="cursor-pointer font-medium text-[#D5DBE5]">Служебная информация Global Admin</summary>
@@ -576,7 +880,6 @@ export function WeatherLab() {
               <div>Высоты ветра: <span className="text-white">{weather.providerMeta.windAltitudesM.join(" / ")} м</span></div>
               <div>Стоимость вызова: <span className="text-white">{weather.providerMeta.billing ? `${weather.providerMeta.billing.amount || "—"} ${weather.providerMeta.billing.currency || ""}`.trim() : "не указана"}</span></div>
             </div>
-            <div className="mt-3 flex items-center gap-2"><Satellite className="h-3.5 w-3.5" /> Поля API: {weather.rawCapabilities.join(", ") || "нет"}</div>
           </details>
         </>
       ) : null}

@@ -12,7 +12,7 @@ type UnknownRecord = Record<string, unknown>;
 type ProviderHeaders = { rateLimit: Record<string, string> | null };
 
 const DEFAULT_PROVIDER_URL = "https://www.uavforecast.com/api/v1/forecast";
-export const UAV_FORECAST_HOURS = 24;
+export const UAV_FORECAST_HOURS = 48;
 export const UAV_WIND_ALTITUDES_M = [10, 100, 200] as const;
 
 function record(value: unknown): UnknownRecord {
