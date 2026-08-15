@@ -64,6 +64,18 @@ check("profile context refresh does not reload the document", () => {
   assert.match(authContext, /const refreshProfile = async/);
 });
 
+check("cached auth UI restores immediately without persisting a token", () => {
+  assert.match(authContext, /AUTH_UI_CACHE_KEY = "travkin\.auth\.ui\.v1"/);
+  assert.match(authContext, /useState\(\(\) => !cachedAuthRef\.current\)/);
+  assert.match(authContext, /setLoading\(!cachedAuthRef\.current\)/);
+  assert.match(authContext, /if \(event === "INITIAL_SESSION"\) return/);
+  const cachedPayload = authContext.slice(
+    authContext.indexOf("function writeCachedAuthUiState"),
+    authContext.indexOf("function clearCachedAuthUiState")
+  );
+  assert.doesNotMatch(cachedPayload, /access_token|refresh_token|session\s*:/);
+});
+
 check("critical weighbridge load excludes bootstrap and secondary catalogs", () => {
   const critical = page.slice(page.indexOf("const load = async"), page.indexOf("const refreshTickets"));
   assert.doesNotMatch(critical, /getWeighbridgeBootstrap|from\("products"\)|loadMasterIdentityRefs|loadSuppliers|loadBuyers/);
@@ -88,6 +100,7 @@ check("weighbridge restores confirmed workspace data from session cache", () => 
   assert.match(page, /readWeighbridgeSessionCache/);
   assert.match(page, /writeWeighbridgeSessionCache/);
   assert.match(page, /setCoreDataReady\(true\)/);
+  assert.match(page, /performance\.mark\("travkin-weighbridge-interactive"\)/);
 });
 
 check("canonical startup requests are deduplicated and abortable", () => {
