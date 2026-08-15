@@ -3,6 +3,7 @@
 import { cn } from "@/lib/utils";
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { formatWeightKg, formatWeightNumber } from "@/lib/weighbridge/weight-format";
+import { ticketOperatorFacts } from "@/lib/weighbridge/ticket-operator";
 
 export type WeighbridgeTicketPaperLabels = {
   company?: string | null;
@@ -16,7 +17,6 @@ export type WeighbridgeTicketPaperLabels = {
   trailer?: string | null;
   trailerPlate?: string | null;
   driver?: string | null;
-  operator?: string | null;
 };
 
 const clean = (value: unknown) => {
@@ -137,7 +137,7 @@ export function WeighbridgeTicketPaper({
   const trailer = first(labels.trailer, ticket.trailer_name_snapshot);
   const trailerPlate = first(labels.trailerPlate, ticket.trailer_plate_snapshot);
   const driver = first(labels.driver, ticket.driver_name_snapshot);
-  const operator = first(labels.operator, ticket.created_by_name_snapshot);
+  const operatorFacts = ticketOperatorFacts(ticket);
   const crop = first(mainLine?.product_name, mainLine?.product_name_snapshot, ticket.crop_name_snapshot);
   const variety = first(mainLine?.variety_name, mainLine?.variety_name_snapshot, ticket.variety_name_snapshot);
   const reproduction = first(mainLine?.reproduction_name, mainLine?.reproduction_name_snapshot, ticket.reproduction_name_snapshot);
@@ -245,7 +245,7 @@ export function WeighbridgeTicketPaper({
         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
           <Fact label="Открыт" value={openedAt} />
           <Fact label="Завершён" value={finalizedAt} />
-          <Fact label="Весовщик" value={operator || "Не указан"} />
+            {operatorFacts.map((fact) => <Fact key={fact.label} label={fact.label} value={fact.value} />)}
           <Fact label="Номер документа" value={first(ticket.supplier_document_no)} />
           <Fact label="Комментарий" value={first(ticket.notes)} />
           {ticket.status === "voided" ? <Fact label="Причина аннулирования" value={first(ticket.void_reason)} /> : null}

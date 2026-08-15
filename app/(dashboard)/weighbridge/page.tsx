@@ -954,43 +954,27 @@ export default function WeighbridgeOperationsPage() {
     const cacheKey = `${profile.company_id}:${language}`;
     if (!weighbridgePageCache.has(cacheKey)) setLoading(true);
     try {
-      const [fieldsRes, warehousesRes, resourceRows, productsRes, identityRefs, supplierRows, buyerRows, operationsRes, bootstrap, harvestAllocations, transportPairRows] = await Promise.all([
+      const [fieldsRes, warehousesRes, resourceRows, bootstrap, harvestAllocations, transportPairRows] = await Promise.all([
         supabase.from("fields").select("id,name,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en,warehouse_type").eq("company_id", profile.company_id).eq("archived", false).order("name"),
         getWeighbridgeResources(profile.company_id),
-        supabase
-          .from("products")
-          .select("id,name,trade_name,normalized_name,company_id,type,product_type,unit,default_unit,base_uom,pack_uom,package_unit,product_form,formulation,category,subcategory,stock_unit,physical_state,is_seed_material,crop_id,variety_id,seed_reproduction_id")
-          .or(`company_id.eq.${profile.company_id},company_id.is.null`)
-          .eq("archived", false)
-          .order("name"),
-        loadMasterIdentityRefs(profile.company_id),
-        loadSuppliers(profile.company_id),
-        loadBuyers(profile.company_id),
-        supabase
-          .from("operations")
-          .select("id,field_id,operation_type,operation_category_slug,operation_type_slug,date,status")
-          .eq("company_id", profile.company_id)
-          .eq("archived", false)
-          .order("date", { ascending: false })
-          .limit(500),
         getWeighbridgeBootstrap(profile.company_id, profile.id),
         loadHarvestAllocations(profile.company_id),
         loadTransportPickerDataCached(profile.company_id),
       ]);
-      if (fieldsRes.error || warehousesRes.error || productsRes.error || operationsRes.error) {
-        throw new Error(fieldsRes.error?.message || warehousesRes.error?.message || productsRes.error?.message || "Не удалось загрузить данные");
+      if (fieldsRes.error || warehousesRes.error) {
+        throw new Error(fieldsRes.error?.message || warehousesRes.error?.message || "Не удалось загрузить данные");
       }
-      setFields((fieldsRes.data || []).map((r: any) => ({ id: String(r.id), name: String(r.name || "Поле"), area: Number(r.area || 0) })));
-      setWarehouses((warehousesRes.data || []).map((r: any) => ({
+      const fieldRows = (fieldsRes.data || [])
+        .map((r: any) => ({ id: String(r.id), name: String(r.name || "Поле"), area: Number(r.area || 0) }))
+        .filter((row) => !hasQaDataMarker(row.name));
+      const warehouseRows = (warehousesRes.data || []).map((r: any) => ({
         id: String(r.id),
         name: localizedName(r, lang, ["name"]) || String(r.name || "Склад"),
         warehouseType: String(r.warehouse_type || ""),
-      })));
-      setSuppliers(supplierRows);
-      setBuyers(buyerRows);
-      setFields((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
-      setWarehouses((prev) => prev.filter((row) => !hasQaDataMarker(row.name)));
+      })).filter((row) => !hasQaDataMarker(row.name));
+      setFields(fieldRows);
+      setWarehouses(warehouseRows);
       setVehicles(((resourceRows?.vehicles || []) as any[]).map((r: any) => ({
         id: String(r.id),
         name: String(r.name || "Машина"),
@@ -1014,83 +998,6 @@ export default function WeighbridgeOperationsPage() {
         primaryPersonnelId: null,
       })));
       setProcessingPoints([]);
-      const dedupeByName = (rows: any[]) => {
-        const map = new Map<string, any>();
-        rows.forEach((row) => {
-          const key = String(row.name || row.name_ru || row.id || "").trim().toLowerCase();
-          if (!key) return;
-          const existing = map.get(key);
-          if (!existing || (existing.company_id == null && row.company_id != null)) {
-            map.set(key, row);
-          }
-        });
-        return Array.from(map.values());
-      };
-
-      const productRows = dedupeProductsForSelect(
-        (productsRes.data || []).filter((row: any) =>
-          !hasQaDataMarker(`${brandName(row) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
-        )
-      );
-      const cropRows = dedupeByName(
-        (identityRefs.crops || []).filter((row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || ""))
-      );
-      const varietyRowsRaw = ((identityRefs.varieties || []) as any[]).filter(
-        (row: any) => !hasQaDataMarker(brandName(row) || row.name || "")
-      );
-      const reproductionRowsRaw = ((identityRefs.reproductions || []) as any[]).filter(
-        (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
-      );
-      const varietyRows = dedupeByName(varietyRowsRaw);
-      const reproductionRows = dedupeByName(reproductionRowsRaw);
-      const cropNameById = new Map<string, string>(
-        cropRows.map((c: any) => [String(c.id), localizedName(c, lang, ["name"]) || String(c.name || "").trim()])
-      );
-      const varietyNameById = new Map<string, string>(
-        varietyRowsRaw.map((v: any) => [String(v.id), brandName(v) || String(v.name || "").trim()])
-      );
-      const reproductionNameById = new Map<string, string>(
-        reproductionRowsRaw.map((r: any) => [String(r.id), localizedName(r, lang, ["name"]) || String(r.name || "").trim()])
-      );
-
-      setProducts(
-        productRows.map((r: any) => ({
-          id: String(r.id),
-          name: brandName(r) || String(r.name || "Номенклатура"),
-          type: String(r.product_type || r.type || "").toLowerCase(),
-          productType: String(r.product_type || ""),
-          unit: String(r.unit || ""),
-          defaultUnit: String(r.default_unit || ""),
-          baseUom: String(r.base_uom || ""),
-          packUom: String(r.pack_uom || ""),
-          packageUnit: String(r.package_unit || ""),
-          productForm: String(r.product_form || ""),
-          formulation: String(r.formulation || ""),
-          category: String(r.category || ""),
-          subcategory: String(r.subcategory || ""),
-          stockUnit: String(r.stock_unit || ""),
-          physicalState: String(r.physical_state || ""),
-          isSeedMaterial: r.is_seed_material === true,
-          cropId: r.crop_id ? String(r.crop_id) : null,
-          varietyId: r.variety_id ? String(r.variety_id) : null,
-          reproductionId: r.seed_reproduction_id ? String(r.seed_reproduction_id) : null,
-        }))
-      );
-      setCrops(cropRows.map((r: any) => ({ id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Культура") })));
-      setVarieties(
-        varietyRows.map((r: any) => ({
-          id: String(r.id),
-          name: brandName(r) || String(r.name || "Сорт"),
-          cropId: String(r.crop_id || ""),
-          cropName: localizedName(r.crops, lang, ["name"]) || cropNameById.get(String(r.crop_id || "")) || "",
-        }))
-      );
-      setReproductions(
-        reproductionRows.map((r: any) => ({
-          id: String(r.id),
-          name: localizedName(r, lang, ["name"]) || String(r.name || "Репродукция"),
-        }))
-      );
       setDrivers(((resourceRows?.drivers || []) as any[]).map((r: any) => ({
         id: String(r.id),
         name: String(r.name || "Сотрудник"),
@@ -1109,24 +1016,6 @@ export default function WeighbridgeOperationsPage() {
         )
       );
       applyTransportPickerData(transportPairRows);
-      const fieldNameById = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), String(row.name || "Поле")]));
-      setLinkedOperations(
-        (operationsRes.data || []).map((row: any) => {
-          const fieldId = row.field_id ? String(row.field_id) : null;
-          const fieldName = fieldId ? fieldNameById.get(fieldId) || "Поле" : "Поле";
-          const dateText = row.date ? formatDate(String(row.date)) : "—";
-          return {
-            id: String(row.id),
-            field_id: fieldId,
-            category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
-            type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
-            status: row.status ? String(row.status) : null,
-            label: `${row.operation_type || "Operation"} • ${fieldName} • ${dateText}`,
-          };
-        })
-      );
-      setLinkedOperations((prev) => prev.filter((row) => !hasQaDataMarker(row.label)));
-      setLinkedOperationLines([]);
       setActiveShift(bootstrap?.shift || null);
       setShiftCounters(bootstrap?.counters || {
         activeTickets: 0,
@@ -1140,6 +1029,94 @@ export default function WeighbridgeOperationsPage() {
       setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {} });
       setHarvestStructureByField((harvestAllocations?.byField || {}) as Record<string, HarvestStructureOption[]>);
       setHarvestIncompleteFields((harvestAllocations?.incompleteByField || {}) as Record<string, boolean>);
+
+      setLoading(false);
+
+      void Promise.all([
+        supabase
+          .from("products")
+          .select("id,name,trade_name,normalized_name,company_id,type,product_type,unit,default_unit,base_uom,pack_uom,package_unit,product_form,formulation,category,subcategory,stock_unit,physical_state,is_seed_material,crop_id,variety_id,seed_reproduction_id")
+          .or(`company_id.eq.${profile.company_id},company_id.is.null`)
+          .eq("archived", false)
+          .order("name"),
+        loadMasterIdentityRefs(profile.company_id),
+        loadSuppliers(profile.company_id),
+        loadBuyers(profile.company_id),
+        supabase
+          .from("operations")
+          .select("id,field_id,operation_type,operation_category_slug,operation_type_slug,date,status")
+          .eq("company_id", profile.company_id)
+          .eq("archived", false)
+          .order("date", { ascending: false })
+          .limit(500),
+      ]).then(([productsRes, identityRefs, supplierRows, buyerRows, operationsRes]) => {
+        if (productsRes.error || operationsRes.error) {
+          throw new Error(productsRes.error?.message || operationsRes.error?.message || "Не удалось загрузить вторичные справочники");
+        }
+        const dedupeByName = (rows: any[]) => {
+          const map = new Map<string, any>();
+          rows.forEach((row) => {
+            const key = String(row.name || row.name_ru || row.id || "").trim().toLowerCase();
+            if (!key) return;
+            const existing = map.get(key);
+            if (!existing || (existing.company_id == null && row.company_id != null)) map.set(key, row);
+          });
+          return Array.from(map.values());
+        };
+        const productRows = dedupeProductsForSelect(
+          (productsRes.data || []).filter((row: any) =>
+            !hasQaDataMarker(`${brandName(row) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
+          )
+        );
+        const cropRows = dedupeByName(
+          (identityRefs.crops || []).filter((row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || ""))
+        );
+        const varietyRowsRaw = ((identityRefs.varieties || []) as any[]).filter(
+          (row: any) => !hasQaDataMarker(brandName(row) || row.name || "")
+        );
+        const reproductionRowsRaw = ((identityRefs.reproductions || []) as any[]).filter(
+          (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
+        );
+        const varietyRows = dedupeByName(varietyRowsRaw);
+        const reproductionRows = dedupeByName(reproductionRowsRaw);
+        const cropNameById = new Map<string, string>(
+          cropRows.map((c: any) => [String(c.id), localizedName(c, lang, ["name"]) || String(c.name || "").trim()])
+        );
+        setProducts(productRows.map((r: any) => ({
+          id: String(r.id), name: brandName(r) || String(r.name || "Номенклатура"),
+          type: String(r.product_type || r.type || "").toLowerCase(), productType: String(r.product_type || ""),
+          unit: String(r.unit || ""), defaultUnit: String(r.default_unit || ""), baseUom: String(r.base_uom || ""),
+          packUom: String(r.pack_uom || ""), packageUnit: String(r.package_unit || ""), productForm: String(r.product_form || ""),
+          formulation: String(r.formulation || ""), category: String(r.category || ""), subcategory: String(r.subcategory || ""),
+          stockUnit: String(r.stock_unit || ""), physicalState: String(r.physical_state || ""), isSeedMaterial: r.is_seed_material === true,
+          cropId: r.crop_id ? String(r.crop_id) : null, varietyId: r.variety_id ? String(r.variety_id) : null,
+          reproductionId: r.seed_reproduction_id ? String(r.seed_reproduction_id) : null,
+        })));
+        setCrops(cropRows.map((r: any) => ({ id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Культура") })));
+        setVarieties(varietyRows.map((r: any) => ({
+          id: String(r.id), name: brandName(r) || String(r.name || "Сорт"), cropId: String(r.crop_id || ""),
+          cropName: localizedName(r.crops, lang, ["name"]) || cropNameById.get(String(r.crop_id || "")) || "",
+        })));
+        setReproductions(reproductionRows.map((r: any) => ({
+          id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Репродукция"),
+        })));
+        setSuppliers(supplierRows);
+        setBuyers(buyerRows);
+        const fieldNameById = new Map(fieldRows.map((row) => [row.id, row.name]));
+        setLinkedOperations((operationsRes.data || []).map((row: any) => {
+          const fieldId = row.field_id ? String(row.field_id) : null;
+          const fieldName = fieldId ? fieldNameById.get(fieldId) || "Поле" : "Поле";
+          const dateText = row.date ? formatDate(String(row.date)) : "—";
+          return {
+            id: String(row.id), field_id: fieldId,
+            category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
+            type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
+            status: row.status ? String(row.status) : null,
+            label: `${row.operation_type || "Operation"} • ${fieldName} • ${dateText}`,
+          };
+        }).filter((row: any) => !hasQaDataMarker(row.label)));
+        setLinkedOperationLines([]);
+      }).catch((error) => console.error("Weighbridge secondary catalogs failed", error));
     } catch (e: any) {
       toast({ title: "Ошибка", description: e?.message || "Не удалось загрузить весовую", variant: "destructive" });
     } finally {
@@ -1165,7 +1142,7 @@ export default function WeighbridgeOperationsPage() {
 
   const refreshBootstrap = async () => {
     if (!profile?.company_id || !profile?.id) return;
-    const bootstrap = await getWeighbridgeBootstrap(profile.company_id, profile.id);
+    const bootstrap = await getWeighbridgeBootstrap(profile.company_id, profile.id, { includeSummary: true });
     setActiveShift(bootstrap?.shift || null);
     setShiftCounters(bootstrap?.counters || shiftCounters);
     setShiftGuard(bootstrap?.shiftGuard || { stale: false, ageHours: 0 });
@@ -3375,7 +3352,6 @@ export default function WeighbridgeOperationsPage() {
       trailer: trailer?.name || ticket.trailer_name_snapshot,
       trailerPlate: trailer?.plate || ticket.trailer_plate_snapshot,
       driver: driverNameForId(ticket.driver_id) || ticket.driver_name_snapshot,
-      operator: ticket.created_by_name_snapshot || profile?.full_name?.trim() || profile?.email,
     };
   };
   const from = activeTicket ? (activeTicket.direction === "incoming" ? fields.find((f) => f.id === activeTicket.field_id)?.name : warehouses.find((w) => w.id === activeTicket.warehouse_from_id)?.name) || "-" : "-";

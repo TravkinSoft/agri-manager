@@ -265,8 +265,9 @@ check("ticket deep-link uses the canonical journal row before endpoint fallback"
   assert.match(page, /const cachedTicket = tickets\.find[\s\S]*if \(cachedTicket\)[\s\S]*setHistoryPreviewTicket\(cachedTicket\)/);
   assert.match(page, /if \(ticketsLoading\) return/);
 });
-check("ticket card keeps PDF lazy and shows the actual creator", () => {
-  assert.match(ticketPaper, /ticket\.created_by_name_snapshot/);
+check("ticket card keeps PDF lazy and shows the canonical human operator", () => {
+  assert.match(ticketPaper, /ticketOperatorFacts\(ticket\)/);
+  assert.doesNotMatch(ticketPaper, /ticket\.created_by_name_snapshot/);
   assert.match(page, /downloadTicketPdf\(historyPreviewTicket\.id/);
   assert.doesNotMatch(page, /useEffect[\s\S]{0,500}downloadTicketPdf/);
 });
