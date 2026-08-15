@@ -41,6 +41,7 @@ type UseLiveRefreshOptions = {
   tables?: readonly string[];
   intervalMs?: number;
   debounceMs?: number;
+  minRefreshIntervalMs?: number;
 };
 
 export type LiveRefreshEvent = {
@@ -56,10 +57,12 @@ export function useLiveRefresh({
   tables = [],
   intervalMs = 10_000,
   debounceMs = 250,
+  minRefreshIntervalMs = 0,
 }: UseLiveRefreshOptions) {
   const refreshRef = useRef(onRefresh);
   const runningRef = useRef(false);
   const pendingRef = useRef(false);
+  const lastRefreshAtRef = useRef(Date.now());
   const channelIdRef = useRef(Math.random().toString(36).slice(2));
   const tablesKey = tables.join(",");
 
@@ -86,7 +89,15 @@ export function useLiveRefresh({
       try {
         const event = pendingEvent;
         pendingEvent = undefined;
+        if (
+          event?.source !== "realtime" &&
+          minRefreshIntervalMs > 0 &&
+          Date.now() - lastRefreshAtRef.current < minRefreshIntervalMs
+        ) {
+          return;
+        }
         await refreshRef.current(event);
+        lastRefreshAtRef.current = Date.now();
       } catch (error) {
         console.error("Background refresh failed", error);
       } finally {
@@ -166,5 +177,5 @@ export function useLiveRefresh({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (realtimeChannel) void supabase.removeChannel(realtimeChannel);
     };
-  }, [companyId, debounceMs, enabled, intervalMs, tablesKey]);
+  }, [companyId, debounceMs, enabled, intervalMs, minRefreshIntervalMs, tablesKey]);
 }

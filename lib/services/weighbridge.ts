@@ -17,11 +17,16 @@ async function parseJsonOrThrow(response: Response) {
   return payload;
 }
 
-export async function listTickets(companyId?: string, _userId?: string): Promise<WeighbridgeTicket[]> {
+export async function listTickets(
+  companyId?: string,
+  _userId?: string,
+  options?: { workspace?: boolean }
+): Promise<WeighbridgeTicket[]> {
   const headers = await buildClientAuthHeaders("none");
-  const url = companyId
-    ? `/api/weighbridge/tickets?companyId=${encodeURIComponent(companyId)}`
-    : "/api/weighbridge/tickets";
+  const query = new URLSearchParams();
+  if (companyId) query.set("companyId", companyId);
+  if (options?.workspace) query.set("workspace", "true");
+  const url = `/api/weighbridge/tickets${query.size ? `?${query.toString()}` : ""}`;
   const response = await fetch(url, {
     method: "GET",
     cache: "no-store",

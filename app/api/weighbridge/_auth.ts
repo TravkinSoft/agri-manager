@@ -142,6 +142,18 @@ export function weighbridgeUserError(message: unknown): string {
   if (lower.includes("void reason is required")) {
     return "Укажите причину аннулирования.";
   }
+  if (
+    lower.includes("does not exist") ||
+    lower.includes("schema cache") ||
+    lower.includes("pgrst204") ||
+    lower.includes("42703")
+  ) {
+    return "Не удалось завершить талон. Данные не были записаны. Повторите после устранения ошибки.";
+  }
 
   return raw || "Операция весовой не выполнена.";
+}
+
+export function weighbridgeUnexpectedUserError(): string {
+  return "Не удалось завершить талон. Данные не были записаны. Повторите после устранения ошибки.";
 }
