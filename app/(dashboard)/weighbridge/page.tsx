@@ -613,21 +613,32 @@ const transportPickerDataCache = new Map<string, WeighbridgeTransportPickerData>
 const transportPickerRequestCache = new Map<string, Promise<WeighbridgeTransportPickerData>>();
 const harvestContextCache = new Map<string, HarvestContextState>();
 const harvestContextRequestCache = new Map<string, Promise<HarvestContextState>>();
-const WEIGHBRIDGE_SESSION_CACHE_VERSION = 1;
-const WEIGHBRIDGE_SESSION_CACHE_TTL_MS = 15 * 60 * 1000;
+const WEIGHBRIDGE_WORKSPACE_CACHE_VERSION = 2;
+const WEIGHBRIDGE_WORKSPACE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
-const sessionCacheKey = (companyId: string, language: string) =>
-  `travkin.weighbridge.workspace.v${WEIGHBRIDGE_SESSION_CACHE_VERSION}.${companyId}.${language}`;
+const workspaceCacheKey = (companyId: string, profileId: string, language: string) =>
+  `travkin.weighbridge.workspace.v${WEIGHBRIDGE_WORKSPACE_CACHE_VERSION}.${companyId}.${profileId}.${language}`;
 
-function readWeighbridgeSessionCache(companyId: string, language: string) {
+const legacySessionCacheKey = (companyId: string, language: string) =>
+  `travkin.weighbridge.workspace.v1.${companyId}.${language}`;
+
+function readWeighbridgeWorkspaceCache(companyId: string, profileId: string, language: string) {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.sessionStorage.getItem(sessionCacheKey(companyId, language));
+    const key = workspaceCacheKey(companyId, profileId, language);
+    const localRaw = window.localStorage.getItem(key);
+    const legacyKey = legacySessionCacheKey(companyId, language);
+    const raw = localRaw || window.sessionStorage.getItem(legacyKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { savedAt?: number; payload?: Record<string, unknown> };
-    if (!parsed.savedAt || Date.now() - parsed.savedAt > WEIGHBRIDGE_SESSION_CACHE_TTL_MS || !parsed.payload) {
-      window.sessionStorage.removeItem(sessionCacheKey(companyId, language));
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > WEIGHBRIDGE_WORKSPACE_CACHE_TTL_MS || !parsed.payload) {
+      window.localStorage.removeItem(key);
+      window.sessionStorage.removeItem(legacyKey);
       return null;
+    }
+    if (!localRaw) {
+      window.localStorage.setItem(key, raw);
+      window.sessionStorage.removeItem(legacyKey);
     }
     return parsed.payload;
   } catch {
@@ -635,16 +646,21 @@ function readWeighbridgeSessionCache(companyId: string, language: string) {
   }
 }
 
-function writeWeighbridgeSessionCache(companyId: string, language: string, payload: Record<string, unknown>) {
+function writeWeighbridgeWorkspaceCache(
+  companyId: string,
+  profileId: string,
+  language: string,
+  payload: Record<string, unknown>
+) {
   if (typeof window === "undefined") return;
   const write = () => {
     try {
-      window.sessionStorage.setItem(
-        sessionCacheKey(companyId, language),
+      window.localStorage.setItem(
+        workspaceCacheKey(companyId, profileId, language),
         JSON.stringify({ savedAt: Date.now(), payload })
       );
     } catch {
-      // Session storage is an acceleration layer only.
+      // Browser storage is an acceleration layer only; canonical data is reconciled in the background.
     }
   };
   if ("requestIdleCallback" in window) {
@@ -1311,7 +1327,9 @@ export default function WeighbridgeOperationsPage() {
     if (!profile?.company_id) return;
     const companyId = profile.company_id;
     const cacheKey = `${companyId}:${language}`;
-    const cached = (weighbridgePageCache.get(cacheKey) || readWeighbridgeSessionCache(companyId, language)) as any;
+    const cached = (
+      weighbridgePageCache.get(cacheKey) || readWeighbridgeWorkspaceCache(companyId, profile.id, language)
+    ) as any;
     const controller = new AbortController();
     let refreshTimer: number | null = null;
 
@@ -1428,7 +1446,7 @@ export default function WeighbridgeOperationsPage() {
       harvestSummary,
     };
     weighbridgePageCache.set(`${profile.company_id}:${language}`, payload);
-    writeWeighbridgeSessionCache(profile.company_id, language, payload);
+    writeWeighbridgeWorkspaceCache(profile.company_id, profile.id, language, payload);
   }, [coreDataReady, profile?.company_id, language, fields, warehouses, vehicles, trailers, drivers, driverNames, transportPickerData, harvestStructureByField, harvestIncompleteFields, tickets, activeShift, operatorState, shiftCounters, shiftGuard, shiftSummary, harvestSummary]);
 
   useEffect(() => {

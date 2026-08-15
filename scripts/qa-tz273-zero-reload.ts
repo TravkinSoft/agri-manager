@@ -66,6 +66,8 @@ check("profile context refresh does not reload the document", () => {
 
 check("cached auth UI restores immediately without persisting a token", () => {
   assert.match(authContext, /AUTH_UI_CACHE_KEY = "travkin\.auth\.ui\.v1"/);
+  assert.match(authContext, /window\.localStorage\.getItem\(AUTH_UI_CACHE_KEY\)/);
+  assert.match(authContext, /window\.localStorage\.setItem\(/);
   assert.match(authContext, /useState\(\(\) => !cachedAuthRef\.current\)/);
   assert.match(authContext, /setLoading\(!cachedAuthRef\.current\)/);
   assert.match(authContext, /if \(event === "INITIAL_SESSION"\) return/);
@@ -96,9 +98,11 @@ check("statistics summary is lazy", () => {
   assert.match(page, /refreshBootstrap\(true, controller\.signal\)/);
 });
 
-check("weighbridge restores confirmed workspace data from session cache", () => {
-  assert.match(page, /readWeighbridgeSessionCache/);
-  assert.match(page, /writeWeighbridgeSessionCache/);
+check("weighbridge restores confirmed workspace data from shared browser cache", () => {
+  assert.match(page, /readWeighbridgeWorkspaceCache/);
+  assert.match(page, /writeWeighbridgeWorkspaceCache/);
+  assert.match(page, /workspaceCacheKey\(companyId, profileId, language\)/);
+  assert.match(page, /window\.localStorage\.getItem\(key\)/);
   assert.match(page, /setCoreDataReady\(true\)/);
   assert.match(page, /performance\.mark\("travkin-weighbridge-interactive"\)/);
 });
