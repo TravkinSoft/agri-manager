@@ -1,4 +1,4 @@
-const CACHE_VERSION = "travkinflow-v5-compact-icons";
+const CACHE_VERSION = "travkinflow-v6-zero-rsc-cache";
 const STATIC_CACHE = `${CACHE_VERSION}:static`;
 const PAGE_CACHE = `${CACHE_VERSION}:pages`;
 
@@ -13,6 +13,7 @@ const STATIC_ASSETS = [
   "/brand/v1/icons/maskable-512-compact-v2.png",
   "/brand/v1/icons/apple-touch-icon-180-compact-v2.png",
 ];
+const STATIC_ASSET_PATHS = new Set(STATIC_ASSETS);
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -64,6 +65,29 @@ function isNextRuntimeAsset(request) {
   }
 }
 
+function isNextRscRequest(request) {
+  try {
+    const url = new URL(request.url);
+    const accept = request.headers.get("accept") || "";
+    return (
+      url.searchParams.has("_rsc") ||
+      request.headers.get("rsc") === "1" ||
+      request.headers.has("next-router-state-tree") ||
+      accept.includes("text/x-component")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isKnownStaticAsset(request) {
+  try {
+    return STATIC_ASSET_PATHS.has(new URL(request.url).pathname);
+  } catch {
+    return false;
+  }
+}
+
 function offlinePageResponse() {
   return new Response(
     `<!doctype html>
@@ -94,7 +118,9 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET" || !isSameOrigin(request) || isApiRequest(request)) return;
 
-  if (isNextRuntimeAsset(request)) {
+  // Flight responses are deployment-specific. Reusing one after a deployment
+  // makes the App Router fall back to a full document navigation.
+  if (isNextRuntimeAsset(request) || isNextRscRequest(request)) {
     event.respondWith(fetch(request));
     return;
   }
@@ -118,14 +144,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((response) => {
-        const copy = response.clone();
-        caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy)).catch(() => undefined);
-        return response;
-      });
-    })
-  );
+  if (isKnownStaticAsset(request)) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached;
+        return fetch(request).then((response) => {
+          const copy = response.clone();
+          caches.open(STATIC_CACHE).then((cache) => cache.put(request, copy)).catch(() => undefined);
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  event.respondWith(fetch(request));
 });

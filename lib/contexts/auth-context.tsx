@@ -33,6 +33,7 @@ interface AuthContextType {
   profile: Profile | null;
   loading: boolean;
   setGlobalAdminCompanyContext: (companyId: string | null) => void;
+  refreshProfile: () => Promise<void>;
   signIn: (email: string, password: string) => Promise<{ defaultPath: string }>;
   signUp: (payload: {
     email: string;
@@ -353,6 +354,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
+  const refreshProfile = async () => {
+    const { data, error } = await withAuthTimeout(supabase.auth.getSession(), "Supabase session");
+    if (error) throw error;
+    const sessionUser = data.session?.user || null;
+    setUser(sessionUser);
+    if (!sessionUser) {
+      setProfile(null);
+      return;
+    }
+    await withAuthTimeout(
+      loadProfile(sessionUser.id, sessionUser.email || null),
+      "Profile refresh",
+      AUTH_PROFILE_TIMEOUT_MS
+    );
+  };
+
   const resolveDisplayProfileForActor = async (baseProfile: any, actor?: { id?: string; isImpersonating?: boolean } | null) => {
     const actorProfileId = String(actor?.id || "").trim();
     const baseProfileId = String(baseProfile?.id || "").trim();
@@ -593,6 +610,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         profile,
         loading,
         setGlobalAdminCompanyContext,
+        refreshProfile,
         signIn,
         signUp,
         verifySignupCode,

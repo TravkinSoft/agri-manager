@@ -20,7 +20,7 @@ async function parseJsonOrThrow(response: Response) {
 export async function listTickets(
   companyId?: string,
   _userId?: string,
-  options?: { workspace?: boolean }
+  options?: { workspace?: boolean; signal?: AbortSignal }
 ): Promise<WeighbridgeTicket[]> {
   const headers = await buildClientAuthHeaders("none");
   const query = new URLSearchParams();
@@ -31,6 +31,7 @@ export async function listTickets(
     method: "GET",
     cache: "no-store",
     headers,
+    signal: options?.signal,
   });
   const payload = await parseJsonOrThrow(response);
   return ((payload.tickets || []) as WeighbridgeTicket[]).filter((ticket) => !hasQaDataMarker(JSON.stringify(ticket)));
@@ -39,34 +40,35 @@ export async function listTickets(
 export async function getWeighbridgeBootstrap(
   companyId?: string,
   _userId?: string,
-  options?: { includeSummary?: boolean }
+  options?: { includeSummary?: boolean; signal?: AbortSignal }
 ) {
   const headers = await buildClientAuthHeaders("none");
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
   if (options?.includeSummary) query.set("summary", "true");
   const url = `/api/weighbridge/bootstrap${query.size ? `?${query.toString()}` : ""}`;
-  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   return parseJsonOrThrow(response);
 }
 
-export async function getWeighbridgeResources(companyId?: string) {
+export async function getWeighbridgeResources(companyId?: string, options?: { signal?: AbortSignal }) {
   const headers = await buildClientAuthHeaders("none");
   const url = companyId
     ? `/api/weighbridge/resources?companyId=${encodeURIComponent(companyId)}`
     : "/api/weighbridge/resources";
-  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   return parseJsonOrThrow(response);
 }
 
 export async function getWeighbridgeTransportPickerData(
-  companyId?: string
+  companyId?: string,
+  options?: { signal?: AbortSignal }
 ): Promise<WeighbridgeTransportPickerData> {
   const headers = await buildClientAuthHeaders("none");
   const url = companyId
     ? `/api/weighbridge/transport-pairs?companyId=${encodeURIComponent(companyId)}`
     : "/api/weighbridge/transport-pairs";
-  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   return parseJsonOrThrow(response) as Promise<WeighbridgeTransportPickerData>;
 }
 
@@ -162,12 +164,15 @@ export async function getActiveShift(companyId?: string, _userId?: string) {
   return parseJsonOrThrow(response);
 }
 
-export async function getWeighbridgeOperatorState(companyId?: string): Promise<WeighbridgeOperatorState> {
+export async function getWeighbridgeOperatorState(
+  companyId?: string,
+  options?: { signal?: AbortSignal }
+): Promise<WeighbridgeOperatorState> {
   const headers = await buildClientAuthHeaders("none");
   const url = companyId
     ? `/api/weighbridge/operator-session?companyId=${encodeURIComponent(companyId)}`
     : "/api/weighbridge/operator-session";
-  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   return parseJsonOrThrow(response) as Promise<WeighbridgeOperatorState>;
 }
 

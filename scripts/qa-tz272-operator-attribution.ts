@@ -76,7 +76,10 @@ check("critical bootstrap skips season history by default", () => {
   assert.match(bootstrap, /Promise\.resolve\(\{ data: \[\], error: null \}/);
 });
 check("secondary catalogs do not block the form", () => {
-  assert.match(page, /setLoading\(false\);[\s\S]{0,120}void Promise\.all/);
+  assert.match(page, /const loadSecondaryCatalogs = async/);
+  assert.match(page, /const needsSecondaryCatalogs = form\.operationType !== "harvest_incoming"/);
+  assert.match(page, /if \(!needsSecondaryCatalogs \|\| secondaryCatalogsLoaded/);
+  assert.doesNotMatch(page.slice(page.indexOf("const load = async"), page.indexOf("const refreshTickets")), /from\("products"\)/);
 });
 check("history remains limited and separate", () => {
   assert.match(listRoute, /\.limit\(20\)/);

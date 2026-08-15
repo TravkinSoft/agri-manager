@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Ban,
   CheckCircle2,
@@ -82,7 +83,8 @@ function normalizeStatus(status: string | null | undefined) {
 }
 
 export default function UsersPage() {
-  const { profile } = useAuth();
+  const { profile, refreshProfile } = useAuth();
+  const router = useRouter();
   const { toast } = useToast();
   const { language } = useLanguage();
 
@@ -370,7 +372,8 @@ export default function UsersPage() {
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
-      window.location.href = "/dashboard";
+      await refreshProfile();
+      router.replace("/dashboard");
     } catch (error: any) {
       setImpersonatingProfileId(null);
       toast({
