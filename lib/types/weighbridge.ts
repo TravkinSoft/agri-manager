@@ -108,6 +108,17 @@ export interface WeighbridgeTicket {
   created_by?: string | null;
   created_by_name_snapshot?: string | null;
   created_by_person_id?: string | null;
+  finalized_by_person_id?: string | null;
+  opened_by_person_name?: string | null;
+  finalized_by_person_name?: string | null;
+  operator_attribution_source?: "ticket_person" | "shift_unambiguous" | "unrecorded";
+  technical_audit?: {
+    auth_account_created: string | null;
+    auth_account_finalized: string | null;
+    shift_id: string | null;
+    opened_at: string | null;
+    finalized_at: string | null;
+  };
   void_reason?: string | null;
   correction_of_ticket_id?: string | null;
   replacement_ticket_id?: string | null;

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceClient } from "@/lib/supabase/service";
 import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { formatWeightNumber } from "@/lib/weighbridge/weight-format";
+import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
+import { ticketOperatorFacts } from "@/lib/weighbridge/ticket-operator";
+import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
 
 function escapePdfText(text: string) {
   return text.replace(/\\/g, "\\\\").replace(/\(/g, "\\(").replace(/\)/g, "\\)");
@@ -71,7 +74,7 @@ export async function GET(
       return NextResponse.json({ error: "ticket id is required" }, { status: 400 });
     }
 
-    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
     const { data: ticket, error: ticketError } = await supabase
@@ -84,7 +87,7 @@ export async function GET(
       return NextResponse.json({ error: ticketError?.message || "Ticket not found" }, { status: 404 });
     }
 
-    const [{ data: lines }, { data: company }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: people }, { data: legacyDrivers }, { data: drivers }, { data: vehicles }, { data: machines }, { data: operators }, { data: counterparties }] = await Promise.all([
+    const [{ data: lines }, { data: company }, { data: fields }, { data: warehouses }, { data: products }, { data: varieties }, { data: reproductions }, { data: people }, { data: legacyDrivers }, { data: drivers }, { data: vehicles }, { data: machines }, { data: counterparties }] = await Promise.all([
       supabase.from("ticket_lines").select("*").eq("ticket_id", id).order("created_at", { ascending: true }),
       supabase.from("companies").select("id,name").eq("id", ticket.company_id).maybeSingle(),
       supabase.from("fields").select("id,name").eq("company_id", ticket.company_id),
@@ -97,9 +100,13 @@ export async function GET(
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
       supabase.from("reference_vehicles").select("id,name,plate_number").eq("company_id", ticket.company_id),
       supabase.from("reference_machines").select("id,name,license_plate").eq("company_id", ticket.company_id),
-      supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
       supabase.from("counterparties").select("id,name").eq("company_id", ticket.company_id),
     ]);
+
+    const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [ticket], {
+      includeTechnicalAudit: actor.role === "global_admin",
+    });
+    const operatorFacts = ticketOperatorFacts(attributedTicket as WeighbridgeTicket);
 
     const ticketLines = (lines || []) as any[];
     const line = ticketLines[0] as any;
@@ -147,11 +154,6 @@ export async function GET(
     const trailerName = transportAudit.trailer_name_snapshot
       ? `${String(transportAudit.trailer_name_snapshot)}${transportAudit.trailer_plate_snapshot ? ` (${String(transportAudit.trailer_plate_snapshot)})` : ""}`
       : "-";
-    const operatorName = ticket.created_by
-      ? (operators || []).find((x: any) => x.id === ticket.created_by)?.full_name ||
-        (operators || []).find((x: any) => x.id === ticket.created_by)?.email ||
-        "-"
-      : "-";
     const companyName = String((company as any)?.name || "").trim() || "Company";
 
     const contextLabel = isSupplierReceipt
@@ -197,7 +199,7 @@ export async function GET(
       ticket.supplier_document_no ? `Document No: ${ticket.supplier_document_no}` : "",
       `Created at: ${fmt(ticket.created_at)}`,
       ticket.finalized_at ? `Closed at: ${fmt(ticket.finalized_at)}` : "",
-      `Operator: ${operatorName}`,
+      ...operatorFacts.map((fact) => `${fact.label}: ${fact.value}`),
       ticket.notes ? `Comment: ${ticket.notes}` : "",
       "",
       "Products in document:",
@@ -223,7 +225,7 @@ export async function GET(
       `Driver: ${driverName}`,
       `Vehicle: ${vehicleName}`,
       `Trailer: ${trailerName}`,
-      `Cashier / Operator: ${operatorName}`,
+      ...operatorFacts.map((fact) => `${fact.label}: ${fact.value}`),
       `Gross: ${formatWeightNumber(ticket.gross_weight_kg, "-")} kg`,
       `Tare: ${formatWeightNumber(ticket.tare_weight_kg, "-")} kg`,
       `Net: ${formatWeightNumber(ticket.net_weight_kg, "-")} kg`,

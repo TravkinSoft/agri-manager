@@ -3,6 +3,7 @@ import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
+import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 
 export async function GET(
   request: NextRequest,
@@ -17,7 +18,7 @@ export async function GET(
     }
 
     const authStartedAt = Date.now();
-    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
     timing.authMs = Date.now() - authStartedAt;
@@ -65,7 +66,7 @@ export async function GET(
       }
     }
 
-    const [companyRes, fieldRes, warehouseFromRes, warehouseToRes, supplierRes, buyerRes, vehicleRes, machineRes, driverPersonRes, legacyDriverRes, driverProfileRes, creatorRes] = await Promise.all([
+    const [companyRes, fieldRes, warehouseFromRes, warehouseToRes, supplierRes, buyerRes, vehicleRes, machineRes, driverPersonRes, legacyDriverRes, driverProfileRes] = await Promise.all([
       supabase.from("companies").select("id,name").eq("id", ticket.company_id).maybeSingle(),
       ticket.field_id
         ? supabase.from("fields").select("id,name").eq("company_id", companyId).eq("id", ticket.field_id).maybeSingle()
@@ -96,9 +97,6 @@ export async function GET(
         : Promise.resolve({ data: null } as any),
       ticket.driver_id
         ? supabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).eq("id", ticket.driver_id).maybeSingle()
-        : Promise.resolve({ data: null } as any),
-      ticket.created_by
-        ? supabase.from("profiles").select("id,full_name,email").eq("id", ticket.created_by).maybeSingle()
         : Promise.resolve({ data: null } as any),
     ]);
 
@@ -164,7 +162,6 @@ export async function GET(
       (legacyDriverRes as any)?.data ||
       (driverProfileRes as any)?.data ||
       null;
-    const creator = (creatorRes as any)?.data || null;
     timing.dbMs = Date.now() - dbStartedAt;
     timing.renderMs = Date.now() - startedAt - timing.authMs - timing.dbMs;
     timing.totalMs = Date.now() - startedAt;
@@ -178,8 +175,7 @@ export async function GET(
       warehouse_to_name: line.warehouse_to_id ? lineWarehouseById.get(String(line.warehouse_to_id))?.name || null : null,
     }));
 
-    return NextResponse.json({
-      ticket: {
+    const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [{
         ...ticket,
         company_name: company?.name || null,
         field_name_snapshot: field?.name || null,
@@ -193,13 +189,15 @@ export async function GET(
         trailer_name_snapshot: transportAudit.trailer_name_snapshot || null,
         trailer_plate_snapshot: transportAudit.trailer_plate_snapshot || null,
         driver_name_snapshot: driver?.name_ru || driver?.full_name || driver?.name_en || driver?.name_kz || driver?.email || null,
-        created_by_name_snapshot: creator?.full_name || creator?.email || null,
         crop_structure_allocation_label: cropStructureAllocationLabel,
         correction_of_ticket: correctionOfResult.data || null,
         replacement_ticket: replacementResult.data || null,
         correction_audit: correctionAuditResult.data || [],
         lines: enrichedLines,
-      },
+      }], { includeTechnicalAudit: actor.role === "global_admin" });
+
+    return NextResponse.json({
+      ticket: attributedTicket,
       lines: enrichedLines,
       weighings: weighings || [],
       debug: timing,

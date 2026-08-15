@@ -13,6 +13,7 @@ import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 import { isCargoTractor, isCargoVehicle, isTrailerTransport } from "@/lib/weighbridge/transport";
+import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 
 function buildTicketNo(companyId: string): string {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
@@ -113,7 +114,7 @@ const WEIGHBRIDGE_TICKET_SELECT = `
 
 export async function GET(request: NextRequest) {
   try {
-    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
     const workspace = request.nextUrl.searchParams.get("workspace") === "true";
@@ -194,7 +195,11 @@ export async function GET(request: NextRequest) {
       })),
     }));
 
-    return NextResponse.json({ tickets });
+    const attributedTickets = await enrichTicketOperatorAttribution(supabase, companyId, tickets, {
+      includeTechnicalAudit: actor.role === "global_admin",
+    });
+
+    return NextResponse.json({ tickets: attributedTickets });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {

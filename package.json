@@ -31,6 +31,7 @@
     "qa:tz270": "npx --no-install tsx scripts/qa-tz270-weighbridge-pin-management.ts",
     "qa:tz271": "npx --no-install tsx scripts/qa-tz271-p0-hotfix.ts",
     "qa:tz271:e2e": "npx --no-install tsx scripts/qa-tz271-harvest-e2e.ts",
+    "qa:tz272": "npx --no-install tsx scripts/qa-tz272-operator-attribution.ts",
     "qa:tz266": "npx --no-install tsx scripts/qa-tz266-active-harvest-tabs.ts",
     "qa:p0:weighbridge-gross": "npx --no-install tsx scripts/qa-p0-weighbridge-gross-legacy-schema.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",

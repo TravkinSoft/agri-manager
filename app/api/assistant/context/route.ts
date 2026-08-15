@@ -38,31 +38,14 @@ async function resolveActiveSeason(
 ): Promise<string | null> {
   const seasonRes = await supabase
     .from("seasons")
-    .select("year,is_active")
+    .select("year")
     .eq("company_id", companyId)
-    .eq("is_active", true)
+    .eq("archived", false)
     .order("year", { ascending: false })
     .limit(1);
 
-  if (!seasonRes.error && (seasonRes.data || []).length > 0) {
-    const year = String(seasonRes.data?.[0]?.year || "").trim();
-    if (year) return year;
-  }
-
-  const fallbackRes = await supabase
-    .from("crop_structure")
-    .select("season_year")
-    .eq("company_id", companyId)
-    .eq("archived", false)
-    .order("season_year", { ascending: false })
-    .limit(1);
-
-  if (!fallbackRes.error && (fallbackRes.data || []).length > 0) {
-    const year = String(fallbackRes.data?.[0]?.season_year || "").trim();
-    if (year) return year;
-  }
-
-  return null;
+  if (seasonRes.error) throw seasonRes.error;
+  return String(seasonRes.data?.[0]?.year || "").trim() || null;
 }
 
 export async function GET(request: NextRequest) {

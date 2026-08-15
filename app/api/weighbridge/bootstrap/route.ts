@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
+    const includeSummary = request.nextUrl.searchParams.get("summary") === "true";
 
     const [shiftRes, ticketsRes, nodesRes, pendingRes, seasonsRes, harvestTicketsRes] = await Promise.all([
       supabase
@@ -42,12 +43,20 @@ export async function GET(request: NextRequest) {
         .order("opened_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      supabase
-        .from("tickets")
-        .select("id,shift_id,status,op_type,vehicle_id,driver_id,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,requires_review,local_sync_status,is_voided,manual_correction_reason")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false })
-        .limit(200),
+      includeSummary
+        ? supabase
+            .from("tickets")
+            .select("id,shift_id,status,op_type,vehicle_id,driver_id,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,requires_review,local_sync_status,is_voided,manual_correction_reason")
+            .eq("company_id", companyId)
+            .order("created_at", { ascending: false })
+            .limit(200)
+        : supabase
+            .from("tickets")
+            .select("id,shift_id,status,op_type,vehicle_id,driver_id,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,requires_review,local_sync_status,is_voided,manual_correction_reason")
+            .eq("company_id", companyId)
+            .in("status", ["draft", "active", "ready_to_close"])
+            .order("created_at", { ascending: false })
+            .limit(100),
       supabase
         .from("processing_nodes")
         .select("id,name,type,linked_warehouse_id,is_active")
@@ -66,16 +75,18 @@ export async function GET(request: NextRequest) {
         .eq("company_id", companyId)
         .eq("archived", false)
         .order("year", { ascending: false }),
-      supabase
-        .from("tickets")
-        .select("id,season_id,field_id,vehicle_id,driver_id,net_weight_kg,finalized_at,created_at,lines:ticket_lines(moisture_percent)")
-        .eq("company_id", companyId)
-        .eq("op_type", "harvest_incoming")
-        .eq("status", "finalized")
-        .eq("is_finalized", true)
-        .eq("is_voided", false)
-        .order("finalized_at", { ascending: false })
-        .limit(5000),
+      includeSummary
+        ? supabase
+            .from("tickets")
+            .select("id,season_id,field_id,vehicle_id,driver_id,net_weight_kg,finalized_at,created_at,lines:ticket_lines(moisture_percent)")
+            .eq("company_id", companyId)
+            .eq("op_type", "harvest_incoming")
+            .eq("status", "finalized")
+            .eq("is_finalized", true)
+            .eq("is_voided", false)
+            .order("finalized_at", { ascending: false })
+            .limit(5000)
+        : Promise.resolve({ data: [], error: null } as any),
     ]);
 
     if (shiftRes.error) return NextResponse.json({ error: shiftRes.error.message }, { status: 400 });
