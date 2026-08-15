@@ -186,7 +186,8 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
 
-  const enabled = canUseAssistantShell(profile?.role);
+  const assistantSuppressedForRoute = pathname === "/weighbridge" || pathname.startsWith("/weighbridge/");
+  const enabled = canUseAssistantShell(profile?.role) && !assistantSuppressedForRoute;
   const debugMonitorEnabled = isDebugEnabledForRole(profile?.role);
   const [isOpen, setIsOpen] = useState(false);
   const [debugMonitorOpen, setDebugMonitorOpen] = useState(false);
@@ -246,7 +247,6 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
         return;
       }
       const parsed = JSON.parse(raw) as {
-        isOpen?: boolean;
         debugMonitorOpen?: boolean;
         debugMonitorCollapsed?: boolean;
         sessionId?: string;
@@ -254,7 +254,6 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
         manualFilters?: Record<string, string | string[]>;
         panelWidth?: number;
       };
-      if (typeof parsed.isOpen === "boolean") setIsOpen(parsed.isOpen);
       if (typeof parsed.debugMonitorOpen === "boolean") setDebugMonitorOpen(parsed.debugMonitorOpen);
       if (typeof parsed.debugMonitorCollapsed === "boolean") setDebugMonitorCollapsed(parsed.debugMonitorCollapsed);
       if (parsed.sessionId) setSession({ sessionId: parsed.sessionId, updatedAt: new Date().toISOString() });
@@ -271,7 +270,6 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
   useEffect(() => {
     if (!shellStorageKey || !storageHydrated || hydratedStorageKey !== shellStorageKey) return;
     const payload = {
-      isOpen,
       debugMonitorOpen,
       debugMonitorCollapsed,
       sessionId: session.sessionId,
@@ -285,7 +283,6 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
     shellStorageKey,
     storageHydrated,
     hydratedStorageKey,
-    isOpen,
     debugMonitorOpen,
     debugMonitorCollapsed,
     session.sessionId,

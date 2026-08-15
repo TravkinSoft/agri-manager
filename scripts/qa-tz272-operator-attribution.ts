@@ -13,6 +13,8 @@ const detailRoute = read("app/api/weighbridge/tickets/[id]/route.ts");
 const pdfRoute = read("app/api/weighbridge/tickets/[id]/pdf/route.ts");
 const assistantContext = read("app/api/assistant/context/route.ts");
 const bootstrap = read("app/api/weighbridge/bootstrap/route.ts");
+const assistantShell = read("components/assistant/assistant-shell-provider.tsx");
+const assistantChat = read("components/assistant/assistant-chat-pane.tsx");
 
 let checks = 0;
 const check = (name: string, fn: () => void) => {
@@ -79,6 +81,18 @@ check("secondary catalogs do not block the form", () => {
 check("history remains limited and separate", () => {
   assert.match(listRoute, /\.limit\(20\)/);
   assert.match(listRoute, /\.limit\(100\)/);
+});
+check("assistant panel open state is not restored on bootstrap", () => {
+  assert.doesNotMatch(assistantShell, /typeof parsed\.isOpen === "boolean"/);
+});
+check("assistant history waits for an explicitly opened panel", () => {
+  assert.match(assistantChat, /if \(!isOpen\) return;/);
+  assert.match(assistantChat, /limit=120/);
+});
+check("weighbridge routes suppress the assistant for every auth profile", () => {
+  assert.match(assistantShell, /pathname === "\/weighbridge"/);
+  assert.match(assistantShell, /pathname\.startsWith\("\/weighbridge\/"\)/);
+  assert.match(assistantShell, /canUseAssistantShell\(profile\?\.role\) && !assistantSuppressedForRoute/);
 });
 
 console.log(`TZ272 ${checks}/${checks} PASS`);

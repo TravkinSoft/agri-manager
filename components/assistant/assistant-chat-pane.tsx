@@ -1368,7 +1368,7 @@ export function AssistantChatPane({
     try {
       const headers = await getAuthHeaders();
       const response = await fetch(
-        `/api/assistant/threads/${encodeURIComponent(threadId)}/messages?companyId=${encodeURIComponent(resolvedCompanyId)}&limit=400`,
+        `/api/assistant/threads/${encodeURIComponent(threadId)}/messages?companyId=${encodeURIComponent(resolvedCompanyId)}&limit=120`,
         {
           method: "GET",
           headers,
@@ -1470,12 +1470,13 @@ export function AssistantChatPane({
 
   useEffect(() => {
     if (!storageHydrated) return;
+    if (!isOpen) return;
     if (!activeThreadId) {
       setMessages([]);
       return;
     }
     void loadThreadMessages(activeThreadId);
-  }, [activeThreadId, storageHydrated]);
+  }, [activeThreadId, isOpen, storageHydrated]);
 
   const recordActionReceipt = useCallback((receipt: AssistantActionReceipt) => {
     setActionReceipts((prev) => [receipt, ...prev].slice(0, 20));
