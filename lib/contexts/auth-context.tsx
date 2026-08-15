@@ -54,7 +54,7 @@ const AUTH_REQUEST_TIMEOUT_MS = 8000;
 const AUTH_PROFILE_TIMEOUT_MS = 15000;
 const AUTH_BOOT_TIMEOUT_MS = 10000;
 const AUTH_UI_CACHE_KEY = "travkin.auth.ui.v1";
-const AUTH_UI_CACHE_TTL_MS = 30 * 60 * 1000;
+const AUTH_UI_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 type CachedAuthUiState = {
   savedAt: number;
@@ -65,7 +65,8 @@ type CachedAuthUiState = {
 function readCachedAuthUiState(): CachedAuthUiState | null {
   try {
     if (typeof window === "undefined") return null;
-    const raw = window.sessionStorage.getItem(AUTH_UI_CACHE_KEY);
+    const localRaw = window.localStorage.getItem(AUTH_UI_CACHE_KEY);
+    const raw = localRaw || window.sessionStorage.getItem(AUTH_UI_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedAuthUiState;
     const role = parseCanonicalRole(parsed?.profile?.role);
@@ -76,8 +77,13 @@ function readCachedAuthUiState(): CachedAuthUiState | null {
       String(parsed.profile.status || "").toLowerCase() !== "active" ||
       Date.now() - Number(parsed.savedAt || 0) > AUTH_UI_CACHE_TTL_MS
     ) {
+      window.localStorage.removeItem(AUTH_UI_CACHE_KEY);
       window.sessionStorage.removeItem(AUTH_UI_CACHE_KEY);
       return null;
+    }
+    if (!localRaw) {
+      window.localStorage.setItem(AUTH_UI_CACHE_KEY, raw);
+      window.sessionStorage.removeItem(AUTH_UI_CACHE_KEY);
     }
     return { ...parsed, profile: { ...parsed.profile, role } };
   } catch {
@@ -88,7 +94,7 @@ function readCachedAuthUiState(): CachedAuthUiState | null {
 function writeCachedAuthUiState(user: User, profile: Profile) {
   try {
     if (typeof window === "undefined") return;
-    window.sessionStorage.setItem(
+    window.localStorage.setItem(
       AUTH_UI_CACHE_KEY,
       JSON.stringify({
         savedAt: Date.now(),
@@ -97,15 +103,15 @@ function writeCachedAuthUiState(user: User, profile: Profile) {
       } satisfies CachedAuthUiState)
     );
   } catch {
-    // sessionStorage can be unavailable in private or restricted browser contexts.
+    // localStorage can be unavailable in private or restricted browser contexts.
   }
 }
 
 function clearCachedAuthUiState() {
   try {
-    if (typeof window !== "undefined") window.sessionStorage.removeItem(AUTH_UI_CACHE_KEY);
+    if (typeof window !== "undefined") window.localStorage.removeItem(AUTH_UI_CACHE_KEY);
   } catch {
-    // sessionStorage can be unavailable in private or restricted browser contexts.
+    // localStorage can be unavailable in private or restricted browser contexts.
   }
 }
 
