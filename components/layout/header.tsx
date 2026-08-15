@@ -37,7 +37,7 @@ type CompanyUserContextItem = {
 
 export function Header() {
   const { toggleSidebar } = useSidebar();
-  const { user, profile, signOut, setGlobalAdminCompanyContext } = useAuth();
+  const { user, profile, signOut, setGlobalAdminCompanyContext, refreshProfile } = useAuth();
   const { t } = useLanguage();
   const router = useRouter();
   const [companies, setCompanies] = useState<CompanyContextItem[]>([]);
@@ -215,12 +215,12 @@ export function Header() {
       setSelectedCompanyId(nextCompanyId || "__none__");
       setGlobalAdminCompanyContext(nextCompanyId);
       if (nextValue === "__none__") {
-        window.location.assign("/platform");
+        router.replace("/platform");
         return;
       }
       const currentPath = `${window.location.pathname}${window.location.search || ""}`;
       const nextPath = window.location.pathname.startsWith("/platform") ? "/dashboard" : currentPath;
-      window.location.assign(nextPath);
+      router.replace(nextPath);
     } catch (error) {
       console.error("Company context switch failed:", error);
       setSelectedCompanyId(previousValue);
@@ -248,7 +248,8 @@ export function Header() {
           const payload = await response.json().catch(() => ({}));
           throw new Error(payload?.error || "Failed to return to global admin");
         }
-        window.location.reload();
+        await refreshProfile();
+        router.replace("/platform");
         return;
       }
 
@@ -261,7 +262,8 @@ export function Header() {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload?.error || "Failed to switch user context");
       }
-      window.location.reload();
+      await refreshProfile();
+      router.replace("/dashboard");
     } catch (error) {
       console.error("User context switch failed:", error);
     } finally {

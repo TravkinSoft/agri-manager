@@ -613,6 +613,46 @@ const transportPickerDataCache = new Map<string, WeighbridgeTransportPickerData>
 const transportPickerRequestCache = new Map<string, Promise<WeighbridgeTransportPickerData>>();
 const harvestContextCache = new Map<string, HarvestContextState>();
 const harvestContextRequestCache = new Map<string, Promise<HarvestContextState>>();
+const WEIGHBRIDGE_SESSION_CACHE_VERSION = 1;
+const WEIGHBRIDGE_SESSION_CACHE_TTL_MS = 15 * 60 * 1000;
+
+const sessionCacheKey = (companyId: string, language: string) =>
+  `travkin.weighbridge.workspace.v${WEIGHBRIDGE_SESSION_CACHE_VERSION}.${companyId}.${language}`;
+
+function readWeighbridgeSessionCache(companyId: string, language: string) {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(sessionCacheKey(companyId, language));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { savedAt?: number; payload?: Record<string, unknown> };
+    if (!parsed.savedAt || Date.now() - parsed.savedAt > WEIGHBRIDGE_SESSION_CACHE_TTL_MS || !parsed.payload) {
+      window.sessionStorage.removeItem(sessionCacheKey(companyId, language));
+      return null;
+    }
+    return parsed.payload;
+  } catch {
+    return null;
+  }
+}
+
+function writeWeighbridgeSessionCache(companyId: string, language: string, payload: Record<string, unknown>) {
+  if (typeof window === "undefined") return;
+  const write = () => {
+    try {
+      window.sessionStorage.setItem(
+        sessionCacheKey(companyId, language),
+        JSON.stringify({ savedAt: Date.now(), payload })
+      );
+    } catch {
+      // Session storage is an acceleration layer only.
+    }
+  };
+  if ("requestIdleCallback" in window) {
+    window.requestIdleCallback(write, { timeout: 1000 });
+  } else {
+    setTimeout(write, 0);
+  }
+}
 
 const harvestContextCacheKey = (
   companyId: string,
@@ -679,20 +719,26 @@ const emptyTransportPickerData = (): WeighbridgeTransportPickerData => ({
 
 const loadTransportPickerDataCached = async (
   companyId: string,
-  force = false
+  force = false,
+  signal?: AbortSignal
 ): Promise<WeighbridgeTransportPickerData> => {
+  const pending = transportPickerRequestCache.get(companyId);
+  // A request tied to an aborted page lifecycle must not block a fresh mount.
+  if (pending && !signal) return pending;
   if (!force) {
     const cached = transportPickerDataCache.get(companyId);
     if (cached) return cached;
-    const pending = transportPickerRequestCache.get(companyId);
-    if (pending) return pending;
   }
-  const request = getWeighbridgeTransportPickerData(companyId)
+  const request = getWeighbridgeTransportPickerData(companyId, { signal })
     .then((payload) => {
       transportPickerDataCache.set(companyId, payload);
       return payload;
     })
-    .finally(() => transportPickerRequestCache.delete(companyId));
+    .finally(() => {
+      if (transportPickerRequestCache.get(companyId) === request) {
+        transportPickerRequestCache.delete(companyId);
+      }
+    });
   transportPickerRequestCache.set(companyId, request);
   return request;
 };
@@ -704,6 +750,7 @@ export default function WeighbridgeOperationsPage() {
   const lang = getLang(language);
 
   const [loading, setLoading] = useState(true);
+  const [coreDataReady, setCoreDataReady] = useState(false);
   const [ticketsLoading, setTicketsLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const createTicketIdempotencyRef = useRef<string | null>(null);
@@ -811,6 +858,14 @@ export default function WeighbridgeOperationsPage() {
   const historyRef = useRef<HTMLDivElement | null>(null);
   const grossInputRef = useRef<HTMLInputElement | null>(null);
   const tareInputRef = useRef<HTMLInputElement | null>(null);
+  const coreLoadRequestRef = useRef<Promise<void> | null>(null);
+  const ticketsRequestRef = useRef<Promise<void> | null>(null);
+  const bootstrapRequestRef = useRef<Promise<void> | null>(null);
+  const bootstrapSummaryRequestRef = useRef<Promise<void> | null>(null);
+  const operatorRequestRef = useRef<Promise<void> | null>(null);
+  const secondaryCatalogRequestRef = useRef<Promise<void> | null>(null);
+  const [statisticsOpen, setStatisticsOpen] = useState(false);
+  const [secondaryCatalogsLoaded, setSecondaryCatalogsLoaded] = useState(false);
 
   const canOperate =
     profile?.role === "company_admin" ||
@@ -847,11 +902,12 @@ export default function WeighbridgeOperationsPage() {
   );
   const [hydratedFastRepeatKey, setHydratedFastRepeatKey] = useState("");
 
-  const loadSuppliers = async (companyId: string) => {
+  const loadSuppliers = async (companyId: string, signal?: AbortSignal) => {
     const headers = await getSessionAuthHeaders();
     const resp = await fetch(`/api/weighbridge/suppliers?companyId=${encodeURIComponent(companyId)}`, {
       cache: "no-store",
       headers,
+      signal,
     });
     const json = await resp.json().catch(() => ({}));
     if (!resp.ok) throw new Error(String(json?.error || "Не удалось загрузить поставщиков"));
@@ -859,11 +915,12 @@ export default function WeighbridgeOperationsPage() {
 
   };
 
-  const loadBuyers = async (companyId: string) => {
+  const loadBuyers = async (companyId: string, signal?: AbortSignal) => {
     const headers = await getSessionAuthHeaders();
     const response = await fetch(`/api/counterparties?companyId=${encodeURIComponent(companyId)}&type=buyer`, {
       cache: "no-store",
       headers,
+      signal,
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(String(payload?.error || "Не удалось загрузить покупателей"));
@@ -899,11 +956,11 @@ export default function WeighbridgeOperationsPage() {
     return String(json?.supplierId || supplierId);
   };
 
-  const loadMasterIdentityRefs = async (companyId: string) => {
+  const loadMasterIdentityRefs = async (companyId: string, signal?: AbortSignal) => {
     const headers = await getSessionAuthHeaders();
     const resp = await fetch(
       `/api/weighbridge/master-identity?companyId=${encodeURIComponent(companyId)}`,
-      { cache: "no-store", headers }
+      { cache: "no-store", headers, signal }
     );
     const json = await resp.json();
     if (!resp.ok) throw new Error(String(json?.error || "Не удалось загрузить культуры, сорта и репродукции"));
@@ -914,11 +971,11 @@ export default function WeighbridgeOperationsPage() {
     };
   };
 
-  const loadHarvestAllocations = async (companyId: string) => {
+  const loadHarvestAllocations = async (companyId: string, signal?: AbortSignal) => {
     const headers = await getSessionAuthHeaders();
     const response = await fetch(
       `/api/weighbridge/harvest-allocations?companyId=${encodeURIComponent(companyId)}`,
-      { cache: "no-store", headers }
+      { cache: "no-store", headers, signal }
     );
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(String(payload?.error || "Не удалось загрузить структуру урожая"));
@@ -949,190 +1006,197 @@ export default function WeighbridgeOperationsPage() {
     applyTransportPickerData(await loadTransportPickerDataCached(profile.company_id, true));
   };
 
-  const load = async () => {
-    if (authLoading || !profile?.company_id || !profile?.id || !canView) return;
-    const cacheKey = `${profile.company_id}:${language}`;
-    if (!weighbridgePageCache.has(cacheKey)) setLoading(true);
-    try {
-      const [fieldsRes, warehousesRes, resourceRows, bootstrap, harvestAllocations, transportPairRows] = await Promise.all([
-        supabase.from("fields").select("id,name,area").eq("company_id", profile.company_id).eq("archived", false).order("name"),
-        supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en,warehouse_type").eq("company_id", profile.company_id).eq("archived", false).order("name"),
-        getWeighbridgeResources(profile.company_id),
-        getWeighbridgeBootstrap(profile.company_id, profile.id),
-        loadHarvestAllocations(profile.company_id),
-        loadTransportPickerDataCached(profile.company_id),
-      ]);
-      if (fieldsRes.error || warehousesRes.error) {
-        throw new Error(fieldsRes.error?.message || warehousesRes.error?.message || "Не удалось загрузить данные");
-      }
-      const fieldRows = (fieldsRes.data || [])
-        .map((r: any) => ({ id: String(r.id), name: String(r.name || "Поле"), area: Number(r.area || 0) }))
-        .filter((row) => !hasQaDataMarker(row.name));
-      const warehouseRows = (warehousesRes.data || []).map((r: any) => ({
-        id: String(r.id),
-        name: localizedName(r, lang, ["name"]) || String(r.name || "Склад"),
-        warehouseType: String(r.warehouse_type || ""),
-      })).filter((row) => !hasQaDataMarker(row.name));
-      setFields(fieldRows);
-      setWarehouses(warehouseRows);
-      setVehicles(((resourceRows?.vehicles || []) as any[]).map((r: any) => ({
-        id: String(r.id),
-        name: String(r.name || "Машина"),
-        model: String(r.model || r.name || ""),
-        plate: String(r.plate || ""),
-        type: String(r.type || ""),
-        fleetType: String(r.fleetType || ""),
-        transportCategory: String(r.transportCategory || ""),
-        source: r.source === "reference_machines" ? "reference_machines" : "reference_vehicles",
-        primaryPersonnelId: r.primaryPersonnelId ? String(r.primaryPersonnelId) : null,
-      })));
-      setTrailers(((resourceRows?.trailers || []) as any[]).map((r: any) => ({
-        id: String(r.id),
-        name: String(r.name || "Прицеп"),
-        model: String(r.model || r.name || ""),
-        plate: String(r.plate || ""),
-        type: String(r.type || "trailer"),
-        fleetType: String(r.fleetType || "tractor_trailer"),
-        transportCategory: String(r.transportCategory || "trailer"),
-        source: "reference_vehicles",
-        primaryPersonnelId: null,
-      })));
-      setProcessingPoints([]);
-      setDrivers(((resourceRows?.drivers || []) as any[]).map((r: any) => ({
-        id: String(r.id),
-        name: String(r.name || "Сотрудник"),
-        machineId: r.machineId ? String(r.machineId) : null,
-        roleType: r.roleType === "mechanic_operator" ? "mechanic_operator" : "driver",
-        position: String(r.position || ""),
-        department: String(r.department || ""),
-        assignedVehicleIds: Array.isArray(r.assignedVehicleIds) ? r.assignedVehicleIds.map(String) : [],
-      })));
-      setDriverNames(
-        Object.fromEntries(
-          Object.entries((resourceRows?.driverNames || {}) as Record<string, unknown>).map(([id, name]) => [
-            String(id),
-            String(name || "Водитель"),
-          ])
-        )
-      );
-      applyTransportPickerData(transportPairRows);
-      setActiveShift(bootstrap?.shift || null);
-      setShiftCounters(bootstrap?.counters || {
-        activeTickets: 0,
-        stuckTickets: 0,
-        unsynced: 0,
-        requiresReview: 0,
-        manualCorrections: 0,
-      });
-      setShiftGuard(bootstrap?.shiftGuard || { stale: false, ageHours: 0 });
-      setShiftSummary(bootstrap?.shiftSummary || { trips: 0, netKg: 0, open: 0, voided: 0, manualCorrections: 0 });
-      setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {} });
-      setHarvestStructureByField((harvestAllocations?.byField || {}) as Record<string, HarvestStructureOption[]>);
-      setHarvestIncompleteFields((harvestAllocations?.incompleteByField || {}) as Record<string, boolean>);
+  const loadSecondaryCatalogs = async (signal?: AbortSignal) => {
+    if (!profile?.company_id || secondaryCatalogsLoaded) return;
+    if (secondaryCatalogRequestRef.current) return secondaryCatalogRequestRef.current;
 
-      setLoading(false);
-
-      void Promise.all([
+    const companyId = profile.company_id;
+    const request = (async () => {
+      const [productsRes, identityRefs, supplierRows, buyerRows, operationsRes] = await Promise.all([
         supabase
           .from("products")
           .select("id,name,trade_name,normalized_name,company_id,type,product_type,unit,default_unit,base_uom,pack_uom,package_unit,product_form,formulation,category,subcategory,stock_unit,physical_state,is_seed_material,crop_id,variety_id,seed_reproduction_id")
-          .or(`company_id.eq.${profile.company_id},company_id.is.null`)
+          .or(`company_id.eq.${companyId},company_id.is.null`)
           .eq("archived", false)
-          .order("name"),
-        loadMasterIdentityRefs(profile.company_id),
-        loadSuppliers(profile.company_id),
-        loadBuyers(profile.company_id),
+          .order("name")
+          .abortSignal(signal || new AbortController().signal),
+        loadMasterIdentityRefs(companyId, signal),
+        loadSuppliers(companyId, signal),
+        loadBuyers(companyId, signal),
         supabase
           .from("operations")
           .select("id,field_id,operation_type,operation_category_slug,operation_type_slug,date,status")
-          .eq("company_id", profile.company_id)
+          .eq("company_id", companyId)
           .eq("archived", false)
           .order("date", { ascending: false })
-          .limit(500),
-      ]).then(([productsRes, identityRefs, supplierRows, buyerRows, operationsRes]) => {
-        if (productsRes.error || operationsRes.error) {
-          throw new Error(productsRes.error?.message || operationsRes.error?.message || "Не удалось загрузить вторичные справочники");
-        }
-        const dedupeByName = (rows: any[]) => {
-          const map = new Map<string, any>();
-          rows.forEach((row) => {
-            const key = String(row.name || row.name_ru || row.id || "").trim().toLowerCase();
-            if (!key) return;
-            const existing = map.get(key);
-            if (!existing || (existing.company_id == null && row.company_id != null)) map.set(key, row);
-          });
-          return Array.from(map.values());
+          .limit(500)
+          .abortSignal(signal || new AbortController().signal),
+      ]);
+      if (signal?.aborted) return;
+      if (productsRes.error || operationsRes.error) {
+        throw new Error(productsRes.error?.message || operationsRes.error?.message || "Не удалось загрузить вторичные справочники");
+      }
+
+      const dedupeByName = (rows: any[]) => {
+        const map = new Map<string, any>();
+        rows.forEach((row) => {
+          const key = String(row.name || row.name_ru || row.id || "").trim().toLowerCase();
+          if (!key) return;
+          const existing = map.get(key);
+          if (!existing || (existing.company_id == null && row.company_id != null)) map.set(key, row);
+        });
+        return Array.from(map.values());
+      };
+      const productRows = dedupeProductsForSelect(
+        (productsRes.data || []).filter((row: any) =>
+          !hasQaDataMarker(`${brandName(row) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
+        )
+      );
+      const cropRows = dedupeByName(
+        (identityRefs.crops || []).filter((row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || ""))
+      );
+      const varietyRows = dedupeByName(((identityRefs.varieties || []) as any[]).filter(
+        (row: any) => !hasQaDataMarker(brandName(row) || row.name || "")
+      ));
+      const reproductionRows = dedupeByName(((identityRefs.reproductions || []) as any[]).filter(
+        (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
+      ));
+      const cropNameById = new Map<string, string>(
+        cropRows.map((crop: any) => [String(crop.id), localizedName(crop, lang, ["name"]) || String(crop.name || "").trim()])
+      );
+
+      setProducts(productRows.map((row: any) => ({
+        id: String(row.id), name: brandName(row) || String(row.name || "Номенклатура"),
+        type: String(row.product_type || row.type || "").toLowerCase(), productType: String(row.product_type || ""),
+        unit: String(row.unit || ""), defaultUnit: String(row.default_unit || ""), baseUom: String(row.base_uom || ""),
+        packUom: String(row.pack_uom || ""), packageUnit: String(row.package_unit || ""), productForm: String(row.product_form || ""),
+        formulation: String(row.formulation || ""), category: String(row.category || ""), subcategory: String(row.subcategory || ""),
+        stockUnit: String(row.stock_unit || ""), physicalState: String(row.physical_state || ""), isSeedMaterial: row.is_seed_material === true,
+        cropId: row.crop_id ? String(row.crop_id) : null, varietyId: row.variety_id ? String(row.variety_id) : null,
+        reproductionId: row.seed_reproduction_id ? String(row.seed_reproduction_id) : null,
+      })));
+      setCrops(cropRows.map((row: any) => ({ id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Культура") })));
+      setVarieties(varietyRows.map((row: any) => ({
+        id: String(row.id), name: brandName(row) || String(row.name || "Сорт"), cropId: String(row.crop_id || ""),
+        cropName: localizedName(row.crops, lang, ["name"]) || cropNameById.get(String(row.crop_id || "")) || "",
+      })));
+      setReproductions(reproductionRows.map((row: any) => ({
+        id: String(row.id), name: localizedName(row, lang, ["name"]) || String(row.name || "Репродукция"),
+      })));
+      setSuppliers(supplierRows);
+      setBuyers(buyerRows);
+      const fieldNameById = new Map(fields.map((field) => [field.id, field.name]));
+      setLinkedOperations((operationsRes.data || []).map((row: any) => {
+        const fieldId = row.field_id ? String(row.field_id) : null;
+        return {
+          id: String(row.id), field_id: fieldId,
+          category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
+          type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
+          status: row.status ? String(row.status) : null,
+          label: `${row.operation_type || "Operation"} • ${fieldId ? fieldNameById.get(fieldId) || "Поле" : "Поле"} • ${row.date ? formatDate(String(row.date)) : "—"}`,
         };
-        const productRows = dedupeProductsForSelect(
-          (productsRes.data || []).filter((row: any) =>
-            !hasQaDataMarker(`${brandName(row) || row.name || ""} ${row.product_type || ""} ${row.type || ""}`)
-          )
-        );
-        const cropRows = dedupeByName(
-          (identityRefs.crops || []).filter((row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || ""))
-        );
-        const varietyRowsRaw = ((identityRefs.varieties || []) as any[]).filter(
-          (row: any) => !hasQaDataMarker(brandName(row) || row.name || "")
-        );
-        const reproductionRowsRaw = ((identityRefs.reproductions || []) as any[]).filter(
-          (row: any) => !hasQaDataMarker(localizedName(row, lang, ["name"]) || row.name || "")
-        );
-        const varietyRows = dedupeByName(varietyRowsRaw);
-        const reproductionRows = dedupeByName(reproductionRowsRaw);
-        const cropNameById = new Map<string, string>(
-          cropRows.map((c: any) => [String(c.id), localizedName(c, lang, ["name"]) || String(c.name || "").trim()])
-        );
-        setProducts(productRows.map((r: any) => ({
-          id: String(r.id), name: brandName(r) || String(r.name || "Номенклатура"),
-          type: String(r.product_type || r.type || "").toLowerCase(), productType: String(r.product_type || ""),
-          unit: String(r.unit || ""), defaultUnit: String(r.default_unit || ""), baseUom: String(r.base_uom || ""),
-          packUom: String(r.pack_uom || ""), packageUnit: String(r.package_unit || ""), productForm: String(r.product_form || ""),
-          formulation: String(r.formulation || ""), category: String(r.category || ""), subcategory: String(r.subcategory || ""),
-          stockUnit: String(r.stock_unit || ""), physicalState: String(r.physical_state || ""), isSeedMaterial: r.is_seed_material === true,
-          cropId: r.crop_id ? String(r.crop_id) : null, varietyId: r.variety_id ? String(r.variety_id) : null,
-          reproductionId: r.seed_reproduction_id ? String(r.seed_reproduction_id) : null,
-        })));
-        setCrops(cropRows.map((r: any) => ({ id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Культура") })));
-        setVarieties(varietyRows.map((r: any) => ({
-          id: String(r.id), name: brandName(r) || String(r.name || "Сорт"), cropId: String(r.crop_id || ""),
-          cropName: localizedName(r.crops, lang, ["name"]) || cropNameById.get(String(r.crop_id || "")) || "",
-        })));
-        setReproductions(reproductionRows.map((r: any) => ({
-          id: String(r.id), name: localizedName(r, lang, ["name"]) || String(r.name || "Репродукция"),
-        })));
-        setSuppliers(supplierRows);
-        setBuyers(buyerRows);
-        const fieldNameById = new Map(fieldRows.map((row) => [row.id, row.name]));
-        setLinkedOperations((operationsRes.data || []).map((row: any) => {
-          const fieldId = row.field_id ? String(row.field_id) : null;
-          const fieldName = fieldId ? fieldNameById.get(fieldId) || "Поле" : "Поле";
-          const dateText = row.date ? formatDate(String(row.date)) : "—";
-          return {
-            id: String(row.id), field_id: fieldId,
-            category_slug: row.operation_category_slug ? String(row.operation_category_slug) : null,
-            type_slug: row.operation_type_slug ? String(row.operation_type_slug) : null,
-            status: row.status ? String(row.status) : null,
-            label: `${row.operation_type || "Operation"} • ${fieldName} • ${dateText}`,
-          };
-        }).filter((row: any) => !hasQaDataMarker(row.label)));
-        setLinkedOperationLines([]);
-      }).catch((error) => console.error("Weighbridge secondary catalogs failed", error));
-    } catch (e: any) {
-      toast({ title: "Ошибка", description: e?.message || "Не удалось загрузить весовую", variant: "destructive" });
-    } finally {
-      setLoading(false);
-    }
+      }).filter((row: any) => !hasQaDataMarker(row.label)));
+      setLinkedOperationLines([]);
+      setSecondaryCatalogsLoaded(true);
+    })().finally(() => {
+      if (secondaryCatalogRequestRef.current === request) secondaryCatalogRequestRef.current = null;
+    });
+    secondaryCatalogRequestRef.current = request;
+    return request;
   };
 
-  const refreshTickets = async (showLoading = false) => {
+  const load = async (signal?: AbortSignal, background = false) => {
+    if (authLoading || !profile?.company_id || !profile?.id || !canView) return;
+    if (coreLoadRequestRef.current) return coreLoadRequestRef.current;
+
+    const companyId = profile.company_id;
+    const requestSignal = signal || new AbortController().signal;
+    const request = (async () => {
+      if (!background && !coreDataReady) setLoading(true);
+      try {
+        const [fieldsRes, warehousesRes, resourceRows, harvestAllocations, transportPairRows] = await Promise.all([
+          supabase.from("fields").select("id,name,area").eq("company_id", companyId).eq("archived", false).order("name").abortSignal(requestSignal),
+          supabase.from("warehouses").select("id,name,name_ru,name_kz,name_en,warehouse_type").eq("company_id", companyId).eq("archived", false).order("name").abortSignal(requestSignal),
+          getWeighbridgeResources(companyId, { signal: requestSignal }),
+          loadHarvestAllocations(companyId, requestSignal),
+          loadTransportPickerDataCached(companyId, false, requestSignal),
+        ]);
+        if (requestSignal.aborted) return;
+        if (fieldsRes.error || warehousesRes.error) {
+          throw new Error(fieldsRes.error?.message || warehousesRes.error?.message || "Не удалось загрузить данные");
+        }
+
+        const fieldRows = (fieldsRes.data || [])
+          .map((row: any) => ({ id: String(row.id), name: String(row.name || "Поле"), area: Number(row.area || 0) }))
+          .filter((row) => !hasQaDataMarker(row.name));
+        const warehouseRows = (warehousesRes.data || []).map((row: any) => ({
+          id: String(row.id),
+          name: localizedName(row, lang, ["name"]) || String(row.name || "Склад"),
+          warehouseType: String(row.warehouse_type || ""),
+        })).filter((row) => !hasQaDataMarker(row.name));
+
+        setFields(fieldRows);
+        setWarehouses(warehouseRows);
+        setVehicles(((resourceRows?.vehicles || []) as any[]).map((row: any) => ({
+          id: String(row.id), name: String(row.name || "Машина"), model: String(row.model || row.name || ""),
+          plate: String(row.plate || ""), type: String(row.type || ""), fleetType: String(row.fleetType || ""),
+          transportCategory: String(row.transportCategory || ""),
+          source: row.source === "reference_machines" ? "reference_machines" : "reference_vehicles",
+          primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
+        })));
+        setTrailers(((resourceRows?.trailers || []) as any[]).map((row: any) => ({
+          id: String(row.id), name: String(row.name || "Прицеп"), model: String(row.model || row.name || ""),
+          plate: String(row.plate || ""), type: String(row.type || "trailer"), fleetType: String(row.fleetType || "tractor_trailer"),
+          transportCategory: String(row.transportCategory || "trailer"), source: "reference_vehicles", primaryPersonnelId: null,
+        })));
+        setProcessingPoints([]);
+        setDrivers(((resourceRows?.drivers || []) as any[]).map((row: any) => ({
+          id: String(row.id), name: String(row.name || "Сотрудник"), machineId: row.machineId ? String(row.machineId) : null,
+          roleType: row.roleType === "mechanic_operator" ? "mechanic_operator" : "driver",
+          position: String(row.position || ""), department: String(row.department || ""),
+          assignedVehicleIds: Array.isArray(row.assignedVehicleIds) ? row.assignedVehicleIds.map(String) : [],
+        })));
+        setDriverNames(Object.fromEntries(
+          Object.entries((resourceRows?.driverNames || {}) as Record<string, unknown>)
+            .map(([id, name]) => [String(id), String(name || "Водитель")])
+        ));
+        applyTransportPickerData(transportPairRows);
+        setHarvestStructureByField((harvestAllocations?.byField || {}) as Record<string, HarvestStructureOption[]>);
+        setHarvestIncompleteFields((harvestAllocations?.incompleteByField || {}) as Record<string, boolean>);
+        setCoreDataReady(true);
+      } catch (error: any) {
+        if (requestSignal.aborted || error?.name === "AbortError") return;
+        toast({ title: "Ошибка", description: error?.message || "Не удалось загрузить весовую", variant: "destructive" });
+      } finally {
+        if (!requestSignal.aborted) setLoading(false);
+      }
+    })().finally(() => {
+      if (coreLoadRequestRef.current === request) coreLoadRequestRef.current = null;
+    });
+    coreLoadRequestRef.current = request;
+    return request;
+  };
+
+  const refreshTickets = async (showLoading = false, signal?: AbortSignal) => {
     if (!profile?.company_id || !profile?.id) return;
+    if (ticketsRequestRef.current) return ticketsRequestRef.current;
+    const companyId = profile.company_id;
+    const profileId = profile.id;
     if (showLoading) setTicketsLoading(true);
-    try {
-      const rows = await listTickets(profile.company_id, profile.id, { workspace: true });
-      setTickets(rows || []);
-    } finally {
-      setTicketsLoading(false);
-    }
+    const request = (async () => {
+      try {
+        const rows = await listTickets(companyId, profileId, { workspace: true, signal });
+        if (!signal?.aborted) setTickets(rows || []);
+      } catch (error: any) {
+        if (!signal?.aborted && error?.name !== "AbortError") throw error;
+      } finally {
+        if (!signal?.aborted) setTicketsLoading(false);
+      }
+    })().finally(() => {
+      if (ticketsRequestRef.current === request) ticketsRequestRef.current = null;
+    });
+    ticketsRequestRef.current = request;
+    return request;
   };
 
   const refreshHarvestBatches = async () => {
@@ -1140,32 +1204,56 @@ export default function WeighbridgeOperationsPage() {
     setHarvestBatches(await listHarvestBatchSummaries(profile.company_id));
   };
 
-  const refreshBootstrap = async () => {
+  const refreshBootstrap = async (includeSummary = false, signal?: AbortSignal) => {
     if (!profile?.company_id || !profile?.id) return;
-    const bootstrap = await getWeighbridgeBootstrap(profile.company_id, profile.id, { includeSummary: true });
-    setActiveShift(bootstrap?.shift || null);
-    setShiftCounters(bootstrap?.counters || shiftCounters);
-    setShiftGuard(bootstrap?.shiftGuard || { stale: false, ageHours: 0 });
-    setShiftSummary(bootstrap?.shiftSummary || { trips: 0, netKg: 0, open: 0, voided: 0, manualCorrections: 0 });
-    setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {} });
+    const requestRef = includeSummary ? bootstrapSummaryRequestRef : bootstrapRequestRef;
+    if (requestRef.current) return requestRef.current;
+    const companyId = profile.company_id;
+    const profileId = profile.id;
+    const request = (async () => {
+      const bootstrap = await getWeighbridgeBootstrap(companyId, profileId, { includeSummary, signal });
+      if (signal?.aborted) return;
+      setActiveShift(bootstrap?.shift || null);
+      setShiftCounters(bootstrap?.counters || shiftCounters);
+      setShiftGuard(bootstrap?.shiftGuard || { stale: false, ageHours: 0 });
+      setShiftSummary(bootstrap?.shiftSummary || { trips: 0, netKg: 0, open: 0, voided: 0, manualCorrections: 0 });
+      if (includeSummary) {
+        setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {} });
+      }
+    })().finally(() => {
+      if (requestRef.current === request) requestRef.current = null;
+    });
+    requestRef.current = request;
+    return request;
   };
 
-  const verifyOperatorSession = async () => {
+  const verifyOperatorSession = async (signal?: AbortSignal) => {
     if (!profile?.company_id) return;
     if (!canUseOperatorSession) {
       setOperatorSessionStatus("ready");
       return;
     }
+    if (operatorRequestRef.current) return operatorRequestRef.current;
+    const companyId = profile.company_id;
     setOperatorSessionStatus("checking");
-    try {
-      const nextState = await getWeighbridgeOperatorState(profile.company_id);
-      setOperatorState(nextState);
-      if (nextState.operator?.id) setOperatorPersonId(nextState.operator.id);
-      setOperatorSessionStatus("ready");
-    } catch (error) {
-      setOperatorSessionStatus("error");
-      console.error("Operator session verification failed", error);
-    }
+    const request = (async () => {
+      try {
+        const nextState = await getWeighbridgeOperatorState(companyId, { signal });
+        if (signal?.aborted) return;
+        setOperatorState(nextState);
+        setActiveShift(nextState.shift || null);
+        if (nextState.operator?.id) setOperatorPersonId(nextState.operator.id);
+        setOperatorSessionStatus("ready");
+      } catch (error: any) {
+        if (signal?.aborted || error?.name === "AbortError") return;
+        setOperatorSessionStatus("error");
+        console.error("Operator session verification failed", error);
+      }
+    })().finally(() => {
+      if (operatorRequestRef.current === request) operatorRequestRef.current = null;
+    });
+    operatorRequestRef.current = request;
+    return request;
   };
 
   const refreshLiveData = async (event?: { source: string; table?: string }) => {
@@ -1179,8 +1267,9 @@ export default function WeighbridgeOperationsPage() {
       if (form.operationType === "impurity_removal") tasks.push(refreshHarvestBatches());
     }
     if (table === "tickets") tasks.push(refreshTransportPickerData());
-    if (ticketChanged || shiftChanged) tasks.push(refreshBootstrap());
-    if (isForeground || shiftChanged) tasks.push(verifyOperatorSession());
+    if (statisticsOpen && ticketChanged) tasks.push(refreshBootstrap(true));
+    if (canUseOperatorSession && (isForeground || shiftChanged)) tasks.push(verifyOperatorSession());
+    if (!canUseOperatorSession && shiftChanged) tasks.push(refreshBootstrap(false));
     await Promise.all(tasks);
   };
 
@@ -1214,51 +1303,65 @@ export default function WeighbridgeOperationsPage() {
   useEffect(() => {
     if (authLoading) return;
     if (!profile?.company_id) return;
-    const cached = weighbridgePageCache.get(`${profile.company_id}:${language}`) as any;
+    const companyId = profile.company_id;
+    const cacheKey = `${companyId}:${language}`;
+    const cached = (weighbridgePageCache.get(cacheKey) || readWeighbridgeSessionCache(companyId, language)) as any;
+    const controller = new AbortController();
+    let refreshTimer: number | null = null;
+
+    setSecondaryCatalogsLoaded(false);
     if (cached) {
       setFields(cached.fields || []);
       setWarehouses(cached.warehouses || []);
-      setSuppliers(cached.suppliers || []);
-      setBuyers(cached.buyers || []);
       setVehicles(cached.vehicles || []);
       setTrailers(cached.trailers || []);
-      setProducts(cached.products || []);
-      setCrops(cached.crops || []);
-      setVarieties(cached.varieties || []);
-      setReproductions(cached.reproductions || []);
       setDrivers(cached.drivers || []);
       setDriverNames(cached.driverNames || {});
-      setTransportPickerData(cached.transportPickerData || transportPickerDataCache.get(profile.company_id) || emptyTransportPickerData());
-      setLinkedOperations(cached.linkedOperations || []);
+      setTransportPickerData(cached.transportPickerData || transportPickerDataCache.get(companyId) || emptyTransportPickerData());
       setHarvestStructureByField(cached.harvestStructureByField || {});
       setHarvestIncompleteFields(cached.harvestIncompleteFields || {});
       setTickets(cached.tickets || []);
-      setHarvestBatches(cached.harvestBatches || []);
       setActiveShift(cached.activeShift || null);
       setOperatorState(cached.operatorState || { shift: null, unlocked: false, operators: [] });
       setShiftCounters(cached.shiftCounters || shiftCounters);
       setShiftGuard(cached.shiftGuard || { stale: false, ageHours: 0 });
       setShiftSummary(cached.shiftSummary || shiftSummary);
       setHarvestSummary(cached.harvestSummary || harvestSummary);
+      setCoreDataReady(true);
       setLoading(false);
       setTicketsLoading(false);
       setOperatorSessionStatus("checking");
     }
-    if (cached) {
-      const refreshTimer = window.setTimeout(() => {
-        void Promise.all([
-          refreshTickets(),
-          refreshBootstrap(),
-          verifyOperatorSession(),
-        ]).catch((error) => {
+
+    const reconcile = () => {
+      const tasks: Promise<unknown>[] = [
+        load(controller.signal, Boolean(cached)),
+        refreshTickets(!cached, controller.signal),
+      ];
+      tasks.push(canUseOperatorSession
+        ? verifyOperatorSession(controller.signal)
+        : refreshBootstrap(false, controller.signal));
+      void Promise.all(tasks).catch((error: any) => {
+        if (!controller.signal.aborted && error?.name !== "AbortError") {
           console.error("Weighbridge background reconciliation failed", error);
-        });
-      }, 750);
-      return () => window.clearTimeout(refreshTimer);
-    }
-    void load();
-    void refreshTickets(true);
-    void verifyOperatorSession();
+        }
+      });
+    };
+
+    if (cached) refreshTimer = window.setTimeout(reconcile, 100);
+    else reconcile();
+
+    return () => {
+      if (refreshTimer != null) window.clearTimeout(refreshTimer);
+      controller.abort();
+      coreLoadRequestRef.current = null;
+      ticketsRequestRef.current = null;
+      bootstrapRequestRef.current = null;
+      bootstrapSummaryRequestRef.current = null;
+      operatorRequestRef.current = null;
+    };
+    // Requests are explicitly deduplicated and aborted when the company context changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, profile?.company_id, profile?.id, profile?.role, language]);
 
   useEffect(() => {
@@ -1270,35 +1373,57 @@ export default function WeighbridgeOperationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.operationType, profile?.company_id, harvestBatches.length]);
 
+  const needsSecondaryCatalogs = form.operationType !== "harvest_incoming";
+
   useEffect(() => {
-    if (loading || !profile?.company_id) return;
-    weighbridgePageCache.set(`${profile.company_id}:${language}`, {
+    if (!needsSecondaryCatalogs || secondaryCatalogsLoaded || !profile?.company_id) return;
+    const controller = new AbortController();
+    void loadSecondaryCatalogs(controller.signal).catch((error: any) => {
+      if (!controller.signal.aborted && error?.name !== "AbortError") {
+        console.error("Weighbridge secondary catalogs failed", error);
+      }
+    });
+    return () => controller.abort();
+    // Secondary catalogs are intentionally lazy and are never part of harvest startup.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsSecondaryCatalogs, profile?.company_id, language, secondaryCatalogsLoaded]);
+
+  useEffect(() => {
+    if (!statisticsOpen || !profile?.company_id) return;
+    const controller = new AbortController();
+    void refreshBootstrap(true, controller.signal).catch((error: any) => {
+      if (!controller.signal.aborted && error?.name !== "AbortError") {
+        console.error("Weighbridge statistics refresh failed", error);
+      }
+    });
+    return () => controller.abort();
+    // Statistics aggregate only after the operator opens the section.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statisticsOpen, profile?.company_id]);
+
+  useEffect(() => {
+    if (!coreDataReady || !profile?.company_id) return;
+    const payload = {
       fields,
       warehouses,
-      suppliers,
-      buyers,
       vehicles,
       trailers,
-      products,
-      crops,
-      varieties,
-      reproductions,
       drivers,
       driverNames,
       transportPickerData,
-      linkedOperations,
       harvestStructureByField,
       harvestIncompleteFields,
       tickets,
-      harvestBatches,
       activeShift,
       operatorState,
       shiftCounters,
       shiftGuard,
       shiftSummary,
       harvestSummary,
-    });
-  }, [loading, profile?.company_id, language, fields, warehouses, suppliers, buyers, vehicles, trailers, products, crops, varieties, reproductions, drivers, driverNames, transportPickerData, linkedOperations, harvestStructureByField, harvestIncompleteFields, tickets, harvestBatches, activeShift, operatorState, shiftCounters, shiftGuard, shiftSummary, harvestSummary]);
+    };
+    weighbridgePageCache.set(`${profile.company_id}:${language}`, payload);
+    writeWeighbridgeSessionCache(profile.company_id, language, payload);
+  }, [coreDataReady, profile?.company_id, language, fields, warehouses, vehicles, trailers, drivers, driverNames, transportPickerData, harvestStructureByField, harvestIncompleteFields, tickets, activeShift, operatorState, shiftCounters, shiftGuard, shiftSummary, harvestSummary]);
 
   useEffect(() => {
     if (loading || operatorSessionStatus !== "ready" || !canUseOperatorSession || operatorState.unlocked || eligibleOperators.length === 0) return;
@@ -2574,14 +2699,19 @@ export default function WeighbridgeOperationsPage() {
     return null;
   };
 
-  const currentValidationError = loading ? "Данные ещё загружаются" : validate();
+  const secondaryModeLoading = form.operationType !== "harvest_incoming" && !secondaryCatalogsLoaded;
+  const currentValidationError = !coreDataReady
+    ? "Рабочие справочники ещё загружаются"
+    : secondaryModeLoading
+      ? "Справочник выбранного режима ещё загружается"
+      : validate();
 
   const create = async () => {
     if (!canOperate || submitting) return;
-    if (loading) {
+    if (!coreDataReady || secondaryModeLoading) {
       toast({
         title: "Данные ещё загружаются",
-        description: "Подождите пару секунд и повторите создание талона.",
+        description: currentValidationError || "Подождите пару секунд и повторите создание талона.",
         variant: "destructive",
       });
       return;
@@ -3910,14 +4040,14 @@ export default function WeighbridgeOperationsPage() {
                 >
                   {submitting ? "Сохранение..." : "Создать талон"}
                 </Button>
-                {loading ? <div className="mt-1 text-xs text-amber-300">Данные ещё загружаются. Повторите через пару секунд.</div> : null}
-                {!loading && !activeShift && !isSupplierDirect ? <div className="mt-1 text-xs text-amber-300">Смена закрыта: откройте её через меню ⋯.</div> : null}
-                {!loading && activeShift && canUseOperatorSession && !operatorState.unlocked && !isSupplierDirect ? (
+                {!coreDataReady || secondaryModeLoading ? <div className="mt-1 text-xs text-amber-300">{currentValidationError}</div> : null}
+                {coreDataReady && !activeShift && !isSupplierDirect ? <div className="mt-1 text-xs text-amber-300">Смена закрыта: откройте её через меню ⋯.</div> : null}
+                {coreDataReady && activeShift && canUseOperatorSession && !operatorState.unlocked && !isSupplierDirect ? (
                   <button type="button" className="mt-1 text-left text-xs font-medium text-amber-300 underline underline-offset-2" onClick={openShiftAction}>
                     Терминал заблокирован: введите PIN весовщика.
                   </button>
                 ) : null}
-                {!loading && activeShift && currentValidationError ? (
+                {coreDataReady && !secondaryModeLoading && activeShift && currentValidationError ? (
                   <div className="mt-1 text-xs text-amber-300">{currentValidationError}</div>
                 ) : null}
               </div>
@@ -3963,7 +4093,11 @@ export default function WeighbridgeOperationsPage() {
         </Card>
       </div>
 
-      <details className={`${terminalPanelClass} group`}>
+      <details
+        className={`${terminalPanelClass} group`}
+        open={statisticsOpen}
+        onToggle={(event) => setStatisticsOpen(event.currentTarget.open)}
+      >
         <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-slate-200">
           <span>Статистика</span>
           <span className="text-xs font-normal text-slate-500">Сегодня и текущее поле</span>

@@ -32,7 +32,10 @@ check("compact mode bar replaces the attention control", () => {
 check("secondary actions share one menu", () => assert.match(page, /aria-label="Дополнительные действия"/));
 check("inventory moved into secondary menu", () => assert.match(page, /DropdownMenuItem asChild>[\s\S]*\/warehouses\/inventory/));
 check("history moved into secondary menu", () => assert.match(page, /История талонов/));
-check("statistics are collapsible below intake", () => assert.match(page, /<details className=\{`\$\{terminalPanelClass\} group`\}>[\s\S]*Статистика/));
+check("statistics are collapsible below intake", () => {
+  assert.match(page, /<details[\s\S]*className=\{`\$\{terminalPanelClass\} group`\}[\s\S]*Статистика/);
+  assert.match(page, /onToggle=\{\(event\) => setStatisticsOpen\(event\.currentTarget\.open\)\}/);
+});
 check("harvest target is one searchable field in the intake form", () => assert.match(activeHarvestTabs, /aria-label="Поле или участок"/));
 check("reception is selected once in the intake form", () => {
   assert.match(page, /Место приёмки \*/);

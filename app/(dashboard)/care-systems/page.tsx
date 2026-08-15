@@ -1064,7 +1064,7 @@ export default function CareSystemsPage() {
         <div className="rounded-lg border border-[#273449] bg-[#111827] p-6">
           <h2 className="text-lg font-semibold text-[#F9FAFB]">Компания не выбрана</h2>
           <p className="mt-2 text-sm text-[#9CA3AF]">Для систем защиты и ухода нужен активный профиль компании. Обновите страницу или выберите компанию в верхней панели.</p>
-          <Button className="mt-4 bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]" onClick={() => window.location.reload()}>
+          <Button className="mt-4 bg-[#E0B100] text-[#111827] hover:bg-[#C89F00]" onClick={() => void load()}>
             Обновить страницу
           </Button>
         </div>

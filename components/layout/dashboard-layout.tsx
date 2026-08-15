@@ -17,7 +17,7 @@ import { supabase } from "@/lib/supabase/client";
 import { useLanguage } from "@/lib/contexts/language-context";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const { profile, loading } = useAuth();
+  const { profile, loading, refreshProfile } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useLanguage();
@@ -58,7 +58,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload?.error || "Failed to stop impersonation");
       }
-      window.location.href = "/platform";
+      await refreshProfile();
+      router.replace("/platform");
     } catch (error) {
       console.error("Failed to stop impersonation:", error);
       setStoppingImpersonation(false);

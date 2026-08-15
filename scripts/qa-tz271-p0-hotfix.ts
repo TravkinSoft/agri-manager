@@ -55,7 +55,9 @@ check("workspace ticket endpoint limits journal", () => {
 
 check("weighbridge restores cache before background reconciliation", () => {
   assert.match(weighbridgePage, /if \(cached\) \{[\s\S]*?setLoading\(false\)/);
-  assert.match(weighbridgePage, /if \(cached\) \{[\s\S]*?setTimeout\([\s\S]*?refreshTickets\(\)[\s\S]*?refreshBootstrap\(\)[\s\S]*?verifyOperatorSession\(\)[\s\S]*?750/);
+  assert.match(weighbridgePage, /readWeighbridgeSessionCache/);
+  assert.match(weighbridgePage, /const reconcile = \(\) => \{[\s\S]*?load\(controller\.signal, Boolean\(cached\)\)[\s\S]*?refreshTickets\(!cached, controller\.signal\)[\s\S]*?verifyOperatorSession\(controller\.signal\)/);
+  assert.match(weighbridgePage, /if \(cached\) refreshTimer = window\.setTimeout\(reconcile, 100\)/);
 });
 
 check("focus refreshes are throttled without delaying realtime", () => {
