@@ -67,7 +67,8 @@ check("profile context refresh does not reload the document", () => {
 check("cached auth UI restores immediately without persisting a token", () => {
   assert.match(authContext, /AUTH_UI_CACHE_KEY = "travkin\.auth\.ui\.v1"/);
   assert.match(authContext, /window\.localStorage\.getItem\(AUTH_UI_CACHE_KEY\)/);
-  assert.match(authContext, /window\.localStorage\.setItem\(/);
+  assert.match(authContext, /profile\.is_impersonating \? window\.sessionStorage : window\.localStorage/);
+  assert.match(authContext, /parsed\.profile\.is_impersonating && !fromSession/);
   assert.match(authContext, /useState\(\(\) => !cachedAuthRef\.current\)/);
   assert.match(authContext, /setLoading\(!cachedAuthRef\.current\)/);
   assert.match(authContext, /if \(event === "INITIAL_SESSION"\) return/);

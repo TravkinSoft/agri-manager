@@ -66,7 +66,9 @@ function readCachedAuthUiState(): CachedAuthUiState | null {
   try {
     if (typeof window === "undefined") return null;
     const localRaw = window.localStorage.getItem(AUTH_UI_CACHE_KEY);
-    const raw = localRaw || window.sessionStorage.getItem(AUTH_UI_CACHE_KEY);
+    const sessionRaw = window.sessionStorage.getItem(AUTH_UI_CACHE_KEY);
+    const fromSession = Boolean(sessionRaw);
+    const raw = sessionRaw || localRaw;
     if (!raw) return null;
     const parsed = JSON.parse(raw) as CachedAuthUiState;
     const role = parseCanonicalRole(parsed?.profile?.role);
@@ -81,9 +83,9 @@ function readCachedAuthUiState(): CachedAuthUiState | null {
       window.sessionStorage.removeItem(AUTH_UI_CACHE_KEY);
       return null;
     }
-    if (!localRaw) {
-      window.localStorage.setItem(AUTH_UI_CACHE_KEY, raw);
-      window.sessionStorage.removeItem(AUTH_UI_CACHE_KEY);
+    if (parsed.profile.is_impersonating && !fromSession) {
+      window.localStorage.removeItem(AUTH_UI_CACHE_KEY);
+      return null;
     }
     return { ...parsed, profile: { ...parsed.profile, role } };
   } catch {
@@ -94,24 +96,31 @@ function readCachedAuthUiState(): CachedAuthUiState | null {
 function writeCachedAuthUiState(user: User, profile: Profile) {
   try {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(
+    const payload = JSON.stringify({
+      savedAt: Date.now(),
+      user: { id: user.id, email: user.email },
+      profile,
+    } satisfies CachedAuthUiState);
+    const targetStorage = profile.is_impersonating ? window.sessionStorage : window.localStorage;
+    const staleStorage = profile.is_impersonating ? window.localStorage : window.sessionStorage;
+    targetStorage.setItem(
       AUTH_UI_CACHE_KEY,
-      JSON.stringify({
-        savedAt: Date.now(),
-        user: { id: user.id, email: user.email },
-        profile,
-      } satisfies CachedAuthUiState)
+      payload
     );
+    staleStorage.removeItem(AUTH_UI_CACHE_KEY);
   } catch {
-    // localStorage can be unavailable in private or restricted browser contexts.
+    // Browser storage can be unavailable in private or restricted contexts.
   }
 }
 
 function clearCachedAuthUiState() {
   try {
-    if (typeof window !== "undefined") window.localStorage.removeItem(AUTH_UI_CACHE_KEY);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(AUTH_UI_CACHE_KEY);
+      window.sessionStorage.removeItem(AUTH_UI_CACHE_KEY);
+    }
   } catch {
-    // localStorage can be unavailable in private or restricted browser contexts.
+    // Browser storage can be unavailable in private or restricted contexts.
   }
 }
 
