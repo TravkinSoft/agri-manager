@@ -80,46 +80,74 @@ async function resolveActiveShiftId(
   return String(data?.id || "");
 }
 
+const WEIGHBRIDGE_TICKET_SELECT = `
+  *,
+  lines:ticket_lines(
+    id,
+    product_id,
+    quantity,
+    uom,
+    warehouse_from_id,
+    warehouse_to_id,
+    unit_price,
+    amount,
+    moisture_percent,
+    notes,
+    product_name_snapshot,
+    variety_id,
+    variety_name_snapshot,
+    reproduction_id,
+    reproduction_name_snapshot,
+    batch_class,
+    batch_id,
+    operation_line_id,
+    lot_id,
+    composition_snapshot,
+    composition_hash,
+    is_mixed_harvest,
+    products:product_id(name,trade_name,normalized_name),
+    varieties:variety_id(name),
+    reproductions:reproduction_id(name,name_ru,name_kz,name_en,code)
+  )
+`;
+
 export async function GET(request: NextRequest) {
   try {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
-    const { data, error } = await supabase
-      .from("tickets")
-      .select(`
-        *,
-        lines:ticket_lines(
-          id,
-          product_id,
-          quantity,
-          uom,
-          warehouse_from_id,
-          warehouse_to_id,
-          unit_price,
-          amount,
-          moisture_percent,
-          notes,
-          product_name_snapshot,
-          variety_id,
-          variety_name_snapshot,
-          reproduction_id,
-          reproduction_name_snapshot,
-          batch_class,
-          batch_id,
-          operation_line_id,
-          lot_id,
-          composition_snapshot,
-          composition_hash,
-          is_mixed_harvest,
-          products:product_id(name,trade_name,normalized_name),
-          varieties:variety_id(name),
-          reproductions:reproduction_id(name,name_ru,name_kz,name_en,code)
-        )
-      `)
-      .eq("company_id", companyId)
-      .order("created_at", { ascending: false })
-      .limit(200);
+    const workspace = request.nextUrl.searchParams.get("workspace") === "true";
+    let data: any[] | null = null;
+    let error: any = null;
+    if (workspace) {
+      const [openResult, recentResult] = await Promise.all([
+        supabase
+          .from("tickets")
+          .select(WEIGHBRIDGE_TICKET_SELECT)
+          .eq("company_id", companyId)
+          .in("status", ["draft", "active", "ready_to_close"])
+          .order("created_at", { ascending: true })
+          .limit(100),
+        supabase
+          .from("tickets")
+          .select(WEIGHBRIDGE_TICKET_SELECT)
+          .eq("company_id", companyId)
+          .in("status", ["finalized", "voided"])
+          .order("created_at", { ascending: false })
+          .limit(20),
+      ]);
+      error = openResult.error || recentResult.error;
+      data = [...(openResult.data || []), ...(recentResult.data || [])];
+    } else {
+      const result = await supabase
+        .from("tickets")
+        .select(WEIGHBRIDGE_TICKET_SELECT)
+        .eq("company_id", companyId)
+        .order("created_at", { ascending: false })
+        .limit(200);
+      data = result.data;
+      error = result.error;
+    }
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });

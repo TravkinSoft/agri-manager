@@ -168,6 +168,7 @@ export function Sidebar() {
               <Link
                 key={`${item.href}-${item.labelKey}`}
                 href={item.href}
+                prefetch={["/weighbridge", "/warehouses", "/ledger"].includes(item.href) ? true : undefined}
                 className={cn(
                   "flex items-center rounded-lg text-sm font-medium transition-all duration-200",
                   isCollapsed ? "justify-center px-3 py-2" : "gap-3 px-3 py-2",

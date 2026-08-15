@@ -95,6 +95,7 @@ const warehousePageCache = new Map<string, {
   harvestBatches?: HarvestBatchSummary[];
   loadedWarehouseIds?: string[];
 }>();
+const warehouseSummaryRequestCache = new Map<string, Promise<WarehouseSummary[]>>();
 
 export default function WarehousesPage() {
   const { profile } = useAuth();
@@ -134,10 +135,16 @@ export default function WarehousesPage() {
       setError(null);
     }
     try {
-      const summaryRows = await getWarehouseSummaries(profile.company_id, canManageWarehouses, language);
+      const cacheKey = `${profile.company_id}:${language}:${canManageWarehouses}`;
+      let request = warehouseSummaryRequestCache.get(cacheKey);
+      if (!request) {
+        request = getWarehouseSummaries(profile.company_id, canManageWarehouses, language)
+          .finally(() => warehouseSummaryRequestCache.delete(cacheKey));
+        warehouseSummaryRequestCache.set(cacheKey, request);
+      }
+      const summaryRows = await request;
       setWarehouseSummaryRows(summaryRows);
       setWarehouses(summaryRows.map((row) => row.warehouse));
-      const cacheKey = `${profile.company_id}:${language}:${canManageWarehouses}`;
       warehousePageCache.set(cacheKey, { ...warehousePageCache.get(cacheKey), summaries: summaryRows });
       setError(null);
     } catch (cause) {
@@ -246,6 +253,7 @@ export default function WarehousesPage() {
     setLoadedWarehouseIds(cached?.loadedWarehouseIds || []);
     setSelectedWarehouseId(null);
     setSearchDataLoaded(false);
+    setLoading(!cached);
     void loadWarehouseList({ foreground: !cached });
     // Loading is intentionally tied to the selected company and role contract.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -264,6 +272,7 @@ export default function WarehousesPage() {
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.warehouses,
     intervalMs: 60_000,
+    minRefreshIntervalMs: 5_000,
   });
 
   useEffect(() => {

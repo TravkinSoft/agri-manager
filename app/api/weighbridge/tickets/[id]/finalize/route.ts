@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUnexpectedUserError, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 
 async function loadHarvestClosureState(supabase: SupabaseClient, companyId: string, ticketId: string) {
   const [linesResult, weighingsResult] = await Promise.all([
@@ -234,7 +234,7 @@ export async function POST(
       return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });
     }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
+      { error: weighbridgeUnexpectedUserError() },
       { status: 500 }
     );
   }

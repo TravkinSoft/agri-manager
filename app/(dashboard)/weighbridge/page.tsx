@@ -756,7 +756,6 @@ export default function WeighbridgeOperationsPage() {
   const [voidReason, setVoidReason] = useState("");
   const [shiftHandoverNote, setShiftHandoverNote] = useState("");
   const [historyTypeFilter, setHistoryTypeFilter] = useState("all");
-  const [historyVisibleLimit, setHistoryVisibleLimit] = useState(20);
   const [activeShift, setActiveShift] = useState<any | null>(null);
   const [shiftCounters, setShiftCounters] = useState<{ activeTickets: number; stuckTickets: number; unsynced: number; requiresReview: number; manualCorrections: number }>({
     activeTickets: 0,
@@ -1152,15 +1151,16 @@ export default function WeighbridgeOperationsPage() {
     if (!profile?.company_id || !profile?.id) return;
     if (showLoading) setTicketsLoading(true);
     try {
-      const [rows, batchRows] = await Promise.all([
-        listTickets(profile.company_id, profile.id),
-        listHarvestBatchSummaries(profile.company_id),
-      ]);
+      const rows = await listTickets(profile.company_id, profile.id, { workspace: true });
       setTickets(rows || []);
-      setHarvestBatches(batchRows || []);
     } finally {
       setTicketsLoading(false);
     }
+  };
+
+  const refreshHarvestBatches = async () => {
+    if (!profile?.company_id) return;
+    setHarvestBatches(await listHarvestBatchSummaries(profile.company_id));
   };
 
   const refreshBootstrap = async () => {
@@ -1197,7 +1197,10 @@ export default function WeighbridgeOperationsPage() {
     const ticketChanged = !table || ["tickets", "ticket_lines", "ticket_weighings", "inventory_batches", "stock_ledger_entries"].includes(table);
     const shiftChanged = !table || table === "weighbridge_shifts";
     const tasks: Promise<unknown>[] = [];
-    if (ticketChanged) tasks.push(refreshTickets());
+    if (ticketChanged) {
+      tasks.push(refreshTickets());
+      if (form.operationType === "impurity_removal") tasks.push(refreshHarvestBatches());
+    }
     if (table === "tickets") tasks.push(refreshTransportPickerData());
     if (ticketChanged || shiftChanged) tasks.push(refreshBootstrap());
     if (isForeground || shiftChanged) tasks.push(verifyOperatorSession());
@@ -1210,6 +1213,7 @@ export default function WeighbridgeOperationsPage() {
     companyId: profile?.company_id,
     tables: LIVE_REFRESH_TABLES.weighbridge,
     intervalMs: 60_000,
+    minRefreshIntervalMs: 5_000,
   });
 
   const siteConfirm = async (opts: { title: string; description: string; actionLabel: string }) => {
@@ -1263,10 +1267,31 @@ export default function WeighbridgeOperationsPage() {
       setTicketsLoading(false);
       setOperatorSessionStatus("checking");
     }
+    if (cached) {
+      const refreshTimer = window.setTimeout(() => {
+        void Promise.all([
+          refreshTickets(),
+          refreshBootstrap(),
+          verifyOperatorSession(),
+        ]).catch((error) => {
+          console.error("Weighbridge background reconciliation failed", error);
+        });
+      }, 750);
+      return () => window.clearTimeout(refreshTimer);
+    }
     void load();
-    void refreshTickets(!cached);
+    void refreshTickets(true);
     void verifyOperatorSession();
   }, [authLoading, profile?.company_id, profile?.id, profile?.role, language]);
+
+  useEffect(() => {
+    if (form.operationType !== "impurity_removal" || !profile?.company_id || harvestBatches.length > 0) return;
+    void refreshHarvestBatches().catch((error) => {
+      console.error("Harvest batch options refresh failed", error);
+    });
+    // Harvest batches are needed only by impurity removal, not by the default intake form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.operationType, profile?.company_id, harvestBatches.length]);
 
   useEffect(() => {
     if (loading || !profile?.company_id) return;
@@ -4004,7 +4029,6 @@ export default function WeighbridgeOperationsPage() {
             <div className="w-full sm:w-[240px]">
               <Select value={historyTypeFilter} onValueChange={(value) => {
                 setHistoryTypeFilter(value);
-                setHistoryVisibleLimit(20);
               }}>
                 <SelectTrigger className="border-slate-700 bg-slate-950 text-slate-100"><SelectValue placeholder="Фильтр по типу" /></SelectTrigger>
                 <SelectContent><SelectItem value="all">Все типы</SelectItem>{historyTypes.map((type) => <SelectItem key={type} value={type}>{operationUiLabel(type)}</SelectItem>)}</SelectContent>
@@ -4014,7 +4038,7 @@ export default function WeighbridgeOperationsPage() {
           <CardContent className="space-y-2 px-3 py-3 sm:px-4">
             {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка журнала...</div> : null}
             {!ticketsLoading && historyTickets.length === 0 ? <div className="rounded-lg border border-dashed border-slate-800 p-6 text-center text-sm text-slate-500">Закрытых талонов пока нет</div> : null}
-            {!ticketsLoading && historyTickets.slice(0, historyVisibleLimit).map((t) => {
+            {!ticketsLoading && historyTickets.map((t) => {
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = driverNameForId(t.driver_id) || "Без водителя";
               const meta = ticketCardMeta(t, vehicleName, driverName);
@@ -4040,14 +4064,9 @@ export default function WeighbridgeOperationsPage() {
                 </div>
               );
             })}
-            {!ticketsLoading && historyTickets.length > historyVisibleLimit ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-900"
-                onClick={() => setHistoryVisibleLimit((limit) => Math.min(limit + 20, 80))}
-              >
-                Показать ещё
+            {!ticketsLoading && historyTickets.length >= 20 ? (
+              <Button asChild variant="outline" className="w-full border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-900">
+                <Link href="/weighbridge/history">Открыть полный журнал</Link>
               </Button>
             ) : null}
           </CardContent>
