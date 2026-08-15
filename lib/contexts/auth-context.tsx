@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase/client';
 import { usePathname, useRouter } from 'next/navigation';
@@ -53,6 +53,61 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const AUTH_REQUEST_TIMEOUT_MS = 8000;
 const AUTH_PROFILE_TIMEOUT_MS = 15000;
 const AUTH_BOOT_TIMEOUT_MS = 10000;
+const AUTH_UI_CACHE_KEY = "travkin.auth.ui.v1";
+const AUTH_UI_CACHE_TTL_MS = 30 * 60 * 1000;
+
+type CachedAuthUiState = {
+  savedAt: number;
+  user: Pick<User, "id" | "email">;
+  profile: Profile;
+};
+
+function readCachedAuthUiState(): CachedAuthUiState | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = window.sessionStorage.getItem(AUTH_UI_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedAuthUiState;
+    const role = parseCanonicalRole(parsed?.profile?.role);
+    if (
+      !parsed?.user?.id ||
+      !parsed?.profile?.id ||
+      !role ||
+      String(parsed.profile.status || "").toLowerCase() !== "active" ||
+      Date.now() - Number(parsed.savedAt || 0) > AUTH_UI_CACHE_TTL_MS
+    ) {
+      window.sessionStorage.removeItem(AUTH_UI_CACHE_KEY);
+      return null;
+    }
+    return { ...parsed, profile: { ...parsed.profile, role } };
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedAuthUiState(user: User, profile: Profile) {
+  try {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem(
+      AUTH_UI_CACHE_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        user: { id: user.id, email: user.email },
+        profile,
+      } satisfies CachedAuthUiState)
+    );
+  } catch {
+    // sessionStorage can be unavailable in private or restricted browser contexts.
+  }
+}
+
+function clearCachedAuthUiState() {
+  try {
+    if (typeof window !== "undefined") window.sessionStorage.removeItem(AUTH_UI_CACHE_KEY);
+  } catch {
+    // sessionStorage can be unavailable in private or restricted browser contexts.
+  }
+}
 
 function withAuthTimeout<T>(promise: Promise<T>, label: string, timeoutMs = AUTH_REQUEST_TIMEOUT_MS): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -78,6 +133,7 @@ function clearLocalSupabaseSession() {
   } catch {
     // localStorage can be unavailable in private or restricted browser contexts.
   }
+  clearCachedAuthUiState();
 }
 
 async function clearServerImpersonationContext(accessToken?: string | null) {
@@ -152,22 +208,24 @@ function clearRememberedAuthUiState() {
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedAuthRef = useRef<CachedAuthUiState | null>(readCachedAuthUiState());
+  const [user, setUser] = useState<User | null>(() =>
+    cachedAuthRef.current ? (cachedAuthRef.current.user as User) : null
+  );
+  const [profile, setProfile] = useState<Profile | null>(() => cachedAuthRef.current?.profile || null);
+  const [loading, setLoading] = useState(() => !cachedAuthRef.current);
   const router = useRouter();
   const pathname = usePathname();
   const skipMarketingAuthBoot = pathname === "/" || pathname === "/demo";
 
   useEffect(() => {
     if (skipMarketingAuthBoot) {
-      setUser(null);
-      setProfile(null);
+      setLoading(false);
       return;
     }
 
     let mounted = true;
-    setLoading(true);
+    setLoading(!cachedAuthRef.current);
     const bootWatchdog = window.setTimeout(() => {
       if (!mounted) return;
       setLoading(false);
@@ -213,6 +271,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        if (event === "INITIAL_SESSION") return;
         (async () => {
           try {
             if (!mounted) return;
@@ -253,6 +312,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       subscription.unsubscribe();
     };
   }, [skipMarketingAuthBoot]);
+
+  useEffect(() => {
+    if (user && profile && String(profile.status || "").toLowerCase() === "active") {
+      writeCachedAuthUiState(user, profile);
+    } else if (!skipMarketingAuthBoot && !loading && !user) {
+      clearCachedAuthUiState();
+    }
+  }, [user, profile, loading, skipMarketingAuthBoot]);
 
   const loadProfile = async (userId: string, userEmail?: string | null) => {
     try {

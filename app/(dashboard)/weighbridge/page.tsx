@@ -1301,6 +1301,12 @@ export default function WeighbridgeOperationsPage() {
   };
 
   useEffect(() => {
+    if (authLoading || loading || !profile?.company_id) return;
+    performance.clearMarks("travkin-weighbridge-interactive");
+    performance.mark("travkin-weighbridge-interactive");
+  }, [authLoading, loading, profile?.company_id]);
+
+  useEffect(() => {
     if (authLoading) return;
     if (!profile?.company_id) return;
     const companyId = profile.company_id;
