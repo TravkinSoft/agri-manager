@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SessionAuthError, getUserScopedClientFromRequest } from "@/lib/auth/server-session";
 import { weatherProfileFromRow, weatherProfileInputSchema, weatherProfileToRow, type WeatherProfileRow } from "@/lib/weather/profile";
-import { requireWeatherLabAccess } from "../_auth";
+import { requireWeatherLabAccess, requireWeatherProfileWriteAccess } from "../_auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,6 +34,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const actor = await requireWeatherLabAccess(request);
+    requireWeatherProfileWriteAccess(actor);
     const companyId = companyIdForActor(actor);
     if (!companyId) return NextResponse.json({ error: "Выберите компанию" }, { status: 409 });
     const parsed = weatherProfileInputSchema.safeParse(await request.json());

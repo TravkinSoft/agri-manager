@@ -257,7 +257,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (session?.user) {
           try {
             await withAuthTimeout(
-              loadProfile(session.user.id, session.user.email || null),
+              loadProfile(session.user.id, session.user.email || null, session.access_token),
               "Profile load",
               AUTH_PROFILE_TIMEOUT_MS
             );
@@ -296,7 +296,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (session?.user) {
               try {
                 await withAuthTimeout(
-                  loadProfile(session.user.id, session.user.email || null),
+                  loadProfile(session.user.id, session.user.email || null, session.access_token),
                   "Profile load",
                   AUTH_PROFILE_TIMEOUT_MS
                 );
@@ -336,7 +336,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user, profile, loading, skipMarketingAuthBoot]);
 
-  const loadProfile = async (userId: string, userEmail?: string | null) => {
+  const loadProfile = async (userId: string, userEmail?: string | null, accessToken?: string | null) => {
     try {
       const profileMap = new Map<string, any>();
       const addRows = (rows: any[]) => {
@@ -353,7 +353,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (Array.isArray(byId.data)) addRows(byId.data);
 
       const normalizedEmail = String(userEmail || "").trim().toLowerCase();
-      if (normalizedEmail) {
+      if (normalizedEmail && profileMap.size === 0) {
         const byEmail = await supabase.from("profiles").select("*").ilike("email", normalizedEmail).limit(20);
         if (!byEmail.error && Array.isArray(byEmail.data)) addRows(byEmail.data);
       }
@@ -385,8 +385,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setProfile(null);
         return;
       }
-      const contextCompanyId = await resolveGlobalAdminContextCompanyId(userId, normalizedRole);
-      const actorContext = await resolveActorContextFromServer();
+      const [contextCompanyId, actorContext] = await Promise.all([
+        resolveGlobalAdminContextCompanyId(userId, normalizedRole),
+        resolveActorContextFromServer(accessToken),
+      ]);
       const actor = actorContext?.actor || null;
       const displayProfile = await resolveDisplayProfileForActor(data, actor);
 
@@ -394,10 +396,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         normalizedRole === "global_admin"
           ? actor?.contextCompanyId || contextCompanyId
           : null;
-      const effectiveCompany =
-        actor?.isImpersonating && actor?.companyId
-          ? actor.companyId
-          : selectedGlobalAdminCompany || actor?.companyId || await resolveEffectiveCompanyId(data?.company_id);
+      const actorCompanyId = actor?.isImpersonating && actor?.companyId
+        ? actor.companyId
+        : selectedGlobalAdminCompany || actor?.companyId || null;
+      const effectiveCompany = actorCompanyId || await resolveEffectiveCompanyId(data?.company_id);
       const effectiveRole = parseCanonicalRole(actor?.role) || normalizedRole;
       const effectiveRoleRawKey = normalizeRoleKey(actor?.role || displayProfile.role || data.role);
       const effectiveProfileId = String(actor?.id || data.id || "").trim() || data.id;
@@ -446,7 +448,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     await withAuthTimeout(
-      loadProfile(sessionUser.id, sessionUser.email || null),
+      loadProfile(sessionUser.id, sessionUser.email || null, data.session?.access_token),
       "Profile refresh",
       AUTH_PROFILE_TIMEOUT_MS
     );
@@ -497,7 +499,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const resolveActorContextFromServer = async (): Promise<{
+  const resolveActorContextFromServer = async (accessToken?: string | null): Promise<{
     actor?: {
       id?: string;
       role?: string;
@@ -511,11 +513,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   } | null> => {
     try {
-      const { data, error } = await supabase.auth.getSession();
-      if (error || !data.session?.access_token) return null;
+      const token = String(accessToken || "").trim()
+        || String((await supabase.auth.getSession()).data.session?.access_token || "").trim();
+      if (!token) return null;
       const response = await fetch("/api/auth/actor", {
         method: "GET",
-        headers: { Authorization: `Bearer ${data.session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
       if (!response.ok) return null;

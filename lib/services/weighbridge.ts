@@ -17,24 +17,73 @@ async function parseJsonOrThrow(response: Response) {
   return payload;
 }
 
+type TicketListView = "open" | "today" | "history";
+const TICKET_LIST_TTL_MS = 15_000;
+const TICKET_DETAILS_TTL_MS = 30_000;
+const ticketListCache = new Map<string, { expiresAt: number; tickets: WeighbridgeTicket[] }>();
+const ticketListRequests = new Map<string, Promise<WeighbridgeTicket[]>>();
+const ticketDetailsCache = new Map<string, { expiresAt: number; payload: unknown }>();
+const ticketDetailsRequests = new Map<string, Promise<unknown>>();
+
+export function invalidateWeighbridgeTicketCache(ticketId?: string) {
+  ticketListCache.clear();
+  if (ticketId) ticketDetailsCache.delete(ticketId);
+  else ticketDetailsCache.clear();
+}
+
+async function parseTicketMutation(response: Response, ticketId?: string) {
+  const payload = await parseJsonOrThrow(response);
+  invalidateWeighbridgeTicketCache(ticketId);
+  return payload;
+}
+
 export async function listTickets(
   companyId?: string,
   _userId?: string,
-  options?: { workspace?: boolean; signal?: AbortSignal }
+  options?: {
+    workspace?: boolean;
+    signal?: AbortSignal;
+    view?: TicketListView;
+    from?: string;
+    limit?: number;
+    fresh?: boolean;
+  }
 ): Promise<WeighbridgeTicket[]> {
-  const headers = await buildClientAuthHeaders("none");
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
   if (options?.workspace) query.set("workspace", "true");
+  if (options?.view) query.set("view", options.view);
+  if (options?.from) query.set("from", options.from);
+  if (options?.limit) query.set("limit", String(options.limit));
   const url = `/api/weighbridge/tickets${query.size ? `?${query.toString()}` : ""}`;
-  const response = await fetch(url, {
-    method: "GET",
-    cache: "no-store",
-    headers,
-    signal: options?.signal,
-  });
-  const payload = await parseJsonOrThrow(response);
-  return ((payload.tickets || []) as WeighbridgeTicket[]).filter((ticket) => !hasQaDataMarker(JSON.stringify(ticket)));
+  const cacheKey = url;
+  const cached = ticketListCache.get(cacheKey);
+  if (!options?.fresh && cached && cached.expiresAt > Date.now()) return cached.tickets;
+  if (!options?.fresh && !options?.signal) {
+    const pending = ticketListRequests.get(cacheKey);
+    if (pending) return pending;
+  }
+
+  const request = (async () => {
+    const headers = await buildClientAuthHeaders("none");
+    const response = await fetch(url, {
+      method: "GET",
+      cache: "no-store",
+      headers,
+      signal: options?.signal,
+    });
+    const payload = await parseJsonOrThrow(response);
+    const tickets = ((payload.tickets || []) as WeighbridgeTicket[])
+      .filter((ticket) => !hasQaDataMarker(JSON.stringify(ticket)));
+    ticketListCache.set(cacheKey, { expiresAt: Date.now() + TICKET_LIST_TTL_MS, tickets });
+    return tickets;
+  })();
+  if (!options?.signal) ticketListRequests.set(cacheKey, request);
+  try {
+    return await request;
+  } finally {
+    if (!options?.signal) ticketListRequests.delete(cacheKey);
+  }
 }
 
 export async function getWeighbridgeBootstrap(
@@ -227,14 +276,30 @@ export async function closeShift(
   return parseJsonOrThrow(response);
 }
 
-export async function getTicketDetails(ticketId: string, _userId?: string) {
-  const headers = await buildClientAuthHeaders("none");
-  const response = await fetch(`/api/weighbridge/tickets/${ticketId}`, {
-    method: "GET",
-    cache: "no-store",
-    headers,
-  });
-  return parseJsonOrThrow(response);
+export async function getTicketDetails(ticketId: string, _userId?: string, options?: { fresh?: boolean }) {
+  const cached = ticketDetailsCache.get(ticketId);
+  if (!options?.fresh && cached && cached.expiresAt > Date.now()) return cached.payload;
+  if (!options?.fresh) {
+    const pending = ticketDetailsRequests.get(ticketId);
+    if (pending) return pending;
+  }
+  const request = (async () => {
+    const headers = await buildClientAuthHeaders("none");
+    const response = await fetch(`/api/weighbridge/tickets/${ticketId}`, {
+      method: "GET",
+      cache: "no-store",
+      headers,
+    });
+    const payload = await parseJsonOrThrow(response);
+    ticketDetailsCache.set(ticketId, { expiresAt: Date.now() + TICKET_DETAILS_TTL_MS, payload });
+    return payload;
+  })();
+  ticketDetailsRequests.set(ticketId, request);
+  try {
+    return await request;
+  } finally {
+    ticketDetailsRequests.delete(ticketId);
+  }
 }
 
 export async function patchTicket(
@@ -256,7 +321,7 @@ export async function patchTicket(
     headers,
     body: JSON.stringify({ ...patch }),
   });
-  return parseJsonOrThrow(response);
+  return parseTicketMutation(response, ticketId);
 }
 
 export async function startTicketCorrection(ticketId: string, reason: string) {
@@ -266,7 +331,7 @@ export async function startTicketCorrection(ticketId: string, reason: string) {
     headers,
     body: JSON.stringify({ action: "start", reason }),
   });
-  return parseJsonOrThrow(response);
+  return parseTicketMutation(response, ticketId);
 }
 
 export async function finalizeTicketCorrection(ticketId: string) {
@@ -276,7 +341,7 @@ export async function finalizeTicketCorrection(ticketId: string) {
     headers,
     body: JSON.stringify({ action: "finalize" }),
   });
-  return parseJsonOrThrow(response);
+  return parseTicketMutation(response, ticketId);
 }
 
 export async function createTicket(
@@ -292,7 +357,7 @@ export async function createTicket(
     headers,
     body: JSON.stringify({ ticket: input, lines, weighings }),
   });
-  return parseJsonOrThrow(response);
+  return parseTicketMutation(response);
 }
 
 export async function finalizeTicket(ticketId: string, _actorUserId: string) {
@@ -302,7 +367,7 @@ export async function finalizeTicket(ticketId: string, _actorUserId: string) {
     headers,
     body: JSON.stringify({}),
   });
-  return parseJsonOrThrow(response);
+  return parseTicketMutation(response, ticketId);
 }
 
 export async function voidTicket(ticketId: string, _actorUserId: string, reason: string) {
@@ -312,7 +377,7 @@ export async function voidTicket(ticketId: string, _actorUserId: string, reason:
     headers,
     body: JSON.stringify({ reason }),
   });
-  return parseJsonOrThrow(response);
+  return parseTicketMutation(response, ticketId);
 }
 
 export async function adminTicketAction(
@@ -327,7 +392,7 @@ export async function adminTicketAction(
     headers,
     body: JSON.stringify({ action, reason }),
   });
-  return parseJsonOrThrow(response);
+  return parseTicketMutation(response, ticketId);
 }
 
 export async function downloadTicketPdf(ticketId: string, _userId?: string) {

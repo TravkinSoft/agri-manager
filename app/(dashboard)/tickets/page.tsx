@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Clock3, FileCheck2, History, Loader2, Scale } from "lucide-react";
 import { TicketPreviewDialog } from "@/components/weighbridge/ticket-preview-dialog";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,16 @@ import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { LIVE_REFRESH_TABLES, useLiveRefresh } from "@/hooks/use-live-refresh";
 
 type ViewMode = "open" | "today" | "history";
+
+type TicketsByMode = Record<ViewMode, WeighbridgeTicket[] | null>;
+
+const EMPTY_TICKETS_BY_MODE: TicketsByMode = {
+  open: null,
+  today: null,
+  history: null,
+};
+
+const ticketsPageCache = new Map<string, TicketsByMode>();
 
 function kg(value: number | null | undefined): string {
   return `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
@@ -32,36 +42,74 @@ function statusLabel(ticket: WeighbridgeTicket): string {
 
 export default function TicketsPage() {
   const { profile } = useAuth();
-  const [tickets, setTickets] = useState<WeighbridgeTicket[]>([]);
+  const companyId = profile?.company_id || "";
+  const [ticketsByMode, setTicketsByMode] = useState<TicketsByMode>(() =>
+    companyId ? ticketsPageCache.get(companyId) || EMPTY_TICKETS_BY_MODE : EMPTY_TICKETS_BY_MODE
+  );
   const [mode, setMode] = useState<ViewMode>("open");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [ticketId, setTicketId] = useState<string | null>(null);
+  const tickets = ticketsByMode[mode] || [];
+  const selectedTicket = tickets.find((ticket) => ticket.id === ticketId) || null;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (fresh = false, signal?: AbortSignal) => {
     if (!profile?.company_id) return;
     try {
-      setTickets(await listTickets(profile.company_id));
+      const from = mode === "today"
+        ? new Date(new Date().setHours(0, 0, 0, 0)).toISOString()
+        : undefined;
+      const next = await listTickets(profile.company_id, undefined, {
+        view: mode,
+        from,
+        limit: mode === "history" ? 60 : 100,
+        fresh,
+        signal,
+      });
+      setTicketsByMode((current) => {
+        const updated = { ...current, [mode]: next };
+        ticketsPageCache.set(profile.company_id as string, updated);
+        return updated;
+      });
       setError("");
     } catch (reason) {
+      if (
+        signal?.aborted
+        || (reason instanceof DOMException && reason.name === "AbortError")
+        || (reason instanceof Error && /abort(?:ed)?/i.test(reason.message))
+      ) return;
       setError(reason instanceof Error ? reason.message : "Не удалось загрузить талоны");
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [profile?.company_id]);
+  }, [mode, profile?.company_id]);
 
-  useEffect(() => { void load(); }, [load]);
-  useLiveRefresh({ enabled: Boolean(profile?.company_id), companyId: profile?.company_id, tables: LIVE_REFRESH_TABLES.weighbridge, intervalMs: 15_000, onRefresh: load });
+  useEffect(() => {
+    const controller = new AbortController();
+    const cached = companyId ? ticketsPageCache.get(companyId) : null;
+    if (cached) setTicketsByMode(cached);
+    setLoading((cached?.[mode] ?? ticketsByMode[mode]) === null);
+    void load(false, controller.signal);
+    return () => controller.abort();
+    // Loading the selected mode is intentionally independent from background cache updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, companyId]);
+  useLiveRefresh({
+    enabled: Boolean(profile?.company_id) && mode !== "history",
+    companyId: profile?.company_id,
+    tables: LIVE_REFRESH_TABLES.weighbridge,
+    intervalMs: 15_000,
+    onRefresh: () => load(true),
+  });
 
-  const rows = useMemo(() => {
-    const harvest = tickets.filter((ticket) => ticket.op_type === "harvest_incoming");
-    if (mode === "open") return harvest.filter(isOpenHarvestTicket);
+  const rows = tickets.filter((ticket) => {
+    if (ticket.op_type !== "harvest_incoming") return false;
+    if (mode === "open") return isOpenHarvestTicket(ticket);
     if (mode === "today") {
-      const today = dateKey(new Date());
-      return harvest.filter((ticket) => isEffectiveFinalizedHarvestTicket(ticket) && dateKey(ticket.finalized_at || ticket.updated_at) === today);
+      return isEffectiveFinalizedHarvestTicket(ticket) && dateKey(ticket.finalized_at || ticket.updated_at) === dateKey(new Date());
     }
-    return harvest;
-  }, [mode, tickets]);
+    return true;
+  });
 
   const modes: Array<{ id: ViewMode; label: string; icon: typeof Scale }> = [
     { id: "open", label: "Открытые", icon: Clock3 },
@@ -98,7 +146,7 @@ export default function TicketsPage() {
           {!rows.length ? <div className="py-16 text-center text-sm text-slate-500 md:col-span-2 xl:col-span-3">В этом разделе талонов нет</div> : null}
         </div>
       )}
-      <TicketPreviewDialog ticketId={ticketId} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />
+      <TicketPreviewDialog ticketId={ticketId} initialTicket={selectedTicket} open={Boolean(ticketId)} onOpenChange={(open) => !open && setTicketId(null)} />
     </div>
   );
 }

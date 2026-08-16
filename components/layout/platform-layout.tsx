@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowLeftRight,
-  Brain,
+  ShieldCheck,
   Building2,
   Sprout,
   FlaskConical,
@@ -50,12 +50,11 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    titleKey: "copilot",
-    title: "Знания",
-    icon: Brain,
+    titleKey: "platform",
+    title: "Качество данных",
+    icon: ShieldCheck,
     items: [
       { href: "/platform/knowledge/intake", label: "Проверка препаратов", code: "KNO-01" },
-      { href: "/platform/assistant/settings", labelKey: "assistant_settings", code: "KNO-02" },
     ],
   },
   {
@@ -78,6 +77,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/platform/catalogs/agrochemistry/pesticides", labelKey: "pesticides", code: "CHM-01" },
       { href: "/platform/catalogs/agrochemistry/fertilizers", labelKey: "fertilizers", code: "CHM-02" },
+      { href: "/platform/catalogs/agrochemistry/additives", labelKey: "additives", code: "CHM-03" },
       { href: "/platform/catalogs/agrochemistry/pesticide-categories", labelKey: "pesticide_categories", code: "CHM-05" },
       { href: "/platform/catalogs/agrochemistry/active-ingredients", labelKey: "active_ingredients", code: "CHM-06" },
     ],

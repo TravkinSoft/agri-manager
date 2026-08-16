@@ -33,7 +33,27 @@ export type PlatformRuntimeStatus = {
   generatedAt: string;
 };
 
-export async function loadPlatformRuntimeStatus(): Promise<PlatformRuntimeStatus> {
+const STATUS_CACHE_TTL_MS = 30_000;
+let cachedStatus: { value: PlatformRuntimeStatus; expiresAt: number } | null = null;
+let statusRequest: Promise<PlatformRuntimeStatus> | null = null;
+
+export async function loadPlatformRuntimeStatus(options?: { fresh?: boolean }): Promise<PlatformRuntimeStatus> {
+  if (!options?.fresh && cachedStatus && cachedStatus.expiresAt > Date.now()) {
+    return cachedStatus.value;
+  }
+  if (!options?.fresh && statusRequest) return statusRequest;
+
+  statusRequest = loadPlatformRuntimeStatusFromServer();
+  try {
+    const value = await statusRequest;
+    cachedStatus = { value, expiresAt: Date.now() + STATUS_CACHE_TTL_MS };
+    return value;
+  } finally {
+    statusRequest = null;
+  }
+}
+
+async function loadPlatformRuntimeStatusFromServer(): Promise<PlatformRuntimeStatus> {
   const { data, error } = await supabase.auth.getSession();
   if (error || !data?.session?.access_token) {
     throw new Error("Сессия истекла. Войдите снова.");

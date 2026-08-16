@@ -12,10 +12,12 @@ type TicketPayload = { ticket: WeighbridgeTicket };
 
 export function TicketPreviewDialog({
   ticketId,
+  initialTicket,
   open,
   onOpenChange,
 }: {
   ticketId: string | null;
+  initialTicket?: WeighbridgeTicket | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -26,9 +28,9 @@ export function TicketPreviewDialog({
   useEffect(() => {
     if (!open || !ticketId) return;
     let active = true;
-    setLoading(true);
+    setLoading(!initialTicket || initialTicket.id !== ticketId);
     setError("");
-    setPayload(null);
+    setPayload(initialTicket?.id === ticketId ? { ticket: initialTicket } : null);
     void getTicketDetails(ticketId)
       .then((result) => {
         if (active) setPayload(result as TicketPayload);
@@ -40,7 +42,7 @@ export function TicketPreviewDialog({
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [open, ticketId]);
+  }, [initialTicket, open, ticketId]);
 
   const ticket = payload?.ticket || null;
 

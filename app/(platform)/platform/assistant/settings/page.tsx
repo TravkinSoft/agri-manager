@@ -1,8 +1,6 @@
-"use client";
-
-import { AssistantPlatformSettingsForm } from "@/components/assistant/assistant-platform-settings-form";
+import { redirect } from "next/navigation";
 
 export default function AssistantPlatformSettingsPage() {
-  return <AssistantPlatformSettingsForm />;
+  redirect("/platform");
 }
 

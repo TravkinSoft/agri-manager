@@ -34,21 +34,7 @@ function apiError(error: unknown) {
 const getCachedPesticideCard = unstable_cache(
   async (productId: string) => {
     const supabase = getServiceClient();
-    const [
-      productResult,
-      aliasesResult,
-      linksResult,
-      rulesResult,
-      safetyResult,
-      componentsResult,
-      cropsResult,
-      diseasesResult,
-      pestsResult,
-      weedsResult,
-      manufacturersResult,
-      formulationsResult,
-      modesResult,
-    ] = await Promise.all([
+    const [productResult, aliasesResult, linksResult, rulesResult, safetyResult] = await Promise.all([
       supabase
         .from("products")
         .select("id,trade_name,name,name_ru,name_en,description,manufacturer,manufacturer_id,formulation,formulation_id,pesticide_category,category,subcategory,mode_of_action_type,mode_of_action_type_id,is_active,archived")
@@ -69,18 +55,9 @@ const getCachedPesticideCard = unstable_cache(
         .eq("product_id", productId)
         .order("rule_key"),
       supabase.from("glbd_product_assistant_safety").select("read_allowed,recommendation_allowed,missing_critical_fields").eq("product_id", productId).maybeSingle(),
-      supabase.from("glbd_components").select("id,name_ru,name_en,component_type").eq("is_active", true).is("archived_at", null),
-      supabase.from("crops").select("id,name_ru,name_en"),
-      supabase.from("diseases").select("id,name_ru,name_en"),
-      supabase.from("pests").select("id,name_ru,name_en"),
-      supabase.from("weeds").select("id,name_ru,name_en"),
-      supabase.from("agrochem_manufacturers").select("id,name").eq("archived", false),
-      supabase.from("agrochem_formulations").select("id,code,name_ru").eq("archived", false),
-      supabase.from("agrochem_mode_of_actions").select("id,slug,name_ru").eq("archived", false),
     ]);
 
-    const firstError = [productResult, aliasesResult, linksResult, rulesResult, safetyResult, componentsResult,
-      cropsResult, diseasesResult, pestsResult, weedsResult, manufacturersResult, formulationsResult, modesResult]
+    const firstError = [productResult, aliasesResult, linksResult, rulesResult, safetyResult]
       .map((result) => result.error)
       .find(Boolean);
     if (firstError) throw new Error(firstError.message);
@@ -89,15 +66,55 @@ const getCachedPesticideCard = unstable_cache(
     if (!product) return null;
     const links = linksResult.data || [];
     const rules = rulesResult.data || [];
+    const componentIds = unique(links.map((row) => row.component_id));
+    const cropIds = unique(rules.map((row) => row.crop_id));
+    const diseaseIds = unique(rules.map((row) => row.disease_id));
+    const pestIds = unique(rules.map((row) => row.pest_id));
+    const weedIds = unique(rules.map((row) => row.weed_id));
+    const emptyResult = Promise.resolve({ data: [] as any[], error: null });
+    const emptySingleResult = Promise.resolve({ data: null as any, error: null });
+    const [
+      componentsResult,
+      cropsResult,
+      diseasesResult,
+      pestsResult,
+      weedsResult,
+      manufacturerResult,
+      formulationResult,
+      modeResult,
+    ] = await Promise.all([
+      componentIds.length
+        ? supabase.from("glbd_components").select("id,name_ru,name_en,component_type").in("id", componentIds).eq("is_active", true).is("archived_at", null)
+        : emptyResult,
+      cropIds.length ? supabase.from("crops").select("id,name_ru,name_en").in("id", cropIds) : emptyResult,
+      diseaseIds.length ? supabase.from("diseases").select("id,name_ru,name_en").in("id", diseaseIds) : emptyResult,
+      pestIds.length ? supabase.from("pests").select("id,name_ru,name_en").in("id", pestIds) : emptyResult,
+      weedIds.length ? supabase.from("weeds").select("id,name_ru,name_en").in("id", weedIds) : emptyResult,
+      product.manufacturer_id
+        ? supabase.from("agrochem_manufacturers").select("id,name").eq("id", product.manufacturer_id).eq("archived", false).maybeSingle()
+        : emptySingleResult,
+      product.formulation_id
+        ? supabase.from("agrochem_formulations").select("id,code,name_ru").eq("id", product.formulation_id).eq("archived", false).maybeSingle()
+        : emptySingleResult,
+      product.mode_of_action_type_id
+        ? supabase.from("agrochem_mode_of_actions").select("id,slug,name_ru").eq("id", product.mode_of_action_type_id).eq("archived", false).maybeSingle()
+        : emptySingleResult,
+    ]);
+    const referenceError = [componentsResult, cropsResult, diseasesResult, pestsResult, weedsResult,
+      manufacturerResult, formulationResult, modeResult]
+      .map((result) => result.error)
+      .find(Boolean);
+    if (referenceError) throw new Error(referenceError.message);
+
     const byId = (rows: any[]) => new Map(rows.map((row) => [row.id, row]));
     const componentsById = byId(componentsResult.data || []);
     const cropsById = byId(cropsResult.data || []);
     const diseasesById = byId(diseasesResult.data || []);
     const pestsById = byId(pestsResult.data || []);
     const weedsById = byId(weedsResult.data || []);
-    const manufacturer = byId(manufacturersResult.data || []).get(product.manufacturer_id);
-    const formulation = byId(formulationsResult.data || []).get(product.formulation_id);
-    const modeOfAction = byId(modesResult.data || []).get(product.mode_of_action_type_id);
+    const manufacturer = manufacturerResult.data;
+    const formulation = formulationResult.data;
+    const modeOfAction = modeResult.data;
 
     return buildHumanPesticideCard({
       product,
@@ -117,7 +134,7 @@ const getCachedPesticideCard = unstable_cache(
       safety: safetyResult.data || null,
     });
   },
-  ["global-admin-pesticide-card-v1"],
+  ["global-admin-pesticide-card-v2"],
   { revalidate: 300, tags: ["global-pesticide-catalog-v1"] },
 );
 

@@ -86,10 +86,13 @@ const AGRONOMIST_ALLOWED_EXACT = ["/warehouses"];
 
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",
+  "/crop-structure",
+  "/weather-lab",
+  "/tickets",
   "/auth",
 ];
 
-const DIRECTOR_ALLOWED_EXACT: string[] = [];
+const DIRECTOR_ALLOWED_EXACT = ["/warehouses"];
 
 export function canAccessPath(role: AppRole, pathname: string): boolean {
   const path = String(pathname || "").toLowerCase();

@@ -7,10 +7,6 @@ import { Header } from "./header";
 import { SidebarProvider } from "@/lib/contexts/sidebar-context";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { canAccessPath, getDefaultPathForRole } from "@/lib/auth/role-access";
-import { AssistantShellProvider } from "@/components/assistant/assistant-shell-provider";
-import { AssistantLauncher } from "@/components/assistant/assistant-launcher";
-import { AssistantPanel } from "@/components/assistant/assistant-panel";
-import { AssistantDebugMonitor } from "@/components/assistant/assistant-debug-monitor";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase/client";
@@ -22,8 +18,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { t } = useLanguage();
   const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
-  const isWeatherLab = pathname === "/weather-lab" || pathname?.startsWith("/weather-lab/");
-
   useEffect(() => {
     if (loading || !profile?.role || !pathname) return;
 
@@ -68,44 +62,39 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
 
   return (
     <SidebarProvider>
-      <AssistantShellProvider>
-        <div className="travkin-shell flex min-h-screen bg-transparent">
-          <div className="hidden md:flex md:h-screen md:shrink-0">
-            <Sidebar />
-          </div>
-          <div className="flex min-w-0 flex-1 flex-col">
-            <Header />
-            {profile?.is_impersonating ? (
-              <div className="flex items-center justify-between gap-2 border-b border-amber-700/50 bg-amber-900/40 px-4 py-2 text-xs text-amber-100 md:px-6">
-                <div className="truncate">
-                  {t("impersonation_as")} <span className="font-semibold">{profile.full_name || profile.email || profile.id}</span> (
-                  {profile.role}). {t("impersonation_logged")}
-                </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="h-7 border-amber-500/50 bg-[#1A1F2B] text-amber-100 hover:bg-[#202738]"
-                  onClick={() => void stopImpersonation()}
-                  disabled={stoppingImpersonation}
-                >
-                  {stoppingImpersonation ? t("returning") : t("return_to_global_admin")}
-                </Button>
-              </div>
-            ) : null}
-            <main className="travkin-scrollbar flex-1 overflow-x-hidden overflow-y-auto bg-transparent p-3 pb-[calc(env(safe-area-inset-bottom)+6.25rem)] sm:p-4 sm:pb-[calc(env(safe-area-inset-bottom)+6.25rem)] md:p-6 md:pb-6">
-              {children}
-              <footer className="mt-8 hidden border-t border-[#262D3D] pt-3 text-center text-xs text-[#7F8A9B] md:block">
-                Copyright © Сунгатов Айымбек
-              </footer>
-            </main>
-          </div>
+      <div className="travkin-shell flex min-h-screen bg-transparent">
+        <div className="hidden md:flex md:h-screen md:shrink-0">
+          <Sidebar />
         </div>
-        <MobileBottomNav />
-        {!isWeatherLab ? <AssistantLauncher /> : null}
-        {!isWeatherLab ? <AssistantPanel /> : null}
-        {!isWeatherLab ? <AssistantDebugMonitor /> : null}
-      </AssistantShellProvider>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Header />
+          {profile?.is_impersonating ? (
+            <div className="flex items-center justify-between gap-2 border-b border-amber-700/50 bg-amber-900/40 px-4 py-2 text-xs text-amber-100 md:px-6">
+              <div className="truncate">
+                {t("impersonation_as")} <span className="font-semibold">{profile.full_name || profile.email || profile.id}</span> (
+                {profile.role}). {t("impersonation_logged")}
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-7 border-amber-500/50 bg-[#1A1F2B] text-amber-100 hover:bg-[#202738]"
+                onClick={() => void stopImpersonation()}
+                disabled={stoppingImpersonation}
+              >
+                {stoppingImpersonation ? t("returning") : t("return_to_global_admin")}
+              </Button>
+            </div>
+          ) : null}
+          <main className="travkin-scrollbar flex-1 overflow-x-hidden overflow-y-auto bg-transparent p-3 pb-[calc(env(safe-area-inset-bottom)+6.25rem)] sm:p-4 sm:pb-[calc(env(safe-area-inset-bottom)+6.25rem)] md:p-6 md:pb-6">
+            {children}
+            <footer className="mt-8 hidden border-t border-[#262D3D] pt-3 text-center text-xs text-[#7F8A9B] md:block">
+              Copyright © Сунгатов Айымбек
+            </footer>
+          </main>
+        </div>
+      </div>
+      <MobileBottomNav />
     </SidebarProvider>
   );
 }

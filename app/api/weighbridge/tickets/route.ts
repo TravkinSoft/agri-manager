@@ -118,6 +118,9 @@ export async function GET(request: NextRequest) {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
     const workspace = request.nextUrl.searchParams.get("workspace") === "true";
+    const view = request.nextUrl.searchParams.get("view");
+    const requestedLimit = Number(request.nextUrl.searchParams.get("limit") || 0);
+    const limit = Math.min(Math.max(Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : 60, 1), 100);
     let data: any[] | null = null;
     let error: any = null;
     if (workspace) {
@@ -140,12 +143,22 @@ export async function GET(request: NextRequest) {
       error = openResult.error || recentResult.error;
       data = [...(openResult.data || []), ...(recentResult.data || [])];
     } else {
-      const result = await supabase
+      let query = supabase
         .from("tickets")
         .select(WEIGHBRIDGE_TICKET_SELECT)
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false })
-        .limit(200);
+        .eq("company_id", companyId);
+      if (view === "open") {
+        query = query.eq("op_type", "harvest_incoming").in("status", ["draft", "active", "ready_to_close"]);
+      } else if (view === "today") {
+        const from = String(request.nextUrl.searchParams.get("from") || "").trim();
+        query = query.eq("op_type", "harvest_incoming").eq("status", "finalized");
+        if (from) query = query.gte("finalized_at", from);
+      } else if (view === "history") {
+        query = query.eq("op_type", "harvest_incoming");
+      }
+      const result = await query
+        .order("created_at", { ascending: view === "open" })
+        .limit(view ? limit : 200);
       data = result.data;
       error = result.error;
     }

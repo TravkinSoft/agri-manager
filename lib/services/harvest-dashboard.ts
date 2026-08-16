@@ -19,12 +19,22 @@ function queryString(section: "summary" | "warehouses" | "filters", query?: Harv
   return params.toString();
 }
 
+const sectionRequests = new Map<string, Promise<unknown>>();
+
 async function getSection<T>(section: "summary" | "warehouses" | "filters", query?: HarvestDashboardQuery): Promise<T> {
-  const headers = await buildClientAuthHeaders("none");
-  const response = await fetch(`/api/dashboard/harvest-summary?${queryString(section, query)}`, { method: "GET", cache: "no-store", headers });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить сводку");
-  return payload as T;
+  const key = queryString(section, query);
+  const existing = sectionRequests.get(key);
+  if (existing) return existing as Promise<T>;
+
+  const request = (async () => {
+    const headers = await buildClientAuthHeaders("none");
+    const response = await fetch(`/api/dashboard/harvest-summary?${key}`, { method: "GET", cache: "no-store", headers });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.error || "Не удалось загрузить сводку");
+    return payload as T;
+  })().finally(() => sectionRequests.delete(key));
+  sectionRequests.set(key, request);
+  return request;
 }
 
 export const getHarvestSummary = <T,>(query: HarvestDashboardQuery) => getSection<T>("summary", query);

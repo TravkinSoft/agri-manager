@@ -51,6 +51,12 @@ const ACTIVE_KEY = "travkin-weather-lab:active-location:v2";
 const LOCAL_WEATHER_PREFIX = "travkin-weather-lab:forecast:v2";
 const LOCAL_CACHE_TTL_MS = 10 * 60 * 1000;
 
+const weatherProfilesCache = new Map<string, {
+  profiles: WeatherProfile[];
+  activeProfileId: string | null;
+}>();
+const weatherProfileRequests = new Map<string, Promise<{ profiles: WeatherProfile[] }>>();
+
 function metric(value: number | null, maximumFractionDigits = 1): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("ru-RU", { maximumFractionDigits }).format(value);
@@ -242,7 +248,16 @@ function CriterionRow({ label, enabled, onEnabledChange, children }: { label: st
   );
 }
 
-export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?: boolean }) {
+export function WeatherLab({
+  showTechnicalDebug = false,
+  profilesEditable = true,
+  cacheScope = "default",
+}: {
+  showTechnicalDebug?: boolean;
+  profilesEditable?: boolean;
+  cacheScope?: string;
+}) {
+  const cachedProfiles = weatherProfilesCache.get(cacheScope);
   const pickerScrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null);
@@ -263,9 +278,9 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
   const [localities, setLocalities] = useState<KatoLocality[]>([]);
   const [listRegion, setListRegion] = useState<KatoRegion | null>(null);
   const [listDistrict, setListDistrict] = useState<KatoDistrict | null>(null);
-  const [profiles, setProfiles] = useState<WeatherProfile[]>([]);
-  const [profilesLoading, setProfilesLoading] = useState(true);
-  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [profiles, setProfiles] = useState<WeatherProfile[]>(cachedProfiles?.profiles || []);
+  const [profilesLoading, setProfilesLoading] = useState(!cachedProfiles);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(cachedProfiles?.activeProfileId || null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [editingProfile, setEditingProfile] = useState<WeatherProfile | null>(null);
   const [profileDraft, setProfileDraft] = useState<WeatherProfileInput>(emptyWeatherProfile);
@@ -312,13 +327,28 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
 
   useEffect(() => {
     let cancelled = false;
-    setProfilesLoading(true);
-    void authorizedJson<{ profiles: WeatherProfile[] }>("/api/weather-lab/profiles")
+    const cached = weatherProfilesCache.get(cacheScope);
+    if (cached) {
+      setProfiles(cached.profiles);
+      setActiveProfileId(cached.activeProfileId);
+    }
+    setProfilesLoading(!cached);
+    let request = weatherProfileRequests.get(cacheScope);
+    if (!request) {
+      request = authorizedJson<{ profiles: WeatherProfile[] }>("/api/weather-lab/profiles")
+        .finally(() => weatherProfileRequests.delete(cacheScope));
+      weatherProfileRequests.set(cacheScope, request);
+    }
+    void request
       .then((payload) => {
         if (cancelled) return;
         setProfiles(payload.profiles);
         const selectedProfile = payload.profiles.find((item) => item.isDefault) || payload.profiles[0] || null;
         setActiveProfileId(selectedProfile?.id || null);
+        weatherProfilesCache.set(cacheScope, {
+          profiles: payload.profiles,
+          activeProfileId: selectedProfile?.id || null,
+        });
       })
       .catch((requestError) => {
         if (!cancelled) setProfileError(requestError instanceof Error ? requestError.message : "Не удалось загрузить профили");
@@ -327,7 +357,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
         if (!cancelled) setProfilesLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [cacheScope]);
 
   const chooseLocation = useCallback(async (location: RecentLocation) => {
     saveRecent(location);
@@ -510,6 +540,10 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
 
   const selectProfile = async (profile: WeatherProfile) => {
     if (profile.id === activeProfileId) return;
+    if (!profilesEditable) {
+      setActiveProfileId(profile.id);
+      return;
+    }
     const previousProfiles = profiles;
     const previousActiveId = activeProfileId;
     setActiveProfileId(profile.id);
@@ -711,15 +745,19 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
                 >
                   {profile.name}
                 </button>
-                <Button type="button" variant="ghost" size="icon" onClick={() => openProfileEditor(profile)} title="Изменить профиль" aria-label={`Изменить профиль ${profile.name}`} className="h-8 w-8 text-[#8F9BAD] hover:bg-[#202839] hover:text-white">
-                  <Settings2 className="h-3.5 w-3.5" />
-                </Button>
+                {profilesEditable ? (
+                  <Button type="button" variant="ghost" size="icon" onClick={() => openProfileEditor(profile)} title="Изменить профиль" aria-label={`Изменить профиль ${profile.name}`} className="h-8 w-8 text-[#8F9BAD] hover:bg-[#202839] hover:text-white">
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </Button>
+                ) : null}
               </div>
             ))}
           </div>
-          <Button type="button" variant="outline" size="sm" onClick={() => openProfileEditor()} className="h-9 shrink-0 border-[#39445A] bg-transparent px-2.5 text-[#E5E9F0] hover:bg-[#202839] hover:text-white">
-            <Plus className="mr-1 h-4 w-4" /> Профиль
-          </Button>
+          {profilesEditable ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => openProfileEditor()} className="h-9 shrink-0 border-[#39445A] bg-transparent px-2.5 text-[#E5E9F0] hover:bg-[#202839] hover:text-white">
+              <Plus className="mr-1 h-4 w-4" /> Профиль
+            </Button>
+          ) : null}
         </div>
         {profileError && !profileOpen ? <div role="alert" className="mt-2 text-xs text-red-300">{profileError}</div> : null}
       </section>

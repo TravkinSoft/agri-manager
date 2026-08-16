@@ -3,82 +3,83 @@
 import type { ComponentType } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, CheckSquare, CloudSun, History, LayoutDashboard, MapPin, Package, Scale, Sprout, Tractor } from "lucide-react";
+import { CheckSquare, CloudSun, History, LayoutDashboard, MapPin, Package, Scale, Sprout, Tractor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { canAccessPath } from "@/lib/auth/role-access";
 import type { AppRole } from "@/lib/auth/roles";
 import { useLanguage } from "@/lib/contexts/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
-import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
-import { canUseAssistantShell } from "@/lib/assistant/shell";
 
 type BottomItem = {
   labelKey: TranslationKey;
-  href?: string;
+  href: string;
   icon: ComponentType<{ className?: string }>;
-  kind: "route" | "copilot";
 };
 
-const COPILOT_ITEM: BottomItem = { labelKey: "copilot", icon: Bot, kind: "copilot" };
-const DASHBOARD_ITEM: BottomItem = { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard, kind: "route" };
+const DASHBOARD_ITEM: BottomItem = { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard };
 
 function getMobileRouteCandidates(role?: string | null): BottomItem[] {
   switch (role) {
     case "global_admin":
       return [
-        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
+        { labelKey: "weather", href: "/weather-lab", icon: CloudSun },
         DASHBOARD_ITEM,
       ];
     case "agronomist":
       return [
-        { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
-        { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout, kind: "route" },
-        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
-        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
-        { labelKey: "tickets_nav", href: "/tickets", icon: Scale, kind: "route" },
+        { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard },
+        { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
+        { labelKey: "weather", href: "/weather-lab", icon: CloudSun },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package },
+        { labelKey: "tickets_nav", href: "/tickets", icon: Scale },
       ];
     case "director":
-      return [{ labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" }];
+      return [
+        { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard },
+        { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
+        { labelKey: "weather", href: "/weather-lab", icon: CloudSun },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package },
+        { labelKey: "tickets_nav", href: "/tickets", icon: Scale },
+      ];
     case "specialist":
       return [
-        { labelKey: "my_tasks", href: "/tasks", icon: CheckSquare, kind: "route" },
+        { labelKey: "my_tasks", href: "/tasks", icon: CheckSquare },
         DASHBOARD_ITEM,
       ];
     case "warehouse":
       return [
-        { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare, kind: "route" },
-        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
-        { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History, kind: "route" },
+        { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package },
+        { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History },
         DASHBOARD_ITEM,
       ];
     case "warehouse_operator":
       return [
-        { labelKey: "weighbridge", href: "/weighbridge", icon: Scale, kind: "route" },
-        { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare, kind: "route" },
-        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
-        { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History, kind: "route" },
+        { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
+        { labelKey: "issue_requests", href: "/warehouses/requests", icon: CheckSquare },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package },
+        { labelKey: "stock_movements", href: "/warehouses/transactions", icon: History },
       ];
     case "weighman":
       return [
-        { labelKey: "weighbridge", href: "/weighbridge", icon: Scale, kind: "route" },
-        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
-        { labelKey: "ledger", href: "/ledger", icon: History, kind: "route" },
+        { labelKey: "weighbridge", href: "/weighbridge", icon: Scale },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package },
+        { labelKey: "ledger", href: "/ledger", icon: History },
       ];
     case "fuel_operator":
       return [DASHBOARD_ITEM];
     default:
       return [
         DASHBOARD_ITEM,
-        { labelKey: "fields", href: "/fields", icon: MapPin, kind: "route" },
-        { labelKey: "operations", href: "/operations", icon: Tractor, kind: "route" },
-        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
+        { labelKey: "fields", href: "/fields", icon: MapPin },
+        { labelKey: "operations", href: "/operations", icon: Tractor },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package },
       ];
   }
 }
 
-function isActivePath(pathname: string, href?: string): boolean {
-  if (!href) return false;
+function isActivePath(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -88,21 +89,17 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
   const routeItems = getMobileRouteCandidates(role)
     .filter((item) => canAccessPath(normalizedRole, item.href || ""))
     .slice(0, routeLimit);
-  return canUseAssistantShell(normalizedRole) ? [...routeItems, COPILOT_ITEM] : routeItems;
+  return routeItems;
 }
 
 export function MobileBottomNav() {
   const pathname = usePathname();
   const { profile } = useAuth();
-  const { enabled, isOpen, toggle } = useAssistantShell();
   const { t } = useLanguage();
 
   if (!pathname) return null;
 
-  const isWeatherLab = pathname === "/weather-lab" || pathname.startsWith("/weather-lab/");
-  const items = getRoleFilteredItems(profile?.role).filter(
-    (item) => !isWeatherLab || item.kind !== "copilot"
-  );
+  const items = getRoleFilteredItems(profile?.role);
   if (items.length === 0) return null;
 
   return (
@@ -110,34 +107,13 @@ export function MobileBottomNav() {
       <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}>
         {items.map((item) => {
           const Icon = item.icon;
-          const active = item.kind === "copilot" ? isOpen : isActivePath(pathname, item.href);
+          const active = isActivePath(pathname, item.href);
           const label = t(item.labelKey);
-
-          if (item.kind === "copilot") {
-            return (
-              <button
-                key="mobile-nav-copilot"
-                type="button"
-                onClick={toggle}
-                disabled={!enabled}
-                aria-label={label}
-                className={cn(
-                  "relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium disabled:cursor-not-allowed disabled:opacity-60",
-                  active
-                    ? "bg-[#E0B100] text-[#111827]"
-                    : "text-[#A9B2C2] hover:bg-[#202738] hover:text-[#F3F4F6]"
-                )}
-              >
-                <Icon className="mb-1 h-4 w-4" />
-                <span className="max-w-full truncate">{label}</span>
-              </button>
-            );
-          }
 
           return (
             <Link
               key={item.href}
-              href={item.href || "/dashboard"}
+              href={item.href}
               aria-label={label}
               className={cn(
                 "relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",

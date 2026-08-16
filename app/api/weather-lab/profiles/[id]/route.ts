@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SessionAuthError, getUserScopedClientFromRequest } from "@/lib/auth/server-session";
 import { weatherProfileFromRow, weatherProfileInputSchema, weatherProfileToRow, type WeatherProfileRow } from "@/lib/weather/profile";
-import { requireWeatherLabAccess } from "../../_auth";
+import { requireWeatherLabAccess, requireWeatherProfileWriteAccess } from "../../_auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +13,7 @@ function companyIdForActor(actor: Awaited<ReturnType<typeof requireWeatherLabAcc
 export async function PATCH(request: NextRequest, context: { params: { id: string } }) {
   try {
     const actor = await requireWeatherLabAccess(request);
+    requireWeatherProfileWriteAccess(actor);
     const companyId = companyIdForActor(actor);
     if (!companyId) return NextResponse.json({ error: "Выберите компанию" }, { status: 409 });
     const parsed = weatherProfileInputSchema.safeParse(await request.json());
@@ -42,6 +43,7 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
 export async function DELETE(request: NextRequest, context: { params: { id: string } }) {
   try {
     const actor = await requireWeatherLabAccess(request);
+    requireWeatherProfileWriteAccess(actor);
     const companyId = companyIdForActor(actor);
     if (!companyId) return NextResponse.json({ error: "Выберите компанию" }, { status: 409 });
     const client = await getUserScopedClientFromRequest(request);

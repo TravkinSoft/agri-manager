@@ -322,6 +322,20 @@ const cloneAllocationMap = (map: Map<string, Allocation[]>) =>
     ...item,
     mix_components: item.mix_components.map((component) => ({ ...component })),
   }))]));
+
+type CropStructurePageCache = {
+  fields: Field[];
+  seasons: Season[];
+  activeSeasonId: string | null;
+  crops: Crop[];
+  varieties: Variety[];
+  reproductions: Reproduction[];
+  specialists: SpecialistAssignee[];
+  seasonId: string;
+  allocations: Map<string, Allocation[]>;
+};
+
+const cropStructurePageCache = new Map<string, CropStructurePageCache>();
 const fmtDate = (value?: string | null) => {
   if (!value) return "-";
   const d = new Date(value);
@@ -812,7 +826,24 @@ export default function CropStructurePage() {
   const filteredFields = useMemo(() => {
     const q = search.trim().toLowerCase();
     return fields
-      .filter((field) => !q || field.name.toLowerCase().includes(q))
+      .filter((field) => {
+        if (!q) return true;
+        const identities = (allocByField.get(field.id) || []).flatMap((row) => {
+          const ownIdentity = [
+            row.land_use_type === "fallow" ? "пар" : row.land_use_type === "crop_mix" ? "зерносмесь" : "",
+            cropName(row.crop_id),
+            varietyName(row.variety_id),
+            reproductionName(row.reproduction_id),
+          ];
+          const mixIdentities = row.mix_components.flatMap((component) => [
+            cropName(component.crop_id),
+            varietyName(component.variety_id),
+            reproductionName(component.reproduction_id),
+          ]);
+          return [...ownIdentity, ...mixIdentities];
+        });
+        return [field.name, ...identities].join(" ").toLowerCase().includes(q);
+      })
       .filter((field) => cropFilter === "all" || (allocByField.get(field.id) || []).some((row) => row.crop_id === cropFilter))
       .filter((field) => statusFilter === "all" || fieldState(field.id) === statusFilter)
       .sort((a, b) => {
@@ -822,7 +853,7 @@ export default function CropStructurePage() {
         const rank: Record<FieldState, number> = { over: 4, partial: 3, empty: 2, complete: 1 };
         return rank[fieldState(b.id)] - rank[fieldState(a.id)];
       });
-  }, [fields, search, cropFilter, statusFilter, sortBy, allocByField]);
+  }, [fields, search, cropFilter, statusFilter, sortBy, allocByField, cropMap, varietyMap, reproductionMap]);
 
   useEffect(() => {
     let mounted = true;
@@ -852,22 +883,40 @@ export default function CropStructurePage() {
         }
         return;
       }
-      try {
-        setLoading(true);
+      const cached = cropStructurePageCache.get(activeCompanyId);
+      if (cached) {
+        setFields(cached.fields);
+        setSeasons(cached.seasons);
+        setActiveSeasonId(cached.activeSeasonId);
+        setAllCrops(cached.crops);
+        setAllVarieties(cached.varieties);
+        setAllReproductions(cached.reproductions);
+        setSpecialists(cached.specialists);
+        setSeasonId(cached.seasonId);
+        setAllocByField(cloneAllocationMap(cached.allocations));
+        setInitialByField(cloneAllocationMap(cached.allocations));
+        setBootstrappedStructureKey(cached.activeSeasonId ? `${activeCompanyId}:${cached.activeSeasonId}` : null);
         setLoadError(null);
-        setFields([]);
-        setSeasons([]);
-        setSeasonId("");
-        setActiveSeasonId(null);
-        setAllocByField(new Map());
-        setInitialByField(new Map());
-        setBootstrappedStructureKey(null);
-        setConsumptions([]);
-        setOperationFacts([]);
-        setOperationConsumptions([]);
-        setLegalLinksByField(new Map());
-        setSelectedFieldId(null);
-        setDraftRows([]);
+        setLoading(false);
+      }
+      try {
+        if (!cached) {
+          setLoading(true);
+          setLoadError(null);
+          setFields([]);
+          setSeasons([]);
+          setSeasonId("");
+          setActiveSeasonId(null);
+          setAllocByField(new Map());
+          setInitialByField(new Map());
+          setBootstrappedStructureKey(null);
+          setConsumptions([]);
+          setOperationFacts([]);
+          setOperationConsumptions([]);
+          setLegalLinksByField(new Map());
+          setSelectedFieldId(null);
+          setDraftRows([]);
+        }
 
         const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
         const token = sessionData.session?.access_token;
@@ -910,11 +959,26 @@ export default function CropStructurePage() {
         setInitialByField(cloneAllocationMap(bootstrapMap));
         setBootstrappedStructureKey(payload.activeSeasonId ? `${activeCompanyId}:${payload.activeSeasonId}` : null);
         setSeasonId(nextSeasonId);
+        cropStructurePageCache.set(activeCompanyId, {
+          fields: normalizedFields,
+          seasons: seasonRows,
+          activeSeasonId: payload.activeSeasonId || null,
+          crops: (payload.crops || []) as Crop[],
+          varieties: (payload.varieties || []) as Variety[],
+          reproductions: (payload.reproductions || []) as Reproduction[],
+          specialists: (payload.specialists || []) as SpecialistAssignee[],
+          seasonId: nextSeasonId,
+          allocations: cloneAllocationMap(bootstrapMap),
+        });
       } catch (error) {
         if (!mounted) return;
         const message = error instanceof Error ? error.message : "Не удалось загрузить структуру посевов";
-        if (mounted) setLoadError(message);
-        toast({ title: "Ошибка", description: message, variant: "destructive" });
+        if (!cached) {
+          setLoadError(message);
+          toast({ title: "Ошибка", description: message, variant: "destructive" });
+        } else {
+          console.error("Background crop structure refresh failed", error);
+        }
       } finally {
         if (mounted) setLoading(false);
         window.clearTimeout(timeoutId);
@@ -3073,7 +3137,7 @@ export default function CropStructurePage() {
           <div className="grid items-center gap-2 sm:grid-cols-2 xl:grid-cols-[minmax(180px,1fr)_minmax(140px,170px)_minmax(130px,150px)_minmax(135px,155px)_auto]">
             <div className="relative min-w-0">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
-              <Input className="h-9 w-full pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поиск поля..." />
+              <Input className="h-9 w-full pl-8" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Поле, культура, сорт, репродукция..." />
             </div>
             <Select value={cropFilter} onValueChange={setCropFilter}>
               <SelectTrigger className="h-9 w-full"><SelectValue /></SelectTrigger>

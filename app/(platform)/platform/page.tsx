@@ -405,18 +405,18 @@ export default function PlatformCompaniesPage() {
       >
         {selectedCompany
           ? `Контекст компании: ${selectedCompany.name}`
-          : "Сначала выберите компанию. До выбора контекста тест ассистента недоступен."}
+          : "Сначала выберите компанию для перехода в её рабочий контекст."}
       </div>
 
       <Card className="rounded-none border-[#9aa8ba] bg-white shadow-[1px_1px_0_rgba(255,255,255,0.9)_inset]">
-        <CardHeader className="flex flex-row items-start justify-between gap-4 border-b border-[#9aa8ba] bg-[#d7dde6] text-[#111827]">
+        <CardHeader className="flex flex-col items-stretch justify-between gap-3 border-b border-[#9aa8ba] bg-[#d7dde6] text-[#111827] sm:flex-row sm:items-start">
           <div>
             <CardTitle className="text-[#111827]">Компании платформы</CardTitle>
             <CardDescription className="text-[#5a6677]">
               Создание компаний и вход в контекст выбранной компании без изменения глобального профиля.
             </CardDescription>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button className="w-full sm:w-auto" onClick={() => setCreateOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Создать компанию
           </Button>
@@ -425,13 +425,14 @@ export default function PlatformCompaniesPage() {
           {loading ? <p className="text-sm text-slate-500">Загрузка...</p> : null}
           {!loading && companies.length === 0 ? <p className="text-sm text-slate-500">Компаний пока нет.</p> : null}
           {companies.map((company) => (
-            <div key={company.id} className="flex items-center justify-between gap-3 border border-[#9aa8ba] bg-white px-3 py-2 text-[#111827]">
-              <div className="flex items-center gap-2">
-                <Building2 className="h-4 w-4 text-slate-500" />
-                <span className="font-medium">{company.name}</span>
+            <div key={company.id} className="flex flex-col gap-3 border border-[#9aa8ba] bg-white px-3 py-2 text-[#111827] sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-start gap-2 sm:items-center">
+                <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-slate-500 sm:mt-0" />
+                <span className="min-w-0 break-words font-medium">{company.name}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <Button
+                  className="min-w-0 flex-1 sm:flex-none"
                   variant="outline"
                   disabled={openingCompanyId !== null}
                   onClick={() => openCompanyContext(company.id)}

@@ -84,6 +84,10 @@ const AGRONOMIST_NAV: NavItem[] = [
 
 const DIRECTOR_NAV: NavItem[] = [
   { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard },
+  { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout },
+  { labelKey: "weather", href: "/weather-lab", icon: CloudSun },
+  { labelKey: "warehouses", href: "/warehouses", icon: Package },
+  { labelKey: "tickets_nav", href: "/tickets", icon: Scale },
 ];
 
 const WAREHOUSE_NAV: NavItem[] = [
