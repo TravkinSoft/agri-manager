@@ -242,6 +242,13 @@ async function main() {
   check("Weather Lab hides Assist surfaces", () => assert.match(layoutSource, /!isWeatherLab \? <AssistantLauncher/));
   check("Weather Lab hides mobile Copilot", () => assert.match(mobileBottomNavSource, /item\.kind !== "copilot"/));
   check("UI has no manual coordinate fields", () => assert.equal(/<Input[^>]+(?:lat|lon|latitude|longitude)/i.test(clientSource), false));
+  check("UI shows provider wind direction", () => {
+    assert.match(clientSource, /windDirection\(current\.windBearingDeg\)/);
+    assert.match(clientSource, /windDirection\(point\.windBearingDeg\)/);
+  });
+  check("technical weather details are explicitly gated", () => {
+    assert.match(clientSource, /showTechnicalDebug \? <details/);
+  });
   check("UI removed three-field free-form location form", () => assert.equal(clientSource.includes("resolveTypedLocation"), false));
   check("UI uses compact location dialog", () => assert.match(clientSource, /\{pickerOpen \? \([\s\S]+<Dialog open onOpenChange=\{setPickerOpen\}/));
   check("location row is compact on desktop", () => assert.match(clientSource, /md:max-w-\[360px\]/));

@@ -61,6 +61,14 @@ function signedTemperature(value: number | null): string {
   return `${value > 0 ? "+" : ""}${metric(value)} °C`;
 }
 
+function windDirection(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const normalized = ((value % 360) + 360) % 360;
+  const points = ["С", "ССВ", "СВ", "ВСВ", "В", "ВЮВ", "ЮВ", "ЮЮВ", "Ю", "ЮЮЗ", "ЮЗ", "ЗЮЗ", "З", "ЗСЗ", "СЗ", "ССЗ"];
+  const point = points[Math.round(normalized / 22.5) % points.length];
+  return `${point} · ${Math.round(normalized)}°`;
+}
+
 function numberOrNull(value: string): number | null {
   if (!value.trim()) return null;
   const parsed = Number(value.replace(",", "."));
@@ -208,14 +216,15 @@ function OperatingHourDetails({ hour, weather }: { hour: OperatingHour; weather:
         <div className="font-semibold text-white">{formatWindow(point.time, weather, true)}</div>
         <div className="mt-1 flex items-center gap-2 text-xs text-[#A7B2C3]"><span className={cn("h-2 w-2 rounded-full", statusDot(hour.status))} />{STATUS_LABELS[hour.status]}</div>
       </div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#C5CEDA] sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[#C5CEDA] sm:grid-cols-3 lg:grid-cols-7">
         <span>Температура <b className="text-white">{signedTemperature(point.temperatureC)}</b></span>
         <span>Точка росы <b className="text-white">{signedTemperature(point.dewPointC)}</b></span>
         <span>Ветер <b className="text-white">{metric(point.windMs)} м/с</b></span>
+        <span>Направление <b className="text-white">{windDirection(point.windBearingDeg)}</b></span>
         <span>Порывы <b className="text-white">{metric(point.gustMs)} м/с</b></span>
         <span>Осадки <b className="text-white">{metric(point.precipitationRateMmH)} мм/ч</b></span>
         <span>Вероятность <b className="text-white">{metric(point.precipitationProbabilityPct, 0)}%</b></span>
-        {hour.reasons.length ? <span className="col-span-2 mt-1 text-[#AEB8C7] sm:col-span-3 lg:col-span-6">{hour.reasons.join(" · ")}</span> : null}
+        {hour.reasons.length ? <span className="col-span-2 mt-1 text-[#AEB8C7] sm:col-span-3 lg:col-span-7">{hour.reasons.join(" · ")}</span> : null}
       </div>
     </div>
   );
@@ -233,7 +242,7 @@ function CriterionRow({ label, enabled, onEnabledChange, children }: { label: st
   );
 }
 
-export function WeatherLab() {
+export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?: boolean }) {
   const pickerScrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null);
@@ -780,10 +789,11 @@ export function WeatherLab() {
               {relativeWeatherAge(weather.updatedAt)}
               {weather.stale ? <span className="ml-2 text-amber-300">· показаны последние сохранённые данные</span> : null}
             </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-7">
               <MetricTile label="Температура" value={signedTemperature(current.temperatureC)} icon={Thermometer} />
               <MetricTile label="Точка росы" value={signedTemperature(current.dewPointC)} hint="расчётная" icon={Thermometer} />
               <MetricTile label="Ветер" value={`${metric(current.windMs)} м/с`} icon={Wind} />
+              <MetricTile label="Направление" value={windDirection(current.windBearingDeg)} icon={Navigation} />
               <MetricTile label="Порывы" value={`${metric(current.gustMs)} м/с`} icon={Compass} />
               <MetricTile label="Осадки" value={current.precipitationRateMmH != null ? `${metric(current.precipitationRateMmH)} мм/ч` : "—"} icon={CloudRain} />
               <MetricTile label="Вероятность" value={current.precipitationProbabilityPct != null ? `${metric(current.precipitationProbabilityPct, 0)}%` : "—"} icon={Cloud} />
@@ -865,7 +875,7 @@ export function WeatherLab() {
             </details>
           ) : null}
 
-          <details className="rounded-lg border border-[#2A3344] bg-[#10151F] p-3 text-xs text-[#909CAD]">
+          {showTechnicalDebug ? <details className="rounded-lg border border-[#2A3344] bg-[#10151F] p-3 text-xs text-[#909CAD]">
             <summary className="cursor-pointer font-medium text-[#D5DBE5]">Служебная информация Global Admin</summary>
             <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               <div>Источник: <span className="text-white">{weather.providerMeta.provider}</span></div>
@@ -880,7 +890,7 @@ export function WeatherLab() {
               <div>Высоты ветра: <span className="text-white">{weather.providerMeta.windAltitudesM.join(" / ")} м</span></div>
               <div>Стоимость вызова: <span className="text-white">{weather.providerMeta.billing ? `${weather.providerMeta.billing.amount || "—"} ${weather.providerMeta.billing.currency || ""}`.trim() : "не указана"}</span></div>
             </div>
-          </details>
+          </details> : null}
         </>
       ) : null}
     </div>
