@@ -3,7 +3,7 @@
 import type { ComponentType } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, CheckSquare, CloudSun, History, LayoutDashboard, MapPin, Package, Scale, Tractor } from "lucide-react";
+import { Bot, CheckSquare, CloudSun, History, LayoutDashboard, MapPin, Package, Scale, Sprout, Tractor } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { canAccessPath } from "@/lib/auth/role-access";
@@ -33,6 +33,7 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
     case "agronomist":
       return [
         { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
+        { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout, kind: "route" },
         { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
         { labelKey: "tickets_nav", href: "/tickets", icon: Scale, kind: "route" },
@@ -83,9 +84,10 @@ function isActivePath(pathname: string, href?: string): boolean {
 
 function getRoleFilteredItems(role?: string | null): BottomItem[] {
   const normalizedRole = String(role || "") as AppRole;
+  const routeLimit = normalizedRole === "agronomist" ? 5 : 4;
   const routeItems = getMobileRouteCandidates(role)
     .filter((item) => canAccessPath(normalizedRole, item.href || ""))
-    .slice(0, 4);
+    .slice(0, routeLimit);
   return canUseAssistantShell(normalizedRole) ? [...routeItems, COPILOT_ITEM] : routeItems;
 }
 
@@ -146,7 +148,7 @@ export function MobileBottomNav() {
             >
               {active ? <span className="absolute top-1 h-1 w-4 rounded-full bg-[#E0B100]" /> : null}
               <Icon className="mb-1 h-4 w-4" />
-              <span className="max-w-full truncate">{label}</span>
+              <span className="line-clamp-2 max-w-full text-center leading-3">{label}</span>
             </Link>
           );
         })}

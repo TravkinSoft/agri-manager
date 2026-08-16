@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 const CROP_STRUCTURE_BASE_SELECT = "id,field_id,land_use_type,crop_id,variety_id,reproduction_id,notes,area,seeding_rate,expected_yield";
 const CROP_STRUCTURE_V4_SELECT = `${CROP_STRUCTURE_BASE_SELECT},irrigation_type,row_spacing_m,seed_spacing_cm`;
 const CROP_STRUCTURE_REVIEW_SELECT = `${CROP_STRUCTURE_V4_SELECT},identity_review_required,identity_review_reason`;
+const READ_ALLOWED_ROLES = new Set(["global_admin", "company_admin", "agronomist"]);
 const isMissingIdentityReviewColumn = (error: unknown) => {
   const message = String((error as any)?.message || error || "").toLowerCase();
   return message.includes("identity_review_required") || message.includes("identity_review_reason");
@@ -42,9 +43,8 @@ async function loadCropStructureBootstrap(
       .order("name"),
     supabase
       .from("seasons")
-      .select("id,year")
+      .select("id,year,archived")
       .eq("company_id", companyId)
-      .eq("archived", false)
       .order("year", { ascending: false }),
     supabase.from("crops").select("id,name,name_ru,name_kz,name_en,slug,company_id,archived,is_active"),
       supabase.from("varieties").select("id,name,name_ru,name_kz,name_en,crop_id,company_id,archived,is_active"),
@@ -73,7 +73,10 @@ async function loadCropStructureBootstrap(
     throw new Error(error.message || "Failed to load crop structure bootstrap");
   }
 
-  const activeSeasonId = seasonsRes.data?.[0]?.id || null;
+  const currentYear = new Date().getFullYear();
+  const activeSeasons = (seasonsRes.data || []).filter((row: any) => row.archived !== true);
+  const activeSeason = activeSeasons.find((row: any) => Number(row.year) === currentYear) || activeSeasons[0] || null;
+  const activeSeasonId = activeSeason?.id || null;
   let cropStructureRows: unknown[] = [];
   if (activeSeasonId) {
     let cropStructureRes: any = await supabase
@@ -133,6 +136,7 @@ async function loadCropStructureBootstrap(
   return {
     fields: fieldsRes.data || [],
     seasons: seasonsRes.data || [],
+    activeSeasonId,
     cropStructure: cropStructureRows,
     crops: cropsRes.data || [],
     varieties: varietiesRes.data || [],
@@ -144,6 +148,9 @@ async function loadCropStructureBootstrap(
 export async function GET(request: NextRequest) {
   try {
     const actor = await getServerActorFromSession(request);
+    if (!READ_ALLOWED_ROLES.has(actor.role)) {
+      throw new SessionAuthError("Current role cannot view crop structure", 403);
+    }
     const requestedCompanyId = request.nextUrl.searchParams.get("companyId");
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
     const supabase = await getUserScopedClientFromRequest(request);

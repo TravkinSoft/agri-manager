@@ -14,8 +14,10 @@ function numberParam(value: string | null): number | null {
 }
 
 export async function GET(request: NextRequest) {
+  let showTechnicalDetails = false;
   try {
-    await requireWeatherLabAccess(request);
+    const actor = await requireWeatherLabAccess(request);
+    showTechnicalDetails = actor.role === "global_admin";
     const params = request.nextUrl.searchParams;
     const latitude = numberParam(params.get("lat"));
     const longitude = numberParam(params.get("lon"));
@@ -30,7 +32,11 @@ export async function GET(request: NextRequest) {
     }
     if (error instanceof WeatherProviderError) {
       return NextResponse.json(
-        { error: error.message, code: error.code, technicalDetails: error.technicalDetails || null },
+        {
+          error: error.message,
+          code: error.code,
+          ...(showTechnicalDetails ? { technicalDetails: error.technicalDetails || null } : {}),
+        },
         { status: error.status, headers: { "Cache-Control": "no-store" } }
       );
     }

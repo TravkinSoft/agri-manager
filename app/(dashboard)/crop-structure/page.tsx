@@ -73,7 +73,7 @@ import {
 } from "@/lib/operations/operation-engine";
 
 type Field = { id: string; name: string; area: number; notes?: string | null };
-type Season = { id: string; year: number };
+type Season = { id: string; year: number; archived?: boolean | null };
 type Crop = {
   id: string;
   name: string;
@@ -114,6 +114,7 @@ type CropStructureBootstrapPayload = {
   companyId: string;
   fields: Field[];
   seasons: Season[];
+  activeSeasonId: string | null;
   cropStructure?: unknown[];
   crops: Crop[];
   varieties: Variety[];
@@ -398,6 +399,7 @@ export default function CropStructurePage() {
   const activeProfileId = profile?.id || null;
   const isGlobalAdmin = profile?.role === "global_admin";
   const canEditStructure = isGlobalAdmin || profile?.role === "company_admin" || profile?.role === "agronomist";
+  const canManageFields = isGlobalAdmin || profile?.role === "company_admin";
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -407,6 +409,7 @@ export default function CropStructurePage() {
   const [fieldCreateOpen, setFieldCreateOpen] = useState(false);
   const [seasons, setSeasons] = useState<Season[]>([]);
   const [seasonId, setSeasonId] = useState("");
+  const [activeSeasonId, setActiveSeasonId] = useState<string | null>(null);
   const [allCrops, setAllCrops] = useState<Crop[]>([]);
   const [allVarieties, setAllVarieties] = useState<Variety[]>([]);
   const [allReproductions, setAllReproductions] = useState<Reproduction[]>([]);
@@ -443,6 +446,8 @@ export default function CropStructurePage() {
   const fieldMap = useMemo(() => new Map(fields.map((field) => [field.id, field])), [fields]);
   const selectedField = selectedFieldId ? fieldMap.get(selectedFieldId) || null : null;
   const season = useMemo(() => seasons.find((item) => item.id === seasonId) || null, [seasons, seasonId]);
+  const selectedSeasonClosed = season?.archived === true;
+  const canEditSelectedSeason = canEditStructure && Boolean(seasonId) && seasonId === activeSeasonId && !selectedSeasonClosed;
   const draftChangeSummary = useMemo(
     () => summarizeCropStructureChanges(selectedFieldId ? initialByField.get(selectedFieldId) || [] : [], draftRows),
     [draftRows, initialByField, selectedFieldId]
@@ -830,6 +835,7 @@ export default function CropStructurePage() {
           setFields([]);
           setSeasons([]);
           setSeasonId("");
+          setActiveSeasonId(null);
           setAllCrops([]);
           setAllVarieties([]);
           setAllReproductions([]);
@@ -852,6 +858,7 @@ export default function CropStructurePage() {
         setFields([]);
         setSeasons([]);
         setSeasonId("");
+        setActiveSeasonId(null);
         setAllocByField(new Map());
         setInitialByField(new Map());
         setBootstrappedStructureKey(null);
@@ -892,15 +899,16 @@ export default function CropStructurePage() {
         setFields(normalizedFields);
         const seasonRows = (payload.seasons || []) as Season[];
         setSeasons(seasonRows);
+        setActiveSeasonId(payload.activeSeasonId || null);
         setAllCrops((payload.crops || []) as Crop[]);
         setAllVarieties((payload.varieties || []) as Variety[]);
         setAllReproductions((payload.reproductions || []) as Reproduction[]);
         setSpecialists((payload.specialists || []) as SpecialistAssignee[]);
-        const nextSeasonId = seasonRows[0]?.id || "";
+        const nextSeasonId = payload.activeSeasonId || seasonRows[0]?.id || "";
         const bootstrapMap = buildAllocationMap(payload.cropStructure || []);
         setAllocByField(bootstrapMap);
         setInitialByField(cloneAllocationMap(bootstrapMap));
-        setBootstrappedStructureKey(nextSeasonId ? `${activeCompanyId}:${nextSeasonId}` : null);
+        setBootstrappedStructureKey(payload.activeSeasonId ? `${activeCompanyId}:${payload.activeSeasonId}` : null);
         setSeasonId(nextSeasonId);
       } catch (error) {
         if (!mounted) return;
@@ -1241,10 +1249,12 @@ export default function CropStructurePage() {
   }, [activeCompanyId, seasonId, selectedFieldId, cropMap, isGlobalAdmin]);
 
   const openField = (fieldId: string, tab: "dossier" | "editor" | "legal" = "dossier") => {
-    if (tab === "editor" && !seasonId) {
+    if (tab === "editor" && !canEditSelectedSeason) {
       toast({
-        title: "Нет активного сезона",
-        description: "Создание структуры доступно только после открытия сезона для этой компании.",
+        title: !seasonId ? "Нет активного сезона" : "Сезон доступен только для чтения",
+        description: !seasonId
+          ? "Создание структуры доступно только после открытия сезона для этой компании."
+          : "Редактировать структуру можно только в текущем открытом сезоне.",
         variant: "destructive",
       });
       tab = "dossier";
@@ -1443,7 +1453,7 @@ export default function CropStructurePage() {
   };
 
   const prepareDraftForSave = () => {
-    if (!canEditStructure || !selectedFieldId || !selectedField || !activeCompanyId) {
+    if (!canEditSelectedSeason || !selectedFieldId || !selectedField || !activeCompanyId) {
       const message = "Недостаточно данных для сохранения структуры.";
       setEditorValidationError(message);
       toast({ title: "Структура не сохранена", description: message, variant: "destructive" });
@@ -1509,7 +1519,7 @@ export default function CropStructurePage() {
   };
 
   const confirmSave = async () => {
-    if (!canEditStructure || !selectedFieldId || !selectedField || !activeCompanyId || !seasonId) {
+    if (!canEditSelectedSeason || !selectedFieldId || !selectedField || !activeCompanyId || !seasonId) {
       const message = "Контекст поля или сезона изменился. Вернитесь в редактор и повторите сохранение.";
       setSaveConfirmationOpen(false);
       setEditorValidationError(message);
@@ -3027,7 +3037,14 @@ export default function CropStructurePage() {
     <div className="space-y-4">
       <PageHeader title="Структура посевов" description="Компактный агрономический обзор по полям">
         <div className="ml-auto flex items-center gap-2">
-          <Select value={seasonId || undefined} onValueChange={setSeasonId} disabled={seasons.length === 0}>
+          <Select
+            value={seasonId || undefined}
+            onValueChange={(value) => {
+              closeField();
+              setSeasonId(value);
+            }}
+            disabled={seasons.length === 0}
+          >
             <SelectTrigger
               className="h-8 min-w-[92px] border-slate-700 bg-transparent px-2 text-xs font-medium text-slate-400 shadow-none hover:border-slate-600 hover:text-slate-200 disabled:cursor-default disabled:opacity-70"
               aria-label="Сезон структуры посевов"
@@ -3035,11 +3052,21 @@ export default function CropStructurePage() {
               <SelectValue placeholder="Сезон не создан" />
             </SelectTrigger>
             <SelectContent>
-              {seasons.map((item) => <SelectItem key={item.id} value={item.id}>{item.year}</SelectItem>)}
+              {seasons.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.year}{item.archived ? " · закрыт" : item.id === activeSeasonId ? " · активный" : " · только чтение"}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
       </PageHeader>
+
+      {season && !canEditSelectedSeason && canEditStructure ? (
+        <div className="rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-amber-100">
+          Сезон {season.year} доступен только для чтения. Редактирование возможно только в текущем открытом сезоне.
+        </div>
+      ) : null}
 
       <Card>
         <CardContent className="p-3">
@@ -3072,7 +3099,7 @@ export default function CropStructurePage() {
               </SelectContent>
             </Select>
             <div className="flex min-w-0 items-center justify-end gap-1.5 sm:col-span-2 xl:col-span-1">
-              {canEditStructure ? (
+              {canManageFields ? (
                 <Button
                   type="button"
                   size="sm"
@@ -3179,12 +3206,14 @@ export default function CropStructurePage() {
         <Card><CardContent className="p-8 text-center text-sm text-slate-500">По заданным фильтрам поля не найдены.</CardContent></Card>
       ) : null}
 
-      <FieldFormDialog
-        open={fieldCreateOpen}
-        onOpenChange={setFieldCreateOpen}
-        onSubmit={handleCreateField}
-        existingFields={fields}
-      />
+      {canManageFields ? (
+        <FieldFormDialog
+          open={fieldCreateOpen}
+          onOpenChange={setFieldCreateOpen}
+          onSubmit={handleCreateField}
+          existingFields={fields}
+        />
+      ) : null}
 
       <Dialog open={Boolean(selectedFieldId)} onOpenChange={(open) => !open && requestCloseField()}>
         <DialogContent className="max-h-[92vh] w-[94vw] max-w-none overflow-y-auto border-slate-800 bg-[#0b1017] text-slate-100 shadow-2xl shadow-black/50 sm:max-w-[1180px] [scrollbar-width:thin] [scrollbar-color:#334155_transparent] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-700/80 [&::-webkit-scrollbar-track]:bg-transparent">
@@ -3206,8 +3235,8 @@ export default function CropStructurePage() {
                   variant={fieldDialogTab === "editor" ? "default" : "outline"}
                   size="sm"
                   onClick={() => setFieldDialogTab("editor")}
-                  disabled={!seasonId}
-                  title={!seasonId ? "У компании нет активного сезона" : undefined}
+                  disabled={!canEditSelectedSeason}
+                  title={!seasonId ? "У компании нет активного сезона" : !canEditSelectedSeason ? "Сезон доступен только для чтения" : undefined}
                 >
                   Редактор структуры
                 </Button>
@@ -3224,7 +3253,7 @@ export default function CropStructurePage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={requestCloseField}>Закрыть</Button>
-            {canEditStructure && fieldDialogTab === "editor" ? (
+            {canEditSelectedSeason && fieldDialogTab === "editor" ? (
               <Button onClick={requestSave} disabled={saving}>
                 <Edit3 className="mr-2 h-4 w-4" />{saving ? "Сохранение..." : "Сохранить"}
               </Button>

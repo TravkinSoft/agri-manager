@@ -157,7 +157,7 @@ const mobileNav = readFileSync(resolve(root, "components/layout/mobile-bottom-na
 const dashboardApi = readFileSync(resolve(root, "app/api/dashboard/harvest-summary/route.ts"), "utf8");
 const dashboardUi = readFileSync(resolve(root, "components/dashboard/harvest-dashboard.tsx"), "utf8");
 check("agronomist/director routes limited", () => {
-  assert.match(roleAccess, /AGRONOMIST_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/weather-lab",\s*"\/tickets",\s*"\/auth"/);
+  assert.match(roleAccess, /AGRONOMIST_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/crop-structure",\s*"\/weather-lab",\s*"\/tickets",\s*"\/auth"/);
   assert.match(roleAccess, /DIRECTOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/auth"/);
 });
 check("director cannot open warehouse or ticket routes", () => {
@@ -166,9 +166,9 @@ check("director cannot open warehouse or ticket routes", () => {
   assert.equal(canAccessPath("director", "/tickets"), false);
   assert.equal(canAccessPath("director", "/settings"), false);
 });
-check("agronomist menus contain three routes", () => {
-  assert.match(sidebar, /const AGRONOMIST_NAV[\s\S]*?harvest_summary[\s\S]*?warehouses[\s\S]*?tickets_nav/);
-  assert.match(mobileNav, /case "agronomist":[\s\S]*?warehouses[\s\S]*?tickets_nav/);
+check("agronomist menus contain the five approved routes", () => {
+  assert.match(sidebar, /const AGRONOMIST_NAV[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav/);
+  assert.match(mobileNav, /case "agronomist":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav/);
 });
 check("director menus contain dashboard only", () => {
   assert.match(sidebar, /const DIRECTOR_NAV:[\s\S]*?harvest_summary[\s\S]*?\];/);

@@ -19,8 +19,10 @@ function cleanLabel(value: string | null, maxLength = 160): string | null {
 }
 
 export async function GET(request: NextRequest) {
+  let showTechnicalDetails = false;
   try {
-    await requireWeatherLabAccess(request);
+    const actor = await requireWeatherLabAccess(request);
+    showTechnicalDetails = actor.role === "global_admin";
     const params = request.nextUrl.searchParams;
     const latitude = finiteCoordinate(params.get("lat"), -90, 90);
     const longitude = finiteCoordinate(params.get("lon"), -180, 180);
@@ -47,7 +49,11 @@ export async function GET(request: NextRequest) {
     }
     if (error instanceof WeatherProviderError) {
       return NextResponse.json(
-        { error: error.message, code: error.code, technicalDetails: error.technicalDetails || null },
+        {
+          error: error.message,
+          code: error.code,
+          ...(showTechnicalDetails ? { technicalDetails: error.technicalDetails || null } : {}),
+        },
         { status: error.status, headers: { "Cache-Control": "no-store" } }
       );
     }
