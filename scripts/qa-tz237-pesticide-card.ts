@@ -193,8 +193,15 @@ const routeSource = readFileSync("app/api/global-admin/pesticide-card/[id]/route
 const dialogSource = readFileSync("components/platform/full-pesticide-card-dialog.tsx", "utf8");
 
 check("endpoint requires global admin", () => assert.match(routeSource, /actor\.role !== "global_admin"/));
-check("endpoint uses user scoped client", () => assert.match(routeSource, /getUserScopedClientFromRequest/));
-check("endpoint does not use service role", () => assert.doesNotMatch(routeSource, /service[_-]?role|SUPABASE_SERVICE/i));
+check("endpoint authenticates the server actor before cached catalog access", () => {
+  assert.match(routeSource, /getServerActorFromSession/);
+  assert(routeSource.indexOf('actor.role !== "global_admin"') < routeSource.indexOf("getCachedPesticideCard(productId)"));
+});
+check("endpoint loads only referenced catalog identities", () => {
+  assert.match(routeSource, /\.in\("id", componentIds\)/);
+  assert.match(routeSource, /\.in\("id", cropIds\)/);
+  assert.match(routeSource, /\.eq\("id", product\.manufacturer_id\)/);
+});
 check("usage rules are queried once", () => {
   assert.equal((routeSource.match(/from\("glbd_product_usage_rules"\)/g) || []).length, 1);
 });

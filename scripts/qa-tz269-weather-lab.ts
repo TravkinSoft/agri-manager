@@ -239,8 +239,14 @@ async function main() {
   check("auth helper ignores impersonation", () => assert.match(authSource, /ignoreImpersonation:\s*true/));
   check("auth helper allows global admin", () => assert.match(authSource, /actor\.role !== "global_admin"/));
   check("auth helper allows agronomist", () => assert.match(authSource, /actor\.role !== "agronomist"/));
-  check("Weather Lab hides Assist surfaces", () => assert.match(layoutSource, /!isWeatherLab \? <AssistantLauncher/));
-  check("Weather Lab hides mobile Copilot", () => assert.match(mobileBottomNavSource, /item\.kind !== "copilot"/));
+  check("shared dashboard shell does not mount Assist", () => {
+    assert.equal(layoutSource.includes("AssistantLauncher"), false);
+    assert.equal(layoutSource.includes("AssistantProvider"), false);
+  });
+  check("mobile navigation does not mount Copilot", () => {
+    assert.equal(mobileBottomNavSource.includes('kind: "copilot"'), false);
+    assert.equal(mobileBottomNavSource.includes("AssistantPanel"), false);
+  });
   check("UI has no manual coordinate fields", () => assert.equal(/<Input[^>]+(?:lat|lon|latitude|longitude)/i.test(clientSource), false));
   check("UI shows provider wind direction", () => {
     assert.match(clientSource, /windDirection\(current\.windBearingDeg\)/);

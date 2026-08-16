@@ -158,21 +158,23 @@ const dashboardApi = readFileSync(resolve(root, "app/api/dashboard/harvest-summa
 const dashboardUi = readFileSync(resolve(root, "components/dashboard/harvest-dashboard.tsx"), "utf8");
 check("agronomist/director routes limited", () => {
   assert.match(roleAccess, /AGRONOMIST_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/crop-structure",\s*"\/weather-lab",\s*"\/tickets",\s*"\/auth"/);
-  assert.match(roleAccess, /DIRECTOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/auth"/);
+  assert.match(roleAccess, /DIRECTOR_ALLOWED_PREFIXES = \[\s*"\/dashboard",\s*"\/crop-structure",\s*"\/weather-lab",\s*"\/tickets",\s*"\/auth"/);
 });
-check("director cannot open warehouse or ticket routes", () => {
+check("director can read approved operational routes only", () => {
   assert.equal(canAccessPath("director", "/dashboard"), true);
-  assert.equal(canAccessPath("director", "/warehouses"), false);
-  assert.equal(canAccessPath("director", "/tickets"), false);
+  assert.equal(canAccessPath("director", "/crop-structure"), true);
+  assert.equal(canAccessPath("director", "/weather-lab"), true);
+  assert.equal(canAccessPath("director", "/warehouses"), true);
+  assert.equal(canAccessPath("director", "/tickets"), true);
   assert.equal(canAccessPath("director", "/settings"), false);
 });
 check("agronomist menus contain the five approved routes", () => {
   assert.match(sidebar, /const AGRONOMIST_NAV[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav/);
   assert.match(mobileNav, /case "agronomist":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav/);
 });
-check("director menus contain dashboard only", () => {
-  assert.match(sidebar, /const DIRECTOR_NAV:[\s\S]*?harvest_summary[\s\S]*?\];/);
-  assert.match(mobileNav, /case "director":[\s\S]*?return \[\{ labelKey: "harvest_summary"/);
+check("director menus contain the approved read-only routes", () => {
+  assert.match(sidebar, /const DIRECTOR_NAV:[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav[\s\S]*?\];/);
+  assert.match(mobileNav, /case "director":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav/);
 });
 check("assistant is global admin only", () => {
   assert.match(assistantShell, /AssistantAllowedRole = "global_admin"/);

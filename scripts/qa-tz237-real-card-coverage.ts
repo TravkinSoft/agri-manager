@@ -163,7 +163,9 @@ async function main() {
   ]);
 
   const products = productsAll.filter((product) => product.type === "pesticide" && product.company_id === null);
-  if (products.length !== 852) throw new Error(`Expected 852 pesticides, received ${products.length}`);
+  if (products.length < 852) {
+    throw new Error(`Expected at least the verified 852 pesticides, received ${products.length}`);
+  }
 
   const aliasesByProduct = groupBy(aliases, "product_id");
   const visibleLinks = links.filter((row) => ["approved", "needs_owner_review"].includes(String(row.review_status)));

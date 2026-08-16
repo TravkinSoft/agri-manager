@@ -38,9 +38,10 @@ check("agronomist fields and operations remain hidden", () => {
   assert.equal(canAccessPath("agronomist", "/operations"), false);
 });
 
-check("director receives no structure write route", () => {
-  assert.equal(canAccessPath("director", "/crop-structure"), false);
-  assert.equal(canAccessPath("director", "/weather-lab"), false);
+check("director receives read-only structure and weather routes", () => {
+  assert.equal(canAccessPath("director", "/crop-structure"), true);
+  assert.equal(canAccessPath("director", "/weather-lab"), true);
+  assert.doesNotMatch(cropPage.match(/canEditStructure =[^;]+/)?.[0] || "", /director/);
 });
 
 check("desktop menu order matches owner contract", () => {
@@ -55,7 +56,7 @@ check("mobile menu has all five routes and stable labels", () => {
 });
 
 check("crop bootstrap is server role and company scoped", () => {
-  assert.match(cropBootstrap, /READ_ALLOWED_ROLES = new Set\(\["global_admin", "company_admin", "agronomist"\]\)/);
+  assert.match(cropBootstrap, /READ_ALLOWED_ROLES = new Set\(\["global_admin", "company_admin", "agronomist", "director"\]\)/);
   assert.match(cropBootstrap, /resolveCompanyForActor\(actor, requestedCompanyId\)/);
   assert.match(cropBootstrap, /Current role cannot view crop structure/);
 });
@@ -81,12 +82,12 @@ check("agronomist does not receive field administration", () => {
 });
 
 check("weather route is available only to approved roles", () => {
-  assert.match(weatherAuth, /actor\.role !== "global_admin" && actor\.role !== "agronomist"/);
-  assert.match(weatherPage, /profile\?\.role !== "global_admin" && profile\?\.role !== "agronomist"/);
+  assert.match(weatherAuth, /\["global_admin", "agronomist", "director"\][\s\S]*?\.includes\(actor\.role as never\)/);
+  assert.match(weatherPage, /\["global_admin", "agronomist", "director"\]\.includes\(profile\.role\)/);
 });
 
 check("technical provider details are global admin only", () => {
-  assert.match(weatherPage, /showTechnicalDebug=\{profile\?\.role === "global_admin"\}/);
+  assert.match(weatherPage, /showTechnicalDebug=\{profile\.role === "global_admin"\}/);
   assert.match(weatherUi, /showTechnicalDebug \? <details/);
   assert.match(forecastApi, /showTechnicalDetails = actor\.role === "global_admin"/);
   assert.match(locationApi, /showTechnicalDetails = actor\.role === "global_admin"/);
