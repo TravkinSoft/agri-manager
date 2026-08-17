@@ -377,6 +377,8 @@ const lotLabel = (lotId?: string | null) => {
   if (!value) return "";
   return /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value) ? `#${value.slice(0, 8)}` : value;
 };
+const harvestIdentityLabel = (...parts: Array<string | null | undefined>) =>
+  parts.map((part) => String(part || "").trim()).filter(Boolean).join(" / ");
 const legacyOperationUiLabel = (opType: string) => {
   if (opType === "harvest_incoming") return "Урожай";
   if (opType === "supplier_receipt") return "Поставка от контрагента";
@@ -1895,18 +1897,18 @@ export default function WeighbridgeOperationsPage() {
           const varietyName =
             String(row?.varieties?.name || "").trim() ||
             varieties.find((item) => item.id === String(row.variety_id || ""))?.name ||
-            "Сорт не указан";
+            "";
           const reproductionName =
             String(row?.seed_reproductions?.name || "").trim() ||
             reproductions.find((item) => item.id === String(row.reproduction_id || ""))?.name ||
-            "Репродукция не указана";
+            "";
           const area = Number(row.actual_area_ha ?? row.planned_area_ha ?? 0);
           return {
             id: String(row.id),
             operation_id: String(row.operation_id),
             variety_id: row.variety_id ? String(row.variety_id) : null,
             reproduction_id: row.reproduction_id ? String(row.reproduction_id) : null,
-            label: `${varietyName} / ${reproductionName} • ${area.toFixed(2)} га`,
+            label: `${harvestIdentityLabel(varietyName, reproductionName) || "Участок"} • ${area.toFixed(2)} га`,
           } satisfies LinkedOperationLineOption;
         });
         setLinkedOperationLines(options);
@@ -2142,9 +2144,9 @@ export default function WeighbridgeOperationsPage() {
             cropId: allocation.cropId,
             cropName: allocation.cropName,
             varietyId: allocation.varietyId || null,
-            varietyName: allocation.varietyName || "Не указан",
+            varietyName: allocation.varietyName || "",
             reproductionId: allocation.reproductionId || null,
-            reproductionName: allocation.reproductionName || "Не указана",
+            reproductionName: allocation.reproductionName || "",
             requiresReview: allocation.isIncomplete || !allocation.varietyId || !allocation.reproductionId,
             status: "active",
             openTicketCount: 0,
@@ -2227,9 +2229,9 @@ export default function WeighbridgeOperationsPage() {
       cropId: allocation.cropId,
       cropName: allocation.cropName,
       varietyId: allocation.varietyId || null,
-      varietyName: allocation.varietyName || "Не указан",
+      varietyName: allocation.varietyName || "",
       reproductionId: allocation.reproductionId || null,
-      reproductionName: allocation.reproductionName || "Не указана",
+      reproductionName: allocation.reproductionName || "",
       requiresReview: allocation.isIncomplete || !allocation.varietyId || !allocation.reproductionId,
       openTicketCount: tickets.filter((ticket) =>
         ticket.op_type === "harvest_incoming" &&
@@ -3479,7 +3481,7 @@ export default function WeighbridgeOperationsPage() {
   Object.values(harvestStructureByField).flat().forEach((item) => {
     allocationLabelById.set(
       item.allocationId,
-      `${item.cropName} / ${item.varietyName} / ${item.reproductionName} • ${item.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`
+      `${harvestIdentityLabel(item.cropName, item.varietyName, item.reproductionName)} • ${item.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`
     );
   });
   const ticketAllocationLabel = (ticket: any) => {
@@ -3934,10 +3936,10 @@ export default function WeighbridgeOperationsPage() {
                 {fieldHarvestOptions.length > 1 ? (
                   <Select value={form.cropStructureAllocationId} onValueChange={(v) => setForm((p) => ({ ...p, cropStructureAllocationId: v, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}>
                     <SelectTrigger className="h-8"><SelectValue placeholder="Посевная строка / участок поля" /></SelectTrigger>
-                    <SelectContent>{fieldHarvestOptions.map((x) => <SelectItem key={x.allocationId} value={x.allocationId}>{x.cropName} / {x.varietyName} / {x.reproductionName} • {x.areaHa.toFixed(2)} га</SelectItem>)}</SelectContent>
+                    <SelectContent>{fieldHarvestOptions.map((x) => <SelectItem key={x.allocationId} value={x.allocationId}>{harvestIdentityLabel(x.cropName, x.varietyName, x.reproductionName)} • {x.areaHa.toFixed(2)} га</SelectItem>)}</SelectContent>
                   </Select>
                 ) : null}
-                {selectedHarvestAllocation ? <div className="text-xs text-emerald-300">Участок: {selectedHarvestAllocation.cropName} / {selectedHarvestAllocation.varietyName} / {selectedHarvestAllocation.reproductionName} • {selectedHarvestAllocation.areaHa.toFixed(2)} га</div> : null}
+                {selectedHarvestAllocation ? <div className="text-xs text-emerald-300">Участок: {harvestIdentityLabel(selectedHarvestAllocation.cropName, selectedHarvestAllocation.varietyName, selectedHarvestAllocation.reproductionName)} • {selectedHarvestAllocation.areaHa.toFixed(2)} га</div> : null}
                 <div className="grid gap-2 md:grid-cols-2">
                   <Select value={form.stockIdentityKey} onValueChange={(v) => {
                     const selected = fieldIssueStockOptions.find((item) => item.key === v);

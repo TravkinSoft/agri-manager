@@ -30,8 +30,8 @@ type CropSummaryRow = {
   id: string;
   seasonYear: number | null;
   cropName: string;
-  varietyName: string;
-  reproductionName: string;
+  varietyName: string | null;
+  reproductionName: string | null;
   area: number;
   status: string | null;
 };
@@ -237,8 +237,8 @@ export default function FieldDetailsPage() {
               id: String(row.id),
               seasonYear: row.seasons?.year == null ? null : Number(row.seasons.year),
               cropName: row.crops?.name || "Культура не указана",
-              varietyName: row.varieties?.name || "Сорт не указан",
-              reproductionName: row.seed_reproductions?.name || "Репродукция не указана",
+              varietyName: row.varieties?.name || null,
+              reproductionName: row.seed_reproductions?.name || null,
               area: Number(row.area || 0),
               status: row.status || null,
             }))
@@ -488,7 +488,7 @@ export default function FieldDetailsPage() {
               <div key={row.id} className="rounded border p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="font-medium">
-                    {row.cropName} / {row.varietyName} / {row.reproductionName}
+                    {[row.cropName, row.varietyName, row.reproductionName].filter(Boolean).join(" / ")}
                   </div>
                   <Badge variant="outline">
                     {row.seasonYear || "Без сезона"} • {cropStatusLabels[row.status || ""] || "Статус не указан"}

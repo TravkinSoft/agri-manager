@@ -130,11 +130,11 @@ export async function loadActiveHarvestRouteList(
       cropId: String(structure.crop_id || ""),
       cropName: localizedName(crop, "ru", ["name", "slug"]) || "Культура",
       varietyId,
-      varietyName: varietyId ? brandName(variety) || "Сорт не найден" : "Не указан",
+      varietyName: varietyId ? brandName(variety) || "Сорт не найден" : "",
       reproductionId,
       reproductionName: reproductionId
         ? localizedName(reproduction, "ru", ["name", "code"]) || "Репродукция не найдена"
-        : "Не указана",
+        : "",
       requiresReview: !varietyId || !reproductionId || !variety || !reproduction,
       status: row.status === "completed" ? "completed" : "active",
       openTicketCount: openCounts.get(`${row.crop_structure_id}:${row.warehouse_id}`) || 0,

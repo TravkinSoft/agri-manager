@@ -685,9 +685,9 @@ export async function GET(request: NextRequest) {
       const allocationArea = Number(allocation?.area || 0);
       const identityLabel = [
         localizedName(crop, "ru", ["name"]) || "Культура не указана",
-        brandName(variety) || "Без сорта",
-        localizedName(reproduction, "ru", ["name", "code"]) || "Без репродукции",
-      ].join(" / ");
+        brandName(variety),
+        localizedName(reproduction, "ru", ["name", "code"]),
+      ].filter(Boolean).join(" / ");
 
       return [{
         id: String(batch.id),
@@ -699,9 +699,9 @@ export async function GET(request: NextRequest) {
         cropId: batch.crop_id ? String(batch.crop_id) : null,
         cropName: localizedName(crop, "ru", ["name"]) || "Культура не указана",
         varietyId: batch.variety_id ? String(batch.variety_id) : null,
-        varietyName: brandName(variety) || "Без сорта",
+        varietyName: brandName(variety) || "",
         reproductionId: batch.reproduction_id ? String(batch.reproduction_id) : null,
-        reproductionName: localizedName(reproduction, "ru", ["name", "code"]) || "Без репродукции",
+        reproductionName: localizedName(reproduction, "ru", ["name", "code"]) || "",
         fieldId: batch.source_field_id ? String(batch.source_field_id) : null,
         fieldName: String(field?.name || "Поле не указано"),
         operationLineId: sourceLine?.operation_line_id ? String(sourceLine.operation_line_id) : null,

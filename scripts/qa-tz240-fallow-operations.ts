@@ -77,13 +77,13 @@ check("crop without crop id is rejected", () => {
   const result = validate([{ ...validCropRow, crop_id: null }]);
   assert.equal(result.ok, false);
 });
-check("crop without variety is rejected", () => {
+check("crop without variety is accepted", () => {
   const result = validate([{ ...validCropRow, variety_id: null }]);
-  assert.equal(result.ok, false);
+  assert.equal(result.ok, true);
 });
-check("crop without reproduction is rejected", () => {
+check("crop without reproduction is accepted", () => {
   const result = validate([{ ...validCropRow, reproduction_id: null }]);
-  assert.equal(result.ok, false);
+  assert.equal(result.ok, true);
 });
 check("valid crop row passes", () => assert.equal(validate([validCropRow]).ok, true));
 check("valid fallow row passes", () => assert.equal(validate([validFallowRow]).ok, true));

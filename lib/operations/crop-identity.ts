@@ -19,14 +19,12 @@ export function resolveCropIdentity(...sources: CropIdentity[]): Required<CropId
 
 export function formatCropIdentity(identity: CropIdentity): string {
   const resolved = resolveCropIdentity(identity);
-  return [
-    resolved.cropName || "Культура не указана",
-    resolved.varietyName || "Сорт не указан",
-    resolved.reproductionName || "Репродукция не указана",
-  ].join(" / ");
+  return [resolved.cropName || "Культура не указана", resolved.varietyName, resolved.reproductionName]
+    .filter(Boolean)
+    .join(" / ");
 }
 
 export function formatVarietyReproduction(identity: CropIdentity): string {
   const resolved = resolveCropIdentity(identity);
-  return [resolved.varietyName || "Сорт не указан", resolved.reproductionName || "Репродукция не указана"].join(" / ");
+  return [resolved.varietyName, resolved.reproductionName].filter(Boolean).join(" / ");
 }
