@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -89,6 +89,14 @@ const CAPACITY_UNITS = [
   { value: "l", label: "л" },
 ] as const;
 
+type WarehouseManageCacheEntry = {
+  warehouses: Warehouse[];
+  products: Product[];
+  balances: InventoryBalance[];
+};
+
+const warehouseManageCache = new Map<string, WarehouseManageCacheEntry>();
+
 function formatCapacity(row: Warehouse): string {
   if (row.capacity_value == null || row.capacity_unit == null) return "—";
   return `${row.capacity_value} ${row.capacity_unit}`;
@@ -105,6 +113,12 @@ export default function ManageWarehousesPage() {
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const loadGenerationRef = useRef(0);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const deleteChecksAbortRef = useRef<AbortController | null>(null);
+  const confirmedDataRef = useRef(false);
+  const activeCacheKeyRef = useRef("");
   const { toast } = useToast();
   const { profile } = useAuth();
   const { language } = useLanguage();
@@ -139,50 +153,112 @@ export default function ManageWarehousesPage() {
     return warehouses.filter((row) => !row.archived && !row.is_archived);
   }, [warehouses, showArchived]);
 
-  const loadData = async () => {
-    if (!profile?.company_id) return;
+  const loadDeleteChecks = async (
+    warehouseRows: Warehouse[],
+    companyId: string,
+    generation: number
+  ) => {
+    deleteChecksAbortRef.current?.abort();
+    const controller = new AbortController();
+    deleteChecksAbortRef.current = controller;
+    const checks = await Promise.allSettled(
+      warehouseRows.map(async (warehouse) => ({
+        warehouseId: warehouse.id,
+        check: await getWarehouseDeleteCheck(warehouse.id, companyId, { signal: controller.signal }),
+      }))
+    );
+    if (controller.signal.aborted || generation !== loadGenerationRef.current) return;
+    const nextMap: Record<string, WarehouseDeleteCheck> = {};
+    checks.forEach((result) => {
+      if (result.status === "fulfilled") nextMap[result.value.warehouseId] = result.value.check;
+    });
+    setDeleteChecks(nextMap);
+  };
 
+  const loadData = async ({ foreground = true }: { foreground?: boolean } = {}) => {
+    if (!profile?.company_id) return;
+    const companyId = profile.company_id;
+    const cacheKey = `${companyId}:${language}:${canManageProducts ? "global" : "company"}`;
+    const generation = ++loadGenerationRef.current;
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+    const showLoading = foreground && !confirmedDataRef.current;
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
+      setLoadError(null);
       const [warehousesData, productsData, balanceRows] = await Promise.all([
-        getWarehouses(profile.company_id, true, language),
-        canManageProducts ? getProducts(profile.company_id, false, language) : Promise.resolve([]),
-        getInventoryBalances(profile.company_id, language),
+        getWarehouses(companyId, true, language, { signal: controller.signal }),
+        canManageProducts
+          ? getProducts(companyId, false, language, undefined, { signal: controller.signal })
+          : Promise.resolve([]),
+        getInventoryBalances(companyId, language, { signal: controller.signal }),
       ]);
+      if (controller.signal.aborted || generation !== loadGenerationRef.current) return;
       setWarehouses(warehousesData);
       setProducts(productsData);
       setBalances(balanceRows);
-
+      confirmedDataRef.current = true;
+      warehouseManageCache.set(cacheKey, {
+        warehouses: warehousesData,
+        products: productsData,
+        balances: balanceRows,
+      });
+      setLoading(false);
       if (canManageWarehouses && warehousesData.length > 0) {
-        const checks = await Promise.allSettled(
-          warehousesData.map(async (warehouse) => ({
-            warehouseId: warehouse.id,
-            check: await getWarehouseDeleteCheck(warehouse.id, profile.company_id!),
-          }))
-        );
-        const nextMap: Record<string, WarehouseDeleteCheck> = {};
-        checks.forEach((result) => {
-          if (result.status === "fulfilled") {
-            nextMap[result.value.warehouseId] = result.value.check;
-          }
-        });
-        setDeleteChecks(nextMap);
+        void loadDeleteChecks(warehousesData, companyId, generation);
       } else {
         setDeleteChecks({});
       }
-    } catch (error) {
+    } catch (error: any) {
+      if (controller.signal.aborted || generation !== loadGenerationRef.current || error?.name === "AbortError") return;
+      const message = error?.message || t("Не удалось загрузить данные", "Деректерді жүктеу мүмкін болмады", "Failed to load data");
+      setLoadError(message);
       toast({
         title: t("Ошибка", "Қате", "Error"),
-        description: t("Не удалось загрузить данные", "Деректерді жүктеу мүмкін болмады", "Failed to load data"),
+        description: message,
         variant: "destructive",
       });
     } finally {
-      setLoading(false);
+      if (generation === loadGenerationRef.current) {
+        if (showLoading) setLoading(false);
+        if (loadAbortRef.current === controller) loadAbortRef.current = null;
+      }
     }
   };
 
   useEffect(() => {
-    void loadData();
+    const companyId = profile?.company_id;
+    if (!companyId) return;
+    const cacheKey = `${companyId}:${language}:${canManageProducts ? "global" : "company"}`;
+    const cached = warehouseManageCache.get(cacheKey);
+    if (activeCacheKeyRef.current !== cacheKey) {
+      activeCacheKeyRef.current = cacheKey;
+      deleteChecksAbortRef.current?.abort();
+      setDeleteChecks({});
+      setLoadError(null);
+      if (cached) {
+        setWarehouses(cached.warehouses);
+        setProducts(cached.products);
+        setBalances(cached.balances);
+        confirmedDataRef.current = true;
+        setLoading(false);
+      } else {
+        setWarehouses([]);
+        setProducts([]);
+        setBalances([]);
+        confirmedDataRef.current = false;
+        setLoading(true);
+      }
+    }
+    void loadData({ foreground: !cached });
+    return () => {
+      loadAbortRef.current?.abort();
+      deleteChecksAbortRef.current?.abort();
+      loadGenerationRef.current += 1;
+    };
+    // Requests are generation-guarded and aborted when company/language access changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language, profile?.company_id, canManageProducts, canManageWarehouses]);
 
   const resetWarehouseForm = () => {
@@ -372,6 +448,12 @@ export default function ManageWarehousesPage() {
           "Admin management for warehouses: types, capacity, archive and safe delete."
         )}
       />
+
+      {loadError ? (
+        <div role="alert" className="rounded-md border border-red-800 bg-red-950/40 px-4 py-3 text-sm text-red-200">
+          {loadError}
+        </div>
+      ) : null}
 
       <Tabs defaultValue="warehouses" className="space-y-4">
         <TabsList>

@@ -7,6 +7,7 @@ import type {
   OpenTransportAssignment,
   RecentTransportPair,
 } from "@/lib/weighbridge/transport-pairing";
+import { formatVehiclePlate, transportPickerLabel } from "@/lib/weighbridge/transport";
 
 type Vehicle = {
   id: string;
@@ -39,7 +40,7 @@ type Props = {
   onComplete?: () => void;
 };
 
-const vehicleTitle = (vehicle: Vehicle) => vehicle.name || vehicle.model || vehicle.plate || "Транспорт";
+const vehicleTitle = (vehicle: Vehicle) => transportPickerLabel(vehicle);
 
 export function TransportDriverSelects({
   vehicleId,
@@ -91,13 +92,12 @@ export function TransportDriverSelects({
         return {
           value: vehicle.id,
           label: vehicleTitle(vehicle),
-          description: [
-            vehicle.model && vehicle.model !== vehicle.name ? vehicle.model : "",
-            vehicle.plate,
-            assignment ? `Ждёт тару${assignment.ticketNo ? ` · ${assignment.ticketNo}` : ""}` : "",
-          ].filter(Boolean).join(" · "),
+          status: assignment ? "Ждёт тару" : undefined,
           group: recentOrder.has(vehicle.id) ? "Недавно использованные" : "Остальные",
-          keywords: [vehicle.name, vehicle.model, vehicle.plate, vehicle.type],
+          keywords: [vehicle.name, vehicle.model, vehicle.plate, vehicle.type].concat([
+            formatVehiclePlate(vehicle.plate),
+            String(vehicle.plate || "").replace(/[^\p{L}\p{N}]+/gu, "").slice(-4),
+          ]),
         };
       });
   }, [vehicles, recentVehicleIds, assignmentByVehicle]);

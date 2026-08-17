@@ -879,6 +879,8 @@ export default function WeighbridgeOperationsPage() {
   const bootstrapRequestRef = useRef<Promise<void> | null>(null);
   const bootstrapSummaryRequestRef = useRef<Promise<void> | null>(null);
   const operatorRequestRef = useRef<Promise<void> | null>(null);
+  const operatorRequestGenerationRef = useRef(0);
+  const operatorRequestAbortRef = useRef<AbortController | null>(null);
   const secondaryCatalogRequestRef = useRef<Promise<void> | null>(null);
   const [statisticsOpen, setStatisticsOpen] = useState(false);
   const [secondaryCatalogsLoaded, setSecondaryCatalogsLoaded] = useState(false);
@@ -1243,6 +1245,13 @@ export default function WeighbridgeOperationsPage() {
     return request;
   };
 
+  const invalidateOperatorSessionRequest = () => {
+    operatorRequestGenerationRef.current += 1;
+    operatorRequestAbortRef.current?.abort();
+    operatorRequestAbortRef.current = null;
+    operatorRequestRef.current = null;
+  };
+
   const verifyOperatorSession = async (signal?: AbortSignal) => {
     if (!profile?.company_id) return;
     if (!canUseOperatorSession) {
@@ -1251,22 +1260,29 @@ export default function WeighbridgeOperationsPage() {
     }
     if (operatorRequestRef.current) return operatorRequestRef.current;
     const companyId = profile.company_id;
+    const generation = ++operatorRequestGenerationRef.current;
+    const controller = new AbortController();
+    operatorRequestAbortRef.current = controller;
+    const abortFromParent = () => controller.abort();
+    signal?.addEventListener("abort", abortFromParent, { once: true });
     setOperatorSessionStatus("checking");
     const request = (async () => {
       try {
-        const nextState = await getWeighbridgeOperatorState(companyId, { signal });
-        if (signal?.aborted) return;
+        const nextState = await getWeighbridgeOperatorState(companyId, { signal: controller.signal });
+        if (controller.signal.aborted || generation !== operatorRequestGenerationRef.current) return;
         setOperatorState(nextState);
         setActiveShift(nextState.shift || null);
         if (nextState.operator?.id) setOperatorPersonId(nextState.operator.id);
         setOperatorSessionStatus("ready");
       } catch (error: any) {
-        if (signal?.aborted || error?.name === "AbortError") return;
+        if (controller.signal.aborted || generation !== operatorRequestGenerationRef.current || error?.name === "AbortError") return;
         setOperatorSessionStatus("error");
         console.error("Operator session verification failed", error);
       }
     })().finally(() => {
+      signal?.removeEventListener("abort", abortFromParent);
       if (operatorRequestRef.current === request) operatorRequestRef.current = null;
+      if (operatorRequestAbortRef.current === controller) operatorRequestAbortRef.current = null;
     });
     operatorRequestRef.current = request;
     return request;
@@ -1382,7 +1398,7 @@ export default function WeighbridgeOperationsPage() {
       ticketsRequestRef.current = null;
       bootstrapRequestRef.current = null;
       bootstrapSummaryRequestRef.current = null;
-      operatorRequestRef.current = null;
+      invalidateOperatorSessionRequest();
     };
     // Requests are explicitly deduplicated and aborted when the company context changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1450,7 +1466,11 @@ export default function WeighbridgeOperationsPage() {
   }, [coreDataReady, profile?.company_id, language, fields, warehouses, vehicles, trailers, drivers, driverNames, transportPickerData, harvestStructureByField, harvestIncompleteFields, tickets, activeShift, operatorState, shiftCounters, shiftGuard, shiftSummary, harvestSummary]);
 
   useEffect(() => {
-    if (loading || operatorSessionStatus !== "ready" || !canUseOperatorSession || operatorState.unlocked || eligibleOperators.length === 0) return;
+    if (operatorState.unlocked) {
+      setOperatorDialogOpen(false);
+      return;
+    }
+    if (loading || operatorSessionStatus !== "ready" || !canUseOperatorSession || eligibleOperators.length === 0) return;
     setOperatorPersonId((current) => current || eligibleOperators[0]?.id || "");
     setOperatorDialogOpen(true);
   }, [loading, operatorSessionStatus, canUseOperatorSession, operatorState.unlocked, eligibleOperators]);
@@ -3336,6 +3356,7 @@ export default function WeighbridgeOperationsPage() {
   const submitOperatorAction = async () => {
     if (!profile?.company_id || !operatorPersonId || !/^\d{6}$/.test(operatorPin)) return;
     setOperatorBusy(true);
+    invalidateOperatorSessionRequest();
     try {
       const isHandover = Boolean(
         activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
@@ -3360,6 +3381,7 @@ export default function WeighbridgeOperationsPage() {
       void Promise.all([refreshTickets(), refreshBootstrap()]);
     } catch (e: any) {
       toast({ title: "PIN не подтверждён", description: e?.message || "Проверьте PIN весовщика.", variant: "destructive" });
+      void verifyOperatorSession();
     } finally {
       setOperatorBusy(false);
     }
@@ -3367,6 +3389,7 @@ export default function WeighbridgeOperationsPage() {
 
   const lockOperatorAction = async () => {
     if (!profile?.company_id) return;
+    invalidateOperatorSessionRequest();
     try {
       await lockWeighbridgeOperator(profile.company_id);
       setOperatorState((state) => ({ ...state, unlocked: false, operator: null, session_expires_at: null }));

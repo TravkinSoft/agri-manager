@@ -201,7 +201,8 @@ function ensureSufficientStockForMovement(
 export async function getWarehouses(
   companyId: string,
   includeArchived = false,
-  language: Language = "ru"
+  language: Language = "ru",
+  options?: { signal?: AbortSignal }
 ): Promise<Warehouse[]> {
   const query = new URLSearchParams();
   query.set("companyId", companyId);
@@ -211,6 +212,7 @@ export async function getWarehouses(
     method: "GET",
     headers,
     cache: "no-store",
+    signal: options?.signal,
   });
   const payload = await parseJsonOrThrow(response);
   return ((payload?.warehouses || []) as Warehouse[]).map((row: any) => ({
@@ -312,7 +314,11 @@ export async function deleteWarehouseHard(warehouseId: string, companyId?: strin
   await parseJsonOrThrow(response);
 }
 
-export async function getWarehouseDeleteCheck(warehouseId: string, companyId?: string): Promise<WarehouseDeleteCheck> {
+export async function getWarehouseDeleteCheck(
+  warehouseId: string,
+  companyId?: string,
+  options?: { signal?: AbortSignal }
+): Promise<WarehouseDeleteCheck> {
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
   const headers = await buildAuthHeaders("none");
@@ -322,6 +328,7 @@ export async function getWarehouseDeleteCheck(warehouseId: string, companyId?: s
       method: "GET",
       headers,
       cache: "no-store",
+      signal: options?.signal,
     }
   );
   const payload = await parseJsonOrThrow(response);
@@ -352,7 +359,8 @@ export async function getProducts(
   companyId: string,
   includeArchived = false,
   language: Language = "ru",
-  scope?: "agrochemical"
+  scope?: "agrochemical",
+  options?: { signal?: AbortSignal }
 ): Promise<Product[]> {
   const params = new URLSearchParams();
   params.set("companyId", companyId);
@@ -363,6 +371,7 @@ export async function getProducts(
     method: "GET",
     headers,
     cache: "no-store",
+    signal: options?.signal,
   });
   const payload = await parseJsonOrThrow(response);
   return ((payload?.products || []) as Product[]).map((row: any) => ({
@@ -590,7 +599,7 @@ export async function deleteInventoryTransaction(transactionId: string, companyI
 export async function getInventoryBalances(
   companyId: string,
   language: Language = "ru",
-  options?: { warehouseId?: string }
+  options?: { warehouseId?: string; signal?: AbortSignal }
 ): Promise<InventoryBalance[]> {
   const params = new URLSearchParams({ companyId, language });
   if (options?.warehouseId) params.set("warehouseId", options.warehouseId);
@@ -599,6 +608,7 @@ export async function getInventoryBalances(
     method: "GET",
     headers,
     cache: "no-store",
+    signal: options?.signal,
   });
   const payload = await parseJsonOrThrow(response);
   return Array.isArray(payload?.balances) ? (payload.balances as InventoryBalance[]) : [];
