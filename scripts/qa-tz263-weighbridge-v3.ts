@@ -244,14 +244,14 @@ check("each incoming trip opens the existing ticket over the warehouse lot", () 
   assert.match(lotDialog, /trip\.ticketId[\s\S]*openTicketPreview\(trip\.ticketId/);
   assert.match(lotDialog, /<TicketPreviewDialog/);
   assert.doesNotMatch(lotDialog, /\/weighbridge\?ticket=/);
-  assert.match(ticketPreview, /getTicketDetails\(ticketId\)/);
+  assert.match(ticketPreview, /getTicketDetails\(ticketId,/);
 });
 check("closing ticket preview restores the exact lot scroll position", () => {
   assert.match(lotDialog, /savedScrollTopRef\.current = scrollRef\.current\?\.scrollTop/);
   assert.match(lotDialog, /scrollRef\.current\.scrollTop = savedScrollTopRef\.current/);
 });
 check("warehouse ticket PDF is generated only from its explicit button", () => {
-  assert.match(ticketPreview, /onClick=\{\(\) => ticket && downloadTicketPdf\(ticket\.id\)\}/);
+  assert.match(ticketPreview, /onClick=\{\(\) => void downloadTicketPdf\(ticket\.id\)\}/);
   assert.equal((ticketPreview.match(/downloadTicketPdf\(/g) || []).length, 1);
 });
 check("deep-linked historical QA tickets bypass only the list filter, not RLS", () => {
@@ -352,10 +352,10 @@ check("warehouse overlay shows correction status and replacement relation", () =
 });
 
 check("one canonical ticket component is shared by weighbridge and history", () => {
-  assert.equal((page.match(/<WeighbridgeTicketPaper ticket=/g) || []).length, 2);
+  assert.equal((page.match(/<WeighbridgeTicketPaper/g) || []).length, 2);
 });
 check("warehouse trip overlay uses the canonical ticket component", () => {
-  assert.match(ticketPreview, /<WeighbridgeTicketPaper ticket=\{ticket\}/);
+  assert.match(ticketPreview, /<WeighbridgeTicketPaper\s+ticket=\{ticket\}/);
 });
 check("PDF print uses the canonical ticket component", () => {
   assert.match(printPage, /<WeighbridgeTicketPaper ticket=\{ticket\}/);

@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = performance.now();
   try {
     const body = await request.json().catch(() => ({}));
     const action = String(body?.action || "unlock");
@@ -99,25 +100,26 @@ export async function POST(request: NextRequest) {
           p_pin: String(body?.pin || ""),
           p_opening_note: String(body?.note || "").trim() || null,
         };
+    const rpcStartedAt = performance.now();
     const { data, error } = await supabase.rpc(rpcName, args);
+    const rpcMs = performance.now() - rpcStartedAt;
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     const payload = (data || {}) as Record<string, any>;
     if (!payload.ok) {
       const code = String(payload.code || "unknown");
       return NextResponse.json({ ...payload, error: failureMessage(code) }, { status: statusForCode(code) });
     }
-    const token = String(payload.token || "");
-    const { data: sessionState, error: sessionStateError } = await supabase.rpc(
-      "weighbridge_operator_session_state_v1",
-      {
-        p_company_id: companyId,
-        p_session_token: token,
-      }
+    const canonicalPayload = {
+      ...payload,
+      unlocked: true,
+      session_expires_at: payload.session_expires_at ?? payload.expires_at ?? null,
+    };
+    const response = jsonWithOperatorCookie(canonicalPayload);
+    response.headers.set(
+      "Server-Timing",
+      `operator_rpc;dur=${rpcMs.toFixed(1)}, total;dur=${(performance.now() - startedAt).toFixed(1)}`
     );
-    if (sessionStateError) {
-      return NextResponse.json({ error: sessionStateError.message }, { status: 400 });
-    }
-    return jsonWithOperatorCookie({ ...payload, ...(sessionState || {}), token });
+    return response;
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) return NextResponse.json({ error: sessionError.error }, { status: sessionError.status });

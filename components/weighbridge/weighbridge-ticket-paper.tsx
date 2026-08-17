@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import type { WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { formatWeightKg, formatWeightNumber } from "@/lib/weighbridge/weight-format";
 import { ticketOperatorFacts } from "@/lib/weighbridge/ticket-operator";
+import { transportPickerLabel } from "@/lib/weighbridge/transport";
 
 export type WeighbridgeTicketPaperLabels = {
   company?: string | null;
@@ -17,6 +18,19 @@ export type WeighbridgeTicketPaperLabels = {
   trailer?: string | null;
   trailerPlate?: string | null;
   driver?: string | null;
+};
+
+export type WeighbridgeTicketWeightEditor = {
+  tareValue: string;
+  moistureValue: string;
+  netKg: number | null;
+  disabled?: boolean;
+  moistureSaving?: boolean;
+  tareError?: string;
+  tareInputRef?: React.Ref<HTMLInputElement>;
+  onTareChange: (value: string) => void;
+  onMoistureChange: (value: string) => void;
+  onMoistureCommit: () => void;
 };
 
 const clean = (value: unknown) => {
@@ -95,8 +109,8 @@ function PaperSection({
   children: React.ReactNode;
 }) {
   return (
-    <section className="mb-3 rounded border border-[#b8a788] p-3 text-sm">
-      <h3 className="mb-2 text-center text-base font-black tracking-wide">{title}</h3>
+    <section className="mb-2 rounded border border-[#b8a788] p-2 text-sm">
+      <h3 className="mb-1.5 text-center text-sm font-black tracking-wide">{title}</h3>
       {children}
     </section>
   );
@@ -116,10 +130,14 @@ export function WeighbridgeTicketPaper({
   ticket,
   labels = {},
   className,
+  headerActions,
+  weightEditor,
 }: {
   ticket: WeighbridgeTicket;
   labels?: WeighbridgeTicketPaperLabels;
   className?: string;
+  headerActions?: React.ReactNode;
+  weightEditor?: WeighbridgeTicketWeightEditor;
 }) {
   const lines = ticket.lines || [];
   const mainLine = lines[0] || null;
@@ -134,6 +152,7 @@ export function WeighbridgeTicketPaper({
   const buyer = first(labels.buyer, ticket.buyer_name_snapshot);
   const vehicle = first(labels.vehicle, ticket.vehicle_name_snapshot);
   const vehiclePlate = first(labels.vehiclePlate, ticket.vehicle_plate_snapshot);
+  const vehicleDisplay = transportPickerLabel({ name: vehicle, plate: vehiclePlate });
   const trailer = first(labels.trailer, ticket.trailer_name_snapshot);
   const trailerPlate = first(labels.trailerPlate, ticket.trailer_plate_snapshot);
   const driver = first(labels.driver, ticket.driver_name_snapshot);
@@ -152,22 +171,25 @@ export function WeighbridgeTicketPaper({
   );
   const hasWeight = [ticket.gross_weight_kg, ticket.tare_weight_kg, ticket.net_weight_kg].some(
     (value) => value != null && Number.isFinite(Number(value))
-  );
+  ) || Boolean(weightEditor);
+  const displayedNetKg = weightEditor ? weightEditor.netKg : ticket.net_weight_kg;
+  const showMoistureEditor = Boolean(weightEditor && isHarvest && !isPotato(crop));
   const showProductLines = !isHarvest && (isSupplier ? lines.length > 1 : lines.length > 0);
 
   return (
     <article
       className={cn(
-        "weighbridge-print-sheet mx-auto w-full max-w-[540px] rounded-md border border-[#b8a788] bg-[#f7f1e3] p-4 text-[#1f1b16]",
+        "weighbridge-print-sheet mx-auto w-full max-w-[680px] rounded-md border border-[#b8a788] bg-[#f7f1e3] p-3 text-[#1f1b16]",
         className
       )}
       style={{ boxShadow: "inset 0 0 40px rgba(80,56,30,0.08)" }}
     >
-      <header className="mb-3 border-b border-[#b8a788] pb-3 text-center">
+      <header className="relative mb-2 border-b border-[#b8a788] pb-2 text-center">
+        {headerActions ? <div className="absolute right-0 top-0 print:hidden">{headerActions}</div> : null}
         <div className="text-sm font-semibold tracking-wide">{company}</div>
-        <div className="mt-1 text-3xl font-black">ВЕСОВОЙ ТАЛОН</div>
-        <div className="mt-1 text-lg font-bold">№ {ticket.ticket_no}</div>
-        <div className="mt-2 grid grid-cols-2 gap-2 text-left text-sm">
+        <div className="mt-0.5 text-2xl font-black">ВЕСОВОЙ ТАЛОН</div>
+        <div className="text-base font-bold">№ {ticket.ticket_no}</div>
+        <div className="mt-1 grid grid-cols-2 gap-2 text-left text-xs sm:text-sm">
           <Fact label="Статус" value={statusLabel(ticket.status)} strong />
           <Fact label="Тип операции" value={operationLabel(ticket.op_type)} strong />
         </div>
@@ -176,11 +198,11 @@ export function WeighbridgeTicketPaper({
       {isHarvest ? (
         <PaperSection title="УРОЖАЙ">
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-            <Fact label="Поле" value={field || "Не указано"} />
-            <Fact label="Место приёмки" value={warehouseTo || "Не указано"} />
-            <Fact label="Культура" value={crop || "Не указана"} />
-            <Fact label="Сорт" value={variety || "Не указан"} />
-            <Fact label="Репродукция" value={reproduction || "Не указана"} />
+            <Fact label="Поле" value={field} />
+            <Fact label="Место приёмки" value={warehouseTo} />
+            <Fact label="Культура" value={crop} />
+            <Fact label="Сорт" value={variety} />
+            <Fact label="Репродукция" value={reproduction} />
           </div>
         </PaperSection>
       ) : (
@@ -197,11 +219,10 @@ export function WeighbridgeTicketPaper({
         </PaperSection>
       )}
 
-      {(vehicle || vehiclePlate || trailer || driver) ? (
+      {(vehicleDisplay || trailer || driver) ? (
         <PaperSection title="ТРАНСПОРТ">
           <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-            <Fact label="Машина" value={vehicle} strong />
-            <Fact label="Госномер" value={vehiclePlate} />
+            <Fact label="Машина" value={vehicleDisplay} strong />
             <Fact label="Прицеп" value={[trailer, trailerPlate].filter(Boolean).join(" · ")} />
             <Fact label="Водитель" value={driver} strong />
           </div>
@@ -213,13 +234,51 @@ export function WeighbridgeTicketPaper({
           {hasWeight ? (
             <div className="grid grid-cols-3 gap-2 text-center">
               {ticket.gross_weight_kg != null ? <div><div className="text-xs text-[#5d4f3d]">Брутто</div><div className="text-lg font-bold">{formatWeightKg(ticket.gross_weight_kg)}</div></div> : null}
-              {ticket.tare_weight_kg != null ? <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-lg font-bold">{formatWeightKg(ticket.tare_weight_kg)}</div></div> : null}
-              {ticket.net_weight_kg != null ? <div className="rounded border-2 border-[#7b633f] bg-[#eee2ca] px-1 py-1"><div className="text-xs font-bold text-[#5d4f3d]">Нетто</div><div className="text-2xl font-black">{formatWeightKg(ticket.net_weight_kg)}</div></div> : null}
+              {weightEditor ? (
+                <label className="block text-left">
+                  <span className="block text-center text-xs text-[#5d4f3d]">Тара</span>
+                  <input
+                    ref={weightEditor.tareInputRef}
+                    inputMode="decimal"
+                    value={weightEditor.tareValue}
+                    onChange={(event) => weightEditor.onTareChange(event.target.value)}
+                    disabled={weightEditor.disabled}
+                    aria-label="Тара, кг"
+                    className="mt-0.5 h-9 w-full rounded border border-[#9e8967] bg-white/70 px-2 text-center text-base font-bold outline-none focus:border-[#8a6b22] focus:ring-2 focus:ring-[#d7ae35]/40"
+                  />
+                </label>
+              ) : ticket.tare_weight_kg != null ? <div><div className="text-xs text-[#5d4f3d]">Тара</div><div className="text-lg font-bold">{formatWeightKg(ticket.tare_weight_kg)}</div></div> : null}
+              <div className="rounded border-2 border-[#7b633f] bg-[#eee2ca] px-1 py-1">
+                <div className="text-xs font-bold text-[#5d4f3d]">Нетто</div>
+                <div className="text-xl font-black">{displayedNetKg == null ? "—" : formatWeightKg(displayedNetKg)}</div>
+              </div>
             </div>
           ) : null}
-          {(moisture || dockage || dirtTare) ? (
-            <div className={cn("grid grid-cols-2 gap-2", hasWeight && "mt-3 border-t border-[#c7b797] pt-2")}>
-              <Fact label="Влажность" value={moisture} />
+          {weightEditor?.tareError ? <div className="mt-1 text-xs font-semibold text-red-700">{weightEditor.tareError}</div> : null}
+          {(showMoistureEditor || moisture || dockage || dirtTare) ? (
+            <div className={cn("grid grid-cols-2 gap-2", hasWeight && "mt-2 border-t border-[#c7b797] pt-2")}>
+              {showMoistureEditor ? (
+                <label className="min-w-0">
+                  <span className="text-[#5d4f3d]">Влажность, %:</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={weightEditor?.moistureValue || ""}
+                    onChange={(event) => weightEditor?.onMoistureChange(event.target.value)}
+                    onBlur={() => weightEditor?.onMoistureCommit()}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter") return;
+                      event.preventDefault();
+                      weightEditor?.onMoistureCommit();
+                    }}
+                    disabled={weightEditor?.disabled || weightEditor?.moistureSaving}
+                    className="ml-2 h-8 w-24 rounded border border-[#9e8967] bg-white/70 px-2 font-semibold outline-none focus:border-[#8a6b22] focus:ring-2 focus:ring-[#d7ae35]/40"
+                  />
+                </label>
+              ) : <Fact label="Влажность" value={moisture} />}
               <Fact label="Примеси" value={dockage} />
               <Fact label="Сорная примесь" value={dirtTare} />
             </div>

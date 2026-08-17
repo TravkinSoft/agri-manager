@@ -227,12 +227,13 @@ export async function closeShift(
   return parseJsonOrThrow(response);
 }
 
-export async function getTicketDetails(ticketId: string, _userId?: string) {
+export async function getTicketDetails(ticketId: string, _userId?: string, options?: { signal?: AbortSignal }) {
   const headers = await buildClientAuthHeaders("none");
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}`, {
     method: "GET",
     cache: "no-store",
     headers,
+    signal: options?.signal,
   });
   return parseJsonOrThrow(response);
 }

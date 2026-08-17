@@ -48,12 +48,43 @@ export function formatVehiclePlate(value: unknown) {
   return readable;
 }
 
-export function transportPickerLabel(transport: { name?: string; model?: string; plate?: string }) {
+const INVALID_PLATE_PATTERNS = [
+  /^OSV[-_\s]?ROW[-_\s]?/iu,
+  /^IMPORT[-_\s]?/iu,
+  /^(SOURCE|SRC)[-_\s]?ROW[-_\s]?/iu,
+  /^(ROW|LINE)[-_\s]?\d+$/iu,
+  /^\d{4,}[-/]\d+$/u,
+  /^(NULL|NONE|N\/A|НЕТ|БЕЗ НОМЕРА)$/iu,
+];
+
+export function isRealVehiclePlate(value: unknown) {
+  const plate = String(value || "").trim();
+  if (!plate || INVALID_PLATE_PATTERNS.some((pattern) => pattern.test(plate))) return false;
+  const compact = plate.replace(/[^\p{L}\p{N}]+/gu, "");
+  return compact.length >= 4 && /\d/u.test(compact);
+}
+
+const GENERIC_TRANSPORT_NAMES = /^(транспорт|машина|автомобиль|vehicle|truck)$/iu;
+
+export function transportDisplayName(transport: { name?: string; model?: string; plate?: string }) {
   const name = String(transport.name || "").trim();
   const model = String(transport.model || "").trim();
-  const plate = formatVehiclePlate(transport.plate);
-  const brand = model && name.toLocaleLowerCase("ru-RU").includes(model.toLocaleLowerCase("ru-RU"))
-    ? name.replace(new RegExp(model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "iu"), "").replace(/[·,;()\-]+$/u, "").trim()
-    : name;
-  return [brand || (name !== model ? name : "") || "Транспорт", plate].filter(Boolean).join(" · ");
+  const specificName = name && !GENERIC_TRANSPORT_NAMES.test(name) ? name : "";
+  if (specificName) {
+    if (model && specificName.toLocaleLowerCase("ru-RU").includes(model.toLocaleLowerCase("ru-RU"))) {
+      const escapedModel = model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return specificName
+        .replace(new RegExp(escapedModel, "iu"), "")
+        .replace(/[·,;()\-]+$/u, "")
+        .trim() || specificName;
+    }
+    return specificName.replace(/\s+\d{4,}(?:[-/]\d+)+(?:\s.*)?$/u, "").trim() || specificName;
+  }
+  return model.replace(/\s+\d{4,}(?:[-/]\d+)+(?:\s.*)?$/u, "").trim() || model;
+}
+
+export function transportPickerLabel(transport: { name?: string; model?: string; plate?: string }) {
+  const name = transportDisplayName(transport);
+  const plate = isRealVehiclePlate(transport.plate) ? formatVehiclePlate(transport.plate) : "";
+  return [name, plate].filter(Boolean).join(" · ");
 }

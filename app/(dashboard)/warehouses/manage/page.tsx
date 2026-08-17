@@ -93,9 +93,73 @@ type WarehouseManageCacheEntry = {
   warehouses: Warehouse[];
   products: Product[];
   balances: InventoryBalance[];
+  deleteChecks: Record<string, WarehouseDeleteCheck>;
+  confirmedAt: number;
+  productsLoaded: boolean;
+  balancesLoaded: boolean;
 };
 
 const warehouseManageCache = new Map<string, WarehouseManageCacheEntry>();
+
+const REQUEST_TIMEOUT_MS = 12_000;
+const CONFIRMED_CACHE_TTL_MS = 5 * 60_000;
+const SESSION_CACHE_PREFIX = "travkinflow:warehouses-manage:v1:";
+
+function readConfirmedWarehouseCache(cacheKey: string): WarehouseManageCacheEntry | null {
+  const memoryEntry = warehouseManageCache.get(cacheKey);
+  if (memoryEntry) return memoryEntry;
+  try {
+    const raw = window.sessionStorage.getItem(`${SESSION_CACHE_PREFIX}${cacheKey}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<WarehouseManageCacheEntry>;
+    if (!Array.isArray(parsed.warehouses) || typeof parsed.confirmedAt !== "number") return null;
+    const entry: WarehouseManageCacheEntry = {
+      warehouses: parsed.warehouses,
+      products: [],
+      balances: [],
+      deleteChecks: {},
+      confirmedAt: parsed.confirmedAt,
+      productsLoaded: false,
+      balancesLoaded: false,
+    };
+    warehouseManageCache.set(cacheKey, entry);
+    return entry;
+  } catch {
+    return null;
+  }
+}
+
+function writeConfirmedWarehouseCache(cacheKey: string, entry: WarehouseManageCacheEntry) {
+  warehouseManageCache.set(cacheKey, entry);
+  try {
+    // Persist only the lightweight primary list. Product and balance catalogs remain memory-only.
+    window.sessionStorage.setItem(
+      `${SESSION_CACHE_PREFIX}${cacheKey}`,
+      JSON.stringify({ warehouses: entry.warehouses, confirmedAt: entry.confirmedAt })
+    );
+  } catch {
+    // A full sessionStorage quota must never block the management page.
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = window.setTimeout(
+      () => reject(new Error(`${label}: превышено время ожидания`)),
+      REQUEST_TIMEOUT_MS
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(timeoutId);
+        reject(error);
+      }
+    );
+  });
+}
 
 function formatCapacity(row: Warehouse): string {
   if (row.capacity_value == null || row.capacity_unit == null) return "—";
@@ -108,12 +172,14 @@ export default function ManageWarehousesPage() {
   const [balances, setBalances] = useState<InventoryBalance[]>([]);
   const [deleteChecks, setDeleteChecks] = useState<Record<string, WarehouseDeleteCheck>>({});
   const [loading, setLoading] = useState(true);
+  const [productsLoading, setProductsLoading] = useState(false);
   const [warehouseDialogOpen, setWarehouseDialogOpen] = useState(false);
   const [productDialogOpen, setProductDialogOpen] = useState(false);
   const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [productsLoadError, setProductsLoadError] = useState<string | null>(null);
   const loadGenerationRef = useRef(0);
   const loadAbortRef = useRef<AbortController | null>(null);
   const deleteChecksAbortRef = useRef<AbortController | null>(null);
@@ -173,6 +239,10 @@ export default function ManageWarehousesPage() {
       if (result.status === "fulfilled") nextMap[result.value.warehouseId] = result.value.check;
     });
     setDeleteChecks(nextMap);
+    const cached = warehouseManageCache.get(activeCacheKeyRef.current);
+    if (cached) {
+      writeConfirmedWarehouseCache(activeCacheKeyRef.current, { ...cached, deleteChecks: nextMap });
+    }
   };
 
   const loadData = async ({ foreground = true }: { foreground?: boolean } = {}) => {
@@ -187,29 +257,64 @@ export default function ManageWarehousesPage() {
     try {
       if (showLoading) setLoading(true);
       setLoadError(null);
-      const [warehousesData, productsData, balanceRows] = await Promise.all([
-        getWarehouses(companyId, true, language, { signal: controller.signal }),
-        canManageProducts
-          ? getProducts(companyId, false, language, undefined, { signal: controller.signal })
-          : Promise.resolve([]),
+      setProductsLoadError(null);
+      const productsPromise = canManageProducts
+        ? withTimeout(
+            getProducts(companyId, false, language, undefined, { signal: controller.signal }),
+            t("Продукты", "Өнімдер", "Products")
+          )
+        : Promise.resolve([] as Product[]);
+      const balancesPromise = withTimeout(
         getInventoryBalances(companyId, language, { signal: controller.signal }),
-      ]);
+        t("Остатки", "Қалдықтар", "Balances")
+      );
+      if (canManageProducts) setProductsLoading(true);
+
+      const warehousesData = await withTimeout(
+        getWarehouses(companyId, true, language, { signal: controller.signal }),
+        t("Склады", "Қоймалар", "Warehouses")
+      );
       if (controller.signal.aborted || generation !== loadGenerationRef.current) return;
       setWarehouses(warehousesData);
-      setProducts(productsData);
-      setBalances(balanceRows);
       confirmedDataRef.current = true;
-      warehouseManageCache.set(cacheKey, {
-        warehouses: warehousesData,
-        products: productsData,
-        balances: balanceRows,
-      });
       setLoading(false);
+      const previous = warehouseManageCache.get(cacheKey);
+      writeConfirmedWarehouseCache(cacheKey, {
+        warehouses: warehousesData,
+        products: previous?.products || products,
+        balances: previous?.balances || balances,
+        deleteChecks: previous?.deleteChecks || {},
+        confirmedAt: Date.now(),
+        productsLoaded: previous?.productsLoaded || !canManageProducts,
+        balancesLoaded: previous?.balancesLoaded || false,
+      });
       if (canManageWarehouses && warehousesData.length > 0) {
         void loadDeleteChecks(warehousesData, companyId, generation);
       } else {
         setDeleteChecks({});
       }
+
+      const [productsResult, balancesResult] = await Promise.allSettled([productsPromise, balancesPromise]);
+      if (controller.signal.aborted || generation !== loadGenerationRef.current) return;
+      const nextProducts = productsResult.status === "fulfilled" ? productsResult.value : (previous?.products || products);
+      const nextBalances = balancesResult.status === "fulfilled" ? balancesResult.value : (previous?.balances || balances);
+      if (productsResult.status === "fulfilled") {
+        setProducts(productsResult.value);
+      } else if (canManageProducts) {
+        setProductsLoadError(
+          productsResult.reason?.message || t("Не удалось загрузить продукты", "Өнімдер жүктелмеді", "Failed to load products")
+        );
+      }
+      if (balancesResult.status === "fulfilled") setBalances(balancesResult.value);
+      writeConfirmedWarehouseCache(cacheKey, {
+        warehouses: warehousesData,
+        products: nextProducts,
+        balances: nextBalances,
+        deleteChecks: warehouseManageCache.get(cacheKey)?.deleteChecks || {},
+        confirmedAt: Date.now(),
+        productsLoaded: productsResult.status === "fulfilled" || !canManageProducts,
+        balancesLoaded: balancesResult.status === "fulfilled",
+      });
     } catch (error: any) {
       if (controller.signal.aborted || generation !== loadGenerationRef.current || error?.name === "AbortError") return;
       const message = error?.message || t("Не удалось загрузить данные", "Деректерді жүктеу мүмкін болмады", "Failed to load data");
@@ -221,7 +326,8 @@ export default function ManageWarehousesPage() {
       });
     } finally {
       if (generation === loadGenerationRef.current) {
-        if (showLoading) setLoading(false);
+        setLoading(false);
+        setProductsLoading(false);
         if (loadAbortRef.current === controller) loadAbortRef.current = null;
       }
     }
@@ -231,16 +337,18 @@ export default function ManageWarehousesPage() {
     const companyId = profile?.company_id;
     if (!companyId) return;
     const cacheKey = `${companyId}:${language}:${canManageProducts ? "global" : "company"}`;
-    const cached = warehouseManageCache.get(cacheKey);
+    const cached = readConfirmedWarehouseCache(cacheKey);
     if (activeCacheKeyRef.current !== cacheKey) {
       activeCacheKeyRef.current = cacheKey;
       deleteChecksAbortRef.current?.abort();
       setDeleteChecks({});
       setLoadError(null);
+      setProductsLoadError(null);
       if (cached) {
         setWarehouses(cached.warehouses);
         setProducts(cached.products);
         setBalances(cached.balances);
+        setDeleteChecks(cached.deleteChecks);
         confirmedDataRef.current = true;
         setLoading(false);
       } else {
@@ -251,7 +359,12 @@ export default function ManageWarehousesPage() {
         setLoading(true);
       }
     }
-    void loadData({ foreground: !cached });
+    const cacheIsFresh =
+      cached &&
+      Date.now() - cached.confirmedAt < CONFIRMED_CACHE_TTL_MS &&
+      cached.balancesLoaded &&
+      (!canManageProducts || cached.productsLoaded);
+    if (!cacheIsFresh) void loadData({ foreground: !cached });
     return () => {
       loadAbortRef.current?.abort();
       deleteChecksAbortRef.current?.abort();
@@ -583,6 +696,11 @@ export default function ManageWarehousesPage() {
                 </Button>
               </CardHeader>
               <CardContent className="p-0">
+                {productsLoadError ? (
+                  <div role="alert" className="border-b border-amber-700/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">
+                    {productsLoadError}
+                  </div>
+                ) : null}
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -593,7 +711,7 @@ export default function ManageWarehousesPage() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {loading ? (
+                    {productsLoading && products.length === 0 ? (
                       <TableRow>
                         <TableCell colSpan={4} className="text-center text-slate-500 py-8">
                           {t("Загрузка...", "Жүктелуде...", "Loading...")}
