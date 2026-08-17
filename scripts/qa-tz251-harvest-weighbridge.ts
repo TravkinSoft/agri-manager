@@ -84,7 +84,7 @@ check("30 driver list is searchable", () => {
   assert(has(picker, ["Машина, модель или госномер", "Имя или фамилия водителя"]));
 });
 check("31 stale shift guard exists", () => assert(has(bootstrapRoute, ["shiftGuard", "ageHours", "stale"])));
-check("32 bootstrap and allocations load in parallel", () => assert(has(page, ["getWeighbridgeBootstrap(profile.company_id", "loadHarvestAllocations(profile.company_id)"])));
+check("32 resources and allocations load in parallel", () => assert(has(page, ["getWeighbridgeResources(companyId", "loadHarvestAllocations(companyId, requestSignal)"])));
 check("33 gross idempotency survives refresh", () => assert(has(page, [".idempotency", "localStorage.setItem", "localStorage.removeItem"])));
 check("34 tare API accepts moisture", () => assert(service.includes("moisture_percent?: number")));
 check("35 working ticket UI does not show UUID", () => assert(!page.includes('>ID:</span> <span className="font-semibold">{activeTicket.id}')));

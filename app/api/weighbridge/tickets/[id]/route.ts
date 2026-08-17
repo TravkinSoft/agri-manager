@@ -169,8 +169,8 @@ export async function GET(
     const enrichedLines = (lines || []).map((line: any) => ({
       ...line,
       product_name: line.product_name_snapshot || brandName(productById.get(String(line.product_id))) || "-",
-      variety_name: line.variety_name_snapshot || brandName(varietyById.get(String(line.variety_id))) || "-",
-      reproduction_name: line.reproduction_name_snapshot || localizedName(reproductionById.get(String(line.reproduction_id)), "ru", ["name", "code"]) || "-",
+      variety_name: line.variety_name_snapshot || brandName(varietyById.get(String(line.variety_id))) || "",
+      reproduction_name: line.reproduction_name_snapshot || localizedName(reproductionById.get(String(line.reproduction_id)), "ru", ["name", "code"]) || "",
       warehouse_from_name: line.warehouse_from_id ? lineWarehouseById.get(String(line.warehouse_from_id))?.name || null : null,
       warehouse_to_name: line.warehouse_to_id ? lineWarehouseById.get(String(line.warehouse_to_id))?.name || null : null,
     }));

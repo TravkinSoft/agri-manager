@@ -292,8 +292,7 @@ const allocationFromRow = (row: any): Allocation => ({
   row_spacing_m: row.row_spacing_m == null ? null : Number(row.row_spacing_m || 0),
   seed_spacing_cm: row.seed_spacing_cm == null ? null : Number(row.seed_spacing_cm || 0),
   identity_review_required:
-    row.identity_review_required === true ||
-    (row.land_use_type === "crop" && (!row.crop_id || !row.variety_id || !row.reproduction_id)),
+    row.identity_review_required === true,
   identity_review_reason: row.identity_review_reason || null,
   mix_components: Array.isArray(row.mix_components)
     ? row.mix_components
@@ -624,8 +623,8 @@ export default function CropStructurePage() {
   }, [allocByField, selectedDossierAllocationKey, selectedField]);
 
   const cropName = (id?: string | null) => (id && cropMap.get(id) ? cropLabel(cropMap.get(id) as Crop) : "-");
-  const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "-" : "-");
-  const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? standardReproductionLabel(reproductionMap.get(id)) : "-");
+  const varietyName = (id?: string | null) => (id && varietyMap.get(id) ? varietyMap.get(id)?.name || "" : "");
+  const reproductionName = (id?: string | null) => (id && reproductionMap.get(id) ? standardReproductionLabel(reproductionMap.get(id)) : "");
   const compactReproductionName = (id?: string | null) => {
     if (!id) return "";
     const item = reproductionMap.get(id);
@@ -1311,9 +1310,9 @@ export default function CropStructurePage() {
             }))
           : [];
       }
-      if (patch.crop_id && patch.crop_id !== old.crop_id) {
-        const availableVarieties = varietiesByCrop.get(displayCropId(patch.crop_id) || patch.crop_id) || [];
-        merged.variety_id = availableVarieties.length === 1 ? availableVarieties[0].id : null;
+      if ("crop_id" in patch && patch.crop_id !== old.crop_id) {
+        merged.variety_id = null;
+        merged.reproduction_id = null;
       }
       merged = normalizeCropStructureSeedAttributes(
         merged,
@@ -2700,8 +2699,9 @@ export default function CropStructurePage() {
                         <SelectContent className={editorSelectContentClass}><SelectItem value="none">—</SelectItem>{cropSelectOptions(rowCropId).map((crop) => <SelectItem key={crop.id} value={crop.id}>{cropLabel(crop)}</SelectItem>)}</SelectContent>
                       </Select>
                     </div>
+                    {row.crop_id && vars.length > 0 ? (
                     <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
-                      <Label className={editorLabelClass}>Сорт *</Label>
+                      <Label className={editorLabelClass}>Сорт</Label>
                       <CatalogIdentityCombobox
                         value={row.variety_id}
                         options={vars.map((variety) => ({
@@ -2714,15 +2714,14 @@ export default function CropStructurePage() {
                         searchPlaceholder="Поиск сорта..."
                         emptyMessage={row.crop_id ? "Для выбранной культуры пока нет глобальных сортов." : "Сначала выберите культуру"}
                         className={editorControlClass}
-                        disabled={!row.crop_id || vars.length === 0}
+                        disabled={!row.crop_id}
                         onChange={(value) => patchDraft(index, { variety_id: value })}
                       />
-                      {row.crop_id && vars.length === 0 ? (
-                        <div className="mt-1 text-[11px] text-amber-300">Для выбранной культуры пока нет глобальных сортов.</div>
-                      ) : null}
                     </div>
+                    ) : null}
+                    {row.crop_id && globalReproductions.length > 0 ? (
                     <div className="col-span-12 min-w-0 sm:col-span-6 xl:col-span-3">
-                      <Label className={editorLabelClass}>Репродукция *</Label>
+                      <Label className={editorLabelClass}>Репродукция / поколение</Label>
                       <CatalogIdentityCombobox
                         value={row.reproduction_id}
                         options={globalReproductions.map((item) => ({
@@ -2739,6 +2738,7 @@ export default function CropStructurePage() {
                         onChange={(value) => patchDraft(index, { reproduction_id: value })}
                       />
                     </div>
+                    ) : null}
                   </>
                 ) : null}
                 {isCropMixRow ? (
@@ -2790,7 +2790,7 @@ export default function CropStructurePage() {
                               />
                             </div>
                             <div className="col-span-12 min-w-0 md:col-span-3">
-                              <Label className={editorLabelClass}>Репродукция *</Label>
+                              <Label className={editorLabelClass}>Репродукция / поколение *</Label>
                               <CatalogIdentityCombobox
                                 value={component.reproduction_id}
                                 options={globalReproductions.map((item) => ({

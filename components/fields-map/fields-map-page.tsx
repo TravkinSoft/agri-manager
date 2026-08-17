@@ -2968,8 +2968,8 @@ export function FieldsMapPage() {
                 <div className="grid gap-1 text-sm text-slate-300">
                   <div>Площадь: {formatHa(selectedField?.field_area_ha || 0)}</div>
                   <div>План: {selectedField?.crop_plan?.crop_name || "Не указано"}</div>
-                  <div>Сорт: {selectedField?.crop_plan?.variety_name || "—"}</div>
-                  <div>Репродукция: {selectedField?.crop_plan?.reproduction_name || "—"}</div>
+                  {selectedField?.crop_plan?.variety_name ? <div>Сорт: {selectedField.crop_plan.variety_name}</div> : null}
+                  {selectedField?.crop_plan?.reproduction_name ? <div>Репродукция: {selectedField.crop_plan.reproduction_name}</div> : null}
                   <div>Последние операции: {selectedField?.recent_operations?.length || 0}</div>
                 </div>
               </div>

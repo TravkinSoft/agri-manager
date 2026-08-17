@@ -112,12 +112,12 @@ export function validateAndNormalizeCropStructureRows<T extends CropStructureSee
 
     const crop = row.crop_id ? params.cropsById.get(row.crop_id) : null;
     const landUseType = getCropStructureLandUseType(row, crop);
-    if (landUseType === "crop" && (!row.crop_id || !row.variety_id || !row.reproduction_id)) {
+    if (landUseType === "crop" && !row.crop_id) {
       return {
         ok: false,
         rows: normalizedRows,
         rowIndex: index,
-        message: "Укажите культуру, сорт, репродукцию и площадь.",
+        message: "Укажите культуру и площадь.",
       };
     }
     if (

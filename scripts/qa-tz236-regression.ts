@@ -74,8 +74,8 @@ const varietyMap = new Map([
 const validateRows = (rows: typeof validRow[], fieldArea = 100) =>
   validateAndNormalizeCropStructureRows({ rows, cropsById: crops, varietiesById: varietyMap, fieldArea });
 
-check("missing variety blocks crop structure save", () => assert.equal(validateRows([{ ...validRow, variety_id: null } as any]).ok, false));
-check("missing reproduction blocks crop structure save", () => assert.equal(validateRows([{ ...validRow, reproduction_id: null } as any]).ok, false));
+check("missing variety is accepted in crop structure", () => assert.equal(validateRows([{ ...validRow, variety_id: null } as any]).ok, true));
+check("missing reproduction is accepted in crop structure", () => assert.equal(validateRows([{ ...validRow, reproduction_id: null } as any]).ok, true));
 check("variety from another crop is rejected", () => assert.equal(validateRows([{ ...validRow, variety_id: "global-barley" }]).ok, false));
 check("area overflow is rejected", () => assert.equal(validateRows([{ ...validRow, area: 101 }], 100).ok, false));
 check("equal crop identities are accepted as separate field sections", () => {
@@ -152,7 +152,7 @@ check("weight and ticket line update is atomic", () => assert.match(harvestMigra
 check("server overwrites submitted identity from crop structure", () =>
   assert.match(ticketsRoute, /line\.variety_id = harvestIsCropMix \? null : harvestContext\.allocation\?\.varietyId/)
 );
-check("server rejects harvest product identity mismatch", () => assert.match(ticketsRoute, /isHarvestProductForAllocation/));
+check("server resolves harvest product from canonical crop identity", () => assert.match(ticketsRoute, /ensureHarvestProductIdentity/));
 check("server accepts a valid crop structure without mandatory operation", () => assert.doesNotMatch(ticketsRoute, /if \(!ticket\.linked_operation_id\)/));
 check("server validates crop-to-variety relation", () => assert.match(cropRoute, /varietiesById/));
 check("server restricts writes to current season", () => assert.match(cropRoute, /Only the current season crop structure can be edited/));

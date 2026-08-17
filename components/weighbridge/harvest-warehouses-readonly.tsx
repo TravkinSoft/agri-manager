@@ -73,10 +73,10 @@ export function HarvestWarehousesReadonly({ companyId }: { companyId: string }) 
                 <Card key={batch.id} className="rounded-md border-slate-800 bg-slate-900/60">
                   <CardHeader className="pb-3">
                     <CardTitle className="flex items-start justify-between gap-3 text-base">
-                      <span className="flex min-w-0 items-center gap-2"><PackageOpen className="h-4 w-4 shrink-0 text-emerald-400" /><span className="truncate">{batch.cropName} / {batch.varietyName}</span></span>
+                      <span className="flex min-w-0 items-center gap-2"><PackageOpen className="h-4 w-4 shrink-0 text-emerald-400" /><span className="truncate">{[batch.cropName, batch.varietyName].filter(Boolean).join(" / ")}</span></span>
                       <Badge variant="outline" className="shrink-0">{batch.batchCode}</Badge>
                     </CardTitle>
-                    <div className="text-sm text-slate-400">{batch.fieldName} · {batch.reproductionName}</div>
+                    <div className="text-sm text-slate-400">{[batch.fieldName, batch.reproductionName].filter(Boolean).join(" · ")}</div>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     <div className="grid grid-cols-3 gap-2 text-sm">
