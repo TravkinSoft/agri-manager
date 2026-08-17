@@ -28,8 +28,12 @@ const ticketsApi = read("app/api/weighbridge/tickets/route.ts");
 const ticketDialog = read("components/weighbridge/ticket-preview-dialog.tsx");
 const weighbridgeService = read("lib/services/weighbridge.ts");
 const pesticideCard = read("app/api/global-admin/pesticide-card/[id]/route.ts");
+const userPesticideCard = read("app/api/catalog/pesticide-card/[id]/route.ts");
+const catalogManager = read("components/platform/global-catalog-manager.tsx");
+const humanCard = read("lib/glbd/human-pesticide-card.ts");
 const authContext = read("lib/contexts/auth-context.tsx");
 const platformStatus = read("lib/platform/platform-status-client.ts");
+const platformStatusRoute = read("app/api/global-admin/platform-status/route.ts");
 
 check("assistant UI is absent from shared user shell", () => {
   assert.doesNotMatch(dashboardLayout, /AssistantShellProvider|AssistantLauncher|AssistantPanel|AssistantDebugMonitor/);
@@ -103,6 +107,20 @@ check("GLBD product card reads only referenced identities", () => {
   assert.doesNotMatch(pesticideCard, /from\("crops"\)\.select\("id,name_ru,name_en"\),/);
 });
 
+check("GLBD product cards expose owner fields across agrochemistry groups", () => {
+  for (const source of [pesticideCard, userPesticideCard]) {
+    assert.match(source, /product_type/);
+    assert.match(source, /glbd_product_sources/);
+    assert.match(source, /buildHumanPesticideCard/);
+    assert.doesNotMatch(source, /\.eq\("type", "pesticide"\)/);
+  }
+  assert.match(catalogManager, /isProductCardList = isProductEntity\(config\.entity\)/);
+  assert.match(catalogManager, /params\.set\("product", productId\)/);
+  for (const label of ["Тип продукта", "Подкатегория", "Источник", "Статус проверки"]) {
+    assert.match(humanCard, new RegExp(label));
+  }
+});
+
 check("platform controls stay usable on narrow screens", () => {
   assert.match(platformPage, /sm:flex-row sm:items-start/);
   assert.match(platformPage, /w-full sm:w-auto/);
@@ -120,6 +138,7 @@ check("platform status shares a short-lived request cache", () => {
   assert.match(platformStatus, /STATUS_CACHE_TTL_MS = 30_000/);
   assert.match(platformStatus, /statusRequest/);
   assert.match(platformStatus, /cachedStatus/);
+  assert.match(platformStatusRoute, /getMaterialProductTypeFromProduct\(row\)/);
 });
 
 console.log(`TZ275 PASS ${checks.length}/${checks.length}`);

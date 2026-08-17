@@ -432,7 +432,7 @@ export default function PlatformCompaniesPage() {
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 <Button
-                  className="min-w-0 flex-1 sm:flex-none"
+                  className="min-w-0 flex-1 border-slate-500 bg-white text-slate-950 hover:bg-slate-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-500 disabled:opacity-100 sm:flex-none"
                   variant="outline"
                   disabled={openingCompanyId !== null}
                   onClick={() => openCompanyContext(company.id)}

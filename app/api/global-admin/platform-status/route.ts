@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SessionAuthError, getServerActorFromSession } from "@/lib/auth/server-session";
+import { getMaterialProductTypeFromProduct } from "@/lib/materials/classification";
 import { getServiceClient } from "@/lib/supabase/service";
 
 export const runtime = "nodejs";
@@ -11,6 +12,8 @@ type ProductCategoryRow = {
   type?: string | null;
   category?: string | null;
   product_type?: string | null;
+  subcategory?: string | null;
+  pesticide_category?: string | null;
 };
 
 function normalizeRuntimeEnvironment(rawEnvironment: string | undefined): "production" | "preview" | "development" {
@@ -26,27 +29,21 @@ function databaseLabelForEnvironment(environment: "production" | "preview" | "de
   return "LOCAL";
 }
 
-function normalizeCategory(row: ProductCategoryRow): string {
-  return [row.type, row.category, row.product_type]
-    .map((value) => String(value || "").trim().toLowerCase())
-    .filter(Boolean)
-    .join(" ");
-}
-
 function countProductsByCategory(rows: ProductCategoryRow[]) {
   return rows.reduce(
     (counts, row) => {
-      const category = normalizeCategory(row);
-      if (category.includes("pesticide")) {
+      const productType = getMaterialProductTypeFromProduct(row);
+      if (productType === "pesticide") {
         counts.pesticides += 1;
-      } else if (category.includes("fertilizer")) {
+      } else if (productType === "fertilizer") {
         counts.fertilizers += 1;
-      } else if (category.includes("adjuvant") || category.includes("additive")) {
+      } else if (productType === "additive") {
         counts.additives += 1;
-      } else if (category.includes("growth") || category.includes("regulator")) {
-        counts.growthRegulators += 1;
       } else {
         counts.other += 1;
+      }
+      if (String(row.product_type || "").trim().toLowerCase() === "growth_regulator") {
+        counts.growthRegulators += 1;
       }
       counts.total += 1;
       return counts;
@@ -84,7 +81,7 @@ export async function GET(request: NextRequest) {
     const [productsResult, importedProductsResult, companiesResult, selectedCompanyResult] = await Promise.all([
       supabase
         .from("products")
-        .select("type,category,product_type")
+        .select("type,category,product_type,subcategory,pesticide_category")
         .is("company_id", null)
         .limit(5000),
       supabase

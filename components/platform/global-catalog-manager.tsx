@@ -286,8 +286,10 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const initialSearchParamsRef = useRef(searchParams.toString());
-  const pesticideIdFromUrl = config.entity === "pesticides"
-    ? new URLSearchParams(initialSearchParamsRef.current).get("pesticide")
+  const isProductCardList = isProductEntity(config.entity);
+  const productIdFromUrl = isProductCardList
+    ? new URLSearchParams(initialSearchParamsRef.current).get("product")
+      || new URLSearchParams(initialSearchParamsRef.current).get("pesticide")
     : null;
   const isCanonicalPesticideList = config.entity === "pesticides";
 
@@ -614,7 +616,8 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
 
   const openPesticideCard = (productId: string) => {
     const params = new URLSearchParams(window.location.search);
-    params.set("pesticide", productId);
+    params.delete("pesticide");
+    params.set("product", productId);
     window.history.pushState(window.history.state, "", `${window.location.pathname}?${params.toString()}`);
     void loadPesticideCard(productId);
   };
@@ -627,6 +630,7 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
     cardAbortRef.current?.abort();
     cardRequestSequenceRef.current += 1;
     const params = new URLSearchParams(window.location.search);
+    params.delete("product");
     params.delete("pesticide");
     setPesticideCardOpen(false);
     setSelectedPesticideId(null);
@@ -639,16 +643,16 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
   };
 
   useEffect(() => {
-    if (config.entity !== "pesticides" || !user?.id) return;
-    if (!pesticideIdFromUrl) {
+    if (!isProductCardList || !user?.id) return;
+    if (!productIdFromUrl) {
       setPesticideCardOpen(false);
       setSelectedPesticideId(null);
       setPesticideCard(null);
       return;
     }
-    if (selectedPesticideId === pesticideIdFromUrl && pesticideCardOpen) return;
-    void loadPesticideCard(pesticideIdFromUrl);
-  }, [config.entity, user?.id, pesticideIdFromUrl]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (selectedPesticideId === productIdFromUrl && pesticideCardOpen) return;
+    void loadPesticideCard(productIdFromUrl);
+  }, [isProductCardList, user?.id, productIdFromUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => cardAbortRef.current?.abort(), []);
 
@@ -1111,17 +1115,17 @@ export function GlobalCatalogManager({ config }: { config: GlobalCatalogConfig }
                 {rows.map((row) => (
                   <TableRow
                     key={row.id}
-                    tabIndex={isCanonicalPesticideList ? 0 : undefined}
-                    role={isCanonicalPesticideList ? "button" : undefined}
-                    aria-label={isCanonicalPesticideList ? `Открыть карточку ${row.trade_name || row.name || "препарата"}` : undefined}
-                    onClick={isCanonicalPesticideList ? () => openPesticideCard(row.id) : undefined}
-                    onKeyDown={isCanonicalPesticideList ? (event) => {
+                    tabIndex={isProductCardList ? 0 : undefined}
+                    role={isProductCardList ? "button" : undefined}
+                    aria-label={isProductCardList ? `Открыть карточку ${row.trade_name || row.name || "препарата"}` : undefined}
+                    onClick={isProductCardList ? () => openPesticideCard(row.id) : undefined}
+                    onKeyDown={isProductCardList ? (event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
                         openPesticideCard(row.id);
                       }
                     } : undefined}
-                    className={`border-[#c3ccd8] bg-white hover:bg-[#f6f8fb] ${isCanonicalPesticideList ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#163d68]" : ""}`}
+                    className={`border-[#c3ccd8] bg-white hover:bg-[#f6f8fb] ${isProductCardList ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#163d68]" : ""}`}
                   >
                     {config.columns.map((column) => (
                       <TableCell key={`${row.id}-${column.key}`} className={CONSOLE_TABLE_CELL_CLASS}>

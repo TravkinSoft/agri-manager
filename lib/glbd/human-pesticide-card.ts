@@ -1,6 +1,8 @@
 export const HUMAN_PESTICIDE_CARD_ROW_ORDER = [
   "Название",
+  "Тип продукта",
   "Категория",
+  "Подкатегория",
   "Тип действия",
   "Препаративная форма",
   "Действующие вещества",
@@ -14,6 +16,8 @@ export const HUMAN_PESTICIDE_CARD_ROW_ORDER = [
   "Максимальное количество обработок",
   "До уборки",
   "Ограничения",
+  "Источник",
+  "Статус проверки",
 ] as const;
 
 export type HumanPesticideCardRowLabel = (typeof HUMAN_PESTICIDE_CARD_ROW_ORDER)[number];
@@ -56,10 +60,20 @@ export type HumanPesticideCardProduct = {
   description?: string | null;
   manufacturer?: string | null;
   formulation?: string | null;
+  type?: string | null;
+  product_type?: string | null;
   pesticide_category?: string | null;
   category?: string | null;
   subcategory?: string | null;
+  fertilizer_type?: string | null;
   mode_of_action_type?: string | null;
+  active_ingredient?: string | null;
+  concentration?: string | null;
+  composition?: string | null;
+  source_url?: string | null;
+  metadata_source_url?: string | null;
+  requires_review?: boolean | null;
+  metadata_review_required?: boolean | null;
   is_active?: boolean | null;
   archived?: boolean | null;
 };
@@ -119,14 +133,28 @@ type BuildHumanPesticideCardInput = {
   manufacturerName?: string | null;
   formulationName?: string | null;
   modeOfActionName?: string | null;
+  sources?: Array<{
+    source_title?: string | null;
+    source_url?: string | null;
+    verification_status?: string | null;
+    checked_on?: string | null;
+  }>;
   safety?: {
     read_allowed?: boolean | null;
     recommendation_allowed?: boolean | null;
     missing_critical_fields?: unknown;
+    identity_status?: string | null;
+    component_status?: string | null;
+    usage_rule_status?: string | null;
+    source_status?: string | null;
+    review_required?: boolean | null;
   } | null;
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
+  pesticide: "Пестицид",
+  fertilizer: "Удобрение",
+  additive: "Добавка",
   herbicide: "Гербицид",
   fungicide: "Фунгицид",
   insecticide: "Инсектицид",
@@ -137,9 +165,31 @@ const CATEGORY_LABELS: Record<string, string> = {
   rodenticide: "Родентицид",
   molluscicide: "Моллюскоцид",
   nematicide: "Нематицид",
+  biological: "Биологический препарат",
+  other: "Другое",
   adjuvant: "Адъювант",
   surfactant: "Поверхностно-активное вещество",
+  sticker: "Прилипатель",
+  ph_corrector: "Регулятор pH",
+  ph_regulator: "Регулятор pH",
+  water_conditioner: "Кондиционер воды",
+  antifoam: "Пеногаситель",
+  anti_foam: "Пеногаситель",
   growth_regulator: "Регулятор роста",
+  biostimulant: "Биостимулятор",
+  calcium: "Кальциевое удобрение",
+  complex_macro: "Комплексное макроудобрение",
+  humic_fulvic: "Гуминовое и фульвовое удобрение",
+  macro: "Макроудобрение",
+  magnesium_sulfur: "Магниево-серное удобрение",
+  microbiological: "Микробиологическое удобрение",
+  micronutrient: "Микроэлементное удобрение",
+  nitrogen: "Азотное удобрение",
+  organomineral: "Органоминеральное удобрение",
+  phosphite_systemic: "Системный фосфит",
+  phosphorus: "Фосфорное удобрение",
+  potassium: "Калийное удобрение",
+  soil_conditioner: "Кондиционер почвы",
 };
 
 const MODE_OF_ACTION_LABELS: Record<string, string> = {
@@ -150,6 +200,25 @@ const MODE_OF_ACTION_LABELS: Record<string, string> = {
   contact_systemic: "Контактно-системный",
   selective: "Избирательный",
   non_selective: "Сплошного действия",
+};
+
+const PRODUCT_TYPE_LABELS: Record<string, string> = {
+  pesticide: "Пестицид",
+  fertilizer: "Удобрение",
+  additive: "Добавка",
+  growth_regulator: "Регулятор роста",
+};
+
+const REVIEW_STATUS_LABELS: Record<string, string> = {
+  approved: "Проверено",
+  verified: "Проверено",
+  complete: "Проверено",
+  partial: "Проверено частично",
+  missing: "Данные отсутствуют",
+  unreviewed: "Не проверено",
+  needs_owner_review: "Требуется проверка владельца",
+  possible_duplicate: "Требуется проверка идентичности",
+  component_unresolved: "Требуется проверка состава",
 };
 
 const UNIT_LABELS: Record<string, string> = {
@@ -468,6 +537,68 @@ function translatedValue(value: unknown, labels: Record<string, string>): string
   return labels[normalizeKey(text)] || text;
 }
 
+function productTypeDisplay(product: HumanPesticideCardProduct): string | null {
+  return translatedValue(product.product_type || product.type || product.category, PRODUCT_TYPE_LABELS);
+}
+
+function subcategoryDisplay(product: HumanPesticideCardProduct): string | null {
+  return translatedValue(
+    product.subcategory || product.pesticide_category || product.fertilizer_type,
+    CATEGORY_LABELS,
+  );
+}
+
+function productCompositionDisplay(
+  product: HumanPesticideCardProduct,
+  composition: HumanPesticideCompositionInput[],
+): string | null {
+  const canonical = compositionDisplay(composition);
+  if (canonical) return canonical;
+  const rawComposition = cleanHumanText(product.composition);
+  if (rawComposition) return rawComposition;
+  const ingredient = cleanHumanText(product.active_ingredient);
+  const concentration = cleanHumanText(product.concentration);
+  if (!ingredient) return null;
+  return concentration ? `${ingredient} — ${concentration}` : ingredient;
+}
+
+function sourceDisplay(input: BuildHumanPesticideCardInput): string | null {
+  const structured = uniqueTexts((input.sources || []).map((source) => {
+    const title = cleanHumanText(source.source_title);
+    const url = cleanHumanText(source.source_url);
+    if (title && url && normalizeKey(title) !== normalizeKey(url)) return `${title} — ${url}`;
+    return title || url;
+  }));
+  if (structured.length) return structured.join("\n");
+  return cleanHumanText(input.product.metadata_source_url) || cleanHumanText(input.product.source_url);
+}
+
+function reviewStatusDisplay(input: BuildHumanPesticideCardInput): string {
+  const dimensions: Array<[string, string | null | undefined]> = [
+    ["Идентичность", input.safety?.identity_status],
+    ["Состав", input.safety?.component_status],
+    ["Правила применения", input.safety?.usage_rule_status],
+    ["Источник", input.safety?.source_status],
+  ];
+  if (!input.safety?.source_status) {
+    dimensions.push(["Источник", uniqueTexts((input.sources || []).map((source) => source.verification_status)).join(", ")]);
+  }
+  const statuses = dimensions
+    .filter((entry): entry is [string, string] => Boolean(cleanHumanText(entry[1])))
+    .map(([label, status]) => `${label} — ${REVIEW_STATUS_LABELS[normalizeKey(status)] || status}`);
+  const requiresReview = input.product.requires_review === true
+    || input.product.metadata_review_required === true
+    || input.safety?.review_required === true
+    || input.composition.some((row) => Boolean(row.review_status) && normalizeKey(row.review_status) !== "approved");
+  if (requiresReview) {
+    statuses.unshift("Общий статус — требуется проверка");
+  }
+  if (!statuses.length) {
+    return requiresReview ? "Требуется проверка" : "Статус проверки не зафиксирован";
+  }
+  return uniqueTexts(statuses).join("; ");
+}
+
 function usefulDescription(value: unknown): string | null {
   const text = cleanHumanText(value);
   if (!text || UUID_RE.test(text)) return null;
@@ -532,10 +663,14 @@ function missingCriticalFields(value: unknown): string[] {
 }
 
 export function buildHumanPesticideCard(input: BuildHumanPesticideCardInput): HumanPesticideCardData {
-  const category = translatedValue(
-    input.product.pesticide_category || input.product.category || input.product.subcategory,
-    CATEGORY_LABELS,
-  );
+  const productType = productTypeDisplay(input.product);
+  const subcategory = subcategoryDisplay(input.product);
+  const categoryCandidate = translatedValue(input.product.category, CATEGORY_LABELS);
+  const category = categoryCandidate
+    && normalizeKey(categoryCandidate) !== normalizeKey(productType)
+    && normalizeKey(categoryCandidate) !== normalizeKey(subcategory)
+    ? categoryCandidate
+    : null;
   const modeOfAction = cleanHumanText(input.modeOfActionName)
     || translatedValue(input.product.mode_of_action_type, MODE_OF_ACTION_LABELS);
   const formulation = cleanHumanText(input.formulationName) || cleanHumanText(input.product.formulation);
@@ -544,10 +679,12 @@ export function buildHumanPesticideCard(input: BuildHumanPesticideCardInput): Hu
 
   const rowValues: Record<HumanPesticideCardRowLabel, string | null> = {
     "Название": productNameDisplay(input.product),
+    "Тип продукта": productType,
     "Категория": category,
+    "Подкатегория": subcategory,
     "Тип действия": modeOfAction,
     "Препаративная форма": formulation,
-    "Действующие вещества": compositionDisplay(input.composition),
+    "Действующие вещества": productCompositionDisplay(input.product, input.composition),
     "Производитель": manufacturer,
     "Культуры": uniqueTexts(rules.map(cropDisplay)).join("\n") || null,
     "Вредный объект": uniqueTexts(rules.map(targetDisplay)).join("\n") || null,
@@ -558,13 +695,21 @@ export function buildHumanPesticideCard(input: BuildHumanPesticideCardInput): Hu
     "Максимальное количество обработок": aggregateRuleValues(rules, maxTreatmentsDisplay),
     "До уборки": aggregateRuleValues(rules, harvestIntervalDisplay),
     "Ограничения": aggregateRuleValues(rules, restrictionsDisplay),
+    "Источник": sourceDisplay(input),
+    "Статус проверки": reviewStatusDisplay(input),
   };
 
   const rows = HUMAN_PESTICIDE_CARD_ROW_ORDER
     .map((label) => ({ label, value: cleanHumanText(rowValues[label]) }))
     .filter((row): row is { label: HumanPesticideCardRowLabel; value: string } => Boolean(row.value));
 
-  const description = humanDescription(input.product, category, formulation, input.composition, rules);
+  const description = humanDescription(
+    input.product,
+    subcategory || category || productType,
+    formulation,
+    input.composition,
+    rules,
+  );
   const missing = missingCriticalFields(input.safety?.missing_critical_fields);
   const cropCanonical = rules.filter((rule) => Boolean(rule.crop)).length;
   const targetCanonical = rules.filter((rule) => Boolean(rule.target)).length;

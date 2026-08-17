@@ -3,11 +3,22 @@ import {
   getUserScopedClientFromRequest,
   SessionAuthError,
 } from "@/lib/auth/server-session";
+import { buildHumanPesticideCard } from "@/lib/glbd/human-pesticide-card";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function unique(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
+}
+
+function referenceLabel(name: string | null | undefined, code: string | null | undefined): string | null {
+  const cleanName = String(name || "").trim();
+  const cleanCode = String(code || "").trim();
+  if (!cleanName) return cleanCode || null;
+  if (!cleanCode || cleanName.toLocaleLowerCase("ru-RU").includes(cleanCode.toLocaleLowerCase("ru-RU"))) {
+    return cleanName;
+  }
+  return `${cleanName} (${cleanCode})`;
 }
 function apiError(error: unknown) {
   if (error instanceof SessionAuthError) {
@@ -31,24 +42,27 @@ export async function GET(
     const { data: product, error: productError } = await supabase
       .from("products")
       .select(
-        "id,trade_name,name,name_ru,name_en,manufacturer,manufacturer_id,formulation,formulation_id,pesticide_category,subcategory,is_active,archived",
+        "id,trade_name,name,name_ru,name_en,description,manufacturer,manufacturer_id,formulation,formulation_id,type,product_type,pesticide_category,category,subcategory,fertilizer_type,mode_of_action_type,mode_of_action_type_id,active_ingredient,concentration,composition,source_url,metadata_source_url,requires_review,metadata_review_required,is_active,archived",
       )
       .eq("id", productId)
       .is("company_id", null)
-      .eq("type", "pesticide")
       .maybeSingle();
     if (productError) throw new Error(productError.message);
     if (!product) {
       return NextResponse.json({ error: "Глобальная карточка препарата не найдена" }, { status: 404 });
     }
+    const productType = String(product.product_type || product.type || "");
+    if (!["pesticide", "fertilizer", "additive", "growth_regulator"].includes(productType)) {
+      return NextResponse.json({ error: "Глобальная карточка препарата не найдена" }, { status: 404 });
+    }
 
-    const [aliasesResult, linksResult, sourcesResult, registrationsResult, rulesResult, safetyResult] = await Promise.all([
+    const [aliasesResult, linksResult, sourcesResult, rulesResult, safetyResult] = await Promise.all([
       supabase.from("global_product_aliases").select("alias").eq("product_id", productId).order("alias"),
       supabase
         .from("glbd_product_components")
-        .select("id,component_id,role_in_product,concentration_value,concentration_unit,concentration_text,equivalent_basis,is_primary_active,sort_order")
+        .select("id,component_id,role_in_product,concentration_value,concentration_unit,concentration_text,is_primary_active,sort_order,review_status")
         .eq("product_id", productId)
-        .eq("review_status", "approved")
+        .in("review_status", ["approved", "needs_owner_review"])
         .order("sort_order"),
       supabase
         .from("glbd_product_sources")
@@ -56,23 +70,18 @@ export async function GET(
         .eq("product_id", productId)
         .order("checked_on", { ascending: false }),
       supabase
-        .from("glbd_product_registrations")
-        .select("id,country_code,registration_number,registration_status,valid_from,valid_until,registrant,source_id")
-        .eq("product_id", productId)
-        .order("valid_until", { ascending: false }),
-      supabase
         .from("glbd_product_usage_rules")
-        .select("id,crop_id,variety_id,target_type,disease_id,pest_id,weed_id,target_text,rate_min,rate_max,rate_unit,working_fluid_min,working_fluid_max,working_fluid_unit,application_method,crop_stage,target_stage,timing_condition,max_treatments,harvest_interval_days,reentry_hours,restrictions,notes,source_id")
+        .select("id,rule_key,crop_id,variety_id,target_type,disease_id,pest_id,weed_id,target_text,rate_min,rate_max,rate_unit,working_fluid_min,working_fluid_max,working_fluid_unit,application_method,crop_stage,target_stage,timing_condition,max_treatments,harvest_interval_days,restrictions,notes,crop_name_raw,crop_group_raw,crop_name_original,target_names_raw,target_text_original,original_rate_value_text,original_rate_unit_text,original_rate_text,application_timing,restrictions_raw,usage_summary,source_text_raw,original_source_text")
         .eq("product_id", productId)
         .order("rule_key"),
       supabase
         .from("glbd_product_assistant_safety")
-        .select("read_allowed,recommendation_allowed,missing_critical_fields,blocked_reason,verified_at")
+        .select("read_allowed,recommendation_allowed,missing_critical_fields,identity_status,component_status,usage_rule_status,source_status,review_required")
         .eq("product_id", productId)
         .maybeSingle(),
     ]);
 
-    const firstError = [aliasesResult, linksResult, sourcesResult, registrationsResult, rulesResult, safetyResult]
+    const firstError = [aliasesResult, linksResult, sourcesResult, rulesResult, safetyResult]
       .map((result) => result.error)
       .find(Boolean);
     if (firstError) throw new Error(firstError.message);
@@ -85,31 +94,36 @@ export async function GET(
     const pestIds = unique(rules.map((row) => row.pest_id));
     const weedIds = unique(rules.map((row) => row.weed_id));
 
-    const [componentsResult, cropsResult, diseasesResult, pestsResult, weedsResult, manufacturerResult, formulationResult] = await Promise.all([
+    const emptyResult = Promise.resolve({ data: [] as any[], error: null });
+    const emptySingleResult = Promise.resolve({ data: null as any, error: null });
+    const [componentsResult, cropsResult, diseasesResult, pestsResult, weedsResult, manufacturerResult, formulationResult, modeResult] = await Promise.all([
       componentIds.length
-        ? supabase.from("glbd_components").select("id,name_ru,name_en,component_type").in("id", componentIds)
-        : Promise.resolve({ data: [], error: null }),
+        ? supabase.from("glbd_components").select("id,name_ru,name_en,component_type").in("id", componentIds).eq("is_active", true).is("archived_at", null)
+        : emptyResult,
       cropIds.length
         ? supabase.from("crops").select("id,name_ru,name_en").in("id", cropIds)
-        : Promise.resolve({ data: [], error: null }),
+        : emptyResult,
       diseaseIds.length
         ? supabase.from("diseases").select("id,name_ru,name_en").in("id", diseaseIds)
-        : Promise.resolve({ data: [], error: null }),
+        : emptyResult,
       pestIds.length
         ? supabase.from("pests").select("id,name_ru,name_en").in("id", pestIds)
-        : Promise.resolve({ data: [], error: null }),
+        : emptyResult,
       weedIds.length
         ? supabase.from("weeds").select("id,name_ru,name_en").in("id", weedIds)
-        : Promise.resolve({ data: [], error: null }),
+        : emptyResult,
       product.manufacturer_id
-        ? supabase.from("agrochem_manufacturers").select("id,name").eq("id", product.manufacturer_id).maybeSingle()
-        : Promise.resolve({ data: null, error: null }),
+        ? supabase.from("agrochem_manufacturers").select("id,name").eq("id", product.manufacturer_id).eq("archived", false).maybeSingle()
+        : emptySingleResult,
       product.formulation_id
-        ? supabase.from("agrochem_formulations").select("id,code,name_ru").eq("id", product.formulation_id).maybeSingle()
-        : Promise.resolve({ data: null, error: null }),
+        ? supabase.from("agrochem_formulations").select("id,code,name_ru").eq("id", product.formulation_id).eq("archived", false).maybeSingle()
+        : emptySingleResult,
+      product.mode_of_action_type_id
+        ? supabase.from("agrochem_mode_of_actions").select("id,slug,name_ru").eq("id", product.mode_of_action_type_id).eq("archived", false).maybeSingle()
+        : emptySingleResult,
     ]);
 
-    const relatedError = [componentsResult, cropsResult, diseasesResult, pestsResult, weedsResult, manufacturerResult, formulationResult]
+    const relatedError = [componentsResult, cropsResult, diseasesResult, pestsResult, weedsResult, manufacturerResult, formulationResult, modeResult]
       .map((result) => result.error)
       .find(Boolean);
     if (relatedError) throw new Error(relatedError.message);
@@ -121,26 +135,14 @@ export async function GET(
     const pestsById = byId(pestsResult.data || []);
     const weedsById = byId(weedsResult.data || []);
 
-    return NextResponse.json({
-      product: {
-        id: product.id,
-        tradeName: product.trade_name || product.name,
-        nameRu: product.name_ru,
-        nameEn: product.name_en,
-        manufacturer: manufacturerResult.data?.name || product.manufacturer || null,
-        formulation: formulationResult.data
-          ? `${formulationResult.data.name_ru} (${formulationResult.data.code})`
-          : product.formulation || null,
-        category: product.pesticide_category || null,
-        subcategory: product.subcategory || null,
-        active: Boolean(product.is_active) && !Boolean(product.archived),
-        aliases: (aliasesResult.data || []).map((row) => row.alias),
-      },
+    const formulation = formulationResult.data;
+    const card = buildHumanPesticideCard({
+      product,
+      aliases: (aliasesResult.data || []).map((row) => row.alias),
       composition: links.map((row) => ({
         ...row,
         component: componentsById.get(row.component_id) || null,
       })),
-      registrations: registrationsResult.data || [],
       usageRules: rules.map((row) => ({
         ...row,
         crop: cropsById.get(row.crop_id) || null,
@@ -150,9 +152,16 @@ export async function GET(
           || (row.weed_id && weedsById.get(row.weed_id))
           || (row.target_text ? { name_ru: row.target_text, name_en: null } : null),
       })),
+      manufacturerName: manufacturerResult.data?.name || null,
+      formulationName: formulation ? referenceLabel(formulation.name_ru, formulation.code) : null,
+      modeOfActionName: modeResult.data?.name_ru || null,
       sources: sourcesResult.data || [],
       safety: safetyResult.data || null,
-    }, { headers: { "Cache-Control": "private, no-store" } });
+    });
+
+    return NextResponse.json(card, {
+      headers: { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" },
+    });
   } catch (error) {
     return apiError(error);
   }

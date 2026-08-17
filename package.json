@@ -35,6 +35,7 @@
     "qa:tz273": "npx --no-install tsx scripts/qa-tz273-zero-reload.ts",
     "qa:tz274": "npx --no-install tsx scripts/qa-tz274-agronomist-access.ts",
     "qa:tz275": "npx --no-install tsx scripts/qa-tz275-core-ux-performance.ts",
+    "qa:tz275:closure": "npx --no-install tsx scripts/qa-tz275-owner-closure.ts",
     "qa:tz266": "npx --no-install tsx scripts/qa-tz266-active-harvest-tabs.ts",
     "qa:p0:weighbridge-gross": "npx --no-install tsx scripts/qa-p0-weighbridge-gross-legacy-schema.ts",
     "health:check": "powershell -ExecutionPolicy Bypass -File ./scripts/health-check.ps1",

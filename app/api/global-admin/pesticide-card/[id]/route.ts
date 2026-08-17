@@ -34,13 +34,12 @@ function apiError(error: unknown) {
 const getCachedPesticideCard = unstable_cache(
   async (productId: string) => {
     const supabase = getServiceClient();
-    const [productResult, aliasesResult, linksResult, rulesResult, safetyResult] = await Promise.all([
+    const [productResult, aliasesResult, linksResult, rulesResult, sourcesResult, safetyResult] = await Promise.all([
       supabase
         .from("products")
-        .select("id,trade_name,name,name_ru,name_en,description,manufacturer,manufacturer_id,formulation,formulation_id,pesticide_category,category,subcategory,mode_of_action_type,mode_of_action_type_id,is_active,archived")
+        .select("id,trade_name,name,name_ru,name_en,description,manufacturer,manufacturer_id,formulation,formulation_id,type,product_type,pesticide_category,category,subcategory,fertilizer_type,mode_of_action_type,mode_of_action_type_id,active_ingredient,concentration,composition,source_url,metadata_source_url,requires_review,metadata_review_required,is_active,archived")
         .eq("id", productId)
         .is("company_id", null)
-        .eq("type", "pesticide")
         .maybeSingle(),
       supabase.from("global_product_aliases").select("alias").eq("product_id", productId).order("alias"),
       supabase
@@ -54,16 +53,23 @@ const getCachedPesticideCard = unstable_cache(
         .select("id,rule_key,crop_id,variety_id,target_type,disease_id,pest_id,weed_id,target_text,rate_min,rate_max,rate_unit,working_fluid_min,working_fluid_max,working_fluid_unit,application_method,crop_stage,target_stage,timing_condition,max_treatments,harvest_interval_days,restrictions,notes,crop_name_raw,crop_group_raw,crop_name_original,target_names_raw,target_text_original,original_rate_value_text,original_rate_unit_text,original_rate_text,application_timing,restrictions_raw,usage_summary,source_text_raw,original_source_text")
         .eq("product_id", productId)
         .order("rule_key"),
-      supabase.from("glbd_product_assistant_safety").select("read_allowed,recommendation_allowed,missing_critical_fields").eq("product_id", productId).maybeSingle(),
+      supabase
+        .from("glbd_product_sources")
+        .select("source_title,source_url,verification_status,checked_on")
+        .eq("product_id", productId)
+        .order("checked_on", { ascending: false }),
+      supabase.from("glbd_product_assistant_safety").select("read_allowed,recommendation_allowed,missing_critical_fields,identity_status,component_status,usage_rule_status,source_status,review_required").eq("product_id", productId).maybeSingle(),
     ]);
 
-    const firstError = [productResult, aliasesResult, linksResult, rulesResult, safetyResult]
+    const firstError = [productResult, aliasesResult, linksResult, rulesResult, sourcesResult, safetyResult]
       .map((result) => result.error)
       .find(Boolean);
     if (firstError) throw new Error(firstError.message);
 
     const product = productResult.data;
     if (!product) return null;
+    const productType = String(product.product_type || product.type || "");
+    if (!["pesticide", "fertilizer", "additive", "growth_regulator"].includes(productType)) return null;
     const links = linksResult.data || [];
     const rules = rulesResult.data || [];
     const componentIds = unique(links.map((row) => row.component_id));
@@ -131,10 +137,11 @@ const getCachedPesticideCard = unstable_cache(
       manufacturerName: manufacturer?.name || null,
       formulationName: formulation ? referenceLabel(formulation.name_ru, formulation.code) : null,
       modeOfActionName: modeOfAction?.name_ru || null,
+      sources: sourcesResult.data || [],
       safety: safetyResult.data || null,
     });
   },
-  ["global-admin-pesticide-card-v2"],
+  ["global-admin-agrochem-card-v3"],
   { revalidate: 300, tags: ["global-pesticide-catalog-v1"] },
 );
 
