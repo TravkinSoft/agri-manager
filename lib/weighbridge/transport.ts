@@ -6,6 +6,29 @@ export type WeighbridgeTransportKind = {
   transportCategory?: string | null;
 };
 
+export type TransportIdentityInput = {
+  name?: unknown;
+  customName?: unknown;
+  custom_name?: unknown;
+  fullName?: unknown;
+  full_name?: unknown;
+  brand?: unknown;
+  model?: unknown;
+  series?: unknown;
+  plate?: unknown;
+  plate_number?: unknown;
+  license_plate?: unknown;
+  sourceRawName?: unknown;
+  source_raw_name?: unknown;
+};
+
+export type TransportIdentity = {
+  name: string;
+  plate: string;
+  label: string;
+  searchTerms: string[];
+};
+
 const CARGO_TYPES = new Set([
   "truck",
   "grain_truck",
@@ -65,26 +88,83 @@ export function isRealVehiclePlate(value: unknown) {
 }
 
 const GENERIC_TRANSPORT_NAMES = /^(транспорт|машина|автомобиль|vehicle|truck)$/iu;
+const SYNTHETIC_NAME_SUFFIX = /\s+#\d+\s*$/u;
+const HIDDEN_IMPORT_SERIES = /^\d{5}-\d{3}$/u;
 
-export function transportDisplayName(transport: { name?: string; model?: string; plate?: string }) {
-  const name = String(transport.name || "").trim();
-  const model = String(transport.model || "").trim();
-  const specificName = name && !GENERIC_TRANSPORT_NAMES.test(name) ? name : "";
-  if (specificName) {
-    if (model && specificName.toLocaleLowerCase("ru-RU").includes(model.toLocaleLowerCase("ru-RU"))) {
-      const escapedModel = model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return specificName
-        .replace(new RegExp(escapedModel, "iu"), "")
-        .replace(/[·,;()\-]+$/u, "")
-        .trim() || specificName;
-    }
-    return specificName.replace(/\s+\d{4,}(?:[-/]\d+)+(?:\s.*)?$/u, "").trim() || specificName;
-  }
-  return model.replace(/\s+\d{4,}(?:[-/]\d+)+(?:\s.*)?$/u, "").trim() || model;
+const cleanTransportPart = (value: unknown) => String(value || "").trim().replace(/\s+/g, " ");
+
+export function stripSyntheticTransportSuffix(value: unknown) {
+  return cleanTransportPart(value).replace(SYNTHETIC_NAME_SUFFIX, "").trim();
 }
 
-export function transportPickerLabel(transport: { name?: string; model?: string; plate?: string }) {
-  const name = transportDisplayName(transport);
-  const plate = isRealVehiclePlate(transport.plate) ? formatVehiclePlate(transport.plate) : "";
-  return [name, plate].filter(Boolean).join(" · ");
+const includesPart = (value: string, part: string) =>
+  value.toLocaleLowerCase("ru-RU").includes(part.toLocaleLowerCase("ru-RU"));
+
+function canonicalTransportName(transport: TransportIdentityInput) {
+  const brand = cleanTransportPart(transport.brand);
+  const model = stripSyntheticTransportSuffix(transport.model);
+  const visibleModel = HIDDEN_IMPORT_SERIES.test(model) ? "" : model;
+  if (brand) {
+    return stripSyntheticTransportSuffix(
+      visibleModel && !includesPart(brand, visibleModel) ? `${brand} ${visibleModel}` : brand
+    );
+  }
+
+  const named = [
+    transport.customName,
+    transport.custom_name,
+    transport.fullName,
+    transport.full_name,
+    transport.name,
+  ]
+    .map(stripSyntheticTransportSuffix)
+    .find((value) => value && !GENERIC_TRANSPORT_NAMES.test(value));
+  if (named) {
+    if (model && HIDDEN_IMPORT_SERIES.test(model) && includesPart(named, model)) {
+      const escapedModel = model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return named.replace(new RegExp(`\\s*${escapedModel}`, "iu"), "").trim() || named;
+    }
+    return named;
+  }
+  return visibleModel;
+}
+
+export function resolveTransportIdentity(transport: TransportIdentityInput): TransportIdentity {
+  const name = canonicalTransportName(transport);
+  const rawPlate = [transport.plate, transport.plate_number, transport.license_plate]
+    .find((value) => cleanTransportPart(value));
+  const plate = isRealVehiclePlate(rawPlate) ? formatVehiclePlate(rawPlate) : "";
+  const rawSearchTerms = [
+    transport.name,
+    transport.customName,
+    transport.custom_name,
+    transport.fullName,
+    transport.full_name,
+    transport.brand,
+    transport.model,
+    transport.series,
+    rawPlate,
+    plate,
+    transport.sourceRawName,
+    transport.source_raw_name,
+  ]
+    .map(cleanTransportPart)
+    .filter(Boolean);
+  const compactPlate = plate.replace(/[^\p{L}\p{N}]+/gu, "");
+  if (compactPlate) rawSearchTerms.push(compactPlate, compactPlate.slice(-4));
+
+  return {
+    name,
+    plate,
+    label: [name, plate].filter(Boolean).join(" · "),
+    searchTerms: Array.from(new Set(rawSearchTerms)),
+  };
+}
+
+export function transportDisplayName(transport: TransportIdentityInput) {
+  return resolveTransportIdentity(transport).name;
+}
+
+export function transportPickerLabel(transport: TransportIdentityInput) {
+  return resolveTransportIdentity(transport).label;
 }

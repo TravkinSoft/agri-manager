@@ -12,7 +12,7 @@ import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
-import { isCargoTractor, isCargoVehicle, isTrailerTransport } from "@/lib/weighbridge/transport";
+import { isCargoTractor, isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 
 function buildTicketNo(companyId: string): string {
@@ -288,7 +288,12 @@ export async function POST(request: NextRequest) {
         if (existingFingerprint !== requestFingerprint) {
           return NextResponse.json({ error: "Idempotency-Key was already used with another ticket payload" }, { status: 409 });
         }
-        return NextResponse.json({ ticket: existingTicket, idempotent_replay: true });
+        const [attributedExistingTicket] = await enrichTicketOperatorAttribution(
+          supabase,
+          ticket.company_id,
+          [existingTicket]
+        );
+        return NextResponse.json({ ticket: attributedExistingTicket, idempotent_replay: true });
       }
     }
 
@@ -500,13 +505,13 @@ export async function POST(request: NextRequest) {
       ? Promise.all([
           supabase
             .from("reference_vehicles")
-            .select("id,name,model,plate_number,type,fleet_type,status,is_active,archived,transport_model:transport_model_id(category,full_name)")
+            .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,status,is_active,archived,transport_model:transport_model_id(category,full_name)")
             .eq("company_id", ticket.company_id)
             .eq("id", ticket.vehicle_id)
             .maybeSingle(),
           supabase
             .from("reference_machines")
-            .select("id,name,model,license_plate,type,status,is_active,archived")
+            .select("id,name,full_name,brand,model,series,license_plate,plate_number,source_raw_name,type,status,is_active,archived")
             .eq("company_id", ticket.company_id)
             .eq("id", ticket.vehicle_id)
             .maybeSingle(),
@@ -1163,6 +1168,7 @@ export async function POST(request: NextRequest) {
       id: string;
       name: string;
       plate_number?: string | null;
+      search_terms?: string[];
       type?: string | null;
       fleet_type?: string | null;
       source: "reference_vehicles" | "reference_machines";
@@ -1194,19 +1200,34 @@ export async function POST(request: NextRequest) {
       if (!selected?.is_active || selected.archived) {
         return NextResponse.json({ error: "Vehicle is inactive or archived" }, { status: 400 });
       }
+      const transportIdentity = resolveTransportIdentity(cargoVehicle
+        ? {
+            ...cargoVehicle,
+            fullName: cargoVehicle.full_name,
+            sourceRawName: cargoVehicle.source_raw_name,
+            plate: cargoVehicle.plate_number,
+          }
+        : {
+            ...cargoTractor,
+            fullName: cargoTractor!.full_name,
+            sourceRawName: cargoTractor!.source_raw_name,
+            plate: cargoTractor!.license_plate,
+          });
       selectedVehicle = cargoVehicle
         ? {
             id: String(cargoVehicle.id),
-            name: String(cargoVehicle.name || "Транспорт"),
-            plate_number: cargoVehicle.plate_number || null,
+            name: transportIdentity.name,
+            plate_number: transportIdentity.plate || null,
+            search_terms: transportIdentity.searchTerms,
             type: cargoVehicle.type,
             fleet_type: cargoVehicle.fleet_type,
             source: "reference_vehicles",
           }
         : {
             id: String(cargoTractor!.id),
-            name: String(cargoTractor!.name || "Трактор"),
-            plate_number: cargoTractor!.license_plate || null,
+            name: transportIdentity.name,
+            plate_number: transportIdentity.plate || null,
+            search_terms: transportIdentity.searchTerms,
             type: "tractor",
             fleet_type: "tractor",
             source: "reference_machines",
@@ -1521,6 +1542,13 @@ export async function POST(request: NextRequest) {
         ticket: {
           ...(finalizedTicket || createdTicket),
           company_name: String((company as any)?.name || "").trim() || null,
+          ...(operatorSession?.operator.id
+            ? {
+                opened_by_person_name: operatorSession.operator.name,
+                finalized_by_person_name: operatorSession.operator.name,
+                operator_attribution_source: "ticket_person",
+              }
+            : {}),
         },
         debug: timing,
       });
@@ -1532,6 +1560,13 @@ export async function POST(request: NextRequest) {
       ticket: {
         ...createdTicket,
         company_name: String((company as any)?.name || "").trim() || null,
+        ...(operatorSession?.operator.id
+          ? {
+              opened_by_person_name: operatorSession.operator.name,
+              finalized_by_person_name: null,
+              operator_attribution_source: "ticket_person",
+            }
+          : {}),
       },
       debug: timing,
     });

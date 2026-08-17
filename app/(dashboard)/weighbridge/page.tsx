@@ -61,6 +61,7 @@ type VehicleOption = Option & {
   transportCategory: string;
   source: "reference_vehicles" | "reference_machines";
   primaryPersonnelId: string | null;
+  searchTerms: string[];
 };
 type DriverOption = Option & {
   machineId: string | null;
@@ -1164,11 +1165,13 @@ export default function WeighbridgeOperationsPage() {
           transportCategory: String(row.transportCategory || ""),
           source: row.source === "reference_machines" ? "reference_machines" : "reference_vehicles",
           primaryPersonnelId: row.primaryPersonnelId ? String(row.primaryPersonnelId) : null,
+          searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
         })));
         setTrailers(((resourceRows?.trailers || []) as any[]).map((row: any) => ({
           id: String(row.id), name: String(row.name || "Прицеп"), model: String(row.model || row.name || ""),
           plate: String(row.plate || ""), type: String(row.type || "trailer"), fleetType: String(row.fleetType || "tractor_trailer"),
           transportCategory: String(row.transportCategory || "trailer"), source: "reference_vehicles", primaryPersonnelId: null,
+          searchTerms: Array.isArray(row.searchTerms) ? row.searchTerms.map(String) : [],
         })));
         setProcessingPoints([]);
         setDrivers(((resourceRows?.drivers || []) as any[]).map((row: any) => ({
@@ -3000,6 +3003,9 @@ export default function WeighbridgeOperationsPage() {
           crop_name_snapshot: selectedHarvestAllocation?.cropName || null,
           variety_name_snapshot: selectedHarvestAllocation?.varietyName || null,
           reproduction_name_snapshot: selectedHarvestAllocation?.reproductionName || null,
+          created_by_person_id: operatorState.operator?.id || null,
+          opened_by_person_name: operatorState.operator?.name || null,
+          operator_attribution_source: operatorState.operator?.id ? "ticket_person" : "unrecorded",
           lines: buildLocalLines(`pending-${idempotencyKey}`),
         });
       }
@@ -3010,12 +3016,18 @@ export default function WeighbridgeOperationsPage() {
       const createdTicket = result?.ticket as WeighbridgeTicket | undefined;
       if (createdTicket?.id && createdStatus !== "finalized") {
         const localLines = createdTicket.lines || buildLocalLines(createdTicket.id);
+        const attributedCreatedTicket = {
+          ...createdTicket,
+          created_by_person_id: createdTicket.created_by_person_id || operatorState.operator?.id || null,
+          opened_by_person_name: createdTicket.opened_by_person_name || operatorState.operator?.name || null,
+          operator_attribution_source: createdTicket.operator_attribution_source || (operatorState.operator?.id ? "ticket_person" : "unrecorded"),
+        } as WeighbridgeTicket;
          setTickets((current) => [
            ...current.filter((item) => item.id !== createdTicket.id),
-           { ...createdTicket, lines: localLines },
+           { ...attributedCreatedTicket, lines: localLines },
          ]);
-         adjustActiveHarvestTicketCount(createdTicket, 1);
-         markTransportAssignmentOpen(createdTicket);
+         adjustActiveHarvestTicketCount(attributedCreatedTicket, 1);
+         markTransportAssignmentOpen(attributedCreatedTicket);
       }
       if (isSupplierDirect || createdStatus === "finalized") {
         toast({

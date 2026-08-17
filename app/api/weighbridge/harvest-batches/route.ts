@@ -7,6 +7,7 @@ import {
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { calculateHarvestBatchMetrics } from "@/lib/weighbridge/harvest-batch-math";
 import { calculateHarvestLotAccounting } from "@/lib/weighbridge/harvest-lot-accounting";
+import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 const ids = (values: unknown[]) => Array.from(new Set(values.map((value) => String(value || "")).filter(Boolean)));
 
@@ -89,8 +90,8 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
   const vehicleIds = ids(ticketRows.map((row) => row.vehicle_id));
   const driverIds = ids(ticketRows.map((row) => row.driver_id));
   const [vehiclesResult, machinesResult, peopleResult, specialistsResult, profilesResult] = await Promise.all([
-    vehicleIds.length ? supabase.from("reference_vehicles").select("id,name,custom_name,plate_number").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
-    vehicleIds.length ? supabase.from("reference_machines").select("id,name,model,license_plate").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
+    vehicleIds.length ? supabase.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
+    vehicleIds.length ? supabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,plate_number,source_raw_name").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
@@ -185,10 +186,10 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
       ? supabase.from("batch_transformation_outputs").select("transformation_id,line_type,batch_class,warehouse_to_id,output_weight_kg").eq("company_id", companyId).in("transformation_id", processingIds)
       : Promise.resolve({ data: [], error: null }),
     traceVehicleIds.length
-      ? supabase.from("reference_vehicles").select("id,name,custom_name,plate_number").eq("company_id", companyId).in("id", traceVehicleIds)
+      ? supabase.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name").eq("company_id", companyId).in("id", traceVehicleIds)
       : Promise.resolve({ data: [], error: null }),
     traceVehicleIds.length
-      ? supabase.from("reference_machines").select("id,name,model,license_plate").eq("company_id", companyId).in("id", traceVehicleIds)
+      ? supabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,plate_number,source_raw_name").eq("company_id", companyId).in("id", traceVehicleIds)
       : Promise.resolve({ data: [], error: null }),
     traceDriverIds.length
       ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).in("id", traceDriverIds)
@@ -280,6 +281,11 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
       const vehicle = vehiclesById.get(String(ticket.vehicle_id || ""));
       const driver = driversById.get(String(ticket.driver_id || ""));
       const transportAudit = (ticket.audit_json?.transport || {}) as Record<string, unknown>;
+      const transportIdentity = resolveTransportIdentity({
+        ...(vehicle || {}),
+        name: vehicle?.name || transportAudit.vehicle_name_snapshot,
+        plate: vehicle?.plate_number || vehicle?.license_plate || transportAudit.vehicle_plate_snapshot,
+      });
       return {
         id: String(batch.id || link.inventory_batch_id),
         batchCode: String(batch.batch_code || "Рейс"),
@@ -290,7 +296,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
         warehouseId: ticket.warehouse_to_id ? String(ticket.warehouse_to_id) : null,
         netWeightKg: Number(ticket.net_weight_kg || 0),
         moisturePercent: batch.moisture_percent == null ? null : Number(batch.moisture_percent),
-        vehicleName: String(vehicle?.custom_name || vehicle?.name || vehicle?.model || transportAudit.vehicle_name_snapshot || "") || null,
+        vehicleName: transportIdentity.label || null,
         driverName: String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
         status: ticket.is_voided || ticket.status === "voided" ? "voided" : String(ticket.status || "unknown"),
         occurredAt: ticket.finalized_at || ticket.created_at || batch.created_at || null,
@@ -422,7 +428,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
                 : null,
             ticketId: ticket?.id ? String(ticket.id) : null,
             ticketNo: ticket?.ticket_no ? String(ticket.ticket_no) : null,
-            vehicleName: String(vehicle?.custom_name || vehicle?.name || vehicle?.model || "") || null,
+            vehicleName: resolveTransportIdentity(vehicle || {}).label || null,
             driverName: String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
             notes: String(entry.notes || transformation?.note || ticket?.notes || "") || null,
             processingDocument: transformation ? {
