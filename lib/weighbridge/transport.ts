@@ -39,3 +39,21 @@ export function isCargoVehicle(transport: WeighbridgeTransportKind | null | unde
 export function isCargoTractor(transport: WeighbridgeTransportKind | null | undefined) {
   return normalizedKinds(transport).includes("tractor");
 }
+
+export function formatVehiclePlate(value: unknown) {
+  const readable = String(value || "").trim().toLocaleUpperCase("ru-RU").replace(/\s+/g, " ");
+  const compact = readable.replace(/[^\p{L}\p{N}]+/gu, "");
+  const kazakhstanPlate = compact.match(/^(\d{3})([A-ZА-ЯЁ]{1,3})(\d{2,3})$/u);
+  if (kazakhstanPlate) return `${kazakhstanPlate[1]} ${kazakhstanPlate[2]} ${kazakhstanPlate[3]}`;
+  return readable;
+}
+
+export function transportPickerLabel(transport: { name?: string; model?: string; plate?: string }) {
+  const name = String(transport.name || "").trim();
+  const model = String(transport.model || "").trim();
+  const plate = formatVehiclePlate(transport.plate);
+  const brand = model && name.toLocaleLowerCase("ru-RU").includes(model.toLocaleLowerCase("ru-RU"))
+    ? name.replace(new RegExp(model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "iu"), "").replace(/[·,;()\-]+$/u, "").trim()
+    : name;
+  return [brand || (name !== model ? name : "") || "Транспорт", plate].filter(Boolean).join(" · ");
+}
