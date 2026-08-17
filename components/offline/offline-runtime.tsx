@@ -50,9 +50,12 @@ export function OfflineRuntime() {
             });
         }
       } else {
-        navigator.serviceWorker.register("/sw.js").catch((error) => {
-          console.warn("TravkinFlow service worker registration failed", error);
-        });
+        navigator.serviceWorker
+          .register("/sw.js", { updateViaCache: "none" })
+          .then((registration) => registration.update())
+          .catch((error) => {
+            console.warn("TravkinFlow service worker registration failed", error);
+          });
       }
     }
 

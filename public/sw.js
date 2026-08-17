@@ -1,6 +1,5 @@
-const CACHE_VERSION = "travkinflow-v6-zero-rsc-cache";
+const CACHE_VERSION = "travkinflow-v7-static-only";
 const STATIC_CACHE = `${CACHE_VERSION}:static`;
-const PAGE_CACHE = `${CACHE_VERSION}:pages`;
 
 const STATIC_ASSETS = [
   "/manifest.webmanifest",
@@ -126,21 +125,8 @@ self.addEventListener("fetch", (event) => {
   }
 
   if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone();
-          caches.open(PAGE_CACHE).then((cache) => cache.put(request, copy)).catch(() => undefined);
-          return response;
-        })
-        .catch(async () => {
-          const cached = await caches.match(request);
-          if (cached) return cached;
-          const pageCache = await caches.open(PAGE_CACHE);
-          const cachedShell = await pageCache.match("/dashboard");
-          return cachedShell || offlinePageResponse();
-        })
-    );
+    // Authenticated HTML is user/company-specific and must never survive a deployment.
+    event.respondWith(fetch(request).catch(() => offlinePageResponse()));
     return;
   }
 

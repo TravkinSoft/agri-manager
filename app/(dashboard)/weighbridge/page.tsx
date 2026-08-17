@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ClipboardList, Clock3, FileDown, Info, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
+import { CheckCircle2, ClipboardList, Clock3, FileDown, Info, Loader2, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -817,6 +817,7 @@ export default function WeighbridgeOperationsPage() {
   const [moistureSavedValue, setMoistureSavedValue] = useState("");
   const [suggestedFieldId, setSuggestedFieldId] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  const [voidReasonOpen, setVoidReasonOpen] = useState(false);
   const [shiftHandoverNote, setShiftHandoverNote] = useState("");
   const [historyTypeFilter, setHistoryTypeFilter] = useState("all");
   const [activeShift, setActiveShift] = useState<any | null>(null);
@@ -3080,8 +3081,12 @@ export default function WeighbridgeOperationsPage() {
       }
       setSupplierReceiptLines([]);
       setShowSupplierExtraFields(false);
-      void refreshBootstrap();
-      if (createdStatus === "finalized") void refreshTickets();
+      window.setTimeout(() => {
+        void refreshLiveData({
+          source: "realtime",
+          table: createdStatus === "finalized" ? "stock_ledger_entries" : "tickets",
+        });
+      }, 1_500);
     } catch (e: any) {
       toast({ title: "Ошибка создания", description: e?.message || "Не удалось создать талон", variant: "destructive" });
     } finally {
@@ -3258,7 +3263,9 @@ export default function WeighbridgeOperationsPage() {
       setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
       setClosingTare("");
       setClosingMoisture("");
-      void refreshBootstrap();
+      window.setTimeout(() => {
+        void refreshLiveData({ source: "realtime", table: "tickets" });
+      }, 1_500);
     } catch (e: any) {
       const message = String(e?.message || "");
       if (message.toLowerCase().includes("read-only") || message.toLowerCase().includes("already finalized")) {
@@ -3296,11 +3303,15 @@ export default function WeighbridgeOperationsPage() {
     try {
       await voidTicket(activeTicket.id, profile.id, voidReason.trim());
       toast({ title: "Талон аннулирован", description: "Отмена выполнена через storno" });
+      setVoidReasonOpen(false);
+      setVoidReason("");
       setActiveTicket(null);
       adjustActiveHarvestTicketCount(activeTicket, -1);
       releaseTransportAssignment(activeTicket, false);
       setTickets((current) => current.filter((ticket) => ticket.id !== activeTicket.id));
-      void refreshBootstrap();
+      window.setTimeout(() => {
+        void refreshLiveData({ source: "realtime", table: "tickets" });
+      }, 1_500);
     } catch (e: any) {
       toast({ title: "Ошибка", description: e?.message || "Не удалось аннулировать талон", variant: "destructive" });
     } finally {
@@ -3378,7 +3389,8 @@ export default function WeighbridgeOperationsPage() {
         title: isHandover ? "Смена передана" : activeShift?.id ? "Терминал разблокирован" : "Смена открыта",
         description: nextState.operator?.name || "Весовщик подтверждён.",
       });
-      void Promise.all([refreshTickets(), refreshBootstrap()]);
+      // The mutation response is canonical. Realtime/background invalidation will reconcile it
+      // without making the unlocked form compete with a full bootstrap.
     } catch (e: any) {
       toast({ title: "PIN не подтверждён", description: e?.message || "Проверьте PIN весовщика.", variant: "destructive" });
       void verifyOperatorSession();
@@ -4247,90 +4259,76 @@ export default function WeighbridgeOperationsPage() {
       ) : null}
 
       <Sheet open={Boolean(activeTicket)} onOpenChange={(open) => !open && setActiveTicket(null)}>
-        <SheetContent side="right" className="w-full overflow-y-auto bg-slate-950 text-slate-100 sm:max-w-xl">
+        <SheetContent side="right" className="w-full overflow-y-auto bg-slate-950 text-slate-100 sm:max-w-xl lg:overflow-hidden lg:max-w-3xl">
           {activeTicket ? (
-            <div className="space-y-4">
+            <div className="flex min-h-0 flex-col gap-2 lg:h-full">
               <SheetHeader className="sr-only">
                 <SheetTitle>Талон {activeTicket.ticket_no}</SheetTitle>
                 <SheetDescription>{operationUiLabel(activeTicket.op_type)}</SheetDescription>
               </SheetHeader>
-              <WeighbridgeTicketPaper ticket={activeTicket} labels={ticketPaperLabels(activeTicket)} />
-
-              <div className="rounded-2xl border border-slate-800 bg-slate-900/80 p-3">
-                <div className="space-y-2">
-                  <Label>Брутто (кг)</Label>
-                  <Input value={gross} readOnly className="border-slate-700 bg-slate-950 font-semibold text-slate-100" />
-                </div>
-                {activeTicket.op_type === "harvest_incoming" ? (
-                  <div className="mt-3 space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <Label>Влажность, %</Label>
-                      <span className="text-xs text-slate-500">{moistureSaving ? "Сохранение..." : closingMoisture === moistureSavedValue ? "Сохранено" : "Enter или уход из поля"}</span>
-                    </div>
-                    <Input
-                      type="number"
-                      inputMode="decimal"
-                      min="0"
-                      max="100"
-                      step="0.1"
-                      value={closingMoisture}
-                      onChange={(e) => setClosingMoisture(e.target.value)}
-                      onBlur={() => void saveActiveTicketMoisture()}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Enter") return;
-                        event.preventDefault();
-                        void saveActiveTicketMoisture();
-                      }}
-                      disabled={!canOperate || moistureSaving}
-                      placeholder="13,8"
-                    />
-                  </div>
-                ) : null}
-                <div className="mt-3 space-y-2">
-                  <Label>Тара (кг)</Label>
-                  <Input ref={tareInputRef} value={closingTare} onChange={(e) => setClosingTare(e.target.value)} disabled={!canOperate} />
-                  {closingTareValidation && !closingTareValidation.ok ? <div className="text-xs text-rose-300">{closingTareValidation.message}</div> : null}
-                </div>
-                <div className="mt-3 rounded-md border border-slate-700 bg-slate-950 p-3 text-sm text-slate-100">
-                  <div className="flex items-center justify-between"><span>Брутто</span><span>{formatWeightKg(gross)}</span></div>
-                  <div className="flex items-center justify-between"><span>Тара</span><span>{formatWeightKg(closingTare)}</span></div>
-                  <div className="my-2 border-t border-slate-700" />
-                  <div className="flex items-center justify-between font-semibold"><span>Чистый вес (нетто)</span><span>{formatWeightKg(pure)}</span></div>
-                  <div className="mt-2 text-xs text-slate-400">Формула: net = gross - tare</div>
-                  {pure != null && pure <= 0 ? <div className="mt-2 text-xs text-red-300">Ошибка: тара не может быть больше или равна брутто</div> : null}
-                </div>
-              </div>
+              <WeighbridgeTicketPaper
+                ticket={activeTicket}
+                labels={ticketPaperLabels(activeTicket)}
+                className="lg:max-h-[calc(100vh-96px)]"
+                headerActions={(
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-[#3f3426] hover:bg-[#e8dcc5]" aria-label="Действия с талоном">
+                        <MoreHorizontal className="h-5 w-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {canCorrectTicket ? <DropdownMenuItem onSelect={openActiveTicketEditor}><Pencil className="mr-2 h-4 w-4" />Исправить</DropdownMenuItem> : null}
+                      <DropdownMenuItem onSelect={() => { if (profile?.id) void downloadTicketPdf(activeTicket.id, profile.id); }}><FileDown className="mr-2 h-4 w-4" />PDF</DropdownMenuItem>
+                      {canCorrectTicket ? <DropdownMenuSeparator /> : null}
+                      {canCorrectTicket ? <DropdownMenuItem className="text-red-600 focus:text-red-600" onSelect={() => setVoidReasonOpen(true)}><Trash2 className="mr-2 h-4 w-4" />Аннулировать</DropdownMenuItem> : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+                weightEditor={canOperate ? {
+                  tareValue: closingTare,
+                  moistureValue: closingMoisture,
+                  netKg: pure,
+                  disabled: finalizing,
+                  moistureSaving,
+                  tareError: closingTareValidation && !closingTareValidation.ok
+                    ? closingTareValidation.message
+                    : pure != null && pure <= 0 ? "Тара должна быть меньше брутто." : "",
+                  tareInputRef,
+                  onTareChange: setClosingTare,
+                  onMoistureChange: setClosingMoisture,
+                  onMoistureCommit: () => { void saveActiveTicketMoisture(); },
+                } : undefined}
+              />
 
               {canOperate ? (
-                <div className="space-y-2">
-                  {canCorrectTicket ? (
-                    <Button variant="outline" className="w-full" onClick={openActiveTicketEditor}>
-                      <Pencil className="mr-2 h-4 w-4" />Исправить данные открытого талона
-                    </Button>
-                  ) : null}
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button variant="outline" onClick={async () => { if (!profile?.id) return; try { await downloadTicketPdf(activeTicket.id, profile.id); } catch (error: any) { toast({ title: "Ошибка PDF", description: error?.message || "Не удалось скачать PDF", variant: "destructive" }); } }}>
-                      <FileDown className="mr-2 h-4 w-4" />Скачать PDF
-                    </Button>
-                    <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={closeTicket} disabled={finalizing || !closingTare || (pure != null && pure <= 0)}>
-                      <CheckCircle2 className="mr-2 h-4 w-4" />{finalizing ? "Закрытие..." : "Закрыть талон"}
-                    </Button>
-                  </div>
-                  {canCorrectTicket ? (
-                    <div className="space-y-2 rounded-md border border-red-500/30 bg-red-950/30 p-3 text-red-50">
-                      <Label>Причина аннулирования</Label>
-                      <Textarea value={voidReason} onChange={(e) => setVoidReason(e.target.value)} rows={2} />
-                      <Button variant="destructive" className="w-full" onClick={handleVoid} disabled={voiding}>
-                        <Trash2 className="mr-2 h-4 w-4" />{voiding ? "Аннулирование..." : "Аннулировать талон"}
-                      </Button>
-                    </div>
-                  ) : null}
+                <div className="flex shrink-0 justify-center pt-1">
+                  <Button className="w-full max-w-sm bg-emerald-600 font-semibold hover:bg-emerald-700" onClick={closeTicket} disabled={finalizing || !closingTare || Boolean(closingTareValidation && !closingTareValidation.ok) || (pure != null && pure <= 0)}>
+                    {finalizing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                    {finalizing ? "Закрытие..." : "Закрыть талон"}
+                  </Button>
                 </div>
               ) : null}
             </div>
           ) : null}
         </SheetContent>
       </Sheet>
+      <Dialog open={voidReasonOpen} onOpenChange={(open) => { if (!voiding) setVoidReasonOpen(open); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Аннулировать талон</DialogTitle>
+            <DialogDescription>Укажите причину. Исходный талон и история останутся в системе.</DialogDescription>
+          </DialogHeader>
+          <Textarea value={voidReason} onChange={(event) => setVoidReason(event.target.value)} rows={3} placeholder="Причина аннулирования" />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVoidReasonOpen(false)} disabled={voiding}>Отмена</Button>
+            <Button variant="destructive" onClick={handleVoid} disabled={voiding || !voidReason.trim()}>
+              {voiding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+              {voiding ? "Аннулирование..." : "Аннулировать"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Sheet open={Boolean(historyPreviewTicket)} onOpenChange={(open) => !open && setHistoryPreviewTicket(null)}>
         <SheetContent side="right" className="w-full overflow-y-auto bg-slate-950 text-slate-100 sm:max-w-2xl">
           {historyPreviewTicket ? (
@@ -4452,7 +4450,7 @@ export default function WeighbridgeOperationsPage() {
               <Button type="button" variant="outline" onClick={() => setOperatorDialogOpen(false)} disabled={operatorBusy}>Отмена</Button>
               <Button type="button" onClick={() => void submitOperatorAction()} disabled={operatorBusy || !eligibleOperators.length || !operatorPersonId || !/^\d{6}$/.test(operatorPin)}>
                 {operatorBusy
-                  ? "Проверка..."
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Проверка...</>
                   : activeShift?.id && activeShift?.operator_person_id && activeShift.operator_person_id !== operatorPersonId
                     ? "Передать смену"
                     : activeShift?.id ? "Продолжить смену" : "Открыть смену"}
