@@ -9,6 +9,7 @@ import {
   type HarvestPeriodPreset,
 } from "@/lib/dashboard/harvest-summary";
 import type { HarvestBatchSummary, WeighbridgeTicket } from "@/lib/types/weighbridge";
+import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director"] as const;
 const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "current_shift", "last_24_hours", "season", "custom"]);
@@ -45,8 +46,8 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   const [{ data: fields, error: fieldsError }, { data: warehouses, error: warehousesError }, { data: vehicles, error: vehiclesError }, { data: machines, error: machinesError }, { data: people, error: peopleError }, { data: specialists, error: specialistsError }, { data: driverProfiles, error: driverProfilesError }] = await Promise.all([
     fieldIds.length ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds) : Promise.resolve({ data: [], error: null }),
     warehouseIds.length ? supabase.from("warehouses").select("id,name").eq("company_id", companyId).in("id", warehouseIds) : Promise.resolve({ data: [], error: null }),
-    vehicleIds.length ? supabase.from("reference_vehicles").select("id,name,custom_name,model,plate_number,license_plate").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
-    vehicleIds.length ? supabase.from("reference_machines").select("id,name,model,license_plate").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
+    vehicleIds.length ? supabase.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
+    vehicleIds.length ? supabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,plate_number,source_raw_name").eq("company_id", companyId).in("id", vehicleIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
     driverIds.length ? supabase.from("profiles").select("id,full_name,email").eq("company_id", companyId).in("id", driverIds) : Promise.resolve({ data: [], error: null }),
@@ -75,13 +76,18 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
     const vehicle = vehicleById.get(String(row.vehicle_id || ""));
     const driver = driverById.get(String(row.driver_id || ""));
     const auditTransport = (row.audit_json?.transport || {}) as Record<string, unknown>;
+    const transportIdentity = resolveTransportIdentity({
+      ...(vehicle || {}),
+      name: vehicle?.name || auditTransport.vehicle_name_snapshot,
+      plate: vehicle?.plate_number || vehicle?.license_plate || auditTransport.vehicle_plate_snapshot,
+    });
     return {
       ...row,
       harvest_lot_id: lotByTicketId.get(String(row.id)) || null,
       field_name_snapshot: String(fieldById.get(String(row.field_id || ""))?.name || "") || null,
       warehouse_to_name_snapshot: String(warehouseById.get(String(row.warehouse_to_id || ""))?.name || "") || null,
-      vehicle_name_snapshot: String(vehicle?.custom_name || vehicle?.name || vehicle?.model || auditTransport.vehicle_name_snapshot || "") || null,
-      vehicle_plate_snapshot: String(vehicle?.plate_number || vehicle?.license_plate || auditTransport.vehicle_plate_snapshot || "") || null,
+      vehicle_name_snapshot: transportIdentity.name || null,
+      vehicle_plate_snapshot: transportIdentity.plate || null,
       driver_name_snapshot: String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
       lines: (row.lines || []).map((line: any) => ({
         ...line,

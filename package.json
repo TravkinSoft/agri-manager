@@ -36,6 +36,7 @@
     "qa:tz274": "npx --no-install tsx scripts/qa-tz274-agronomist-access.ts",
     "qa:tz277": "npx --no-install tsx scripts/qa-tz277-p0-hotfix.ts",
     "qa:tz278": "npx --no-install tsx scripts/qa-tz278-owner-production-fix-v2.ts",
+    "qa:tz279": "npx --no-install tsx scripts/qa-tz279-operator-machine-identity.ts",
     "qa:crop-optional-seed": "npx --no-install tsx scripts/qa-crop-structure-optional-seed.ts",
     "qa:tz266": "npx --no-install tsx scripts/qa-tz266-active-harvest-tabs.ts",
     "qa:p0:weighbridge-gross": "npx --no-install tsx scripts/qa-p0-weighbridge-gross-legacy-schema.ts",

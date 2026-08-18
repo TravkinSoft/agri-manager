@@ -15,6 +15,7 @@ type Vehicle = {
   model: string;
   plate: string;
   type: string;
+  searchTerms?: string[];
 };
 
 type Driver = {
@@ -94,7 +95,7 @@ export function TransportDriverSelects({
           label: vehicleTitle(vehicle),
           status: assignment ? "Ждёт тару" : undefined,
           group: recentOrder.has(vehicle.id) ? "Недавно использованные" : "Остальные",
-          keywords: [vehicle.name, vehicle.model, vehicle.plate, vehicle.type].concat([
+          keywords: [vehicle.name, vehicle.model, vehicle.plate, vehicle.type, ...(vehicle.searchTerms || [])].concat([
             formatVehiclePlate(vehicle.plate),
             String(vehicle.plate || "").replace(/[^\p{L}\p{N}]+/gu, "").slice(-4),
           ]),

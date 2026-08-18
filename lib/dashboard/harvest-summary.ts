@@ -1,4 +1,5 @@
 import type { HarvestBatchSummary, WeighbridgeTicket } from "@/lib/types/weighbridge";
+import { transportPickerLabel } from "@/lib/weighbridge/transport";
 
 export const HARVEST_TIME_ZONE = "Asia/Qyzylorda";
 export const ASTYK_STEM_OPERATIONAL_DAY_START_HOUR = 7;
@@ -354,7 +355,10 @@ function destinationName(ticket: WeighbridgeTicket): string {
 }
 
 function vehicleLabel(ticket: WeighbridgeTicket): string {
-  return [cleanLabel(ticket.vehicle_name_snapshot), cleanLabel(ticket.vehicle_plate_snapshot)].filter(Boolean).join(" · ") || "Машина не указана";
+  return transportPickerLabel({
+    name: cleanLabel(ticket.vehicle_name_snapshot),
+    plate: cleanLabel(ticket.vehicle_plate_snapshot),
+  }) || "Машина не указана";
 }
 
 function partyIdentityFingerprint(seasonId: string | null | undefined, identity: HarvestIdentity): string {

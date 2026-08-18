@@ -4,7 +4,7 @@ import {
   asSessionErrorResponse,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
-import { isCargoTractor, isCargoVehicle, isTrailerTransport } from "@/lib/weighbridge/transport";
+import { isCargoTractor, isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,14 +20,14 @@ export async function GET(request: NextRequest) {
     const [vehiclesRes, machinesRes, peopleRes, legacyDriversRes, profilesRes] = await Promise.all([
       supabase
         .from("reference_vehicles")
-        .select("id,name,custom_name,model,plate_number,type,fleet_type,primary_responsible_personnel_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
+        .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name,type,fleet_type,primary_responsible_personnel_id,is_active,archived,transport_model:transport_model_id(full_name,category)")
         .eq("company_id", companyId)
         .eq("is_active", true)
         .eq("archived", false)
         .order("name", { ascending: true }),
       supabase
         .from("reference_machines")
-        .select("id,name,model,license_plate,type,status,is_active,archived")
+        .select("id,name,full_name,brand,model,series,license_plate,plate_number,source_raw_name,type,status,is_active,archived")
         .eq("company_id", companyId)
         .eq("is_active", true)
         .eq("archived", false)
@@ -60,11 +60,13 @@ export async function GET(request: NextRequest) {
       const transportModel = Array.isArray(row.transport_model)
         ? row.transport_model[0]
         : row.transport_model;
+      const identity = resolveTransportIdentity(row);
       return {
         id: String(row.id),
-        name: String(row.custom_name || row.name || "Машина"),
+        name: identity.name,
         model: String(transportModel?.full_name || row.model || row.name || ""),
-        plate: String(row.plate_number || ""),
+        plate: identity.plate,
+        searchTerms: identity.searchTerms,
         type: String(row.type || ""),
         fleetType: String(row.fleet_type || ""),
         transportCategory: String(transportModel?.category || ""),
@@ -78,17 +80,21 @@ export async function GET(request: NextRequest) {
       ...vehicleRows.filter((row) => isCargoVehicle(row)),
       ...(machinesRes.data || [])
         .filter((row: any) => isCargoTractor(row))
-        .map((row: any) => ({
-          id: String(row.id),
-          name: String(row.name || row.model || "Трактор"),
-          model: String(row.model || row.name || ""),
-          plate: String(row.license_plate || ""),
-          type: "tractor",
-          fleetType: "tractor",
-          transportCategory: "tractor",
-          source: "reference_machines" as const,
-          primaryPersonnelId: null,
-        })),
+        .map((row: any) => {
+          const identity = resolveTransportIdentity(row);
+          return {
+            id: String(row.id),
+            name: identity.name,
+            model: String(row.model || row.name || ""),
+            plate: identity.plate,
+            searchTerms: identity.searchTerms,
+            type: "tractor",
+            fleetType: "tractor",
+            transportCategory: "tractor",
+            source: "reference_machines" as const,
+            primaryPersonnelId: null,
+          };
+        }),
     ];
     const trailers = vehicleRows.filter((row) => isTrailerTransport(row));
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUnexpectedUserError, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
 
 async function loadHarvestClosureState(supabase: SupabaseClient, companyId: string, ticketId: string) {
   const [linesResult, weighingsResult] = await Promise.all([
@@ -95,7 +96,8 @@ export async function POST(
       }
       timing.validationMs = Date.now() - dbStartedAt;
       timing.totalMs = Date.now() - startedAt;
-      return NextResponse.json({ ticket: ticketBefore, idempotent_replay: true, debug: timing });
+      const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [ticketBefore]);
+      return NextResponse.json({ ticket: attributedTicket, idempotent_replay: true, debug: timing });
     }
     if (ticketBefore.op_type === "harvest_incoming") {
       harvestClosureState = await loadHarvestClosureState(supabase, companyId, id);
@@ -235,7 +237,8 @@ export async function POST(
 
     timing.dbMs = timing.validationMs + (Date.now() - dbAfterRpcStartedAt);
     timing.totalMs = Date.now() - startedAt;
-    const response = NextResponse.json({ ticket: updatedResult.data, debug: timing });
+    const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [updatedResult.data]);
+    const response = NextResponse.json({ ticket: attributedTicket, debug: timing });
     response.headers.set(
       "Server-Timing",
       `auth;dur=${timing.authMs}, validation;dur=${timing.validationMs}, finalize_rpc;dur=${timing.rpcMs}, db;dur=${timing.dbMs}, total;dur=${timing.totalMs}`

@@ -67,7 +67,7 @@ export async function enrichTicketOperatorAttribution(
     const shiftPersonId = shiftPersonById.get(String(ticket.shift_id || "")) || null;
     const openedPersonId = String(ticket.created_by_person_id || "") || shiftPersonId;
     const finalizedPersonId = String(ticket.finalized_by_person_id || "") ||
-      (ticket.finalized_at || ticket.status === "finalized" ? shiftPersonId : null);
+      (ticket.finalized_at || ticket.status === "finalized" ? openedPersonId || shiftPersonId : null);
     const technicalAudit: TechnicalAudit | undefined = options?.includeTechnicalAudit
       ? {
           auth_account_created: profileLabel(profileById.get(String(ticket.created_by || ""))),
