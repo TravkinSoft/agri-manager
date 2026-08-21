@@ -56,7 +56,8 @@ check("workspace ticket endpoint limits journal", () => {
 check("weighbridge restores cache before background reconciliation", () => {
   assert.match(weighbridgePage, /if \(cached\) \{[\s\S]*?setLoading\(false\)/);
   assert.match(weighbridgePage, /readWeighbridgeWorkspaceCache/);
-  assert.match(weighbridgePage, /const reconcile = \(\) => \{[\s\S]*?load\(controller\.signal, Boolean\(cached\)\)[\s\S]*?refreshTickets\(!cached, controller\.signal\)[\s\S]*?verifyOperatorSession\(controller\.signal\)/);
+  assert.match(weighbridgePage, /void verifyOperatorSession\(controller\.signal\)/);
+  assert.match(weighbridgePage, /if \(canUseOperatorSession && !operatorState\.unlocked\) return;[\s\S]*?const reconcile = \(\) => \{[\s\S]*?load\(controller\.signal, Boolean\(cached\)\)[\s\S]*?refreshTickets\(!cached, controller\.signal\)/);
   assert.match(weighbridgePage, /if \(cached\) refreshTimer = window\.setTimeout\(reconcile, 100\)/);
 });
 

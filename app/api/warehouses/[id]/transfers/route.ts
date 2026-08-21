@@ -37,6 +37,8 @@ export async function POST(
     }
     const destinationWarehouseId = String(body.destination_warehouse_id || "").trim();
     const productId = String(body.product_id || "").trim();
+    const harvestLotId = String(body.harvest_lot_id || "").trim();
+    const sourcePhysicalState = String(body.source_physical_state || "SOURCE").trim() || "SOURCE";
     const quantity = Number(body.quantity);
     if (!UUID_RE.test(destinationWarehouseId) || !UUID_RE.test(productId)) {
       return NextResponse.json({ error: "Выберите склад назначения и материал" }, { status: 400 });
@@ -75,7 +77,10 @@ export async function POST(
       return NextResponse.json({ error: "Количество должно быть больше нуля" }, { status: 400 });
     }
 
-    const { data, error } = await supabase.rpc("create_warehouse_transfer_atomic_v1", {
+    const rpcName = UUID_RE.test(harvestLotId)
+      ? "create_harvest_lot_transfer_atomic_v1"
+      : "create_warehouse_transfer_atomic_v1";
+    const common = {
       p_company_id: companyId,
       p_source_warehouse_id: sourceWarehouseId,
       p_destination_warehouse_id: destinationWarehouseId,
@@ -87,7 +92,10 @@ export async function POST(
         `Водитель: ${driverId}`,
       ].filter(Boolean).join("\n"),
       p_idempotency_key: idempotencyKey,
-    });
+    };
+    const { data, error } = await supabase.rpc(rpcName, UUID_RE.test(harvestLotId)
+      ? { ...common, p_harvest_lot_id: harvestLotId, p_source_physical_state: sourcePhysicalState }
+      : common);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ transfer: data });
   } catch (error) {

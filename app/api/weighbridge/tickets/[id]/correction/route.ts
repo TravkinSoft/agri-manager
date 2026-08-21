@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import {
   WEIGHBRIDGE_WRITE_ROLES,
   asSessionErrorResponse,
+  recordWeighbridgeOperatorActivity,
   requireWeighbridgeOperatorSession,
   resolveWeighbridgeSession,
   weighbridgeUserError,
 } from "@/app/api/weighbridge/_auth";
+
+const CORRECTION_LOT_ERROR = "Не удалось завершить исправление талона. Связь партии не прошла проверку. Исходный талон не изменён.";
+
+function isCorrectionLotError(message: string) {
+  return /aggregate (harvest )?lot|batch identity|batch lineage|physical batch|line identity|warehouse-local batch|company stock/i.test(message);
+}
 
 export async function POST(
   request: NextRequest,
@@ -57,6 +65,14 @@ export async function POST(
         };
     const { data: resultId, error: rpcError } = await supabase.rpc(rpc, args);
     if (rpcError) {
+      if (action === "finalize" && isCorrectionLotError(rpcError.message)) {
+        const traceId = randomUUID();
+        console.error("weighbridge_correction_lot_validation_failed", { traceId, message: rpcError.message });
+        return NextResponse.json(
+          { error: CORRECTION_LOT_ERROR, code: "correction_lot_validation_failed", trace_id: traceId },
+          { status: 409 }
+        );
+      }
       const message = weighbridgeUserError(rpcError.message);
       const status = message.includes("последующих движениях") ? 409 : 400;
       return NextResponse.json({ error: message, code: status === 409 ? "downstream_dependency" : "correction_failed" }, { status });
@@ -70,6 +86,9 @@ export async function POST(
       .single();
     if (correctedError) {
       return NextResponse.json({ error: correctedError.message }, { status: 400 });
+    }
+    if (operatorSession) {
+      await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "ticket_correction");
     }
     return NextResponse.json({ ticket: corrected });
   } catch (error) {

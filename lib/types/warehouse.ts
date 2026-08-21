@@ -278,6 +278,8 @@ export interface WarehouseStockReservation {
 export interface WarehouseTransferInput {
   destination_warehouse_id: string;
   product_id: string;
+  harvest_lot_id?: string | null;
+  source_physical_state?: string | null;
   quantity: number;
   vehicle_id: string;
   driver_id: string;

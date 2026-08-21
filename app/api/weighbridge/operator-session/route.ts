@@ -12,7 +12,9 @@ const cookieOptions = {
   secure: process.env.NODE_ENV === "production",
   sameSite: "lax" as const,
   path: "/",
-  maxAge: 12 * 60 * 60,
+  // The database enforces the 24-hour sliding inactivity window. The browser
+  // cookie lives longer so an active shift survives browser and PC restarts.
+  maxAge: 30 * 24 * 60 * 60,
 };
 
 function statusForCode(code: string) {

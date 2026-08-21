@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, requireWeighbridgeOperatorSession, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { validateHarvestWeights } from "@/lib/weighbridge/harvest-contract";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
@@ -88,7 +88,7 @@ export async function GET(
         ? supabase.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name").eq("company_id", companyId).eq("id", ticket.vehicle_id).maybeSingle()
         : Promise.resolve({ data: null } as any),
       ticket.vehicle_id
-        ? supabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,plate_number,source_raw_name").eq("company_id", companyId).eq("id", ticket.vehicle_id).maybeSingle()
+        ? supabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,source_raw_name").eq("company_id", companyId).eq("id", ticket.vehicle_id).maybeSingle()
         : Promise.resolve({ data: null } as any),
       ticket.driver_id
         ? supabase.from("company_people").select("id,full_name").eq("company_id", companyId).eq("id", ticket.driver_id).maybeSingle()
@@ -386,6 +386,13 @@ export async function PATCH(
       if (updatedError || !updated?.id) {
         return NextResponse.json({ error: updatedError?.message || "Ticket not found after update" }, { status: 400 });
       }
+      if (operatorSession) {
+        await recordWeighbridgeOperatorActivity(
+          request,
+          { companyId, supabase },
+          patch.tare_weight_kg !== undefined ? "tare_finalize" : "gross"
+        );
+      }
       return NextResponse.json({ ticket: updated });
     }
 
@@ -418,6 +425,10 @@ export async function PATCH(
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 400 });
+    }
+
+    if (operatorSession) {
+      await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "ticket_correction");
     }
 
     return NextResponse.json({ ticket: updated });

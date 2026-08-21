@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
 import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
 import type { StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
 import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context";
 import { ensureHarvestProductIdentity } from "@/lib/server/harvest-product-identity";
-import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
+import { isHarvestDestinationPlace, isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
@@ -81,6 +81,76 @@ async function resolveActiveShiftId(
   return String(data?.id || "");
 }
 
+async function resolveAggregateHarvestLotStock(
+  supabase: SupabaseClient,
+  input: {
+    companyId: string;
+    warehouseId: string;
+    harvestLotId: string;
+    productId: string;
+    batchClass?: string | null;
+    physicalState?: string | null;
+  }
+) {
+  if (!UUID_RE.test(input.harvestLotId)) {
+    throw new Error("Выбранная общая партия урожая недоступна.");
+  }
+  const [{ data: lot, error: lotError }, { data: links, error: linksError }] = await Promise.all([
+    supabase
+      .from("harvest_lots")
+      .select("id,company_id,crop_id,variety_id,reproduction_id,composition_hash,status")
+      .eq("id", input.harvestLotId)
+      .eq("company_id", input.companyId)
+      .eq("status", "active")
+      .maybeSingle(),
+    supabase
+      .from("harvest_lot_batches")
+      .select("inventory_batch_id")
+      .eq("company_id", input.companyId)
+      .eq("harvest_lot_id", input.harvestLotId),
+  ]);
+  if (lotError || linksError || !lot?.id) {
+    throw new Error(lotError?.message || linksError?.message || "Общая партия урожая не найдена.");
+  }
+  const batchIds = Array.from(new Set((links || []).map((row: any) => String(row.inventory_batch_id || "")).filter(Boolean)));
+  if (!batchIds.length) throw new Error("В общей партии нет рейсовых партий.");
+
+  const [{ data: batches, error: batchesError }, { data: balances, error: balancesError }] = await Promise.all([
+    supabase
+      .from("inventory_batches")
+      .select("id,product_id,crop_id,variety_id,reproduction_id,batch_class,physical_state,warehouse_id,received_at,created_at")
+      .eq("company_id", input.companyId)
+      .in("id", batchIds),
+    supabase
+      .from("v_stock_balance_identity")
+      .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
+      .eq("company_id", input.companyId)
+      .eq("warehouse_id", input.warehouseId)
+      .in("batch_id", batchIds)
+      .gt("quantity", 0),
+  ]);
+  if (batchesError || balancesError) throw new Error(batchesError?.message || balancesError?.message || "Не удалось проверить остаток партии.");
+
+  const requestedClass = String(input.batchClass || "commodity");
+  const requestedState = String(input.physicalState || "SOURCE");
+  const batchById = new Map((batches || []).map((row: any) => [String(row.id), row]));
+  const eligible = (balances || []).filter((row: any) => {
+    const batch = batchById.get(String(row.batch_id || "")) as any;
+    return batch
+      && String(row.batch_class || batch.batch_class || "commodity") === requestedClass
+      && String(batch.physical_state || "SOURCE") === requestedState
+      && String(row.uom || "") === "kg";
+  });
+  const available = eligible.reduce((sum: number, row: any) => sum + Number(row.quantity || 0), 0);
+  const first = eligible
+    .map((row: any) => batchById.get(String(row.batch_id || "")))
+    .filter(Boolean)
+    .sort((a: any, b: any) => String(a.received_at || a.created_at || "").localeCompare(String(b.received_at || b.created_at || "")) || String(a.id).localeCompare(String(b.id)))[0] as any;
+  if (!first || available <= 0.0001) throw new Error("На выбранном складе нет остатка общей партии.");
+
+  return { lot, representativeBatch: first, available };
+}
+
 const WEIGHBRIDGE_TICKET_SELECT = `
   *,
   lines:ticket_lines(
@@ -139,6 +209,23 @@ export async function GET(request: NextRequest) {
       ]);
       error = openResult.error || recentResult.error;
       data = [...(openResult.data || []), ...(recentResult.data || [])];
+      if (!error) {
+        const loadedIds = new Set((data || []).map((ticket: any) => String(ticket.id)));
+        const originalIds = Array.from(new Set(
+          (openResult.data || [])
+            .map((ticket: any) => String(ticket.correction_of_ticket_id || ""))
+            .filter((id: string) => id && !loadedIds.has(id))
+        ));
+        if (originalIds.length) {
+          const originalsResult = await supabase
+            .from("tickets")
+            .select(WEIGHBRIDGE_TICKET_SELECT)
+            .eq("company_id", companyId)
+            .in("id", originalIds);
+          error = originalsResult.error;
+          data = [...(data || []), ...(originalsResult.data || [])];
+        }
+      }
     } else {
       const result = await supabase
         .from("tickets")
@@ -348,9 +435,9 @@ export async function POST(request: NextRequest) {
       const warehouseId = String(ticket.warehouse_to_id || ticket.destination_id || "").trim();
       const destinationWarehouseStartedAt = Date.now();
       const destinationWarehousePromise = destinationKind === "warehouse"
-        ? Promise.resolve(supabase
+          ? Promise.resolve(supabase
             .from("warehouses")
-            .select("id,company_id,warehouse_type,archived,is_archived")
+            .select("id,company_id,warehouse_type,place_type,archived,is_archived")
             .eq("company_id", companyId)
             .eq("id", warehouseId)
             .maybeSingle()).finally(() => {
@@ -452,7 +539,7 @@ export async function POST(request: NextRequest) {
           !destinationWarehouse?.id ||
           destinationWarehouse.archived ||
           destinationWarehouse.is_archived ||
-          !isHarvestWarehouseType(destinationWarehouse.warehouse_type)
+          !isHarvestDestinationPlace(destinationWarehouse.warehouse_type, destinationWarehouse.place_type)
         ) {
           return NextResponse.json(
             { error: "Выберите активный склад, разрешённый для приёма урожая." },
@@ -511,7 +598,7 @@ export async function POST(request: NextRequest) {
             .maybeSingle(),
           supabase
             .from("reference_machines")
-            .select("id,name,full_name,brand,model,series,license_plate,plate_number,source_raw_name,type,status,is_active,archived")
+            .select("id,name,full_name,brand,model,series,license_plate,source_raw_name,type,status,is_active,archived")
             .eq("company_id", ticket.company_id)
             .eq("id", ticket.vehicle_id)
             .maybeSingle(),
@@ -581,7 +668,7 @@ export async function POST(request: NextRequest) {
     }
     if (isImpurityRemoval) {
       const impurityType = String(ticket.audit_json?.impurity_type || "").trim();
-      if (!ticket.batch_id || !ticket.warehouse_from_id) {
+      if ((!ticket.batch_id && !ticket.harvest_lot_id) || !ticket.warehouse_from_id) {
         return NextResponse.json({ error: "Выберите склад и партию урожая." }, { status: 400 });
       }
       if (!ticket.vehicle_id || !ticket.driver_id) {
@@ -600,41 +687,62 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Вывоз примесей поддерживает одну партию на талон." }, { status: 400 });
       }
 
-      const [{ data: batch, error: batchError }, { data: warehouse, error: warehouseError }, { data: harvestTicket, error: harvestTicketError }] = await Promise.all([
-        supabase
-          .from("inventory_batches")
-          .select("id,batch_code,product_id,crop_id,variety_id,reproduction_id,batch_class,source_ticket_id,origin_type")
-          .eq("company_id", companyId)
-          .eq("id", ticket.batch_id)
-          .eq("origin_type", "harvest")
-          .maybeSingle(),
-        supabase
-          .from("warehouses")
-          .select("id,warehouse_type,archived,is_archived")
-          .eq("company_id", companyId)
-          .eq("id", ticket.warehouse_from_id)
-          .maybeSingle(),
-        supabase
-          .from("tickets")
-          .select("id,warehouse_to_id,status,is_finalized,is_voided")
-          .eq("company_id", companyId)
-          .eq("batch_id", ticket.batch_id)
-          .eq("op_type", "harvest_incoming")
-          .eq("warehouse_to_id", ticket.warehouse_from_id)
-          .eq("status", "finalized")
-          .eq("is_finalized", true)
-          .eq("is_voided", false)
-          .limit(1)
-          .maybeSingle(),
-      ]);
-      if (batchError || !batch?.id) {
-        return NextResponse.json({ error: "Партия урожая не найдена в выбранной компании." }, { status: 400 });
-      }
+      const { data: warehouse, error: warehouseError } = await supabase
+        .from("warehouses")
+        .select("id,warehouse_type,archived,is_archived")
+        .eq("company_id", companyId)
+        .eq("id", ticket.warehouse_from_id)
+        .maybeSingle();
       if (warehouseError || !warehouse?.id || warehouse.archived || warehouse.is_archived || !isHarvestWarehouseType(warehouse.warehouse_type)) {
         return NextResponse.json({ error: "Выберите активный склад урожая." }, { status: 400 });
       }
-      if (harvestTicketError || !harvestTicket?.id) {
-        return NextResponse.json({ error: "Партия не была принята на выбранный склад закрытым талоном урожая." }, { status: 400 });
+
+      const line = lines[0];
+      let batch: any = null;
+      if (ticket.harvest_lot_id) {
+        try {
+          const resolved = await resolveAggregateHarvestLotStock(supabase, {
+            companyId,
+            warehouseId: String(ticket.warehouse_from_id),
+            harvestLotId: String(ticket.harvest_lot_id),
+            productId: String(line.product_id || ""),
+            batchClass: line.batch_class || "commodity",
+            physicalState: ticket.source_physical_state || "SOURCE",
+          });
+          batch = resolved.representativeBatch;
+          line.batch_id = null;
+          line.lot_id = String(ticket.harvest_lot_id);
+        } catch (error) {
+          return NextResponse.json({ error: error instanceof Error ? error.message : "Общая партия урожая недоступна." }, { status: 400 });
+        }
+      } else {
+        const [{ data: exactBatch, error: batchError }, { data: harvestTicket, error: harvestTicketError }] = await Promise.all([
+          supabase
+            .from("inventory_batches")
+            .select("id,batch_code,product_id,crop_id,variety_id,reproduction_id,batch_class,source_ticket_id,origin_type")
+            .eq("company_id", companyId)
+            .eq("id", ticket.batch_id)
+            .eq("origin_type", "harvest")
+            .maybeSingle(),
+          supabase
+            .from("tickets")
+            .select("id")
+            .eq("company_id", companyId)
+            .eq("batch_id", ticket.batch_id)
+            .eq("op_type", "harvest_incoming")
+            .eq("warehouse_to_id", ticket.warehouse_from_id)
+            .eq("status", "finalized")
+            .eq("is_finalized", true)
+            .eq("is_voided", false)
+            .limit(1)
+            .maybeSingle(),
+        ]);
+        if (batchError || !exactBatch?.id || harvestTicketError || !harvestTicket?.id) {
+          return NextResponse.json({ error: "Партия не была принята на выбранный склад закрытым талоном урожая." }, { status: 400 });
+        }
+        batch = exactBatch;
+        line.batch_id = String(exactBatch.id);
+        line.lot_id = String(exactBatch.batch_code || exactBatch.id);
       }
 
       ticket.source_kind = "warehouse";
@@ -644,13 +752,10 @@ export async function POST(request: NextRequest) {
       ticket.warehouse_to_id = null;
       ticket.processing_node_id = null;
       ticket.audit_json = { ...(ticket.audit_json || {}), impurity_type: impurityType };
-      const line = lines[0];
       line.product_id = String(batch.product_id || "");
       line.crop_id = batch.crop_id ? String(batch.crop_id) : null;
       line.variety_id = batch.variety_id ? String(batch.variety_id) : null;
       line.reproduction_id = batch.reproduction_id ? String(batch.reproduction_id) : null;
-      line.batch_id = String(batch.id);
-      line.lot_id = String(batch.batch_code || batch.id);
       line.batch_class = String(batch.batch_class || "commodity");
       line.warehouse_from_id = String(warehouse.id);
       line.warehouse_to_id = null;
@@ -847,9 +952,17 @@ export async function POST(request: NextRequest) {
       line.unit_contract_version = contract.unitContractVersion;
     }
 
-    if (isWarehouseTransfer) {
-      const line = lines[0];
-      const requiredQty = Number(line.quantity || 0);
+    const selectedStockAvailability = async (line: TicketLineInput) => {
+      if (ticket.harvest_lot_id) {
+        return resolveAggregateHarvestLotStock(supabase, {
+          companyId: ticket.company_id,
+          warehouseId: String(ticket.warehouse_from_id || ""),
+          harvestLotId: String(ticket.harvest_lot_id),
+          productId: String(line.product_id || ""),
+          batchClass: line.batch_class || "commodity",
+          physicalState: ticket.source_physical_state || "SOURCE",
+        }).then((result) => result.available);
+      }
       const { data: balances, error: balanceError } = await supabase
         .from("v_stock_balance_identity")
         .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
@@ -857,9 +970,7 @@ export async function POST(request: NextRequest) {
         .eq("warehouse_id", ticket.warehouse_from_id)
         .eq("product_id", line.product_id)
         .gt("quantity", 0);
-      if (balanceError) {
-        return NextResponse.json({ error: balanceError.message }, { status: 400 });
-      }
+      if (balanceError) throw new Error(balanceError.message);
       const match = (balances || []).find((row: any) =>
         sameNullable(row.variety_id, line.variety_id) &&
         sameNullable(row.reproduction_id, line.reproduction_id) &&
@@ -867,10 +978,16 @@ export async function POST(request: NextRequest) {
         String(row.batch_class || "") === String(line.batch_class || "") &&
         String(row.uom || "") === String(line.uom || "")
       );
-      const available = Number(match?.quantity || 0);
-      if (!match) {
-        return NextResponse.json({ error: "Selected stock identity does not belong to source warehouse" }, { status: 400 });
-      }
+      if (!match) throw new Error("Selected stock identity does not belong to source warehouse");
+      return Number(match.quantity || 0);
+    };
+
+    if (isWarehouseTransfer) {
+      const line = lines[0];
+      const requiredQty = Number(line.quantity || 0);
+      let available = 0;
+      try { available = await selectedStockAvailability(line); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Остаток недоступен." }, { status: 400 }); }
       if (isDirectWarehouseTransfer && available < requiredQty) {
         return NextResponse.json(
           { error: `Недостаточно остатка для перемещения. Доступно: ${available.toFixed(3)} кг, нужно: ${requiredQty.toFixed(3)} кг` },
@@ -881,27 +998,9 @@ export async function POST(request: NextRequest) {
     if (isShipment || isDisposal) {
       const line = lines[0];
       const requiredQty = Number(line.quantity || 0);
-      const { data: balances, error: balanceError } = await supabase
-        .from("v_stock_balance_identity")
-        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
-        .eq("company_id", ticket.company_id)
-        .eq("warehouse_id", ticket.warehouse_from_id)
-        .eq("product_id", line.product_id)
-        .gt("quantity", 0);
-      if (balanceError) {
-        return NextResponse.json({ error: balanceError.message }, { status: 400 });
-      }
-      const match = (balances || []).find((row: any) =>
-        sameNullable(row.variety_id, line.variety_id) &&
-        sameNullable(row.reproduction_id, line.reproduction_id) &&
-        (sameNullable(row.batch_id, line.batch_id) || sameNullable(row.batch_id, line.lot_id)) &&
-        String(row.batch_class || "") === String(line.batch_class || "") &&
-        String(row.uom || "") === String(line.uom || "")
-      );
-      const available = Number(match?.quantity || 0);
-      if (!match) {
-        return NextResponse.json({ error: "Selected stock identity does not belong to source warehouse" }, { status: 400 });
-      }
+      let available = 0;
+      try { available = await selectedStockAvailability(line); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Остаток недоступен." }, { status: 400 }); }
       if (available < requiredQty) {
         return NextResponse.json(
           { error: `Недостаточно остатка по выбранной складской идентичности. Доступно: ${available.toFixed(3)} кг, нужно: ${requiredQty.toFixed(3)} кг` },
@@ -912,27 +1011,9 @@ export async function POST(request: NextRequest) {
     if (isFieldIssue) {
       const line = lines[0];
       const requiredQty = Number(line.quantity || 0);
-      const { data: balances, error: balanceError } = await supabase
-        .from("v_stock_balance_identity")
-        .select("product_id,variety_id,reproduction_id,batch_id,batch_class,uom,quantity")
-        .eq("company_id", ticket.company_id)
-        .eq("warehouse_id", ticket.warehouse_from_id)
-        .eq("product_id", line.product_id)
-        .gt("quantity", 0);
-      if (balanceError) {
-        return NextResponse.json({ error: balanceError.message }, { status: 400 });
-      }
-      const match = (balances || []).find((row: any) =>
-        sameNullable(row.variety_id, line.variety_id) &&
-        sameNullable(row.reproduction_id, line.reproduction_id) &&
-        (sameNullable(row.batch_id, line.batch_id) || sameNullable(row.batch_id, line.lot_id)) &&
-        String(row.batch_class || "") === String(line.batch_class || "") &&
-        String(row.uom || "") === String(line.uom || "")
-      );
-      const available = Number(match?.quantity || 0);
-      if (!match) {
-        return NextResponse.json({ error: "Selected stock identity does not belong to source warehouse" }, { status: 400 });
-      }
+      let available = 0;
+      try { available = await selectedStockAvailability(line); }
+      catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Остаток недоступен." }, { status: 400 }); }
       if (isDirectFieldIssue && available < requiredQty) {
         return NextResponse.json(
           { error: `Недостаточно остатка для отпуска в поле. Доступно: ${available.toFixed(3)} кг, нужно: ${requiredQty.toFixed(3)} кг` },
@@ -1510,6 +1591,9 @@ export async function POST(request: NextRequest) {
     if (linesError || weighingsError) {
       await cleanupCreatedTicket(supabase, createdTicket.id, createdHarvestProductId);
       return NextResponse.json({ error: linesError?.message || weighingsError?.message || "Failed to create ticket details" }, { status: 400 });
+    }
+    if (operatorSession) {
+      await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "ticket_create");
     }
     timing.dbMs = Date.now() - dbStartedAt;
 

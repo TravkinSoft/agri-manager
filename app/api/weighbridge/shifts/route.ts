@@ -90,13 +90,6 @@ export async function PATCH(request: NextRequest) {
       .in("status", ["draft", "active", "ready_to_close"]);
     if (unresolvedError) return NextResponse.json({ error: unresolvedError.message }, { status: 400 });
 
-    if ((unresolvedCount || 0) > 0) {
-      return NextResponse.json(
-        { error: "Нельзя закрыть смену, пока есть открытые талоны." },
-        { status: 409 }
-      );
-    }
-
     const { data: shiftTickets, error: ticketsError } = await supabase
       .from("tickets")
       .select("id,status,gross_weight_kg,net_weight_kg,manual_correction_reason,local_sync_status")
@@ -119,7 +112,7 @@ export async function PATCH(request: NextRequest) {
         closed_at: new Date().toISOString(),
         closed_by: actor.id,
         closed_by_person_id: operatorSession.operator.id,
-        close_reason: "manual_close",
+        close_reason: "manual",
         closing_note: closingNote,
         handover_note: handoverNote,
         ticket_count: ticketCount,

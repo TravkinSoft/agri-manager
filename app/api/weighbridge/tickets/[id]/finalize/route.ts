@@ -1,7 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUnexpectedUserError, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_OPERATOR_COOKIE, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUnexpectedUserError, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { enrichTicketOperatorAttribution } from "@/lib/server/weighbridge-ticket-attribution";
+
+const CORRECTION_LOT_ERROR = "Не удалось завершить исправление талона. Связь партии не прошла проверку. Исходный талон не изменён.";
+
+function correctionLotErrorResponse(message: string) {
+  const traceId = randomUUID();
+  console.error("weighbridge_correction_lot_validation_failed", { traceId, message });
+  return NextResponse.json(
+    { error: CORRECTION_LOT_ERROR, code: "correction_lot_validation_failed", trace_id: traceId },
+    { status: 409 }
+  );
+}
+
+function isCorrectionLotError(message: string) {
+  return /aggregate (harvest )?lot|batch identity|batch lineage|physical batch|line identity|warehouse-local batch|company stock/i.test(message);
+}
 
 async function loadHarvestClosureState(supabase: SupabaseClient, companyId: string, ticketId: string) {
   const [linesResult, weighingsResult] = await Promise.all([
@@ -77,7 +93,7 @@ export async function POST(
     const dbStartedAt = Date.now();
     const { data: ticketBefore, error: ticketBeforeError } = await supabase
       .from("tickets")
-      .select("id, company_id, linked_request_id, warehouse_from_id, vehicle_id, op_type, weigh_method, is_finalized, status, net_weight_kg, correction_of_ticket_id")
+      .select("id, company_id, linked_request_id, warehouse_from_id, vehicle_id, op_type, weigh_method, is_finalized, status, net_weight_kg, physical_net_kg, explicit_deductions_kg, accepted_weight_kg, correction_of_ticket_id")
       .eq("id", id)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -88,6 +104,83 @@ export async function POST(
     const operatorSession = ticketBefore.weigh_method === "manual_override_with_reason"
       ? null
       : await requireWeighbridgeOperatorSession(request, { companyId, supabase });
+
+    if (ticketBefore.op_type === "harvest_incoming") {
+      const tare = Number(body?.tare_weight_kg);
+      const moisture = body?.moisture_percent == null || String(body.moisture_percent).trim() === ""
+        ? null
+        : Number(body.moisture_percent);
+      const deductionKg = body?.deduction_kg == null || String(body.deduction_kg).trim() === ""
+        ? null
+        : Number(body.deduction_kg);
+      const deductionPercent = body?.deduction_percent == null || String(body.deduction_percent).trim() === ""
+        ? null
+        : Number(body.deduction_percent);
+      if (!Number.isFinite(tare) || tare < 0) {
+        return NextResponse.json({ error: "Тара должна быть неотрицательным числом." }, { status: 400 });
+      }
+      if (moisture != null && (!Number.isFinite(moisture) || moisture < 0 || moisture > 100)) {
+        return NextResponse.json({ error: "Влажность должна быть от 0 до 100 %." }, { status: 400 });
+      }
+      if (deductionKg != null && (!Number.isFinite(deductionKg) || deductionKg < 0)) {
+        return NextResponse.json({ error: "Удержание в килограммах должно быть неотрицательным." }, { status: 400 });
+      }
+      if (deductionPercent != null && (!Number.isFinite(deductionPercent) || deductionPercent < 0 || deductionPercent >= 100)) {
+        return NextResponse.json({ error: "Удержание должно быть от 0 до менее 100 %." }, { status: 400 });
+      }
+      if (deductionKg != null && deductionPercent != null) {
+        return NextResponse.json({ error: "Укажите удержание либо в килограммах, либо в процентах." }, { status: 400 });
+      }
+      const sessionToken = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+      const rpcStartedAt = Date.now();
+      const { data: finalizeResult, error: finalizeError } = await supabase.rpc(
+        "close_harvest_ticket_atomic",
+        {
+          p_ticket_id: id,
+          p_session_token: sessionToken,
+          p_tare_weight_kg: tare,
+          p_moisture_percent: moisture,
+          p_deduction_kg: deductionKg,
+          p_deduction_percent: deductionPercent,
+          p_deduction_reason: String(body?.deduction_reason || "").trim() || null,
+          p_tare_variance_confirmed: Boolean(body?.confirm_tare_variance),
+          p_idempotency_key: String(request.headers.get("idempotency-key") || body?.idempotency_key || "").trim() || null,
+        }
+      );
+      timing.rpcMs = Date.now() - rpcStartedAt;
+      if (finalizeError) {
+        return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
+      }
+      const result = (finalizeResult || {}) as Record<string, any>;
+      if (result.code === "shift_expired") {
+        return NextResponse.json({ error: "Введите PIN весовщика, чтобы продолжить смену.", code: result.code }, { status: 423 });
+      }
+      if (result.requires_confirmation) {
+        return NextResponse.json({ error: "Проверьте тару.", ...result }, { status: 409 });
+      }
+      if (!result.ok) {
+        return NextResponse.json({ error: "Не удалось завершить талон." }, { status: 409 });
+      }
+
+      const { data: updated, error: updatedError } = await supabase
+        .from("tickets")
+        .select("*, lines:ticket_lines(*)")
+        .eq("id", id)
+        .eq("company_id", companyId)
+        .single();
+      if (updatedError || !updated?.id) {
+        return NextResponse.json({ error: updatedError?.message || "Final ticket load failed" }, { status: 400 });
+      }
+      timing.totalMs = Date.now() - startedAt;
+      const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [updated]);
+      const response = NextResponse.json({ ticket: attributedTicket, finalize: result, debug: timing });
+      response.headers.set(
+        "Server-Timing",
+        `auth;dur=${timing.authMs}, validation;dur=${timing.validationMs}, finalize_rpc;dur=${timing.rpcMs}, total;dur=${timing.totalMs}`
+      );
+      return response;
+    }
+
     let harvestClosureState: Awaited<ReturnType<typeof loadHarvestClosureState>> | null = null;
     if (ticketBefore.is_finalized || ticketBefore.status === "finalized") {
       if (ticketBefore.op_type === "harvest_incoming") {
@@ -130,6 +223,9 @@ export async function POST(
     timing.rpcMs = Date.now() - rpcStartedAt;
 
     if (finalizeError) {
+      if (ticketBefore.correction_of_ticket_id && isCorrectionLotError(finalizeError.message)) {
+        return correctionLotErrorResponse(finalizeError.message);
+      }
       return NextResponse.json({ error: weighbridgeUserError(finalizeError.message) }, { status: 400 });
     }
     const dbAfterRpcStartedAt = Date.now();
@@ -234,6 +330,9 @@ export async function POST(
       );
     }
     await Promise.all(trailingWrites);
+    if (operatorSession) {
+      await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "tare_finalize");
+    }
 
     timing.dbMs = timing.validationMs + (Date.now() - dbAfterRpcStartedAt);
     timing.totalMs = Date.now() - startedAt;

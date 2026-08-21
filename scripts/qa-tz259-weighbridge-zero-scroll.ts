@@ -60,17 +60,27 @@ check("primary moisture field removed from gross flow", () => assert.doesNotMatc
 check("new ticket UI has no trailer selector", () => assert.doesNotMatch(page, /form\.trailerId|Прицеп \(необязательно\)/));
 check("legacy trailer remains visible", () => assert.match(ticketPaper, /trailer_name_snapshot[\s\S]*label="Прицеп"/));
 check("open ticket shows awaiting tare", () => assert.match(page, /Ждёт тару/));
-check("moisture saves on blur", () => assert.match(page, /onBlur=\{\(\) => void saveActiveTicketMoisture\(\)\}/));
-check("moisture saves on Enter", () => assert.match(page, /event\.key !== "Enter"[\s\S]*saveActiveTicketMoisture/));
-check("moisture accepts decimals", () => assert.match(page, /step="0\.1"/));
+check("moisture saves on blur", () => {
+  assert.match(ticketPaper, /onBlur=\{weightEditor\.onMoistureCommit\}/);
+  assert.match(page, /onMoistureCommit: \(\) => \{ void saveActiveTicketMoisture\(\); \}/);
+});
+check("moisture saves on Enter", () => assert.match(ticketPaper, /event\.key !== "Enter"[\s\S]*weightEditor\.onMoistureCommit/));
+check("moisture accepts decimals", () => assert.match(ticketPaper, /step="0\.1"/));
 check("moisture validates 0 through 100", () => assert.match(page, /moisture < 0 \|\| moisture > 100/));
 check("moisture PATCH is independent of tare", () => assert.match(ticketRoute, /const hasMoisturePatch = body\?\.moisture_percent !== undefined/));
 check("moisture-only PATCH is accepted", () => assert.match(ticketRoute, /Object\.keys\(patch\)\.length === 0 && !hasMoisturePatch/));
 check("tare does not erase omitted moisture", () => assert.match(ticketRoute, /if \(hasMoisturePatch && harvestLineId\)/));
 check("moisture updates only one harvest line", () => assert.match(ticketRoute, /Harvest ticket must contain exactly one line/));
 check("read roles retain open ticket visibility", () => assert.match(page, /canView = canOperate \|\| profile\?\.role === "agronomist"/));
-check("fast-repeat field and destination remain persisted", () => assert.match(page, /pickWeighbridgeFastRepeatContext/));
-check("new shift clears fast-repeat context", () => assert.match(page, /localStorage\.removeItem\(fastRepeatPersistKey\)/));
+check("universal workspace preserves repeat field and destination context", () => {
+  assert.match(page, /if \(prev\.operationType === "harvest_incoming"\)[\s\S]*fieldId: prev\.fieldId,[\s\S]*cropStructureAllocationId: prev\.cropStructureAllocationId,[\s\S]*warehouseToId: prev\.warehouseToId/);
+  assert.match(page, /workspace\.id === selectedWorkspaceId[\s\S]*\{ \.\.\.workspace, form, supplierReceiptLines, showSupplierExtraFields \}/);
+  assert.match(page, /localStorage\.setItem\(universalWorkspacePersistKey, serializeUniversalWorkspaceState/);
+});
+check("workspace persistence is scoped by company season and workstation", () => {
+  assert.match(page, /universalWorkspaceStorageKey\([\s\S]{0,250}profile\?\.company_id,[\s\S]{0,250}activeHarvestSeasonId \|\| activeHarvestSeasonYear,[\s\S]{0,250}workstationId/);
+  assert.doesNotMatch(page, /weighbridgeFastRepeatStorageKey|fastRepeatPersistKey/);
+});
 check("gross remains manual connector-compatible input", () => assert.match(page, /Брутто \/ вес \(кг\) \*/));
 check("whole kilogram weights omit zero decimals", () => assert.equal(formatWeightKg("8500.000"), "8 500 кг"));
 check("weight thousands use readable spaces", () => assert.equal(formatWeightKg(12600), "12 600 кг"));

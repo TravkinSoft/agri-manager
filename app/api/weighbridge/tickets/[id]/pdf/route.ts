@@ -100,7 +100,7 @@ export async function GET(
       supabase.from("reference_specialists").select("id,full_name,name_ru,name_kz,name_en").eq("company_id", ticket.company_id),
       supabase.from("profiles").select("id,full_name,email").eq("company_id", ticket.company_id),
       supabase.from("reference_vehicles").select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name").eq("company_id", ticket.company_id),
-      supabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,plate_number,source_raw_name").eq("company_id", ticket.company_id),
+      supabase.from("reference_machines").select("id,name,full_name,brand,model,series,license_plate,source_raw_name").eq("company_id", ticket.company_id),
       supabase.from("counterparties").select("id,name").eq("company_id", ticket.company_id),
     ]);
 

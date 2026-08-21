@@ -71,7 +71,10 @@ check("missing harvest identity is omitted", () => {
   assert.doesNotMatch(paper, /Репродукция" value=\{reproduction \|\|/);
 });
 check("tare editor is inside canonical paper", () => assert.match(paper, /aria-label="Тара, кг"/));
-check("moisture editor is inside canonical paper", () => assert.match(paper, /Влажность, %:/));
+check("moisture editor is inside canonical paper", () => {
+  assert.match(paper, />Влажность, %</);
+  assert.match(paper, /aria-label="Влажность, %"/);
+});
 check("net remains prominent inside canonical paper", () => assert.match(paper, /displayedNetKg[\s\S]*?Нетто/));
 check("ticket actions use compact menu", () => assert.match(weighbridge, /aria-label="Действия с талоном"/));
 check("void reason appears only after action", () => assert.match(weighbridge, /onSelect=\{\(\) => setVoidReasonOpen\(true\)\}/));

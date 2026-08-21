@@ -12,6 +12,11 @@ async function parseJsonOrThrow(response: Response) {
     };
     error.status = response.status;
     error.payload = payload;
+    if (typeof window !== "undefined" && response.status === 423) {
+      window.dispatchEvent(new CustomEvent("travkin:weighbridge-session-expired", {
+        detail: { code: String(payload?.code || "operator_session_required") },
+      }));
+    }
     throw error;
   }
   return payload;
@@ -47,7 +52,13 @@ export async function getWeighbridgeBootstrap(
   if (companyId) query.set("companyId", companyId);
   if (options?.includeSummary) query.set("summary", "true");
   const url = `/api/weighbridge/bootstrap${query.size ? `?${query.toString()}` : ""}`;
-  const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
+  const response = await fetch(url, {
+    method: "GET",
+    cache: "no-store",
+    credentials: "include",
+    headers,
+    signal: options?.signal,
+  });
   return parseJsonOrThrow(response);
 }
 
@@ -56,7 +67,13 @@ export async function getWeighbridgeResources(companyId?: string, options?: { si
   const url = companyId
     ? `/api/weighbridge/resources?companyId=${encodeURIComponent(companyId)}`
     : "/api/weighbridge/resources";
-  const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
+  const response = await fetch(url, {
+    method: "GET",
+    cache: "no-store",
+    credentials: "include",
+    headers,
+    signal: options?.signal,
+  });
   return parseJsonOrThrow(response);
 }
 
@@ -180,6 +197,7 @@ async function mutateOperatorSession(body: Record<string, unknown>): Promise<Wei
   const headers = await buildClientAuthHeaders("json");
   const response = await fetch("/api/weighbridge/operator-session", {
     method: "POST",
+    credentials: "include",
     headers,
     body: JSON.stringify(body),
   });
@@ -296,12 +314,28 @@ export async function createTicket(
   return parseJsonOrThrow(response);
 }
 
-export async function finalizeTicket(ticketId: string, _actorUserId: string) {
+export type HarvestFinalizeInput = {
+  tare_weight_kg: number;
+  moisture_percent?: number | null;
+  deduction_kg?: number | null;
+  deduction_percent?: number | null;
+  deduction_reason?: string | null;
+  confirm_tare_variance?: boolean;
+  idempotency_key?: string;
+};
+
+export async function finalizeTicket(
+  ticketId: string,
+  _actorUserId: string,
+  harvest?: HarvestFinalizeInput
+) {
   const headers = await buildClientAuthHeaders("json");
+  if (harvest?.idempotency_key) headers["Idempotency-Key"] = harvest.idempotency_key;
   const response = await fetch(`/api/weighbridge/tickets/${ticketId}/finalize`, {
     method: "POST",
     headers,
-    body: JSON.stringify({}),
+    credentials: "include",
+    body: JSON.stringify(harvest || {}),
   });
   return parseJsonOrThrow(response);
 }

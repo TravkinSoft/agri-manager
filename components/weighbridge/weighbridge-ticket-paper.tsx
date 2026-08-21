@@ -23,7 +23,7 @@ export type WeighbridgeTicketPaperLabels = {
 export type WeighbridgeTicketWeightEditor = {
   tareValue: string;
   moistureValue: string;
-  netKg: number | null;
+  physicalNetKg: number | null;
   disabled?: boolean;
   moistureSaving?: boolean;
   tareError?: string;
@@ -172,9 +172,15 @@ export function WeighbridgeTicketPaper({
   const hasWeight = [ticket.gross_weight_kg, ticket.tare_weight_kg, ticket.net_weight_kg].some(
     (value) => value != null && Number.isFinite(Number(value))
   ) || Boolean(weightEditor);
-  const displayedNetKg = weightEditor ? weightEditor.netKg : ticket.net_weight_kg;
+  const displayedNetKg = weightEditor
+    ? weightEditor.physicalNetKg
+    : ticket.physical_net_kg ?? ticket.net_weight_kg;
   const showMoistureEditor = Boolean(weightEditor && isHarvest && !isPotato(crop));
   const showProductLines = !isHarvest && (isSupplier ? lines.length > 1 : lines.length > 0);
+  const displayedLineQuantity = (line: (typeof lines)[number]) =>
+    ticket.correction_of_ticket_id && lines.length === 1 && ticket.net_weight_kg != null
+      ? ticket.net_weight_kg
+      : line.quantity;
 
   return (
     <article
@@ -255,30 +261,34 @@ export function WeighbridgeTicketPaper({
             </div>
           ) : null}
           {weightEditor?.tareError ? <div className="mt-1 text-xs font-semibold text-red-700">{weightEditor.tareError}</div> : null}
-          {(showMoistureEditor || moisture || dockage || dirtTare) ? (
+          {showMoistureEditor && weightEditor ? (
+            <div className="mt-2 border-t border-[#c7b797] pt-2">
+              <label className="flex items-center justify-between gap-3 rounded border border-[#9e8967] bg-white/45 px-2 py-1.5">
+                <span className="font-semibold text-[#5d4f3d]">Влажность, %</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  max="100"
+                  step="0.1"
+                  value={weightEditor.moistureValue}
+                  onChange={(event) => weightEditor.onMoistureChange(event.target.value)}
+                  onBlur={weightEditor.onMoistureCommit}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return;
+                    event.preventDefault();
+                    weightEditor.onMoistureCommit();
+                  }}
+                  disabled={weightEditor.disabled || weightEditor.moistureSaving}
+                  aria-label="Влажность, %"
+                  className="h-9 w-28 rounded border border-[#9e8967] bg-white/80 px-2 text-right text-base font-bold outline-none focus:border-[#8a6b22] focus:ring-2 focus:ring-[#d7ae35]/40"
+                />
+              </label>
+            </div>
+          ) : null}
+          {(!showMoistureEditor && (moisture || dockage || dirtTare)) ? (
             <div className={cn("grid grid-cols-2 gap-2", hasWeight && "mt-2 border-t border-[#c7b797] pt-2")}>
-              {showMoistureEditor ? (
-                <label className="min-w-0">
-                  <span className="text-[#5d4f3d]">Влажность, %:</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    max="100"
-                    step="0.1"
-                    value={weightEditor?.moistureValue || ""}
-                    onChange={(event) => weightEditor?.onMoistureChange(event.target.value)}
-                    onBlur={() => weightEditor?.onMoistureCommit()}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter") return;
-                      event.preventDefault();
-                      weightEditor?.onMoistureCommit();
-                    }}
-                    disabled={weightEditor?.disabled || weightEditor?.moistureSaving}
-                    className="ml-2 h-8 w-24 rounded border border-[#9e8967] bg-white/70 px-2 font-semibold outline-none focus:border-[#8a6b22] focus:ring-2 focus:ring-[#d7ae35]/40"
-                  />
-                </label>
-              ) : <Fact label="Влажность" value={moisture} />}
+              <Fact label="Влажность" value={moisture} />
               <Fact label="Примеси" value={dockage} />
               <Fact label="Сорная примесь" value={dirtTare} />
             </div>
@@ -293,7 +303,7 @@ export function WeighbridgeTicketPaper({
               <div key={line.id || index} className="grid grid-cols-[22px_1fr_auto] gap-2 border-b border-[#c7b797] pb-1 last:border-0 last:pb-0">
                 <div className="font-bold">{index + 1}.</div>
                 <div className="font-semibold">{first(line.product_name, line.product_name_snapshot, "Товар")}</div>
-                <div className="text-right font-bold">{quantity(line.quantity, line.uom)}</div>
+                <div className="text-right font-bold">{quantity(displayedLineQuantity(line), line.uom)}</div>
               </div>
             ))}
           </div>

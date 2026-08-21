@@ -24,6 +24,9 @@ export interface TicketLineInput {
   reproduction_id?: string | null;
   batch_class?: string | null;
   operation_line_id?: string | null;
+  composition_snapshot?: Array<Record<string, unknown>> | null;
+  composition_hash?: string | null;
+  is_mixed_harvest?: boolean;
   mass_kg?: number | null;
   density_kg_per_l?: number | null;
   density_unit?: string | null;
@@ -37,6 +40,8 @@ export interface TicketLineInput {
 export interface TicketInput {
   company_id: string;
   batch_id?: string | null;
+  harvest_lot_id?: string | null;
+  source_physical_state?: string | null;
   audit_json?: Record<string, unknown> | null;
   requires_review?: boolean;
   review_reason?: string | null;
@@ -173,6 +178,9 @@ export interface WeighbridgeTicket {
   gross_weight_kg?: number | null;
   tare_weight_kg?: number | null;
   net_weight_kg?: number | null;
+  physical_net_kg?: number | null;
+  explicit_deductions_kg?: number | null;
+  accepted_weight_kg?: number | null;
   weigh_method: WeighMethod;
   is_finalized: boolean;
   is_voided: boolean;
@@ -351,6 +359,8 @@ export interface WeighbridgeOperatorState {
   shift: Record<string, any> | null;
   unlocked: boolean;
   session_expires_at?: string | null;
+  shift_expires_at?: string | null;
+  lock_reason?: "inactivity_24h" | "admin_revoked" | string | null;
   operator?: WeighbridgeHumanOperator | null;
   operators: WeighbridgeHumanOperator[];
   unconfigured_operator_count?: number;

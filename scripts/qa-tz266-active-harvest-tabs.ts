@@ -6,22 +6,42 @@ import {
   normalizeTransportSearchText,
 } from "../lib/weighbridge/transport-pairing";
 import {
-  createWeighbridgeHarvestDraft,
-  parseWeighbridgeHarvestDraftsState,
-  weighbridgeHarvestDraftsStorageKey,
-} from "../lib/weighbridge/fast-repeat";
+  UNIVERSAL_WORKSPACE_MAX_TABS,
+  UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
+  createUniversalWorkspace,
+  parseUniversalWorkspaceState,
+  serializeUniversalWorkspaceState,
+  universalWorkspaceStorageKey,
+} from "../lib/weighbridge/universal-workspaces";
 
 const root = process.cwd();
 const read = (file: string) => fs.readFileSync(path.join(root, file), "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
-const tabs = read("components/weighbridge/active-harvest-tabs.tsx");
+const tabs = read("components/weighbridge/universal-workspace-tabs.tsx");
+const harvestPicker = read("components/weighbridge/active-harvest-tabs.tsx");
 const transportSelects = read("components/weighbridge/transport-driver-picker.tsx");
 const transportPairing = read("lib/weighbridge/transport-pairing.ts");
 const transportApi = read("app/api/weighbridge/transport-pairs/route.ts");
 const ticketApi = read("app/api/weighbridge/tickets/route.ts");
-const fastRepeat = read("lib/weighbridge/fast-repeat.ts");
 const migration = read("supabase/migrations/20260813015157_tz266_active_harvest_routes_v1.sql");
 const mutableSlotsMigration = read("supabase/migrations/20260814002730_tz266_mutable_harvest_slots_v2.sql");
+
+const initialWorkspaceForm = {
+  operationType: "harvest_incoming",
+  fieldId: "",
+  cropStructureAllocationId: "",
+  warehouseFromId: "",
+  warehouseToId: "",
+  vehicleId: "",
+  driverId: "",
+  grossKg: "",
+  notes: "",
+};
+const createResultIndex = page.indexOf("const result = await createTicket");
+const resetStart = page.indexOf("setForm((prev) => {", createResultIndex);
+const resetEnd = page.indexOf("setSupplierReceiptLines", resetStart);
+const postGrossReset = page.slice(resetStart, resetEnd);
+const harvestPostGrossReset = postGrossReset.match(/if \(prev\.operationType === "harvest_incoming"\) \{[\s\S]*?\n        \}/)?.[0] || "";
 
 let passed = 0;
 function check(name: string, fn: () => void) {
@@ -31,13 +51,13 @@ function check(name: string, fn: () => void) {
 }
 
 check("owner form exists without a server route", () => {
-  assert.match(page, /useState<WeighbridgeHarvestDraft\[]>\(\[\s*createWeighbridgeHarvestDraft\(\)/);
+  assert.match(page, /useState<WeighbridgeWorkspace\[]>\(\[\s*createEmptyWorkspace\("harvest_incoming", "workspace-default"\)/);
   assert.match(page, /<HarvestAllocationPicker[\s\S]*value=\{form\.fieldId/);
   assert.doesNotMatch(page, /<ActiveHarvestContextEditor/);
 });
 
 check("zero-route form has no blocking active-harvest banner", () => {
-  assert.doesNotMatch(tabs, /Добавьте или выберите активную уборку/);
+  assert.doesNotMatch(harvestPicker, /Добавьте или выберите активную уборку/);
   assert.doesNotMatch(page, /Добавьте или выберите активную уборку над формой/);
 });
 
@@ -61,7 +81,9 @@ check("transport and driver are separate searchable fields", () => {
 });
 
 check("vehicle search covers name model and plate", () => {
-  assert.match(transportSelects, /keywords: \[vehicle\.name, vehicle\.model, vehicle\.plate, vehicle\.type\]/);
+  assert.match(transportSelects, /keywords: \[vehicle\.name, vehicle\.model, vehicle\.plate, vehicle\.type,/);
+  assert.match(transportSelects, /vehicle\.searchTerms/);
+  assert.match(transportSelects, /formatVehiclePlate\(vehicle\.plate\)/);
   assert.match(transportSelects, /Машина, модель или госномер/);
 });
 
@@ -120,43 +142,60 @@ check("server blocks a second driver ticket with a ticket link", () => {
   assert.match(ticketApi, /ticketId: String\(activeDriverTicket\.id\)/);
 });
 
-check("one form has only a compact add button", () => {
-  assert.match(tabs, /if \(!showTabs\)[\s\S]*aria-label="Добавить приёмку"/);
-  assert.doesNotMatch(tabs, /Активных приёмок нет/);
+check("base form is immediately usable and exposes the universal add action", () => {
+  assert.match(page, /createEmptyWorkspace\("harvest_incoming", "workspace-default"\)/);
+  assert.match(tabs, /aria-label="Добавить вкладку"/);
+  assert.doesNotMatch(tabs, /Активных приёмок нет|Добавить приёмку/);
 });
 
-check("adding creates a second independent blank draft", () => {
-  const add = page.match(/const addHarvestDraft[\s\S]*?\n  };/)?.[0] || "";
-  assert.match(add, /createWeighbridgeHarvestDraft/);
-  assert.match(add, /setHarvestDrafts/);
-  assert.match(add, /setSelectedHarvestDraftId/);
-  assert.match(add, /formWithHarvestDraft/);
+check("adding creates a second independent blank workspace", () => {
+  const add = page.match(/const addWorkspace[\s\S]*?\n  };/)?.[0] || "";
+  assert.match(add, /createEmptyWorkspace\(operationType\)/);
+  assert.match(add, /setWorkspaces/);
+  assert.match(add, /activateWorkspace\(next\)/);
+  assert.doesNotMatch(add, /fetch\(|createTicket\(|supabase\.|\.insert\(/);
 });
 
-check("each draft stores the complete owner input", () => {
-  assert.match(page, /harvestDraftFromForm[\s\S]*fieldId: form\.fieldId[\s\S]*cropStructureAllocationId: form\.cropStructureAllocationId[\s\S]*warehouseToId: form\.warehouseToId[\s\S]*vehicleId: form\.vehicleId[\s\S]*driverId: form\.driverId[\s\S]*grossKg: form\.grossKg/);
+check("each workspace stores the complete owner input", () => {
+  const workspace = createUniversalWorkspace({
+    ...initialWorkspaceForm,
+    fieldId: "field-1",
+    cropStructureAllocationId: "allocation-1",
+    warehouseToId: "destination-1",
+    vehicleId: "vehicle-1",
+    driverId: "driver-1",
+    grossKg: "31000",
+  }, "harvest_incoming", "workspace-1");
+  const restored = parseUniversalWorkspaceState(serializeUniversalWorkspaceState({
+    version: UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
+    selectedId: workspace.id,
+    workspaces: [workspace],
+    migratedLegacyHarvest: true,
+  }), initialWorkspaceForm);
+  assert.deepEqual(restored?.workspaces[0].form, workspace.form);
 });
 
-check("tab switch saves current draft and loads target draft", () => {
-  const select = page.match(/const selectHarvestDraft[\s\S]*?\n  };/)?.[0] || "";
-  assert.match(select, /harvestDraftFromForm/);
-  assert.match(select, /formWithHarvestDraft/);
+check("tab switch saves current workspace and loads target workspace", () => {
+  const select = page.match(/const selectWorkspace[\s\S]*?\n  };/)?.[0] || "";
+  assert.match(select, /setWorkspaces/);
+  assert.match(select, /form, supplierReceiptLines, showSupplierExtraFields/);
+  assert.match(select, /activateWorkspace\(next\)/);
   assert.doesNotMatch(select, /fetch\(|router\.refresh|location\.reload/);
 });
 
 check("tab switch never clears another form", () => {
-  const select = page.match(/const selectHarvestDraft[\s\S]*?\n  };/)?.[0] || "";
+  const select = page.match(/const selectWorkspace[\s\S]*?\n  };/)?.[0] || "";
   assert.doesNotMatch(select, /vehicleId: ""|driverId: ""|grossKg: ""/);
 });
 
 check("gross preserves field warehouse and the selected tab", () => {
-  assert.match(page, /operationType: "harvest_incoming"[\s\S]*fieldId: prev\.fieldId[\s\S]*cropStructureAllocationId: prev\.cropStructureAllocationId[\s\S]*warehouseToId: prev\.warehouseToId/);
-  assert.doesNotMatch(page, /setSelectedHarvestDraftId\(""\)/);
+  assert.match(harvestPostGrossReset, /operationType: "harvest_incoming"[\s\S]*fieldId: prev\.fieldId[\s\S]*cropStructureAllocationId: prev\.cropStructureAllocationId[\s\S]*warehouseToId: prev\.warehouseToId/);
+  assert.doesNotMatch(harvestPostGrossReset, /setSelectedWorkspaceId/);
 });
 
 check("gross clears vehicle driver weight and notes", () => {
-  assert.match(page, /return \{[\s\S]*\.\.\.INITIAL_FORM,[\s\S]*operationType: "harvest_incoming"/);
-  assert.match(page, /notes: ""/);
+  assert.match(harvestPostGrossReset, /return \{[\s\S]*\.\.\.INITIAL_FORM,[\s\S]*operationType: "harvest_incoming"/);
+  assert.doesNotMatch(harvestPostGrossReset, /vehicleId: prev\.vehicleId|driverId: prev\.driverId|grossKg: prev\.grossKg|notes: prev\.notes/);
 });
 
 check("ticket creation snapshots exact draft values", () => {
@@ -169,7 +208,7 @@ check("ticket creation snapshots exact draft values", () => {
 check("harvest ticket appears immediately while the server saves", () => {
   assert.match(page, /setPendingOpenTicket\(\{[\s\S]*id: `pending-\$\{idempotencyKey\}`/);
   assert.match(page, /visibleActiveTickets[\s\S]*pendingOpenTicket/);
-  assert.match(page, /isPending \? "Сохраняется" : ticketStageLabel\(t\)/);
+  assert.match(page, /isPending \? "Сохраняется" : correctionOriginal \? "Исправляется" : ticketStageLabel\(t\)/);
   assert.match(page, /disabled=\{isPending\}/);
 });
 
@@ -180,69 +219,78 @@ check("optimistic harvest title uses crop identity without material flicker", ()
   assert.match(page, /finally \{[\s\S]*setPendingOpenTicket\(null\)/);
 });
 
-check("draft changes never patch old tickets", () => {
-  const draftHandlers = page.match(/const selectHarvestDraft[\s\S]*?const changeHarvestTarget[\s\S]*?\n  };/)?.[0] || "";
-  assert.doesNotMatch(draftHandlers, /patchTicket|adminTicketAction|finalizeTicket|setTickets/);
+check("workspace changes never patch old tickets", () => {
+  const handlerStart = page.indexOf("const selectWorkspace");
+  const handlerEnd = page.indexOf("const changeHarvestTarget", handlerStart);
+  const workspaceHandlers = page.slice(handlerStart, handlerEnd);
+  assert.ok(workspaceHandlers.length > 0);
+  assert.doesNotMatch(workspaceHandlers, /patchTicket|adminTicketAction|finalizeTicket|setTickets|fetch\(|supabase\./);
 });
 
-check("tabs appear only after a second form", () => {
-  assert.match(tabs, /const showTabs = tabs\.length > 1/);
-  assert.match(tabs, /if \(!showTabs\)/);
+check("universal tabs are visible for the base form and additional forms", () => {
+  assert.match(page, /<UniversalWorkspaceTabs/);
+  assert.match(tabs, /\{tabs\.map\(\(tab\) =>/);
+  assert.doesNotMatch(tabs, /const showTabs|if \(!showTabs\)/);
 });
 
-check("four tabs use equal width without horizontal scroll", () => {
-  assert.match(tabs, /repeat\(\$\{tabs\.length\}, minmax\(0, 1fr\)\)/);
-  assert.doesNotMatch(tabs, /overflow-x-auto|flex-wrap/);
-  assert.match(tabs, /overflow-hidden/);
+check("six tabs use a responsive grid without horizontal page overflow", () => {
+  assert.match(tabs, /grid-cols-2/);
+  assert.match(tabs, /md:grid-cols-3/);
+  assert.match(tabs, /xl:grid-cols-6/);
+  assert.match(tabs, /min-w-0/);
+  assert.doesNotMatch(tabs, /overflow-x-auto|overflow-x-scroll|whitespace-nowrap/);
 });
 
 check("tab labels are exactly two truncated lines with tooltip", () => {
   assert.match(tabs, /title=\{tab\.fullLabel\}/);
-  assert.match(tabs, /block truncate text-xs font-bold/);
+  assert.match(tabs, /block truncate text-xs font-semibold/);
   assert.match(tabs, /block truncate text-\[10px\]/);
 });
 
-check("fifth form is blocked with the owner message", () => {
-  assert.match(page, /harvestDrafts\.length >= 4/);
-  assert.match(page, /Можно открыть не более четырёх параллельных приёмок\./);
-  assert.match(tabs, /const atLimit = tabs\.length >= 4/);
+check("seventh workspace is blocked with the owner message", () => {
+  assert.equal(UNIVERSAL_WORKSPACE_MAX_TABS, 6);
+  assert.match(page, /workspaces\.length >= UNIVERSAL_WORKSPACE_MAX_TABS/);
+  assert.match(page, /Можно открыть не более 6 рабочих вкладок\./);
+  assert.match(tabs, /const atLimit = tabs\.length >= UNIVERSAL_WORKSPACE_MAX_TABS/);
 });
 
-check("parallel drafts survive F5", () => {
-  assert.match(page, /parseWeighbridgeHarvestDraftsState\(localStorage\.getItem\(harvestDraftPersistKey\)\)/);
-  assert.match(page, /localStorage\.setItem\([\s\S]*harvestDraftPersistKey/);
+check("parallel workspaces survive F5", () => {
+  assert.match(page, /parseUniversalWorkspaceState<FormState, SupplierReceiptLineDraft>\([\s\S]*localStorage\.getItem\(universalWorkspacePersistKey\)/);
+  assert.match(page, /localStorage\.setItem\(universalWorkspacePersistKey, serializeUniversalWorkspaceState/);
 });
 
-check("draft persistence is shift scoped and survives handover", () => {
-  assert.equal(weighbridgeHarvestDraftsStorageKey("company", "shift"), "travkin.weighbridge.parallelIntakes.v1.company.shift");
-  assert.match(page, /weighbridgeHarvestDraftsStorageKey\(profile\?\.company_id, activeShift\?\.id\)/);
-  assert.doesNotMatch(fastRepeat, /operatorPersonId|profileId/);
+check("workspace persistence is company season workstation scoped and survives handover", () => {
+  assert.equal(
+    universalWorkspaceStorageKey("company", "season", "terminal"),
+    "travkin.weighbridge.universalWorkspaces.v3.company.season.terminal"
+  );
+  assert.match(page, /universalWorkspaceStorageKey\([\s\S]*profile\?\.company_id,[\s\S]*activeHarvestSeasonId,[\s\S]*workstationId/);
 });
 
-check("a new shift starts with one clean form", () => {
-  assert.deepEqual(createWeighbridgeHarvestDraft(), {
-    id: "intake-1",
-    fieldId: "",
-    cropStructureAllocationId: "",
-    warehouseToId: "",
-    vehicleId: "",
-    driverId: "",
-    grossKg: "",
-  });
+check("base workspace starts as one clean usable harvest form", () => {
+  const workspace = createUniversalWorkspace(initialWorkspaceForm, "harvest_incoming", "workspace-default");
+  assert.equal(workspace.id, "workspace-default");
+  assert.deepEqual(workspace.form, initialWorkspaceForm);
+  assert.deepEqual(workspace.supplierReceiptLines, []);
 });
 
-check("draft parser caps restored tabs at four", () => {
-  const parsed = parseWeighbridgeHarvestDraftsState(JSON.stringify({
-    selectedId: "5",
-    drafts: ["1", "2", "3", "4", "5"].map((id) => ({ id })),
-  }));
-  assert.equal(parsed?.drafts.length, 4);
+check("workspace parser caps restored tabs at six", () => {
+  const workspaces = ["1", "2", "3", "4", "5", "6", "7"].map((id) =>
+    createUniversalWorkspace(initialWorkspaceForm, "harvest_incoming", id)
+  );
+  const parsed = parseUniversalWorkspaceState(serializeUniversalWorkspaceState({
+    version: UNIVERSAL_WORKSPACE_SCHEMA_VERSION,
+    selectedId: "7",
+    workspaces,
+    migratedLegacyHarvest: true,
+  }), initialWorkspaceForm);
+  assert.equal(parsed?.workspaces.length, 6);
   assert.equal(parsed?.selectedId, "1");
 });
 
-check("draft parser rejects an empty payload", () => {
-  assert.equal(parseWeighbridgeHarvestDraftsState("{}"), null);
-  assert.equal(parseWeighbridgeHarvestDraftsState("broken"), null);
+check("workspace parser rejects an empty or broken payload", () => {
+  assert.equal(parseUniversalWorkspaceState("{}", initialWorkspaceForm), null);
+  assert.equal(parseUniversalWorkspaceState("broken", initialWorkspaceForm), null);
 });
 
 check("learning uses finalized effective tickets only", () => {
@@ -299,15 +347,20 @@ check("active-harvest database records are not required by the page", () => {
 });
 
 check("no full page reload is used", () => {
-  assert.doesNotMatch(tabs + transportSelects, /window\.location|location\.reload|router\.refresh/);
+  assert.doesNotMatch(tabs + harvestPicker + transportSelects, /window\.location|location\.reload|router\.refresh/);
 });
 
 const switchStarted = performance.now();
-let selected = "intake-1";
-for (let index = 0; index < 100; index += 1) selected = index % 2 ? "intake-1" : "intake-2";
+const performanceWorkspaces = [
+  createUniversalWorkspace({ ...initialWorkspaceForm, fieldId: "field-1" }, "harvest_incoming", "workspace-1"),
+  createUniversalWorkspace({ ...initialWorkspaceForm, fieldId: "field-2" }, "harvest_incoming", "workspace-2"),
+];
+let selected = performanceWorkspaces[0];
+for (let index = 0; index < 100; index += 1) selected = performanceWorkspaces[index % 2];
 const switchElapsed = performance.now() - switchStarted;
 check("one hundred local tab switches stay below 100 ms", () => {
-  assert.equal(selected, "intake-1");
+  assert.equal(selected.id, "workspace-2");
+  assert.equal(selected.form.fieldId, "field-2");
   assert.ok(switchElapsed < 100, `local switching took ${switchElapsed.toFixed(3)} ms`);
 });
 

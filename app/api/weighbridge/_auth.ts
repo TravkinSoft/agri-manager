@@ -32,6 +32,15 @@ export type WeighbridgeOperatorSession = {
   session_expires_at: string;
 };
 
+export type WeighbridgeOperatorActivity =
+  | "pin_unlock"
+  | "ticket_create"
+  | "gross"
+  | "tare_finalize"
+  | "ticket_correction"
+  | "ticket_void"
+  | "weighing_transfer";
+
 export async function resolveWeighbridgeSession(
   request: NextRequest,
   options?: {
@@ -88,6 +97,33 @@ export async function requireWeighbridgeOperatorSession(
     throw new SessionAuthError("Введите PIN весовщика, чтобы продолжить смену.", 423);
   }
   return state as WeighbridgeOperatorSession;
+}
+
+export async function recordWeighbridgeOperatorActivity(
+  request: NextRequest,
+  context: {
+    companyId: string;
+    supabase: Awaited<ReturnType<typeof getUserScopedClientFromRequest>>;
+  },
+  activity: WeighbridgeOperatorActivity
+) {
+  const token = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+  if (!token) {
+    throw new SessionAuthError("Смена весовщика истекла. Введите PIN повторно.", 423);
+  }
+  const { data, error } = await context.supabase.rpc("touch_weighbridge_operator_activity_v1", {
+    p_company_id: context.companyId,
+    p_session_token: token,
+    p_activity: activity,
+  });
+  if (error) {
+    throw new SessionAuthError(error.message || "Operator activity update failed", 400);
+  }
+  const result = (data || {}) as Record<string, unknown>;
+  if (!result.ok) {
+    throw new SessionAuthError("Смена весовщика истекла. Введите PIN повторно.", 423);
+  }
+  return result;
 }
 
 export function asSessionErrorResponse(error: unknown) {

@@ -289,7 +289,7 @@ check("strict kilogram input accepts numbers and rejects human text", () => {
 check("impossible gross tare and net values are blocked", () => {
   assert.deepEqual(validateHarvestWeights(25_000, 12_000), { ok: true, net: 13_000 });
   assert.equal(validateHarvestWeights(0, 12_000).ok, false);
-  assert.equal(validateHarvestWeights(25_000, 0).ok, false);
+  assert.deepEqual(validateHarvestWeights(25_000, 0), { ok: true, net: 25_000 });
   assert.equal(validateHarvestWeights(25_000, 25_000).ok, false);
   assert.equal(validateHarvestWeights(25_000, 50_000).ok, false);
 });

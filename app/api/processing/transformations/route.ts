@@ -312,7 +312,9 @@ export async function POST(request: NextRequest) {
       processingNodeId = String(sourceTicket.processing_node_id);
     }
 
-    if (!input.batch_id || !input.warehouse_from_id || Number(input.input_weight_kg || 0) <= 0) {
+    const selectedHarvestLotId = String(input.harvest_lot_id || "").trim() || null;
+    const sourcePhysicalState = String(input.source_physical_state || "SOURCE").trim() || "SOURCE";
+    if ((!input.batch_id && !selectedHarvestLotId) || !input.warehouse_from_id || Number(input.input_weight_kg || 0) <= 0) {
       return NextResponse.json({ error: "Не определены партия, склад или масса сырья." }, { status: 400 });
     }
 
@@ -321,14 +323,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Готовый продукт и потери не могут превышать массу сырья." }, { status: 400 });
     }
 
-    const { data: batch, error: batchError } = await supabase
-      .from("inventory_batches")
-      .select("id,company_id")
-      .eq("id", input.batch_id)
-      .eq("company_id", companyId)
-      .maybeSingle();
-    if (batchError || !batch?.id) {
-      return NextResponse.json({ error: "Входная партия не найдена." }, { status: 400 });
+    const inputAllocations: Array<{ batch_id: string; input_weight_kg: number }> = [];
+    if (selectedHarvestLotId) {
+      const [{ data: lot, error: lotError }, { data: links, error: linksError }] = await Promise.all([
+        supabase.from("harvest_lots").select("id").eq("id", selectedHarvestLotId).eq("company_id", companyId).eq("status", "active").maybeSingle(),
+        supabase.from("harvest_lot_batches").select("inventory_batch_id").eq("company_id", companyId).eq("harvest_lot_id", selectedHarvestLotId),
+      ]);
+      const batchIds = Array.from(new Set((links || []).map((row: any) => String(row.inventory_batch_id || "")).filter(Boolean)));
+      if (lotError || linksError || !lot?.id || !batchIds.length) {
+        return NextResponse.json({ error: lotError?.message || linksError?.message || "Общая партия урожая не найдена." }, { status: 400 });
+      }
+      const [{ data: batches, error: batchesError }, { data: balances, error: balancesError }] = await Promise.all([
+        supabase.from("inventory_batches").select("id,physical_state,received_at,created_at").eq("company_id", companyId).in("id", batchIds),
+        supabase.from("v_stock_balance_identity").select("batch_id,quantity,uom").eq("company_id", companyId).eq("warehouse_id", input.warehouse_from_id).in("batch_id", batchIds).gt("quantity", 0),
+      ]);
+      if (batchesError || balancesError) {
+        return NextResponse.json({ error: batchesError?.message || balancesError?.message || "Не удалось распределить сырьё." }, { status: 400 });
+      }
+      const balanceByBatch = new Map((balances || []).filter((row: any) => String(row.uom || "") === "kg").map((row: any) => [String(row.batch_id), Number(row.quantity || 0)]));
+      const ordered = (batches || [])
+        .filter((row: any) => String(row.physical_state || "SOURCE") === sourcePhysicalState && Number(balanceByBatch.get(String(row.id)) || 0) > 0)
+        .sort((a: any, b: any) => String(a.received_at || a.created_at || "").localeCompare(String(b.received_at || b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+      let remaining = Number(input.input_weight_kg || 0);
+      for (const batch of ordered) {
+        if (remaining <= 0.0001) break;
+        const take = Math.min(remaining, Number(balanceByBatch.get(String(batch.id)) || 0));
+        if (take > 0) inputAllocations.push({ batch_id: String(batch.id), input_weight_kg: take });
+        remaining -= take;
+      }
+      if (remaining > 0.0001) {
+        return NextResponse.json({ error: `Недостаточно остатка общей партии. Не хватает ${remaining.toFixed(3)} кг.` }, { status: 400 });
+      }
+    } else {
+      const { data: batch, error: batchError } = await supabase
+        .from("inventory_batches")
+        .select("id,company_id")
+        .eq("id", input.batch_id)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (batchError || !batch?.id) {
+        return NextResponse.json({ error: "Входная партия не найдена." }, { status: 400 });
+      }
+      inputAllocations.push({ batch_id: String(batch.id), input_weight_kg: Number(input.input_weight_kg) });
     }
 
     const { data: transformation, error: transformationError } = await supabase
@@ -340,6 +376,8 @@ export async function POST(request: NextRequest) {
         transformation_type: String(body.transformation_type || "cleaning"),
         status: "draft",
         source_ticket_id: sourceTicketId,
+        harvest_lot_id: selectedHarvestLotId,
+        source_physical_state: selectedHarvestLotId ? sourcePhysicalState : null,
         started_at: new Date().toISOString(),
         created_by: actor.id,
         note: body.note || null,
@@ -364,14 +402,16 @@ export async function POST(request: NextRequest) {
     const cleanup = async () => {
       await supabase.from("batch_transformations").delete().eq("id", transformation.id).eq("company_id", companyId);
     };
-    const { error: inputError } = await supabase.from("batch_transformation_inputs").insert({
-      company_id: companyId,
-      transformation_id: transformation.id,
-      batch_id: input.batch_id,
-      warehouse_from_id: input.warehouse_from_id,
-      input_weight_kg: Number(input.input_weight_kg),
-      input_quality_json: body.input_quality_json || {},
-    });
+    const { error: inputError } = await supabase.from("batch_transformation_inputs").insert(
+      inputAllocations.map((allocation) => ({
+        company_id: companyId,
+        transformation_id: transformation.id,
+        batch_id: allocation.batch_id,
+        warehouse_from_id: input.warehouse_from_id,
+        input_weight_kg: allocation.input_weight_kg,
+        input_quality_json: body.input_quality_json || {},
+      }))
+    );
     if (inputError) {
       await cleanup();
       return NextResponse.json({ error: inputError.message }, { status: 400 });

@@ -13,8 +13,48 @@ export const HARVEST_WAREHOUSE_TYPES = [
   "seed",
   "vegetable",
   "potato_storage",
+  "universal",
   "temporary",
 ] as const;
+
+export const STORAGE_PLACE_TYPES = ["WAREHOUSE", "YARD", "DRYER", "CLEANER"] as const;
+
+export type StoragePlaceType = typeof STORAGE_PLACE_TYPES[number];
+
+export function normalizeStoragePlaceType(value: unknown): StoragePlaceType {
+  const normalized = String(value || "WAREHOUSE").trim().toUpperCase();
+  return (STORAGE_PLACE_TYPES as readonly string[]).includes(normalized)
+    ? normalized as StoragePlaceType
+    : "WAREHOUSE";
+}
+
+export function isProcessingPlace(value: unknown): boolean {
+  return ["YARD", "DRYER", "CLEANER"].includes(normalizeStoragePlaceType(value));
+}
+
+export function isHarvestDestinationPlace(warehouseType: unknown, placeType: unknown): boolean {
+  return isProcessingPlace(placeType) || isHarvestWarehouseType(warehouseType);
+}
+
+export function storagePlaceTypeLabel(value: unknown): string {
+  const type = normalizeStoragePlaceType(value);
+  if (type === "YARD") return "Площадка";
+  if (type === "DRYER") return "Сушилка";
+  if (type === "CLEANER") return "Очистка";
+  return "Склад";
+}
+
+export function storagePlaceTypeGroupLabel(value: unknown): string {
+  const type = normalizeStoragePlaceType(value);
+  if (type === "YARD") return "Площадки";
+  if (type === "DRYER") return "Сушилки";
+  if (type === "CLEANER") return "Очистка";
+  return "Склады";
+}
+
+export function storagePlaceTypeSortOrder(value: unknown): number {
+  return STORAGE_PLACE_TYPES.indexOf(normalizeStoragePlaceType(value));
+}
 
 export const SEED_MATERIAL_WAREHOUSE_TYPES = [
   "seed",

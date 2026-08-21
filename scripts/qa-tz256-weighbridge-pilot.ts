@@ -62,7 +62,10 @@ check("UI protects manual transport choices during pair autofill", () => {
   assert.match(transportPicker, /if \(!nextVehicleId\)/);
 });
 check("UI labels recent valid transport choices", () => assert.match(transportPicker, /Недавно использованные/));
-check("UI accepts moisture at gross", () => assert.match(page, /harvestMoisture[\s\S]*step="0\.1"/));
+check("UI accepts moisture from the selected open harvest ticket", () => {
+  assert.match(ticketPaper, /showMoistureEditor[\s\S]*step="0\.1"/);
+  assert.match(page, /onMoistureCommit: \(\) => \{ void saveActiveTicketMoisture\(\); \}/);
+});
 check("gross persists moisture in ticket line", () => assert.match(page, /operationType === "harvest_incoming"[\s\S]*toNum\(form\.harvestMoisture\)/));
 check("moisture can remain null at tare", () => assert.match(ticketPatch, /harvestMoisture = rawMoisture == null/));
 check("nullable moisture does not block finalize", () => assert.doesNotMatch(finalize, /Перед закрытием укажите влажность рейса/));

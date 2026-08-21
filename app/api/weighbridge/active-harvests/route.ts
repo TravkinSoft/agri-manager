@@ -6,7 +6,7 @@ import {
   requireWeighbridgeOperatorSession,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
-import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
+import { isHarvestDestinationPlace } from "@/lib/warehouse/warehouse-scope";
 import { getCurrentSeason, loadActiveHarvestRouteList } from "./_data";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
         .maybeSingle(),
       context.supabase
         .from("warehouses")
-        .select("id,warehouse_type,archived")
+        .select("id,warehouse_type,place_type,archived")
         .eq("id", warehouseId)
         .eq("company_id", context.companyId)
         .eq("archived", false)
@@ -86,7 +86,11 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json({ error: "Участок активного сезона не найден" }, { status: 400 });
     }
-    if (warehouseRes.error || !warehouseRes.data?.id || !isHarvestWarehouseType(warehouseRes.data.warehouse_type)) {
+    if (
+      warehouseRes.error ||
+      !warehouseRes.data?.id ||
+      !isHarvestDestinationPlace(warehouseRes.data.warehouse_type, warehouseRes.data.place_type)
+    ) {
       return NextResponse.json({ error: "Место приёмки урожая недоступно" }, { status: 400 });
     }
 

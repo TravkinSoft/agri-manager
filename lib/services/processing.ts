@@ -18,6 +18,10 @@ export type TransformationStatus = "draft" | "completed" | "voided";
 
 export interface StockIdentityItem {
   key: string;
+  source_kind?: "aggregate_harvest_lot" | "exact_stock_identity";
+  harvest_lot_id?: string | null;
+  source_physical_state?: string | null;
+  trip_count?: number | null;
   warehouse_id: string;
   product_id: string;
   product_name: string;
@@ -47,7 +51,9 @@ export interface CreateTransformationInput {
   source_ticket_id?: string | null;
   note?: string | null;
   input: {
-    batch_id: string;
+    batch_id?: string | null;
+    harvest_lot_id?: string | null;
+    source_physical_state?: string | null;
     warehouse_from_id: string;
     input_weight_kg: number;
   };

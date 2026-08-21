@@ -115,8 +115,8 @@ export function validateHarvestWeights(gross: number, tare: number):
   if (!Number.isFinite(gross) || gross <= 0) {
     return { ok: false, message: "Брутто должно быть больше нуля." };
   }
-  if (!Number.isFinite(tare) || tare <= 0) {
-    return { ok: false, message: "Тара должна быть больше нуля." };
+  if (!Number.isFinite(tare) || tare < 0) {
+    return { ok: false, message: "Тара должна быть неотрицательной." };
   }
   if (tare >= gross) {
     return { ok: false, message: "Тара должна быть меньше брутто." };

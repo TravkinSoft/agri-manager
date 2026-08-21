@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 
 export async function POST(
   request: NextRequest,
@@ -19,7 +19,7 @@ export async function POST(
     }
 
     const authStartedAt = Date.now();
-    const { companyId, supabase } = await resolveWeighbridgeSession(request, {
+    const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
       requestedCompanyId: String(body?.companyId || "").trim() || null,
     });
@@ -34,6 +34,9 @@ export async function POST(
     if (ticketBeforeError || !ticketBefore?.id) {
       return NextResponse.json({ error: ticketBeforeError?.message || "Ticket not found" }, { status: 404 });
     }
+    const operatorSession = actor.role === "weighman"
+      ? await requireWeighbridgeOperatorSession(request, { companyId, supabase })
+      : null;
     timing.validationMs = Date.now() - validationStartedAt;
 
     const rpcStartedAt = Date.now();
@@ -73,6 +76,9 @@ export async function POST(
       }
     }
     timing.dbMs = Date.now() - dbStartedAt;
+    if (operatorSession) {
+      await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "ticket_void");
+    }
 
     timing.totalMs = Date.now() - startedAt;
     return NextResponse.json({ ticket: updated, debug: timing });
