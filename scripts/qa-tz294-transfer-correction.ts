@@ -59,7 +59,7 @@ async function main() {
   assert.match(page, /Новое исправление/);
   assert.match(page, /ticket\?\.correction_of_ticket_id && ticket\?\.net_weight_kg != null/);
   assert.match(paper, /displayedLineQuantity/);
-  assert.match(paper, /ticket\.correction_of_ticket_id && lines\.length === 1/);
+  assert.match(paper, /lines\.length === 1 && weightEditor\?\.physicalNetKg != null/);
   assert.match(finalizeRoute, /correction_lot_validation_failed/);
   assert.match(finalizeRoute, /Исходный талон не изменён/);
   assert.match(ticketsRoute, /correction_of_ticket_id/);

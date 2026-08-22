@@ -43,20 +43,23 @@ export async function GET(request: NextRequest) {
     const { companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
     });
-    const [{ data: rawRows, error: stockError }, { data: lotStockRows, error: lotStockError }] = await Promise.all([
+    const [
+      { data: rawRows, error: stockError },
+      { data: lotStockRows, error: lotStockError },
+    ] = await Promise.all([
       supabase
-        .from("v_stock_balance_identity")
-        .select("company_id,warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity,uom")
+        .from("v_effective_stock_balance_identity_v1")
+        .select("company_id,warehouse_id,product_id,variety_id,reproduction_id,batch_id,batch_class,quantity,uom,processing_allocated_kg,effective_available_kg,open_ticket_reserved_kg")
         .eq("company_id", companyId)
         .eq("warehouse_id", warehouseId)
-        .gt("quantity", 0)
+        .gt("effective_available_kg", 0)
         .order("product_id", { ascending: true }),
       supabase
-        .from("v_harvest_lot_stock_v1")
-        .select("company_id,harvest_lot_id,warehouse_id,trip_count,current_weight_kg,batch_class,physical_state")
+        .from("v_weighbridge_harvest_lot_available_v2")
+        .select("company_id,harvest_lot_id,warehouse_id,trip_count,ledger_weight_kg,processing_allocated_kg,open_ticket_reserved_kg,available_weight_kg,batch_class,physical_state")
         .eq("company_id", companyId)
         .eq("warehouse_id", warehouseId)
-        .gt("current_weight_kg", 0),
+        .gt("available_weight_kg", 0),
     ]);
     if (stockError) return NextResponse.json({ error: stockError.message }, { status: 400 });
     if (lotStockError) return NextResponse.json({ error: lotStockError.message }, { status: 400 });
@@ -130,7 +133,10 @@ export async function GET(request: NextRequest) {
         is_mixed_harvest: Boolean(batch.is_mixed_harvest),
         batch_class: batchClass,
         physical_state: physicalState,
-        quantity: Number((stock as any).current_weight_kg || 0),
+        quantity: Math.max(Number((stock as any).available_weight_kg || 0), 0),
+        ledger_quantity: Number((stock as any).ledger_weight_kg || 0),
+        processing_allocated_kg: Number((stock as any).processing_allocated_kg || 0),
+        open_ticket_reserved_kg: Number((stock as any).open_ticket_reserved_kg || 0),
         trip_count: Number((stock as any).trip_count || 0),
       });
     }
@@ -181,7 +187,11 @@ export async function GET(request: NextRequest) {
     const reproductionSnapshotMap = firstSnapshot(lineSnapshots || [], "reproduction_id", "reproduction_name_snapshot");
 
     const mapRow = (row: any, sourceKind: "aggregate_harvest_lot" | "exact_stock_identity") => {
-      const quantity = Number(row.quantity || 0);
+      const quantity = Number(
+        sourceKind === "exact_stock_identity"
+          ? row.effective_available_kg ?? row.quantity ?? 0
+          : row.quantity || 0
+      );
       const productId = String(row.product_id || "");
       const varietyId = row.variety_id ? String(row.variety_id) : null;
       const reproductionId = row.reproduction_id ? String(row.reproduction_id) : null;
@@ -225,6 +235,8 @@ export async function GET(request: NextRequest) {
         uom,
         is_legacy_invalid: !batchClass || !["kg", "l", "pcs"].includes(uom),
         quantity,
+        ledger_quantity: Number(row.ledger_quantity ?? row.quantity ?? 0),
+        processing_allocated_kg: Number(row.processing_allocated_kg || 0),
         label: `${identityParts.join(" • ")} — ${formatStockQuantity(quantity, uom)}`,
       };
     };

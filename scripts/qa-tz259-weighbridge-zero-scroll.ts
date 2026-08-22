@@ -54,23 +54,24 @@ check("driver options remain personnel-based", () => assert.match(page, /roleTyp
 check("picker search does not issue requests", () => assert.doesNotMatch(transportPicker, /fetch\(|axios|supabase/));
 check("picker list scroll is bounded", () => assert.match(combobox, /max-h-60 travkin-scrollbar/));
 check("field picker keyboard selection supports arrows and enter", () => assert.match(activeHarvestTabs, /ArrowDown[\s\S]*ArrowUp[\s\S]*Enter/));
-check("gross grid is compact", () => assert.match(page, /md:grid-cols-\[1fr_220px\]/));
+check("gross grid is compact", () => assert.match(page, /md:grid-cols-\[1fr_170px_220px\]/));
 check("primary CTA says open ticket", () => assert.match(page, /"Открыть талон"/));
-check("primary moisture field removed from gross flow", () => assert.doesNotMatch(page, /Влажность, % \(необязательно\)/));
+check("optional moisture is available in the gross flow", () => assert.match(page, /Влажность, % \(необязательно\)/));
 check("new ticket UI has no trailer selector", () => assert.doesNotMatch(page, /form\.trailerId|Прицеп \(необязательно\)/));
 check("legacy trailer remains visible", () => assert.match(ticketPaper, /trailer_name_snapshot[\s\S]*label="Прицеп"/));
 check("open ticket shows awaiting tare", () => assert.match(page, /Ждёт тару/));
-check("moisture saves on blur", () => {
+check("moisture remains client-side until canonical finalize", () => {
   assert.match(ticketPaper, /onBlur=\{weightEditor\.onMoistureCommit\}/);
-  assert.match(page, /onMoistureCommit: \(\) => \{ void saveActiveTicketMoisture\(\); \}/);
+  assert.match(page, /onMoistureCommit: \(\) => undefined/);
+  assert.match(page, /moisture_percent: moisture/);
 });
 check("moisture saves on Enter", () => assert.match(ticketPaper, /event\.key !== "Enter"[\s\S]*weightEditor\.onMoistureCommit/));
 check("moisture accepts decimals", () => assert.match(ticketPaper, /step="0\.1"/));
-check("moisture validates 0 through 100", () => assert.match(page, /moisture < 0 \|\| moisture > 100/));
+check("moisture validates strictly between 0 and 100", () => assert.match(page, /moisture <= 0 \|\| moisture >= 100/));
 check("moisture PATCH is independent of tare", () => assert.match(ticketRoute, /const hasMoisturePatch = body\?\.moisture_percent !== undefined/));
 check("moisture-only PATCH is accepted", () => assert.match(ticketRoute, /Object\.keys\(patch\)\.length === 0 && !hasMoisturePatch/));
 check("tare does not erase omitted moisture", () => assert.match(ticketRoute, /if \(hasMoisturePatch && harvestLineId\)/));
-check("moisture updates only one harvest line", () => assert.match(ticketRoute, /Harvest ticket must contain exactly one line/));
+check("moisture updates one canonical ticket line", () => assert.match(ticketRoute, /Талон должен содержать ровно одну строку для сохранения влажности/));
 check("read roles retain open ticket visibility", () => assert.match(page, /canView = canOperate \|\| profile\?\.role === "agronomist"/));
 check("universal workspace preserves repeat field and destination context", () => {
   assert.match(page, /if \(prev\.operationType === "harvest_incoming"\)[\s\S]*fieldId: prev\.fieldId,[\s\S]*cropStructureAllocationId: prev\.cropStructureAllocationId,[\s\S]*warehouseToId: prev\.warehouseToId/);

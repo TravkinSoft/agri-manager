@@ -38,6 +38,8 @@ const clean = (value: unknown) => {
   return text && text !== "-" && text !== "—" ? text : "";
 };
 
+const isPotato = (value: unknown) => /картоф|potato/i.test(clean(value));
+
 const first = (...values: unknown[]) => {
   for (const value of values) {
     const text = clean(value);
@@ -99,8 +101,6 @@ const percent = (value: unknown) => {
   return `${formatWeightNumber(value)} %`;
 };
 
-const isPotato = (cropName: string) => /картоф|potato|картоп/i.test(cropName);
-
 function PaperSection({
   title,
   children,
@@ -160,7 +160,7 @@ export function WeighbridgeTicketPaper({
   const crop = first(mainLine?.product_name, mainLine?.product_name_snapshot, ticket.crop_name_snapshot);
   const variety = first(mainLine?.variety_name, mainLine?.variety_name_snapshot, ticket.variety_name_snapshot);
   const reproduction = first(mainLine?.reproduction_name, mainLine?.reproduction_name_snapshot, ticket.reproduction_name_snapshot);
-  const moisture = isHarvest && !isPotato(crop) ? percent(mainLine?.moisture_percent) : "";
+  const moisture = percent(mainLine?.moisture_percent);
   const dockage = percent(mainLine?.dockage_percent);
   const dirtTare = percent(mainLine?.dirt_tare_percent);
   const openedAt = dateTime(ticket.created_at);
@@ -175,12 +175,15 @@ export function WeighbridgeTicketPaper({
   const displayedNetKg = weightEditor
     ? weightEditor.physicalNetKg
     : ticket.physical_net_kg ?? ticket.net_weight_kg;
-  const showMoistureEditor = Boolean(weightEditor && isHarvest && !isPotato(crop));
+  const showHarvestMoisture = isHarvest && !isPotato(crop);
+  const showMoisture = !isHarvest || showHarvestMoisture;
+  const showMoistureEditor = Boolean(weightEditor) && showMoisture;
   const showProductLines = !isHarvest && (isSupplier ? lines.length > 1 : lines.length > 0);
-  const displayedLineQuantity = (line: (typeof lines)[number]) =>
-    ticket.correction_of_ticket_id && lines.length === 1 && ticket.net_weight_kg != null
-      ? ticket.net_weight_kg
-      : line.quantity;
+  const displayedLineQuantity = (line: (typeof lines)[number]) => {
+    if (lines.length === 1 && weightEditor?.physicalNetKg != null) return weightEditor.physicalNetKg;
+    if (lines.length === 1 && ticket.net_weight_kg != null) return ticket.net_weight_kg;
+    return line.quantity;
+  };
 
   return (
     <article
@@ -235,7 +238,7 @@ export function WeighbridgeTicketPaper({
         </PaperSection>
       ) : null}
 
-      {hasWeight || moisture || dockage || dirtTare ? (
+      {hasWeight || (showMoisture && moisture) || dockage || dirtTare ? (
         <PaperSection title="ВЕС И КАЧЕСТВО">
           {hasWeight ? (
             <div className="grid grid-cols-3 gap-2 text-center">
@@ -268,8 +271,8 @@ export function WeighbridgeTicketPaper({
                 <input
                   type="number"
                   inputMode="decimal"
-                  min="0"
-                  max="100"
+                  min="0.1"
+                  max="99.9"
                   step="0.1"
                   value={weightEditor.moistureValue}
                   onChange={(event) => weightEditor.onMoistureChange(event.target.value)}
@@ -286,9 +289,9 @@ export function WeighbridgeTicketPaper({
               </label>
             </div>
           ) : null}
-          {(!showMoistureEditor && (moisture || dockage || dirtTare)) ? (
+          {(!showMoistureEditor && ((showMoisture && moisture) || dockage || dirtTare)) ? (
             <div className={cn("grid grid-cols-2 gap-2", hasWeight && "mt-2 border-t border-[#c7b797] pt-2")}>
-              <Fact label="Влажность" value={moisture} />
+              {showMoisture ? <Fact label="Влажность" value={moisture} /> : null}
               <Fact label="Примеси" value={dockage} />
               <Fact label="Сорная примесь" value={dirtTare} />
             </div>

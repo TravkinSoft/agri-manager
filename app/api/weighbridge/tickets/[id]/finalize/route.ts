@@ -19,6 +19,31 @@ function isCorrectionLotError(message: string) {
   return /aggregate (harvest )?lot|batch identity|batch lineage|physical batch|line identity|warehouse-local batch|company stock/i.test(message);
 }
 
+function transferStockErrorResponse(message: string) {
+  const traceId = randomUUID();
+  const insufficient = message.match(/WEIGHBRIDGE_STOCK_INSUFFICIENT\|([^|]+)\|([^|\s]+)/i);
+  if (insufficient) {
+    const available = Number(insufficient[1]);
+    const required = Number(insufficient[2]);
+    return NextResponse.json({
+      error: `Недостаточно доступного остатка. Доступно ${available.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг, требуется ${required.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг.`,
+      code: "stock_insufficient",
+      trace_id: traceId,
+      available_kg: available,
+      required_kg: required,
+    }, { status: 409 });
+  }
+  if (/WEIGHBRIDGE_STOCK_INTERNAL_NEGATIVE/i.test(message)) {
+    console.error("weighbridge_stock_accounting_mismatch", { traceId });
+    return NextResponse.json({
+      error: "Обнаружено расхождение складского учёта. Операция полностью отменена. Сообщите администратору номер ошибки.",
+      code: "stock_accounting_mismatch",
+      trace_id: traceId,
+    }, { status: 409 });
+  }
+  return null;
+}
+
 async function loadHarvestClosureState(supabase: SupabaseClient, companyId: string, ticketId: string) {
   const [linesResult, weighingsResult] = await Promise.all([
     supabase
@@ -55,8 +80,8 @@ async function syncHarvestBatchMoisture(
   const rawMoisture = (lines[0] as any)?.moisture_percent;
   if (rawMoisture == null || String(rawMoisture).trim() === "") return;
   const moisture = Number(rawMoisture);
-  if (!Number.isFinite(moisture) || moisture < 0 || moisture > 100) {
-    throw new Error("Влажность рейса должна быть от 0 до 100 %.");
+  if (!Number.isFinite(moisture) || moisture <= 0 || moisture >= 100) {
+    throw new Error("Влажность рейса должна быть больше 0 и меньше 100 %.");
   }
   const { data: batches, error } = await supabase
     .from("inventory_batches")
@@ -93,7 +118,7 @@ export async function POST(
     const dbStartedAt = Date.now();
     const { data: ticketBefore, error: ticketBeforeError } = await supabase
       .from("tickets")
-      .select("id, company_id, linked_request_id, warehouse_from_id, vehicle_id, op_type, weigh_method, is_finalized, status, net_weight_kg, physical_net_kg, explicit_deductions_kg, accepted_weight_kg, correction_of_ticket_id")
+      .select("id, company_id, linked_request_id, linked_processing_id, processing_output_role, warehouse_from_id, warehouse_to_id, vehicle_id, op_type, direction, weigh_method, is_finalized, status, net_weight_kg, physical_net_kg, explicit_deductions_kg, accepted_weight_kg, correction_of_ticket_id")
       .eq("id", id)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -119,8 +144,8 @@ export async function POST(
       if (!Number.isFinite(tare) || tare < 0) {
         return NextResponse.json({ error: "Тара должна быть неотрицательным числом." }, { status: 400 });
       }
-      if (moisture != null && (!Number.isFinite(moisture) || moisture < 0 || moisture > 100)) {
-        return NextResponse.json({ error: "Влажность должна быть от 0 до 100 %." }, { status: 400 });
+      if (moisture != null && (!Number.isFinite(moisture) || moisture <= 0 || moisture >= 100)) {
+        return NextResponse.json({ error: "Влажность должна быть больше 0 и меньше 100 %." }, { status: 400 });
       }
       if (deductionKg != null && (!Number.isFinite(deductionKg) || deductionKg < 0)) {
         return NextResponse.json({ error: "Удержание в килограммах должно быть неотрицательным." }, { status: 400 });
@@ -179,6 +204,63 @@ export async function POST(
         `auth;dur=${timing.authMs}, validation;dur=${timing.validationMs}, finalize_rpc;dur=${timing.rpcMs}, total;dur=${timing.totalMs}`
       );
       return response;
+    }
+
+    const isAtomicTransfer = ticketBefore.direction === "transfer"
+      && ticketBefore.weigh_method !== "manual_override_with_reason"
+      && !ticketBefore.correction_of_ticket_id;
+    if (isAtomicTransfer) {
+      const tare = Number(body?.tare_weight_kg);
+      const moisture = body?.moisture_percent == null || String(body.moisture_percent).trim() === ""
+        ? null
+        : Number(body.moisture_percent);
+      if (!Number.isFinite(tare) || tare <= 0) {
+        return NextResponse.json({ error: "Тара должна быть больше нуля." }, { status: 400 });
+      }
+      if (moisture != null && (!Number.isFinite(moisture) || moisture <= 0 || moisture >= 100)) {
+        return NextResponse.json({ error: "Влажность должна быть больше 0 и меньше 100 %." }, { status: 400 });
+      }
+      const sessionToken = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+      const rpcStartedAt = Date.now();
+      const transferCloseRpc = ticketBefore.linked_processing_id && ticketBefore.processing_output_role
+        ? "close_processing_output_ticket_atomic_v1"
+        : "close_transfer_ticket_atomic_v2";
+      const { data: closeResult, error: closeError } = await supabase.rpc(transferCloseRpc, {
+        p_ticket_id: id,
+        p_session_token: sessionToken,
+        p_tare_weight_kg: tare,
+        p_moisture_percent: moisture,
+        p_tare_variance_confirmed: Boolean(body?.confirm_tare_variance),
+        p_idempotency_key: String(request.headers.get("idempotency-key") || body?.idempotency_key || "").trim() || null,
+      });
+      timing.rpcMs = Date.now() - rpcStartedAt;
+      if (closeError) {
+        const stockResponse = transferStockErrorResponse(closeError.message);
+        if (stockResponse) return stockResponse;
+        return NextResponse.json({ error: weighbridgeUserError(closeError.message) }, { status: 400 });
+      }
+      const result = (closeResult || {}) as Record<string, any>;
+      if (result.code === "shift_expired") {
+        return NextResponse.json({ error: "Введите PIN весовщика, чтобы продолжить смену.", code: result.code }, { status: 423 });
+      }
+      if (result.requires_confirmation) {
+        return NextResponse.json({ error: "Проверьте тару.", ...result }, { status: 409 });
+      }
+      if (!result.ok) {
+        return NextResponse.json({ error: "Не удалось завершить талон.", trace_id: randomUUID() }, { status: 409 });
+      }
+      const { data: updated, error: updatedError } = await supabase
+        .from("tickets")
+        .select("*, lines:ticket_lines(*)")
+        .eq("id", id)
+        .eq("company_id", companyId)
+        .single();
+      if (updatedError || !updated?.id) {
+        return NextResponse.json({ error: "Талон завершён, но не удалось обновить его отображение.", trace_id: randomUUID() }, { status: 409 });
+      }
+      timing.totalMs = Date.now() - startedAt;
+      const [attributedTicket] = await enrichTicketOperatorAttribution(supabase, companyId, [updated]);
+      return NextResponse.json({ ticket: attributedTicket, finalize: result, debug: timing });
     }
 
     let harvestClosureState: Awaited<ReturnType<typeof loadHarvestClosureState>> | null = null;

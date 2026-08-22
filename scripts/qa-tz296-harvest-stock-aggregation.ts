@@ -14,7 +14,7 @@ const checks: Array<{ name: string; run: () => void }> = [];
 const check = (name: string, run: () => void) => checks.push({ name, run });
 
 check("stock picker returns aggregate harvest lots and hides linked trip batches", () => {
-  assert.match(stockRoute, /v_harvest_lot_stock_v1/);
+  assert.match(stockRoute, /v_weighbridge_harvest_lot_available_v2/);
   assert.match(stockRoute, /aggregate_harvest_lot/);
   assert.match(stockRoute, /exactRows = \(rawRows \|\| \[\]\)\.filter/);
   assert.match(stockRoute, /!lotIdByBatchId\.has/);

@@ -54,6 +54,9 @@ export interface TicketInput {
   destination_kind: string;
   destination_id?: string | null;
   processing_node_id?: string | null;
+  linked_processing_id?: string | null;
+  processing_output_role?: string | null;
+  processing_last_truck?: boolean;
   field_id?: string | null;
   crop_structure_allocation_id?: string | null;
   warehouse_from_id?: string | null;
@@ -158,6 +161,9 @@ export interface WeighbridgeTicket {
   destination_kind: string;
   destination_id?: string | null;
   processing_node_id?: string | null;
+  linked_processing_id?: string | null;
+  processing_output_role?: string | null;
+  processing_last_truck?: boolean;
   field_id?: string | null;
   warehouse_from_id?: string | null;
   warehouse_to_id?: string | null;

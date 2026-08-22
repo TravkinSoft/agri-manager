@@ -43,7 +43,7 @@ check("PIN submit invalidates stale GET before POST", () => {
   assert.match(weighbridgePage, /const submitOperatorAction[\s\S]*?setOperatorBusy\(true\);[\s\S]*?invalidateOperatorSessionRequest\(\);[\s\S]*?unlockWeighbridgeOperator/);
 });
 check("successful PIN closes modal immediately", () => {
-  assert.match(weighbridgePage, /setOperatorState\(completeOperatorState\)[\s\S]*?setOperatorSessionStatus\("ready"\)[\s\S]*?setOperatorDialogOpen\(false\)/);
+  assert.match(weighbridgePage, /commitOperatorState\(completeOperatorState\)[\s\S]*?setOperatorSessionStatus\("ready"\)[\s\S]*?setOperatorDialogOpen\(false\)/);
 });
 check("unlocked canonical state keeps modal closed", () => {
   assert.match(weighbridgePage, /if \(operatorState\.unlocked\) \{[\s\S]*?setOperatorDialogOpen\(false\)/);

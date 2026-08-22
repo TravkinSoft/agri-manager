@@ -7,6 +7,7 @@ const root = process.cwd();
 const resources = fs.readFileSync(path.join(root, "app/api/weighbridge/resources/route.ts"), "utf8");
 const tickets = fs.readFileSync(path.join(root, "app/api/weighbridge/tickets/route.ts"), "utf8");
 const page = fs.readFileSync(path.join(root, "app/(dashboard)/weighbridge/page.tsx"), "utf8");
+const transportPicker = fs.readFileSync(path.join(root, "components/weighbridge/transport-driver-picker.tsx"), "utf8");
 const migration = fs.readFileSync(
   path.join(root, "supabase/migrations/20260810120000_company_personnel_foundation_v1.sql"),
   "utf8"
@@ -34,9 +35,11 @@ check("resources allow only two roles", () => assert.match(resources, /\.in\("ro
 check("ticket validates canonical person", () => assert.match(tickets, /from\("company_people"\)/));
 check("ticket validates current company", () => assert.match(tickets, /\.eq\("company_id", ticket\.company_id\)/));
 check("ticket accepts only driver or machine operator roles", () => assert.match(tickets, /isWeighbridgePersonnelRole/));
-check("UI keeps FIO search", () => assert.match(page, /Фамилия, имя или ФИО/));
-check("UI groups drivers", () => assert.match(page, /personnelRoleLabel/));
-check("UI renders position and department", () => assert.match(page, /position.*department|department.*position/s));
+check("UI keeps personnel name search", () => assert.match(transportPicker, /Имя или фамилия водителя/));
+check("UI preserves canonical personnel roles", () => assert.match(page, /roleType: row\.roleType === "mechanic_operator"/));
+check("UI searches position and department", () => {
+  assert.match(transportPicker, /keywords: \[driver\.name, driver\.position \|\| "", driver\.department \|\| ""\]/);
+});
 check("migration adds position", () => assert.match(migration, /add column if not exists position text/i));
 check("migration adds department", () => assert.match(migration, /add column if not exists department text/i));
 check("migration keeps legacy supplier drivers readable", () => assert.match(migration, /reference_specialists/));

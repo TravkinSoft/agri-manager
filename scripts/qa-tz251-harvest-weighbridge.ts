@@ -60,7 +60,7 @@ check("18 correct net is calculated", () => {
   assert.equal(result.net, 19_240);
 });
 
-check("19 moisture is optional and range-checked", () => assert(has(ticketRoute, ["rawMoisture == null", "от 0 до 100"]))) ;
+check("19 moisture is optional and range-checked", () => assert(has(createRoute, ["rawMoisture == null", "moisture <= 0", "moisture >= 100"]))) ;
 check("20 moisture is written to ticket line", () => assert(ticketRoute.includes("update({ moisture_percent: harvestMoisture })")));
 check("21 finalize requires two weighings", () => assert(finalizeRoute.includes("Перед закрытием нужны два фактических взвешивания")));
 check("22 moisture is copied to batch", () => assert(has(finalizeRoute, ["inventory_batches", "source_ticket_id", "moisture_percent: moisture"])));

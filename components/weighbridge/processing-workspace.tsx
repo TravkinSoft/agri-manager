@@ -1,279 +1,318 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Factory, Loader2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, ChevronDown, Factory, History, Loader2, Plus, RotateCcw, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import {
-  createBatchTransformation,
-  finalizeBatchTransformation,
   getProcessingTransformations,
+  performProcessingAction,
   type BatchTransformationRow,
 } from "@/lib/services/processing";
-import { getWarehouses } from "@/lib/services/warehouses";
-import type { Warehouse } from "@/lib/types/warehouse";
-import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
 
-type QueueFilter = "waiting" | "in_progress" | "completed";
+type Props = { onAddOutput?: (processing: BatchTransformationRow) => void };
 
-const transformationLabels: Record<string, string> = {
+const typeLabels: Record<string, string> = {
   drying: "Сушка",
   cleaning: "Очистка",
   sorting: "Сортировка",
   calibration: "Калибровка",
   conditioning: "Доработка",
   potato_sorting: "Сортировка клубней",
-  other: "Переработка",
+  other: "Обработка",
 };
 
-const formatMass = (value: number) =>
-  `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
+const lossLabels = {
+  dust: "Пыль",
+  spillage: "Просыпь",
+  sampling: "Отбор проб",
+  other: "Другая потеря",
+} as const;
 
-export function ProcessingWorkspace() {
+const outputRoleLabels: Record<string, string> = {
+  GRAIN: "Основная продукция",
+  SCREENINGS: "Отсев",
+  FEED: "Фураж",
+  WASTE: "Веяльные отходы",
+  TRIER_WASTE: "Триерные отходы",
+  OTHER: "Прочие отходы",
+};
+
+const formatMass = (value: number | null | undefined) =>
+  `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
+const formatMoisture = (value: number | null | undefined) =>
+  value == null ? null : `${Number(value).toLocaleString("ru-RU", { maximumFractionDigits: 2 })}%`;
+const formatDateTime = (value: string | null | undefined) =>
+  value ? new Date(value).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "-";
+
+export function ProcessingWorkspace({ onAddOutput }: Props) {
   const { profile } = useAuth();
   const { toast } = useToast();
   const [items, setItems] = useState<BatchTransformationRow[]>([]);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
-  const [filter, setFilter] = useState<QueueFilter>("waiting");
-  const [selected, setSelected] = useState<BatchTransformationRow | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [transformationType, setTransformationType] = useState("cleaning");
-  const [outputKg, setOutputKg] = useState("");
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [finishItem, setFinishItem] = useState<BatchTransformationRow | null>(null);
+  const [manageItem, setManageItem] = useState<BatchTransformationRow | null>(null);
+  const [lossType, setLossType] = useState<keyof typeof lossLabels>("dust");
   const [lossKg, setLossKg] = useState("");
-  const [warehouseId, setWarehouseId] = useState("");
-  const [note, setNote] = useState("");
+  const [lossReason, setLossReason] = useState("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const requestKeys = useRef(new Map<string, string>());
+  const canManageBalance = ["global_admin", "company_admin", "director"].includes(String(profile?.role || ""));
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (showLoading = false) => {
     if (!profile?.company_id || !profile?.id) return;
-    setLoading(true);
+    if (showLoading) setLoading(true);
     try {
-      const [rows, warehouseRows] = await Promise.all([
-        getProcessingTransformations(profile.company_id, profile.id),
-        getWarehouses(profile.company_id),
-      ]);
-      setItems(rows);
-      setWarehouses(warehouseRows.filter((row) => !row.archived && !row.is_archived && isHarvestWarehouseType(row.warehouse_type)));
+      const rows = await getProcessingTransformations(profile.company_id, profile.id);
+      setItems(rows.filter((row) => row.record_type === "transformation"));
     } catch (error) {
-      toast({
-        title: "Переработка недоступна",
-        description: error instanceof Error ? error.message : "Не удалось загрузить очередь",
-        variant: "destructive",
-      });
+      toast({ title: "Обработки недоступны", description: error instanceof Error ? error.message : "Не удалось обновить данные", variant: "destructive" });
     } finally {
       setLoading(false);
     }
   }, [profile?.company_id, profile?.id, toast]);
 
   useEffect(() => {
-    void load();
+    void load(true);
+    const refresh = () => void load(false);
+    const timer = window.setInterval(refresh, 15_000);
+    window.addEventListener("travkin:weighbridge-data-changed", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("travkin:weighbridge-data-changed", refresh);
+    };
   }, [load]);
 
-  useEffect(() => {
-    if (!selected) return;
-    setTransformationType(selected.transformation_type || "cleaning");
-    setOutputKg("");
-    setLossKg("");
-    setWarehouseId("");
-    setNote(selected.note || "");
-  }, [selected?.id]);
-
-  const filtered = useMemo(
-    () => items.filter((row) => String(row.queue_status || row.status) === filter),
-    [filter, items]
+  const activeItems = useMemo(
+    () => items.filter((item) => item.processing_state !== "processing_closed" && item.status !== "voided"),
+    [items]
   );
-  const counts = useMemo(
-    () => ({
-      waiting: items.filter((row) => row.queue_status === "waiting").length,
-      in_progress: items.filter((row) => row.queue_status === "in_progress").length,
-      completed: items.filter((row) => row.queue_status === "completed").length,
-    }),
+  const closedItems = useMemo(
+    () => items.filter((item) => item.processing_state === "processing_closed" && item.status !== "voided"),
     [items]
   );
 
-  const start = async () => {
-    if (!selected || selected.record_type !== "waiting_ticket" || !profile?.company_id || !profile?.id) return;
-    const input = Number(selected.input_weight_kg || 0);
-    const output = Number(outputKg || 0);
-    const loss = Number(lossKg || 0);
-    if (!warehouseId || output <= 0 || loss < 0) {
-      toast({ title: "Заполните результат", description: "Укажите выход, потери и склад готового продукта.", variant: "destructive" });
-      return;
-    }
-    if (Math.abs(output + loss - input) > 0.001) {
-      toast({
-        title: "Не сходится баланс",
-        description: `Выход и потери должны составить ${formatMass(input)}.`,
-        variant: "destructive",
-      });
-      return;
-    }
-    setSaving(true);
+  const idempotencyKey = (itemId: string, action: string) => {
+    const key = `${itemId}:${action}`;
+    const existing = requestKeys.current.get(key);
+    if (existing) return existing;
+    const created = typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    requestKeys.current.set(key, created);
+    return created;
+  };
+
+  const runAction = async (item: BatchTransformationRow, action: "soft_finish" | "reopen" | "hard_close" | "approve_loss") => {
+    if (!profile?.id || savingId) return;
+    setSavingId(item.id);
     try {
-      await createBatchTransformation({
-        company_id: profile.company_id,
-        actor_user_id: profile.id,
-        transformation_type: transformationType as any,
-        processing_node_id: selected.processing_node_id,
-        source_ticket_id: selected.source_ticket_id,
-        note: note || null,
-        input: { batch_id: "from-ticket", warehouse_from_id: "from-ticket", input_weight_kg: input },
-        outputs: [
-          { line_type: "commodity", batch_class: "commodity", warehouse_to_id: warehouseId, output_weight_kg: output },
-          ...(loss > 0
-            ? [{ line_type: "process_loss", batch_class: "waste" as const, warehouse_to_id: null, output_weight_kg: loss }]
-            : []),
-        ],
-      });
-      setSelected(null);
-      setFilter("in_progress");
-      await load();
-      toast({ title: "Переработка начата", description: "Сырьё переведено в статус «В работе»." });
+      if (action === "approve_loss") {
+        const qty = Number(String(lossKg).replace(",", "."));
+        if (!Number.isFinite(qty) || qty <= 0 || (lossType === "other" && !lossReason.trim())) {
+          toast({
+            title: "Заполните потерю",
+            description: lossType === "other" ? "Укажите массу и пояснение." : "Укажите массу.",
+            variant: "destructive",
+          });
+          return;
+        }
+        const requestAction = `${action}:${lossType}:${qty}:${lossReason.trim()}`;
+        await performProcessingAction(item.id, profile.id, {
+          action,
+          idempotency_key: idempotencyKey(item.id, requestAction),
+          loss_type: lossType,
+          qty_kg: qty,
+          reason: lossReason.trim(),
+        });
+        requestKeys.current.delete(`${item.id}:${requestAction}`);
+        setLossKg("");
+        setLossReason("");
+        setManageItem(null);
+        toast({ title: "Потеря подтверждена", description: "Она учтена отдельно и не превращена в складской товар." });
+      } else {
+        await performProcessingAction(item.id, profile.id, { action, idempotency_key: idempotencyKey(item.id, action) });
+        toast({
+          title: action === "soft_finish"
+            ? "Обработка переведена на сверку"
+            : action === "reopen"
+              ? "Обработка возобновлена"
+              : "Материальный баланс закрыт",
+          description: action === "soft_finish"
+            ? "Новые входы остановлены. Фактические выходы и отходы можно продолжать оформлять."
+            : action === "reopen"
+              ? "Новые поступления этой партии снова можно добавлять в текущую обработку."
+              : "Обработка перенесена в историю.",
+        });
+        requestKeys.current.delete(`${item.id}:${action}`);
+      }
+      setFinishItem(null);
+      if (action === "hard_close") setManageItem(null);
+      await load(false);
     } catch (error) {
-      toast({ title: "Не удалось начать", description: error instanceof Error ? error.message : "Ошибка", variant: "destructive" });
+      toast({ title: "Действие не выполнено", description: error instanceof Error ? error.message : "Повторите запрос", variant: "destructive" });
     } finally {
-      setSaving(false);
+      setSavingId(null);
     }
   };
 
-  const finish = async () => {
-    if (!selected || selected.record_type === "waiting_ticket" || !profile?.id) return;
-    setSaving(true);
-    try {
-      await finalizeBatchTransformation(selected.id, profile.id);
-      setSelected(null);
-      setFilter("completed");
-      await load();
-      toast({ title: "Переработка завершена", description: "Результат один раз проведён на склад." });
-    } catch (error) {
-      toast({ title: "Не удалось завершить", description: error instanceof Error ? error.message : "Ошибка", variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
+  if (!loading && activeItems.length === 0 && closedItems.length === 0) return null;
 
   return (
-    <section className="space-y-4" data-testid="processing-workspace">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-50">Переработка</h2>
-        <p className="mt-1 text-sm text-slate-400">Сырьё из закрытых весовых талонов и результат его доработки.</p>
+    <section className="space-y-3" data-testid="processing-workspace" aria-label="Обработки">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 text-base font-semibold text-slate-50"><Factory className="h-4 w-4 text-yellow-400" />Обработки</h2>
+        {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{activeItems.length}</Badge>}
       </div>
 
-      <Tabs value={filter} onValueChange={(value) => setFilter(value as QueueFilter)}>
-        <TabsList className="grid h-11 w-full grid-cols-3 border border-slate-800 bg-slate-950 p-1 sm:w-[520px]">
-          <TabsTrigger value="waiting">Ожидают · {counts.waiting}</TabsTrigger>
-          <TabsTrigger value="in_progress">В работе · {counts.in_progress}</TabsTrigger>
-          <TabsTrigger value="completed">Завершено · {counts.completed}</TabsTrigger>
-        </TabsList>
-      </Tabs>
-
-      {loading ? (
-        <div className="flex items-center gap-2 py-10 text-sm text-slate-400"><Loader2 className="h-4 w-4 animate-spin" />Загрузка...</div>
-      ) : filtered.length === 0 ? (
-        <div className="rounded-md border border-dashed border-slate-800 px-4 py-8 text-center text-sm text-slate-500">
-          {filter === "waiting" ? "Талонов, ожидающих переработки, нет" : filter === "in_progress" ? "Переработок в работе нет" : "Завершённых переработок пока нет"}
-        </div>
-      ) : (
-        <div className="divide-y divide-slate-800 border-y border-slate-800">
-          {filtered.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              onClick={() => setSelected(row)}
-              className="grid w-full gap-2 px-2 py-4 text-left hover:bg-slate-900/60 sm:grid-cols-[1.2fr_1fr_1fr_auto] sm:items-center sm:px-3"
-            >
-              <div className="min-w-0">
-                <div className="truncate font-medium text-slate-100">{row.crop_name || row.input_label}</div>
-                <div className="mt-1 text-xs text-slate-400">{row.field_name || "Поле не указано"} · {row.ticket_no || "Без талона"}</div>
-              </div>
-              <div className="text-sm text-slate-300">{formatMass(row.input_weight_kg)}</div>
-              <div className="text-sm text-slate-400">{row.processing_node_name || "Линия не указана"}</div>
-              <Badge className="w-fit border border-slate-700 bg-slate-950 text-slate-200">
-                {row.queue_status === "waiting" ? "Ожидает" : row.queue_status === "in_progress" ? "В работе" : "Завершено"}
-              </Badge>
-            </button>
-          ))}
-        </div>
-      )}
-
-      <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-          {selected ? (
-            <>
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2"><Factory className="h-5 w-5" />{selected.crop_name || "Переработка сырья"}</DialogTitle>
-                <DialogDescription>Талон {selected.ticket_no || "-"} · {selected.field_name || "Поле не указано"}</DialogDescription>
-              </DialogHeader>
-
-              <div className="grid gap-3 text-sm sm:grid-cols-2">
-                <div><span className="text-slate-500">Сырьё:</span> <b>{formatMass(selected.input_weight_kg)}</b></div>
-                <div><span className="text-slate-500">Линия:</span> <b>{selected.processing_node_name || "-"}</b></div>
-                <div><span className="text-slate-500">Дата:</span> <b>{new Date(selected.created_at).toLocaleString("ru-RU")}</b></div>
-                <div><span className="text-slate-500">Ответственный:</span> <b>{profile?.full_name || profile?.email || "Текущий пользователь"}</b></div>
-              </div>
-
-              {selected.queue_status === "waiting" ? (
-                <div className="space-y-4 border-t pt-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>Вид переработки</Label>
-                      <Select value={transformationType} onValueChange={setTransformationType}>
-                        <SelectTrigger className="min-h-11"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(transformationLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Склад готового продукта</Label>
-                      <Select value={warehouseId} onValueChange={setWarehouseId}>
-                        <SelectTrigger className="min-h-11"><SelectValue placeholder="Выберите склад" /></SelectTrigger>
-                        <SelectContent>
-                          {warehouses.map((warehouse) => <SelectItem key={warehouse.id} value={warehouse.id}>{warehouse.name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="space-y-2"><Label>Готовый продукт, кг</Label><Input className="min-h-11" inputMode="decimal" value={outputKg} onChange={(event) => setOutputKg(event.target.value)} /></div>
-                    <div className="space-y-2"><Label>Отходы / потери, кг</Label><Input className="min-h-11" inputMode="decimal" value={lossKg} onChange={(event) => setLossKg(event.target.value)} /></div>
-                  </div>
-                  <div className="space-y-2"><Label>Комментарий</Label><Textarea value={note} onChange={(event) => setNote(event.target.value)} rows={2} /></div>
-                  <div className="text-sm text-slate-500">Баланс: готовый продукт + потери = {formatMass(selected.input_weight_kg)}</div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {activeItems.map((item) => {
+          const pending = item.processing_state === "processing_pending_outputs";
+          const input = Number(item.input_total_kg ?? item.input_weight_kg ?? 0);
+          const unallocated = Number(item.unallocated_kg || 0);
+          return (
+            <article key={item.id} className="rounded-lg border border-slate-800 bg-[#101724] p-4" data-processing-state={item.processing_state}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-bold uppercase text-slate-100">{item.processing_node_name || "Узел обработки"} · {typeLabels[item.transformation_type] || "Обработка"}</div>
+                  <div className="mt-1 truncate text-sm text-slate-300" title={item.identity_label || item.input_label}>{item.identity_label || item.input_label}</div>
                 </div>
-              ) : selected.queue_status === "in_progress" ? (
-                <div className="space-y-2 border-t pt-4">
-                  {selected.outputs.map((output, index) => (
-                    <div key={`${output.line_type}-${index}`} className="flex items-center justify-between text-sm">
-                      <span>{output.line_type === "process_loss" ? "Отходы / потери" : "Готовый продукт"}{output.warehouse_to_name ? ` · ${output.warehouse_to_name}` : ""}</span>
-                      <b>{formatMass(output.output_weight_kg)}</b>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 border-t pt-4 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" />Результат проведён. Повторное проведение заблокировано.</div>
-              )}
+                <Badge className={pending ? "border border-amber-600/60 bg-amber-950/50 text-amber-200" : "border border-sky-700/60 bg-sky-950/50 text-sky-200"}>{pending ? "Сверка баланса" : "В работе"}</Badge>
+              </div>
+              {pending ? <div className="mt-3 flex items-center gap-2 text-sm font-medium text-emerald-300"><CheckCircle2 className="h-4 w-4" />Обработка физически закончена</div> : null}
 
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setSelected(null)}>Закрыть</Button>
-                {selected.queue_status === "waiting" ? <Button onClick={start} disabled={saving}>{saving ? "Сохранение..." : "Начать переработку"}</Button> : null}
-                {selected.queue_status === "in_progress" ? <Button onClick={finish} disabled={saving}>{saving ? "Проведение..." : "Завершить"}</Button> : null}
-              </DialogFooter>
-            </>
+              <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-sm">
+                <dt className="text-slate-400">Вход</dt><dd className="font-semibold text-slate-100">{formatMass(input)}</dd>
+                <dt className="text-slate-400">Основная продукция</dt><dd className="font-semibold text-slate-100">{formatMass(item.main_output_kg)}</dd>
+                {Number(item.byproduct_kg || 0) > 0 ? <><dt className="text-slate-400">Побочная продукция</dt><dd className="font-semibold text-slate-100">{formatMass(item.byproduct_kg)}</dd></> : null}
+                <dt className="text-slate-400">Фактические отходы</dt><dd className="font-semibold text-slate-100">{formatMass(item.stock_waste_kg)}</dd>
+                {Number(item.moisture_loss_kg || 0) > 0 ? <><dt className="text-slate-400">Удалённая вода</dt><dd className="font-semibold text-slate-100">{formatMass(item.moisture_loss_kg)}</dd></> : null}
+                {Number(item.approved_process_loss_kg || 0) > 0 ? <><dt className="text-slate-400">Подтверждённые потери</dt><dd className="font-semibold text-slate-100">{formatMass(item.approved_process_loss_kg)}</dd></> : null}
+                <dt className={pending ? (unallocated > 0.001 ? "font-medium text-amber-300" : "text-emerald-300") : "font-medium text-sky-300"}>
+                  {pending ? "Нераспределённый баланс обработки" : "Сейчас в обработке"}
+                </dt>
+                <dd className={pending ? (unallocated > 0.001 ? "font-bold text-amber-300" : "font-bold text-emerald-300") : "font-bold text-sky-300"}>{formatMass(unallocated)}</dd>
+              </dl>
+
+              {formatMoisture(item.input_moisture_percent) || formatMoisture(item.output_moisture_percent) ? (
+                <div className="mt-3 grid gap-1 border-t border-slate-800 pt-3 text-xs text-slate-400 sm:grid-cols-2">
+                  {formatMoisture(item.input_moisture_percent) ? <div>Входная влажность: <b className="text-slate-200">{formatMoisture(item.input_moisture_percent)}</b> · покрытие {formatMass(item.input_moisture_coverage_kg)} из {formatMass(input)}</div> : null}
+                  {formatMoisture(item.output_moisture_percent) ? <div>Выходная влажность: <b className="text-slate-200">{formatMoisture(item.output_moisture_percent)}</b> · покрытие {formatMass(item.output_moisture_coverage_kg)}</div> : null}
+                </div>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {!pending ? <Button size="sm" onClick={() => setFinishItem(item)} disabled={savingId === item.id}>Обработка закончена</Button> : null}
+                <Button size="sm" variant="outline" onClick={() => onAddOutput?.(item)} disabled={savingId === item.id}><Plus className="mr-1 h-4 w-4" />Добавить выход</Button>
+                {pending ? <Button size="sm" variant="outline" onClick={() => void runAction(item, "reopen")} disabled={savingId === item.id}><RotateCcw className="mr-1 h-4 w-4" />Возобновить обработку</Button> : null}
+                {pending && canManageBalance ? <Button size="sm" variant="outline" onClick={() => setManageItem(item)}><ShieldCheck className="mr-1 h-4 w-4" />Сверить баланс</Button> : null}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+
+      {closedItems.length > 0 ? (
+        <div className="border-t border-slate-800 pt-3">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-9 w-full justify-between px-2 text-slate-300 hover:text-slate-50"
+            onClick={() => setHistoryOpen((value) => !value)}
+            aria-expanded={historyOpen}
+          >
+            <span className="flex items-center gap-2"><History className="h-4 w-4 text-slate-400" />История обработок <Badge className="border border-slate-700 bg-slate-950 text-slate-300">{closedItems.length}</Badge></span>
+            <ChevronDown className={`h-4 w-4 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
+          </Button>
+          {historyOpen ? (
+            <div className="mt-2 grid gap-3 lg:grid-cols-2">
+              {closedItems.slice(0, 20).map((item) => {
+                const groupedOutputs = item.outputs.reduce<Record<string, number>>((acc, output) => {
+                  const key = String(output.output_role || output.output_type || output.line_type || "OTHER");
+                  acc[key] = (acc[key] || 0) + Number(output.output_weight_kg || 0);
+                  return acc;
+                }, {});
+                return (
+                  <article key={item.id} className="rounded-lg border border-slate-800 bg-slate-950/45 p-4" data-processing-state="processing_closed">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold uppercase text-slate-100">{item.processing_node_name || "Узел обработки"} · {typeLabels[item.transformation_type] || "Обработка"}</div>
+                        <div className="mt-1 truncate text-sm text-slate-300" title={item.identity_label || item.input_label}>{item.identity_label || item.input_label}</div>
+                        <div className="mt-1 text-xs text-slate-500">{formatDateTime(item.completed_at)}</div>
+                      </div>
+                      <Badge className="border border-emerald-700/60 bg-emerald-950/45 text-emerald-200">Закрыто</Badge>
+                    </div>
+                    <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-sm">
+                      <dt className="text-slate-400">Вход</dt><dd className="font-semibold text-slate-100">{formatMass(item.input_total_kg ?? item.input_weight_kg)}</dd>
+                      {Object.entries(groupedOutputs).map(([role, weight]) => (
+                        <div key={role} className="contents"><dt className="text-slate-400">{outputRoleLabels[role] || "Выход"}</dt><dd className="font-semibold text-slate-100">{formatMass(weight)}</dd></div>
+                      ))}
+                      {Number(item.approved_process_loss_kg || 0) > 0 ? <><dt className="text-slate-400">Подтверждённые потери</dt><dd className="font-semibold text-slate-100">{formatMass(item.approved_process_loss_kg)}</dd></> : null}
+                      <dt className="text-emerald-300">Баланс</dt><dd className="font-bold text-emerald-300">{formatMass(item.unallocated_kg)}</dd>
+                    </dl>
+                    <div className="mt-3 border-t border-slate-800 pt-3 text-xs text-slate-400">
+                      <div>Завершил обработку: <span className="text-slate-200">{item.completed_by_name || item.closed_by_name || "Не зафиксировано"}</span></div>
+                      <div>Закрыл баланс: <span className="text-slate-200">{item.closed_by_name || item.completed_by_name || "Не зафиксировано"}</span></div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
           ) : null}
+        </div>
+      ) : null}
+
+      <AlertDialog open={Boolean(finishItem)} onOpenChange={(open) => !open && setFinishItem(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Завершить обработку партии?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-1">
+              <span className="block font-medium text-slate-200">{finishItem?.processing_node_name} · {finishItem ? typeLabels[finishItem.transformation_type] || "Обработка" : ""}</span>
+              <span className="block">{finishItem?.identity_label || finishItem?.input_label}</span>
+              <span className="block">Вход: {formatMass(finishItem?.input_total_kg ?? finishItem?.input_weight_kg)}</span>
+              <span className="block pt-2">После подтверждения новые поступления этой партии в данную обработку добавлять будет нельзя.</span>
+              <span className="block">Фактические выходы и отходы можно продолжать оформлять до окончательного закрытия материального баланса.</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Отмена</AlertDialogCancel><AlertDialogAction onClick={() => finishItem && void runAction(finishItem, "soft_finish")}>Обработка закончена</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={Boolean(manageItem)} onOpenChange={(open) => !open && setManageItem(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>Материальный баланс</DialogTitle><DialogDescription>{manageItem?.processing_node_name} · {manageItem?.identity_label || manageItem?.input_label}</DialogDescription></DialogHeader>
+          <div className="rounded-md border border-slate-800 bg-slate-950/60 p-3 text-sm">Нераспределено: <b className={Number(manageItem?.unallocated_kg || 0) > 0.001 ? "text-amber-300" : "text-emerald-300"}>{formatMass(manageItem?.unallocated_kg)}</b></div>
+          <div className="space-y-3 border-t border-slate-800 pt-4">
+            <div className="font-medium text-slate-100">Подтвердить не складскую потерю</div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1"><Label>Тип</Label><Select value={lossType} onValueChange={(value) => setLossType(value as keyof typeof lossLabels)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Object.entries(lossLabels).map(([value, label]) => <SelectItem key={value} value={value}>{label}</SelectItem>)}</SelectContent></Select></div>
+              <div className="space-y-1"><Label>Масса, кг</Label><Input inputMode="decimal" value={lossKg} onChange={(event) => setLossKg(event.target.value)} /></div>
+            </div>
+            <div className="space-y-1"><Label>{lossType === "other" ? "Пояснение *" : "Комментарий (необязательно)"}</Label><Textarea rows={2} value={lossReason} onChange={(event) => setLossReason(event.target.value)} /></div>
+            <Button type="button" variant="outline" className="w-full" disabled={!manageItem || savingId === manageItem.id} onClick={() => manageItem && void runAction(manageItem, "approve_loss")}>Подтвердить потерю</Button>
+          </div>
+          <DialogFooter className="border-t border-slate-800 pt-4">
+            <Button variant="outline" onClick={() => setManageItem(null)}>Закрыть</Button>
+            <Button disabled={!manageItem || savingId === manageItem.id || Number(manageItem?.unallocated_kg || 0) > 0.001} onClick={() => manageItem && void runAction(manageItem, "hard_close")}>Закрыть материальный баланс</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </section>

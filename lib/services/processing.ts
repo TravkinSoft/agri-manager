@@ -68,6 +68,15 @@ export interface BatchTransformationRow {
   transformation_type: TransformationType | string;
   status: TransformationStatus | string;
   processing_node_id: string | null;
+  node_warehouse_id?: string | null;
+  harvest_lot_id?: string | null;
+  product_id?: string | null;
+  crop_id?: string | null;
+  variety_id?: string | null;
+  reproduction_id?: string | null;
+  composition_hash?: string | null;
+  composition_snapshot?: Array<Record<string, unknown>>;
+  is_mixed_harvest?: boolean;
   processing_node_name: string | null;
   source_ticket_id: string | null;
   ticket_no?: string | null;
@@ -82,11 +91,38 @@ export interface BatchTransformationRow {
   source_warehouse_name: string | null;
   outputs: Array<{
     line_type: string;
+    output_type?: "main_product" | "byproduct" | "stock_waste" | "moisture_loss" | "process_loss" | string;
+    output_role?: "GRAIN" | "SCREENINGS" | "FEED" | "WASTE" | "TRIER_WASTE" | "OTHER" | string | null;
+    physical_state?: string | null;
     batch_class: string;
     warehouse_to_name: string | null;
     output_weight_kg: number;
   }>;
+  processing_state?: "in_processing" | "processing_pending_outputs" | "processing_closed";
+  identity_label?: string;
+  input_total_kg?: number;
+  main_output_kg?: number;
+  byproduct_kg?: number;
+  stock_waste_kg?: number;
+  approved_process_loss_kg?: number;
+  moisture_loss_kg?: number;
+  unallocated_kg?: number;
+  input_moisture_percent?: number | null;
+  output_moisture_percent?: number | null;
+  input_moisture_coverage_kg?: number;
+  output_moisture_coverage_kg?: number;
+  finish_requested_at?: string | null;
+  last_main_output_marked_at?: string | null;
+  completed_by_name?: string | null;
+  closed_by_name?: string | null;
 }
+
+export type ProcessingActionInput =
+  | { action: "soft_finish"; idempotency_key: string }
+  | { action: "reopen"; idempotency_key: string }
+  | { action: "hard_close"; idempotency_key: string }
+  | { action: "approve_loss"; idempotency_key: string; loss_type: "dust" | "spillage" | "sampling" | "other"; qty_kg: number; reason?: string }
+  | { action: "mark_last_main"; idempotency_key: string; ticket_id: string };
 
 async function parseJsonOrThrow(response: Response) {
   const payload = await response.json().catch(() => ({}));
@@ -121,6 +157,22 @@ export async function finalizeBatchTransformation(transformationId: string, acto
       method: "POST",
       headers,
       body: JSON.stringify({ actor_user_id: actorUserId }),
+    })
+  );
+}
+
+export async function performProcessingAction(
+  transformationId: string,
+  actorUserId: string,
+  input: ProcessingActionInput
+): Promise<Record<string, unknown>> {
+  const headers = await buildClientAuthHeaders("json");
+  return parseJsonOrThrow(
+    await fetch(`/api/processing/transformations/${encodeURIComponent(transformationId)}/actions`, {
+      method: "POST",
+      headers,
+      cache: "no-store",
+      body: JSON.stringify({ ...input, actor_user_id: actorUserId }),
     })
   );
 }

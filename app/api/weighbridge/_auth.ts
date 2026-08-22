@@ -144,6 +144,20 @@ export function weighbridgeUserError(message: unknown): string {
       : "0";
     return `Вес превышает доступную массу партии. Доступно: ${label} кг`;
   }
+  if (raw.includes("PROCESSING_OUTPUT_EXCEEDS_BALANCE|")) {
+    const [availableRaw, requiredRaw] = raw.split("PROCESSING_OUTPUT_EXCEEDS_BALANCE|")[1]?.split("|") || [];
+    const available = Number(availableRaw?.split(/\s/)[0]);
+    const required = Number(requiredRaw?.split(/\s/)[0]);
+    const availableLabel = Number.isFinite(available) ? available.toLocaleString("ru-RU", { maximumFractionDigits: 3 }) : "0";
+    const requiredLabel = Number.isFinite(required) ? required.toLocaleString("ru-RU", { maximumFractionDigits: 3 }) : "0";
+    return `Масса выхода превышает нераспределённый остаток обработки. Доступно: ${availableLabel} кг, требуется: ${requiredLabel} кг.`;
+  }
+  if (raw.includes("PROCESSING_INPUT_FINISHED")) {
+    return "По этой партии приём новых входов завершён. Возобновите обработку в её карточке и повторите закрытие талона.";
+  }
+  if (raw.includes("PROCESSING_INPUT_AMBIGUOUS")) {
+    return "Найдено несколько подходящих обработок. Выберите нужный контекст обработки вручную.";
+  }
 
   if (lower.includes("actor role is not allowed to finalize")) {
     return "У вашей роли нет права закрывать талоны весовой.";

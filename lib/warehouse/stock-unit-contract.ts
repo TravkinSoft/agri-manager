@@ -27,7 +27,8 @@ export type StockBusinessEvent =
   | "field_issue"
   | "shipment"
   | "disposal"
-  | "processing";
+  | "processing"
+  | "processing_output";
 
 export type ProductStockMetadata = {
   id: string;
@@ -158,6 +159,12 @@ function resolveBatchClass(params: {
   let resolved: CanonicalBatchClass | null = null;
   if (params.event === "harvest_incoming") resolved = "commodity";
   if (params.event === "processing") resolved = "processing";
+  if (params.event === "processing_output") {
+    if (!requested || !["commodity", "feed", "waste"].includes(requested)) {
+      throw new Error("Не удалось определить тип производного выхода обработки.");
+    }
+    resolved = requested;
+  }
   if (params.event === "field_issue") {
     resolved = normalizedKey(params.fieldMaterialCategory) === "seed_planting_material" ? "seed" : "material";
   }

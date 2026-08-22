@@ -23,6 +23,7 @@ function buildTicketNo(companyId: string): string {
 
 const sameNullable = (a: unknown, b: unknown) => String(a || "") === String(b || "");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PROCESSING_OUTPUT_ROLES = new Set(["GRAIN", "SCREENINGS", "FEED", "WASTE", "TRIER_WASTE", "OTHER"]);
 
 async function cleanupCreatedHarvestProduct(supabase: SupabaseClient, productId: string | null) {
   if (!productId) return;
@@ -334,6 +335,22 @@ export async function POST(request: NextRequest) {
     } as TicketInput;
     const lines = (Array.isArray(body?.lines) ? body.lines : []) as TicketLineInput[];
     const weighings = (Array.isArray(body?.weighings) ? body.weighings : []) as WeighingInput[];
+    for (const line of lines) {
+      const rawMoisture = (line as any).moisture_percent;
+      if (rawMoisture == null || String(rawMoisture).trim() === "") {
+        line.moisture_percent = null;
+        continue;
+      }
+      const normalizedMoisture = String(rawMoisture).trim().replace(",", ".");
+      const moisture = Number(normalizedMoisture);
+      if (!Number.isFinite(moisture) || moisture <= 0 || moisture >= 100) {
+        return NextResponse.json(
+          { error: "Влажность должна быть больше 0 и меньше 100 %." },
+          { status: 400 }
+        );
+      }
+      line.moisture_percent = moisture;
+    }
     if (rawTicket.gross_weight_kg != null) {
       const parsed = parseStrictWeightKg(rawTicket.gross_weight_kg, "Брутто");
       if (!parsed.ok) return NextResponse.json({ error: parsed.message }, { status: 400 });
@@ -422,6 +439,8 @@ export async function POST(request: NextRequest) {
     const isImpurityRemoval =
       String(ticket.direction || "") === "outgoing" &&
       String(ticket.op_type || "").toLowerCase() === "weighbridge_impurities";
+    const processingOutputRole = String(ticket.processing_output_role || "").trim().toUpperCase();
+    const isProcessingOutput = Boolean(ticket.linked_processing_id || processingOutputRole);
 
     if (isHarvestIncoming) {
       if (!ticket.field_id || !ticket.crop_structure_allocation_id) {
@@ -666,6 +685,135 @@ export async function POST(request: NextRequest) {
     if (!lines.length) {
       return NextResponse.json({ error: "At least one ticket line is required" }, { status: 400 });
     }
+    if (isProcessingOutput) {
+      if (
+        !ticket.linked_processing_id
+        || !UUID_RE.test(String(ticket.linked_processing_id))
+        || !PROCESSING_OUTPUT_ROLES.has(processingOutputRole)
+      ) {
+        return NextResponse.json({ error: "Выберите допустимую фракцию выхода обработки." }, { status: 400 });
+      }
+      if (!isWarehouseTransfer || !ticket.warehouse_from_id || !ticket.warehouse_to_id) {
+        return NextResponse.json({ error: "Укажите, куда будет доставлен выход обработки." }, { status: 400 });
+      }
+      if (String(ticket.warehouse_from_id) === String(ticket.warehouse_to_id)) {
+        return NextResponse.json({ error: "Место назначения должно отличаться от источника обработки." }, { status: 400 });
+      }
+      if (lines.length !== 1) {
+        return NextResponse.json({ error: "Для выхода обработки нужна одна подтверждённая партия урожая." }, { status: 400 });
+      }
+      const { data: transformation, error: transformationError } = await supabase
+        .from("batch_transformations")
+        .select("id,node_warehouse_id,harvest_lot_id,season_id,source_physical_state,processing_state,status,closed_at")
+        .eq("id", ticket.linked_processing_id)
+        .eq("company_id", companyId)
+        .maybeSingle();
+      if (
+        transformationError
+        || !transformation?.id
+        || String(transformation.node_warehouse_id || "") !== String(ticket.warehouse_from_id || "")
+        || !transformation.harvest_lot_id
+        || !transformation.season_id
+        || !["in_processing", "processing_pending_outputs"].includes(String(transformation.processing_state || ""))
+        || String(transformation.status || "") === "voided"
+        || Boolean(transformation.closed_at)
+      ) {
+        return NextResponse.json({ error: "Контекст обработки больше не доступен. Обновите карточку обработки." }, { status: 409 });
+      }
+
+      const [destinationResult, lotResult, seasonResult, inputResult, outputResult, lossResult] = await Promise.all([
+        supabase.from("warehouses").select("id,archived,is_archived").eq("id", ticket.warehouse_to_id).eq("company_id", companyId).maybeSingle(),
+        supabase.from("harvest_lots").select("id,season_id,crop_id,variety_id,reproduction_id,composition_hash,status").eq("id", transformation.harvest_lot_id).eq("company_id", companyId).maybeSingle(),
+        supabase.from("seasons").select("id,archived").eq("id", transformation.season_id).eq("company_id", companyId).maybeSingle(),
+        supabase.from("batch_transformation_inputs").select("batch_id,input_weight_kg").eq("company_id", companyId).eq("transformation_id", transformation.id),
+        supabase.from("batch_transformation_outputs").select("output_weight_kg,output_type").eq("company_id", companyId).eq("transformation_id", transformation.id),
+        supabase.from("batch_transformation_losses").select("qty_kg,loss_type,approved_by,approved_at").eq("company_id", companyId).eq("transformation_id", transformation.id),
+      ]);
+      const destination = destinationResult.data as any;
+      const destinationError = destinationResult.error;
+      if (destinationError || !destination?.id || destination.archived || destination.is_archived) {
+        return NextResponse.json({ error: "Выберите активное место назначения выхода обработки." }, { status: 400 });
+      }
+
+      const lot = lotResult.data as any;
+      const season = seasonResult.data as any;
+      if (
+        lotResult.error
+        || seasonResult.error
+        || !lot?.id
+        || String(lot.status || "") !== "active"
+        || String(lot.season_id || "") !== String(transformation.season_id || "")
+        || !season?.id
+        || Boolean(season.archived)
+      ) {
+        return NextResponse.json({ error: "Сезон или партия обработки больше не активны." }, { status: 409 });
+      }
+      if (inputResult.error || outputResult.error || lossResult.error) {
+        return NextResponse.json(
+          { error: inputResult.error?.message || outputResult.error?.message || lossResult.error?.message || "Не удалось проверить баланс обработки." },
+          { status: 400 }
+        );
+      }
+
+      const inputRows = (inputResult.data || []) as Array<{ batch_id?: string | null; input_weight_kg?: number | null }>;
+      const inputKg = inputRows.reduce((sum, row) => sum + Number(row.input_weight_kg || 0), 0);
+      const stockOutputKg = ((outputResult.data || []) as Array<{ output_weight_kg?: number | null; output_type?: string | null }>)
+        .filter((row) => ["main_product", "byproduct", "stock_waste"].includes(String(row.output_type || "")))
+        .reduce((sum, row) => sum + Number(row.output_weight_kg || 0), 0);
+      const approvedLossKg = ((lossResult.data || []) as Array<{ qty_kg?: number | null; loss_type?: string | null; approved_by?: string | null; approved_at?: string | null }>)
+        .filter((row) => String(row.loss_type || "") === "moisture_loss" || (Boolean(row.approved_by) && Boolean(row.approved_at)))
+        .reduce((sum, row) => sum + Number(row.qty_kg || 0), 0);
+      const remainingKg = Math.max(0, inputKg - stockOutputKg - approvedLossKg);
+      if (remainingKg <= 0.0001) {
+        return NextResponse.json({ error: "Нераспределённого остатка обработки больше нет." }, { status: 409 });
+      }
+
+      const inputBatchIds = Array.from(new Set(inputRows.map((row) => String(row.batch_id || "")).filter(Boolean)));
+      const { data: inputBatches, error: inputBatchesError } = inputBatchIds.length
+        ? await supabase
+            .from("inventory_batches")
+            .select("id,product_id,crop_id,variety_id,reproduction_id,batch_class,composition_hash,composition_snapshot,is_mixed_harvest")
+            .eq("company_id", companyId)
+            .in("id", inputBatchIds)
+        : { data: [], error: null };
+      const inputBatch = (inputBatches || [])[0] as any;
+      if (inputBatchesError || !inputBatch?.id || !inputBatch.product_id) {
+        return NextResponse.json({ error: "Не удалось определить номенклатуру сырья обработки." }, { status: 409 });
+      }
+
+      const line = lines[0];
+      const outputBatchClass = processingOutputRole === "GRAIN" ? "commodity" : processingOutputRole === "FEED" ? "feed" : "waste";
+      ticket.harvest_lot_id = String(lot.id);
+      ticket.season_id = String(transformation.season_id);
+      ticket.source_physical_state = String(transformation.source_physical_state || "SOURCE");
+      ticket.batch_id = null;
+      ticket.source_kind = "processing_wip";
+      ticket.source_id = String(transformation.id);
+      ticket.destination_kind = "warehouse";
+      ticket.destination_id = String(destination.id);
+      ticket.processing_output_role = processingOutputRole;
+      ticket.audit_json = {
+        ...(ticket.audit_json || {}),
+        processing_output_source: {
+          contract_version: "tz297_wip_source_v1",
+          transformation_id: String(transformation.id),
+          remaining_kg_at_open: Number(remainingKg.toFixed(3)),
+        },
+      };
+      line.product_id = String(inputBatch.product_id);
+      line.crop_id = lot.crop_id ? String(lot.crop_id) : inputBatch.crop_id ? String(inputBatch.crop_id) : null;
+      line.variety_id = lot.variety_id ? String(lot.variety_id) : inputBatch.variety_id ? String(inputBatch.variety_id) : null;
+      line.reproduction_id = lot.reproduction_id ? String(lot.reproduction_id) : inputBatch.reproduction_id ? String(inputBatch.reproduction_id) : null;
+      line.batch_id = null;
+      line.lot_id = String(lot.id);
+      line.batch_class = outputBatchClass;
+      line.warehouse_from_id = String(transformation.node_warehouse_id);
+      line.warehouse_to_id = String(destination.id);
+      line.uom = "kg";
+      line.composition_hash = inputBatch.composition_hash || lot.composition_hash || null;
+      line.composition_snapshot = Array.isArray(inputBatch.composition_snapshot) ? inputBatch.composition_snapshot : [];
+      line.is_mixed_harvest = Boolean(inputBatch.is_mixed_harvest);
+    }
     if (isImpurityRemoval) {
       const impurityType = String(ticket.audit_json?.impurity_type || "").trim();
       if ((!ticket.batch_id && !ticket.harvest_lot_id) || !ticket.warehouse_from_id) {
@@ -764,7 +912,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "У партии урожая не определена складская номенклатура." }, { status: 400 });
       }
     }
-    if (isWarehouseTransfer) {
+    if (isWarehouseTransfer && !isProcessingOutput) {
       if (!ticket.warehouse_from_id || !ticket.warehouse_to_id) {
         return NextResponse.json({ error: "source and destination warehouses are required for transfer" }, { status: 400 });
       }
@@ -878,6 +1026,8 @@ export async function POST(request: NextRequest) {
 
     const stockEvent: StockBusinessEvent = isHarvestIncoming
       ? "harvest_incoming"
+      : isProcessingOutput
+        ? "processing_output"
       : isImpurityRemoval
         ? "manual_writeoff"
       : isSupplierReceipt
@@ -950,6 +1100,9 @@ export async function POST(request: NextRequest) {
       line.density_verified_at = contract.densityVerifiedAt;
       line.unit_source = contract.unitSource;
       line.unit_contract_version = contract.unitContractVersion;
+      if (isProcessingOutput) {
+        line.batch_class = processingOutputRole === "GRAIN" ? "commodity" : processingOutputRole === "FEED" ? "feed" : "waste";
+      }
     }
 
     const selectedStockAvailability = async (line: TicketLineInput) => {
@@ -982,7 +1135,7 @@ export async function POST(request: NextRequest) {
       return Number(match.quantity || 0);
     };
 
-    if (isWarehouseTransfer) {
+    if (isWarehouseTransfer && !isProcessingOutput) {
       const line = lines[0];
       const requiredQty = Number(line.quantity || 0);
       let available = 0;

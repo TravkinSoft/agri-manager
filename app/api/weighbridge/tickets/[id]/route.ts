@@ -291,16 +291,13 @@ export async function PATCH(
     const hasMoisturePatch = body?.moisture_percent !== undefined;
     let harvestMoisture: number | null = null;
     if (hasMoisturePatch) {
-      if (ticket.op_type !== "harvest_incoming") {
-        return NextResponse.json({ error: "Влажность доступна только для урожая с поля." }, { status: 400 });
-      }
       const rawMoisture = body?.moisture_percent;
       harvestMoisture = rawMoisture == null || String(rawMoisture).trim() === ""
         ? null
-        : Number(rawMoisture);
-      if (harvestMoisture != null && (!Number.isFinite(harvestMoisture) || harvestMoisture < 0 || harvestMoisture > 100)) {
+        : Number(String(rawMoisture).trim().replace(",", "."));
+      if (harvestMoisture != null && (!Number.isFinite(harvestMoisture) || harvestMoisture <= 0 || harvestMoisture >= 100)) {
         return NextResponse.json(
-          { error: "Влажность должна быть от 0 до 100 %." },
+          { error: "Влажность должна быть больше 0 и меньше 100 %." },
           { status: 400 }
         );
       }
@@ -336,7 +333,7 @@ export async function PATCH(
         .limit(2);
       if (harvestLinesError || (harvestLines || []).length !== 1) {
         return NextResponse.json(
-          { error: harvestLinesError?.message || "Harvest ticket must contain exactly one line." },
+          { error: harvestLinesError?.message || "Талон должен содержать ровно одну строку для сохранения влажности." },
           { status: 400 }
         );
       }

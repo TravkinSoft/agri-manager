@@ -64,7 +64,8 @@ check("UI protects manual transport choices during pair autofill", () => {
 check("UI labels recent valid transport choices", () => assert.match(transportPicker, /Недавно использованные/));
 check("UI accepts moisture from the selected open harvest ticket", () => {
   assert.match(ticketPaper, /showMoistureEditor[\s\S]*step="0\.1"/);
-  assert.match(page, /onMoistureCommit: \(\) => \{ void saveActiveTicketMoisture\(\); \}/);
+  assert.match(page, /onMoistureCommit: \(\) => undefined/);
+  assert.match(page, /moisture_percent: moisture/);
 });
 check("gross persists moisture in ticket line", () => assert.match(page, /operationType === "harvest_incoming"[\s\S]*toNum\(form\.harvestMoisture\)/));
 check("moisture can remain null at tare", () => assert.match(ticketPatch, /harvestMoisture = rawMoisture == null/));

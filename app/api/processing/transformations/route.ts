@@ -53,8 +53,12 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
   const rows = transformations || [];
   const ids = rows.map((row: any) => String(row.id));
   const sourceTicketIds = rows.map((row: any) => String(row.source_ticket_id || "")).filter(Boolean);
+  const actorIds = Array.from(new Set(rows.flatMap((row: any) => [
+    String(row.completed_by || ""),
+    String(row.closed_by || ""),
+  ]).filter(Boolean)));
 
-  const [inputsRes, outputsRes, nodesRes, ticketsRes] = await Promise.all([
+  const [inputsRes, outputsRes, nodesRes, ticketsRes, lossesRes, actorsRes] = await Promise.all([
     ids.length
       ? supabase.from("batch_transformation_inputs").select("*").eq("company_id", companyId).in("transformation_id", ids)
       : Promise.resolve({ data: [] as any[], error: null }),
@@ -69,11 +73,19 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
           .eq("company_id", companyId)
           .in("id", sourceTicketIds)
       : Promise.resolve({ data: [] as any[], error: null }),
+    ids.length
+      ? supabase.from("batch_transformation_losses").select("transformation_id,loss_type,qty_kg,approved_by,approved_at").eq("company_id", companyId).in("transformation_id", ids)
+      : Promise.resolve({ data: [] as any[], error: null }),
+    actorIds.length
+      ? supabase.from("profiles").select("id,full_name,email").in("id", actorIds)
+      : Promise.resolve({ data: [] as any[], error: null }),
   ]);
   if (inputsRes.error) throw inputsRes.error;
   if (outputsRes.error) throw outputsRes.error;
   if (nodesRes.error) throw nodesRes.error;
   if (ticketsRes.error) throw ticketsRes.error;
+  if (lossesRes.error) throw lossesRes.error;
+  if (actorsRes.error) throw actorsRes.error;
 
   const inputs = inputsRes.data || [];
   const outputs = outputsRes.data || [];
@@ -84,6 +96,7 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
   const warehouseIds = Array.from(new Set([
     ...inputs.map((row: any) => String(row.warehouse_from_id || "")).filter(Boolean),
     ...outputs.map((row: any) => String(row.warehouse_to_id || "")).filter(Boolean),
+    ...rows.map((row: any) => String(row.node_warehouse_id || "")).filter(Boolean),
   ]));
   const fieldIds = Array.from(new Set((ticketsRes.data || []).map((row: any) => String(row.field_id || "")).filter(Boolean)));
 
@@ -91,7 +104,7 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
     batchIds.length
       ? supabase
           .from("inventory_batches")
-          .select("id,batch_code,batch_class,product_id,crop_id,variety_id,reproduction_id,product:product_id(name,name_ru),crop:crop_id(name,name_ru),variety:variety_id(name,name_ru),reproduction:reproduction_id(name,name_ru)")
+          .select("id,batch_code,batch_class,product_id,crop_id,variety_id,reproduction_id,composition_hash,composition_snapshot,is_mixed_harvest,product:product_id(name,name_ru),crop:crop_id(name,name_ru),variety:variety_id(name,name_ru),reproduction:reproduction_id(name,name_ru)")
           .eq("company_id", companyId)
           .in("id", batchIds)
       : Promise.resolve({ data: [] as any[], error: null }),
@@ -116,27 +129,70 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
     const key = String(output.transformation_id);
     outputByTransformation.set(key, [...(outputByTransformation.get(key) || []), output]);
   }
+  const lossesByTransformation = new Map<string, any[]>();
+  for (const loss of lossesRes.data || []) {
+    const key = String((loss as any).transformation_id);
+    lossesByTransformation.set(key, [...(lossesByTransformation.get(key) || []), loss]);
+  }
 
   const batchMap = new Map((batchesRes.data || []).map((row: any) => [String(row.id), row]));
   const warehouseMap = new Map((warehousesRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
   const fieldMap = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
   const nodeMap = new Map((nodesRes.data || []).map((row: any) => [String(row.id), row]));
   const ticketMap = new Map((ticketsRes.data || []).map((row: any) => [String(row.id), row]));
+  const actorMap = new Map((actorsRes.data || []).map((row: any) => [String(row.id), nameOf(row, String(row.email || "Пользователь"))]));
 
   return rows.map((row: any) => {
-    const firstInput = (inputByTransformation.get(String(row.id)) || [])[0];
+    const transformationInputs = inputByTransformation.get(String(row.id)) || [];
+    const transformationOutputs = outputByTransformation.get(String(row.id)) || [];
+    const transformationLosses = lossesByTransformation.get(String(row.id)) || [];
+    const firstInput = transformationInputs[0];
     const inputBatch = firstInput ? batchMap.get(String(firstInput.batch_id)) : null;
     const ticket = row.source_ticket_id ? ticketMap.get(String(row.source_ticket_id)) : null;
     const node = row.processing_node_id ? nodeMap.get(String(row.processing_node_id)) : null;
+    const inputTotalKg = transformationInputs.reduce((sum: number, input: any) => sum + Number(input.input_weight_kg || 0), 0);
+    const outputTypeOf = (output: any) => String(output.output_type || (
+      output.line_type === "process_loss" ? "process_loss" :
+      output.line_type === "shrink_loss" ? "moisture_loss" :
+      String(output.batch_class || "") === "waste" ? "stock_waste" :
+      ["forage_fraction", "potato_small"].includes(String(output.line_type || "")) ? "byproduct" : "main_product"
+    ));
+    const outputSum = (types: string[]) => transformationOutputs
+      .filter((output: any) => types.includes(outputTypeOf(output)))
+      .reduce((sum: number, output: any) => sum + Number(output.output_weight_kg || 0), 0);
+    const mainOutputKg = outputSum(["main_product"]);
+    const byproductKg = outputSum(["byproduct"]);
+    const stockWasteKg = outputSum(["stock_waste"]);
+    const approvedProcessLossKg = transformationLosses
+      .filter((loss: any) => loss.loss_type !== "moisture_loss" && loss.approved_by && loss.approved_at)
+      .reduce((sum: number, loss: any) => sum + Number(loss.qty_kg || 0), 0);
+    const moistureLossKg = Number(row.expected_water_loss_kg || 0);
+    const unallocatedKg = Math.max(inputTotalKg - mainOutputKg - byproductKg - stockWasteKg - approvedProcessLossKg - moistureLossKg, 0);
+    const identityLabel = [
+      nameOf(inputBatch?.crop || inputBatch?.product, "Сырьё"),
+      nameOf(inputBatch?.variety, ""),
+      nameOf(inputBatch?.reproduction, ""),
+    ].filter(Boolean).join(" · ");
+    const processingState = String(row.processing_state || (row.status === "completed" ? "processing_closed" : "in_processing"));
     return {
       id: String(row.id),
       record_type: "transformation",
       company_id: String(row.company_id),
       transformation_type: String(row.transformation_type),
       status: String(row.status),
-      queue_status: row.status === "completed" ? "completed" : row.status === "voided" ? "voided" : "in_progress",
+      queue_status: processingState === "processing_closed" ? "completed" : row.status === "voided" ? "voided" : "in_progress",
+      processing_state: processingState,
       processing_node_id: row.processing_node_id ? String(row.processing_node_id) : null,
-      processing_node_name: node ? nameOf(node) : null,
+      node_warehouse_id: row.node_warehouse_id ? String(row.node_warehouse_id) : null,
+      harvest_lot_id: row.harvest_lot_id ? String(row.harvest_lot_id) : null,
+      product_id: inputBatch?.product_id ? String(inputBatch.product_id) : null,
+      crop_id: inputBatch?.crop_id ? String(inputBatch.crop_id) : null,
+      variety_id: inputBatch?.variety_id ? String(inputBatch.variety_id) : null,
+      reproduction_id: inputBatch?.reproduction_id ? String(inputBatch.reproduction_id) : null,
+      composition_hash: inputBatch?.composition_hash ? String(inputBatch.composition_hash) : null,
+      composition_snapshot: Array.isArray(inputBatch?.composition_snapshot) ? inputBatch.composition_snapshot : [],
+      is_mixed_harvest: Boolean(inputBatch?.is_mixed_harvest),
+      processing_node_name: node ? nameOf(node) : row.node_warehouse_id ? warehouseMap.get(String(row.node_warehouse_id)) || null : null,
       source_ticket_id: row.source_ticket_id ? String(row.source_ticket_id) : null,
       ticket_no: ticket?.ticket_no ? String(ticket.ticket_no) : null,
       field_name: ticket?.field_id ? fieldMap.get(String(ticket.field_id)) || null : null,
@@ -146,10 +202,29 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
       created_at: row.created_at,
       note: row.note || null,
       input_label: inputBatch ? batchLabel(inputBatch) : "Партия",
-      input_weight_kg: Number(firstInput?.input_weight_kg || ticket?.net_weight_kg || 0),
+      input_weight_kg: inputTotalKg || Number(ticket?.net_weight_kg || 0),
+      input_total_kg: inputTotalKg,
+      identity_label: identityLabel,
+      main_output_kg: mainOutputKg,
+      byproduct_kg: byproductKg,
+      stock_waste_kg: stockWasteKg,
+      approved_process_loss_kg: approvedProcessLossKg,
+      moisture_loss_kg: moistureLossKg,
+      unallocated_kg: unallocatedKg,
+      input_moisture_percent: row.input_moisture_percent == null ? null : Number(row.input_moisture_percent),
+      output_moisture_percent: row.output_moisture_percent == null ? null : Number(row.output_moisture_percent),
+      input_moisture_coverage_kg: Number(row.input_moisture_coverage_kg || 0),
+      output_moisture_coverage_kg: Number(row.output_moisture_coverage_kg || 0),
+      finish_requested_at: row.finish_requested_at || null,
+      last_main_output_marked_at: row.last_main_output_marked_at || null,
+      completed_by_name: row.completed_by ? actorMap.get(String(row.completed_by)) || null : null,
+      closed_by_name: row.closed_by ? actorMap.get(String(row.closed_by)) || null : null,
       source_warehouse_name: firstInput?.warehouse_from_id ? warehouseMap.get(String(firstInput.warehouse_from_id)) || null : null,
-      outputs: (outputByTransformation.get(String(row.id)) || []).map((output: any) => ({
+      outputs: transformationOutputs.map((output: any) => ({
         line_type: String(output.line_type),
+        output_type: outputTypeOf(output),
+        output_role: output.output_role ? String(output.output_role) : null,
+        physical_state: output.physical_state ? String(output.physical_state) : null,
         batch_class: String(output.batch_class || ""),
         warehouse_to_name: output.warehouse_to_id ? warehouseMap.get(String(output.warehouse_to_id)) || null : null,
         output_weight_kg: Number(output.output_weight_kg || 0),
