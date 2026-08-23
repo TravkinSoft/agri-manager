@@ -48,6 +48,25 @@ export async function POST(
     const operatorSession = actor.role === "weighman"
       ? await requireWeighbridgeOperatorSession(request, { companyId, supabase })
       : null;
+    let resultId: string | null = null;
+    const findExistingCorrection = async () => supabase
+      .from("tickets")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("correction_of_ticket_id", id)
+      .eq("is_voided", false)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (action === "start") {
+      const { data: existingCorrection, error: existingCorrectionError } = await findExistingCorrection();
+      if (existingCorrectionError) {
+        return NextResponse.json({ error: existingCorrectionError.message }, { status: 400 });
+      }
+      resultId = existingCorrection?.id ? String(existingCorrection.id) : null;
+    }
+
     const rpc = action === "start"
       ? "start_weighbridge_ticket_correction_v1"
       : "finalize_weighbridge_ticket_correction_v1";
@@ -63,19 +82,34 @@ export async function POST(
           p_operator_person_id: operatorSession?.operator.id || null,
           p_shift_id: operatorSession?.shift.id || null,
         };
-    const { data: resultId, error: rpcError } = await supabase.rpc(rpc, args);
-    if (rpcError) {
-      if (action === "finalize" && isCorrectionLotError(rpcError.message)) {
-        const traceId = randomUUID();
-        console.error("weighbridge_correction_lot_validation_failed", { traceId, message: rpcError.message });
-        return NextResponse.json(
-          { error: CORRECTION_LOT_ERROR, code: "correction_lot_validation_failed", trace_id: traceId },
-          { status: 409 }
-        );
+    if (!resultId) {
+      const { data: rpcResultId, error: rpcError } = await supabase.rpc(rpc, args);
+      if (rpcError) {
+        if (action === "start") {
+          const message = weighbridgeUserError(rpcError.message);
+          if (message.includes("последующих движениях")) {
+            const { data: existingCorrection, error: existingCorrectionError } = await findExistingCorrection();
+            if (!existingCorrectionError && existingCorrection?.id) {
+              resultId = String(existingCorrection.id);
+            }
+          }
+        }
+        if (!resultId) {
+          if (action === "finalize" && isCorrectionLotError(rpcError.message)) {
+            const traceId = randomUUID();
+            console.error("weighbridge_correction_lot_validation_failed", { traceId, message: rpcError.message });
+            return NextResponse.json(
+              { error: CORRECTION_LOT_ERROR, code: "correction_lot_validation_failed", trace_id: traceId },
+              { status: 409 }
+            );
+          }
+          const message = weighbridgeUserError(rpcError.message);
+          const status = message.includes("последующих движениях") ? 409 : 400;
+          return NextResponse.json({ error: message, code: status === 409 ? "downstream_dependency" : "correction_failed" }, { status });
+        }
+      } else {
+        resultId = String(rpcResultId || id);
       }
-      const message = weighbridgeUserError(rpcError.message);
-      const status = message.includes("последующих движениях") ? 409 : 400;
-      return NextResponse.json({ error: message, code: status === 409 ? "downstream_dependency" : "correction_failed" }, { status });
     }
 
     const { data: corrected, error: correctedError } = await supabase
