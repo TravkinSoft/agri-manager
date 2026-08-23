@@ -14,6 +14,7 @@ const destinationFix = read("supabase/migrations/20260822134744_tz297_processing
 const wipSourceFix = read("supabase/migrations/20260822145412_tz297_processing_output_wip_source_v1.sql");
 const wipShadowGuard = read("supabase/migrations/20260822153000_tz297_processing_output_wip_shadow_guard_v2.sql");
 const liveLifecycle = read("supabase/migrations/20260822172443_tz297_live_processing_lifecycle_v1.sql");
+const dryingStateFix = read("supabase/migrations/20260822223913_tz299_drying_physical_state_contract_v1.sql");
 const actionRoute = read("app/api/processing/transformations/[id]/actions/route.ts");
 const stockRoute = read("app/api/weighbridge/stock-identities/route.ts");
 const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
@@ -198,6 +199,9 @@ check("drying example preserves dry matter and never creates a water batch", () 
   assert.ok(Math.abs(water - 4_651.1628) < 0.01);
   assert.match(migration, /moisture_loss_kg/);
   assert.doesNotMatch(migration, /insert into public\.inventory_batches[\s\S]{0,500}moisture_loss/i);
+  assert.match(dryingStateFix, /then ''AFTER_DRYING''/);
+  assert.doesNotMatch(dryingStateFix, /add constraint[\s\S]*DRIED/i);
+  assert.match(dryingStateFix, /expected exactly one DRIED token/);
 });
 
 check("multi-input and multi-output totals remain one processing chain", () => {

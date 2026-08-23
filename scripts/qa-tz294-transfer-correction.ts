@@ -12,6 +12,7 @@ const identityMigrationUrl = new URL(
 );
 const pageUrl = new URL("../app/(dashboard)/weighbridge/page.tsx", import.meta.url);
 const paperUrl = new URL("../components/weighbridge/weighbridge-ticket-paper.tsx", import.meta.url);
+const ticketPatchRouteUrl = new URL("../app/api/weighbridge/tickets/[id]/route.ts", import.meta.url);
 const finalizeRouteUrl = new URL("../app/api/weighbridge/tickets/[id]/finalize/route.ts", import.meta.url);
 const ticketsRouteUrl = new URL("../app/api/weighbridge/tickets/route.ts", import.meta.url);
 
@@ -36,6 +37,7 @@ async function main() {
   const identityMigration = await readFile(identityMigrationUrl, "utf8");
   const page = await readFile(pageUrl, "utf8");
   const paper = await readFile(paperUrl, "utf8");
+  const ticketPatchRoute = await readFile(ticketPatchRouteUrl, "utf8");
   const finalizeRoute = await readFile(finalizeRouteUrl, "utf8");
   const ticketsRoute = await readFile(ticketsRouteUrl, "utf8");
 
@@ -60,6 +62,8 @@ async function main() {
   assert.match(page, /ticket\?\.correction_of_ticket_id && ticket\?\.net_weight_kg != null/);
   assert.match(paper, /displayedLineQuantity/);
   assert.match(paper, /lines\.length === 1 && weightEditor\?\.physicalNetKg != null/);
+  assert.match(ticketPatchRoute, /ticket\.op_type === "harvest_incoming" \|\| Boolean\(ticket\.correction_of_ticket_id\)/);
+  assert.match(ticketPatchRoute, /update_open_weighbridge_ticket_v1/);
   assert.match(finalizeRoute, /correction_lot_validation_failed/);
   assert.match(finalizeRoute, /Исходный талон не изменён/);
   assert.match(ticketsRoute, /correction_of_ticket_id/);

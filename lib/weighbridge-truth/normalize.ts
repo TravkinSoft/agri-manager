@@ -61,6 +61,8 @@ function ticket(row: RawRow): TruthTicket {
     batchId: str(row.batch_id),
     lotId: str(row.lot_id),
     harvestLotId: str(row.harvest_lot_id),
+    linkedProcessingId: str(row.linked_processing_id),
+    processingOutputRole: str(row.processing_output_role),
     shiftId: str(row.shift_id),
     correctionOfTicketId: str(row.correction_of_ticket_id),
     replacementTicketId: str(row.replacement_ticket_id),
@@ -172,6 +174,11 @@ function lotBatch(row: RawRow): TruthLotBatch {
 }
 
 function transformation(row: RawRow): TruthTransformation {
+  const balance = row.balance_snapshot && typeof row.balance_snapshot === "object"
+    ? row.balance_snapshot as RawRow
+    : {};
+  const approvedProcessLossKg = num(balance.approved_process_loss_kg);
+  const moistureLossKg = num(balance.moisture_loss_kg);
   return {
     id: str(row.id) ?? "missing-transformation-id",
     companyId: str(row.company_id) ?? "missing-company-id",
@@ -182,6 +189,9 @@ function transformation(row: RawRow): TruthTransformation {
     inputTotalKg: num(row.input_weight_total_kg),
     outputTotalKg: num(row.output_weight_total_kg),
     massDifferenceKg: num(row.mass_difference_kg) ?? num(row.unexplained_variance_kg),
+    documentedLossKg: approvedProcessLossKg === null && moistureLossKg === null
+      ? null
+      : (approvedProcessLossKg ?? 0) + (moistureLossKg ?? 0),
     qualityState: str(row.quality_state),
   };
 }

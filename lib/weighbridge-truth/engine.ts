@@ -68,6 +68,7 @@ function expectedLedgerTotal(ticket: TruthTicket): number | null {
     ? ticket.acceptedWeightKg ?? ticket.netKg
     : ticket.netKg;
   if (accountingKg === null) return null;
+  if (ticket.linkedProcessingId && ticket.processingOutputRole) return accountingKg;
   const direction = (ticket.direction ?? "").toLowerCase();
   const opType = (ticket.opType ?? "").toLowerCase();
   if (direction === "inbound" || ["harvest_incoming", "supplier_receipt"].includes(opType)) return accountingKg;
@@ -305,15 +306,16 @@ export function verifyWeighbridgeTruth(snapshot: TruthSnapshot): TruthReport {
     const outputs = snapshot.transformationOutputs.filter((row) => row.transformationId === transformation.id);
     const inputKg = transformation.inputTotalKg ?? sum(inputs.map((row) => row.inputKg));
     const outputKg = transformation.outputTotalKg ?? sum(outputs.map((row) => row.outputKg));
-    const differenceKg = transformation.massDifferenceKg ?? inputKg - outputKg;
+    const documentedLossKg = transformation.documentedLossKg ?? 0;
+    const differenceKg = transformation.massDifferenceKg ?? inputKg - outputKg - documentedLossKg;
     if (["completed", "closed", "finalized"].includes(transformation.status ?? "") && (inputs.length === 0 || outputs.length === 0)) {
       findings.push(finding(null, "PROCESSING_TRACE_INCOMPLETE", "P0", "processing", transformation.id,
         "completed processing has at least one input and output", `inputs=${inputs.length}, outputs=${outputs.length}`,
         "The processing document cannot explain where mass came from and where it went.", ["Inspect transformation input/output rows and source tickets."]));
     }
-    if (!closeEnough(inputKg, outputKg + differenceKg)) {
+    if (!closeEnough(inputKg, outputKg + documentedLossKg + differenceKg)) {
       findings.push(finding(null, "PROCESSING_MASS_BALANCE_MISMATCH", "P0", "processing", transformation.id,
-        `input = outputs + documented difference (${describeKg(inputKg)})`, `${describeKg(outputKg)} + ${describeKg(differenceKg)}`,
+        `input = outputs + documented losses + unexplained difference (${describeKg(inputKg)})`, `${describeKg(outputKg)} + ${describeKg(documentedLossKg)} + ${describeKg(differenceKg)}`,
         "Processing violates mass conservation.", ["Separate product output, impurity, waste and moisture difference.", "Check for missing output tickets."]));
     }
     const inputMeasuredKg = sum(inputs.filter((row) => row.moisturePercent !== null).map((row) => row.inputKg));

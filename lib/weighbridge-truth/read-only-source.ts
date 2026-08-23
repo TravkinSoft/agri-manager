@@ -207,7 +207,7 @@ select jsonb_build_object(
   'stock_ledger_entries', coalesce((select jsonb_agg(to_jsonb(row) order by row.created_at) from selected_ledger row), '[]'::jsonb),
   'inventory_batches', coalesce((select jsonb_agg(to_jsonb(row) order by row.created_at) from selected_batches row), '[]'::jsonb),
   'harvest_lots', coalesce((select jsonb_agg(to_jsonb(row) order by row.created_at) from selected_lots row), '[]'::jsonb),
-  'harvest_lot_batches', coalesce((select jsonb_agg(to_jsonb(row) order by row.created_at) from public.harvest_lot_batches row where row.company_id = ${companyId}::uuid and (row.harvest_lot_id in (select id from selected_lots) or row.inventory_batch_id in (select id from selected_batches))), '[]'::jsonb),
+  'harvest_lot_batches', coalesce((select jsonb_agg(to_jsonb(row) order by row.created_at) from public.harvest_lot_batches row where row.company_id = ${companyId}::uuid and (row.inventory_batch_id in (select id from selected_batches) or row.source_ticket_id in (select id from selected_tickets))), '[]'::jsonb),
   'batch_transformations', coalesce((select jsonb_agg(to_jsonb(row) order by row.created_at) from selected_transformations row), '[]'::jsonb),
   'batch_transformation_inputs', coalesce((select jsonb_agg(to_jsonb(row) order by row.created_at) from public.batch_transformation_inputs row where row.company_id = ${companyId}::uuid and row.transformation_id in (select id from selected_transformations)), '[]'::jsonb),
   'batch_transformation_outputs', coalesce((select jsonb_agg(to_jsonb(row) order by row.created_at) from public.batch_transformation_outputs row where row.company_id = ${companyId}::uuid and row.transformation_id in (select id from selected_transformations)), '[]'::jsonb),

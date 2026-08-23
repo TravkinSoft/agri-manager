@@ -41,6 +41,8 @@ export interface TruthTicket {
   batchId: string | null;
   lotId: string | null;
   harvestLotId: string | null;
+  linkedProcessingId?: string | null;
+  processingOutputRole?: string | null;
   shiftId: string | null;
   correctionOfTicketId: string | null;
   replacementTicketId: string | null;
@@ -146,6 +148,7 @@ export interface TruthTransformation {
   inputTotalKg: number | null;
   outputTotalKg: number | null;
   massDifferenceKg: number | null;
+  documentedLossKg?: number | null;
   qualityState: string | null;
 }
 

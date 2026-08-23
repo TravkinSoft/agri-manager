@@ -344,7 +344,9 @@ export async function PATCH(
       return NextResponse.json({ error: "No patch fields provided" }, { status: 400 });
     }
 
-    if (ticket.op_type === "harvest_incoming" && (patch.gross_weight_kg !== undefined || patch.tare_weight_kg !== undefined)) {
+    const requiresAtomicWeightUpdate =
+      ticket.op_type === "harvest_incoming" || Boolean(ticket.correction_of_ticket_id);
+    if (requiresAtomicWeightUpdate && (patch.gross_weight_kg !== undefined || patch.tare_weight_kg !== undefined)) {
       const { data: atomicUpdate, error: atomicUpdateError } = await supabase.rpc("update_open_weighbridge_ticket_v1", {
         p_ticket_id: id,
         p_patch: patch,

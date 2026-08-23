@@ -74,6 +74,24 @@ check("processing mass mismatch is P0", () => {
 });
 check("read-only SQL accepts QA sweep", () => assertReadOnlySql(buildTruthSnapshotSql({ environment: "qa", all: true })));
 check("read-only SQL accepts Production ticket trace", () => assertReadOnlySql(buildTruthSnapshotSql({ environment: "production", ticket: "WB-100000-20260814223220-P9EA" })));
+check("ticket trace loads only lot links backed by the selected ticket or batch", () => {
+  const sql = buildTruthSnapshotSql({ environment: "qa", ticket: "00000000-0000-4000-8000-000000000001" });
+  assert.match(sql, /row\.inventory_batch_id in \(select id from selected_batches\) or row\.source_ticket_id in \(select id from selected_tickets\)/);
+  assert.doesNotMatch(sql, /row\.harvest_lot_id in \(select id from selected_lots\) or row\.inventory_batch_id/);
+});
+check("approved processing loss closes material balance", () => {
+  const snapshot = finalizedHarvestSnapshot();
+  snapshot.transformations.push({ id: "tr-loss", companyId: FIXTURE_IDS.COMPANY, sourceTicketId: FIXTURE_IDS.TICKET, harvestLotId: FIXTURE_IDS.LOT,
+    transformationType: "cleaning", status: "completed", inputTotalKg: 20_000, outputTotalKg: 19_000, massDifferenceKg: 0, documentedLossKg: 1_000, qualityState: "confirmed" });
+  snapshot.transformationInputs.push({ id: "in-loss", companyId: FIXTURE_IDS.COMPANY, transformationId: "tr-loss", batchId: FIXTURE_IDS.BATCH, sourceTicketId: FIXTURE_IDS.TICKET, inputKg: 20_000, moisturePercent: 17 });
+  snapshot.transformationOutputs.push({ id: "out-loss", companyId: FIXTURE_IDS.COMPANY, transformationId: "tr-loss", batchId: "batch-out", sourceTicketId: null, lineType: "product", outputRole: "GRAIN", outputKg: 19_000, moisturePercent: 16 });
+  assert.ok(!verifyWeighbridgeTruth(snapshot).findings.some((item) => item.code === "PROCESSING_MASS_BALANCE_MISMATCH"));
+});
+check("processing output expects one destination ledger IN", () => {
+  const snapshot = finalizedHarvestSnapshot();
+  Object.assign(snapshot.tickets[0], { ticketType: "transfer", opType: "warehouse_transfer", direction: "transfer", linkedProcessingId: "tr-1", processingOutputRole: "GRAIN" });
+  assert.ok(!verifyWeighbridgeTruth(snapshot).findings.some((item) => item.code === "FINALIZED_TICKET_LEDGER_MISMATCH"));
+});
 check("read-only SQL rejects mutation", () => assert.throws(() => assertReadOnlySql("update tickets set status='closed'"), /read-only|SELECT/));
 check("company input rejects SQL injection", () => assert.throws(() => buildTruthSnapshotSql({ environment: "qa", company: "x' or true--", all: true }), /company/));
 check("Black Box links ticket to batch, lot and ledger", () => {
