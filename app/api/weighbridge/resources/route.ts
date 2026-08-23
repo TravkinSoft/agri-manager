@@ -127,7 +127,10 @@ export async function GET(request: NextRequest) {
         return [] as any[];
       }
       if (result.value.error) {
-        console.warn(`[${failure.code}] ${resource} query failed`);
+        console.warn(`[${failure.code}] ${resource} query failed`, {
+          databaseCode: result.value.error.code,
+          databaseMessage: result.value.error.message,
+        });
         resourceErrors.push({ resource, ...failure });
         return [] as any[];
       }

@@ -52,6 +52,7 @@
     "qa:tz295": "npx --no-install tsx scripts/qa-tz295-universal-workspaces.ts",
     "qa:tz296": "npx --no-install tsx scripts/qa-tz296-harvest-stock-aggregation.ts",
     "qa:tz297": "npx --no-install tsx scripts/qa-tz297-processing-closure.ts",
+    "qa:tz299:destinations": "npx --no-install tsx scripts/qa-tz299-destination-schema-contract.ts",
     "qa:crop-optional-seed": "npx --no-install tsx scripts/qa-crop-structure-optional-seed.ts",
     "qa:tz266": "npx --no-install tsx scripts/qa-tz266-active-harvest-tabs.ts",
     "qa:p0:weighbridge-gross": "npx --no-install tsx scripts/qa-p0-weighbridge-gross-legacy-schema.ts",
