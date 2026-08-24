@@ -28,7 +28,10 @@ import {
   type BatchTransformationRow,
 } from "@/lib/services/processing";
 
-type Props = { onAddOutput?: (processing: BatchTransformationRow) => void };
+type Props = {
+  enabled?: boolean;
+  onAddOutput?: (processing: BatchTransformationRow) => void;
+};
 
 const typeLabels: Record<string, string> = {
   drying: "Сушка",
@@ -63,7 +66,7 @@ const formatMoisture = (value: number | null | undefined) =>
 const formatDateTime = (value: string | null | undefined) =>
   value ? new Date(value).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "-";
 
-export function ProcessingWorkspace({ onAddOutput }: Props) {
+export function ProcessingWorkspace({ enabled = true, onAddOutput }: Props) {
   const { profile } = useAuth();
   const { toast } = useToast();
   const [items, setItems] = useState<BatchTransformationRow[]>([]);
@@ -80,6 +83,7 @@ export function ProcessingWorkspace({ onAddOutput }: Props) {
   const canManageBalance = ["global_admin", "company_admin", "director"].includes(String(profile?.role || ""));
 
   const load = useCallback(async (showLoading = false) => {
+    if (!enabled) return;
     if (!profile?.company_id || !profile?.id) return;
     if (loadInFlight.current) return;
     loadInFlight.current = true;
@@ -93,9 +97,10 @@ export function ProcessingWorkspace({ onAddOutput }: Props) {
       setLoading(false);
       loadInFlight.current = false;
     }
-  }, [profile?.company_id, profile?.id, toast]);
+  }, [enabled, profile?.company_id, profile?.id, toast]);
 
   useEffect(() => {
+    if (!enabled) return;
     void load(true);
     const refresh = () => {
       if (document.visibilityState === "visible") void load(false);
@@ -108,7 +113,7 @@ export function ProcessingWorkspace({ onAddOutput }: Props) {
       window.removeEventListener("travkin:weighbridge-data-changed", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [load]);
+  }, [enabled, load]);
 
   const activeItems = useMemo(
     () => items.filter((item) => item.processing_state !== "processing_closed" && item.status !== "voided"),

@@ -4788,7 +4788,10 @@ export default function WeighbridgeOperationsPage() {
         </Card>
       </div>
 
-      <ProcessingWorkspace onAddOutput={openProcessingOutput} />
+      <ProcessingWorkspace
+        enabled={!canUseOperatorSession || operatorState.unlocked}
+        onAddOutput={openProcessingOutput}
+      />
 
       <details
         className={`${terminalPanelClass} group`}

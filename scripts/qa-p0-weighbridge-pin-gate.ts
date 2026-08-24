@@ -13,6 +13,7 @@ function check(name: string, test: () => void) {
 }
 
 const page = read("app/(dashboard)/weighbridge/page.tsx");
+const processingWorkspace = read("components/weighbridge/processing-workspace.tsx");
 const dialog = read("components/ui/dialog.tsx");
 const service = read("lib/services/weighbridge.ts");
 const auth = read("app/api/weighbridge/_auth.ts");
@@ -60,6 +61,10 @@ check("business load waits for canonical unlock", () => {
   assert.match(businessLoadEffect, /refreshTickets/);
   assert.match(businessLoadEffect, /refreshBootstrap/);
 });
+check("processing transformations wait for canonical unlock", () => {
+  assert.match(page, /<ProcessingWorkspace[\s\S]*?enabled=\{!canUseOperatorSession \|\| operatorState\.unlocked\}/);
+  assert.match(processingWorkspace, /if \(!enabled\) return;[\s\S]*?getProcessingTransformations/);
+});
 check("workspace cache does not persist operator session", () => {
   const payload = page.slice(page.indexOf("const payload = {"), page.indexOf("weighbridgePageCache.set", page.indexOf("const payload = {")));
   assert.doesNotMatch(payload, /operatorState/);
@@ -93,5 +98,5 @@ check("manual close uses canonical reason", () => assert.match(shifts, /close_re
 check("operator access disable closes shift and revokes sessions", () => assert.match(migration, /close_weighbridge_shift_on_operator_access_disabled_v1[\s\S]*?close_reason = 'admin_revoked'[\s\S]*?status = 'revoked'/));
 check("shift expiry revokes all operator sessions", () => assert.match(migration, /where shift_id = v_shift\.id and status = 'active'/));
 
-assert.equal(passed, 36);
-console.log(`P0 weighbridge PIN gate regression PASS: ${passed}/36`);
+assert.equal(passed, 37);
+console.log(`P0 weighbridge PIN gate regression PASS: ${passed}/37`);

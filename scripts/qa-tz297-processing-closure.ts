@@ -145,7 +145,10 @@ check("processing card is user-facing and keeps technical identifiers hidden", (
   assert.match(processingUi, /Нераспределённый баланс обработки/);
   assert.match(processingUi, /Добавить выход/);
   assert.doesNotMatch(processingUi, />\s*(?:transformation_id|processing_id|ledger|UUID)\s*</i);
-  assert.match(weighbridgePage, /<ProcessingWorkspace onAddOutput=\{openProcessingOutput\}/);
+  assert.match(
+    weighbridgePage,
+    /<ProcessingWorkspace[\s\S]*?enabled=\{!canUseOperatorSession \|\| operatorState\.unlocked\}[\s\S]*?onAddOutput=\{openProcessingOutput\}/
+  );
 });
 
 check("last main trip is optional and recorded only after ticket finalize", () => {
