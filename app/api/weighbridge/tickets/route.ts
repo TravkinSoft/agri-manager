@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
+import { WEIGHBRIDGE_OPERATOR_COOKIE, WEIGHBRIDGE_READ_ROLES, WEIGHBRIDGE_WRITE_ROLES, asSessionErrorResponse, recordWeighbridgeOperatorActivity, requireWeighbridgeOperatorSession, resolveWeighbridgeSession, weighbridgeUserError } from "@/app/api/weighbridge/_auth";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import type { TicketInput, TicketLineInput, WeighingInput } from "@/lib/types/weighbridge";
 import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-contract";
@@ -321,6 +321,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const rawTicket = (body?.ticket || {}) as TicketInput;
+    const rawPaperBackfill = body?.paperBackfill && typeof body.paperBackfill === "object"
+      ? body.paperBackfill as Record<string, unknown>
+      : null;
     const authStartedAt = Date.now();
     const { actor, companyId, supabase } = await resolveWeighbridgeSession(request, {
       allowedRoles: WEIGHBRIDGE_WRITE_ROLES,
@@ -425,6 +428,72 @@ export async function POST(request: NextRequest) {
     const isHarvestIncoming =
       String(ticket.direction || "") === "incoming" &&
       String(ticket.op_type || "").toLowerCase() === "harvest_incoming";
+    let paperBackfill: {
+      recordedAt: string;
+      dayStart: string;
+      dayEnd: string;
+      tareWeightKg: number;
+      moisturePercent: number | null;
+    } | null = null;
+    if (rawPaperBackfill) {
+      if (!isHarvestIncoming || !String(ticket.external_document_no || "").trim()) {
+        return NextResponse.json({ error: "Бумажный рейс доступен только для урожая с указанным номером документа." }, { status: 400 });
+      }
+      const recordedAt = String(rawPaperBackfill.recorded_at || "").trim();
+      const dayStart = String(rawPaperBackfill.day_start || "").trim();
+      const dayEnd = String(rawPaperBackfill.day_end || "").trim();
+      const recordedTime = Date.parse(recordedAt);
+      const dayStartTime = Date.parse(dayStart);
+      const dayEndTime = Date.parse(dayEnd);
+      const tareWeightKg = Number(rawPaperBackfill.tare_weight_kg);
+      const moisturePercent = rawPaperBackfill.moisture_percent == null || String(rawPaperBackfill.moisture_percent).trim() === ""
+        ? null
+        : Number(rawPaperBackfill.moisture_percent);
+      if (
+        !Number.isFinite(recordedTime) ||
+        !Number.isFinite(dayStartTime) ||
+        !Number.isFinite(dayEndTime) ||
+        dayEndTime - dayStartTime !== 24 * 60 * 60 * 1000 ||
+        recordedTime < dayStartTime ||
+        recordedTime >= dayEndTime
+      ) {
+        return NextResponse.json({ error: "Укажите корректные дату и время бумажного рейса." }, { status: 400 });
+      }
+      if (!Number.isFinite(tareWeightKg) || tareWeightKg < 0 || tareWeightKg >= Number(ticket.gross_weight_kg || 0)) {
+        return NextResponse.json({ error: "Тара бумажного рейса должна быть меньше брутто." }, { status: 400 });
+      }
+      if (moisturePercent != null && (!Number.isFinite(moisturePercent) || moisturePercent <= 0 || moisturePercent >= 100)) {
+        return NextResponse.json({ error: "Влажность должна быть больше 0 и меньше 100 %." }, { status: 400 });
+      }
+      paperBackfill = { recordedAt, dayStart, dayEnd, tareWeightKg, moisturePercent };
+      const { data: duplicate, error: duplicateError } = await supabase
+        .from("tickets")
+        .select("id,ticket_no,status")
+        .eq("company_id", ticket.company_id)
+        .eq("op_type", "harvest_incoming")
+        .eq("external_document_no", String(ticket.external_document_no).trim())
+        .gte("created_at", dayStart)
+        .lt("created_at", dayEnd)
+        .limit(1)
+        .maybeSingle();
+      if (duplicateError) {
+        return NextResponse.json({ error: duplicateError.message }, { status: 400 });
+      }
+      if (duplicate?.id) {
+        return NextResponse.json(
+          { error: `Бумажный рейс уже внесён: ${duplicate.ticket_no}.`, code: "paper_trip_duplicate", ticket: duplicate },
+          { status: 409 }
+        );
+      }
+      ticket.audit_json = {
+        ...((ticket.audit_json || {}) as Record<string, unknown>),
+        paper_backfill: {
+          source: "paper_journal",
+          recorded_at: recordedAt,
+          external_reference: String(ticket.external_document_no).trim(),
+        },
+      };
+    }
     let harvestIsCropMix = false;
     let harvestCompositionSnapshot: Array<Record<string, unknown>> = [];
     let harvestCompositionHash: string | null = null;
@@ -1274,7 +1343,7 @@ export async function POST(request: NextRequest) {
         weighings.push({
           weighing_no: 1,
           measured_weight_kg: gross,
-          measured_at: new Date().toISOString(),
+          measured_at: paperBackfill?.recordedAt || new Date().toISOString(),
           device_source: "manual",
           operator_user_id: actor.id,
         });
@@ -1633,6 +1702,7 @@ export async function POST(request: NextRequest) {
       .insert({
         ...ticket,
         ...(idempotencyKey ? { id: idempotencyKey } : {}),
+        ...(paperBackfill ? { created_at: paperBackfill.recordedAt, updated_at: paperBackfill.recordedAt } : {}),
         audit_json: idempotencyKey
           ? {
               ...(((ticket as any).audit_json || {}) as Record<string, unknown>),
@@ -1744,6 +1814,48 @@ export async function POST(request: NextRequest) {
     if (linesError || weighingsError) {
       await cleanupCreatedTicket(supabase, createdTicket.id, createdHarvestProductId);
       return NextResponse.json({ error: linesError?.message || weighingsError?.message || "Failed to create ticket details" }, { status: 400 });
+    }
+    if (paperBackfill) {
+      const backfill = paperBackfill;
+      const sessionToken = request.cookies.get(WEIGHBRIDGE_OPERATOR_COOKIE)?.value || "";
+      const { data: closeResult, error: closeError } = await measure("paper_backfill_finalize", () => supabase.rpc(
+        "close_harvest_ticket_atomic",
+        {
+          p_ticket_id: createdTicket.id,
+          p_session_token: sessionToken,
+          p_tare_weight_kg: backfill.tareWeightKg,
+          p_moisture_percent: backfill.moisturePercent,
+          p_deduction_kg: null,
+          p_deduction_percent: null,
+          p_deduction_reason: null,
+          p_tare_variance_confirmed: true,
+          p_idempotency_key: idempotencyKey,
+        }
+      ));
+      const closePayload = (closeResult || {}) as Record<string, unknown>;
+      if (closeError || closePayload.ok !== true) {
+        await cleanupCreatedTicket(supabase, createdTicket.id, createdHarvestProductId);
+        return NextResponse.json(
+          { error: weighbridgeUserError(closeError?.message || "Не удалось провести бумажный рейс.") },
+          { status: 400 }
+        );
+      }
+      const { data: finalizedTicket, error: finalizedTicketError } = await supabase
+        .from("tickets")
+        .select(WEIGHBRIDGE_TICKET_SELECT)
+        .eq("id", createdTicket.id)
+        .eq("company_id", ticket.company_id)
+        .single();
+      if (finalizedTicketError || !finalizedTicket?.id) {
+        return NextResponse.json({ error: finalizedTicketError?.message || "Бумажный рейс проведён, но ответ не загружен." }, { status: 500 });
+      }
+      const [attributedFinalizedTicket] = await enrichTicketOperatorAttribution(supabase, ticket.company_id, [finalizedTicket]);
+      timing.totalMs = Date.now() - startedAt;
+      return NextResponse.json({
+        ticket: attributedFinalizedTicket,
+        paper_backfill: { ok: true, duplicate: false },
+        debug: timing,
+      });
     }
     if (operatorSession) {
       await recordWeighbridgeOperatorActivity(request, { companyId, supabase }, "ticket_create");

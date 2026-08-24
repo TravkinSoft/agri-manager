@@ -22,6 +22,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { isGlobalAdmin } from "@/lib/auth/roles";
 import { supabase } from "@/lib/supabase/client";
 import { NotificationCenter } from "@/components/notifications/notification-center";
+import { cachedClientValue, invalidateClientCache } from "@/lib/client/single-flight-cache";
 
 type CompanyContextItem = {
   id: string;
@@ -82,17 +83,25 @@ export function Header() {
   }, [profileContextCompanyId]);
 
   useEffect(() => {
+    let cancelled = false;
     const loadCompanies = async () => {
       if (!isGlobal) return;
       try {
-        const headers = await buildAuthHeaders("none");
-        const response = await fetch("/api/global-admin/companies", {
-          method: "GET",
-          headers,
-          cache: "no-store",
-        });
-        if (!response.ok) return;
-        const data = await response.json();
+        const data = await cachedClientValue(
+          `header:companies:${user?.id || "anonymous"}`,
+          async () => {
+            const headers = await buildAuthHeaders("none");
+            const response = await fetch("/api/global-admin/companies", {
+              method: "GET",
+              headers,
+              cache: "no-store",
+            });
+            if (!response.ok) throw new Error(`Companies HTTP ${response.status}`);
+            return response.json();
+          },
+          5 * 60_000
+        );
+        if (cancelled) return;
         setCompanies(Array.isArray(data?.companies) ? data.companies : []);
         setSelectedCompanyId(data?.selectedCompanyId ? String(data.selectedCompanyId) : "__none__");
       } catch (error) {
@@ -100,9 +109,11 @@ export function Header() {
       }
     };
     void loadCompanies();
-  }, [isGlobal, profileContextCompanyId]);
+    return () => { cancelled = true; };
+  }, [isGlobal, profileContextCompanyId, user?.id]);
 
   useEffect(() => {
+    let cancelled = false;
     const loadCompanyUsers = async () => {
       if (!canUseUserSwitcher || !activeUserCompanyId) {
         setCompanyUsers([]);
@@ -113,34 +124,37 @@ export function Header() {
       setLoadingCompanyUsers(true);
       setCompanyUsersError(null);
       try {
-        const headers = await buildAuthHeaders("none");
-        const response = await fetch(
-          `/api/global-admin/company-users?companyId=${encodeURIComponent(activeUserCompanyId)}`,
-          {
-            method: "GET",
-            headers,
-            cache: "no-store",
-          }
+        const data = await cachedClientValue(
+          `header:company-users:${activeUserCompanyId}`,
+          async () => {
+            const headers = await buildAuthHeaders("none");
+            const response = await fetch(
+              `/api/global-admin/company-users?companyId=${encodeURIComponent(activeUserCompanyId)}`,
+              { method: "GET", headers, cache: "no-store" }
+            );
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              throw new Error(payload?.error || "Не удалось загрузить пользователей компании");
+            }
+            return response.json();
+          },
+          2 * 60_000
         );
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({}));
-          setCompanyUsers([]);
-          setCompanyUsersError(payload?.error || "Не удалось загрузить пользователей компании");
-          return;
-        }
-        const data = await response.json();
+        if (cancelled) return;
         setCompanyUsers(Array.isArray(data?.users) ? data.users : []);
         setCompanyUsersError(null);
       } catch (error) {
+        if (cancelled) return;
         console.error("Failed to load company users for header switcher:", error);
         setCompanyUsers([]);
         setCompanyUsersError(error instanceof Error ? error.message : "Не удалось загрузить пользователей компании");
       } finally {
-        setLoadingCompanyUsers(false);
+        if (!cancelled) setLoadingCompanyUsers(false);
       }
     };
 
     void loadCompanyUsers();
+    return () => { cancelled = true; };
   }, [canUseUserSwitcher, activeUserCompanyId]);
 
   const handleLogout = async () => {
@@ -212,6 +226,7 @@ export function Header() {
       }
       const payload = await response.json().catch(() => ({}));
       const nextCompanyId = payload?.selectedCompanyId ? String(payload.selectedCompanyId) : null;
+      invalidateClientCache("header:");
       setSelectedCompanyId(nextCompanyId || "__none__");
       setGlobalAdminCompanyContext(nextCompanyId);
       if (nextValue === "__none__") {

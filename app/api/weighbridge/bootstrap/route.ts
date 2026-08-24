@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { WEIGHBRIDGE_READ_ROLES, asSessionErrorResponse, resolveWeighbridgeSession } from "@/app/api/weighbridge/_auth";
+import { aggregateHarvestTickets } from "@/lib/weighbridge/harvest-summary";
 
 const dayKey = (value: string | null | undefined) => {
   const date = new Date(String(value || ""));
@@ -11,21 +12,6 @@ const dayKey = (value: string | null | undefined) => {
     day: "2-digit",
   }).format(date);
 };
-
-function aggregateHarvestTickets(rows: any[]) {
-  const netKg = rows.reduce((sum, row) => sum + Number(row.net_weight_kg || 0), 0);
-  const moistureValues = rows
-    .map((row) => Number((Array.isArray(row.lines) ? row.lines[0] : null)?.moisture_percent))
-    .filter((value) => Number.isFinite(value) && value > 0);
-  return {
-    netKg,
-    trips: rows.length,
-    averageTripKg: rows.length > 0 ? netKg / rows.length : 0,
-    averageMoisture: moistureValues.length > 0
-      ? moistureValues.reduce((sum, value) => sum + value, 0) / moistureValues.length
-      : null,
-  };
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -111,15 +97,18 @@ export async function GET(request: NextRequest) {
       (ticket: any) => !activeSeason?.id || String(ticket.season_id || "") === String(activeSeason.id)
     );
     const todayKey = dayKey(new Date().toISOString());
-    const todayHarvestTickets = seasonHarvestTickets.filter(
-      (ticket: any) => dayKey(ticket.finalized_at || ticket.created_at) === todayKey
-    );
+    const todayHarvestTickets = seasonHarvestTickets.filter((ticket: any) => dayKey(ticket.created_at) === todayKey);
     const fieldIds = Array.from(new Set(seasonHarvestTickets.map((ticket: any) => String(ticket.field_id || "")).filter(Boolean)));
     const byField = Object.fromEntries(fieldIds.map((fieldId) => {
       const cumulative = seasonHarvestTickets.filter((ticket: any) => String(ticket.field_id || "") === fieldId);
-      const today = cumulative.filter((ticket: any) => dayKey(ticket.finalized_at || ticket.created_at) === todayKey);
+      const today = cumulative.filter((ticket: any) => dayKey(ticket.created_at) === todayKey);
       return [fieldId, { today: aggregateHarvestTickets(today), cumulative: aggregateHarvestTickets(cumulative) }];
     }));
+    const dayKeys = Array.from(new Set(seasonHarvestTickets.map((ticket: any) => dayKey(ticket.created_at)).filter(Boolean)));
+    const byDay = Object.fromEntries(dayKeys.map((key) => [
+      key,
+      aggregateHarvestTickets(seasonHarvestTickets.filter((ticket: any) => dayKey(ticket.created_at) === key)),
+    ]));
     const shiftTickets = shiftRes.data?.id
       ? tickets.filter((ticket: any) => String(ticket.shift_id || "") === String(shiftRes.data.id))
       : [];
@@ -139,6 +128,7 @@ export async function GET(request: NextRequest) {
         seasonId: activeSeason?.id || null,
         today: aggregateHarvestTickets(todayHarvestTickets),
         byField,
+        byDay,
       },
       shiftSummary: {
         trips: shiftTickets.filter((ticket: any) => ticket.status === "finalized" && !ticket.is_voided).length,

@@ -302,14 +302,21 @@ export async function createTicket(
   input: TicketInput,
   lines: TicketLineInput[],
   weighings: WeighingInput[] = [],
-  idempotencyKey?: string
+  idempotencyKey?: string,
+  paperBackfill?: {
+    recorded_at: string;
+    day_start: string;
+    day_end: string;
+    tare_weight_kg: number;
+    moisture_percent?: number | null;
+  }
 ) {
   const headers = await buildClientAuthHeaders("json");
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const response = await fetch("/api/weighbridge/tickets", {
     method: "POST",
     headers,
-    body: JSON.stringify({ ticket: input, lines, weighings }),
+    body: JSON.stringify({ ticket: input, lines, weighings, paperBackfill }),
   });
   return parseJsonOrThrow(response);
 }

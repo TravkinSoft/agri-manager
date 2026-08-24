@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Header } from "./header";
@@ -8,13 +9,24 @@ import { SidebarProvider } from "@/lib/contexts/sidebar-context";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { canAccessPath, getDefaultPathForRole } from "@/lib/auth/role-access";
 import { AssistantShellProvider } from "@/components/assistant/assistant-shell-provider";
-import { AssistantLauncher } from "@/components/assistant/assistant-launcher";
-import { AssistantPanel } from "@/components/assistant/assistant-panel";
-import { AssistantDebugMonitor } from "@/components/assistant/assistant-debug-monitor";
+import { canUseAssistantShell } from "@/lib/assistant/shell";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase/client";
 import { useLanguage } from "@/lib/contexts/language-context";
+
+const AssistantLauncher = dynamic(
+  () => import("@/components/assistant/assistant-launcher").then((module) => module.AssistantLauncher),
+  { ssr: false }
+);
+const AssistantPanel = dynamic(
+  () => import("@/components/assistant/assistant-panel").then((module) => module.AssistantPanel),
+  { ssr: false }
+);
+const AssistantDebugMonitor = dynamic(
+  () => import("@/components/assistant/assistant-debug-monitor").then((module) => module.AssistantDebugMonitor),
+  { ssr: false }
+);
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { profile, loading, refreshProfile } = useAuth();
@@ -23,6 +35,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { t } = useLanguage();
   const [stoppingImpersonation, setStoppingImpersonation] = useState(false);
   const isWeatherLab = pathname === "/weather-lab" || pathname?.startsWith("/weather-lab/");
+  const isWeighbridge = pathname === "/weighbridge" || pathname?.startsWith("/weighbridge/");
+  const assistantEnabled = canUseAssistantShell(profile?.role) && !isWeatherLab && !isWeighbridge;
 
   useEffect(() => {
     if (loading || !profile?.role || !pathname) return;
@@ -102,9 +116,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </div>
         </div>
         <MobileBottomNav />
-        {!isWeatherLab ? <AssistantLauncher /> : null}
-        {!isWeatherLab ? <AssistantPanel /> : null}
-        {!isWeatherLab ? <AssistantDebugMonitor /> : null}
+        {assistantEnabled ? <AssistantLauncher /> : null}
+        {assistantEnabled ? <AssistantPanel /> : null}
+        {assistantEnabled ? <AssistantDebugMonitor /> : null}
       </AssistantShellProvider>
     </SidebarProvider>
   );

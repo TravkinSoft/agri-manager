@@ -202,11 +202,13 @@ type HarvestAggregate = {
   trips: number;
   averageTripKg: number;
   averageMoisture: number | null;
+  measuredMoistureTrips?: number;
 };
 type HarvestSummaryState = {
   seasonId: string | null;
   today: HarvestAggregate;
   byField: Record<string, { today: HarvestAggregate; cumulative: HarvestAggregate }>;
+  byDay: Record<string, HarvestAggregate>;
 };
 
 const EMPTY_HARVEST_AGGREGATE: HarvestAggregate = {
@@ -232,6 +234,8 @@ type FormState = {
   shipmentPurpose: ShipmentPurpose;
   destinationText: string;
   externalDocumentNo: string;
+  paperRecordedAt: string;
+  paperTareKg: string;
   supplierReceiptMode: SupplierReceiptMode;
   supplierItemMode: SupplierItemMode;
   transferMode: TransferMode;
@@ -279,6 +283,8 @@ const INITIAL_FORM: FormState = {
   shipmentPurpose: "sale",
   destinationText: "",
   externalDocumentNo: "",
+  paperRecordedAt: "",
+  paperTareKg: "",
   supplierReceiptMode: "weighbridge",
   supplierItemMode: "generic",
   transferMode: "weighbridge",
@@ -890,6 +896,7 @@ export default function WeighbridgeOperationsPage() {
     seasonId: null,
     today: EMPTY_HARVEST_AGGREGATE,
     byField: {},
+    byDay: {},
   });
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [operatorState, setOperatorState] = useState<WeighbridgeOperatorState>({ shift: null, unlocked: false, operators: [] });
@@ -1356,7 +1363,7 @@ export default function WeighbridgeOperationsPage() {
       setShiftGuard(bootstrap?.shiftGuard || { stale: false, ageHours: 0 });
       setShiftSummary(bootstrap?.shiftSummary || { trips: 0, netKg: 0, open: 0, voided: 0, manualCorrections: 0 });
       if (includeSummary) {
-        setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {} });
+        setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {}, byDay: {} });
       }
     })().finally(() => {
       if (requestRef.current === request) requestRef.current = null;
@@ -2968,6 +2975,12 @@ export default function WeighbridgeOperationsPage() {
       }
     }
     if (form.operationType === "harvest_incoming") {
+      if (form.externalDocumentNo.trim() && !form.paperRecordedAt) return "Укажите дату и время бумажного рейса";
+      if (form.externalDocumentNo.trim()) {
+        const tare = toNum(form.paperTareKg);
+        const gross = toNum(form.grossKg);
+        if (tare == null || tare < 0 || gross == null || tare >= gross) return "Тара бумажного рейса должна быть меньше брутто";
+      }
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
       if (!form.fieldId || !form.cropStructureAllocationId || !form.cropId) {
@@ -3225,7 +3238,7 @@ export default function WeighbridgeOperationsPage() {
       buyer_id: form.operationType === "shipment_outbound" ? form.buyerId || null : null,
       shipment_purpose: form.operationType === "shipment_outbound" ? form.shipmentPurpose : null,
       destination_text: form.operationType === "shipment_outbound" ? form.destinationText.trim() || null : null,
-      external_document_no: form.operationType === "shipment_outbound" ? form.externalDocumentNo.trim() || null : null,
+      external_document_no: form.operationType === "shipment_outbound" || form.operationType === "harvest_incoming" ? form.externalDocumentNo.trim() || null : null,
       supplier_document_no: form.operationType === "supplier_receipt" ? form.supplierDocumentNo.trim() || null : null,
       receipt_mode: form.operationType === "supplier_receipt" ? form.supplierReceiptMode : null,
       supplier_receipt_kind: form.operationType === "supplier_receipt" ? "generic" : null,
@@ -3405,7 +3418,27 @@ export default function WeighbridgeOperationsPage() {
           lines: buildLocalLines(`pending-${idempotencyKey}`),
         });
       }
-      const result = await createTicket(ticket, linesToCreate, [], idempotencyKey);
+      const paperRecordedDate = form.externalDocumentNo.trim() && form.paperRecordedAt
+        ? new Date(form.paperRecordedAt)
+        : null;
+      const paperDayStart = paperRecordedDate
+        ? new Date(paperRecordedDate.getFullYear(), paperRecordedDate.getMonth(), paperRecordedDate.getDate())
+        : null;
+      const result = await createTicket(
+        ticket,
+        linesToCreate,
+        [],
+        idempotencyKey,
+        paperRecordedDate && paperDayStart
+          ? {
+              recorded_at: paperRecordedDate.toISOString(),
+              day_start: paperDayStart.toISOString(),
+              day_end: new Date(paperDayStart.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+              tare_weight_kg: Number(form.paperTareKg),
+              moisture_percent: form.harvestMoisture.trim() ? Number(form.harvestMoisture.replace(",", ".")) : null,
+            }
+          : undefined
+      );
       createTicketIdempotencyRef.current = null;
       if (idempotencyPersistKey) localStorage.removeItem(idempotencyPersistKey);
       const createdStatus = String(result?.ticket?.status || "");
@@ -3450,6 +3483,9 @@ export default function WeighbridgeOperationsPage() {
             varietyId: prev.varietyId,
             reproductionId: prev.reproductionId,
             warehouseToId: prev.warehouseToId,
+            externalDocumentNo: "",
+            paperRecordedAt: "",
+            paperTareKg: "",
           };
         }
         return {
@@ -4275,6 +4311,40 @@ export default function WeighbridgeOperationsPage() {
                       : "Место приёмки не настроено. Обратитесь к администратору."}
                   </div>
                 ) : null}
+                <details className="rounded-md border border-slate-800 bg-slate-950/35 px-3 py-2">
+                  <summary className="cursor-pointer text-xs font-semibold text-slate-300">Внести рейс из бумажного журнала</summary>
+                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                    <div className="space-y-1">
+                      <Label>Номер бумажного документа</Label>
+                      <Input
+                        className="h-9"
+                        value={form.externalDocumentNo}
+                        onChange={(event) => setForm((previous) => ({ ...previous, externalDocumentNo: event.target.value }))}
+                        placeholder="Например, 184"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Дата и время рейса</Label>
+                      <Input
+                        className="h-9"
+                        type="datetime-local"
+                        value={form.paperRecordedAt}
+                        onChange={(event) => setForm((previous) => ({ ...previous, paperRecordedAt: event.target.value }))}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Тара, кг</Label>
+                      <Input
+                        className="h-9"
+                        inputMode="decimal"
+                        value={form.paperTareKg}
+                        onChange={(event) => setForm((previous) => ({ ...previous, paperTareKg: event.target.value }))}
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">При заполнении номера рейс будет сразу завершён с указанными брутто, тарой и влажностью.</p>
+                </details>
               </div>
             ) : null}
 
@@ -4739,6 +4809,28 @@ export default function WeighbridgeOperationsPage() {
               {harvestContext.yieldTPerHa != null
                 ? `${harvestContext.yieldStatus === "final" ? "Итоговая" : "Предварительная"} урожайность: ${harvestContext.yieldTPerHa.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} т/га`
                 : "Урожайность появится после фиксации убранной площади"}
+            </div>
+          </section>
+          <section className="lg:col-span-2" aria-label="Сверка бумажных и электронных рейсов по дням">
+            <div className="text-xs font-semibold uppercase text-slate-500">Сверка по дням</div>
+            <div className="mt-2 overflow-x-auto">
+              <table className="w-full min-w-[620px] text-left text-xs">
+                <thead className="text-slate-500">
+                  <tr><th className="pb-2">Дата</th><th className="pb-2">Рейсов</th><th className="pb-2">Нетто</th><th className="pb-2">Средний рейс</th><th className="pb-2">Средняя влажность</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800 text-slate-200">
+                  {Object.entries(harvestSummary.byDay || {}).sort(([a], [b]) => b.localeCompare(a)).slice(0, 14).map(([day, aggregate]) => (
+                    <tr key={day}>
+                      <td className="py-2 font-semibold">{day.split("-").reverse().join(".")}</td>
+                      <td className="py-2">{aggregate.trips}</td>
+                      <td className="py-2">{formatTonnes(aggregate.netKg)}</td>
+                      <td className="py-2">{formatTonnes(aggregate.averageTripKg)}</td>
+                      <td className="py-2">{formatMoisture(aggregate.averageMoisture)}{aggregate.measuredMoistureTrips != null ? ` · ${aggregate.measuredMoistureTrips}/${aggregate.trips}` : ""}</td>
+                    </tr>
+                  ))}
+                  {Object.keys(harvestSummary.byDay || {}).length === 0 ? <tr><td className="py-3 text-slate-500" colSpan={5}>Завершённых рейсов пока нет</td></tr> : null}
+                </tbody>
+              </table>
             </div>
           </section>
         </div>

@@ -319,6 +319,7 @@ export function WeighbridgeTicketPaper({
           <Fact label="Завершён" value={finalizedAt} />
             {operatorFacts.map((fact) => <Fact key={fact.label} label={fact.label} value={fact.value} />)}
           <Fact label="Номер документа" value={first(ticket.supplier_document_no)} />
+          <Fact label={isHarvest ? "Бумажный документ" : "Внешний документ"} value={first(ticket.external_document_no)} />
           <Fact label="Комментарий" value={first(ticket.notes)} />
           {ticket.status === "voided" ? <Fact label="Причина аннулирования" value={first(ticket.void_reason)} /> : null}
           {ticket.correction_of_ticket ? <Fact label="Исправление талона" value={`№ ${ticket.correction_of_ticket.ticket_no}`} /> : null}
