@@ -27,6 +27,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TravkinLogo } from "@/components/layout/travkin-logo";
+import { SystemHealthBadge } from "@/components/operations/system-health-badge";
 
 interface NavItem {
   labelKey: TranslationKey;
@@ -192,6 +193,10 @@ export function Sidebar() {
           })}
         </TooltipProvider>
       </nav>
+
+      {["global_admin", "company_admin"].includes(String(profile?.role || "")) ? (
+        <SystemHealthBadge collapsed={isCollapsed} />
+      ) : null}
 
       {!isCollapsed ? (
         <div className="border-t border-[#262D3D] px-4 py-3 text-[11px] text-[#7F8A9B]">
