@@ -28,6 +28,15 @@ const AssistantDebugMonitor = dynamic(
   { ssr: false }
 );
 
+const ADJACENT_ROUTE_PREFETCH: Record<string, string[]> = {
+  "/dashboard": ["/weighbridge", "/warehouses"],
+  "/weighbridge": ["/warehouses", "/dashboard"],
+  "/warehouses": ["/weighbridge", "/dashboard"],
+  "/fields": ["/fields-map", "/crop-structure"],
+  "/fields-map": ["/fields", "/crop-structure"],
+  "/analytics": ["/dashboard", "/warehouses"],
+};
+
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { profile, loading, refreshProfile } = useAuth();
   const pathname = usePathname();
@@ -52,6 +61,24 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       router.replace(getDefaultPathForRole(profile.role));
     }
   }, [loading, profile?.role, profile?.context_company_id, pathname, router]);
+
+  useEffect(() => {
+    if (loading || !profile?.role || !pathname) return;
+    const route = Object.keys(ADJACENT_ROUTE_PREFETCH).find((candidate) => pathname === candidate || pathname.startsWith(`${candidate}/`));
+    if (!route) return;
+    const targets = ADJACENT_ROUTE_PREFETCH[route].filter((target) => canAccessPath(profile.role, target));
+    const prefetch = () => targets.forEach((target) => router.prefetch(target));
+    const idleWindow = window as Window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (idleWindow.requestIdleCallback) {
+      const id = idleWindow.requestIdleCallback(prefetch, { timeout: 1200 });
+      return () => idleWindow.cancelIdleCallback?.(id);
+    }
+    const timer = window.setTimeout(prefetch, 350);
+    return () => window.clearTimeout(timer);
+  }, [loading, pathname, profile?.role, router]);
 
   if (!loading && profile?.role && pathname && !canAccessPath(profile.role, pathname)) {
     return null;

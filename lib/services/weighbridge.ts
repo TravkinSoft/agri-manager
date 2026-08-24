@@ -62,6 +62,42 @@ export async function getWeighbridgeBootstrap(
   return parseJsonOrThrow(response);
 }
 
+export async function getReconciliationControls(companyId?: string) {
+  const headers = await buildClientAuthHeaders("none");
+  const query = new URLSearchParams();
+  if (companyId) query.set("companyId", companyId);
+  const response = await fetch(`/api/weighbridge/reconciliation-controls${query.size ? `?${query}` : ""}`, {
+    method: "GET",
+    cache: "no-store",
+    credentials: "include",
+    headers,
+  });
+  return parseJsonOrThrow(response);
+}
+
+export async function saveReconciliationControl(input: {
+  companyId?: string;
+  reconciliationDate: string;
+  fieldId: string | null;
+  paperTotalKg: number | null;
+}) {
+  const headers = await buildClientAuthHeaders("json");
+  const query = new URLSearchParams();
+  if (input.companyId) query.set("companyId", input.companyId);
+  const response = await fetch(`/api/weighbridge/reconciliation-controls${query.size ? `?${query}` : ""}`, {
+    method: "PUT",
+    cache: "no-store",
+    credentials: "include",
+    headers,
+    body: JSON.stringify({
+      reconciliation_date: input.reconciliationDate,
+      field_id: input.fieldId,
+      paper_total_kg: input.paperTotalKg,
+    }),
+  });
+  return parseJsonOrThrow(response);
+}
+
 export async function getWeighbridgeResources(companyId?: string, options?: { signal?: AbortSignal }) {
   const headers = await buildClientAuthHeaders("none");
   const url = companyId

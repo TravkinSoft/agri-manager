@@ -97,18 +97,29 @@ export async function GET(request: NextRequest) {
       (ticket: any) => !activeSeason?.id || String(ticket.season_id || "") === String(activeSeason.id)
     );
     const todayKey = dayKey(new Date().toISOString());
-    const todayHarvestTickets = seasonHarvestTickets.filter((ticket: any) => dayKey(ticket.created_at) === todayKey);
+    const ticketDay = (ticket: any) => dayKey(ticket.finalized_at || ticket.created_at);
+    const todayHarvestTickets = seasonHarvestTickets.filter((ticket: any) => ticketDay(ticket) === todayKey);
     const fieldIds = Array.from(new Set(seasonHarvestTickets.map((ticket: any) => String(ticket.field_id || "")).filter(Boolean)));
     const byField = Object.fromEntries(fieldIds.map((fieldId) => {
       const cumulative = seasonHarvestTickets.filter((ticket: any) => String(ticket.field_id || "") === fieldId);
-      const today = cumulative.filter((ticket: any) => dayKey(ticket.created_at) === todayKey);
+      const today = cumulative.filter((ticket: any) => ticketDay(ticket) === todayKey);
       return [fieldId, { today: aggregateHarvestTickets(today), cumulative: aggregateHarvestTickets(cumulative) }];
     }));
-    const dayKeys = Array.from(new Set(seasonHarvestTickets.map((ticket: any) => dayKey(ticket.created_at)).filter(Boolean)));
+    const dayKeys = Array.from(new Set(seasonHarvestTickets.map((ticket: any) => ticketDay(ticket)).filter(Boolean)));
     const byDay = Object.fromEntries(dayKeys.map((key) => [
       key,
-      aggregateHarvestTickets(seasonHarvestTickets.filter((ticket: any) => dayKey(ticket.created_at) === key)),
+      aggregateHarvestTickets(seasonHarvestTickets.filter((ticket: any) => ticketDay(ticket) === key)),
     ]));
+    const reconciliationKeys = Array.from(new Set<string>(seasonHarvestTickets.map((ticket: any) => (
+      `${ticketDay(ticket)}::${String(ticket.field_id || "")}`
+    )).filter((key: string) => !key.startsWith("::"))));
+    const reconciliationRows = reconciliationKeys.map((key) => {
+      const [day, fieldId] = key.split("::");
+      const matching = seasonHarvestTickets.filter((ticket: any) => (
+        ticketDay(ticket) === day && String(ticket.field_id || "") === fieldId
+      ));
+      return { day, fieldId: fieldId || null, aggregate: aggregateHarvestTickets(matching) };
+    });
     const shiftTickets = shiftRes.data?.id
       ? tickets.filter((ticket: any) => String(ticket.shift_id || "") === String(shiftRes.data.id))
       : [];
@@ -129,6 +140,7 @@ export async function GET(request: NextRequest) {
         today: aggregateHarvestTickets(todayHarvestTickets),
         byField,
         byDay,
+        reconciliationRows,
       },
       shiftSummary: {
         trips: shiftTickets.filter((ticket: any) => ticket.status === "finalized" && !ticket.is_voided).length,
