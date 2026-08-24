@@ -30,6 +30,7 @@ export type WarehouseType =
 export interface Warehouse {
   id: string;
   name: string;
+  place_type?: "WAREHOUSE" | "YARD" | "DRYER" | "CLEANER" | string | null;
   warehouse_type?: string | null;
   storage_capacity_kg?: number | null;
   capacity_value?: number | null;
@@ -51,6 +52,8 @@ export interface Warehouse {
 export interface WarehouseSummary {
   warehouse: Warehouse;
   position_count: number;
+  harvest_lot_count?: number;
+  harvest_weight_kg?: number;
   last_movement_at: string | null;
 }
 

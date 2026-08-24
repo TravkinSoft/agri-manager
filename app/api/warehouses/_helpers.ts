@@ -27,6 +27,7 @@ export function normalizeWarehouseRow(row: any) {
     id: String(row.id),
     company_id: row.company_id ? String(row.company_id) : null,
     name: String(row.name || "Склад"),
+    place_type: row.place_type ?? "WAREHOUSE",
     warehouse_type: row.warehouse_type ?? null,
     storage_capacity_kg: row.storage_capacity_kg == null ? null : Number(row.storage_capacity_kg),
     capacity_value: row.capacity_value == null ? null : Number(row.capacity_value),

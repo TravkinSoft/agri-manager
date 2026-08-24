@@ -9,12 +9,11 @@ import {
   PackagePlus,
   Search,
   Settings2,
-  Warehouse as WarehouseIcon,
 } from "lucide-react";
+import { EmptyState, MetricStrip, ObjectVisual, StatusBadge } from "@/components/operations/operational-ui";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -50,6 +49,8 @@ import type {
 import {
   isAgrochemicalWarehouseType,
   isReceiptWarehouseType,
+  normalizeStoragePlaceType,
+  storagePlaceTypeLabel,
   warehouseTypeLabel,
 } from "@/lib/warehouse/warehouse-scope";
 
@@ -84,10 +85,28 @@ type Summary = {
   stock: InventoryBalance[];
   batches: HarvestBatchSummary[];
   positionCount: number;
+  harvestLotCount: number;
+  harvestWeightKg: number;
   lastMovementAt: string | null;
   summaryLoaded: boolean;
   detailsLoaded: boolean;
 };
+
+function capacityKg(warehouse: Warehouse): number | null {
+  if (normalizeStoragePlaceType(warehouse.place_type) !== "WAREHOUSE") return null;
+  if (warehouse.storage_capacity_kg != null && Number(warehouse.storage_capacity_kg) > 0) {
+    return Number(warehouse.storage_capacity_kg);
+  }
+  if (warehouse.capacity_value == null || Number(warehouse.capacity_value) <= 0) return null;
+  if (warehouse.capacity_unit === "t") return Number(warehouse.capacity_value) * 1000;
+  if (warehouse.capacity_unit === "kg") return Number(warehouse.capacity_value);
+  return null;
+}
+
+function formatMass(valueKg: number): string {
+  if (valueKg >= 1000) return `${(valueKg / 1000).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} т`;
+  return `${valueKg.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} кг`;
+}
 
 const warehousePageCache = new Map<string, {
   summaries: WarehouseSummary[];
@@ -291,6 +310,8 @@ export default function WarehousesPage() {
       stock,
       batches,
       positionCount: serverSummary?.position_count || 0,
+      harvestLotCount: serverSummary?.harvest_lot_count || 0,
+      harvestWeightKg: serverSummary?.harvest_weight_kg || 0,
       lastMovementAt: serverSummary?.last_movement_at || null,
       summaryLoaded: Boolean(serverSummary),
       detailsLoaded,
@@ -349,10 +370,13 @@ export default function WarehousesPage() {
     return <Alert variant="destructive"><AlertDescription>Доступ к складам запрещён для текущей роли.</AlertDescription></Alert>;
   }
 
-  const renderWarehouseCard = ({ warehouse, positionCount, lastMovementAt, summaryLoaded }: Summary) => {
+  const renderWarehouseCard = ({ warehouse, positionCount, harvestLotCount, harvestWeightKg, lastMovementAt, summaryLoaded }: Summary) => {
     const empty = summaryLoaded && positionCount === 0;
+    const placeType = normalizeStoragePlaceType(warehouse.place_type);
+    const capacity = capacityKg(warehouse);
+    const fillPercent = capacity && harvestWeightKg > 0 ? Math.min(100, Math.round((harvestWeightKg / capacity) * 100)) : null;
     return (
-      <Card
+      <article
         key={warehouse.id}
         role="button"
         tabIndex={0}
@@ -364,30 +388,46 @@ export default function WarehousesPage() {
             openWarehouse(warehouse.id);
           }
         }}
-        className="cursor-pointer rounded-md border-slate-800 bg-slate-900/60 transition-colors hover:border-yellow-500/60 hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
+        className="group cursor-pointer rounded-md border border-slate-800/80 bg-[#101724] p-4 transition-colors hover:border-yellow-500/45 hover:bg-[#121b2b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-400"
       >
-        <CardHeader className="space-y-2 pb-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <CardTitle className="truncate text-lg">{warehouse.name}</CardTitle>
-              <div className="mt-1 text-sm text-slate-400">{warehouseTypeLabel(warehouse.warehouse_type)}</div>
+        <div className="flex items-start gap-3">
+          <ObjectVisual placeType={placeType} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-semibold text-slate-50">{warehouse.name}</h2>
+                <div className="mt-0.5 truncate text-xs text-slate-400">
+                  {placeType === "WAREHOUSE" ? warehouseTypeLabel(warehouse.warehouse_type) : storagePlaceTypeLabel(placeType)}
+                </div>
+              </div>
+              <StatusBadge status={isArchived(warehouse) ? "empty" : empty ? "empty" : placeType === "WAREHOUSE" ? "closed" : "active"}>
+                {isArchived(warehouse) ? "Архив" : empty ? "Свободен" : placeType === "WAREHOUSE" ? "Активный" : "В работе"}
+              </StatusBadge>
             </div>
-            <Badge className={isArchived(warehouse) ? "bg-slate-700 text-slate-200" : empty ? "bg-amber-500/15 text-amber-200" : "bg-emerald-500/15 text-emerald-200"}>
-              {isArchived(warehouse) ? "Архив" : empty ? "Пустой" : "Активный"}
-            </Badge>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="text-sm">
-            <div className="text-slate-500">Позиций</div>
-            {summaryLoaded ? <div className="mt-1 text-lg font-semibold">{positionCount}</div> : <div className="mt-2 h-6 w-12 animate-pulse rounded bg-slate-800" />}
+        </div>
+        {!summaryLoaded ? (
+          <div className="mt-4 h-14 animate-pulse rounded-md bg-slate-900" />
+        ) : empty ? (
+          <EmptyState detail={`Последнее движение: ${formatDate(lastMovementAt)}`} />
+        ) : (
+          <div className="mt-4 space-y-3">
+            <MetricStrip items={[
+              ...(harvestWeightKg > 0 ? [{ label: "Урожай", value: formatMass(harvestWeightKg), emphasis: "success" as const }] : []),
+              { label: placeType === "WAREHOUSE" ? "Партии" : "Позиций", value: harvestLotCount || positionCount },
+              { label: "Движение", value: formatDate(lastMovementAt) },
+            ]} />
+            {fillPercent != null ? (
+              <div>
+                <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
+                  <span>{formatMass(harvestWeightKg)} из {formatMass(capacity || 0)}</span><span>{fillPercent}%</span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-yellow-400/75" style={{ width: `${fillPercent}%` }} /></div>
+              </div>
+            ) : null}
           </div>
-          <div className="text-sm">
-            <div className="text-slate-500">Последнее движение</div>
-            {summaryLoaded ? <div className="mt-1 text-slate-200">{formatDate(lastMovementAt)}</div> : <div className="mt-2 h-5 w-32 animate-pulse rounded bg-slate-800" />}
-          </div>
-        </CardContent>
-      </Card>
+        )}
+      </article>
     );
   };
 
@@ -449,14 +489,16 @@ export default function WarehousesPage() {
             <>
               <DialogHeader className="shrink-0 border-b border-slate-800 px-5 py-4 text-left">
                 <div className="flex flex-wrap items-start justify-between gap-3 pr-8">
-                  <div>
-                    <DialogTitle className="flex items-center gap-2 text-xl">
-                      <WarehouseIcon className="h-5 w-5 text-yellow-400" />
-                      {selectedSummary.warehouse.name}
-                    </DialogTitle>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <ObjectVisual placeType={selectedSummary.warehouse.place_type} className="h-11 w-12" />
+                    <div className="min-w-0">
+                    <DialogTitle className="truncate text-xl">{selectedSummary.warehouse.name}</DialogTitle>
                     <DialogDescription className="mt-1">
-                      {warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)} · {selectedSummary.positionCount} поз. · последнее движение {formatDate(selectedSummary.lastMovementAt)}
+                      {normalizeStoragePlaceType(selectedSummary.warehouse.place_type) === "WAREHOUSE"
+                        ? warehouseTypeLabel(selectedSummary.warehouse.warehouse_type)
+                        : storagePlaceTypeLabel(selectedSummary.warehouse.place_type)} · {selectedSummary.positionCount} поз. · последнее движение {formatDate(selectedSummary.lastMovementAt)}
                     </DialogDescription>
+                    </div>
                   </div>
                   {selectedCanReceive ? (
                     <div className="flex flex-wrap gap-2">
@@ -524,6 +566,9 @@ export default function WarehousesPage() {
                         <div className="shrink-0 font-semibold text-slate-100">{quantity(row.quantity)} {localizeUnit(row.unit, language)}</div>
                       </button>
                     ))}
+                    {selectedSummary.detailsLoaded && selectedSummary.batches.length === 0 && selectedMaterialStock.length === 0 ? (
+                      <div className="px-4"><EmptyState /></div>
+                    ) : null}
                     {!detailsLoading && selectedSummary.batches.length === 0 && selectedMaterialStock.length === 0 ? (
                       <div className="px-4 py-10 text-center text-sm text-slate-500">Склад пуст</div>
                     ) : null}

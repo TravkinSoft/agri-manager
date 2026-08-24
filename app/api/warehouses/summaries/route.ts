@@ -73,6 +73,7 @@ export async function GET(request: NextRequest) {
     }
 
     const harvestPositions = new Map<string, Set<string>>();
+    const harvestWeightByWarehouse = new Map<string, number>();
     for (const row of harvestLotsResult.data || []) {
       const warehouseId = String((row as any).warehouse_id || "");
       const lotId = String((row as any).harvest_lot_id || "");
@@ -80,6 +81,10 @@ export async function GET(request: NextRequest) {
       const positions = harvestPositions.get(warehouseId) || new Set<string>();
       positions.add(lotId);
       harvestPositions.set(warehouseId, positions);
+      harvestWeightByWarehouse.set(
+        warehouseId,
+        (harvestWeightByWarehouse.get(warehouseId) || 0) + Number((row as any).current_weight_kg || 0)
+      );
     }
 
     const lastMovementByWarehouse = new Map<string, string>();
@@ -99,6 +104,8 @@ export async function GET(request: NextRequest) {
         position_count:
           (materialPositions.get(String(warehouse.id))?.size || 0) +
           (harvestPositions.get(String(warehouse.id))?.size || 0),
+        harvest_lot_count: harvestPositions.get(String(warehouse.id))?.size || 0,
+        harvest_weight_kg: harvestWeightByWarehouse.get(String(warehouse.id)) || 0,
         last_movement_at: lastMovementByWarehouse.get(String(warehouse.id)) || null,
       }));
 

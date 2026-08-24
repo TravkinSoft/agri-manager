@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, ChevronDown, Factory, History, Loader2, Plus, RotateCcw, ShieldCheck } from "lucide-react";
+import { ChevronDown, Factory, History, Loader2, Plus, RotateCcw, ShieldCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { BalanceSummary, MetricStrip, StatusBadge } from "@/components/operations/operational-ui";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -75,10 +76,13 @@ export function ProcessingWorkspace({ onAddOutput }: Props) {
   const [lossReason, setLossReason] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const requestKeys = useRef(new Map<string, string>());
+  const loadInFlight = useRef(false);
   const canManageBalance = ["global_admin", "company_admin", "director"].includes(String(profile?.role || ""));
 
   const load = useCallback(async (showLoading = false) => {
     if (!profile?.company_id || !profile?.id) return;
+    if (loadInFlight.current) return;
+    loadInFlight.current = true;
     if (showLoading) setLoading(true);
     try {
       const rows = await getProcessingTransformations(profile.company_id, profile.id);
@@ -87,17 +91,22 @@ export function ProcessingWorkspace({ onAddOutput }: Props) {
       toast({ title: "Обработки недоступны", description: error instanceof Error ? error.message : "Не удалось обновить данные", variant: "destructive" });
     } finally {
       setLoading(false);
+      loadInFlight.current = false;
     }
   }, [profile?.company_id, profile?.id, toast]);
 
   useEffect(() => {
     void load(true);
-    const refresh = () => void load(false);
-    const timer = window.setInterval(refresh, 15_000);
+    const refresh = () => {
+      if (document.visibilityState === "visible") void load(false);
+    };
+    const timer = window.setInterval(refresh, 60_000);
     window.addEventListener("travkin:weighbridge-data-changed", refresh);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       window.clearInterval(timer);
       window.removeEventListener("travkin:weighbridge-data-changed", refresh);
+      document.removeEventListener("visibilitychange", refresh);
     };
   }, [load]);
 
@@ -188,29 +197,25 @@ export function ProcessingWorkspace({ onAddOutput }: Props) {
           const pending = item.processing_state === "processing_pending_outputs";
           const input = Number(item.input_total_kg ?? item.input_weight_kg ?? 0);
           const unallocated = Number(item.unallocated_kg || 0);
+          const output = Number(item.main_output_kg || 0) + Number(item.byproduct_kg || 0) + Number(item.stock_waste_kg || 0);
+          const losses = Number(item.moisture_loss_kg || 0) + Number(item.approved_process_loss_kg || 0);
           return (
-            <article key={item.id} className="rounded-lg border border-slate-800 bg-[#101724] p-4" data-processing-state={item.processing_state}>
+            <article key={item.id} className="rounded-md border border-slate-800/80 bg-[#101724] p-4" data-processing-state={item.processing_state}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-bold uppercase text-slate-100">{item.processing_node_name || "Узел обработки"} · {typeLabels[item.transformation_type] || "Обработка"}</div>
+                  <div className="text-[10px] font-semibold uppercase text-slate-500">{typeLabels[item.transformation_type] || "Обработка"}</div>
+                  <div className="mt-0.5 truncate text-base font-bold text-slate-100">{item.processing_node_name || "Узел обработки"}</div>
                   <div className="mt-1 truncate text-sm text-slate-300" title={item.identity_label || item.input_label}>{item.identity_label || item.input_label}</div>
                 </div>
-                <Badge className={pending ? "border border-amber-600/60 bg-amber-950/50 text-amber-200" : "border border-sky-700/60 bg-sky-950/50 text-sky-200"}>{pending ? "Сверка баланса" : "В работе"}</Badge>
+                <StatusBadge status={pending ? (unallocated > 0.001 ? "warning" : "closed") : "active"}>{pending ? "Сверка" : "В работе"}</StatusBadge>
               </div>
-              {pending ? <div className="mt-3 flex items-center gap-2 text-sm font-medium text-emerald-300"><CheckCircle2 className="h-4 w-4" />Обработка физически закончена</div> : null}
+              <MetricStrip className="mt-3" items={[
+                { label: "Вход", value: formatMass(input) },
+                { label: "Выход", value: formatMass(output) },
+                { label: pending ? "Нераспределённый баланс обработки" : "Сейчас в обработке", value: formatMass(unallocated), emphasis: pending ? (unallocated > 0.001 ? "warning" : "success") : "default" },
+              ]} />
 
-              <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-sm">
-                <dt className="text-slate-400">Вход</dt><dd className="font-semibold text-slate-100">{formatMass(input)}</dd>
-                <dt className="text-slate-400">Основная продукция</dt><dd className="font-semibold text-slate-100">{formatMass(item.main_output_kg)}</dd>
-                {Number(item.byproduct_kg || 0) > 0 ? <><dt className="text-slate-400">Побочная продукция</dt><dd className="font-semibold text-slate-100">{formatMass(item.byproduct_kg)}</dd></> : null}
-                <dt className="text-slate-400">Фактические отходы</dt><dd className="font-semibold text-slate-100">{formatMass(item.stock_waste_kg)}</dd>
-                {Number(item.moisture_loss_kg || 0) > 0 ? <><dt className="text-slate-400">Удалённая вода</dt><dd className="font-semibold text-slate-100">{formatMass(item.moisture_loss_kg)}</dd></> : null}
-                {Number(item.approved_process_loss_kg || 0) > 0 ? <><dt className="text-slate-400">Подтверждённые потери</dt><dd className="font-semibold text-slate-100">{formatMass(item.approved_process_loss_kg)}</dd></> : null}
-                <dt className={pending ? (unallocated > 0.001 ? "font-medium text-amber-300" : "text-emerald-300") : "font-medium text-sky-300"}>
-                  {pending ? "Нераспределённый баланс обработки" : "Сейчас в обработке"}
-                </dt>
-                <dd className={pending ? (unallocated > 0.001 ? "font-bold text-amber-300" : "font-bold text-emerald-300") : "font-bold text-sky-300"}>{formatMass(unallocated)}</dd>
-              </dl>
+              {pending ? <div className="mt-3"><BalanceSummary inputKg={input} outputKg={output} lossesKg={losses} differenceKg={unallocated} /></div> : null}
 
               {formatMoisture(item.input_moisture_percent) || formatMoisture(item.output_moisture_percent) ? (
                 <div className="mt-3 grid gap-1 border-t border-slate-800 pt-3 text-xs text-slate-400 sm:grid-cols-2">
@@ -299,7 +304,12 @@ export function ProcessingWorkspace({ onAddOutput }: Props) {
       <Dialog open={Boolean(manageItem)} onOpenChange={(open) => !open && setManageItem(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader><DialogTitle>Материальный баланс</DialogTitle><DialogDescription>{manageItem?.processing_node_name} · {manageItem?.identity_label || manageItem?.input_label}</DialogDescription></DialogHeader>
-          <div className="rounded-md border border-slate-800 bg-slate-950/60 p-3 text-sm">Нераспределено: <b className={Number(manageItem?.unallocated_kg || 0) > 0.001 ? "text-amber-300" : "text-emerald-300"}>{formatMass(manageItem?.unallocated_kg)}</b></div>
+          {manageItem ? <BalanceSummary
+            inputKg={Number(manageItem.input_total_kg ?? manageItem.input_weight_kg ?? 0)}
+            outputKg={Number(manageItem.main_output_kg || 0) + Number(manageItem.byproduct_kg || 0) + Number(manageItem.stock_waste_kg || 0)}
+            lossesKg={Number(manageItem.moisture_loss_kg || 0) + Number(manageItem.approved_process_loss_kg || 0)}
+            differenceKg={Number(manageItem.unallocated_kg || 0)}
+          /> : null}
           <div className="space-y-3 border-t border-slate-800 pt-4">
             <div className="font-medium text-slate-100">Подтвердить не складскую потерю</div>
             <div className="grid gap-3 sm:grid-cols-2">
