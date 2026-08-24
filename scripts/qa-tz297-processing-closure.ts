@@ -240,7 +240,8 @@ check("ticket line preview switches from gross to physical net", () => {
 });
 
 check("moisture input is optional across workflows and potato tickets hide the irrelevant fact", () => {
-  assert.match(weighbridgePage, /Влажность, % \(необязательно\)/);
+  assert.match(weighbridgePage, /<CompactField label="Влажность, %">/);
+  assert.doesNotMatch(weighbridgePage, /Влажность, % \(необязательно\)/);
   assert.match(weighbridgePage, /moisture <= 0 \|\| moisture >= 100/);
   assert.match(ticketPatchRoute, /Влажность должна быть больше 0 и меньше 100 %/);
   assert.doesNotMatch(ticketPatchRoute, /harvest_incoming[\s\S]{0,160}moisture_percent/);

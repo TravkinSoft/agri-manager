@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { CheckCircle2, ClipboardList, Clock3, FileDown, Info, Loader2, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
+import { ArrowRight, CheckCircle2, ClipboardList, Clock3, FileDown, Info, Loader2, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,8 @@ import { HarvestAllocationPicker } from "@/components/weighbridge/active-harvest
 import { UniversalWorkspaceTabs, type UniversalWorkspaceTab } from "@/components/weighbridge/universal-workspace-tabs";
 import { TransportDriverSelects } from "@/components/weighbridge/transport-driver-picker";
 import { ProcessingWorkspace } from "@/components/weighbridge/processing-workspace";
+import { DailyReconciliation } from "@/components/weighbridge/daily-reconciliation";
+import { CompactField, PrimaryActionBar } from "@/components/operations/operational-ui";
 import { performProcessingAction, type BatchTransformationRow } from "@/lib/services/processing";
 import type { WeighbridgeTransportPickerData } from "@/lib/weighbridge/transport-pairing";
 import {
@@ -203,12 +205,16 @@ type HarvestAggregate = {
   averageTripKg: number;
   averageMoisture: number | null;
   measuredMoistureTrips?: number;
+  firstTripAt?: string | null;
+  lastTripAt?: string | null;
+  ticketIds?: string[];
 };
 type HarvestSummaryState = {
   seasonId: string | null;
   today: HarvestAggregate;
   byField: Record<string, { today: HarvestAggregate; cumulative: HarvestAggregate }>;
   byDay: Record<string, HarvestAggregate>;
+  reconciliationRows: Array<{ day: string; fieldId: string | null; aggregate: HarvestAggregate }>;
 };
 
 const EMPTY_HARVEST_AGGREGATE: HarvestAggregate = {
@@ -216,6 +222,9 @@ const EMPTY_HARVEST_AGGREGATE: HarvestAggregate = {
   trips: 0,
   averageTripKg: 0,
   averageMoisture: null,
+  firstTripAt: null,
+  lastTripAt: null,
+  ticketIds: [],
 };
 
 type FormState = {
@@ -897,6 +906,7 @@ export default function WeighbridgeOperationsPage() {
     today: EMPTY_HARVEST_AGGREGATE,
     byField: {},
     byDay: {},
+    reconciliationRows: [],
   });
   const [shiftDialogOpen, setShiftDialogOpen] = useState(false);
   const [operatorState, setOperatorState] = useState<WeighbridgeOperatorState>({ shift: null, unlocked: false, operators: [] });
@@ -1363,7 +1373,7 @@ export default function WeighbridgeOperationsPage() {
       setShiftGuard(bootstrap?.shiftGuard || { stale: false, ageHours: 0 });
       setShiftSummary(bootstrap?.shiftSummary || { trips: 0, netKg: 0, open: 0, voided: 0, manualCorrections: 0 });
       if (includeSummary) {
-        setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {}, byDay: {} });
+        setHarvestSummary(bootstrap?.harvestSummary || { seasonId: null, today: EMPTY_HARVEST_AGGREGATE, byField: {}, byDay: {}, reconciliationRows: [] });
       }
     })().finally(() => {
       if (requestRef.current === request) requestRef.current = null;
@@ -2345,6 +2355,7 @@ export default function WeighbridgeOperationsPage() {
       secondaryLabel,
       fullLabel: `${primaryLabel}: ${secondaryLabel}`,
       openTicketCount: openTicketCountForWorkspace(workspace),
+      dirty: isUniversalWorkspaceDirty(draft, INITIAL_FORM, workspace.supplierReceiptLines?.length || 0),
     };
   }), [
     workspaces,
@@ -4045,8 +4056,8 @@ export default function WeighbridgeOperationsPage() {
   const formatMoisture = (value: number | null) => value == null
     ? "—"
     : `${value.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} %`;
-  const terminalPanelClass = "rounded-2xl border border-slate-800/80 bg-[#101724]/95 shadow-[0_18px_60px_rgba(2,6,23,0.28)]";
-  const formSectionClass = "rounded-2xl border border-slate-800/80 bg-[#0B1220]/72 p-3";
+  const terminalPanelClass = "rounded-md border border-slate-800/80 bg-[#101724]/95 shadow-[0_12px_36px_rgba(2,6,23,0.22)]";
+  const formSectionClass = "space-y-3 border-t border-slate-800/70 pt-4 first:border-t-0 first:pt-0";
   const segmentClass = (active: boolean) =>
     active
       ? "h-9 border-yellow-500/70 bg-yellow-500/15 text-yellow-100 hover:bg-yellow-500/20"
@@ -4142,7 +4153,7 @@ export default function WeighbridgeOperationsPage() {
         onLimit={() => toast({ title: "Можно открыть не более 6 рабочих вкладок." })}
       />
 
-      <div className="grid gap-3 xl:grid-cols-[minmax(760px,1fr)_340px]">
+      <div className={`grid gap-3 ${visibleActiveTickets.length > 0 || ticketsLoading ? "xl:grid-cols-[minmax(760px,1fr)_340px]" : "xl:grid-cols-1"}`}>
         <Card className={`${terminalPanelClass} overflow-hidden xl:col-start-1`}>
           <CardHeader className="border-b border-slate-800/80 px-4 py-3">
             <CardTitle className="flex flex-col gap-3 text-base text-slate-50 md:flex-row md:items-center md:justify-between">
@@ -4150,8 +4161,8 @@ export default function WeighbridgeOperationsPage() {
                 <Scale className="h-4 w-4 text-yellow-400" />
                 Новый талон
               </span>
-              <span className="flex items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-2 md:min-w-[260px]">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Live вес</span>
+              <span className="flex items-center justify-between gap-4 rounded-md bg-slate-950/70 px-3 py-2 md:min-w-[260px]">
+                <span className="flex items-center gap-2 text-[10px] font-semibold uppercase text-slate-500"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />Live вес</span>
                 <span className="text-2xl font-black leading-none text-white">{liveWeightKg.toLocaleString("ru-RU")} кг</span>
               </span>
             </CardTitle>
@@ -4182,7 +4193,7 @@ export default function WeighbridgeOperationsPage() {
             {form.operationType !== "harvest_incoming" ? (
             <div className={formSectionClass}>
               <div className="mb-3">
-                <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Маршрут и документ</Label>
+                <Label className="flex items-center gap-2 text-xs font-semibold uppercase text-slate-500"><span>Маршрут</span><ArrowRight className="h-3.5 w-3.5 text-yellow-400" /><span>Документ</span></Label>
               </div>
             <div className="grid gap-3 md:grid-cols-2">
               {isFieldIssue ? (
@@ -4666,15 +4677,12 @@ export default function WeighbridgeOperationsPage() {
                 {form.operationType !== "harvest_incoming" ? <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Вес</Label> : null}
               <div className={form.operationType === "harvest_incoming" ? "" : "mt-3"}>
                 <div className={form.operationType === "harvest_incoming" ? "grid items-end gap-3 md:grid-cols-[1fr_170px_220px]" : "grid items-end gap-3 md:grid-cols-[1fr_180px]"}>
-                  <div className="space-y-1">
-                  <Label>Брутто / вес (кг) *</Label>
-                  <Input ref={grossInputRef} className="h-10" inputMode="decimal" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} placeholder="0" />
-                  {grossInputValidation && !grossInputValidation.ok ? <div className="text-xs text-rose-300">{grossInputValidation.message}</div> : null}
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Влажность, % (необязательно)</Label>
-                    <Input className="h-10" inputMode="decimal" value={form.harvestMoisture} onChange={(e) => setForm((p) => ({ ...p, harvestMoisture: e.target.value }))} placeholder="Необязательно" />
-                  </div>
+                  <CompactField label="Брутто / вес (кг)" required error={grossInputValidation && !grossInputValidation.ok ? grossInputValidation.message : null}>
+                    <Input ref={grossInputRef} className="h-10" inputMode="decimal" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} placeholder="0" />
+                  </CompactField>
+                  <CompactField label="Влажность, %">
+                    <Input className="h-10" inputMode="decimal" value={form.harvestMoisture} onChange={(e) => setForm((p) => ({ ...p, harvestMoisture: e.target.value }))} placeholder="—" />
+                  </CompactField>
                   {form.operationType === "harvest_incoming" && canOperate ? (
                     <Button
                       className="h-10 w-full font-semibold"
@@ -4697,7 +4705,16 @@ export default function WeighbridgeOperationsPage() {
             </div> : null}
 
             {canOperate && form.operationType !== "harvest_incoming" ? (
-              <div className="sticky bottom-0 z-10 -mx-4 border-t border-slate-800 bg-[#101724]/95 px-4 pt-3 backdrop-blur">
+              <PrimaryActionBar
+                sticky
+                hint={
+                  !coreDataReady || secondaryModeLoading
+                    ? currentValidationError
+                    : coreDataReady && !activeShift && !isSupplierDirect
+                      ? "Смена закрыта: откройте её через меню ⋯."
+                      : undefined
+                }
+              >
                 <Button
                   className="h-11 w-full text-base font-semibold"
                   onClick={() => void create()}
@@ -4710,23 +4727,18 @@ export default function WeighbridgeOperationsPage() {
                 >
                   {submitting ? "Сохранение..." : "Создать талон"}
                 </Button>
-                {!coreDataReady || secondaryModeLoading ? <div className="mt-1 text-xs text-amber-300">{currentValidationError}</div> : null}
-                {coreDataReady && !activeShift && !isSupplierDirect ? <div className="mt-1 text-xs text-amber-300">Смена закрыта: откройте её через меню ⋯.</div> : null}
                 {coreDataReady && activeShift && canUseOperatorSession && !operatorState.unlocked && !isSupplierDirect ? (
                   <button type="button" className="mt-1 text-left text-xs font-medium text-amber-300 underline underline-offset-2" onClick={openShiftAction}>
                     Терминал заблокирован: введите PIN весовщика.
                   </button>
                 ) : null}
-                {coreDataReady && !secondaryModeLoading && activeShift && currentValidationError ? (
-                  <div className="mt-1 text-xs text-amber-300">{currentValidationError}</div>
-                ) : null}
-              </div>
+              </PrimaryActionBar>
             ) : null}
           </CardContent>
         </Card>
 
-        <Card className={`${terminalPanelClass} xl:col-start-2 xl:row-start-1`}>
-          <CardHeader className="border-b border-slate-800/80 px-4 py-3">
+        <Card className={`${terminalPanelClass} ${visibleActiveTickets.length > 0 || ticketsLoading ? "xl:col-start-2 xl:row-start-1" : "xl:col-start-1"}`}>
+          <CardHeader className={`${visibleActiveTickets.length > 0 || ticketsLoading ? "border-b border-slate-800/80 px-4 py-3" : "px-4 py-2"}`}>
             <CardTitle className="flex items-center justify-between gap-2 text-base text-slate-50">
               <span className="flex items-center gap-2">
                 <Clock3 className="h-4 w-4 text-yellow-400" />Открытые талоны
@@ -4734,8 +4746,8 @@ export default function WeighbridgeOperationsPage() {
               <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{visibleActiveTickets.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent className="max-h-[720px] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
-            {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка очереди...</div> : visibleActiveTickets.length === 0 ? <div className="rounded-xl border border-dashed border-slate-800 bg-slate-950/45 p-6 text-center text-sm text-slate-500">Открытых талонов нет</div> : [...visibleActiveTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
+          {ticketsLoading || visibleActiveTickets.length > 0 ? <CardContent className="max-h-[720px] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
+            {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка очереди...</div> : [...visibleActiveTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
               const isPending = t.id.startsWith("pending-");
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = driverNameForId(t.driver_id) || "Без водителя";
@@ -4772,7 +4784,7 @@ export default function WeighbridgeOperationsPage() {
                 </button>
               );
             })}
-          </CardContent>
+          </CardContent> : null}
         </Card>
       </div>
 
@@ -4811,28 +4823,31 @@ export default function WeighbridgeOperationsPage() {
                 : "Урожайность появится после фиксации убранной площади"}
             </div>
           </section>
-          <section className="lg:col-span-2" aria-label="Сверка бумажных и электронных рейсов по дням">
-            <div className="text-xs font-semibold uppercase text-slate-500">Сверка по дням</div>
-            <div className="mt-2 overflow-x-auto">
-              <table className="w-full min-w-[620px] text-left text-xs">
-                <thead className="text-slate-500">
-                  <tr><th className="pb-2">Дата</th><th className="pb-2">Рейсов</th><th className="pb-2">Нетто</th><th className="pb-2">Средний рейс</th><th className="pb-2">Средняя влажность</th></tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800 text-slate-200">
-                  {Object.entries(harvestSummary.byDay || {}).sort(([a], [b]) => b.localeCompare(a)).slice(0, 14).map(([day, aggregate]) => (
-                    <tr key={day}>
-                      <td className="py-2 font-semibold">{day.split("-").reverse().join(".")}</td>
-                      <td className="py-2">{aggregate.trips}</td>
-                      <td className="py-2">{formatTonnes(aggregate.netKg)}</td>
-                      <td className="py-2">{formatTonnes(aggregate.averageTripKg)}</td>
-                      <td className="py-2">{formatMoisture(aggregate.averageMoisture)}{aggregate.measuredMoistureTrips != null ? ` · ${aggregate.measuredMoistureTrips}/${aggregate.trips}` : ""}</td>
-                    </tr>
-                  ))}
-                  {Object.keys(harvestSummary.byDay || {}).length === 0 ? <tr><td className="py-3 text-slate-500" colSpan={5}>Завершённых рейсов пока нет</td></tr> : null}
-                </tbody>
-              </table>
+          {statisticsOpen ? (
+            <div className="lg:col-span-2">
+              <DailyReconciliation
+                companyId={profile?.company_id}
+                daily={harvestSummary.byDay || {}}
+                fieldRows={harvestSummary.reconciliationRows || []}
+                fieldNames={Object.fromEntries(fields.map((field) => [field.id, field.name]))}
+                onOpenTicket={(ticketId) => {
+                  const cachedTicket = tickets.find((ticket) => ticket.id === ticketId);
+                  if (cachedTicket) {
+                    setHistoryPreviewTicket(cachedTicket);
+                    return;
+                  }
+                  if (!profile?.id) return;
+                  void getTicketDetails(ticketId, profile.id).then((payload) => {
+                    setHistoryPreviewTicket({ ...(payload.ticket || {}), lines: payload.lines || payload.ticket?.lines || [] } as WeighbridgeTicket);
+                  }).catch((ticketError) => toast({
+                    title: "Не удалось открыть рейс",
+                    description: ticketError instanceof Error ? ticketError.message : "Талон недоступен",
+                    variant: "destructive",
+                  }));
+                }}
+              />
             </div>
-          </section>
+          ) : null}
         </div>
       </details>
 
@@ -5157,7 +5172,7 @@ export default function WeighbridgeOperationsPage() {
 
             {!isWeighbridgeForm ? (
               <div className="space-y-1">
-                <Label>Влажность, % (необязательно)</Label>
+                <Label>Влажность, %</Label>
                 <Input
                   className="h-10"
                   inputMode="decimal"

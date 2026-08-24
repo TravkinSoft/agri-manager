@@ -26,6 +26,7 @@ export type UniversalWorkspaceTab = {
   secondaryLabel: string;
   fullLabel: string;
   openTicketCount?: number;
+  dirty?: boolean;
 };
 
 const WORKSPACE_MENU: Array<{
@@ -64,7 +65,7 @@ export function UniversalWorkspaceTabs({
   const atLimit = tabs.length >= UNIVERSAL_WORKSPACE_MAX_TABS;
 
   return (
-    <section aria-label="Рабочие вкладки Весовой" className="flex min-w-0 items-start gap-1.5 rounded-lg border border-slate-800 bg-[#0b1220]/92 p-1.5">
+    <section aria-label="Рабочие вкладки Весовой" className="flex min-w-0 items-start gap-1.5 border-b border-slate-800/80 pb-2">
       <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5 overflow-hidden md:grid-cols-3 xl:grid-cols-6">
         {tabs.map((tab) => {
           const selected = selectedId === tab.id;
@@ -73,8 +74,8 @@ export function UniversalWorkspaceTabs({
             <div
               key={tab.id}
               className={selected
-                ? "flex h-11 min-w-0 items-center rounded-md border border-yellow-400/70 bg-slate-800/90 text-slate-50 shadow-[inset_3px_0_0_rgba(250,204,21,0.9)]"
-                : "flex h-11 min-w-0 items-center rounded-md border border-slate-700 bg-slate-950/75 text-slate-100 hover:border-slate-600 hover:bg-slate-900"}
+                ? "flex h-11 min-w-0 items-center rounded-md border border-slate-600 bg-slate-800/90 text-slate-50 shadow-[inset_3px_0_0_rgba(250,204,21,0.9)]"
+                : "flex h-11 min-w-0 items-center rounded-md border border-transparent bg-slate-950/45 text-slate-200 hover:border-slate-700 hover:bg-slate-900"}
               title={tab.fullLabel}
             >
               <button
@@ -91,6 +92,7 @@ export function UniversalWorkspaceTabs({
                     {tab.secondaryLabel}
                   </span>
                 </span>
+                {tab.dirty ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" title="Есть несохранённые данные" aria-label="Есть несохранённые данные" /> : null}
                 {Number(tab.openTicketCount || 0) > 0 ? (
                   <span className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full border border-amber-400/50 bg-amber-400/10 px-1 text-[9px] font-bold text-amber-200">
                     {tab.openTicketCount}
