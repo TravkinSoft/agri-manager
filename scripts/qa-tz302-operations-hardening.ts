@@ -109,6 +109,13 @@ async function main() {
     assert.deepEqual(aggregate.ticketIds, ["early", "middle", "late"]);
   });
 
+  await check("shift summary counts the complete active shift outside the lightweight ticket queue", () => {
+    assert.match(bootstrap, /const shiftTicketsRes = shiftRes\.data\?\.id/);
+    assert.match(bootstrap, /\.eq\("shift_id", shiftRes\.data\.id\)/);
+    assert.match(bootstrap, /const shiftTickets = shiftTicketsRes\.data \|\| \[\]/);
+    assert.doesNotMatch(bootstrap, /const shiftTickets = shiftRes\.data\?\.id\s*\? tickets\.filter/);
+  });
+
   await check("reconciliation supports day, field, paper delta and ticket drill-down", () => {
     assert.match(bootstrap, /reconciliationRows/);
     assert.match(reconciliationUi, /paperTotalKg/);

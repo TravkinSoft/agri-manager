@@ -83,6 +83,17 @@ export async function GET(request: NextRequest) {
     if (seasonsRes.error) return NextResponse.json({ error: seasonsRes.error.message }, { status: 400 });
     if (harvestTicketsRes.error) return NextResponse.json({ error: harvestTicketsRes.error.message }, { status: 400 });
 
+    const shiftTicketsRes = shiftRes.data?.id
+      ? await supabase
+          .from("tickets")
+          .select("id,status,net_weight_kg,is_voided,manual_correction_reason")
+          .eq("company_id", companyId)
+          .eq("shift_id", shiftRes.data.id)
+      : { data: [], error: null };
+    if (shiftTicketsRes.error) {
+      return NextResponse.json({ error: shiftTicketsRes.error.message }, { status: 400 });
+    }
+
     const tickets = ticketsRes.data || [];
     const activeTickets = tickets.filter((t: any) => ["draft", "active", "ready_to_close"].includes(String(t.status)));
     const stuckTickets = activeTickets.filter((t: any) => {
@@ -120,9 +131,7 @@ export async function GET(request: NextRequest) {
       ));
       return { day, fieldId: fieldId || null, aggregate: aggregateHarvestTickets(matching) };
     });
-    const shiftTickets = shiftRes.data?.id
-      ? tickets.filter((ticket: any) => String(ticket.shift_id || "") === String(shiftRes.data.id))
-      : [];
+    const shiftTickets = shiftTicketsRes.data || [];
     const shiftOpenedAt = shiftRes.data?.opened_at ? new Date(String(shiftRes.data.opened_at)) : null;
     const shiftAgeHours = shiftOpenedAt && !Number.isNaN(shiftOpenedAt.getTime())
       ? (Date.now() - shiftOpenedAt.getTime()) / (1000 * 60 * 60)
