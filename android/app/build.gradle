@@ -1,0 +1,77 @@
+plugins {
+    id "com.android.application"
+}
+
+def uploadKeystorePath = System.getenv("TRAVKINFLOW_UPLOAD_KEYSTORE")
+def uploadStorePassword = System.getenv("TRAVKINFLOW_UPLOAD_STORE_PASSWORD")
+def uploadKeyAlias = System.getenv("TRAVKINFLOW_UPLOAD_KEY_ALIAS")
+def uploadKeyPassword = System.getenv("TRAVKINFLOW_UPLOAD_KEY_PASSWORD")
+def uploadSigningConfigured = uploadKeystorePath && uploadStorePassword && uploadKeyAlias && uploadKeyPassword
+
+android {
+    namespace "com.travkin.flow"
+    compileSdk 36
+
+    defaultConfig {
+        applicationId "com.travkin.flow"
+        minSdk 29
+        targetSdk 36
+        versionCode 3
+        versionName "3.0.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField "String", "APP_CHANNEL", '"production"'
+    }
+
+    signingConfigs {
+        if (uploadSigningConfigured) {
+            upload {
+                storeFile file(uploadKeystorePath)
+                storePassword uploadStorePassword
+                keyAlias uploadKeyAlias
+                keyPassword uploadKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ".qa"
+            versionNameSuffix "-qa"
+            resValue "string", "app_name", "TravkinFlow QA"
+            buildConfigField "String", "BASE_URL", '"https://qa.travkinflow.com"'
+            buildConfigField "String", "APP_CHANNEL", '"qa"'
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+            resValue "string", "app_name", "TravkinFlow"
+            buildConfigField "String", "BASE_URL", '"https://travkinflow.com"'
+            if (uploadSigningConfigured) {
+                signingConfig signingConfigs.upload
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+}
+
+dependencies {
+    implementation "androidx.activity:activity:1.10.1"
+    implementation "androidx.core:core:1.16.0"
+    implementation "androidx.core:core-splashscreen:1.0.1"
+    implementation "androidx.webkit:webkit:1.13.0"
+
+    testImplementation "junit:junit:4.13.2"
+}

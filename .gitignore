@@ -40,6 +40,14 @@ yarn-error.log*
 /.a107-runtime-*/
 tmp-dev-*.log
 
+# Android generated artifacts and local SDK/signing state
+/android/.gradle/
+/android/build/
+/android/local.properties
+/android/app/build/
+/android/*.jks
+/android/*.keystore
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

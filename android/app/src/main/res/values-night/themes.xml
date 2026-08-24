@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.TravkinFlow" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/travkin_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/travkinflow_icon</item>
+        <item name="postSplashScreenTheme">@style/Theme.TravkinFlow.Main</item>
+    </style>
+</resources>

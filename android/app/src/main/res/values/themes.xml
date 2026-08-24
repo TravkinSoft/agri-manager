@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.TravkinFlow" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/travkin_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/travkinflow_icon</item>
+        <item name="postSplashScreenTheme">@style/Theme.TravkinFlow.Main</item>
+    </style>
+
+    <style name="Theme.TravkinFlow.Main" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:statusBarColor">@color/travkin_background</item>
+        <item name="android:navigationBarColor">@color/travkin_navigation</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>
