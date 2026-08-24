@@ -13,6 +13,7 @@ type ProviderHeaders = { rateLimit: Record<string, string> | null };
 
 const DEFAULT_PROVIDER_URL = "https://www.uavforecast.com/api/v1/forecast";
 export const UAV_FORECAST_HOURS = 48;
+export const UAV_FORECAST_EXTENDED_HOURS = 24 * 7;
 export const UAV_WIND_ALTITUDES_M = [10, 100, 200] as const;
 
 function record(value: unknown): UnknownRecord {
@@ -191,7 +192,7 @@ export function normalizeUavForecastResponse(params: {
     cache: "miss",
     rateLimit: params.headers?.rateLimit || null,
     billing: billing(raw.cost),
-    forecastHours: UAV_FORECAST_HOURS,
+    forecastHours: UAV_FORECAST_EXTENDED_HOURS,
     windAltitudesM: [...UAV_WIND_ALTITUDES_M],
   };
 
@@ -264,7 +265,7 @@ export async function fetchUavForecast(location: WeatherLocation): Promise<Norma
   const payload = JSON.stringify({
     lat: location.latitude,
     lon: location.longitude,
-    forecast_hours: UAV_FORECAST_HOURS,
+    forecast_hours: UAV_FORECAST_EXTENDED_HOURS,
     wind_altitudes_m: [...UAV_WIND_ALTITUDES_M],
     use_realtime_precip: true,
     include_gps: true,

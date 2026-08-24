@@ -1,7 +1,7 @@
 import type { WeatherProfile } from "@/lib/weather/profile";
 import type { WeatherPoint } from "@/lib/weather/types";
 
-export type OperatingStatus = "green" | "yellow" | "red" | "gray";
+export type OperatingStatus = "green" | "yellow" | "orange" | "red" | "gray";
 
 export type OperatingHour = {
   point: WeatherPoint;
@@ -21,7 +21,8 @@ function upperLimit(value: number | null, limit: number | null, label: string): 
   if (limit == null) return { status: "gray", reason: `${label}: предел не настроен` };
   if (value == null) return { status: "gray", reason: `${label}: нет данных` };
   if (value > limit) return { status: "red", reason: `${label} выше предела ${limit}` };
-  if (limit > 0 && value >= limit * 0.8) return { status: "yellow", reason: `${label} близко к пределу ${limit}` };
+  if (limit > 0 && value >= limit * 0.92) return { status: "orange", reason: `${label} почти у предела ${limit}` };
+  if (limit > 0 && value >= limit * 0.75) return { status: "yellow", reason: `${label} близко к пределу ${limit}` };
   return null;
 }
 
@@ -31,6 +32,8 @@ function temperatureFinding(value: number | null, minimum: number | null, maximu
   if (minimum != null && value < minimum) return { status: "red", reason: `Температура ниже ${minimum} °C` };
   if (maximum != null && value > maximum) return { status: "red", reason: `Температура выше ${maximum} °C` };
   const margin = minimum != null && maximum != null ? Math.max(1, (maximum - minimum) * 0.2) : 2;
+  if (minimum != null && value <= minimum + margin * 0.4) return { status: "orange", reason: `Температура почти у минимума ${minimum} °C` };
+  if (maximum != null && value >= maximum - margin * 0.4) return { status: "orange", reason: `Температура почти у максимума ${maximum} °C` };
   if (minimum != null && value <= minimum + margin) return { status: "yellow", reason: `Температура близко к минимуму ${minimum} °C` };
   if (maximum != null && value >= maximum - margin) return { status: "yellow", reason: `Температура близко к максимуму ${maximum} °C` };
   return null;
@@ -78,14 +81,24 @@ export function evaluateOperatingHour(point: WeatherPoint, profile: WeatherProfi
     ? "red"
     : findings.some((item) => item.status === "gray")
       ? "gray"
-      : findings.some((item) => item.status === "yellow")
-        ? "yellow"
-        : "green";
+      : findings.some((item) => item.status === "orange")
+        ? "orange"
+        : findings.some((item) => item.status === "yellow")
+          ? "yellow"
+          : "green";
   return { point, status, reasons: findings.map((item) => item.reason) };
 }
 
-export function evaluateOperatingHours(points: WeatherPoint[], profile: WeatherProfile | null): OperatingHour[] {
-  return points.slice(0, 48).map((point) => evaluateOperatingHour(point, profile));
+export function evaluateOperatingHours(points: WeatherPoint[], profile: WeatherProfile | null, limit = 48): OperatingHour[] {
+  return points.slice(0, limit).map((point) => evaluateOperatingHour(point, profile));
+}
+
+export function operatingHourScore(hour: OperatingHour): number {
+  if (hour.status === "green") return 9;
+  if (hour.status === "yellow") return 7;
+  if (hour.status === "orange") return 5;
+  if (hour.status === "red") return 2;
+  return 0;
 }
 
 export function findOperatingWindows(hours: OperatingHour[]): OperatingWindow[] {

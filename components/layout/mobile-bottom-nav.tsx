@@ -1,9 +1,26 @@
 "use client";
 
-import type { ComponentType } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, CheckSquare, CloudSun, History, LayoutDashboard, MapPin, Package, Scale, Sprout, Tractor } from "lucide-react";
+import {
+  BarChart3,
+  BookOpen,
+  Bot,
+  CheckSquare,
+  CloudSun,
+  Droplets,
+  History,
+  LayoutDashboard,
+  Map,
+  MapPin,
+  Menu,
+  Package,
+  Scale,
+  Sprout,
+  Tractor,
+  Users,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { canAccessPath } from "@/lib/auth/role-access";
@@ -12,23 +29,36 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import type { TranslationKey } from "@/lib/i18n/translations";
 import { useAssistantShell } from "@/components/assistant/assistant-shell-provider";
 import { canUseAssistantShell } from "@/lib/assistant/shell";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type BottomItem = {
   labelKey: TranslationKey;
   href?: string;
   icon: ComponentType<{ className?: string }>;
-  kind: "route" | "copilot";
+  kind: "route" | "copilot" | "more";
 };
 
 const COPILOT_ITEM: BottomItem = { labelKey: "copilot", icon: Bot, kind: "copilot" };
+const MORE_ITEM: BottomItem = { labelKey: "mobile_more", icon: Menu, kind: "more" };
 const DASHBOARD_ITEM: BottomItem = { labelKey: "dashboard", href: "/dashboard", icon: LayoutDashboard, kind: "route" };
 
 function getMobileRouteCandidates(role?: string | null): BottomItem[] {
   switch (role) {
     case "global_admin":
       return [
-        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
         DASHBOARD_ITEM,
+        { labelKey: "fields", href: "/fields", icon: MapPin, kind: "route" },
+        { labelKey: "weighbridge", href: "/weighbridge", icon: Scale, kind: "route" },
+        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
+        MORE_ITEM,
+      ];
+    case "company_admin":
+      return [
+        DASHBOARD_ITEM,
+        { labelKey: "fields", href: "/fields", icon: MapPin, kind: "route" },
+        { labelKey: "weighbridge", href: "/weighbridge", icon: Scale, kind: "route" },
+        { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
+        MORE_ITEM,
       ];
     case "agronomist":
       return [
@@ -77,6 +107,20 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
   }
 }
 
+function getMoreRouteCandidates(role?: string | null): BottomItem[] {
+  const shared: BottomItem[] = [
+    { labelKey: "field_map", href: "/fields-map", icon: Map, kind: "route" },
+    { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout, kind: "route" },
+    { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
+    { labelKey: "fuel", href: "/fuel", icon: Droplets, kind: "route" },
+    { labelKey: "analytics", href: "/analytics", icon: BarChart3, kind: "route" },
+    { labelKey: "references", href: "/references", icon: BookOpen, kind: "route" },
+    { labelKey: "users", href: "/users", icon: Users, kind: "route" },
+  ];
+  const normalizedRole = String(role || "") as AppRole;
+  return shared.filter((item) => canAccessPath(normalizedRole, item.href || ""));
+}
+
 function isActivePath(pathname: string, href?: string): boolean {
   if (!href) return false;
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -84,6 +128,11 @@ function isActivePath(pathname: string, href?: string): boolean {
 
 function getRoleFilteredItems(role?: string | null): BottomItem[] {
   const normalizedRole = String(role || "") as AppRole;
+  if (normalizedRole === "global_admin" || normalizedRole === "company_admin") {
+    return getMobileRouteCandidates(role).filter(
+      (item) => item.kind === "more" || canAccessPath(normalizedRole, item.href || "")
+    );
+  }
   const routeLimit = normalizedRole === "agronomist" ? 5 : 4;
   const routeItems = getMobileRouteCandidates(role)
     .filter((item) => canAccessPath(normalizedRole, item.href || ""))
@@ -93,9 +142,14 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
 
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const [moreOpen, setMoreOpen] = useState(false);
   const { profile } = useAuth();
   const { enabled, isOpen, toggle } = useAssistantShell();
   const { t } = useLanguage();
+
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [pathname]);
 
   if (!pathname) return null;
 
@@ -103,6 +157,7 @@ export function MobileBottomNav() {
   const items = getRoleFilteredItems(profile?.role).filter(
     (item) => !isWeatherLab || item.kind !== "copilot"
   );
+  const moreItems = getMoreRouteCandidates(profile?.role);
   if (items.length === 0) return null;
 
   return (
@@ -134,6 +189,26 @@ export function MobileBottomNav() {
             );
           }
 
+          if (item.kind === "more") {
+            return (
+              <button
+                key="mobile-nav-more"
+                type="button"
+                onClick={() => setMoreOpen(true)}
+                aria-label={label}
+                className={cn(
+                  "relative flex min-h-12 flex-col items-center justify-center rounded-2xl px-1 py-1 text-[10px] font-medium",
+                  moreOpen
+                    ? "bg-white/[0.07] text-[#E0B100]"
+                    : "text-[#A9B2C2] hover:bg-[#202738] hover:text-[#F3F4F6]"
+                )}
+              >
+                <Icon className="mb-1 h-4 w-4" />
+                <span className="max-w-full truncate">{label}</span>
+              </button>
+            );
+          }
+
           return (
             <Link
               key={item.href}
@@ -153,6 +228,35 @@ export function MobileBottomNav() {
           );
         })}
       </div>
+      <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
+        <DialogContent className="!bottom-0 !left-0 !top-auto !w-full !max-w-none !translate-x-0 !translate-y-0 rounded-t-2xl border-[#2A3345] bg-[#101520] px-4 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-5 md:hidden">
+          <DialogHeader>
+            <DialogTitle className="text-left text-base text-[#F3F4F6]">{t("mobile_more")}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2">
+            {moreItems.map((item) => {
+              const Icon = item.icon;
+              const label = t(item.labelKey);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href || "/dashboard"}
+                  onClick={() => setMoreOpen(false)}
+                  className={cn(
+                    "flex min-h-14 items-center gap-3 rounded-lg border border-[#2A3345] px-3 py-2 text-sm font-medium",
+                    isActivePath(pathname, item.href)
+                      ? "border-[#E0B100]/60 bg-[#E0B100]/10 text-[#E0B100]"
+                      : "bg-[#151C29] text-[#E4E7EC]"
+                  )}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  <span className="min-w-0 leading-5">{label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
     </nav>
   );
 }

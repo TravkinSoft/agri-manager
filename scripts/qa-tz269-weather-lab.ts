@@ -239,7 +239,10 @@ async function main() {
   check("auth helper ignores impersonation", () => assert.match(authSource, /ignoreImpersonation:\s*true/));
   check("auth helper allows global admin", () => assert.match(authSource, /actor\.role !== "global_admin"/));
   check("auth helper allows agronomist", () => assert.match(authSource, /actor\.role !== "agronomist"/));
-  check("Weather Lab hides Assist surfaces", () => assert.match(layoutSource, /!isWeatherLab \? <AssistantLauncher/));
+  check("Weather Lab hides Assist surfaces", () => {
+    assert.match(layoutSource, /assistantEnabled\s*=\s*canUseAssistantShell\(profile\?\.role\)\s*&&\s*!isWeatherLab/);
+    assert.match(layoutSource, /assistantEnabled \? <AssistantLauncher/);
+  });
   check("Weather Lab hides mobile Copilot", () => assert.match(mobileBottomNavSource, /item\.kind !== "copilot"/));
   check("UI has no manual coordinate fields", () => assert.equal(/<Input[^>]+(?:lat|lon|latitude|longitude)/i.test(clientSource), false));
   check("UI shows provider wind direction", () => {
@@ -267,10 +270,16 @@ async function main() {
   check("UI does not invent Good To Fly", () => assert.equal(/можно лететь|goodToFly/i.test(clientSource), false));
   check("derived dew point is labelled", () => assert.match(clientSource, /Точка росы/));
   check("official KATO attribution is visible", () => assert.match(clientSource, /официальный КАТО Республики Казахстан/));
-  check("48 hour operating timeline is visible", () => assert.match(clientSource, /Рабочее окно · 48 часов/));
-  check("timeline supports pointer drag", () => assert.match(clientSource, /onPointerMove=\{moveTimeline\}/));
+  check("48 hour operating timeline is visible", () => {
+    assert.match(clientSource, /Рабочее окно/);
+    assert.match(clientSource, /timelineMode === "48h"/);
+  });
+  check("timeline supports pointer and touch drag", () => {
+    assert.match(clientSource, /type="range"/);
+    assert.match(clientSource, /touch-pan-x/);
+  });
   check("timeline technical scrollbar is hidden", () => assert.match(clientSource, /overflow-x-auto[\s\S]+\[scrollbar-width:none\][\s\S]+webkit-scrollbar\]:hidden/));
-  check("profile edit previews without a forecast request", () => assert.match(clientSource, /profileOpen \? previewProfile\(profileDraft/));
+  check("profile edit previews without a forecast request", () => assert.match(clientSource, /profileOpen[\s\S]+\? previewProfile\(profileDraft/));
   check("main UI omits Kp satellites and visibility", () => {
     assert.equal(clientSource.includes("Видимые спутники"), false);
     assert.equal(clientSource.includes("Ожидаемый захват спутников"), false);

@@ -1,6 +1,7 @@
 "use client";
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { KeyRound, ShieldOff } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import {
@@ -50,8 +51,8 @@ import {
   type WeighbridgeOperatorAccess,
 } from "@/lib/services/weighbridge-operator-access";
 
-type DomainTab = "agronomy" | "agrochemistry" | "machine-yard" | "fleet" | "personnel";
-type MachineYardTab = "machines" | "equipment";
+type DomainTab = "agronomy" | "agrochemistry" | "machine-yard" | "personnel";
+type MachineYardTab = "park" | "catalog";
 type ModalType = "machine" | "equipment" | "vehicle" | "worker";
 
 const pesticideCategoryLabels: Record<string, string> = {
@@ -259,6 +260,7 @@ function materialCategory(row: any) {
 export default function ReferencesPage() {
   const { profile } = useAuth();
   const { toast } = useToast();
+  const searchParams = useSearchParams();
   const directCardHandled = useRef(false);
 
   const [loading, setLoading] = useState(true);
@@ -270,7 +272,7 @@ export default function ReferencesPage() {
   const [selectedPesticideId, setSelectedPesticideId] = useState<string | null>(null);
 
   const [domainTab, setDomainTab] = useState<DomainTab>("agronomy");
-  const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("machines");
+  const [machineYardTab, setMachineYardTab] = useState<MachineYardTab>("park");
   const [modalType, setModalType] = useState<ModalType | null>(null);
   const [editingWorkerId, setEditingWorkerId] = useState<string | null>(null);
   const [editingWorkerRole, setEditingWorkerRole] = useState<string | null>(null);
@@ -330,16 +332,20 @@ export default function ReferencesPage() {
 
   const currentAction = useMemo(() => {
     if (!canManageCompanyReferences) return null;
-    if (domainTab === "machine-yard" && machineYardTab === "machines") {
-      return { label: "Добавить технику", modal: "machine" as const };
-    }
-    if (domainTab === "machine-yard" && machineYardTab === "equipment") {
-      return { label: "Добавить оборудование", modal: "equipment" as const };
-    }
-    if (domainTab === "fleet") return { label: "Добавить транспорт", modal: "vehicle" as const };
     if (domainTab === "personnel") return { label: "Добавить сотрудника", modal: "worker" as const };
     return null;
   }, [canManageCompanyReferences, domainTab, machineYardTab]);
+
+  useEffect(() => {
+    const requestedDomain = searchParams.get("domain");
+    const requestedTab = searchParams.get("tab");
+    if (["agronomy", "agrochemistry", "machine-yard", "personnel"].includes(String(requestedDomain))) {
+      setDomainTab(requestedDomain as DomainTab);
+    }
+    if (requestedTab === "park" || requestedTab === "catalog") {
+      setMachineYardTab(requestedTab);
+    }
+  }, [searchParams]);
 
   const loadAll = async () => {
     if (!profile?.company_id) {
@@ -660,7 +666,7 @@ export default function ReferencesPage() {
     <div className="space-y-4">
       <PageHeader
         title="Справочники"
-        description="Company-scoped справочники: структура сезона, материалы компании, техника, автопарк и персонал."
+        description="Справочники компании: сезон, материалы, парк машин и оборудования, модели и персонал."
       />
 
       <Tabs value={domainTab} onValueChange={(value) => setDomainTab(value as DomainTab)}>
@@ -668,8 +674,7 @@ export default function ReferencesPage() {
           <TabsList className="w-full justify-start overflow-auto md:w-auto">
             <TabsTrigger value="agronomy"><TabLabel label="Агрономия" count={agronomyCountText} /></TabsTrigger>
             <TabsTrigger value="agrochemistry"><TabLabel label="Агрохимия" count={countText(companyMaterials.length)} /></TabsTrigger>
-            <TabsTrigger value="machine-yard"><TabLabel label="Техника / оборудование" count={countText(machines.length + equipment.length)} /></TabsTrigger>
-            <TabsTrigger value="fleet"><TabLabel label="Автопарк" count={countText(vehicles.length)} /></TabsTrigger>
+            <TabsTrigger value="machine-yard"><TabLabel label="Машины и техника" count={countText(machines.length + equipment.length + vehicles.length)} /></TabsTrigger>
             <TabsTrigger value="personnel"><TabLabel label="Персонал" count={countText(workers.length)} /></TabsTrigger>
           </TabsList>
           {currentAction ? (
@@ -738,13 +743,14 @@ export default function ReferencesPage() {
         <TabsContent value="machine-yard">
           <Tabs value={machineYardTab} onValueChange={(value) => setMachineYardTab(value as MachineYardTab)}>
             <TabsList>
-              <TabsTrigger value="machines"><TabLabel label="Техника" count={countText(machines.length)} /></TabsTrigger>
-              <TabsTrigger value="equipment"><TabLabel label="Оборудование" count={countText(equipment.length)} /></TabsTrigger>
+              <TabsTrigger value="park"><TabLabel label="Парк компании" count={countText(machines.length + equipment.length + vehicles.length)} /></TabsTrigger>
+              <TabsTrigger value="catalog"><TabLabel label="Каталог техники" count={countText(machineModels.length + equipmentModels.length + transportModels.length)} /></TabsTrigger>
             </TabsList>
-            <TabsContent value="machines">
+            <TabsContent value="park" className="space-y-4">
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between gap-3">
                   <CardTitle>Техника компании</CardTitle>
+                  {canManageCompanyReferences ? <Button size="sm" onClick={() => openModal("machine")}>Добавить</Button> : null}
                 </CardHeader>
                 <CardContent>
                   <DataTable
@@ -763,11 +769,10 @@ export default function ReferencesPage() {
                   />
                 </CardContent>
               </Card>
-            </TabsContent>
-            <TabsContent value="equipment">
               <Card>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between gap-3">
                   <CardTitle>Оборудование компании</CardTitle>
+                  {canManageCompanyReferences ? <Button size="sm" onClick={() => openModal("equipment")}>Добавить</Button> : null}
                 </CardHeader>
                 <CardContent>
                   <DataTable
@@ -785,32 +790,50 @@ export default function ReferencesPage() {
                   />
                 </CardContent>
               </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between gap-3">
+                  <CardTitle>Автопарк</CardTitle>
+                  {canManageCompanyReferences ? <Button size="sm" onClick={() => openModal("vehicle")}>Добавить</Button> : null}
+                </CardHeader>
+                <CardContent>
+                  <DataTable
+                    headers={["Название", "Категория", "Бренд", "Модель", "Госномер", "VIN", "Статус"]}
+                    rows={vehicles.map((x) => [
+                      x.display_name || x.full_name || x.name,
+                      x.display_type || emptyCell,
+                      assetBrand(x),
+                      assetModel(x),
+                      displayVehiclePlate(x.plate_number),
+                      x.vin || emptyCell,
+                      activeStatus(x),
+                    ])}
+                    loading={loading}
+                    empty="Транспорт компании не добавлен"
+                  />
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="catalog" className="space-y-4">
+              <Card>
+                <CardHeader><CardTitle>Модели техники</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable headers={["Марка и модель", "Категория"]} rows={machineModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели техники не найдены" />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle>Модели оборудования</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable headers={["Марка и модель", "Категория"]} rows={equipmentModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели оборудования не найдены" />
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader><CardTitle>Модели транспорта</CardTitle></CardHeader>
+                <CardContent>
+                  <DataTable headers={["Марка и модель", "Категория"]} rows={transportModels.map((row) => [catalogModelLabel(row), row.category || emptyCell])} loading={loading} empty="Модели транспорта не найдены" />
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
-        </TabsContent>
-
-        <TabsContent value="fleet">
-          <Card>
-            <CardHeader>
-              <CardTitle>Автопарк</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                headers={["Название", "Категория", "Бренд", "Модель", "Госномер", "VIN", "Статус"]}
-                rows={vehicles.map((x) => [
-                  x.display_name || x.full_name || x.name,
-                  x.display_type || emptyCell,
-                  assetBrand(x),
-                  assetModel(x),
-                  displayVehiclePlate(x.plate_number),
-                  x.vin || emptyCell,
-                  activeStatus(x),
-                ])}
-                loading={loading}
-                empty="Транспорт компании не добавлен"
-              />
-            </CardContent>
-          </Card>
         </TabsContent>
 
         <TabsContent value="personnel">

@@ -25,7 +25,9 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase/client";
-import { evaluateOperatingHours, findOperatingWindows, type OperatingHour, type OperatingStatus } from "@/lib/weather/operating-window";
+import { evaluateOperatingHours, findOperatingWindows, operatingHourScore, type OperatingHour, type OperatingStatus } from "@/lib/weather/operating-window";
+import { operationModeProfile, WEATHER_OPERATION_MODES, type WeatherOperationMode } from "@/lib/weather/operation-modes";
+import { aggregateWeatherDays, findAvoidWindows } from "@/lib/weather/timeline";
 import { emptyWeatherProfile, weatherProfileInputSchema, type WeatherProfile, type WeatherProfileInput } from "@/lib/weather/profile";
 import { formatWeatherTime, relativeWeatherAge } from "@/lib/weather/time";
 import type { NormalizedWeather, WeatherLocation, WeatherPoint } from "@/lib/weather/types";
@@ -147,16 +149,10 @@ function AdditionalMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-const STATUS_STYLES: Record<OperatingStatus, string> = {
-  green: "border-emerald-500/70 bg-emerald-950/55 text-emerald-50",
-  yellow: "border-amber-400/80 bg-amber-950/55 text-amber-50",
-  red: "border-red-500/75 bg-red-950/55 text-red-50",
-  gray: "border-slate-600 bg-slate-800/75 text-slate-200",
-};
-
 const STATUS_LABELS: Record<OperatingStatus, string> = {
   green: "Подходит",
   yellow: "Близко к пределу",
+  orange: "Условно допустимо",
   red: "Не подходит",
   gray: "Недостаточно данных",
 };
@@ -205,7 +201,15 @@ function formatWindow(value: string, weather: NormalizedWeather, includeDate: bo
 }
 
 function statusDot(status: OperatingStatus): string {
-  return status === "green" ? "bg-emerald-400" : status === "yellow" ? "bg-amber-300" : status === "red" ? "bg-red-400" : "bg-slate-400";
+  return status === "green" ? "bg-emerald-400" : status === "yellow" ? "bg-amber-300" : status === "orange" ? "bg-orange-400" : status === "red" ? "bg-red-400" : "bg-slate-400";
+}
+
+function statusTrack(status: OperatingStatus): string {
+  if (status === "green") return "bg-emerald-500";
+  if (status === "yellow") return "bg-amber-300";
+  if (status === "orange") return "bg-orange-500";
+  if (status === "red") return "bg-red-600";
+  return "bg-slate-600";
 }
 
 function OperatingHourDetails({ hour, weather }: { hour: OperatingHour; weather: NormalizedWeather }) {
@@ -245,7 +249,6 @@ function CriterionRow({ label, enabled, onEnabledChange, children }: { label: st
 export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?: boolean }) {
   const pickerScrollRef = useRef<HTMLDivElement>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const dragState = useRef<{ pointerId: number; x: number; scrollLeft: number } | null>(null);
   const [selected, setSelected] = useState<RecentLocation | null>(null);
   const [weather, setWeather] = useState<NormalizedWeather | null>(null);
   const [resolving, setResolving] = useState(false);
@@ -272,6 +275,8 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [selectedHourTime, setSelectedHourTime] = useState<string | null>(null);
+  const [operationMode, setOperationMode] = useState<WeatherOperationMode>("general");
+  const [timelineMode, setTimelineMode] = useState<"48h" | "7d">("48h");
 
   const loadForecast = useCallback(async (location: RecentLocation, force = false) => {
     setSelected(location);
@@ -461,15 +466,48 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
     () => profiles.find((item) => item.id === activeProfileId) || profiles.find((item) => item.isDefault) || profiles[0] || null,
     [activeProfileId, profiles]
   );
-  const evaluationProfile = profileOpen ? previewProfile(profileDraft, editingProfile) : activeProfile;
+  const modeProfile = useMemo(
+    () => operationMode === "custom" ? activeProfile : operationModeProfile(operationMode),
+    [activeProfile, operationMode]
+  );
+  const evaluationProfile = profileOpen
+    ? previewProfile(profileDraft, editingProfile)
+    : modeProfile;
   const operatingHours = useMemo(
     () => evaluateOperatingHours(weather?.hourlyForecast || [], evaluationProfile),
     [evaluationProfile, weather?.hourlyForecast]
   );
+  const extendedOperatingHours = useMemo(
+    () => evaluateOperatingHours(weather?.hourlyForecast || [], evaluationProfile, 24 * 7),
+    [evaluationProfile, weather?.hourlyForecast]
+  );
   const operatingWindows = useMemo(() => findOperatingWindows(operatingHours), [operatingHours]);
+  const avoidWindows = useMemo(() => findAvoidWindows(operatingHours), [operatingHours]);
+  const dailyWeather = useMemo(
+    () => aggregateWeatherDays(extendedOperatingHours, weather?.providerMeta.timezone),
+    [extendedOperatingHours, weather?.providerMeta.timezone]
+  );
   const nearestWindow = operatingWindows[0] || null;
   const longestWindow = operatingWindows.reduce<(typeof operatingWindows)[number] | null>((longest, item) => !longest || item.hours > longest.hours ? item : longest, null);
   const selectedHour = operatingHours.find((item) => item.point.time === selectedHourTime) || operatingHours[0] || null;
+  const selectedHourIndex = Math.max(0, selectedHour ? operatingHours.findIndex((item) => item.point.time === selectedHour.point.time) : 0);
+  const currentHourIndex = Math.max(0, operatingHours.reduce((nearest, hour, index) => {
+    const currentDistance = Math.abs(Date.parse(operatingHours[nearest]?.point.time || hour.point.time) - Date.now());
+    const candidateDistance = Math.abs(Date.parse(hour.point.time) - Date.now());
+    return candidateDistance < currentDistance ? index : nearest;
+  }, 0));
+  const nearestWindowHours = nearestWindow
+    ? operatingHours.filter((hour) => Date.parse(hour.point.time) >= Date.parse(nearestWindow.start) && Date.parse(hour.point.time) < Date.parse(nearestWindow.end))
+    : [];
+  const nearestWindowScore = nearestWindowHours.length
+    ? Math.round(nearestWindowHours.reduce((sum, hour) => sum + operatingHourScore(hour), 0) / nearestWindowHours.length)
+    : 0;
+  const avoidWindow = avoidWindows[0] || null;
+  const avoidReasons = avoidWindow
+    ? Array.from(new Set(operatingHours
+      .filter((hour) => Date.parse(hour.point.time) >= Date.parse(avoidWindow.start) && Date.parse(hour.point.time) < Date.parse(avoidWindow.end))
+      .flatMap((hour) => hour.reasons))).slice(0, 3)
+    : [];
   const current = weather?.current || null;
 
   const openProfileEditor = (profile: WeatherProfile | null = null) => {
@@ -509,6 +547,7 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
   };
 
   const selectProfile = async (profile: WeatherProfile) => {
+    setOperationMode("custom");
     if (profile.id === activeProfileId) return;
     const previousProfiles = profiles;
     const previousActiveId = activeProfileId;
@@ -543,23 +582,6 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
     } finally {
       setProfileSaving(false);
     }
-  };
-
-  const beginTimelineDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!timelineRef.current) return;
-    dragState.current = { pointerId: event.pointerId, x: event.clientX, scrollLeft: timelineRef.current.scrollLeft };
-    timelineRef.current.setPointerCapture(event.pointerId);
-  };
-
-  const moveTimeline = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!timelineRef.current || dragState.current?.pointerId !== event.pointerId) return;
-    timelineRef.current.scrollLeft = dragState.current.scrollLeft - (event.clientX - dragState.current.x);
-  };
-
-  const endTimelineDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (dragState.current?.pointerId !== event.pointerId) return;
-    dragState.current = null;
-    timelineRef.current?.releasePointerCapture(event.pointerId);
   };
 
   return (
@@ -803,58 +825,103 @@ export function WeatherLab({ showTechnicalDebug = false }: { showTechnicalDebug?
           <section className="min-w-0 overflow-hidden rounded-lg border border-[#2A3344] bg-[#121722]">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#293244] p-3 sm:p-4">
               <div>
-                <SectionTitle icon={Wind}>Рабочее окно · 48 часов</SectionTitle>
-                <div className="mt-1 text-xs text-[#8995A7]">Оценка по вашим настройкам{activeProfile ? ` · ${activeProfile.name}` : ""}</div>
+                <SectionTitle icon={Wind}>Рабочее окно</SectionTitle>
+                <div className="mt-1 text-xs text-[#8995A7]">{evaluationProfile?.name || "Профиль не выбран"}</div>
               </div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#9EABBC]">
-                {(["green", "yellow", "red", "gray"] as OperatingStatus[]).map((status) => <span key={status} className="flex items-center gap-1.5"><span className={cn("h-2 w-2 rounded-full", statusDot(status))} />{STATUS_LABELS[status]}</span>)}
+              <div className="grid grid-cols-2 rounded-md border border-[#303A4D] bg-[#0E121A] p-0.5 text-xs">
+                <button type="button" onClick={() => setTimelineMode("48h")} className={cn("h-8 rounded px-3", timelineMode === "48h" ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2]")}>48 часов</button>
+                <button type="button" onClick={() => setTimelineMode("7d")} className={cn("h-8 rounded px-3", timelineMode === "7d" ? "bg-[#E0B100] font-medium text-[#111827]" : "text-[#A8B2C2]")}>7 дней</button>
               </div>
             </div>
-            {operatingHours.length ? (
+            <div className="border-b border-[#293244] px-3 py-2 sm:px-4">
+              <div className="flex min-w-0 gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {WEATHER_OPERATION_MODES.map((mode) => (
+                  <button
+                    key={mode.value}
+                    type="button"
+                    onClick={() => setOperationMode(mode.value)}
+                    className={cn("h-9 shrink-0 rounded-md border px-3 text-xs font-medium", operationMode === mode.value ? "border-[#E0B100] bg-[#E0B100]/15 text-[#F4CF36]" : "border-[#303A4D] text-[#B2BDCC] hover:bg-[#1A2130]")}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+                {activeProfile ? (
+                  <button type="button" onClick={() => setOperationMode("custom")} className={cn("h-9 shrink-0 rounded-md border px-3 text-xs font-medium", operationMode === "custom" ? "border-[#E0B100] bg-[#E0B100]/15 text-[#F4CF36]" : "border-[#303A4D] text-[#B2BDCC] hover:bg-[#1A2130]")}>Мой профиль</button>
+                ) : null}
+              </div>
+            </div>
+            {timelineMode === "48h" && operatingHours.length ? (
               <>
                 <div
                   ref={timelineRef}
-                  onPointerDown={beginTimelineDrag}
-                  onPointerMove={moveTimeline}
-                  onPointerUp={endTimelineDrag}
-                  onPointerCancel={endTimelineDrag}
-                  className="min-w-0 cursor-grab touch-pan-x overflow-x-auto overscroll-x-contain px-3 py-3 active:cursor-grabbing [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                  className="min-w-0 touch-pan-x overflow-x-auto overscroll-x-contain px-3 py-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
                 >
-                  <div className="flex w-max min-w-full select-none gap-1.5">
-                    {operatingHours.map((hour, index) => {
-                      const previous = operatingHours[index - 1];
-                      const startsDay = !previous || dayKey(previous.point.time, weather) !== dayKey(hour.point.time, weather);
-                      const isCurrentHour = Math.abs(Date.parse(hour.point.time) - Date.now()) < 30 * 60_000;
-                      return (
-                        <div key={hour.point.time} className="w-[88px] shrink-0">
-                          <div className="h-6 truncate text-[10px] font-medium uppercase text-[#7F8A9B]">{startsDay ? formatWeatherDay(hour.point.time, weather) : ""}</div>
-                          <button
-                            type="button"
-                            onMouseEnter={() => setSelectedHourTime(hour.point.time)}
-                            onFocus={() => setSelectedHourTime(hour.point.time)}
-                            onClick={() => setSelectedHourTime(hour.point.time)}
-                            title={`${formatWindow(hour.point.time, weather, true)} · ${STATUS_LABELS[hour.status]}`}
-                            className={cn("relative h-[118px] w-full rounded-md border p-2 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#E0B100]", STATUS_STYLES[hour.status], selectedHour?.point.time === hour.point.time && "ring-2 ring-[#E0B100]")}
-                          >
-                            {isCurrentHour ? <span className="absolute inset-x-2 top-0 h-0.5 bg-[#E0B100]" /> : null}
-                            <span className="block text-sm font-semibold">{formatWindow(hour.point.time, weather, false)}</span>
-                            <span className="mt-1 block text-base font-semibold">{signedTemperature(hour.point.temperatureC).replace(" °C", "°")}</span>
-                            <span className="mt-1 block text-[10px] opacity-80">В {metric(hour.point.windMs)} · П {metric(hour.point.gustMs)}</span>
-                            <span className="block text-[10px] opacity-80">{metric(hour.point.precipitationProbabilityPct, 0)}% · {metric(hour.point.precipitationRateMmH)} мм</span>
-                            <span className="mt-1.5 block truncate text-[10px] font-medium">{STATUS_LABELS[hour.status]}</span>
-                          </button>
+                  <div className="relative h-[126px] min-w-[760px] select-none" style={{ width: `${Math.max(760, operatingHours.length * 24)}px` }}>
+                    <div className="absolute inset-x-0 top-0 h-5 text-[10px] font-medium uppercase text-[#8793A5]">
+                      {operatingHours.map((hour, index) => {
+                        const startsDay = index === 0 || dayKey(operatingHours[index - 1].point.time, weather) !== dayKey(hour.point.time, weather);
+                        return startsDay ? <span key={hour.point.time} className="absolute whitespace-nowrap" style={{ left: `${(index / Math.max(1, operatingHours.length - 1)) * 100}%` }}>{formatWeatherDay(hour.point.time, weather)}</span> : null;
+                      })}
+                    </div>
+                    <div className="absolute inset-x-0 top-8 flex h-14 overflow-hidden rounded-md border border-[#3A4354] bg-[#0C1017]">
+                      {operatingHours.map((hour) => (
+                        <div key={hour.point.time} title={`${formatWindow(hour.point.time, weather, true)} · ${STATUS_LABELS[hour.status]}`} className={cn("relative min-w-0 flex-1", statusTrack(hour.status))}>
+                          {(hour.point.precipitationRateMmH || 0) > 0 ? (
+                            <span className="absolute inset-x-0 bottom-0 bg-sky-300/90" style={{ height: `${Math.min(100, 12 + (hour.point.precipitationRateMmH || 0) * 18)}%` }} />
+                          ) : null}
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
+                    <span className="pointer-events-none absolute bottom-5 top-6 z-10 w-px bg-white/65" style={{ left: `${(currentHourIndex / Math.max(1, operatingHours.length - 1)) * 100}%` }}>
+                      <span className="absolute -left-4 -top-5 whitespace-nowrap text-[10px] font-semibold text-white">Сейчас</span>
+                    </span>
+                    <span className="pointer-events-none absolute bottom-5 top-6 z-20 w-0.5 bg-[#F4CF36]" style={{ left: `${(selectedHourIndex / Math.max(1, operatingHours.length - 1)) * 100}%` }}>
+                      <span className="absolute -left-2.5 top-[34px] h-5 w-5 rounded-full border-2 border-[#111722] bg-[#F4CF36] shadow-[0_0_0_3px_rgba(244,207,54,0.25)]" />
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={Math.max(0, operatingHours.length - 1)}
+                      step={1}
+                      value={selectedHourIndex}
+                      onChange={(event) => setSelectedHourTime(operatingHours[Number(event.target.value)]?.point.time || null)}
+                      aria-label="Выбранный час прогноза"
+                      className="absolute inset-x-0 top-8 z-30 h-14 w-full cursor-ew-resize appearance-none bg-transparent opacity-0"
+                    />
+                    <div className="absolute inset-x-0 bottom-0 h-5 text-[10px] text-[#8995A7]">
+                      {operatingHours.map((hour, index) => index % 6 === 0 ? <span key={hour.point.time} className="absolute -translate-x-1/2" style={{ left: `${(index / Math.max(1, operatingHours.length - 1)) * 100}%` }}>{formatWindow(hour.point.time, weather, false)}</span> : null)}
+                    </div>
                   </div>
                 </div>
                 {selectedHour ? <OperatingHourDetails hour={selectedHour} weather={weather} /> : null}
               </>
-            ) : <div className="p-6 text-center text-sm text-[#7F8A9B]">UAV Forecast не вернул почасовой ряд.</div>}
-            <div className="grid gap-2 border-t border-[#293244] p-3 text-xs sm:grid-cols-2 sm:p-4">
-              <div className="rounded-md border border-[#293244] bg-[#171D29] p-3">
-                <div className="text-[#8995A7]">Ближайшее подходящее окно</div>
+            ) : null}
+            {timelineMode === "7d" ? (
+              <div className="p-3 sm:p-4">
+                {dailyWeather.length < 7 ? <div className="mb-3 text-xs text-amber-200">Доступно {dailyWeather.length} из 7 дней в текущем ответе UAV Forecast.</div> : null}
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  {dailyWeather.map((day) => (
+                  <div key={day.day} className="rounded-md border border-[#293244] bg-[#171D29] p-3">
+                    <div className="flex items-center justify-between gap-2"><span className="font-medium text-white">{new Date(`${day.day}T12:00:00`).toLocaleDateString("ru-RU", { weekday: "short", day: "2-digit", month: "2-digit" })}</span><span className={cn("h-2.5 w-2.5 rounded-full", statusDot(day.bestStatus))} /></div>
+                    <div className="mt-2 text-sm text-[#C5CEDA]">{signedTemperature(day.minTemperatureC)} — {signedTemperature(day.maxTemperatureC)}</div>
+                    <div className="mt-1 text-xs text-[#8995A7]">Осадки {metric(day.precipitationMm)} мм · ветер до {metric(day.maxWindMs)} м/с</div>
+                    <div className="mt-2 text-xs font-medium text-[#F4CF36]">Лучший индекс {day.bestScore}/10</div>
+                  </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {!operatingHours.length ? <div className="p-6 text-center text-sm text-[#7F8A9B]">UAV Forecast не вернул почасовой ряд.</div> : null}
+            <div className="grid gap-2 border-t border-[#293244] p-3 text-xs lg:grid-cols-3 sm:p-4">
+              <div className="rounded-md border border-emerald-900/60 bg-emerald-950/20 p-3">
+                <div className="text-emerald-200/80">Лучшее ближайшее окно</div>
                 <div className="mt-1 font-medium text-white">{nearestWindow ? `${formatWindow(nearestWindow.start, weather, true)} — ${formatWindow(nearestWindow.end, weather, true)} · ${nearestWindow.hours} ч` : "В пределах 48 часов не найдено"}</div>
+                {nearestWindow ? <div className="mt-2 text-emerald-200">Индекс {nearestWindowScore}/10</div> : null}
+              </div>
+              <div className="rounded-md border border-red-900/60 bg-red-950/20 p-3">
+                <div className="text-red-200/80">Избегать</div>
+                <div className="mt-1 font-medium text-white">{avoidWindow ? `${formatWindow(avoidWindow.start, weather, true)} — ${formatWindow(avoidWindow.end, weather, true)}` : "Критичных периодов не найдено"}</div>
+                {avoidReasons.length ? <div className="mt-2 text-red-200">{avoidReasons.join(" · ")}</div> : null}
               </div>
               <div className="rounded-md border border-[#293244] bg-[#171D29] p-3">
                 <div className="text-[#8995A7]">Самое длинное подходящее окно</div>
