@@ -80,6 +80,13 @@ async function main() {
     assert.match(weighbridge, /Создать талон/);
   });
 
+  await check("open ticket queue remains beside the form on desktop even when empty", () => {
+    assert.match(weighbridge, /xl:grid-cols-\[minmax\(0,1fr\)_340px\]/);
+    assert.match(weighbridge, /xl:col-start-2 xl:row-start-1/);
+    assert.match(weighbridge, /Открытых талонов нет/);
+    assert.doesNotMatch(weighbridge, /visibleActiveTickets\.length > 0 \|\| ticketsLoading \? "xl:grid-cols/);
+  });
+
   await check("processing refresh is visible-only single-flight without request storms", () => {
     assert.match(processing, /loadInFlight/);
     assert.match(processing, /document\.visibilityState === "visible"/);

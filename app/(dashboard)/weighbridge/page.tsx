@@ -4153,7 +4153,7 @@ export default function WeighbridgeOperationsPage() {
         onLimit={() => toast({ title: "Можно открыть не более 6 рабочих вкладок." })}
       />
 
-      <div className={`grid gap-3 ${visibleActiveTickets.length > 0 || ticketsLoading ? "xl:grid-cols-[minmax(760px,1fr)_340px]" : "xl:grid-cols-1"}`}>
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
         <Card className={`${terminalPanelClass} overflow-hidden xl:col-start-1`}>
           <CardHeader className="border-b border-slate-800/80 px-4 py-3">
             <CardTitle className="flex flex-col gap-3 text-base text-slate-50 md:flex-row md:items-center md:justify-between">
@@ -4737,8 +4737,8 @@ export default function WeighbridgeOperationsPage() {
           </CardContent>
         </Card>
 
-        <Card className={`${terminalPanelClass} ${visibleActiveTickets.length > 0 || ticketsLoading ? "xl:col-start-2 xl:row-start-1" : "xl:col-start-1"}`}>
-          <CardHeader className={`${visibleActiveTickets.length > 0 || ticketsLoading ? "border-b border-slate-800/80 px-4 py-3" : "px-4 py-2"}`}>
+        <Card className={`${terminalPanelClass} xl:col-start-2 xl:row-start-1`}>
+          <CardHeader className="border-b border-slate-800/80 px-4 py-3">
             <CardTitle className="flex items-center justify-between gap-2 text-base text-slate-50">
               <span className="flex items-center gap-2">
                 <Clock3 className="h-4 w-4 text-yellow-400" />Открытые талоны
@@ -4746,8 +4746,12 @@ export default function WeighbridgeOperationsPage() {
               <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{visibleActiveTickets.length}</Badge>
             </CardTitle>
           </CardHeader>
-          {ticketsLoading || visibleActiveTickets.length > 0 ? <CardContent className="max-h-[720px] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
-            {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка очереди...</div> : [...visibleActiveTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
+          <CardContent className="max-h-[720px] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
+            {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка очереди...</div> : visibleActiveTickets.length === 0 ? (
+              <div className="flex min-h-28 items-center justify-center rounded-md border border-dashed border-slate-800 px-3 text-center text-sm text-slate-500">
+                Открытых талонов нет
+              </div>
+            ) : [...visibleActiveTickets].sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()).map((t) => {
               const isPending = t.id.startsWith("pending-");
               const vehicleName = vehicles.find((v) => v.id === t.vehicle_id)?.name || "Транспорт";
               const driverName = driverNameForId(t.driver_id) || "Без водителя";
@@ -4784,7 +4788,7 @@ export default function WeighbridgeOperationsPage() {
                 </button>
               );
             })}
-          </CardContent> : null}
+          </CardContent>
         </Card>
       </div>
 
