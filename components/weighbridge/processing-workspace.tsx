@@ -85,21 +85,31 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
     loadInFlight.current = true;
     if (showLoading) setLoading(true);
     try {
-      const [rowsResult, summariesResult] = await Promise.allSettled([
-        getProcessingTransformations(profile.company_id, profile.id),
-        getWarehouseSummaries(profile.company_id, false, "ru"),
-      ]);
-      if (rowsResult.status === "fulfilled") {
-        const transformations = rowsResult.value.filter(
-          (row) => row.record_type === "transformation" && row.processing_eligible !== false
-        );
-        setItems(transformations);
-        onItemsChange?.(transformations);
-      }
-      if (summariesResult.status === "fulfilled") setPlaceSummaries(summariesResult.value);
-      if (rowsResult.status === "rejected" || summariesResult.status === "rejected") {
-        const error = rowsResult.status === "rejected" ? rowsResult.reason : summariesResult.status === "rejected" ? summariesResult.reason : null;
-        toast({ title: "Часть данных объектов недоступна", description: error instanceof Error ? error.message : "Повторим обновление автоматически", variant: "destructive" });
+      let firstError: unknown = null;
+      const transformationsPromise = getProcessingTransformations(profile.company_id, profile.id).then(
+        (rows) => {
+          const transformations = rows.filter(
+            (row) => row.record_type === "transformation" && row.processing_eligible !== false
+          );
+          setItems(transformations);
+          onItemsChange?.(transformations);
+        },
+        (error) => {
+          firstError ??= error;
+        }
+      );
+      const summariesPromise = getWarehouseSummaries(profile.company_id, false, "ru").then(
+        (summaries) => {
+          setPlaceSummaries(summaries);
+        },
+        (error) => {
+          firstError ??= error;
+        }
+      );
+
+      await Promise.all([transformationsPromise, summariesPromise]);
+      if (firstError) {
+        toast({ title: "Часть данных объектов недоступна", description: firstError instanceof Error ? firstError.message : "Повторим обновление автоматически", variant: "destructive" });
       }
     } finally {
       setLoading(false);

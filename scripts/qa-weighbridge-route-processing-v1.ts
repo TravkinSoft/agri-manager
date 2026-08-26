@@ -95,7 +95,8 @@ check("compact cards expose dryer cleaner and yard state without operator creati
   assert.match(workspace, />Выход</);
   assert.match(workspace, />Остаток</);
   assert.doesNotMatch(workspace, /onAddOutput/);
-  assert.match(workspace, /Promise\.allSettled/);
+  assert.match(workspace, /const transformationsPromise = getProcessingTransformations/);
+  assert.match(workspace, /const summariesPromise = getWarehouseSummaries/);
 });
 
 check("processing DTO carries method and physical place type", () => {
@@ -144,6 +145,13 @@ check("warehouse uses staged loading and exact lot details", () => {
   assert.doesNotMatch(warehouseSummaryRoute, /\.limit\(5000\)/);
   assert.match(harvestBatchDialog, /Историческое поступление партии/);
   assert.match(harvestBatchDialog, /История партии/);
+});
+
+check("processing cards render without waiting for warehouse summaries", () => {
+  assert.match(processingWorkspace, /const transformationsPromise = getProcessingTransformations/);
+  assert.match(processingWorkspace, /const summariesPromise = getWarehouseSummaries/);
+  assert.match(processingWorkspace, /setItems\(transformations\)/);
+  assert.doesNotMatch(processingWorkspace, /await Promise\.allSettled/);
 });
 
 console.log(`ROUTE PROCESSING REGRESSION PASS (${passed}/${passed})`);
