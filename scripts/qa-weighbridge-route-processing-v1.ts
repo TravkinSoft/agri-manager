@@ -13,6 +13,7 @@ const read = (path: string) => readFileSync(resolve(root, path), "utf8");
 const page = read("app/(dashboard)/weighbridge/page.tsx");
 const workspace = read("components/weighbridge/processing-workspace.tsx");
 const transformationsRoute = read("app/api/processing/transformations/route.ts");
+const processingWorkspace = read("components/weighbridge/processing-workspace.tsx");
 const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
 const activeHarvestRoute = read("app/api/weighbridge/active-harvests/route.ts");
 const harvestAllocationsRoute = read("app/api/weighbridge/harvest-allocations/route.ts");
@@ -111,6 +112,8 @@ check("vegetables never enter grain dryer or cleaner processing", () => {
   assert.match(page, /canUseGrainProcessing/);
   assert.match(ticketRoute, /Овощные культуры направляйте на склад/);
   assert.match(activeHarvestRoute, /Овощные культуры направляйте на склад/);
+  assert.match(transformationsRoute, /processing_eligible: processingEligible/);
+  assert.match(processingWorkspace, /row\.processing_eligible !== false/);
   assert.match(cropGuardMigration, /VEGETABLE_PROCESSING_ROUTE_NOT_ALLOWED/);
   assert.match(cropGuardMigration, /v_category_slug = 'vegetable'/);
   assert.doesNotMatch(cropGuardMigration, /\b(?:delete\s+from|truncate|drop\s+table|drop\s+column)\b/i);

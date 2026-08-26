@@ -90,7 +90,9 @@ export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
         getWarehouseSummaries(profile.company_id, false, "ru"),
       ]);
       if (rowsResult.status === "fulfilled") {
-        const transformations = rowsResult.value.filter((row) => row.record_type === "transformation");
+        const transformations = rowsResult.value.filter(
+          (row) => row.record_type === "transformation" && row.processing_eligible !== false
+        );
         setItems(transformations);
         onItemsChange?.(transformations);
       }

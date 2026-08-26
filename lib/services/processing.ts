@@ -79,6 +79,7 @@ export interface BatchTransformationRow {
   composition_hash?: string | null;
   composition_snapshot?: Array<Record<string, unknown>>;
   is_mixed_harvest?: boolean;
+  processing_eligible?: boolean;
   processing_node_name: string | null;
   source_ticket_id: string | null;
   ticket_no?: string | null;

@@ -7,6 +7,7 @@ import {
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
 import { isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
+import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 
 const STORED_OUTPUT_TYPES = new Set([
   "cleaned_seed",
@@ -104,7 +105,7 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
     batchIds.length
       ? supabase
           .from("inventory_batches")
-          .select("id,batch_code,batch_class,product_id,crop_id,variety_id,reproduction_id,composition_hash,composition_snapshot,is_mixed_harvest,product:product_id(name,name_ru),crop:crop_id(name,name_ru),variety:variety_id(name,name_ru),reproduction:reproduction_id(name,name_ru)")
+          .select("id,batch_code,batch_class,product_id,crop_id,variety_id,reproduction_id,composition_hash,composition_snapshot,is_mixed_harvest,product:product_id(name,name_ru),crop:crop_id(name,name_ru,slug,category,crop_category,subcategory,crop_subcategory),variety:variety_id(name,name_ru),reproduction:reproduction_id(name,name_ru)")
           .eq("company_id", companyId)
           .in("id", batchIds)
       : Promise.resolve({ data: [] as any[], error: null }),
@@ -173,6 +174,13 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
       nameOf(inputBatch?.variety, ""),
       nameOf(inputBatch?.reproduction, ""),
     ].filter(Boolean).join(" · ");
+    const processingEligible = canUseGrainProcessing({
+      cropSlug: inputBatch?.crop?.slug,
+      cropName: inputBatch?.crop?.name_ru || inputBatch?.crop?.name,
+      categorySlug: inputBatch?.crop?.category,
+      categoryName: inputBatch?.crop?.crop_category,
+      subcategory: inputBatch?.crop?.subcategory || inputBatch?.crop?.crop_subcategory,
+    });
     const processingState = String(row.processing_state || (row.status === "completed" ? "processing_closed" : "in_processing"));
     return {
       id: String(row.id),
@@ -193,6 +201,7 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
       composition_hash: inputBatch?.composition_hash ? String(inputBatch.composition_hash) : null,
       composition_snapshot: Array.isArray(inputBatch?.composition_snapshot) ? inputBatch.composition_snapshot : [],
       is_mixed_harvest: Boolean(inputBatch?.is_mixed_harvest),
+      processing_eligible: processingEligible,
       node_place_type: row.node_warehouse_id
         ? String((warehouseMap.get(String(row.node_warehouse_id)) as any)?.place_type || "WAREHOUSE").toUpperCase()
         : null,
