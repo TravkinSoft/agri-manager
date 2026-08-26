@@ -104,8 +104,9 @@ check("wind direction is visible in current and hourly forecast", () => {
   assert.match(weatherUi, /windDirection\(point\.windBearingDeg\)/);
 });
 
-check("assistant remains global admin only", () => {
-  assert.match(assistantShell, /AssistantAllowedRole = "global_admin"/);
+check("assistant is available to agronomist without broad admin access", () => {
+  assert.match(assistantShell, /AssistantAllowedRole = "global_admin" \| "agronomist"/);
+  assert.match(assistantShell, /ASSISTANT_ALLOWED_ROLES = new Set<AssistantAllowedRole>\(\[[\s\S]*?"global_admin",[\s\S]*?"agronomist",[\s\S]*?\]\)/);
 });
 
 console.log(`TZ274 PASS ${checks.length}/${checks.length}`);

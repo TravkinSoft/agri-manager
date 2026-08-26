@@ -381,7 +381,9 @@ export function Header() {
         ) : null}
 
         <LanguageSwitcher />
-        {user ? <NotificationCenter userId={user.id} companyId={activeUserCompanyId} /> : null}
+        {user ? (
+          <NotificationCenter userId={user.id} companyId={activeUserCompanyId} role={profile?.role} />
+        ) : null}
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>

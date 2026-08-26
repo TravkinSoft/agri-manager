@@ -10,13 +10,27 @@ type NotificationPreferences = {
   email_enabled: boolean;
   operation_updates_enabled: boolean;
   warehouse_updates_enabled: boolean;
+  weighbridge_updates_enabled: boolean;
+  proactive_assist_enabled: boolean;
+  proactive_assist_cadence: "events" | "twice_daily" | "daily" | "every_3_days" | "weekly";
 };
 
 const defaults: NotificationPreferences = {
   email_enabled: true,
   operation_updates_enabled: true,
   warehouse_updates_enabled: true,
+  weighbridge_updates_enabled: true,
+  proactive_assist_enabled: true,
+  proactive_assist_cadence: "events",
 };
+
+const proactiveCadences = new Set<NotificationPreferences["proactive_assist_cadence"]>([
+  "events",
+  "twice_daily",
+  "daily",
+  "every_3_days",
+  "weekly",
+]);
 
 function errorResponse(error: unknown) {
   if (error instanceof SessionAuthError) {
@@ -31,6 +45,14 @@ function parseBoolean(value: unknown, field: string): boolean {
     throw new SessionAuthError(`${field} must be a boolean`, 400);
   }
   return value;
+}
+
+function parseCadence(value: unknown): NotificationPreferences["proactive_assist_cadence"] {
+  const cadence = String(value || "").trim() as NotificationPreferences["proactive_assist_cadence"];
+  if (!proactiveCadences.has(cadence)) {
+    throw new SessionAuthError("proactive_assist_cadence is invalid", 400);
+  }
+  return cadence;
 }
 
 async function resolveSession(request: NextRequest, requestedCompanyId: string | null) {
@@ -52,7 +74,7 @@ export async function GET(request: NextRequest) {
     const { actor, companyId, supabase } = await resolveSession(request, requestedCompanyId);
     const { data, error } = await supabase
       .from("user_notification_preferences")
-      .select("email_enabled,operation_updates_enabled,warehouse_updates_enabled")
+      .select("email_enabled,operation_updates_enabled,warehouse_updates_enabled,weighbridge_updates_enabled,proactive_assist_enabled,proactive_assist_cadence")
       .eq("profile_id", actor.id)
       .eq("company_id", companyId)
       .maybeSingle();
@@ -82,6 +104,15 @@ export async function PATCH(request: NextRequest) {
         body.warehouse_updates_enabled,
         "warehouse_updates_enabled"
       ),
+      weighbridge_updates_enabled: parseBoolean(
+        body.weighbridge_updates_enabled,
+        "weighbridge_updates_enabled"
+      ),
+      proactive_assist_enabled: parseBoolean(
+        body.proactive_assist_enabled,
+        "proactive_assist_enabled"
+      ),
+      proactive_assist_cadence: parseCadence(body.proactive_assist_cadence),
     };
 
     const { data, error } = await supabase
@@ -95,7 +126,7 @@ export async function PATCH(request: NextRequest) {
         },
         { onConflict: "profile_id,company_id" }
       )
-      .select("email_enabled,operation_updates_enabled,warehouse_updates_enabled")
+      .select("email_enabled,operation_updates_enabled,warehouse_updates_enabled,weighbridge_updates_enabled,proactive_assist_enabled,proactive_assist_cadence")
       .single();
     if (error) throw new Error(error.message);
 

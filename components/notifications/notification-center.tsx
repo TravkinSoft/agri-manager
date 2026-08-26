@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, CheckCheck, ClipboardList, PackageCheck, Scale, Settings } from "lucide-react";
+import { Bell, CheckCheck, ClipboardList, PackageCheck, Scale, Settings, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -12,7 +12,7 @@ export type UserNotification = {
   id: string;
   company_id: string;
   recipient_user_id: string;
-  category: "operation" | "warehouse" | "weighbridge" | "system";
+  category: "operation" | "warehouse" | "weighbridge" | "assistant" | "system";
   event_type: string;
   title: string;
   body: string | null;
@@ -26,6 +26,7 @@ export type UserNotification = {
 type NotificationCenterProps = {
   userId: string;
   companyId?: string | null;
+  role?: string | null;
 };
 
 const selectColumns =
@@ -35,6 +36,7 @@ function categoryIcon(category: UserNotification["category"]) {
   if (category === "operation") return ClipboardList;
   if (category === "warehouse") return PackageCheck;
   if (category === "weighbridge") return Scale;
+  if (category === "assistant") return Sparkles;
   return Settings;
 }
 
@@ -49,7 +51,7 @@ function relativeTime(value: string) {
   return new Intl.DateTimeFormat("ru-RU", { day: "2-digit", month: "short" }).format(new Date(value));
 }
 
-export function NotificationCenter({ userId, companyId }: NotificationCenterProps) {
+export function NotificationCenter({ userId, companyId, role }: NotificationCenterProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState<UserNotification[]>([]);
@@ -57,6 +59,7 @@ export function NotificationCenter({ userId, companyId }: NotificationCenterProp
   const [markingAll, setMarkingAll] = useState(false);
   const runningRef = useRef(false);
   const pendingRef = useRef(false);
+  const proactiveRunningRef = useRef(false);
 
   const loadNotifications = useCallback(async () => {
     if (!userId) return;
@@ -89,6 +92,34 @@ export function NotificationCenter({ userId, companyId }: NotificationCenterProp
       }
     }
   }, [companyId, userId]);
+
+  const runProactiveAudit = useCallback(async () => {
+    if (!companyId || String(role || "") !== "agronomist") return;
+    if (proactiveRunningRef.current) return;
+    proactiveRunningRef.current = true;
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error || !data.session?.access_token) return;
+      const response = await fetch("/api/assistant/proactive", {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: {
+          Authorization: `Bearer ${data.session.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ companyId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok && Number(payload?.signals || 0) > 0) {
+        await loadNotifications();
+      }
+    } catch (error) {
+      console.error("Proactive Assist audit failed", error);
+    } finally {
+      proactiveRunningRef.current = false;
+    }
+  }, [companyId, loadNotifications, role]);
 
   useEffect(() => {
     setLoading(true);
@@ -136,6 +167,15 @@ export function NotificationCenter({ userId, companyId }: NotificationCenterProp
       if (channel) void supabase.removeChannel(channel);
     };
   }, [loadNotifications, userId]);
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => void runProactiveAudit(), 1_500);
+    const interval = window.setInterval(() => void runProactiveAudit(), 5 * 60_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(interval);
+    };
+  }, [runProactiveAudit]);
 
   const unreadCount = useMemo(
     () => notifications.reduce((count, item) => count + (item.read_at ? 0 : 1), 0),

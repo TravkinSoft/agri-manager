@@ -1346,7 +1346,26 @@ export default function WeighbridgeOperationsPage() {
     const request = (async () => {
       try {
         const rows = await listTickets(companyId, profileId, { workspace: true, signal });
-        if (!signal?.aborted) setTickets(rows || []);
+        if (!signal?.aborted) {
+          const nextRows = rows || [];
+          const activeRows = nextRows.filter((ticket) =>
+            !ticket.is_voided && ["draft", "active", "ready_to_close"].includes(String(ticket.status))
+          );
+          const stuckRows = activeRows.filter((ticket) => {
+            const openedAt = new Date(String(ticket.created_at || "")).getTime();
+            return Number.isFinite(openedAt) && Date.now() - openedAt > 6 * 60 * 60 * 1000;
+          });
+          setTickets(nextRows);
+          setShiftCounters((current) => ({
+            ...current,
+            activeTickets: activeRows.length,
+            stuckTickets: stuckRows.length,
+            requiresReview: nextRows.filter((ticket) => Boolean(ticket.requires_review) && !ticket.is_voided).length,
+            manualCorrections: nextRows.filter((ticket) =>
+              Boolean((ticket as any).manual_correction_reason) || ticket.weigh_method === "manual_override_with_reason"
+            ).length,
+          }));
+        }
       } catch (error: any) {
         if (!signal?.aborted && error?.name !== "AbortError") throw error;
       } finally {
@@ -1374,7 +1393,10 @@ export default function WeighbridgeOperationsPage() {
       const bootstrap = await getWeighbridgeBootstrap(companyId, profileId, { includeSummary, signal });
       if (signal?.aborted) return;
       setActiveShift(bootstrap?.shift || null);
-      setShiftCounters(bootstrap?.counters || shiftCounters);
+      setShiftCounters((current) => includeSummary
+        ? { ...current, ...(bootstrap?.counters || {}) }
+        : { ...current, unsynced: Number(bootstrap?.counters?.unsynced || 0) }
+      );
       setShiftGuard(bootstrap?.shiftGuard || { stale: false, ageHours: 0 });
       setShiftSummary(bootstrap?.shiftSummary || { trips: 0, netKg: 0, open: 0, voided: 0, manualCorrections: 0 });
       if (includeSummary) {

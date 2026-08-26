@@ -82,7 +82,7 @@ const AGRONOMIST_ALLOWED_PREFIXES = [
   "/auth",
 ];
 
-const AGRONOMIST_ALLOWED_EXACT = ["/warehouses"];
+const AGRONOMIST_ALLOWED_EXACT = ["/warehouses", "/settings"];
 
 const DIRECTOR_ALLOWED_PREFIXES = [
   "/dashboard",

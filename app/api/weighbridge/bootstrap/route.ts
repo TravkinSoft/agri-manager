@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     });
     const includeSummary = request.nextUrl.searchParams.get("summary") === "true";
 
-    const [shiftRes, ticketsRes, nodesRes, pendingRes, seasonsRes, harvestTicketsRes] = await Promise.all([
+    const [shiftRes, ticketsRes, pendingRes, seasonsRes, harvestTicketsRes] = await Promise.all([
       supabase
         .from("weighbridge_shifts")
         .select("*")
@@ -36,31 +36,20 @@ export async function GET(request: NextRequest) {
             .eq("company_id", companyId)
             .order("created_at", { ascending: false })
             .limit(200)
-        : supabase
-            .from("tickets")
-            .select("id,shift_id,status,op_type,vehicle_id,driver_id,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,requires_review,local_sync_status,is_voided,manual_correction_reason")
-            .eq("company_id", companyId)
-            .in("status", ["draft", "active", "ready_to_close"])
-            .order("created_at", { ascending: false })
-            .limit(100),
-      supabase
-        .from("processing_nodes")
-        .select("id,name,type,linked_warehouse_id,is_active")
-        .eq("company_id", companyId)
-        .eq("archived", false)
-        .eq("is_active", true)
-        .order("name"),
+        : Promise.resolve({ data: [], error: null } as any),
       supabase
         .from("tickets")
         .select("id", { count: "exact", head: true })
         .eq("company_id", companyId)
         .in("local_sync_status", ["pending", "queued", "failed"]),
-      supabase
-        .from("seasons")
-        .select("id,year")
-        .eq("company_id", companyId)
-        .eq("archived", false)
-        .order("year", { ascending: false }),
+      includeSummary
+        ? supabase
+            .from("seasons")
+            .select("id,year")
+            .eq("company_id", companyId)
+            .eq("archived", false)
+            .order("year", { ascending: false })
+        : Promise.resolve({ data: [], error: null } as any),
       includeSummary
         ? supabase
             .from("tickets")
@@ -77,9 +66,6 @@ export async function GET(request: NextRequest) {
 
     if (shiftRes.error) return NextResponse.json({ error: shiftRes.error.message }, { status: 400 });
     if (ticketsRes.error) return NextResponse.json({ error: ticketsRes.error.message }, { status: 400 });
-    if (nodesRes.error && !String(nodesRes.error.message || "").toLowerCase().includes("processing_nodes")) {
-      return NextResponse.json({ error: nodesRes.error.message }, { status: 400 });
-    }
     if (seasonsRes.error) return NextResponse.json({ error: seasonsRes.error.message }, { status: 400 });
     if (harvestTicketsRes.error) return NextResponse.json({ error: harvestTicketsRes.error.message }, { status: 400 });
 
@@ -143,7 +129,6 @@ export async function GET(request: NextRequest) {
         stale: Boolean(shiftRes.data?.id) && (shiftAgeHours > 18 || dayKey(shiftRes.data?.opened_at) !== todayKey),
         ageHours: Math.max(0, shiftAgeHours),
       },
-      processingNodes: nodesRes.data || [],
       harvestSummary: {
         seasonId: activeSeason?.id || null,
         today: aggregateHarvestTickets(todayHarvestTickets),

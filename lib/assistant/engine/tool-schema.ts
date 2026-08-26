@@ -849,7 +849,7 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       type: "function",
       function: {
         name: "get_active_tickets",
-        description: "Возвращает активные талоны весовой.",
+        description: "Возвращает активные талоны весовой с полем, культурой, сортом, репродукцией, маршрутом, машиной, водителем, весовщиком, весами, влажностью и признаками проверки.",
         parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
       },
     },
@@ -857,7 +857,7 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       type: "function",
       function: {
         name: "get_recent_tickets",
-        description: "Возвращает последние талоны весовой.",
+        description: "Возвращает последние талоны весовой. Используйте для фактических вопросов агронома о рейсах, урожае, весе, влажности, маршруте, исправлениях и аннулированиях.",
         parameters: {
           type: "object",
           properties: {
@@ -872,7 +872,7 @@ export function getPlannerToolSchemas(): PlannerToolSchema[] {
       type: "function",
       function: {
         name: "get_latest_ticket",
-        description: "Возвращает самый последний талон весовой.",
+        description: "Возвращает самый последний талон весовой со всей доступной агрономической и весовой идентичностью.",
         parameters: { type: "object", properties: { query: { type: "string" } }, additionalProperties: false },
       },
     },

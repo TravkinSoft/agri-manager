@@ -2095,30 +2095,56 @@ function formatTicketsRowsV2(
 ): string {
   if (!rows.length) return "Талоны не найдены.";
   const queryText = `${cleanString(intentParams?.query) || ""} ${cleanString(intentParams?.entityQuery) || ""}`.toLowerCase();
-  const showTare = /(тара|tare|закрыт|закрытие|взвешиван)/i.test(queryText);
   const showTicketNo = /(номер|ticket|талон\s*№|wb-)/i.test(queryText);
   const wantsSingle = /(последн(ий|его)?\s+талон|last ticket)/i.test(queryText);
   const shown = rows.slice(0, wantsSingle ? 1 : parseListLimit(intentParams, 3));
   const lines = shown.map((row, index) => {
     const vehicle = safeText((row as any).vehicle_label || (row as any).vehicle_name, "машина не указана");
     const driver = safeText((row as any).driver_name, "водитель не указан");
+    const operator = cleanString((row as any).operator_name);
+    const field = cleanString((row as any).field_name);
     const product = cleanString((row as any).product_name);
     const variety = cleanString((row as any).variety_name);
-    const cropLabel = [product, variety && variety !== "-" ? variety : null].filter(Boolean).join(" ");
-    const net = asNumber((row as any).net_kg);
+    const reproduction = cleanString((row as any).reproduction_name);
+    const cropLabel = [
+      product,
+      variety && variety !== "-" ? variety : null,
+      reproduction && reproduction !== "-" ? reproduction : null,
+    ].filter(Boolean).join(" · ");
+    const physicalNet = asNumber((row as any).physical_net_kg ?? (row as any).net_kg);
+    const accepted = asNumber((row as any).accepted_kg ?? (row as any).net_kg);
     const gross = asNumber((row as any).gross_kg);
     const tare = asNumber((row as any).tare_kg);
+    const deduction = asNumber((row as any).deduction_kg);
+    const moisture = asNumber((row as any).moisture_percent);
     const status = safeText((row as any).status, "").toLowerCase();
     const isFinal = status === "finalized" || status === "closed";
-    const weightPart = net > 0 && isFinal ? `Нетто ${formatNumber(net, 3)} кг` : `Брутто ${formatNumber(gross, 3)} кг`;
-    const tarePart = showTare && tare > 0 ? `, тара ${formatNumber(tare, 3)} кг` : "";
-    const statusPart = isFinal ? `, закрыт ${formatShortDate((row as any).date)}` : ", талон открыт";
+    const isVoided = status === "voided" || Boolean((row as any).is_voided);
+    const statusPart = isVoided ? "аннулирован" : isFinal ? "закрыт" : "открыт";
+    const source = cleanString((row as any).source_name);
+    const destination = cleanString((row as any).destination_name);
+    const route = [source, destination].filter(Boolean).join(" → ");
+    const review = Boolean((row as any).requires_review)
+      ? `Требует проверки${cleanString((row as any).review_reason) ? `: ${cleanString((row as any).review_reason)}` : ""}.`
+      : null;
+    const correction = cleanString((row as any).correction_of_ticket_id)
+      ? `Исправление исходного талона${cleanString((row as any).correction_reason) ? `: ${cleanString((row as any).correction_reason)}` : ""}.`
+      : null;
     const no = showTicketNo ? `${safeText((row as any).ticket_no)}: ` : "";
     const prefix = shown.length === 1 ? "Последний талон" : `${index + 1})`;
-    return `${prefix}: ${no}${vehicle}, ${driver}${cropLabel ? `, ${cropLabel}` : ""}. ${weightPart}${tarePart}${statusPart}.`;
+    return [
+      `${prefix}: ${no}${statusPart}, ${formatDateTime((row as any).date)}.`,
+      [field ? `Поле ${field}` : null, cropLabel || null, route || null, vehicle, driver].filter(Boolean).join(" · ") + ".",
+      isFinal || isVoided
+        ? `Брутто ${formatNumber(gross, 0)} кг · тара ${formatNumber(tare, 0)} кг · физическое нетто ${formatNumber(physicalNet, 0)} кг · принято ${formatNumber(accepted, 0)} кг${deduction > 0 ? ` · удержание ${formatNumber(deduction, 0)} кг` : ""}${moisture > 0 ? ` · влажность ${formatNumber(moisture, 1)}%` : ""}.`
+        : `Брутто ${formatNumber(gross, 0)} кг${moisture > 0 ? ` · влажность ${formatNumber(moisture, 1)}%` : ""}.`,
+      operator ? `Весовщик: ${operator}.` : null,
+      correction,
+      review,
+    ].filter(Boolean).join("\n");
   });
   const tail = rows.length > shown.length ? `Показываю последние ${shown.length} из ${rows.length}.` : "";
-  return [...lines, tail].filter(Boolean).join("\n");
+  return [...lines, tail].filter(Boolean).join("\n\n");
 }
 
 function formatFieldCardRowsV2(rows: Array<Record<string, unknown>>): string {

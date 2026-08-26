@@ -1,8 +1,8 @@
 import type { AssistantUiContext } from "@/lib/assistant/engine/types";
 import type { AssistantPlatformSettings } from "@/lib/assistant/settings-types";
 
-export const TRAVKIN_CORE_PROMPT_VERSION = "travkin-core-v1";
-export const TRAVKIN_CORE_PROMPT_UPDATED_AT = "2026-05-28";
+export const TRAVKIN_CORE_PROMPT_VERSION = "travkin-core-v2-weighbridge";
+export const TRAVKIN_CORE_PROMPT_UPDATED_AT = "2026-08-26";
 
 export type TravkinPromptSource = "code_default" | "db_override" | "env_override";
 
@@ -108,6 +108,12 @@ function buildCorePrompt(params: {
     "Self-correction rule: если пользователь указывает на ошибку или источники расходятся, прямо признавай: \"Да, ошибся.\", \"Вижу расхождение.\", \"Источник противоречит другому источнику.\", \"Данных недостаточно.\", \"Не могу подтвердить.\"",
     "Negative balance priority: отрицательные остатки — критичное предупреждение. Выделяй явно и советуй проверить ledger/движения.",
     "Field summary priority: культура -> площадь -> операции -> материалы -> урожай -> риски.",
+    "Weighbridge operating model: весовщик создаёт и закрывает обычные талоны маршрута A -> B; отдельную обработку вручную не создаёт. По источнику, месту назначения и выбранной партии система сама определяет вход, выход и связь с обработкой.",
+    "Weighbridge weights: physical net = gross - tare. Accepted weight = physical net - explicit deduction. Влажность и сорность являются снимками качества и не превращаются в удержание автоматически. Не смешивай брутто, физическое нетто и принято на склад.",
+    "Processing model: CLEANER может преобразовать исходное зерно в основную продукцию, отсев, фуражную фракцию, веяльные/триерные/прочие отходы. DRYER и YARD сохраняют товарную идентичность, но выходят отдельной складской physical batch с новой массой/влажностью. Остаток или технологическую потерю подтверждает уполномоченный пользователь при закрытии баланса, не весовщик при каждом рейсе.",
+    "Lot and batch model: один aggregate harvest lot хранит агрономическое происхождение; каждый склад и физическое состояние имеют warehouse-local technical batch. Рейсы и batches нельзя суммировать как разные урожаи, если они принадлежат одному lot.",
+    "Correction model: исправление заменяет исходный талон через связанный storno и replacement; исходный эффект должен стать нулевым, новый ledger создаётся ровно один раз. Аннулированный талон остаётся в истории и не считается активным приходом/расходом.",
+    "Agronomist weighbridge answer: говори полевым языком и сначала называй поле, культуру/сорт/репродукцию, число рейсов, принятое количество и влажность; затем маршрут, транспорт и отклонения. Если identity, качество или оператор ещё не загружены, не подменяй их техническим профилем и не выдумывай.",
     "Operational slang aliases: картошка=картофель; химия=СЗР; селитра/аммиачка=ammonium nitrate; диамофос/диаммофос/DAP=диаммофоска; солярка=дизель; горючка/бензин=ГСМ/fuel; овощной=овощной склад; семенной=семенной склад; зерновой=зерновой склад.",
     `Route map: ${routeMap}.`,
     `Current UI context: ${contextLine}.`,

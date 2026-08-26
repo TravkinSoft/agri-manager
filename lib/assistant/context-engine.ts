@@ -711,12 +711,28 @@ export async function buildWarehouseInsightRows(context: AssistantToolContext): 
 export async function buildWeighbridgeInsightRows(context: AssistantToolContext): Promise<EntityRow[]> {
   const res = await context.supabase
     .from("tickets")
-    .select("id,ticket_no,status,op_type,created_at,net_weight_kg")
+    .select("id,ticket_no,status,op_type,created_at,finalized_at,net_weight_kg,accepted_weight_kg,field_id,requires_review,review_reason,is_voided,correction_of_ticket_id,linked_processing_id,processing_output_role,lines:ticket_lines(product_name_snapshot,moisture_percent)")
     .eq("company_id", context.companyId)
     .order("created_at", { ascending: false })
-    .limit(80);
+    .limit(200);
   const rows = res.error ? [] : res.data || [];
   const active = rows.filter((row: any) => ["active", "draft", "ready_to_close"].includes(normalizeText(row.status)));
+  const now = Date.now();
+  const stale = active.filter((row: any) => {
+    const openedAt = Date.parse(String(row.created_at || ""));
+    return Number.isFinite(openedAt) && now - openedAt >= 6 * 60 * 60 * 1000;
+  });
+  const today = new Date().toISOString().slice(0, 10);
+  const todayHarvest = rows.filter((row: any) =>
+    !row.is_voided &&
+    normalizeText(row.status) === "finalized" &&
+    includesAny(row.op_type, ["harvest", "field", "урожай", "поле"]) &&
+    String(row.finalized_at || row.created_at || "").slice(0, 10) === today
+  );
+  const todayMoisture = todayHarvest
+    .flatMap((row: any) => Array.isArray(row.lines) ? row.lines : [])
+    .map((line: any) => Number(line.moisture_percent))
+    .filter((value: number) => Number.isFinite(value) && value >= 0);
   const receipts = rows.filter((row: any) => includesAny(row.op_type, ["supplier", "receipt", "incoming", "\u043f\u0440\u0438\u0445\u043e\u0434", "\u043f\u043e\u0441\u0442\u0430\u0432"]));
   const shipments = rows.filter((row: any) => includesAny(row.op_type, ["outbound", "shipment", "\u043e\u0442\u0433\u0440\u0443\u0437"]));
   return [
@@ -724,6 +740,25 @@ export async function buildWeighbridgeInsightRows(context: AssistantToolContext)
       insight_type: "weighbridge",
       active_tickets: active.length,
       unclosed_tickets: active.length,
+      stale_over_6h: stale.length,
+      stale_ticket_numbers: stale.slice(0, 8).map((row: any) => cleanString(row.ticket_no) || cleanString(row.id)),
+      requires_review: rows.filter((row: any) => Boolean(row.requires_review) && !row.is_voided).length,
+      review_ticket_numbers: rows
+        .filter((row: any) => Boolean(row.requires_review) && !row.is_voided)
+        .slice(0, 8)
+        .map((row: any) => cleanString(row.ticket_no) || cleanString(row.id)),
+      today_harvest_trips: todayHarvest.length,
+      today_harvest_accepted_kg: Number(todayHarvest.reduce(
+        (sum: number, row: any) => sum + Number(row.accepted_weight_kg ?? row.net_weight_kg ?? 0),
+        0
+      ).toFixed(3)),
+      today_harvest_fields: new Set(todayHarvest.map((row: any) => cleanString(row.field_id)).filter(Boolean)).size,
+      today_average_moisture_percent: todayMoisture.length
+        ? Number((todayMoisture.reduce((sum: number, value: number) => sum + value, 0) / todayMoisture.length).toFixed(2))
+        : null,
+      corrections_recent: rows.filter((row: any) => Boolean(row.correction_of_ticket_id)).length,
+      voided_recent: rows.filter((row: any) => Boolean(row.is_voided) || normalizeText(row.status) === "voided").length,
+      processing_tickets_recent: rows.filter((row: any) => Boolean(row.linked_processing_id || row.processing_output_role)).length,
       recent_receipts: receipts.slice(0, 5).map((row: any) => cleanString(row.ticket_no) || cleanString(row.id)),
       recent_shipments: shipments.slice(0, 5).map((row: any) => cleanString(row.ticket_no) || cleanString(row.id)),
       recent_tickets: rows.slice(0, 5).map((row: any) => ({

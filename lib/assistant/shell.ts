@@ -1,9 +1,10 @@
 import type { AppRole } from "@/lib/auth/roles";
 
-export type AssistantAllowedRole = "global_admin";
+export type AssistantAllowedRole = "global_admin" | "agronomist";
 
 const ASSISTANT_ALLOWED_ROLES = new Set<AssistantAllowedRole>([
   "global_admin",
+  "agronomist",
 ]);
 
 export function canUseAssistantShell(role: AppRole): boolean {

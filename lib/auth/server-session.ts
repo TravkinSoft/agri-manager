@@ -35,6 +35,7 @@ export class SessionAuthError extends Error {
 
 const ASSISTANT_ALLOWED_ROLES = new Set<ServerRole>([
   "global_admin",
+  "agronomist",
 ]);
 
 function enforceDirectorReadOnly(request: NextRequest, actor: ServerActorContext): ServerActorContext {

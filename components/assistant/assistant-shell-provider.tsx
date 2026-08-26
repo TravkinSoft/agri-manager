@@ -186,7 +186,9 @@ export function AssistantShellProvider({ children }: { children: React.ReactNode
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
 
-  const assistantSuppressedForRoute = pathname === "/weighbridge" || pathname.startsWith("/weighbridge/");
+  const isWeighbridgeRoute = pathname === "/weighbridge" || pathname.startsWith("/weighbridge/");
+  const assistantSuppressedForRoute =
+    isWeighbridgeRoute && profile?.role !== "global_admin" && profile?.role !== "agronomist";
   const enabled = canUseAssistantShell(profile?.role) && !assistantSuppressedForRoute;
   const debugMonitorEnabled = isDebugEnabledForRole(profile?.role);
   const [isOpen, setIsOpen] = useState(false);

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLanguage } from "@/lib/contexts/language-context";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { supabase } from "@/lib/supabase/client";
@@ -18,12 +19,18 @@ type NotificationPreferences = {
   email_enabled: boolean;
   operation_updates_enabled: boolean;
   warehouse_updates_enabled: boolean;
+  weighbridge_updates_enabled: boolean;
+  proactive_assist_enabled: boolean;
+  proactive_assist_cadence: "events" | "twice_daily" | "daily" | "every_3_days" | "weekly";
 };
 
 const defaultPreferences: NotificationPreferences = {
   email_enabled: true,
   operation_updates_enabled: true,
   warehouse_updates_enabled: true,
+  weighbridge_updates_enabled: true,
+  proactive_assist_enabled: true,
+  proactive_assist_cadence: "events",
 };
 
 export default function SettingsPage() {
@@ -34,6 +41,7 @@ export default function SettingsPage() {
     useState<NotificationPreferences>(defaultPreferences);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notificationSaving, setNotificationSaving] = useState<keyof NotificationPreferences | null>(null);
+  const notificationOnly = profile?.role === "agronomist";
   const t = (ru: string, kz: string, en: string) =>
     language === "ru" ? ru : language === "kz" ? kz : en;
 
@@ -74,13 +82,13 @@ export default function SettingsPage() {
     void load();
   }, [getAuthorization, profile?.company_id, toast]);
 
-  const updateNotificationPreference = async (
-    key: keyof NotificationPreferences,
-    checked: boolean
+  const updateNotificationPreference = async <Key extends keyof NotificationPreferences>(
+    key: Key,
+    value: NotificationPreferences[Key]
   ) => {
     if (!profile?.company_id || notificationSaving) return;
     const previous = notificationPreferences;
-    const next = { ...previous, [key]: checked };
+    const next = { ...previous, [key]: value };
     setNotificationPreferences(next);
     setNotificationSaving(key);
     try {
@@ -122,11 +130,11 @@ export default function SettingsPage() {
         )}
       />
 
-      <Tabs defaultValue="general" className="space-y-4">
+      <Tabs defaultValue={notificationOnly ? "notifications" : "general"} className="space-y-4">
         <TabsList>
-          <TabsTrigger value="general">{t("Общие", "Жалпы", "General")}</TabsTrigger>
+          {!notificationOnly ? <TabsTrigger value="general">{t("Общие", "Жалпы", "General")}</TabsTrigger> : null}
           <TabsTrigger value="notifications">{t("Уведомления", "Хабарламалар", "Notifications")}</TabsTrigger>
-          <TabsTrigger value="security">{t("Безопасность", "Қауіпсіздік", "Security")}</TabsTrigger>
+          {!notificationOnly ? <TabsTrigger value="security">{t("Безопасность", "Қауіпсіздік", "Security")}</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="general" className="space-y-4">
@@ -215,6 +223,73 @@ export default function SettingsPage() {
                     void updateNotificationPreference("warehouse_updates_enabled", checked)
                   }
                 />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="notification-weighbridge">{t("Весовая", "Таразы", "Weighbridge")}</Label>
+                  <p className="text-sm text-slate-500">
+                    {t("Новые рейсы, закрытие, исправления и аннулирование талонов", "Жаңа рейстер мен талон мәртебелері", "New trips and ticket status changes")}
+                  </p>
+                </div>
+                <Switch
+                  id="notification-weighbridge"
+                  checked={notificationPreferences.weighbridge_updates_enabled}
+                  disabled={notificationsLoading || notificationSaving !== null}
+                  onCheckedChange={(checked) =>
+                    void updateNotificationPreference("weighbridge_updates_enabled", checked)
+                  }
+                />
+              </div>
+              <Separator />
+              <div className="flex items-center justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="notification-assist">{t("Проактивный Assist", "Проактивті Assist", "Proactive Assist")}</Label>
+                  <p className="text-sm text-slate-500">
+                    {t("Сообщать только о важных изменениях уборки и талонов", "Егін жинау мен талондардың маңызды өзгерістері", "Important harvest and ticket changes only")}
+                  </p>
+                </div>
+                <Switch
+                  id="notification-assist"
+                  checked={notificationPreferences.proactive_assist_enabled}
+                  disabled={notificationsLoading || notificationSaving !== null}
+                  onCheckedChange={(checked) =>
+                    void updateNotificationPreference("proactive_assist_enabled", checked)
+                  }
+                />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_220px] sm:items-center">
+                <div>
+                  <Label htmlFor="notification-assist-cadence">{t("Режим сводок", "Жиынтық режимі", "Summary cadence")}</Label>
+                  <p className="text-sm text-slate-500">
+                    {t("События приходят сразу; плановая сводка — по выбранному интервалу", "Оқиғалар бірден, жиынтық таңдалған аралықта", "Events are instant; summaries follow this cadence")}
+                  </p>
+                </div>
+                <Select
+                  value={notificationPreferences.proactive_assist_cadence}
+                  disabled={
+                    !notificationPreferences.proactive_assist_enabled ||
+                    notificationsLoading ||
+                    notificationSaving !== null
+                  }
+                  onValueChange={(value) =>
+                    void updateNotificationPreference(
+                      "proactive_assist_cadence",
+                      value as NotificationPreferences["proactive_assist_cadence"]
+                    )
+                  }
+                >
+                  <SelectTrigger id="notification-assist-cadence" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="events">{t("Только события", "Тек оқиғалар", "Events only")}</SelectItem>
+                    <SelectItem value="twice_daily">{t("Дважды в день", "Күніне екі рет", "Twice daily")}</SelectItem>
+                    <SelectItem value="daily">{t("Раз в день", "Күніне бір рет", "Daily")}</SelectItem>
+                    <SelectItem value="every_3_days">{t("Раз в 3 дня", "3 күнде бір рет", "Every 3 days")}</SelectItem>
+                    <SelectItem value="weekly">{t("Раз в неделю", "Аптасына бір рет", "Weekly")}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>

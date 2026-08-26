@@ -19,6 +19,7 @@ import {
 } from "@/lib/assistant/context-engine";
 import { applySemanticExpansions } from "@/lib/assistant/knowledge/semantic-memory";
 import { getAssistantRouteRegistry } from "@/lib/assistant/route-registry";
+import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 const DEFAULT_SEASON_YEAR = "2026";
 
@@ -1219,9 +1220,27 @@ async function enrichTickets(
   const ticketIds = Array.from(
     new Set(rawRows.map((row) => cleanString(row.id)).filter(Boolean))
   ) as string[];
+  const linesRes = ticketIds.length
+    ? await context.supabase
+        .from("ticket_lines")
+        .select("ticket_id,product_id,product_name_snapshot,variety_id,variety_name_snapshot,reproduction_id,reproduction_name_snapshot,moisture_percent,dockage_percent,class_grade,warehouse_from_id,warehouse_to_id,batch_id,lot_id,batch_class,quantity,net_line_weight_kg,notes")
+        .in("ticket_id", ticketIds)
+        .order("created_at", { ascending: true })
+        .limit(1200)
+    : ({ data: [], error: null } as any);
+  if (linesRes.error) throw new Error(linesRes.error.message);
+
   const driverIds = Array.from(
     new Set(rawRows.map((row) => cleanString(row.driver_id)).filter(Boolean))
   ) as string[];
+  const operatorIds = Array.from(
+    new Set(
+      rawRows
+        .flatMap((row) => [cleanString(row.created_by_person_id), cleanString(row.finalized_by_person_id)])
+        .filter(Boolean)
+    )
+  ) as string[];
+  const peopleIds = Array.from(new Set([...driverIds, ...operatorIds]));
   const vehicleIds = Array.from(
     new Set(rawRows.map((row) => cleanString(row.vehicle_id)).filter(Boolean))
   ) as string[];
@@ -1229,13 +1248,34 @@ async function enrichTickets(
     new Set(rawRows.map((row) => cleanString(row.field_id)).filter(Boolean))
   ) as string[];
 
-  const [linesRes, driversRes, vehiclesRes, lookup] = await Promise.all([
-    ticketIds.length
+  const productIds = Array.from(
+    new Set((linesRes.data || []).map((row: any) => cleanString(row.product_id)).filter(Boolean))
+  ) as string[];
+  const varietyIds = Array.from(
+    new Set((linesRes.data || []).map((row: any) => cleanString(row.variety_id)).filter(Boolean))
+  ) as string[];
+  const reproductionIds = Array.from(
+    new Set((linesRes.data || []).map((row: any) => cleanString(row.reproduction_id)).filter(Boolean))
+  ) as string[];
+  const warehouseIds = Array.from(
+    new Set(
+      [
+        ...rawRows.flatMap((row) => [cleanString(row.warehouse_from_id), cleanString(row.warehouse_to_id)]),
+        ...(linesRes.data || []).flatMap((row: any) => [
+          cleanString(row.warehouse_from_id),
+          cleanString(row.warehouse_to_id),
+        ]),
+      ].filter(Boolean)
+    )
+  ) as string[];
+
+  const [peopleRes, legacyDriversRes, vehiclesRes, machinesRes, lookup] = await Promise.all([
+    peopleIds.length
       ? context.supabase
-          .from("ticket_lines")
-          .select("ticket_id,product_id,variety_id")
-          .in("ticket_id", ticketIds)
-          .limit(1200)
+          .from("company_people")
+          .select("id,full_name,short_name")
+          .eq("company_id", context.companyId)
+          .in("id", peopleIds)
       : Promise.resolve({ data: [], error: null } as any),
     driverIds.length
       ? context.supabase
@@ -1246,47 +1286,84 @@ async function enrichTickets(
     vehicleIds.length
       ? context.supabase
           .from("reference_vehicles")
-          .select("id,name,plate_number")
+          .select("id,name,custom_name,full_name,brand,model,series,plate_number,license_plate,source_raw_name")
+          .eq("company_id", context.companyId)
           .in("id", vehicleIds)
       : Promise.resolve({ data: [], error: null } as any),
-    buildLookupMaps(context, { fields: fieldIds }),
+    vehicleIds.length
+      ? context.supabase
+          .from("reference_machines")
+          .select("id,name,full_name,brand,model,series,license_plate,source_raw_name")
+          .eq("company_id", context.companyId)
+          .in("id", vehicleIds)
+      : Promise.resolve({ data: [], error: null } as any),
+    buildLookupMaps(context, {
+      fields: fieldIds,
+      products: productIds,
+      varieties: varietyIds,
+      reproductions: reproductionIds,
+      warehouses: warehouseIds,
+    }),
   ]);
 
-  const productIds = Array.from(
-    new Set((linesRes.data || []).map((row: any) => cleanString(row.product_id)).filter(Boolean))
-  ) as string[];
-  const varietyIds = Array.from(
-    new Set((linesRes.data || []).map((row: any) => cleanString(row.variety_id)).filter(Boolean))
-  ) as string[];
-  const lineLookup = await buildLookupMaps(context, {
-    products: productIds,
-    varieties: varietyIds,
-  });
-
-  const firstLineByTicket = new Map<string, { product_name: string | null; variety_name: string | null }>();
+  const firstLineByTicket = new Map<string, Record<string, unknown>>();
+  const lineCountByTicket = new Map<string, number>();
   (linesRes.data || []).forEach((row: any) => {
     const ticketId = cleanString(row.ticket_id);
-    if (!ticketId || firstLineByTicket.has(ticketId)) return;
+    if (!ticketId) return;
+    lineCountByTicket.set(ticketId, (lineCountByTicket.get(ticketId) || 0) + 1);
+    if (firstLineByTicket.has(ticketId)) return;
     const productId = cleanString(row.product_id);
     const varietyId = cleanString(row.variety_id);
+    const reproductionId = cleanString(row.reproduction_id);
     firstLineByTicket.set(ticketId, {
-      product_name: productId ? lineLookup.byProduct.get(productId) || productId : null,
-      variety_name: varietyId ? lineLookup.byVariety.get(varietyId) || varietyId : null,
+      product_name: cleanString(row.product_name_snapshot) || (productId ? lookup.byProduct.get(productId) || productId : null),
+      variety_name: cleanString(row.variety_name_snapshot) || (varietyId ? lookup.byVariety.get(varietyId) || varietyId : null),
+      reproduction_name:
+        cleanString(row.reproduction_name_snapshot) ||
+        (reproductionId ? lookup.byReproduction.get(reproductionId) || reproductionId : null),
+      moisture_percent: row.moisture_percent == null ? null : Number(row.moisture_percent),
+      dockage_percent: row.dockage_percent == null ? null : Number(row.dockage_percent),
+      class_grade: cleanString(row.class_grade),
+      source_name: cleanString(row.warehouse_from_id)
+        ? lookup.byWarehouse.get(String(row.warehouse_from_id)) || null
+        : null,
+      destination_name: cleanString(row.warehouse_to_id)
+        ? lookup.byWarehouse.get(String(row.warehouse_to_id)) || null
+        : null,
+      batch_id: cleanString(row.batch_id),
+      lot_id: cleanString(row.lot_id),
+      batch_class: cleanString(row.batch_class),
+      line_quantity: Number(row.net_line_weight_kg ?? row.quantity ?? 0),
+      line_notes: cleanString(row.notes),
     });
   });
 
-  const driverMap = new Map<string, string>();
-  if (!driversRes.error) {
-    (driversRes.data || []).forEach((row: any) => {
-      driverMap.set(String(row.id), cleanString(row.full_name) || cleanString(row.email) || String(row.id));
+  const peopleMap = new Map<string, string>();
+  if (!peopleRes.error) {
+    (peopleRes.data || []).forEach((row: any) => {
+      peopleMap.set(String(row.id), cleanString(row.full_name) || cleanString(row.short_name) || String(row.id));
+    });
+  }
+  if (!legacyDriversRes.error) {
+    (legacyDriversRes.data || []).forEach((row: any) => {
+      if (!peopleMap.has(String(row.id))) {
+        peopleMap.set(String(row.id), cleanString(row.full_name) || String(row.id));
+      }
     });
   }
 
   const vehicleMap = new Map<string, string>();
   if (!vehiclesRes.error) {
     (vehiclesRes.data || []).forEach((row: any) => {
-      const label = cleanString(row.plate_number) || cleanString(row.name) || String(row.id);
-      vehicleMap.set(String(row.id), label);
+      vehicleMap.set(String(row.id), resolveTransportIdentity(row).label || String(row.id));
+    });
+  }
+  if (!machinesRes.error) {
+    (machinesRes.data || []).forEach((row: any) => {
+      if (!vehicleMap.has(String(row.id))) {
+        vehicleMap.set(String(row.id), resolveTransportIdentity(row).label || String(row.id));
+      }
     });
   }
 
@@ -1298,13 +1375,104 @@ async function enrichTickets(
     const line = id ? firstLineByTicket.get(id) : null;
     return {
       ...row,
-      driver_name: driverId ? driverMap.get(driverId) || null : null,
+      driver_name: driverId ? peopleMap.get(driverId) || null : null,
       vehicle_label: vehicleId ? vehicleMap.get(vehicleId) || null : null,
       field_name: fieldId ? lookup.byField.get(fieldId) || null : null,
       product_name: line?.product_name || null,
       variety_name: line?.variety_name || null,
+      reproduction_name: line?.reproduction_name || null,
+      moisture_percent: line?.moisture_percent ?? null,
+      dockage_percent: line?.dockage_percent ?? null,
+      class_grade: line?.class_grade || null,
+      source_name:
+        line?.source_name ||
+        (cleanString(row.warehouse_from_id)
+          ? lookup.byWarehouse.get(String(row.warehouse_from_id)) || null
+          : null),
+      destination_name:
+        line?.destination_name ||
+        (cleanString(row.warehouse_to_id)
+          ? lookup.byWarehouse.get(String(row.warehouse_to_id)) || null
+          : null),
+      operator_name:
+        (cleanString(row.finalized_by_person_id)
+          ? peopleMap.get(String(row.finalized_by_person_id))
+          : null) ||
+        (cleanString(row.created_by_person_id)
+          ? peopleMap.get(String(row.created_by_person_id))
+          : null) ||
+        null,
+      batch_id: line?.batch_id || cleanString(row.batch_id),
+      lot_id: line?.lot_id || cleanString(row.harvest_lot_id) || cleanString(row.lot_id),
+      batch_class: line?.batch_class || null,
+      line_quantity: line?.line_quantity ?? null,
+      line_count: id ? lineCountByTicket.get(id) || 0 : 0,
+      line_notes: line?.line_notes || null,
     };
   });
+}
+
+const ASSISTANT_WEIGHBRIDGE_TICKET_SELECT = [
+  "id",
+  "ticket_no",
+  "status",
+  "op_type",
+  "direction",
+  "source_kind",
+  "destination_kind",
+  "created_at",
+  "updated_at",
+  "finalized_at",
+  "voided_at",
+  "gross_weight_kg",
+  "tare_weight_kg",
+  "net_weight_kg",
+  "physical_net_kg",
+  "explicit_deductions_kg",
+  "accepted_weight_kg",
+  "driver_id",
+  "vehicle_id",
+  "field_id",
+  "warehouse_from_id",
+  "warehouse_to_id",
+  "created_by_person_id",
+  "finalized_by_person_id",
+  "requires_review",
+  "review_reason",
+  "is_voided",
+  "is_finalized",
+  "correction_of_ticket_id",
+  "replacement_ticket_id",
+  "correction_reason",
+  "linked_processing_id",
+  "processing_output_role",
+  "batch_id",
+  "harvest_lot_id",
+].join(",");
+
+function mapAssistantWeighbridgeTicket(row: Record<string, unknown>): Record<string, unknown> {
+  const nullableNumber = (value: unknown) => {
+    if (value == null || value === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  return {
+    ...row,
+    id: String(row.id || ""),
+    ticket_id: String(row.id || ""),
+    ticket_no: cleanString(row.ticket_no) || String(row.id || ""),
+    status: cleanString(row.status) || "-",
+    type: cleanString(row.op_type) || "-",
+    operation: cleanString(row.op_type) || "-",
+    gross_kg: nullableNumber(row.gross_weight_kg),
+    tare_kg: nullableNumber(row.tare_weight_kg),
+    physical_net_kg: nullableNumber(row.physical_net_kg ?? row.net_weight_kg),
+    net_kg: nullableNumber(row.net_weight_kg),
+    deduction_kg: nullableNumber(row.explicit_deductions_kg),
+    accepted_kg: nullableNumber(row.accepted_weight_kg ?? row.net_weight_kg),
+    date: cleanString(row.finalized_at) || cleanString(row.created_at),
+  };
 }
 
 const getCompanyContextTool: AssistantToolDefinition = {
@@ -2203,13 +2371,13 @@ const getWeighbridgeTicketsTool: AssistantToolDefinition = {
     const normalizedStatuses = normalizeTicketStatuses(status);
     let query = context.supabase
       .from("tickets")
-      .select(
-        "id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,driver_id,vehicle_id,field_id"
-      )
+      .select(ASSISTANT_WEIGHBRIDGE_TICKET_SELECT)
       .eq("company_id", context.companyId)
-      .eq("is_voided", false)
       .order("created_at", { ascending: false })
       .limit(80);
+    if (!normalizedStatuses.includes("voided")) {
+      query = query.eq("is_voided", false);
+    }
     if (normalizedStatuses.length === 1) {
       query = query.eq("status", normalizedStatuses[0]);
     } else if (normalizedStatuses.length > 1) {
@@ -2217,19 +2385,7 @@ const getWeighbridgeTicketsTool: AssistantToolDefinition = {
     }
     const res = await query;
     if (res.error) throw new Error(res.error.message);
-    const mappedRows = (res.data || []).map((row: any) => ({
-      id: String(row.id),
-      ticket_no: String(row.ticket_no || row.id),
-      status: String(row.status || "-"),
-      operation: String(row.op_type || "-"),
-      gross_kg: Number(row.gross_weight_kg || 0),
-      tare_kg: Number(row.tare_weight_kg || 0),
-      net_kg: Number(row.net_weight_kg || 0),
-      date: String(row.created_at || ""),
-      driver_id: cleanString(row.driver_id),
-      vehicle_id: cleanString(row.vehicle_id),
-      field_id: cleanString(row.field_id),
-    }));
+    const mappedRows = (res.data || []).map((row: any) => mapAssistantWeighbridgeTicket(row));
     const rows = filterQaRows(context, await enrichTickets(context, mappedRows), [
       "ticket_no",
       "status",
@@ -2239,6 +2395,13 @@ const getWeighbridgeTicketsTool: AssistantToolDefinition = {
       "field_name",
       "product_name",
       "variety_name",
+      "reproduction_name",
+      "source_name",
+      "destination_name",
+      "operator_name",
+      "review_reason",
+      "correction_reason",
+      "processing_output_role",
     ]).slice(0, limit);
 
     return {
@@ -3849,30 +4012,14 @@ const getActiveTicketsToolAlias: AssistantToolDefinition = {
   run: async (context) => {
     const res = await context.supabase
       .from("tickets")
-      .select(
-        "id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,driver_id,vehicle_id,field_id"
-      )
+      .select(ASSISTANT_WEIGHBRIDGE_TICKET_SELECT)
       .eq("company_id", context.companyId)
       .eq("is_voided", false)
       .in("status", ["draft", "active", "ready_to_close"])
       .order("created_at", { ascending: false })
       .limit(120);
     if (res.error) throw new Error(res.error.message);
-    const mappedRows = (res.data || []).map((row: any) => ({
-      id: String(row.id),
-      ticket_id: String(row.id),
-      ticket_no: cleanString(row.ticket_no) || String(row.id),
-      status: cleanString(row.status),
-      type: cleanString(row.op_type),
-      operation: cleanString(row.op_type),
-      gross_kg: Number(row.gross_weight_kg || 0),
-      tare_kg: Number(row.tare_weight_kg || 0),
-      net_kg: Number(row.net_weight_kg || 0),
-      date: cleanString(row.created_at),
-      driver_id: cleanString(row.driver_id),
-      vehicle_id: cleanString(row.vehicle_id),
-      field_id: cleanString(row.field_id),
-    }));
+    const mappedRows = (res.data || []).map((row: any) => mapAssistantWeighbridgeTicket(row));
     const rows = filterQaRows(context, await enrichTickets(context, mappedRows), [
       "ticket_no",
       "status",
@@ -3883,6 +4030,13 @@ const getActiveTicketsToolAlias: AssistantToolDefinition = {
       "field_name",
       "product_name",
       "variety_name",
+      "reproduction_name",
+      "source_name",
+      "destination_name",
+      "operator_name",
+      "review_reason",
+      "correction_reason",
+      "processing_output_role",
     ]);
     return {
       title: "Активные талоны",
@@ -3912,31 +4066,14 @@ const getTicketDetailsToolAlias: AssistantToolDefinition = {
     const query = parseSearchQuery(context);
     let q = context.supabase
       .from("tickets")
-      .select(
-        "id,ticket_no,status,op_type,created_at,gross_weight_kg,tare_weight_kg,net_weight_kg,driver_id,vehicle_id,field_id"
-      )
+      .select(ASSISTANT_WEIGHBRIDGE_TICKET_SELECT)
       .eq("company_id", context.companyId)
-      .eq("is_voided", false)
       .order("created_at", { ascending: false })
       .limit(40);
     if (query) q = q.or(`ticket_no.ilike.%${query}%`);
     const res = await q;
     if (res.error) throw new Error(res.error.message);
-    const mappedRows = (res.data || []).map((row: any) => ({
-      id: String(row.id),
-      ticket_id: String(row.id),
-      ticket_no: cleanString(row.ticket_no) || String(row.id),
-      type: cleanString(row.op_type),
-      operation: cleanString(row.op_type),
-      status: cleanString(row.status),
-      gross_kg: Number(row.gross_weight_kg || 0),
-      tare_kg: Number(row.tare_weight_kg || 0),
-      net_kg: Number(row.net_weight_kg || 0),
-      date: cleanString(row.created_at),
-      driver_id: cleanString(row.driver_id),
-      vehicle_id: cleanString(row.vehicle_id),
-      field_id: cleanString(row.field_id),
-    }));
+    const mappedRows = (res.data || []).map((row: any) => mapAssistantWeighbridgeTicket(row));
     const rows = filterQaRows(context, await enrichTickets(context, mappedRows), [
       "ticket_no",
       "type",
@@ -3947,6 +4084,13 @@ const getTicketDetailsToolAlias: AssistantToolDefinition = {
       "field_name",
       "product_name",
       "variety_name",
+      "reproduction_name",
+      "source_name",
+      "destination_name",
+      "operator_name",
+      "review_reason",
+      "correction_reason",
+      "processing_output_role",
     ]);
     return {
       title: "Детали талона",
