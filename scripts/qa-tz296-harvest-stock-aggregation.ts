@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { calculateHarvestLotAccounting } from "../lib/weighbridge/harvest-lot-accounting";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
@@ -8,6 +9,7 @@ const stockRoute = read("app/api/weighbridge/stock-identities/route.ts");
 const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
 const processingRoute = read("app/api/processing/transformations/route.ts");
 const transferRoute = read("app/api/warehouses/[id]/transfers/route.ts");
+const harvestBatchRoute = read("app/api/weighbridge/harvest-batches/route.ts");
 const migration = read("supabase/migrations/20260821152000_tz296_harvest_stock_aggregation_v1.sql");
 
 const checks: Array<{ name: string; run: () => void }> = [];
@@ -28,6 +30,27 @@ check("aggregate DTO carries lot state and trip count without a technical batch 
   assert.match(stockRoute, /batchId = sourceKind === "exact_stock_identity"/);
   assert.match(stockRoute, /\[lotId, batchClass, physicalState\]/);
   assert.doesNotMatch(stockRoute, /\[lotId, productId, batchClass, physicalState\]/);
+});
+
+check("warehouse cards aggregate technical physical states into one canonical lot row", () => {
+  assert.match(harvestBatchRoute, /stockByWarehouse/);
+  assert.match(harvestBatchRoute, /warehouseStockRows/);
+  assert.match(harvestBatchRoute, /stockComponents/);
+  assert.match(harvestBatchRoute, /trip\.opType === "harvest_incoming"/);
+});
+
+check("processing outputs are not counted twice as harvest receipts", () => {
+  const accounting = calculateHarvestLotAccounting({
+    receivedKg: 0,
+    currentKg: 94_000,
+    ledgerEntries: [
+      { reason_type: "processing_output_in", delta_qty_signed: 95_000 },
+      { reason_type: "warehouse_transfer", delta_qty_signed: 22_000 },
+      { reason_type: "warehouse_transfer_out", delta_qty_signed: -23_000 },
+    ],
+  });
+  assert.equal(accounting.expectedPhysicalKg, 94_000);
+  assert.equal(accounting.reconciliationDeltaKg, 0);
 });
 
 check("ticket create validates aggregate stock and persists canonical lot identity", () => {

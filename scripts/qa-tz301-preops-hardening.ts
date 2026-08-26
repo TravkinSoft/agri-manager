@@ -98,11 +98,11 @@ async function main() {
   });
 
   const weighbridgePage = read("app/(dashboard)/weighbridge/page.tsx");
-  await check("fast repeat preserves context and clears volatile paper inputs", () => {
+  await check("paper import stays server-compatible but is removed from the live operator form", () => {
     assert.match(weighbridgePage, /paperRecordedAt: ""/);
     assert.match(weighbridgePage, /paperTareKg: ""/);
     assert.match(weighbridgePage, /externalDocumentNo: ""/);
-    assert.match(weighbridgePage, /Внести рейс из бумажного журнала/);
+    assert.doesNotMatch(weighbridgePage, /Внести рейс из бумажного журнала/);
   });
 
   const weatherUi = read("components/weather/weather-lab.tsx");

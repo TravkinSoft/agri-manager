@@ -22,7 +22,7 @@ import { useLanguage } from "@/lib/contexts/language-context";
 import { brandName, localizedName } from "@/lib/i18n/helpers";
 import { supabase } from "@/lib/supabase/client";
 import { buildClientAuthHeaders } from "@/lib/supabase/client-auth";
-import { adminTicketAction, changeActiveHarvestRouteContext, closeShift, createActiveHarvestRoute, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, getWeighbridgeTransportPickerData, handoverWeighbridgeOperator, listActiveHarvestRoutes, listHarvestBatchSummaries, listTickets, lockWeighbridgeOperator, patchTicket, startTicketCorrection, unlockWeighbridgeOperator, updateActiveHarvestRoute, voidTicket, type ActiveHarvestRouteList } from "@/lib/services/weighbridge";
+import { adminTicketAction, changeActiveHarvestRouteContext, closeShift, createActiveHarvestRoute, createTicket, downloadTicketPdf, finalizeTicket, getTicketDetails, getWeighbridgeBootstrap, getWeighbridgeOperatorState, getWeighbridgeResources, getWeighbridgeTransportPickerData, handoverWeighbridgeOperator, listActiveHarvestRoutes, listHarvestBatchSummaries, listWeighbridgeWorkspaceTickets, lockWeighbridgeOperator, patchTicket, startTicketCorrection, unlockWeighbridgeOperator, updateActiveHarvestRoute, voidTicket, type ActiveHarvestRouteList } from "@/lib/services/weighbridge";
 import type { ActiveHarvestRoute, HarvestBatchSummary, TicketDirection, TicketInput, TicketLineInput, WeighbridgeOperatorState, WeighbridgeTicket } from "@/lib/types/weighbridge";
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
@@ -525,13 +525,6 @@ const operationUiLabel = (opType: string) => {
   return opType || "Операция";
 };
 
-const fieldMaterialCategoryLabels: Record<FieldMaterialCategory, string> = {
-  seed_planting_material: "Семена / посадочный материал",
-  fertilizer: "Удобрения",
-  organic: "Органика",
-  other: "Прочие сыпучие материалы",
-};
-
 const disposalCategoryLabels: Record<DisposalCategory, string> = {
   utilization: "Утилизация",
   spoilage: "Порча",
@@ -568,20 +561,21 @@ const shipmentPurposeLabels: Record<ShipmentPurpose, string> = {
 };
 
 const isSeedIssueOperation = (value: string) => value === "seed_planting_material";
-const materialMatchesOperation = (item: StockIdentityOption, category: FieldMaterialCategory) => {
+const inferFieldMaterialCategory = (item: StockIdentityOption): FieldMaterialCategory => {
   const hay = `${item.product_name} ${item.product_type || ""} ${item.batch_class_label}`.toLowerCase();
-  if (category === "seed_planting_material") {
-    return item.batch_class === "seed" || hay.includes("сем") || hay.includes("seed") || hay.includes("посад");
+  if (item.is_seed_material || item.batch_class === "seed" || hay.includes("сем") || hay.includes("seed") || hay.includes("посад")) {
+    return "seed_planting_material";
   }
-  if (category === "fertilizer") return hay.includes("fert") || hay.includes("удобр") || hay.includes("селит") || hay.includes("аммо") || hay.includes("npk");
-  if (category === "organic") return hay.includes("навоз") || hay.includes("компост") || hay.includes("орган") || hay.includes("biomass") || hay.includes("биомас");
-  return isWeighedFieldMaterial({
+  if (hay.includes("fert") || hay.includes("удобр") || hay.includes("селит") || hay.includes("аммо") || hay.includes("npk")) return "fertilizer";
+  if (hay.includes("навоз") || hay.includes("компост") || hay.includes("орган") || hay.includes("biomass") || hay.includes("биомас")) return "organic";
+  return "other";
+};
+const isFieldMaterialOption = (item: StockIdentityOption) => isWeighedFieldMaterial({
     productType: item.product_type,
     stockUnit: item.stock_unit || item.uom,
     physicalState: item.physical_state,
     isSeedMaterial: item.is_seed_material,
   });
-};
 
 const ticketStageLabel = (t: WeighbridgeTicket) => {
   if (t.status === "ready_to_close") return "Закрыть";
@@ -841,6 +835,9 @@ export default function WeighbridgeOperationsPage() {
   const [supplierReceiptLines, setSupplierReceiptLines] = useState<SupplierReceiptLineDraft[]>([]);
   const [showSupplierExtraFields, setShowSupplierExtraFields] = useState(false);
   const [tickets, setTickets] = useState<WeighbridgeTicket[]>([]);
+  const [historyLimit, setHistoryLimit] = useState(10);
+  const [historyHasMore, setHistoryHasMore] = useState(false);
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [harvestBatches, setHarvestBatches] = useState<HarvestBatchSummary[]>([]);
   const [fields, setFields] = useState<{ id: string; name: string; area: number }[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
@@ -1337,7 +1334,7 @@ export default function WeighbridgeOperationsPage() {
     return request;
   };
 
-  const refreshTickets = async (showLoading = false, signal?: AbortSignal) => {
+  const refreshTickets = async (showLoading = false, signal?: AbortSignal, requestedHistoryLimit = historyLimit) => {
     if (!profile?.company_id || !profile?.id) return;
     if (ticketsRequestRef.current) return ticketsRequestRef.current;
     const companyId = profile.company_id;
@@ -1345,9 +1342,12 @@ export default function WeighbridgeOperationsPage() {
     if (showLoading) setTicketsLoading(true);
     const request = (async () => {
       try {
-        const rows = await listTickets(companyId, profileId, { workspace: true, signal });
+        const workspace = await listWeighbridgeWorkspaceTickets(companyId, profileId, {
+          historyLimit: requestedHistoryLimit,
+          signal,
+        });
         if (!signal?.aborted) {
-          const nextRows = rows || [];
+          const nextRows = workspace.tickets || [];
           const activeRows = nextRows.filter((ticket) =>
             !ticket.is_voided && ["draft", "active", "ready_to_close"].includes(String(ticket.status))
           );
@@ -1356,6 +1356,7 @@ export default function WeighbridgeOperationsPage() {
             return Number.isFinite(openedAt) && Date.now() - openedAt > 6 * 60 * 60 * 1000;
           });
           setTickets(nextRows);
+          setHistoryHasMore(workspace.historyHasMore);
           setShiftCounters((current) => ({
             ...current,
             activeTickets: activeRows.length,
@@ -1481,24 +1482,29 @@ export default function WeighbridgeOperationsPage() {
     return request;
   };
 
-  const refreshLiveData = async (event?: { source: string; table?: string }) => {
+  const refreshLiveData = async (event?: { source: string; table?: string; tables?: string[] }) => {
     const isForeground = !event || event.source !== "realtime";
     const table = event?.table || "";
-    if (canUseOperatorSession && (isForeground || !table || table === "weighbridge_shifts")) {
+    const changedTables = new Set([...(event?.tables || []), table].filter(Boolean));
+    const hasScopedTables = changedTables.size > 0;
+    const shiftChanged = !hasScopedTables || changedTables.has("weighbridge_shifts");
+    if (canUseOperatorSession && (isForeground || shiftChanged)) {
       const canonicalSession = await verifyOperatorSession();
       if (canonicalSession && !canonicalSession.unlocked) return;
       if (!canonicalSession && !operatorCanonicalStateRef.current.unlocked) return;
     } else if (canUseOperatorSession && !operatorCanonicalStateRef.current.unlocked) {
       return;
     }
-    const ticketChanged = !table || ["tickets", "ticket_lines", "ticket_weighings", "inventory_batches", "stock_ledger_entries"].includes(table);
-    const shiftChanged = !table || table === "weighbridge_shifts";
+    const ticketChanged = !hasScopedTables || ["tickets", "ticket_lines", "ticket_weighings"].some((name) => changedTables.has(name));
+    const stockChanged = !hasScopedTables || ["inventory_batches", "stock_ledger_entries"].some((name) => changedTables.has(name));
     const tasks: Promise<unknown>[] = [];
     if (ticketChanged) {
       tasks.push(refreshTickets());
-      if (form.operationType === "impurity_removal") tasks.push(refreshHarvestBatches());
     }
-    if (table === "tickets") tasks.push(refreshTransportPickerData());
+    if (form.operationType === "impurity_removal" && (ticketChanged || stockChanged)) {
+      tasks.push(refreshHarvestBatches());
+    }
+    if (isForeground && ticketChanged) tasks.push(refreshTransportPickerData());
     if (statisticsOpen && ticketChanged) tasks.push(refreshBootstrap(true));
     if (!canUseOperatorSession && shiftChanged) tasks.push(refreshBootstrap(false));
     await Promise.all(tasks);
@@ -1581,6 +1587,8 @@ export default function WeighbridgeOperationsPage() {
     let refreshTimer: number | null = null;
 
     setSecondaryCatalogsLoaded(false);
+    setHistoryLimit(10);
+    setHistoryHasMore(false);
     if (cached) {
       setFields(cached.fields || []);
       setWarehouses(cached.warehouses || []);
@@ -1591,7 +1599,11 @@ export default function WeighbridgeOperationsPage() {
       setTransportPickerData(cached.transportPickerData || transportPickerDataCache.get(companyId) || emptyTransportPickerData());
       setHarvestStructureByField(cached.harvestStructureByField || {});
       setHarvestIncompleteFields(cached.harvestIncompleteFields || {});
-      setTickets(cached.tickets || []);
+      const cachedTickets = (cached.tickets || []) as WeighbridgeTicket[];
+      const cachedOpen = cachedTickets.filter((ticket) => ["draft", "active", "ready_to_close"].includes(ticket.status));
+      const cachedHistory = cachedTickets.filter((ticket) => ["finalized", "voided"].includes(ticket.status));
+      setTickets([...cachedOpen, ...cachedHistory.slice(0, 10)]);
+      setHistoryHasMore(cachedHistory.length > 10);
       if (!canUseOperatorSession) setActiveShift(cached.activeShift || null);
       setShiftCounters(cached.shiftCounters || shiftCounters);
       setShiftGuard(cached.shiftGuard || { stale: false, ageHours: 0 });
@@ -2856,20 +2868,20 @@ export default function WeighbridgeOperationsPage() {
     [harvestBatches, form.sourceBatchId]
   );
   const fieldIssueStockOptions = useMemo(() => {
-    const filtered = stockIdentityOptions.filter((item) => materialMatchesOperation(item, form.fieldMaterialCategory));
-    if (!isSeedIssueOperation(form.fieldMaterialCategory) || !selectedHarvestAllocation) return filtered;
+    const filtered = stockIdentityOptions.filter(isFieldMaterialOption);
+    if (!selectedHarvestAllocation) return filtered;
     return [...filtered].sort((a, b) => {
-      const aMatch =
+      const aMatch = isSeedIssueOperation(inferFieldMaterialCategory(a)) &&
         a.product_name.toLowerCase().includes(selectedHarvestAllocation.cropName.toLowerCase()) &&
         a.variety_id === selectedHarvestAllocation.varietyId &&
         a.reproduction_id === selectedHarvestAllocation.reproductionId;
-      const bMatch =
+      const bMatch = isSeedIssueOperation(inferFieldMaterialCategory(b)) &&
         b.product_name.toLowerCase().includes(selectedHarvestAllocation.cropName.toLowerCase()) &&
         b.variety_id === selectedHarvestAllocation.varietyId &&
         b.reproduction_id === selectedHarvestAllocation.reproductionId;
-      return Number(bMatch) - Number(aMatch);
+      return Number(bMatch) - Number(aMatch) || a.label.localeCompare(b.label, "ru");
     });
-  }, [stockIdentityOptions, form.fieldMaterialCategory, selectedHarvestAllocation]);
+  }, [stockIdentityOptions, selectedHarvestAllocation]);
   const selectedVehicle = useMemo(
     () => vehicles.find((vehicle) => vehicle.id === form.vehicleId) || null,
     [vehicles, form.vehicleId]
@@ -3102,7 +3114,6 @@ export default function WeighbridgeOperationsPage() {
       if (form.fieldId && !selectedHarvestAllocation) return "Для выдачи в поле нужна посевная строка активного сезона";
       if (!form.warehouseFromId) return "Выберите склад-источник";
       if (!form.fieldId) return "Выберите поле";
-      if (!form.fieldMaterialCategory) return "Выберите категорию материала";
       if (!form.stockIdentityKey || !selectedTransferStock) return "Выберите материал из остатков склада";
       if (form.fieldIssueMode === "weighbridge") {
         if (!form.driverId) return "Выберите водителя";
@@ -3113,7 +3124,7 @@ export default function WeighbridgeOperationsPage() {
         if (!qty || qty <= 0) return "Укажите количество выдачи";
         if (qty > Number(selectedTransferStock?.quantity || 0)) return "Количество больше доступного остатка";
       }
-      if (isSeedIssueOperation(form.fieldMaterialCategory)) {
+      if (isSeedIssueOperation(inferFieldMaterialCategory(selectedTransferStock))) {
         if (!selectedHarvestAllocation) return "Для семян нужна структура посевов выбранного поля";
         if (!selectedTransferStock.variety_id || !selectedTransferStock.reproduction_id) {
           return "Для семян выберите партию с сортом и репродукцией";
@@ -3327,7 +3338,7 @@ export default function WeighbridgeOperationsPage() {
       receipt_mode: form.operationType === "supplier_receipt" ? form.supplierReceiptMode : null,
       supplier_receipt_kind: form.operationType === "supplier_receipt" ? "generic" : null,
       field_operation_type: isFieldIssue ? "issued_to_field" : null,
-      field_material_category: isFieldIssue ? form.fieldMaterialCategory : null,
+      field_material_category: isFieldIssue && selectedTransferStock ? inferFieldMaterialCategory(selectedTransferStock) : null,
       linked_operation_id: isFieldIssue ? form.linkedOperationId || null : null,
       disposal_category: form.operationType === "disposal_writeoff" ? form.disposalCategory : null,
       field_id: form.operationType === "supplier_receipt" ? null : form.fieldId || null,
@@ -3359,7 +3370,7 @@ export default function WeighbridgeOperationsPage() {
         ? processingOutputContext?.cropId || null
         : isImpurityRemoval
         ? selectedHarvestBatch?.cropId || null
-        : form.operationType === "harvest_incoming" || (isFieldIssue && isSeedIssueOperation(form.fieldMaterialCategory))
+        : form.operationType === "harvest_incoming" || (isFieldIssue && selectedTransferStock && isSeedIssueOperation(inferFieldMaterialCategory(selectedTransferStock)))
           ? form.cropId
           : selectedTransferStock?.crop_id || null,
       quantity: movementQuantity,
@@ -4139,6 +4150,24 @@ export default function WeighbridgeOperationsPage() {
     active
       ? "h-9 border-yellow-500/70 bg-yellow-500/15 text-yellow-100 hover:bg-yellow-500/20"
       : "h-9 border-slate-800 bg-slate-950/60 text-slate-200 hover:border-slate-700 hover:bg-slate-900 hover:text-slate-50";
+  const loadMoreHistory = async () => {
+    if (historyLoadingMore) return;
+    setHistoryLoadingMore(true);
+    try {
+      if (ticketsRequestRef.current) await ticketsRequestRef.current;
+      const nextLimit = historyLimit + 10;
+      await refreshTickets(false, undefined, nextLimit);
+      setHistoryLimit(nextLimit);
+    } catch (error) {
+      toast({
+        title: "Не удалось загрузить ещё талоны",
+        description: error instanceof Error ? error.message : "Повторите попытку",
+        variant: "destructive",
+      });
+    } finally {
+      setHistoryLoadingMore(false);
+    }
+  };
   const operatorDialogVisible = canUseOperatorSession && (
     operatorGateBlocked || (operatorDialogOpen && operatorDialogRequested)
   );
@@ -4417,40 +4446,6 @@ export default function WeighbridgeOperationsPage() {
                       : "Место приёмки не настроено. Обратитесь к администратору."}
                   </div>
                 ) : null}
-                <details className="rounded-md border border-slate-800 bg-slate-950/35 px-3 py-2">
-                  <summary className="cursor-pointer text-xs font-semibold text-slate-300">Внести рейс из бумажного журнала</summary>
-                  <div className="mt-3 grid gap-3 md:grid-cols-3">
-                    <div className="space-y-1">
-                      <Label>Номер бумажного документа</Label>
-                      <Input
-                        className="h-9"
-                        value={form.externalDocumentNo}
-                        onChange={(event) => setForm((previous) => ({ ...previous, externalDocumentNo: event.target.value }))}
-                        placeholder="Например, 184"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Дата и время рейса</Label>
-                      <Input
-                        className="h-9"
-                        type="datetime-local"
-                        value={form.paperRecordedAt}
-                        onChange={(event) => setForm((previous) => ({ ...previous, paperRecordedAt: event.target.value }))}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label>Тара, кг</Label>
-                      <Input
-                        className="h-9"
-                        inputMode="decimal"
-                        value={form.paperTareKg}
-                        onChange={(event) => setForm((previous) => ({ ...previous, paperTareKg: event.target.value }))}
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-                  <p className="mt-2 text-xs text-slate-500">При заполнении номера рейс будет сразу завершён с указанными брутто, тарой и влажностью.</p>
-                </details>
               </div>
             ) : null}
 
@@ -4616,13 +4611,6 @@ export default function WeighbridgeOperationsPage() {
                   <Button type="button" size="sm" variant="outline" className={segmentClass(form.fieldIssueMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
                   <Button type="button" size="sm" variant="outline" className={segmentClass(form.fieldIssueMode === "direct")} onClick={() => setForm((p) => ({ ...p, fieldIssueMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручная выдача</Button>
                 </div>
-                <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-4">
-                  {(Object.keys(fieldMaterialCategoryLabels) as FieldMaterialCategory[]).map((type) => (
-                    <Button key={type} type="button" size="sm" variant="outline" className={`${segmentClass(form.fieldMaterialCategory === type)} h-auto min-h-10 whitespace-normal`} onClick={() => setForm((p) => ({ ...p, fieldMaterialCategory: type, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}>
-                      {fieldMaterialCategoryLabels[type]}
-                    </Button>
-                  ))}
-                </div>
                 {fieldHarvestOptions.length > 1 ? (
                   <Select value={form.cropStructureAllocationId} onValueChange={(v) => setForm((p) => ({ ...p, cropStructureAllocationId: v, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}>
                     <SelectTrigger className="h-8"><SelectValue placeholder="Посевная строка / участок поля" /></SelectTrigger>
@@ -4633,7 +4621,14 @@ export default function WeighbridgeOperationsPage() {
                 <div className="grid gap-2 md:grid-cols-2">
                   <Select value={form.stockIdentityKey} onValueChange={(v) => {
                     const selected = fieldIssueStockOptions.find((item) => item.key === v);
-                    setForm((p) => ({ ...p, stockIdentityKey: v, productId: selected?.product_id || "", varietyId: selected?.variety_id || "", reproductionId: selected?.reproduction_id || "" }));
+                    setForm((p) => ({
+                      ...p,
+                      stockIdentityKey: v,
+                      productId: selected?.product_id || "",
+                      varietyId: selected?.variety_id || "",
+                      reproductionId: selected?.reproduction_id || "",
+                      fieldMaterialCategory: selected ? inferFieldMaterialCategory(selected) : p.fieldMaterialCategory,
+                    }));
                   }} disabled={!form.warehouseFromId || !selectedHarvestAllocation || stockIdentityLoading}>
                     <SelectTrigger className="h-8"><SelectValue placeholder="Материал из наличия склада" /></SelectTrigger>
                     <SelectContent>{fieldIssueStockOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectContent>
@@ -4998,9 +4993,16 @@ export default function WeighbridgeOperationsPage() {
                 </div>
               );
             })}
-            {!ticketsLoading && historyTickets.length >= 20 ? (
-              <Button asChild variant="outline" className="w-full border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-900">
-                <Link href="/weighbridge/history">Открыть полный журнал</Link>
+            {!ticketsLoading && historyHasMore ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-900"
+                disabled={historyLoadingMore}
+                onClick={() => void loadMoreHistory()}
+              >
+                {historyLoadingMore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {historyLoadingMore ? "Загружаем..." : "Ещё 10 талонов"}
               </Button>
             ) : null}
           </CardContent>

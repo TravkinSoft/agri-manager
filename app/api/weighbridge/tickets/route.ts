@@ -189,6 +189,11 @@ export async function GET(request: NextRequest) {
       allowedRoles: WEIGHBRIDGE_READ_ROLES,
     });
     const workspace = request.nextUrl.searchParams.get("workspace") === "true";
+    const requestedHistoryLimit = Number(request.nextUrl.searchParams.get("historyLimit") || 10);
+    const historyLimit = Number.isFinite(requestedHistoryLimit)
+      ? Math.min(100, Math.max(10, Math.trunc(requestedHistoryLimit)))
+      : 10;
+    let historyHasMore = false;
     let data: any[] | null = null;
     let error: any = null;
     if (workspace) {
@@ -206,10 +211,12 @@ export async function GET(request: NextRequest) {
           .eq("company_id", companyId)
           .in("status", ["finalized", "voided"])
           .order("created_at", { ascending: false })
-          .limit(20),
+          .limit(historyLimit + 1),
       ]);
       error = openResult.error || recentResult.error;
-      data = [...(openResult.data || []), ...(recentResult.data || [])];
+      const recentRows = recentResult.data || [];
+      historyHasMore = recentRows.length > historyLimit;
+      data = [...(openResult.data || []), ...recentRows.slice(0, historyLimit)];
       if (!error) {
         const loadedIds = new Set((data || []).map((ticket: any) => String(ticket.id)));
         const originalIds = Array.from(new Set(
@@ -287,7 +294,7 @@ export async function GET(request: NextRequest) {
       includeTechnicalAudit: actor.role === "global_admin",
     });
 
-    return NextResponse.json({ tickets: attributedTickets });
+    return NextResponse.json({ tickets: attributedTickets, historyHasMore });
   } catch (error) {
     const sessionError = asSessionErrorResponse(error);
     if (sessionError) {

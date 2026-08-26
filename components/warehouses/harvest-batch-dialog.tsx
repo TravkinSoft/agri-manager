@@ -55,6 +55,17 @@ const outputLabel = (value: string) => ({
   process_loss: "Отходы / потери",
 } as Record<string, string>)[value] || "Результат";
 
+function stockComponentLabel(batchClass: string, physicalState: string): string {
+  const batch = String(batchClass || "commodity").toLowerCase();
+  const state = String(physicalState || "SOURCE").toUpperCase();
+  if (batch === "waste" && state === "SCREENINGS") return "Отсев";
+  if (batch === "waste" && state === "AFTER_CLEANING") return "Отходы после очистки";
+  if (batch === "waste") return "Прочие отходы";
+  if (state === "AFTER_CLEANING") return "Очищенная продукция";
+  if (state === "AFTER_DRYING") return "Продукция после сушки";
+  return "Исходная продукция";
+}
+
 function ProcessingDocumentDialog({ document, onOpenChange, onOpenTicket }: {
   document: OutgoingDocument | null;
   onOpenChange: (open: boolean) => void;
@@ -139,6 +150,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
     });
   };
   const trips = batch?.tripBatches || [];
+  const stockComponents = batch?.stockComponents || [];
   const outgoingDocuments = batch?.outgoingDocuments || [];
   const activeTrips = trips.filter((trip) => trip.status !== "voided");
   const moistureRelevant = Boolean(
@@ -269,6 +281,20 @@ export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
                     Партия не объединяется с подтверждёнными партиями автоматически.
                   </div>
                 </div>
+              ) : null}
+
+              {stockComponents.length > 1 ? (
+                <section aria-label="Физический состав остатка">
+                  <h3 className="mb-3 text-base font-semibold">Состав партии на этом складе</h3>
+                  <div className="divide-y divide-slate-800 border-y border-slate-800">
+                    {stockComponents.map((component, index) => (
+                      <div key={`${component.batchClass}-${component.physicalState}-${index}`} className="flex items-center justify-between gap-4 py-2.5 text-sm">
+                        <span className="text-slate-400">{stockComponentLabel(component.batchClass, component.physicalState)}</span>
+                        <span className="font-semibold tabular-nums text-slate-100">{kg(component.quantityKg)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               ) : null}
 
               {moistureRelevant && weightedMoisture != null ? (

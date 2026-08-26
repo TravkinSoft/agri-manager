@@ -42,6 +42,31 @@ export async function listTickets(
   return ((payload.tickets || []) as WeighbridgeTicket[]).filter((ticket) => !hasQaDataMarker(JSON.stringify(ticket)));
 }
 
+export async function listWeighbridgeWorkspaceTickets(
+  companyId: string,
+  _userId: string,
+  options?: { historyLimit?: number; signal?: AbortSignal }
+): Promise<{ tickets: WeighbridgeTicket[]; historyHasMore: boolean }> {
+  const headers = await buildClientAuthHeaders("none");
+  const query = new URLSearchParams({
+    companyId,
+    workspace: "true",
+    historyLimit: String(options?.historyLimit || 10),
+  });
+  const response = await fetch(`/api/weighbridge/tickets?${query.toString()}`, {
+    method: "GET",
+    cache: "no-store",
+    headers,
+    signal: options?.signal,
+  });
+  const payload = await parseJsonOrThrow(response);
+  return {
+    tickets: ((payload.tickets || []) as WeighbridgeTicket[])
+      .filter((ticket) => !hasQaDataMarker(JSON.stringify(ticket))),
+    historyHasMore: Boolean(payload.historyHasMore),
+  };
+}
+
 export async function getWeighbridgeBootstrap(
   companyId?: string,
   _userId?: string,

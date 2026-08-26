@@ -275,6 +275,12 @@ export interface HarvestBatchSummary {
   aggregateLot?: boolean;
   aggregateLotId?: string | null;
   tripCount?: number;
+  stockComponents?: Array<{
+    batchClass: string;
+    physicalState: string;
+    quantityKg: number;
+    tripCount: number;
+  }>;
   reviewState?: "confirmed" | "requires_review";
   reviewReasons?: string[];
   fieldSummaries?: Array<{

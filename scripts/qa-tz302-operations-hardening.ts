@@ -21,6 +21,9 @@ async function main() {
   const warehouseSummary = read("app/api/warehouses/summaries/route.ts");
   const primitives = read("components/operations/operational-ui.tsx");
   const bootstrap = read("app/api/weighbridge/bootstrap/route.ts");
+  const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
+  const harvestBatchRoute = read("app/api/weighbridge/harvest-batches/route.ts");
+  const liveRefresh = read("hooks/use-live-refresh.ts");
   const reconciliationRoute = read("app/api/weighbridge/reconciliation-controls/route.ts");
   const reconciliationUi = read("components/weighbridge/daily-reconciliation.tsx");
   const reconciliationMigration = read("supabase/migrations/20260824124000_tz302_weighbridge_daily_reconciliation_v1.sql");
@@ -87,6 +90,33 @@ async function main() {
     assert.match(weighbridge, /xl:col-start-2 xl:row-start-1/);
     assert.match(weighbridge, /Открытых талонов нет/);
     assert.doesNotMatch(weighbridge, /visibleActiveTickets\.length > 0 \|\| ticketsLoading \? "xl:grid-cols/);
+  });
+
+  await check("operator form has no paper-import disclosure or manual material categories", () => {
+    assert.doesNotMatch(weighbridge, /Внести рейс из бумажного журнала/);
+    assert.doesNotMatch(weighbridge, /Семена \/ посадочный материал/);
+    assert.doesNotMatch(weighbridge, /Прочие сыпучие материалы/);
+    assert.match(weighbridge, /inferFieldMaterialCategory/);
+  });
+
+  await check("ticket journal starts at ten rows and expands only on demand", () => {
+    assert.match(ticketRoute, /historyLimit/);
+    assert.match(ticketRoute, /historyLimit \+ 1/);
+    assert.match(ticketRoute, /historyHasMore/);
+    assert.match(weighbridge, /Ещё 10 талонов/);
+  });
+
+  await check("realtime bursts are throttled before heavy workspace refetches", () => {
+    assert.match(liveRefresh, /minRefreshIntervalMs - \(Date\.now\(\) - lastRefreshAtRef\.current\)/);
+    assert.doesNotMatch(liveRefresh, /event\?\.source !== "realtime"/);
+    assert.match(weighbridge, /const stockChanged/);
+    assert.match(weighbridge, /isForeground && ticketChanged/);
+  });
+
+  await check("warehouse overview keeps one row per lot and warehouse", () => {
+    assert.match(harvestBatchRoute, /stockByWarehouse/);
+    assert.match(harvestBatchRoute, /warehouseStockRows/);
+    assert.match(harvestBatchRoute, /trip\.opType === "harvest_incoming"/);
   });
 
   await check("processing refresh is visible-only single-flight without request storms", () => {

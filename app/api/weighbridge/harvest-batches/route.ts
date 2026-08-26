@@ -49,7 +49,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
     (() => {
       let query = supabase
         .from("v_harvest_lot_stock_v1")
-        .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg")
+        .select("harvest_lot_id,warehouse_id,trip_count,current_weight_kg,batch_class,physical_state")
         .eq("company_id", companyId)
         .in("harvest_lot_id", lotIds);
       if (warehouseId) query = query.eq("warehouse_id", warehouseId);
@@ -273,7 +273,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
 
   return lotRows.flatMap((lot) => {
     const memberLinks = links.filter((link) => String(link.harvest_lot_id) === String(lot.id));
-    const trips = memberLinks.map((link) => {
+    const linkedTrips = memberLinks.map((link) => {
       const batch = batchesById.get(String(link.inventory_batch_id)) || {};
       const ticket = ticketsById.get(String(link.source_ticket_id || batch.source_ticket_id)) || {};
       const fieldId = String(ticket.field_id || lot.source_field_id || "") || null;
@@ -299,9 +299,15 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
         vehicleName: transportIdentity.label || null,
         driverName: String(driver?.full_name || driver?.name_ru || driver?.name_en || driver?.name_kz || driver?.email || "") || null,
         status: ticket.is_voided || ticket.status === "voided" ? "voided" : String(ticket.status || "unknown"),
+        opType: String(ticket.op_type || ""),
         occurredAt: ticket.finalized_at || ticket.created_at || batch.created_at || null,
       };
     });
+    const trips = Array.from(new Map(
+      linkedTrips
+        .filter((trip) => trip.ticketId && trip.opType === "harvest_incoming")
+        .map((trip) => [String(trip.ticketId), trip] as const)
+    ).values());
     const validTrips = trips.filter((trip) => trip.status !== "voided");
     const fieldSummaryMap = new Map<string, { fieldId: string | null; fieldName: string; netWeightKg: number; tripCount: number }>();
     trips.forEach((trip) => {
@@ -324,6 +330,25 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
     const voidedKg = trips.filter((trip) => trip.status === "voided").reduce((sum, trip) => sum + trip.netWeightKg, 0);
     const dates = validTrips.map((trip) => trip.occurredAt).filter(Boolean).sort();
     const stockRows = allStockRows.filter((row) => String(row.harvest_lot_id) === String(lot.id) && Number(row.current_weight_kg || 0) > 0.0001);
+    const stockByWarehouse = new Map<string, { warehouse_id: string; current_weight_kg: number; components: any[] }>();
+    for (const row of stockRows) {
+      const warehouseKey = String(row.warehouse_id || "");
+      const current = stockByWarehouse.get(warehouseKey) || {
+        warehouse_id: warehouseKey,
+        current_weight_kg: 0,
+        components: [],
+      };
+      const componentWeight = Number(row.current_weight_kg || 0);
+      current.current_weight_kg += componentWeight;
+      current.components.push({
+        batchClass: String(row.batch_class || "commodity"),
+        physicalState: String(row.physical_state || "SOURCE"),
+        quantityKg: componentWeight,
+        tripCount: Number(row.trip_count || 0),
+      });
+      stockByWarehouse.set(warehouseKey, current);
+    }
+    const warehouseStockRows = Array.from(stockByWarehouse.values());
     const totalCurrent = stockRows.reduce((sum, row) => sum + Number(row.current_weight_kg || 0), 0);
     const crop = cropsById.get(String(lot.crop_id || ""));
     const variety = varietiesById.get(String(lot.variety_id || ""));
@@ -351,7 +376,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
       ledgerEntries: lotLedgerEntries,
     });
 
-    return stockRows.map((stock) => {
+    return warehouseStockRows.map((stock) => {
       const warehouse = warehousesById.get(String(stock.warehouse_id || ""));
       const currentWeight = Number(stock.current_weight_kg || 0);
       const warehouseLedgerEntries = lotLedgerEntries.filter(
@@ -502,6 +527,7 @@ async function loadAggregateHarvestLots(supabase: any, companyId: string, wareho
         aggregateLot: true,
         aggregateLotId: String(lot.id),
         tripCount: validTrips.length,
+        stockComponents: stock.components.sort((left, right) => right.quantityKg - left.quantityKg),
         reviewState: lot.review_state,
         reviewReasons: Array.isArray(lot.review_reasons) ? lot.review_reasons : [],
         fieldSummaries,

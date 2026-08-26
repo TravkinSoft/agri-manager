@@ -47,6 +47,7 @@ type UseLiveRefreshOptions = {
 export type LiveRefreshEvent = {
   source: "realtime" | "focus" | "online" | "visibility" | "interval";
   table?: string;
+  tables?: string[];
   eventType?: string;
 };
 
@@ -78,6 +79,11 @@ export function useLiveRefresh({
     let realtimeChannel: ReturnType<typeof supabase.channel> | null = null;
     let pendingEvent: LiveRefreshEvent | undefined;
 
+    const scheduleRun = (delayMs: number) => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => void runRefresh(), delayMs);
+    };
+
     const runRefresh = async () => {
       if (disposed || document.visibilityState !== "visible") return;
       if (runningRef.current) {
@@ -85,17 +91,16 @@ export function useLiveRefresh({
         return;
       }
 
+      const waitMs = minRefreshIntervalMs - (Date.now() - lastRefreshAtRef.current);
+      if (minRefreshIntervalMs > 0 && waitMs > 0) {
+        scheduleRun(waitMs);
+        return;
+      }
+
       runningRef.current = true;
       try {
         const event = pendingEvent;
         pendingEvent = undefined;
-        if (
-          event?.source !== "realtime" &&
-          minRefreshIntervalMs > 0 &&
-          Date.now() - lastRefreshAtRef.current < minRefreshIntervalMs
-        ) {
-          return;
-        }
         await refreshRef.current(event);
         lastRefreshAtRef.current = Date.now();
       } catch (error) {
@@ -104,16 +109,29 @@ export function useLiveRefresh({
         runningRef.current = false;
         if (!disposed && pendingRef.current) {
           pendingRef.current = false;
-          void runRefresh();
+          scheduleRun(Math.max(minRefreshIntervalMs, debounceMs));
         }
       }
     };
 
     const scheduleRefresh = (event?: LiveRefreshEvent) => {
       if (disposed) return;
-      pendingEvent = event || pendingEvent;
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => void runRefresh(), debounceMs);
+      if (event && pendingEvent) {
+        const tables = Array.from(new Set([
+          ...(pendingEvent.tables || []),
+          pendingEvent.table,
+          ...(event.tables || []),
+          event.table,
+        ].filter(Boolean) as string[]));
+        pendingEvent = {
+          ...event,
+          table: tables.length === 1 ? tables[0] : undefined,
+          tables,
+        };
+      } else if (event) {
+        pendingEvent = { ...event, tables: event.table ? [event.table] : event.tables };
+      }
+      scheduleRun(debounceMs);
     };
 
     const handleVisibilityChange = () => {
