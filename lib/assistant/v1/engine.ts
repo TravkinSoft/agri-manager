@@ -106,6 +106,9 @@ const INTENT_BY_TOOL: Record<ReadOnlyModelToolName, AssistantIntentName> = {
   get_warehouse_stock: "inventory_balance",
   get_crop_structure_summary: "crop_structure_area",
   get_active_operations_summary: "operations_recent",
+  get_active_tickets: "weighbridge_tickets",
+  get_recent_tickets: "weighbridge_tickets",
+  get_ticket_details: "weighbridge_tickets",
 };
 
 const OUTPUT_BY_TOOL: Record<ReadOnlyModelToolName, AssistantOutputType> = {
@@ -117,6 +120,9 @@ const OUTPUT_BY_TOOL: Record<ReadOnlyModelToolName, AssistantOutputType> = {
   get_warehouse_stock: "balance",
   get_crop_structure_summary: "summary_total",
   get_active_operations_summary: "summary_total",
+  get_active_tickets: "list",
+  get_recent_tickets: "list",
+  get_ticket_details: "filtered_summary",
 };
 
 function clean(value: unknown): string | null {
@@ -267,6 +273,15 @@ function normalizedToolArgs(params: {
   if (name === "get_field_land_bank_summary") {
     return { query: message, output_type: "summary_total" };
   }
+  if (name === "get_active_tickets" || name === "get_recent_tickets" || name === "get_ticket_details") {
+    const ticketNo = message.match(/\bWB-[A-Z0-9-]{6,}\b/i)?.[0] || null;
+    return {
+      query: name === "get_ticket_details" ? clean(rawArgs.query) || ticketNo || message : message,
+      status: name === "get_active_tickets" ? "active" : clean(rawArgs.status),
+      limit: rawArgs.limit,
+      output_type: "tickets",
+    };
+  }
   return { query: message, output_type: "filtered_summary" };
 }
 
@@ -276,6 +291,17 @@ function requiredCurrentDataToolCall(params: {
   turn: number;
 }): any | null {
   const text = params.message.toLocaleLowerCase("ru-RU");
+  const ticketNo = params.message.match(/\bWB-[A-Z0-9-]{6,}\b/i)?.[0] || null;
+  if (ticketNo) {
+    return { id: `readonly-required-ticket-details-${params.turn}`, type: "function", function: { name: "get_ticket_details", arguments: JSON.stringify({ query: ticketNo }) } };
+  }
+  if (/(активн|открыт|не\s+закрыт|в\s+работе|active|open)/iu.test(text) && /(весов|талон|weighbridge|ticket)/iu.test(text)) {
+    return { id: `readonly-required-active-tickets-${params.turn}`, type: "function", function: { name: "get_active_tickets", arguments: JSON.stringify({ limit: 10 }) } };
+  }
+  if (/(последн|недавн|покажи|перечисл|список|сколько|какие|recent|latest|last)/iu.test(text) && /(весов|талон|weighbridge|ticket)/iu.test(text)) {
+    const limit = /последн(?:ий|его)\s+талон|latest\s+ticket|last\s+ticket/iu.test(text) ? 1 : 10;
+    return { id: `readonly-required-recent-tickets-${params.turn}`, type: "function", function: { name: "get_recent_tickets", arguments: JSON.stringify({ limit }) } };
+  }
   if (/(?:сколько\s+(?:у\s+нас\s+)?склад|какие\s+(?:у\s+нас\s+)?склад|список\s+склад|перечисл\w*\s+склад)/iu.test(text)) {
     return { id: `readonly-required-warehouse-directory-${params.turn}`, type: "function", function: { name: "get_warehouse_stock", arguments: "{}" } };
   }
@@ -608,7 +634,87 @@ function buildToolGroundedFallbackAnswer(params: {
     }
   }
 
+  if (lastTool === "get_active_tickets" || lastTool === "get_recent_tickets" || lastTool === "get_ticket_details") {
+    const statusLabel = (value: unknown) => {
+      const status = clean(value)?.toLowerCase() || "";
+      if (["finalized", "closed", "completed"].includes(status)) return "закрыт";
+      if (["draft", "active", "ready_to_close", "open"].includes(status)) return "открыт";
+      if (["voided", "cancelled", "canceled"].includes(status)) return "аннулирован";
+      return clean(value) || "статус не указан";
+    };
+    const operationLabel = (value: unknown) => {
+      const operation = clean(value)?.toLowerCase() || "";
+      if (operation === "harvest_incoming") return "урожай с поля";
+      if (operation === "warehouse_transfer") return "перемещение";
+      if (operation === "processing_input") return "подача на обработку";
+      if (operation === "processing_output") return "выход обработки";
+      if (operation === "shipment") return "отгрузка";
+      return clean(value) || "рейс Весовой";
+    };
+    const kg = (value: unknown) => value == null || value === "" ? null : `${formatFallbackNumber(value)} кг`;
+    const percent = (value: unknown) => value == null || value === "" ? null : `${formatFallbackNumber(value)}%`;
+    const lines = rows.map((row) => {
+      const ticket = clean(row.ticket_no) || "Талон";
+      const identity = [
+        clean(row.field_name),
+        clean(row.product_name),
+        clean(row.variety_name) ? `сорт ${clean(row.variety_name)}` : null,
+        clean(row.reproduction_name),
+      ].filter(Boolean).join(" · ");
+      const route = [clean(row.source_name), clean(row.destination_name)].filter(Boolean).join(" → ");
+      const transport = [clean(row.vehicle_label), clean(row.driver_name)].filter(Boolean).join(" · ");
+      const physical = kg(row.physical_net_kg ?? row.net_kg);
+      const accepted = kg(row.accepted_kg ?? row.net_kg);
+      const deduction = kg(row.deduction_kg);
+      const quality = [
+        physical ? `физическое нетто ${physical}` : null,
+        accepted ? `принято ${accepted}` : null,
+        deduction && Number(row.deduction_kg || 0) !== 0 ? `удержание ${deduction}` : null,
+        percent(row.moisture_percent) ? `влажность ${percent(row.moisture_percent)}` : null,
+      ].filter(Boolean).join(", ");
+      const controls = [
+        clean(row.operator_name) ? `весовщик ${clean(row.operator_name)}` : null,
+        row.requires_review ? `требует проверки${clean(row.review_reason) ? `: ${clean(row.review_reason)}` : ""}` : null,
+        clean(row.correction_reason) ? `исправление: ${clean(row.correction_reason)}` : null,
+      ].filter(Boolean).join("; ");
+      const details = [identity, route, transport, quality, controls].filter(Boolean).join("; ");
+      return `- ${ticket} — ${statusLabel(row.status)}, ${operationLabel(row.operation ?? row.type)}${details ? `. ${details}` : ""}`;
+    });
+    const heading = lastTool === "get_active_tickets"
+      ? "Открытые талоны Весовой"
+      : lastTool === "get_ticket_details"
+        ? "Талон Весовой"
+        : "Последние талоны Весовой";
+    return `${heading} (${rows.length}):\n${lines.join("\n")}`;
+  }
+
   return null;
+}
+
+function isWeighbridgeFallbackTopic(message: string): boolean {
+  return /(весов|талон|брутто|тара|физическ\w*\s+нетто|принят\w*\s+вес|удержан|влажност|сушк|чистк|площадк|weighbridge|ticket|gross|tare)/iu.test(message);
+}
+
+function weighbridgeFallbackTool(message: string): { name: ReadOnlyModelToolName; args: Record<string, unknown> } | null {
+  const ticketNo = message.match(/\bWB-[A-Z0-9-]{6,}\b/i)?.[0] || null;
+  if (ticketNo) return { name: "get_ticket_details", args: { query: ticketNo } };
+  if (/(активн|открыт|не\s+закрыт|в\s+работе|active|open)/iu.test(message)) {
+    return { name: "get_active_tickets", args: { limit: 10 } };
+  }
+  if (/(последн|недавн|покажи|перечисл|список|сколько|какие|recent|latest|last)/iu.test(message) && /(весов|талон|weighbridge|ticket)/iu.test(message)) {
+    return { name: "get_recent_tickets", args: { limit: /последн(?:ий|его)\s+талон|latest\s+ticket|last\s+ticket/iu.test(message) ? 1 : 10 } };
+  }
+  return null;
+}
+
+function buildWeighbridgeKnowledgeFallbackAnswer(): string {
+  return [
+    "Весовая фиксирует каждый рейс как маршрут А → Б и связывает его с полем, культурой, партией, машиной и водителем.",
+    "Физическое нетто = брутто − тара. Принятый вес = физическое нетто − только явно подтверждённые удержания; влажность хранится отдельно и сама массу не списывает.",
+    "Сушка и площадка сохраняют происхождение зерна, но выход получают как новую физическую партию с фактическим весом и влажностью; подтверждённую разницу закрывают как усушку.",
+    "На чистке основной продукт и каждую фракцию отходов фиксируют отдельными рейсами, но система сохраняет связь с исходной партией и общий материальный баланс.",
+    "Исправление не переписывает историю: исходное складское влияние сторнируется, затем создаётся корректный заменяющий талон.",
+  ].join("\n");
 }
 
 function updateThreadState(params: {
@@ -1020,10 +1126,124 @@ export async function runReadOnlyAssistantV1(params: {
     /^http:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?$/i.test(String(process.env.ASSISTANT_OPENAI_BASE_URL || ""))
       ? process.env.ASSISTANT_LOCAL_MOCK_TOKEN
       : undefined;
+  const fetchImpl = params.dependencies?.fetchImpl || fetch;
+  const executeTool: ReadOnlyToolExecutor = params.dependencies?.executeTool || (async ({ name, context }) => {
+    const tool = getAssistantTool(name);
+    if (!tool) throw new ReadOnlyPolicyError("TOOL_NOT_IMPLEMENTED", `Tool implementation not found: ${name}`);
+    return tool.run(context);
+  });
   const apiKey = params.dependencies && Object.prototype.hasOwnProperty.call(params.dependencies, "apiKey")
     ? params.dependencies.apiKey
     : process.env.OPENAI_API_KEY || localMockApiKey;
   if (!clean(apiKey)) {
+    if (isWeighbridgeFallbackTopic(message)) {
+      const fallbackPlan = weighbridgeFallbackTool(message);
+      if (!fallbackPlan) {
+        return buildResult({
+          startedAt,
+          answer: buildWeighbridgeKnowledgeFallbackAnswer(),
+          state,
+          runtimeContext,
+          settings: params.settings,
+          modelConfig,
+          actualModel: null,
+          llm: defaultLlm(),
+          usage: { promptTokens: null, completionTokens: null, totalTokens: null },
+          toolCalls: [],
+          outputs: [],
+          intent: { name: "general_question", confidence: 1, needsData: false, parameters: { query: message } },
+          answerSource: "fast_path_template",
+          grounded: false,
+          modelMs: 0,
+          toolMs: 0,
+          diagnostics,
+        });
+      }
+
+      const intent: AssistantIntent = {
+        name: "weighbridge_tickets",
+        confidence: 1,
+        needsData: true,
+        parameters: asIntentParameters(fallbackPlan.args),
+      };
+      const context: AssistantToolContext = {
+        supabase: params.supabase,
+        actor: params.actor,
+        companyId: params.companyId,
+        settings: params.settings,
+        runtimeContext,
+        sessionState: legacySessionState(state, runtimeContext),
+        intent,
+      };
+      const toolStartedAt = Date.now();
+      try {
+        const policy = assertReadOnlyToolPolicy({
+          toolName: fallbackPlan.name,
+          args: fallbackPlan.args,
+          settings: params.settings,
+          season: runtimeContext.season,
+        });
+        let output = await executeTool({ name: fallbackPlan.name, args: fallbackPlan.args, context });
+        assertReadOnlyResultCompany({ output, companyId: params.companyId });
+        output = boundReadOnlyToolOutput({ output, policy });
+        const durationMs = Date.now() - toolStartedAt;
+        const toolCalls: AssistantEngineResult["toolCalls"] = [{
+          tool: fallbackPlan.name,
+          params: fallbackPlan.args,
+          ok: true,
+          rows: output.rows.length,
+          durationMs,
+        }];
+        const outputs = [output];
+        const fallbackAnswer = buildToolGroundedFallbackAnswer({ message, toolCalls, outputs });
+        return buildResult({
+          startedAt,
+          answer: fallbackAnswer || "По вашему запросу данных Весовой не найдено.",
+          state: updateThreadState({ previous: state, name: fallbackPlan.name, args: fallbackPlan.args, output, message }),
+          runtimeContext,
+          settings: params.settings,
+          modelConfig,
+          actualModel: null,
+          llm: defaultLlm(),
+          usage: { promptTokens: null, completionTokens: null, totalTokens: null },
+          toolCalls,
+          outputs,
+          intent,
+          answerSource: output.rows.length ? "tools" : "no_data",
+          grounded: true,
+          modelMs: 0,
+          toolMs: durationMs,
+          diagnostics,
+        });
+      } catch (error) {
+        const durationMs = Date.now() - toolStartedAt;
+        return buildResult({
+          startedAt,
+          answer: "Не смог прочитать данные Весовой. Доступ к рабочим данным не открывался и никаких записей не сделано.",
+          state,
+          runtimeContext,
+          settings: params.settings,
+          modelConfig,
+          actualModel: null,
+          llm: defaultLlm(),
+          usage: { promptTokens: null, completionTokens: null, totalTokens: null },
+          toolCalls: [{
+            tool: fallbackPlan.name,
+            params: fallbackPlan.args,
+            ok: false,
+            error: error instanceof Error ? error.message : "WEIGHBRIDGE_TOOL_FAILED",
+            durationMs,
+          }],
+          outputs: [],
+          intent,
+          answerSource: "tool_error",
+          grounded: false,
+          modelMs: 0,
+          toolMs: durationMs,
+          diagnostics,
+        });
+      }
+    }
     return buildResult({
       startedAt,
       answer: "Локальный OpenAI API key не настроен. Для A101 используйте mocked OpenAI.",
@@ -1045,12 +1265,6 @@ export async function runReadOnlyAssistantV1(params: {
     });
   }
 
-  const fetchImpl = params.dependencies?.fetchImpl || fetch;
-  const executeTool: ReadOnlyToolExecutor = params.dependencies?.executeTool || (async ({ name, context }) => {
-    const tool = getAssistantTool(name);
-    if (!tool) throw new ReadOnlyPolicyError("TOOL_NOT_IMPLEMENTED", `Tool implementation not found: ${name}`);
-    return tool.run(context);
-  });
   const messages: any[] = conversation.messages.map((item) => ({ ...item }));
   const modelToolsEnabled = requestDecision.mode === "model_with_tools";
   const toolSchemas = modelToolsEnabled ? getReadOnlyModelToolSchemas() : [];

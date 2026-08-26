@@ -28,6 +28,9 @@ export const READ_ONLY_TOOL_POLICIES: Readonly<Record<ReadOnlyModelToolName, Rea
   get_warehouse_stock: { sideEffect: "none", maxRows: 100, requiresSeason: false },
   get_crop_structure_summary: { sideEffect: "none", maxRows: 100, requiresSeason: true },
   get_active_operations_summary: { sideEffect: "none", maxRows: 100, requiresSeason: true },
+  get_active_tickets: { sideEffect: "none", maxRows: 120, requiresSeason: false },
+  get_recent_tickets: { sideEffect: "none", maxRows: 80, requiresSeason: false },
+  get_ticket_details: { sideEffect: "none", maxRows: 40, requiresSeason: false },
 });
 
 const READ_ONLY_TOOL_SET = new Set<string>(READ_ONLY_MODEL_TOOL_NAMES);

@@ -10,6 +10,9 @@ export const READ_ONLY_MODEL_TOOL_NAMES = [
   "get_warehouse_stock",
   "get_crop_structure_summary",
   "get_active_operations_summary",
+  "get_active_tickets",
+  "get_recent_tickets",
+  "get_ticket_details",
 ] as const satisfies readonly AssistantToolName[];
 
 export type ReadOnlyModelToolName = (typeof READ_ONLY_MODEL_TOOL_NAMES)[number];

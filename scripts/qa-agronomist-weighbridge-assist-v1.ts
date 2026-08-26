@@ -22,6 +22,10 @@ const proactiveRoute = read("app/api/assistant/proactive/route.ts");
 const assistantTools = read("lib/assistant/engine/tools.ts");
 const assistantQuery = read("lib/assistant/engine/query.ts");
 const assistantContext = read("lib/assistant/context-engine.ts");
+const readOnlyTypes = read("lib/assistant/v1/types.ts");
+const readOnlyPolicy = read("lib/assistant/v1/policy.ts");
+const readOnlySchemas = read("lib/assistant/v1/tool-schemas.ts");
+const readOnlyEngine = read("lib/assistant/v1/engine.ts");
 const prompt = read("lib/assistant/prompts/travkin-core-prompt.ts");
 const bootstrap = read("app/api/weighbridge/bootstrap/route.ts");
 const weighbridge = read("app/(dashboard)/weighbridge/page.tsx");
@@ -115,6 +119,25 @@ check("Assist resolves current people, vehicles and machines", () => {
   assert.match(assistantTools, /from\("reference_machines"\)/);
   assert.match(assistantTools, /resolveTransportIdentity\(row\)/);
   assert.doesNotMatch(assistantTools.match(/const getTicketDetailsToolAlias[\s\S]*?\n};/)?.[0] || "", /eq\("is_voided", false\)/);
+});
+
+check("active V1 runtime exposes read-only Weighbridge tools", () => {
+  for (const tool of ["get_active_tickets", "get_recent_tickets", "get_ticket_details"]) {
+    assert.match(readOnlyTypes, new RegExp(`"${tool}"`));
+    assert.match(readOnlyPolicy, new RegExp(`${tool}: \\{ sideEffect: "none"`));
+    assert.match(readOnlySchemas, new RegExp(`name: "${tool}"`));
+  }
+  assert.match(readOnlyEngine, /required-ticket-details/);
+  assert.match(readOnlyEngine, /required-active-tickets/);
+  assert.match(readOnlyEngine, /required-recent-tickets/);
+});
+
+check("Weighbridge remains useful when Preview model secret is unavailable", () => {
+  assert.match(readOnlyEngine, /isWeighbridgeFallbackTopic/);
+  assert.match(readOnlyEngine, /buildWeighbridgeKnowledgeFallbackAnswer/);
+  assert.match(readOnlyEngine, /Физическое нетто = брутто − тара/);
+  assert.match(readOnlyEngine, /answerSource: output\.rows\.length \? "tools" : "no_data"/);
+  assert.match(readOnlyEngine, /assertReadOnlyResultCompany/);
 });
 
 check("Assist answers agronomists with weights, moisture and review state", () => {

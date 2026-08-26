@@ -134,6 +134,32 @@ async function run(params: {
   });
 }
 
+async function runWithoutModel(params: {
+  message: string;
+  executor?: ReadOnlyToolExecutor;
+}) {
+  return runReadOnlyAssistantV1({
+    supabase: {} as SupabaseClient,
+    actor,
+    companyId: COMPANY_A,
+    companyName: "Mock Farm",
+    settings,
+    input: {
+      message: params.message,
+      threadId: "thread-no-model",
+      historyThreadId: "thread-no-model",
+      history: [],
+      runtimeContext: { ...runtimeContext, currentPage: "weighbridge", currentRoute: "/weighbridge", currentModule: "weighbridge" },
+      threadState: emptyReadOnlyThreadState("thread-no-model"),
+      locale: "ru",
+    },
+    dependencies: {
+      apiKey: null,
+      executeTool: params.executor,
+    },
+  });
+}
+
 let passed = 0;
 async function scenario(name: string, fn: () => void | Promise<void>) {
   await fn();
@@ -435,9 +461,62 @@ await scenario("история реально в OpenAI payload", async () => {
 await scenario("все allowlisted tools имеют side_effect=none", () => {
   const schemaNames = getReadOnlyModelToolSchemas().map((tool) => tool.function.name);
   assert.deepEqual(schemaNames, [...READ_ONLY_MODEL_TOOL_NAMES]);
-  assert.equal(schemaNames.length, 8);
+  assert.equal(schemaNames.length, 11);
   READ_ONLY_MODEL_TOOL_NAMES.forEach((name) => assert.equal(READ_ONLY_TOOL_POLICIES[name].sideEffect, "none"));
   assert.equal(schemaNames.some((name) => name.startsWith("create_") || name.includes("sql") || name.includes("navigate")), false);
+});
+
+await scenario("Weighbridge knowledge remains available without a model secret", async () => {
+  let toolCount = 0;
+  const result = await runWithoutModel({
+    message: "Объясни агроному физическое нетто, принятый вес, сушку и чистку на Весовой.",
+    executor: async () => {
+      toolCount += 1;
+      return output([]);
+    },
+  });
+  assert.equal(result.model.llm.status, "not_called");
+  assert.equal(result.answerSource, "fast_path_template");
+  assert.match(result.answer, /Физическое нетто = брутто − тара/);
+  assert.match(result.answer, /Сушка и площадка/);
+  assert.equal(toolCount, 0);
+});
+
+await scenario("latest Weighbridge ticket is company-scoped and grounded without a model secret", async () => {
+  let calledTool = "";
+  const result = await runWithoutModel({
+    message: "Покажи последний талон Весовой",
+    executor: async ({ name }) => {
+      calledTool = name;
+      return output([{
+        company_id: COMPANY_A,
+        ticket_no: "WB-MOCK-1",
+        status: "finalized",
+        operation: "harvest_incoming",
+        field_name: "Поле 20",
+        product_name: "Пшеница",
+        variety_name: "Ламис",
+        source_name: "Поле 20",
+        destination_name: "БИС",
+        vehicle_label: "KAMAZ · 247 AP 15",
+        driver_name: "Водитель",
+        physical_net_kg: 19100,
+        accepted_kg: 18900,
+        deduction_kg: 200,
+        moisture_percent: 17.3,
+        operator_name: "Весовщик",
+      }], "Последний талон" );
+    },
+  });
+  assert.equal(calledTool, "get_recent_tickets");
+  assert.equal(result.model.llm.status, "not_called");
+  assert.equal(result.answerSource, "tools");
+  assert.equal(result.grounded, true);
+  assert.match(result.answer, /WB-MOCK-1/);
+  assert.match(result.answer, /физическое нетто 19[\s\u00a0]100 кг/);
+  assert.match(result.answer, /принято 18[\s\u00a0]900 кг/);
+  assert.match(result.answer, /влажность 17,3%/);
+  assert.match(result.answer, /весовщик Весовщик/);
 });
 
 await scenario("model preflight — только явный process override, без silent fallback", () => {

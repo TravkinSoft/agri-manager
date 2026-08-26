@@ -4010,6 +4010,7 @@ const getActiveTicketsToolAlias: AssistantToolDefinition = {
   description: "Active weighbridge tickets",
   domains: ["weighbridge"],
   run: async (context) => {
+    const limit = parseLimit(context.intent.parameters.limit, 10, 1, 120);
     const res = await context.supabase
       .from("tickets")
       .select(ASSISTANT_WEIGHBRIDGE_TICKET_SELECT)
@@ -4017,7 +4018,7 @@ const getActiveTicketsToolAlias: AssistantToolDefinition = {
       .eq("is_voided", false)
       .in("status", ["draft", "active", "ready_to_close"])
       .order("created_at", { ascending: false })
-      .limit(120);
+      .limit(limit);
     if (res.error) throw new Error(res.error.message);
     const mappedRows = (res.data || []).map((row: any) => mapAssistantWeighbridgeTicket(row));
     const rows = filterQaRows(context, await enrichTickets(context, mappedRows), [

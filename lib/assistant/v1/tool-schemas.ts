@@ -120,6 +120,49 @@ const tools: PlannerToolSchema[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_active_tickets",
+      description: "Read active Weighbridge tickets for the authenticated company, including field, crop, route, transport, weights, moisture, operator, correction and review state.",
+      parameters: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", minimum: 1, maximum: 120 },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_recent_tickets",
+      description: "Read recent Weighbridge tickets for the authenticated company. Use for latest or recent ticket questions.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: { type: "string" },
+          limit: { type: "integer", minimum: 1, maximum: 80 },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_ticket_details",
+      description: "Read one Weighbridge ticket by its WB number, including the full agronomic and physical context.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Ticket number, for example WB-..." },
+        },
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 export function getReadOnlyModelToolSchemas(): PlannerToolSchema[] {
