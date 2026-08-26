@@ -773,7 +773,7 @@ export async function POST(request: NextRequest) {
       }
       const { data: transformation, error: transformationError } = await supabase
         .from("batch_transformations")
-        .select("id,node_warehouse_id,harvest_lot_id,season_id,source_physical_state,processing_state,status,closed_at")
+        .select("id,node_warehouse_id,harvest_lot_id,season_id,source_physical_state,transformation_type,processing_method,processing_state,status,closed_at")
         .eq("id", ticket.linked_processing_id)
         .eq("company_id", companyId)
         .maybeSingle();
@@ -790,8 +790,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Контекст обработки больше не доступен. Обновите карточку обработки." }, { status: 409 });
       }
 
-      const [destinationResult, lotResult, seasonResult, inputResult, outputResult, lossResult] = await Promise.all([
+      const [destinationResult, sourceResult, lotResult, seasonResult, inputResult, outputResult, lossResult] = await Promise.all([
         supabase.from("warehouses").select("id,archived,is_archived").eq("id", ticket.warehouse_to_id).eq("company_id", companyId).maybeSingle(),
+        supabase.from("warehouses").select("id,place_type,archived,is_archived").eq("id", transformation.node_warehouse_id).eq("company_id", companyId).maybeSingle(),
         supabase.from("harvest_lots").select("id,season_id,crop_id,variety_id,reproduction_id,composition_hash,status").eq("id", transformation.harvest_lot_id).eq("company_id", companyId).maybeSingle(),
         supabase.from("seasons").select("id,archived").eq("id", transformation.season_id).eq("company_id", companyId).maybeSingle(),
         supabase.from("batch_transformation_inputs").select("batch_id,input_weight_kg").eq("company_id", companyId).eq("transformation_id", transformation.id),
@@ -802,6 +803,20 @@ export async function POST(request: NextRequest) {
       const destinationError = destinationResult.error;
       if (destinationError || !destination?.id || destination.archived || destination.is_archived) {
         return NextResponse.json({ error: "Выберите активное место назначения выхода обработки." }, { status: 400 });
+      }
+      const sourcePlace = sourceResult.data as any;
+      const sourcePlaceType = String(sourcePlace?.place_type || "").toUpperCase();
+      if (
+        sourceResult.error
+        || !sourcePlace?.id
+        || sourcePlace.archived
+        || sourcePlace.is_archived
+        || !["DRYER", "CLEANER"].includes(sourcePlaceType)
+      ) {
+        return NextResponse.json({ error: "Источник не является действующей сушилкой или очисткой." }, { status: 409 });
+      }
+      if (sourcePlaceType === "DRYER" && processingOutputRole !== "GRAIN") {
+        return NextResponse.json({ error: "Из сушилки оформляется только зерно после сушки." }, { status: 400 });
       }
 
       const lot = lotResult.data as any;

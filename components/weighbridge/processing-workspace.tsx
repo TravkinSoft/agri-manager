@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Factory, History, Loader2, Plus, RotateCcw, ShieldCheck } from "lucide-react";
+import { ChevronDown, Factory, History, Loader2, MoreHorizontal, RotateCcw, ShieldCheck, Warehouse } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,7 +19,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { BalanceSummary, MetricStrip, StatusBadge } from "@/components/operations/operational-ui";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { BalanceSummary, StatusBadge } from "@/components/operations/operational-ui";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -27,10 +28,13 @@ import {
   performProcessingAction,
   type BatchTransformationRow,
 } from "@/lib/services/processing";
+import { getWarehouseSummaries } from "@/lib/services/warehouses";
+import type { WarehouseSummary } from "@/lib/types/warehouse";
+import { normalizeStoragePlaceType } from "@/lib/warehouse/warehouse-scope";
 
 type Props = {
   enabled?: boolean;
-  onAddOutput?: (processing: BatchTransformationRow) => void;
+  onItemsChange?: (items: BatchTransformationRow[]) => void;
 };
 
 const typeLabels: Record<string, string> = {
@@ -50,15 +54,6 @@ const lossLabels = {
   other: "Другая потеря",
 } as const;
 
-const outputRoleLabels: Record<string, string> = {
-  GRAIN: "Основная продукция",
-  SCREENINGS: "Отсев",
-  FEED: "Фураж",
-  WASTE: "Веяльные отходы",
-  TRIER_WASTE: "Триерные отходы",
-  OTHER: "Прочие отходы",
-};
-
 const formatMass = (value: number | null | undefined) =>
   `${Number(value || 0).toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг`;
 const formatMoisture = (value: number | null | undefined) =>
@@ -66,10 +61,11 @@ const formatMoisture = (value: number | null | undefined) =>
 const formatDateTime = (value: string | null | undefined) =>
   value ? new Date(value).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }) : "-";
 
-export function ProcessingWorkspace({ enabled = true, onAddOutput }: Props) {
+export function ProcessingWorkspace({ enabled = true, onItemsChange }: Props) {
   const { profile } = useAuth();
   const { toast } = useToast();
   const [items, setItems] = useState<BatchTransformationRow[]>([]);
+  const [placeSummaries, setPlaceSummaries] = useState<WarehouseSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [finishItem, setFinishItem] = useState<BatchTransformationRow | null>(null);
@@ -89,15 +85,25 @@ export function ProcessingWorkspace({ enabled = true, onAddOutput }: Props) {
     loadInFlight.current = true;
     if (showLoading) setLoading(true);
     try {
-      const rows = await getProcessingTransformations(profile.company_id, profile.id);
-      setItems(rows.filter((row) => row.record_type === "transformation"));
-    } catch (error) {
-      toast({ title: "Обработки недоступны", description: error instanceof Error ? error.message : "Не удалось обновить данные", variant: "destructive" });
+      const [rowsResult, summariesResult] = await Promise.allSettled([
+        getProcessingTransformations(profile.company_id, profile.id),
+        getWarehouseSummaries(profile.company_id, false, "ru"),
+      ]);
+      if (rowsResult.status === "fulfilled") {
+        const transformations = rowsResult.value.filter((row) => row.record_type === "transformation");
+        setItems(transformations);
+        onItemsChange?.(transformations);
+      }
+      if (summariesResult.status === "fulfilled") setPlaceSummaries(summariesResult.value);
+      if (rowsResult.status === "rejected" || summariesResult.status === "rejected") {
+        const error = rowsResult.status === "rejected" ? rowsResult.reason : summariesResult.status === "rejected" ? summariesResult.reason : null;
+        toast({ title: "Часть данных объектов недоступна", description: error instanceof Error ? error.message : "Повторим обновление автоматически", variant: "destructive" });
+      }
     } finally {
       setLoading(false);
       loadInFlight.current = false;
     }
-  }, [enabled, profile?.company_id, profile?.id, toast]);
+  }, [enabled, onItemsChange, profile?.company_id, profile?.id, toast]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -116,12 +122,24 @@ export function ProcessingWorkspace({ enabled = true, onAddOutput }: Props) {
   }, [enabled, load]);
 
   const activeItems = useMemo(
-    () => items.filter((item) => item.processing_state !== "processing_closed" && item.status !== "voided"),
+    () => items.filter((item) =>
+      item.processing_state !== "processing_closed"
+      && item.status !== "voided"
+      && ["DRYER", "CLEANER"].includes(String(item.node_place_type || "").toUpperCase())
+    ),
     [items]
   );
   const closedItems = useMemo(
-    () => items.filter((item) => item.processing_state === "processing_closed" && item.status !== "voided"),
+    () => items.filter((item) =>
+      item.processing_state === "processing_closed"
+      && item.status !== "voided"
+      && ["DRYER", "CLEANER"].includes(String(item.node_place_type || "").toUpperCase())
+    ),
     [items]
+  );
+  const yardSummaries = useMemo(
+    () => placeSummaries.filter((summary) => normalizeStoragePlaceType(summary.warehouse.place_type) === "YARD"),
+    [placeSummaries]
   );
 
   const idempotencyKey = (itemId: string, action: string) => {
@@ -188,107 +206,101 @@ export function ProcessingWorkspace({ enabled = true, onAddOutput }: Props) {
     }
   };
 
-  if (!loading && activeItems.length === 0 && closedItems.length === 0) return null;
+  if (!loading && activeItems.length === 0 && closedItems.length === 0 && yardSummaries.length === 0) return null;
 
   return (
-    <section className="space-y-3" data-testid="processing-workspace" aria-label="Обработки">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="flex items-center gap-2 text-base font-semibold text-slate-50"><Factory className="h-4 w-4 text-yellow-400" />Обработки</h2>
-        {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{activeItems.length}</Badge>}
+    <section className="overflow-hidden rounded-md border border-slate-800/80 bg-[#101724]/95" data-testid="processing-workspace" aria-label="Партии на объектах">
+      <div className="flex items-center justify-between gap-3 border-b border-slate-800/80 px-4 py-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-50"><Factory className="h-4 w-4 text-yellow-400" />Партии на объектах</h2>
+        {loading ? <Loader2 className="h-4 w-4 animate-spin text-slate-500" /> : <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{activeItems.length + yardSummaries.length}</Badge>}
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="max-h-[clamp(220px,38vh,430px)] space-y-2 overflow-y-auto p-3 travkin-scrollbar">
         {activeItems.map((item) => {
           const pending = item.processing_state === "processing_pending_outputs";
           const input = Number(item.input_total_kg ?? item.input_weight_kg ?? 0);
           const unallocated = Number(item.unallocated_kg || 0);
           const output = Number(item.main_output_kg || 0) + Number(item.byproduct_kg || 0) + Number(item.stock_waste_kg || 0);
-          const losses = Number(item.moisture_loss_kg || 0) + Number(item.approved_process_loss_kg || 0);
+          const placeType = String(item.node_place_type || "").toUpperCase();
+          const placeLabel = placeType === "DRYER" ? "Сушилка" : "Очистка";
           return (
-            <article key={item.id} className="rounded-md border border-slate-800/80 bg-[#101724] p-4" data-processing-state={item.processing_state}>
-              <div className="flex items-start justify-between gap-3">
+            <article key={item.id} className="rounded-md border border-slate-800 bg-slate-950/55 p-3" data-processing-state={item.processing_state} data-place-type={placeType}>
+              <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="text-[10px] font-semibold uppercase text-slate-500">{typeLabels[item.transformation_type] || "Обработка"}</div>
-                  <div className="mt-0.5 truncate text-base font-bold text-slate-100">{item.processing_node_name || "Узел обработки"}</div>
-                  <div className="mt-1 truncate text-sm text-slate-300" title={item.identity_label || item.input_label}>{item.identity_label || item.input_label}</div>
+                  <div className="text-[10px] font-semibold uppercase text-slate-500">{placeLabel}</div>
+                  <div className="truncate text-sm font-bold text-slate-100" title={item.processing_node_name || placeLabel}>{item.processing_node_name || placeLabel}</div>
+                  <div className="mt-0.5 truncate text-xs text-slate-400" title={item.identity_label || item.input_label}>{item.identity_label || item.input_label}</div>
                 </div>
-                <StatusBadge status={pending ? (unallocated > 0.001 ? "warning" : "closed") : "active"}>{pending ? "Сверка" : "В работе"}</StatusBadge>
+                <div className="flex shrink-0 items-start gap-1">
+                  <StatusBadge status={pending ? (unallocated > 0.001 ? "warning" : "closed") : "active"}>{pending ? "Сверка" : "В работе"}</StatusBadge>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button type="button" size="icon" variant="ghost" className="h-7 w-7" aria-label={`Действия: ${item.processing_node_name || placeLabel}`}><MoreHorizontal className="h-4 w-4" /></Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      {!pending ? <DropdownMenuItem onClick={() => setFinishItem(item)}>Партия обработана</DropdownMenuItem> : null}
+                      {pending ? <DropdownMenuItem onClick={() => void runAction(item, "reopen")}><RotateCcw className="mr-2 h-4 w-4" />Возобновить приём</DropdownMenuItem> : null}
+                      {pending && canManageBalance ? <DropdownMenuSeparator /> : null}
+                      {pending && canManageBalance ? <DropdownMenuItem onClick={() => setManageItem(item)}><ShieldCheck className="mr-2 h-4 w-4" />Сверить баланс</DropdownMenuItem> : null}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
-              <MetricStrip className="mt-3" items={[
-                { label: "Вход", value: formatMass(input) },
-                { label: "Выход", value: formatMass(output) },
-                { label: pending ? "Нераспределённый баланс обработки" : "Сейчас в обработке", value: formatMass(unallocated), emphasis: pending ? (unallocated > 0.001 ? "warning" : "success") : "default" },
-              ]} />
-
-              {pending ? <div className="mt-3"><BalanceSummary inputKg={input} outputKg={output} lossesKg={losses} differenceKg={unallocated} /></div> : null}
-
+              <div className="mt-3 grid grid-cols-3 divide-x divide-slate-800 border-t border-slate-800 pt-2 text-xs">
+                <div className="pr-2"><div className="text-[10px] uppercase text-slate-500">Вход</div><div className="truncate font-semibold text-slate-100">{formatMass(input)}</div></div>
+                <div className="px-2"><div className="text-[10px] uppercase text-slate-500">Выход</div><div className="truncate font-semibold text-slate-100">{formatMass(output)}</div></div>
+                <div className="pl-2"><div className="text-[10px] uppercase text-slate-500">Остаток</div><div className={`truncate font-semibold ${pending && unallocated > 0.001 ? "text-amber-300" : "text-emerald-300"}`}>{formatMass(unallocated)}</div></div>
+              </div>
               {formatMoisture(item.input_moisture_percent) || formatMoisture(item.output_moisture_percent) ? (
-                <div className="mt-3 grid gap-1 border-t border-slate-800 pt-3 text-xs text-slate-400 sm:grid-cols-2">
-                  {formatMoisture(item.input_moisture_percent) ? <div>Входная влажность: <b className="text-slate-200">{formatMoisture(item.input_moisture_percent)}</b> · покрытие {formatMass(item.input_moisture_coverage_kg)} из {formatMass(input)}</div> : null}
-                  {formatMoisture(item.output_moisture_percent) ? <div>Выходная влажность: <b className="text-slate-200">{formatMoisture(item.output_moisture_percent)}</b> · покрытие {formatMass(item.output_moisture_coverage_kg)}</div> : null}
+                <div className="mt-2 truncate text-[11px] text-slate-500" title={`Влажность: ${formatMoisture(item.input_moisture_percent) || "-"} → ${formatMoisture(item.output_moisture_percent) || "-"}`}>
+                  Влажность: <span className="text-slate-300">{formatMoisture(item.input_moisture_percent) || "-"} → {formatMoisture(item.output_moisture_percent) || "-"}</span>
                 </div>
               ) : null}
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                {!pending ? <Button size="sm" onClick={() => setFinishItem(item)} disabled={savingId === item.id}>Обработка закончена</Button> : null}
-                <Button size="sm" variant="outline" onClick={() => onAddOutput?.(item)} disabled={savingId === item.id}><Plus className="mr-1 h-4 w-4" />Добавить выход</Button>
-                {pending ? <Button size="sm" variant="outline" onClick={() => void runAction(item, "reopen")} disabled={savingId === item.id}><RotateCcw className="mr-1 h-4 w-4" />Возобновить обработку</Button> : null}
-                {pending && canManageBalance ? <Button size="sm" variant="outline" onClick={() => setManageItem(item)}><ShieldCheck className="mr-1 h-4 w-4" />Сверить баланс</Button> : null}
-              </div>
             </article>
           );
         })}
-      </div>
+
+        {yardSummaries.map((summary) => (
+          <article key={summary.warehouse.id} className="rounded-md border border-slate-800 bg-slate-950/55 p-3" data-place-type="YARD">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase text-slate-500"><Warehouse className="h-3 w-3" />Площадка</div>
+                <div className="truncate text-sm font-bold text-slate-100" title={summary.warehouse.name}>{summary.warehouse.name}</div>
+              </div>
+              <StatusBadge status={Number(summary.harvest_weight_kg || 0) > 0 ? "active" : "closed"}>{Number(summary.harvest_weight_kg || 0) > 0 ? "Хранение" : "Свободно"}</StatusBadge>
+            </div>
+            <div className="mt-2 flex items-end justify-between gap-3 border-t border-slate-800 pt-2">
+              <div className="text-xs text-slate-400">{Number(summary.harvest_lot_count || 0)} {Number(summary.harvest_lot_count || 0) === 1 ? "партия" : "партий"}</div>
+              <div className="text-sm font-bold text-slate-100">{formatMass(summary.harvest_weight_kg)}</div>
+            </div>
+          </article>
+        ))}
 
       {closedItems.length > 0 ? (
-        <div className="border-t border-slate-800 pt-3">
+        <div className="border-t border-slate-800 pt-2">
           <Button
             type="button"
             variant="ghost"
-            className="h-9 w-full justify-between px-2 text-slate-300 hover:text-slate-50"
+            className="h-8 w-full justify-between px-1 text-xs text-slate-400 hover:text-slate-50"
             onClick={() => setHistoryOpen((value) => !value)}
             aria-expanded={historyOpen}
           >
-            <span className="flex items-center gap-2"><History className="h-4 w-4 text-slate-400" />История обработок <Badge className="border border-slate-700 bg-slate-950 text-slate-300">{closedItems.length}</Badge></span>
+            <span className="flex items-center gap-2"><History className="h-3.5 w-3.5" />История <Badge className="border border-slate-700 bg-slate-950 text-slate-300">{closedItems.length}</Badge></span>
             <ChevronDown className={`h-4 w-4 transition-transform ${historyOpen ? "rotate-180" : ""}`} />
           </Button>
           {historyOpen ? (
-            <div className="mt-2 grid gap-3 lg:grid-cols-2">
-              {closedItems.slice(0, 20).map((item) => {
-                const groupedOutputs = item.outputs.reduce<Record<string, number>>((acc, output) => {
-                  const key = String(output.output_role || output.output_type || output.line_type || "OTHER");
-                  acc[key] = (acc[key] || 0) + Number(output.output_weight_kg || 0);
-                  return acc;
-                }, {});
-                return (
-                  <article key={item.id} className="rounded-lg border border-slate-800 bg-slate-950/45 p-4" data-processing-state="processing_closed">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-bold uppercase text-slate-100">{item.processing_node_name || "Узел обработки"} · {typeLabels[item.transformation_type] || "Обработка"}</div>
-                        <div className="mt-1 truncate text-sm text-slate-300" title={item.identity_label || item.input_label}>{item.identity_label || item.input_label}</div>
-                        <div className="mt-1 text-xs text-slate-500">{formatDateTime(item.completed_at)}</div>
-                      </div>
-                      <Badge className="border border-emerald-700/60 bg-emerald-950/45 text-emerald-200">Закрыто</Badge>
-                    </div>
-                    <dl className="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5 text-sm">
-                      <dt className="text-slate-400">Вход</dt><dd className="font-semibold text-slate-100">{formatMass(item.input_total_kg ?? item.input_weight_kg)}</dd>
-                      {Object.entries(groupedOutputs).map(([role, weight]) => (
-                        <div key={role} className="contents"><dt className="text-slate-400">{outputRoleLabels[role] || "Выход"}</dt><dd className="font-semibold text-slate-100">{formatMass(weight)}</dd></div>
-                      ))}
-                      {Number(item.approved_process_loss_kg || 0) > 0 ? <><dt className="text-slate-400">Подтверждённые потери</dt><dd className="font-semibold text-slate-100">{formatMass(item.approved_process_loss_kg)}</dd></> : null}
-                      <dt className="text-emerald-300">Баланс</dt><dd className="font-bold text-emerald-300">{formatMass(item.unallocated_kg)}</dd>
-                    </dl>
-                    <div className="mt-3 border-t border-slate-800 pt-3 text-xs text-slate-400">
-                      <div>Завершил обработку: <span className="text-slate-200">{item.completed_by_name || item.closed_by_name || "Не зафиксировано"}</span></div>
-                      <div>Закрыл баланс: <span className="text-slate-200">{item.closed_by_name || item.completed_by_name || "Не зафиксировано"}</span></div>
-                    </div>
-                  </article>
-                );
-              })}
+            <div className="space-y-1">
+              {closedItems.slice(0, 10).map((item) => (
+                <div key={item.id} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs hover:bg-slate-900/70">
+                  <div className="min-w-0"><div className="truncate font-medium text-slate-200">{item.processing_node_name || typeLabels[item.transformation_type] || "Обработка"}</div><div className="truncate text-slate-500">{item.identity_label || item.input_label}</div></div>
+                  <div className="shrink-0 text-right text-slate-400"><div>{formatMass(item.input_total_kg ?? item.input_weight_kg)}</div><div className="text-[10px] text-slate-600">{formatDateTime(item.completed_at)}</div></div>
+                </div>
+              ))}
             </div>
           ) : null}
         </div>
       ) : null}
+      </div>
 
       <AlertDialog open={Boolean(finishItem)} onOpenChange={(open) => !open && setFinishItem(null)}>
         <AlertDialogContent>

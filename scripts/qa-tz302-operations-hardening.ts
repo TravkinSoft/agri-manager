@@ -46,8 +46,10 @@ async function main() {
 
   await check("processing output remains a contextual eighth flow", () => {
     assert.match(weighbridge, /processing_output/);
-    assert.match(weighbridge, /Источник обработки/);
-    assert.match(processing, /Добавить выход/);
+    assert.match(weighbridge, /От какой обработки\?/);
+    assert.match(weighbridge, /Партия и источник определены маршрутом/);
+    assert.match(processing, /Партии на объектах/);
+    assert.doesNotMatch(processing, /Добавить выход/);
   });
 
   await check("operational primitives cover the TZ302 visual contract", () => {

@@ -56,8 +56,9 @@ check("live processing serializes canonical inputs and blocks them only after fi
 check("output does not require finish and remains available during reconciliation", () => {
   assert.match(wipSourceFix, /processing_state not in \('in_processing','processing_pending_outputs'\)/);
   assert.doesNotMatch(wipSourceFix, /finish_requested_at\s+is\s+not\s+null/i);
-  assert.match(processingUi, /<Plus className="mr-1 h-4 w-4" \/>Добавить выход/);
-  assert.doesNotMatch(processingUi, /\{pending \? <Button[^\n]+Добавить выход/);
+  assert.match(processingUi, /Партии на объектах/);
+  assert.doesNotMatch(processingUi, /Добавить выход/);
+  assert.match(weighbridgePage, /processingCandidates[\s\S]*processingOutputContext/);
 });
 
 check("finish and reopen share the canonical lock and preserve hard-close boundary", () => {
@@ -72,11 +73,11 @@ check("finish and reopen share the canonical lock and preserve hard-close bounda
 });
 
 check("active balance, final reconciliation, and closed history have distinct UX", () => {
-  assert.match(processingUi, /Сейчас в обработке/);
-  assert.match(processingUi, /Нераспределённый баланс обработки/);
-  assert.match(processingUi, /История обработок/);
+  assert.match(processingUi, /data-processing-state/);
+  assert.match(processingUi, />Остаток</);
+  assert.match(processingUi, /История <Badge/);
   assert.match(processingUi, /processing_state === "processing_closed"/);
-  assert.match(processingUi, /Возобновить обработку/);
+  assert.match(processingUi, /Возобновить приём/);
   assert.match(processingUi, /Фактические выходы и отходы можно продолжать оформлять/);
 });
 
@@ -140,15 +141,16 @@ check("global admin can act in an explicit company context without weakening com
 });
 
 check("processing card is user-facing and keeps technical identifiers hidden", () => {
-  assert.match(processingUi, /Обработки/);
+  assert.match(processingUi, /Партии на объектах/);
   assert.match(processingUi, /Обработка закончена/);
-  assert.match(processingUi, /Нераспределённый баланс обработки/);
-  assert.match(processingUi, /Добавить выход/);
+  assert.match(processingUi, />Остаток</);
+  assert.doesNotMatch(processingUi, /Добавить выход/);
   assert.doesNotMatch(processingUi, />\s*(?:transformation_id|processing_id|ledger|UUID)\s*</i);
   assert.match(
     weighbridgePage,
-    /<ProcessingWorkspace[\s\S]*?enabled=\{!canUseOperatorSession \|\| operatorState\.unlocked\}[\s\S]*?onAddOutput=\{openProcessingOutput\}/
+    /<ProcessingWorkspace[\s\S]*?enabled=\{!canUseOperatorSession \|\| operatorState\.unlocked\}[\s\S]*?onItemsChange=\{setProcessingItems\}/
   );
+  assert.match(weighbridgePage, /aria-label="Открытые талоны и партии на объектах"[\s\S]*Открытые талоны[\s\S]*<ProcessingWorkspace/);
 });
 
 check("last main trip is optional and recorded only after ticket finalize", () => {
@@ -285,17 +287,17 @@ check("processing output mode exposes exactly six canonical fractions", () => {
 });
 
 check("generic impurity categories remain isolated from processing output mode", () => {
-  assert.match(weighbridgePage, /processingOutputContext\s*\?[\s\S]*processingOutputRoleLabels[\s\S]*:\s*\(Object\.keys\(impurityTypeLabels\)/);
+  assert.match(weighbridgePage, /isProcessingOutput \?[\s\S]*processingOutputRoleLabels/);
+  assert.match(weighbridgePage, /isImpurityRemoval \?[\s\S]*impurityTypeLabels/);
   assert.match(weighbridgePage, /Земля и мусор/);
   assert.match(weighbridgePage, /Некондиционный урожай/);
   assert.match(weighbridgePage, /Растительные остатки/);
 });
 
 check("stock-producing processing outputs require an explicit destination", () => {
-  assert.match(weighbridgePage, /Место назначения \*/);
-  assert.match(weighbridgePage, /Выберите склад \/ площадку \/ точку хранения/);
-  assert.match(weighbridgePage, /Укажите, куда будет доставлен выход обработки\./);
-  assert.match(weighbridgePage, /processingOutputContext \? opMeta\("transfer_between_warehouses"\)/);
+  assert.match(weighbridgePage, /<Label>Куда \*<\/Label>/);
+  assert.match(weighbridgePage, /placeholder="Выберите место назначения"/);
+  assert.match(weighbridgePage, /isProcessingPlace\(sourceWarehouse\?\.placeType\)/);
   assert.match(ticketRoute, /isProcessingOutput[\s\S]*Укажите, куда будет доставлен выход обработки\./);
   assert.match(ticketRoute, /isProcessingOutput[\s\S]*isWarehouseTransfer/);
   assert.match(ticketRoute, /destination[\s\S]*archived[\s\S]*is_archived/);
@@ -339,7 +341,7 @@ check("processing output create no longer requires a warehouse-owned source batc
   assert.match(ticketRoute, /processing_output_source/);
   assert.match(ticketRoute, /contract_version: "tz297_wip_source_v1"/);
   assert.match(ticketRoute, /if \(isWarehouseTransfer && !isProcessingOutput\)/);
-  assert.match(weighbridgePage, /Источник обработки/);
+  assert.match(weighbridgePage, /От какой обработки\?/);
   assert.match(weighbridgePage, /processingOutputContext\.unallocatedKg/);
   assert.doesNotMatch(wipSourceFix, /weighbridge_batch_available_for_ticket_v1/);
 });

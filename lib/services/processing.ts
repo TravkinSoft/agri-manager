@@ -67,8 +67,10 @@ export interface BatchTransformationRow {
   company_id: string;
   transformation_type: TransformationType | string;
   status: TransformationStatus | string;
+  processing_method?: string | null;
   processing_node_id: string | null;
   node_warehouse_id?: string | null;
+  node_place_type?: "DRYER" | "CLEANER" | string | null;
   harvest_lot_id?: string | null;
   product_id?: string | null;
   crop_id?: string | null;

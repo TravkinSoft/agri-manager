@@ -114,7 +114,8 @@ check("ticket and active-harvest writes use the canonical destination validator"
 check("harvest closure keeps moisture visible without exposing specialist deductions", () => {
   assert.match(ticketPaper, /Влажность, %/);
   assert.match(ticketPaper, /showMoistureEditor/);
-  assert.match(page, /Влажность, % \(необязательно\)/);
+  assert.match(page, /label="Влажность, %"/);
+  assert.doesNotMatch(page, /Влажность, % \(необязательно\)/);
   assert.match(page, /onMoistureCommit: \(\) => undefined/);
   assert.match(page, /lg:overflow-y-auto/);
   assert.doesNotMatch(ticketPaper, /Явное удержание|Причина удержания|Принято на склад/);

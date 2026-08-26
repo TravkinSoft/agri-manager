@@ -29,11 +29,15 @@ export function normalizeStoragePlaceType(value: unknown): StoragePlaceType {
 }
 
 export function isProcessingPlace(value: unknown): boolean {
+  return ["DRYER", "CLEANER"].includes(normalizeStoragePlaceType(value));
+}
+
+export function isOperationalStoragePlace(value: unknown): boolean {
   return ["YARD", "DRYER", "CLEANER"].includes(normalizeStoragePlaceType(value));
 }
 
 export function isHarvestDestinationPlace(warehouseType: unknown, placeType: unknown): boolean {
-  return isProcessingPlace(placeType) || isHarvestWarehouseType(warehouseType);
+  return isOperationalStoragePlace(placeType) || isHarvestWarehouseType(warehouseType);
 }
 
 export function storagePlaceTypeLabel(value: unknown): string {

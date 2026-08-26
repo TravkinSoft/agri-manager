@@ -27,6 +27,7 @@ import type { ActiveHarvestRoute, HarvestBatchSummary, TicketDirection, TicketIn
 import { hasQaDataMarker } from "@/lib/utils/qa-data";
 import {
   isHarvestDestinationPlace,
+  isProcessingPlace,
   storagePlaceTypeGroupLabel,
   storagePlaceTypeLabel,
   storagePlaceTypeSortOrder,
@@ -172,6 +173,24 @@ type FieldIssueMode = "weighbridge" | "direct";
 type FieldMaterialCategory = "seed_planting_material" | "fertilizer" | "organic" | "other";
 type DisposalCategory = "utilization" | "spoilage" | "shortage" | "waste" | "other_removal";
 type ImpurityType = "soil_and_trash" | "nonconforming_crop" | "plant_residues" | "other";
+type ProcessingOutputContext = {
+  transformationId: string;
+  warehouseId: string;
+  placeType: "DRYER" | "CLEANER";
+  harvestLotId: string;
+  productId: string;
+  cropId: string | null;
+  varietyId: string | null;
+  reproductionId: string | null;
+  compositionHash: string | null;
+  compositionSnapshot: Array<Record<string, unknown>>;
+  isMixedHarvest: boolean;
+  identityLabel: string;
+  transformationLabel: string;
+  unallocatedKg: number;
+  processingState: "in_processing" | "processing_pending_outputs" | "processing_closed";
+  lastMainOutputMarked: boolean;
+};
 type ShipmentPurpose = "sale" | "export" | "seed_release" | "return" | "processor" | "other";
 type HarvestStructureOption = {
   allocationId: string;
@@ -257,6 +276,7 @@ type FormState = {
   sourceBatchId: string;
   impurityType: ImpurityType;
   processingOutputRole: ProcessingOutputRole | "";
+  processingTransformationId: string;
   linkedOperationId: string;
   linkedOperationLineId: string;
   quantityKg: string;
@@ -306,6 +326,7 @@ const INITIAL_FORM: FormState = {
   sourceBatchId: "",
   impurityType: "soil_and_trash",
   processingOutputRole: "",
+  processingTransformationId: "",
   linkedOperationId: "",
   linkedOperationLineId: "",
   quantityKg: "",
@@ -816,23 +837,7 @@ export default function WeighbridgeOperationsPage() {
   const [finalizing, setFinalizing] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
-  const [processingOutputContext, setProcessingOutputContext] = useState<{
-    transformationId: string;
-    warehouseId: string;
-    harvestLotId: string;
-    productId: string;
-    cropId: string | null;
-    varietyId: string | null;
-    reproductionId: string | null;
-    compositionHash: string | null;
-    compositionSnapshot: Array<Record<string, unknown>>;
-    isMixedHarvest: boolean;
-    identityLabel: string;
-    transformationLabel: string;
-    unallocatedKg: number;
-    processingState: "in_processing" | "processing_pending_outputs" | "processing_closed";
-    lastMainOutputMarked: boolean;
-  } | null>(null);
+  const [processingItems, setProcessingItems] = useState<BatchTransformationRow[]>([]);
   const [supplierReceiptLines, setSupplierReceiptLines] = useState<SupplierReceiptLineDraft[]>([]);
   const [showSupplierExtraFields, setShowSupplierExtraFields] = useState(false);
   const [tickets, setTickets] = useState<WeighbridgeTicket[]>([]);
@@ -1845,8 +1850,11 @@ export default function WeighbridgeOperationsPage() {
   }, [universalWorkspacePersistKey, workspaceHydratedKey, selectedWorkspaceId, workspaces]);
 
   useEffect(() => {
+    const sourcePlace = warehouses.find((warehouse) => warehouse.id === form.warehouseFromId);
+    const usesProcessingWip = form.operationType === "transfer_between_warehouses"
+      && isProcessingPlace(sourcePlace?.placeType);
     const needsStockIdentity =
-      form.operationType === "transfer_between_warehouses" ||
+      (form.operationType === "transfer_between_warehouses" && !usesProcessingWip) ||
       form.operationType === "issue_to_field" ||
       form.operationType === "shipment_outbound" ||
       form.operationType === "disposal_writeoff";
@@ -1897,7 +1905,7 @@ export default function WeighbridgeOperationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [form.operationType, form.warehouseFromId, form.stockIdentityKey, profile?.company_id, profile?.id, toast]);
+  }, [form.operationType, form.warehouseFromId, form.stockIdentityKey, profile?.company_id, profile?.id, toast, warehouses]);
 
   useEffect(() => {
     if (!activeTicket) return;
@@ -2739,6 +2747,84 @@ export default function WeighbridgeOperationsPage() {
     () => stockIdentityOptions.find((item) => item.key === form.stockIdentityKey) || null,
     [stockIdentityOptions, form.stockIdentityKey]
   );
+  const sourceWarehouse = useMemo(
+    () => warehouses.find((warehouse) => warehouse.id === form.warehouseFromId) || null,
+    [warehouses, form.warehouseFromId]
+  );
+  const processingCandidates = useMemo(
+    () => form.operationType === "transfer_between_warehouses" && isProcessingPlace(sourceWarehouse?.placeType)
+      ? processingItems.filter((item) =>
+          item.record_type === "transformation"
+          && item.node_warehouse_id === form.warehouseFromId
+          && item.status !== "voided"
+          && item.processing_state !== "processing_closed"
+        )
+      : [],
+    [form.operationType, form.warehouseFromId, processingItems, sourceWarehouse?.placeType]
+  );
+  const selectedProcessingItem = useMemo(
+    () => processingCandidates.find((item) => item.id === form.processingTransformationId)
+      || (processingCandidates.length === 1 ? processingCandidates[0] : null),
+    [processingCandidates, form.processingTransformationId]
+  );
+  const processingOutputContext = useMemo<ProcessingOutputContext | null>(() => {
+    if (!selectedProcessingItem?.node_warehouse_id || !selectedProcessingItem.harvest_lot_id || !selectedProcessingItem.product_id) return null;
+    const placeType = String(sourceWarehouse?.placeType || selectedProcessingItem.node_place_type || "").toUpperCase();
+    if (placeType !== "DRYER" && placeType !== "CLEANER") return null;
+    return {
+      transformationId: selectedProcessingItem.id,
+      warehouseId: selectedProcessingItem.node_warehouse_id,
+      placeType,
+      harvestLotId: selectedProcessingItem.harvest_lot_id,
+      productId: selectedProcessingItem.product_id,
+      cropId: selectedProcessingItem.crop_id || null,
+      varietyId: selectedProcessingItem.variety_id || null,
+      reproductionId: selectedProcessingItem.reproduction_id || null,
+      compositionHash: selectedProcessingItem.composition_hash || null,
+      compositionSnapshot: selectedProcessingItem.composition_snapshot || [],
+      isMixedHarvest: Boolean(selectedProcessingItem.is_mixed_harvest),
+      identityLabel: selectedProcessingItem.identity_label || selectedProcessingItem.input_label || "Партия урожая",
+      transformationLabel: placeType === "DRYER" ? "Сушка" : "Очистка",
+      unallocatedKg: Number(selectedProcessingItem.unallocated_kg || 0),
+      processingState: selectedProcessingItem.processing_state || "in_processing",
+      lastMainOutputMarked: Boolean(selectedProcessingItem.last_main_output_marked_at),
+    };
+  }, [selectedProcessingItem, sourceWarehouse?.placeType]);
+
+  useEffect(() => {
+    const processingSource = form.operationType === "transfer_between_warehouses" && isProcessingPlace(sourceWarehouse?.placeType);
+    const onlyCandidate = processingCandidates.length === 1 ? processingCandidates[0] : null;
+    const currentCandidate = processingCandidates.find((item) => item.id === form.processingTransformationId) || null;
+    const targetCandidate = currentCandidate || onlyCandidate;
+    const targetRole: ProcessingOutputRole | "" = processingSource && targetCandidate
+      ? String(sourceWarehouse?.placeType || "").toUpperCase() === "DRYER"
+        ? "GRAIN"
+        : currentCandidate
+          ? form.processingOutputRole
+          : ""
+      : "";
+    const targetId = processingSource ? targetCandidate?.id || "" : "";
+    const targetMode: TransferMode = processingSource ? "weighbridge" : form.transferMode;
+    if (
+      form.processingTransformationId === targetId
+      && form.processingOutputRole === targetRole
+      && form.transferMode === targetMode
+    ) return;
+    setForm((previous) => ({
+      ...previous,
+      processingTransformationId: targetId,
+      processingOutputRole: targetRole,
+      transferMode: targetMode,
+      ...(processingSource ? { stockIdentityKey: "", productId: "", quantityKg: "" } : {}),
+    }));
+  }, [
+    form.operationType,
+    form.processingOutputRole,
+    form.processingTransformationId,
+    form.transferMode,
+    processingCandidates,
+    sourceWarehouse?.placeType,
+  ]);
   const availableHarvestBatches = useMemo(
     () => harvestBatches.filter((batch) => !form.warehouseFromId || batch.warehouseId === form.warehouseFromId),
     [harvestBatches, form.warehouseFromId]
@@ -2882,6 +2968,8 @@ export default function WeighbridgeOperationsPage() {
   const isShipment = form.operationType === "shipment_outbound";
   const isDisposal = form.operationType === "disposal_writeoff";
   const isImpurityRemoval = form.operationType === "impurity_removal";
+  const isProcessingOutput = isTransfer && Boolean(processingOutputContext);
+  const isDryerOutput = isProcessingOutput && processingOutputContext?.placeType === "DRYER";
   const isSupplierDirect = form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct";
   const isTransferDirect = isTransfer && form.transferMode === "direct";
   const isFieldIssueDirect = isFieldIssue && form.fieldIssueMode === "direct";
@@ -2932,49 +3020,8 @@ export default function WeighbridgeOperationsPage() {
     }
     setSupplierReceiptLines([]);
     setShowSupplierExtraFields(false);
-    setProcessingOutputContext(null);
     setForm({ ...INITIAL_FORM, operationType });
     return true;
-  };
-
-  const openProcessingOutput = async (processing: BatchTransformationRow) => {
-    if (!processing.node_warehouse_id || !processing.harvest_lot_id || !processing.product_id) {
-      toast({
-        title: "Выход пока нельзя оформить",
-        description: "Для обработки не определены склад и общая партия урожая.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (!(await selectOperation("impurity_removal"))) return;
-    setProcessingOutputContext({
-      transformationId: processing.id,
-      warehouseId: processing.node_warehouse_id,
-      harvestLotId: processing.harvest_lot_id,
-      productId: processing.product_id,
-      cropId: processing.crop_id || null,
-      varietyId: processing.variety_id || null,
-      reproductionId: processing.reproduction_id || null,
-      compositionHash: processing.composition_hash || null,
-      compositionSnapshot: processing.composition_snapshot || [],
-      isMixedHarvest: Boolean(processing.is_mixed_harvest),
-      identityLabel: processing.identity_label || processing.input_label || "Партия урожая",
-      transformationLabel: processing.transformation_type === "drying" ? "Сушка" : "Очистка",
-      unallocatedKg: Number(processing.unallocated_kg || 0),
-      processingState: processing.processing_state || "in_processing",
-      lastMainOutputMarked: Boolean(processing.last_main_output_marked_at),
-    });
-    setForm({
-      ...INITIAL_FORM,
-      operationType: "impurity_removal",
-      warehouseFromId: processing.node_warehouse_id,
-      processingOutputRole: "GRAIN",
-    });
-    toast({
-      title: "Оформите фактический выход",
-      description: "Выберите фракцию, место назначения, машину, водителя и зафиксируйте реальный вес.",
-    });
-    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const validate = () => {
@@ -3042,7 +3089,7 @@ export default function WeighbridgeOperationsPage() {
       } else {
         const qty = toNum(form.quantityKg);
         if (!qty || qty <= 0) return "Укажите количество выдачи";
-        if (qty > Number(selectedTransferStock.quantity || 0)) return "Количество больше доступного остатка";
+        if (qty > Number(selectedTransferStock?.quantity || 0)) return "Количество больше доступного остатка";
       }
       if (isSeedIssueOperation(form.fieldMaterialCategory)) {
         if (!selectedHarvestAllocation) return "Для семян нужна структура посевов выбранного поля";
@@ -3063,15 +3110,22 @@ export default function WeighbridgeOperationsPage() {
     } else if (form.operationType === "transfer_between_warehouses") {
       if (!form.warehouseFromId || !form.warehouseToId) return "Выберите склад-источник и склад назначения";
       if (form.warehouseFromId === form.warehouseToId) return "Склады не должны совпадать";
-      if (!form.stockIdentityKey || !selectedTransferStock) return "Выберите остаток из склада-источника";
+      if (isProcessingPlace(sourceWarehouse?.placeType)) {
+        if (processingCandidates.length === 0) return "На этом объекте нет активной партии обработки";
+        if (!processingOutputContext) return "Выберите, от какой обработки вывозится партия";
+        if (!form.processingOutputRole) return "Укажите, что вывозится после обработки";
+        if (processingOutputContext.unallocatedKg <= 0) return "Нераспределённый баланс обработки исчерпан";
+      } else if (!form.stockIdentityKey || !selectedTransferStock) {
+        return "Выберите остаток из склада-источника";
+      }
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
-      if (form.transferMode === "weighbridge") {
+      if (form.transferMode === "weighbridge" || processingOutputContext) {
         if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
       } else {
         const qty = toNum(form.quantityKg);
         if (!qty || qty <= 0) return "Укажите количество перемещения";
-        if (qty > Number(selectedTransferStock.quantity || 0)) return "Количество больше доступного остатка";
+        if (qty > Number(selectedTransferStock?.quantity || 0)) return "Количество больше доступного остатка";
       }
     } else if (form.operationType === "shipment_outbound") {
       if (!form.warehouseFromId) return "Выберите склад-источник";
@@ -3082,19 +3136,11 @@ export default function WeighbridgeOperationsPage() {
       if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
     } else if (form.operationType === "impurity_removal") {
       if (!form.warehouseFromId) return "Выберите склад";
-      if (processingOutputContext) {
-        if (!form.processingOutputRole) return "Выберите фракцию выхода обработки";
-        if (!form.warehouseToId) return "Укажите, куда будет доставлен выход обработки.";
-        if (form.warehouseToId === form.warehouseFromId) return "Место назначения должно отличаться от источника обработки.";
-        if (processingOutputContext.warehouseId !== form.warehouseFromId) return "Контекст обработки больше не доступен. Обновите карточку обработки.";
-        if (processingOutputContext.unallocatedKg <= 0) return "Нераспределённый баланс обработки исчерпан.";
-      } else {
-        if (!form.sourceBatchId || !selectedHarvestBatch) return "Выберите партию урожая";
-        if (selectedHarvestBatch.warehouseId !== form.warehouseFromId) return "Партия не принадлежит выбранному складу";
-        if (selectedHarvestBatch.cleanMassKg <= 0) return "В партии не осталось чистой массы";
-        if (!form.impurityType) return "Выберите вид примесей";
-        if (form.impurityType === "other" && !form.notes.trim()) return "Для вида «Прочее» добавьте комментарий";
-      }
+      if (!form.sourceBatchId || !selectedHarvestBatch) return "Выберите партию урожая";
+      if (selectedHarvestBatch.warehouseId !== form.warehouseFromId) return "Партия не принадлежит выбранному складу";
+      if (selectedHarvestBatch.cleanMassKg <= 0) return "В партии не осталось чистой массы";
+      if (!form.impurityType) return "Выберите вид примесей";
+      if (form.impurityType === "other" && !form.notes.trim()) return "Для вида «Прочее» добавьте комментарий";
       if (!form.driverId) return "Выберите водителя";
       if (!form.vehicleId) return "Выберите машину";
       if (!toNum(form.grossKg) || Number(form.grossKg) <= 0) return "Укажите брутто";
@@ -3158,12 +3204,16 @@ export default function WeighbridgeOperationsPage() {
     const isShipment = form.operationType === "shipment_outbound";
     const isDisposal = form.operationType === "disposal_writeoff";
     const isImpurityRemoval = form.operationType === "impurity_removal";
+    const isTransfer = form.operationType === "transfer_between_warehouses";
+    const isProcessingOutput = isTransfer && Boolean(processingOutputContext);
     const productId =
       form.operationType === "harvest_incoming"
         ? selectedHarvestAllocation?.cropId
+        : isProcessingOutput
+          ? processingOutputContext?.productId
         : isImpurityRemoval
-          ? processingOutputContext?.productId || selectedHarvestBatch?.productId
-        : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal
+          ? selectedHarvestBatch?.productId
+        : isTransfer || isFieldIssue || isShipment || isDisposal
           ? selectedTransferStock?.product_id
         : form.productId;
     if (!productId) {
@@ -3175,8 +3225,7 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
     const isSupplierDirect = form.operationType === "supplier_receipt" && form.supplierReceiptMode === "direct";
-    const isTransfer = form.operationType === "transfer_between_warehouses";
-    const isTransferDirect = isTransfer && form.transferMode === "direct";
+    const isTransferDirect = isTransfer && form.transferMode === "direct" && !isProcessingOutput;
     const isFieldIssueDirect = isFieldIssue && form.fieldIssueMode === "direct";
     const isFieldIssueWeighbridge = isFieldIssue && form.fieldIssueMode === "weighbridge";
     const isDirectQuantity = isSupplierDirect || isTransferDirect || isFieldIssueDirect;
@@ -3205,19 +3254,21 @@ export default function WeighbridgeOperationsPage() {
       return;
     }
 
-    const ticketMeta = processingOutputContext ? opMeta("transfer_between_warehouses") : meta;
+    const ticketMeta = meta;
     const ticket: TicketInput = {
       company_id: profile.company_id,
-      batch_id: isImpurityRemoval && !processingOutputContext && !selectedHarvestBatch?.aggregateLot ? form.sourceBatchId : null,
-      harvest_lot_id: isImpurityRemoval
-        ? processingOutputContext?.harvestLotId || selectedHarvestBatch?.aggregateLotId || null
+      batch_id: isImpurityRemoval && !selectedHarvestBatch?.aggregateLot ? form.sourceBatchId : null,
+      harvest_lot_id: isProcessingOutput
+        ? processingOutputContext?.harvestLotId || null
+        : isImpurityRemoval
+        ? selectedHarvestBatch?.aggregateLotId || null
         : selectedTransferStock?.harvest_lot_id || null,
-      linked_processing_id: processingOutputContext?.transformationId || null,
-      processing_output_role: processingOutputContext ? form.processingOutputRole || null : null,
+      linked_processing_id: isProcessingOutput ? processingOutputContext?.transformationId || null : null,
+      processing_output_role: isProcessingOutput ? form.processingOutputRole || null : null,
       source_physical_state: selectedTransferStock?.source_physical_state || null,
       audit_json: {
-        ...(isImpurityRemoval ? { impurity_type: processingOutputContext ? "other" : form.impurityType } : {}),
-        ...(processingOutputContext
+        ...(isImpurityRemoval ? { impurity_type: form.impurityType } : {}),
+        ...(isProcessingOutput && processingOutputContext
           ? {
               processing_output: {
                 transformation_id: processingOutputContext.transformationId,
@@ -3270,10 +3321,10 @@ export default function WeighbridgeOperationsPage() {
         form.operationType === "shipment_outbound" && form.externalDocumentNo.trim() ? `Документ отгрузки: ${form.externalDocumentNo.trim()}` : "",
         form.operationType === "shipment_outbound" ? `Цель отгрузки: ${shipmentPurposeLabels[form.shipmentPurpose]}` : "",
         form.operationType === "disposal_writeoff" && form.disposalReason.trim() ? `Причина списания: ${form.disposalReason.trim()}` : "",
-        isImpurityRemoval
-          ? processingOutputContext && form.processingOutputRole
-            ? `Фракция обработки: ${processingOutputRoleLabels[form.processingOutputRole]}`
-            : `Вид примесей: ${impurityTypeLabels[form.impurityType]}`
+        isProcessingOutput && form.processingOutputRole
+          ? `Выход обработки: ${processingOutputRoleLabels[form.processingOutputRole]}`
+          : isImpurityRemoval
+            ? `Вид примесей: ${impurityTypeLabels[form.impurityType]}`
           : "",
         ...supplierNotes,
         form.notes.trim(),
@@ -3282,50 +3333,56 @@ export default function WeighbridgeOperationsPage() {
 
     const line: TicketLineInput = {
       product_id: productId,
-      crop_id: isImpurityRemoval
-        ? processingOutputContext?.cropId || selectedHarvestBatch?.cropId || null
+      crop_id: isProcessingOutput
+        ? processingOutputContext?.cropId || null
+        : isImpurityRemoval
+        ? selectedHarvestBatch?.cropId || null
         : form.operationType === "harvest_incoming" || (isFieldIssue && isSeedIssueOperation(form.fieldMaterialCategory))
           ? form.cropId
           : selectedTransferStock?.crop_id || null,
       quantity: movementQuantity,
       uom:
-        form.operationType === "harvest_incoming" || isImpurityRemoval || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge")
+        form.operationType === "harvest_incoming" || isProcessingOutput || isImpurityRemoval || (form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge")
           ? "kg"
           : selectedTransferStock?.uom || inferProductUnit(productById.get(productId)),
       warehouse_from_id: form.warehouseFromId || null,
       warehouse_to_id: form.warehouseToId || null,
       notes: form.operationType === "harvest_incoming"
         ? "Приемка урожая"
-        : isImpurityRemoval
-          ? processingOutputContext && form.processingOutputRole
-            ? `Выход обработки: ${processingOutputRoleLabels[form.processingOutputRole]}`
-            : `Вывоз примесей: ${impurityTypeLabels[form.impurityType]}`
+        : isProcessingOutput && form.processingOutputRole
+          ? `Выход обработки: ${processingOutputRoleLabels[form.processingOutputRole]}`
+          : isImpurityRemoval
+            ? `Вывоз примесей: ${impurityTypeLabels[form.impurityType]}`
           : form.operationType === "supplier_receipt"
             ? "Приемка от поставщика"
             : form.operationType === "transfer_between_warehouses"
               ? "Межскладское перемещение"
               : undefined,
-      lot_id: isImpurityRemoval
-        ? processingOutputContext?.harvestLotId || selectedHarvestBatch?.aggregateLotId || selectedHarvestBatch?.batchCode || null
+      lot_id: isProcessingOutput
+        ? processingOutputContext?.harvestLotId || null
+        : isImpurityRemoval
+        ? selectedHarvestBatch?.aggregateLotId || selectedHarvestBatch?.batchCode || null
         : form.operationType === "supplier_receipt"
           ? form.supplierLot.trim() || null
           : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal)
             ? selectedTransferStock?.harvest_lot_id || selectedTransferStock?.batch_id || null
             : null,
       supplier_lot: form.operationType === "supplier_receipt" ? form.supplierLot.trim() || null : null,
-      batch_id: isImpurityRemoval
-        ? processingOutputContext || selectedHarvestBatch?.aggregateLot ? null : selectedHarvestBatch?.id || null
+      batch_id: isProcessingOutput
+        ? null
+        : isImpurityRemoval
+        ? selectedHarvestBatch?.aggregateLot ? null : selectedHarvestBatch?.id || null
         : (form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal) && isUuidLike(selectedTransferStock?.batch_id)
           ? selectedTransferStock?.batch_id || null
           : null,
-      batch_class: isImpurityRemoval
-        ? processingOutputContext
-          ? form.processingOutputRole === "GRAIN" ? "commodity" : form.processingOutputRole === "FEED" ? "feed" : "waste"
-          : "commodity"
+      batch_class: isProcessingOutput
+        ? form.processingOutputRole === "GRAIN" ? "commodity" : form.processingOutputRole === "FEED" ? "feed" : "waste"
+        : isImpurityRemoval
+        ? "commodity"
         : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.batch_class || null : null,
-      variety_id: isImpurityRemoval ? processingOutputContext?.varietyId || selectedHarvestBatch?.varietyId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" ? form.varietyId || null : null,
-      reproduction_id: isImpurityRemoval ? processingOutputContext?.reproductionId || selectedHarvestBatch?.reproductionId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" ? form.reproductionId || null : null,
-      operation_line_id: isImpurityRemoval && !processingOutputContext ? selectedHarvestBatch?.operationLineId || null : isFieldIssue ? form.linkedOperationLineId || null : null,
+      variety_id: isProcessingOutput ? processingOutputContext?.varietyId || null : isImpurityRemoval ? selectedHarvestBatch?.varietyId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.variety_id || null : form.operationType === "harvest_incoming" ? form.varietyId || null : null,
+      reproduction_id: isProcessingOutput ? processingOutputContext?.reproductionId || null : isImpurityRemoval ? selectedHarvestBatch?.reproductionId || null : form.operationType === "transfer_between_warehouses" || isFieldIssue || isShipment || isDisposal ? selectedTransferStock?.reproduction_id || null : form.operationType === "harvest_incoming" ? form.reproductionId || null : null,
+      operation_line_id: isImpurityRemoval ? selectedHarvestBatch?.operationLineId || null : isFieldIssue ? form.linkedOperationLineId || null : null,
       composition_hash: processingOutputContext?.compositionHash || selectedTransferStock?.composition_hash || null,
       composition_snapshot: processingOutputContext?.compositionSnapshot || selectedTransferStock?.composition_snapshot || [],
       is_mixed_harvest: processingOutputContext?.isMixedHarvest || Boolean(selectedTransferStock?.is_mixed_harvest),
@@ -3528,6 +3585,7 @@ export default function WeighbridgeOperationsPage() {
           sourceBatchId: prev.operationType === "impurity_removal" ? prev.sourceBatchId : "",
           impurityType: prev.impurityType,
           processingOutputRole: prev.processingOutputRole,
+          processingTransformationId: prev.processingTransformationId,
           linkedOperationId: prev.linkedOperationId,
           linkedOperationLineId: prev.linkedOperationLineId,
           disposalCategory: prev.disposalCategory,
@@ -3541,9 +3599,6 @@ export default function WeighbridgeOperationsPage() {
       }
       setSupplierReceiptLines([]);
       setShowSupplierExtraFields(false);
-      if (processingOutputContext) {
-        setProcessingOutputContext(null);
-      }
       window.setTimeout(() => {
         void refreshLiveData({
           source: "realtime",
@@ -4208,23 +4263,17 @@ export default function WeighbridgeOperationsPage() {
 
               {(isTransfer || isFieldIssue || isDisposal || isShipment || isImpurityRemoval) ? (
                 <div className="space-y-1">
-                  <Label>{processingOutputContext ? "Источник обработки" : isImpurityRemoval ? "Склад" : "Склад-источник"} *</Label>
-                  {processingOutputContext ? (
-                    <div className="flex h-10 items-center rounded-md border border-slate-700 bg-slate-950/60 px-3 text-sm font-semibold text-slate-100">
-                      {warehouses.find((warehouse) => warehouse.id === processingOutputContext.warehouseId)?.name || "Место обработки"} · {processingOutputContext.transformationLabel}
-                    </div>
-                  ) : (
-                    <Select value={form.warehouseFromId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseFromId: v, sourceBatchId: "", stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}>
-                      <SelectTrigger className="h-8"><SelectValue placeholder="Выберите склад" /></SelectTrigger>
-                      <SelectContent>{(isImpurityRemoval ? harvestWarehouses : warehouses).map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
-                    </Select>
-                  )}
+                  <Label>{isTransfer ? "Откуда" : isImpurityRemoval ? "Склад" : "Склад-источник"} *</Label>
+                  <Select value={form.warehouseFromId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseFromId: v, sourceBatchId: "", stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "", processingTransformationId: "", processingOutputRole: "" }))}>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Выберите место отправления" /></SelectTrigger>
+                    <SelectContent>{(isImpurityRemoval ? harvestWarehouses : warehouses).map((w) => <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>)}</SelectContent>
+                  </Select>
                 </div>
               ) : null}
 
-              {processingOutputContext ? (
+              {isTransfer ? (
                 <div className="space-y-1">
-                  <Label>Место назначения *</Label>
+                  <Label>Куда *</Label>
                   <SearchableCombobox
                     value={form.warehouseToId}
                     options={warehouses
@@ -4237,14 +4286,14 @@ export default function WeighbridgeOperationsPage() {
                         keywords: [warehouse.warehouseType, warehouse.placeType],
                       }))}
                     onValueChange={(warehouseToId) => setForm((previous) => ({ ...previous, warehouseToId }))}
-                    placeholder="Выберите склад / площадку / точку хранения"
-                    searchPlaceholder="Поиск места назначения"
+                    placeholder="Выберите место назначения"
+                    searchPlaceholder="Поиск склада, площадки или объекта"
                     emptyLabel="Место назначения не найдено"
-                    ariaLabel="Место назначения выхода обработки"
+                    ariaLabel="Место назначения"
                     disabled={loading || submitting}
                   />
                 </div>
-              ) : ((form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge") || isTransfer) ? (
+              ) : form.operationType === "supplier_receipt" && form.supplierReceiptMode === "weighbridge" ? (
                 <div className="space-y-1">
                   <Label>Склад назначения *</Label>
                   <Select value={form.warehouseToId} onValueChange={(v) => setForm((p) => ({ ...p, warehouseToId: v }))}>
@@ -4273,6 +4322,30 @@ export default function WeighbridgeOperationsPage() {
                 </>
               ) : null}
             </div>
+            {isTransfer && isProcessingPlace(sourceWarehouse?.placeType) ? (
+              <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/45 p-3">
+                {processingCandidates.length === 0 ? (
+                  <div className="text-sm text-amber-300">На этом объекте нет активной партии. Сначала должен быть закрыт входной талон.</div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.8fr)] md:items-end">
+                    <div className="min-w-0">
+                      <div className="text-[10px] font-semibold uppercase text-slate-500">{String(sourceWarehouse?.placeType || "").toUpperCase() === "DRYER" ? "Партия после сушки" : "Партия после очистки"}</div>
+                      {processingOutputContext ? <div className="mt-1 truncate text-sm font-semibold text-slate-100" title={processingOutputContext.identityLabel}>{processingOutputContext.identityLabel}</div> : <div className="mt-1 text-sm text-amber-300">Уточните обработку</div>}
+                      {processingOutputContext ? <div className="mt-1 text-xs text-slate-400">Осталось распределить: <b className="text-amber-300">{processingOutputContext.unallocatedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</b></div> : null}
+                    </div>
+                    {processingCandidates.length > 1 ? (
+                      <div className="space-y-1">
+                        <Label>От какой обработки? *</Label>
+                        <Select value={form.processingTransformationId} onValueChange={(processingTransformationId) => setForm((previous) => ({ ...previous, processingTransformationId, processingOutputRole: String(sourceWarehouse?.placeType || "").toUpperCase() === "DRYER" ? "GRAIN" : "" }))}>
+                          <SelectTrigger className="h-9"><SelectValue placeholder="Выберите партию" /></SelectTrigger>
+                          <SelectContent>{processingCandidates.map((item) => <SelectItem key={item.id} value={item.id}>{item.identity_label || item.input_label} · {Number(item.unallocated_kg || 0).toLocaleString("ru-RU")} кг</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+              </div>
+            ) : null}
             </div>
             ) : null}
 
@@ -4362,37 +4435,22 @@ export default function WeighbridgeOperationsPage() {
             {isImpurityRemoval ? (
               <div className={formSectionClass}>
                 <div className="mb-3">
-                  <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    {processingOutputContext ? "Контекст и фракция обработки" : "Партия и вид примесей"}
-                  </Label>
+                  <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Партия и вид примесей</Label>
                 </div>
                 <div className="space-y-3">
-                  {processingOutputContext ? (
-                    <div className="grid gap-2 rounded-md border border-slate-700 bg-slate-950/55 p-3 text-sm sm:grid-cols-[1fr_auto]">
-                      <div className="min-w-0">
-                        <div className="text-xs text-slate-500">Обрабатываемая партия</div>
-                        <div className="mt-1 truncate font-semibold text-slate-100" title={processingOutputContext.identityLabel}>{processingOutputContext.identityLabel}</div>
-                      </div>
-                      <div className="sm:text-right">
-                        <div className="text-xs text-slate-500">{processingOutputContext.processingState === "in_processing" ? "Сейчас в обработке" : "Нераспределённый баланс обработки"}</div>
-                        <div className="mt-1 font-bold text-amber-300">{processingOutputContext.unallocatedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-1.5">
-                      <Label>Партия урожая *</Label>
-                      <Select value={form.sourceBatchId} onValueChange={(v) => setForm((p) => ({ ...p, sourceBatchId: v }))} disabled={!form.warehouseFromId}>
-                        <SelectTrigger className="h-11"><SelectValue placeholder={form.warehouseFromId ? "Выберите партию урожая" : "Сначала выберите склад"} /></SelectTrigger>
-                        <SelectContent>
-                          {availableHarvestBatches.length === 0 ? <SelectItem value="__empty" disabled>На складе нет принятых партий урожая</SelectItem> : null}
-                          {availableHarvestBatches.map((batch) => (
-                            <SelectItem key={batch.id} value={batch.id}>{batch.cropName} / {batch.varietyName} · {batch.fieldName} · чистая масса {batch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                  {selectedHarvestBatch && !processingOutputContext ? (
+                  <div className="space-y-1.5">
+                    <Label>Партия урожая *</Label>
+                    <Select value={form.sourceBatchId} onValueChange={(v) => setForm((p) => ({ ...p, sourceBatchId: v }))} disabled={!form.warehouseFromId}>
+                      <SelectTrigger className="h-11"><SelectValue placeholder={form.warehouseFromId ? "Выберите партию урожая" : "Сначала выберите склад"} /></SelectTrigger>
+                      <SelectContent>
+                        {availableHarvestBatches.length === 0 ? <SelectItem value="__empty" disabled>На складе нет принятых партий урожая</SelectItem> : null}
+                        {availableHarvestBatches.map((batch) => (
+                          <SelectItem key={batch.id} value={batch.id}>{batch.cropName} / {batch.varietyName} · {batch.fieldName} · чистая масса {batch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {selectedHarvestBatch ? (
                     <div className="grid gap-2 rounded-md border border-slate-700 bg-slate-950/55 p-3 text-xs sm:grid-cols-3">
                       <div><span className="text-slate-500">Принято</span><div className="mt-1 font-semibold text-slate-100">{selectedHarvestBatch.receivedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                       <div><span className="text-slate-500">Уже вывезено</span><div className="mt-1 font-semibold text-amber-300">{selectedHarvestBatch.removedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
@@ -4400,17 +4458,11 @@ export default function WeighbridgeOperationsPage() {
                     </div>
                   ) : null}
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-                    {processingOutputContext
-                      ? (Object.keys(processingOutputRoleLabels) as ProcessingOutputRole[]).map((role) => (
-                          <Button key={role} type="button" size="sm" variant="outline" className={`${segmentClass(form.processingOutputRole === role)} h-auto min-h-10 whitespace-normal`} onClick={() => setForm((p) => ({ ...p, processingOutputRole: role }))}>
-                            {processingOutputRoleLabels[role]}
-                          </Button>
-                        ))
-                      : (Object.keys(impurityTypeLabels) as ImpurityType[]).map((type) => (
-                          <Button key={type} type="button" size="sm" variant="outline" className={`${segmentClass(form.impurityType === type)} h-auto min-h-10 whitespace-normal`} onClick={() => setForm((p) => ({ ...p, impurityType: type }))}>
-                            {impurityTypeLabels[type]}
-                          </Button>
-                        ))}
+                    {(Object.keys(impurityTypeLabels) as ImpurityType[]).map((type) => (
+                      <Button key={type} type="button" size="sm" variant="outline" className={`${segmentClass(form.impurityType === type)} h-auto min-h-10 whitespace-normal`} onClick={() => setForm((p) => ({ ...p, impurityType: type }))}>
+                        {impurityTypeLabels[type]}
+                      </Button>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -4572,9 +4624,29 @@ export default function WeighbridgeOperationsPage() {
             {isTransfer || isDisposal || isShipment ? (
               <div className={formSectionClass}>
                 {isTransfer ? (
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <Button type="button" size="sm" variant="outline" className={segmentClass(form.transferMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, transferMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
-                    <Button type="button" size="sm" variant="outline" className={segmentClass(form.transferMode === "direct")} onClick={() => setForm((p) => ({ ...p, transferMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручное перемещение</Button>
+                  isProcessingPlace(sourceWarehouse?.placeType) ? (
+                    <div className="rounded-md border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">Фактический рейс через весовую. Партия и источник определены маршрутом.</div>
+                  ) : (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <Button type="button" size="sm" variant="outline" className={segmentClass(form.transferMode === "weighbridge")} onClick={() => setForm((p) => ({ ...p, transferMode: "weighbridge", quantityKg: "" }))}>Через весовую</Button>
+                      <Button type="button" size="sm" variant="outline" className={segmentClass(form.transferMode === "direct")} onClick={() => setForm((p) => ({ ...p, transferMode: "direct", grossKg: "", driverId: "", vehicleId: "" }))}>Ручное перемещение</Button>
+                    </div>
+                  )
+                ) : null}
+                {isProcessingOutput ? (
+                  <div className="space-y-2">
+                    <Label>{isDryerOutput ? "Что вывозим" : "Что вывозим?"} *</Label>
+                    {isDryerOutput ? (
+                      <div className="flex h-10 items-center rounded-md border border-slate-700 bg-slate-950/60 px-3 text-sm font-semibold text-slate-100">Зерно после сушки</div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                        {(Object.keys(processingOutputRoleLabels) as ProcessingOutputRole[]).map((role) => (
+                          <Button key={role} type="button" size="sm" variant="outline" className={`${segmentClass(form.processingOutputRole === role)} h-auto min-h-10 whitespace-normal`} onClick={() => setForm((previous) => ({ ...previous, processingOutputRole: role }))}>
+                            {processingOutputRoleLabels[role]}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : null}
                 {isShipment ? (
@@ -4611,14 +4683,14 @@ export default function WeighbridgeOperationsPage() {
                   </div>
                 ) : null}
                 <div className="grid gap-2 md:grid-cols-2">
-                  <Select value={form.stockIdentityKey} onValueChange={(v) => {
+                  {!isProcessingOutput ? <Select value={form.stockIdentityKey} onValueChange={(v) => {
                     const selected = stockIdentityOptions.find((item) => item.key === v);
                     setForm((p) => ({ ...p, stockIdentityKey: v, productId: selected?.product_id || "", varietyId: selected?.variety_id || "", reproductionId: selected?.reproduction_id || "" }));
                   }} disabled={!form.warehouseFromId || stockIdentityLoading}>
                     <SelectTrigger className="h-8"><SelectValue placeholder={isShipment ? "Остаток к отгрузке" : "Остаток склада"} /></SelectTrigger>
                     <SelectContent>{stockIdentityOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                  {isTransfer && form.transferMode === "direct" ? <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" /> : null}
+                  </Select> : null}
+                  {isTransfer && form.transferMode === "direct" && !isProcessingOutput ? <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" /> : null}
                   {isDisposal ? (
                     <Select value={form.disposalCategory} onValueChange={(v) => setForm((p) => ({ ...p, disposalCategory: v as DisposalCategory }))}>
                       <SelectTrigger className="h-8"><SelectValue placeholder="Категория выбытия" /></SelectTrigger>
@@ -4737,7 +4809,8 @@ export default function WeighbridgeOperationsPage() {
           </CardContent>
         </Card>
 
-        <Card className={`${terminalPanelClass} xl:col-start-2 xl:row-start-1`}>
+        <aside className="space-y-3 xl:sticky xl:top-16 xl:col-start-2 xl:row-start-1 xl:self-start" aria-label="Открытые талоны и партии на объектах">
+        <Card className={terminalPanelClass}>
           <CardHeader className="border-b border-slate-800/80 px-4 py-3">
             <CardTitle className="flex items-center justify-between gap-2 text-base text-slate-50">
               <span className="flex items-center gap-2">
@@ -4746,7 +4819,7 @@ export default function WeighbridgeOperationsPage() {
               <Badge className="border border-slate-700 bg-slate-950 text-slate-200">{visibleActiveTickets.length}</Badge>
             </CardTitle>
           </CardHeader>
-          <CardContent className="max-h-[720px] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
+          <CardContent className="max-h-[clamp(190px,36vh,420px)] space-y-2 overflow-y-auto px-3 py-3 travkin-scrollbar">
             {ticketsLoading ? <div className="text-sm text-slate-400">Загрузка очереди...</div> : visibleActiveTickets.length === 0 ? (
               <div className="flex min-h-28 items-center justify-center rounded-md border border-dashed border-slate-800 px-3 text-center text-sm text-slate-500">
                 Открытых талонов нет
@@ -4790,12 +4863,12 @@ export default function WeighbridgeOperationsPage() {
             })}
           </CardContent>
         </Card>
+        <ProcessingWorkspace
+          enabled={!canUseOperatorSession || operatorState.unlocked}
+          onItemsChange={setProcessingItems}
+        />
+        </aside>
       </div>
-
-      <ProcessingWorkspace
-        enabled={!canUseOperatorSession || operatorState.unlocked}
-        onAddOutput={openProcessingOutput}
-      />
 
       <details
         className={`${terminalPanelClass} group`}

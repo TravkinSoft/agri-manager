@@ -109,7 +109,7 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
           .in("id", batchIds)
       : Promise.resolve({ data: [] as any[], error: null }),
     warehouseIds.length
-      ? supabase.from("warehouses").select("id,name").eq("company_id", companyId).in("id", warehouseIds)
+      ? supabase.from("warehouses").select("id,name,place_type").eq("company_id", companyId).in("id", warehouseIds)
       : Promise.resolve({ data: [] as any[], error: null }),
     fieldIds.length
       ? supabase.from("fields").select("id,name").eq("company_id", companyId).in("id", fieldIds)
@@ -136,7 +136,7 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
   }
 
   const batchMap = new Map((batchesRes.data || []).map((row: any) => [String(row.id), row]));
-  const warehouseMap = new Map((warehousesRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
+  const warehouseMap = new Map((warehousesRes.data || []).map((row: any) => [String(row.id), row]));
   const fieldMap = new Map((fieldsRes.data || []).map((row: any) => [String(row.id), nameOf(row)]));
   const nodeMap = new Map((nodesRes.data || []).map((row: any) => [String(row.id), row]));
   const ticketMap = new Map((ticketsRes.data || []).map((row: any) => [String(row.id), row]));
@@ -179,6 +179,7 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
       record_type: "transformation",
       company_id: String(row.company_id),
       transformation_type: String(row.transformation_type),
+      processing_method: row.processing_method ? String(row.processing_method) : null,
       status: String(row.status),
       queue_status: processingState === "processing_closed" ? "completed" : row.status === "voided" ? "voided" : "in_progress",
       processing_state: processingState,
@@ -192,7 +193,14 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
       composition_hash: inputBatch?.composition_hash ? String(inputBatch.composition_hash) : null,
       composition_snapshot: Array.isArray(inputBatch?.composition_snapshot) ? inputBatch.composition_snapshot : [],
       is_mixed_harvest: Boolean(inputBatch?.is_mixed_harvest),
-      processing_node_name: node ? nameOf(node) : row.node_warehouse_id ? warehouseMap.get(String(row.node_warehouse_id)) || null : null,
+      node_place_type: row.node_warehouse_id
+        ? String((warehouseMap.get(String(row.node_warehouse_id)) as any)?.place_type || "WAREHOUSE").toUpperCase()
+        : null,
+      processing_node_name: node
+        ? nameOf(node)
+        : row.node_warehouse_id
+          ? nameOf(warehouseMap.get(String(row.node_warehouse_id)), "Место обработки")
+          : null,
       source_ticket_id: row.source_ticket_id ? String(row.source_ticket_id) : null,
       ticket_no: ticket?.ticket_no ? String(ticket.ticket_no) : null,
       field_name: ticket?.field_id ? fieldMap.get(String(ticket.field_id)) || null : null,
@@ -219,14 +227,18 @@ async function loadTransformationItems(supabase: SupabaseClient, companyId: stri
       last_main_output_marked_at: row.last_main_output_marked_at || null,
       completed_by_name: row.completed_by ? actorMap.get(String(row.completed_by)) || null : null,
       closed_by_name: row.closed_by ? actorMap.get(String(row.closed_by)) || null : null,
-      source_warehouse_name: firstInput?.warehouse_from_id ? warehouseMap.get(String(firstInput.warehouse_from_id)) || null : null,
+      source_warehouse_name: firstInput?.warehouse_from_id
+        ? nameOf(warehouseMap.get(String(firstInput.warehouse_from_id)), "Склад")
+        : null,
       outputs: transformationOutputs.map((output: any) => ({
         line_type: String(output.line_type),
         output_type: outputTypeOf(output),
         output_role: output.output_role ? String(output.output_role) : null,
         physical_state: output.physical_state ? String(output.physical_state) : null,
         batch_class: String(output.batch_class || ""),
-        warehouse_to_name: output.warehouse_to_id ? warehouseMap.get(String(output.warehouse_to_id)) || null : null,
+        warehouse_to_name: output.warehouse_to_id
+          ? nameOf(warehouseMap.get(String(output.warehouse_to_id)), "Место назначения")
+          : null,
         output_weight_kg: Number(output.output_weight_kg || 0),
       })),
     };
