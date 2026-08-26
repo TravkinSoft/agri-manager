@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { CalendarDays, ExternalLink, Factory, FileText, PackageOpen, Scale, Truck, UserRound } from "lucide-react";
+import { CalendarDays, ExternalLink, Factory, FileText, Loader2, PackageOpen, Scale, Truck, UserRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -17,6 +17,7 @@ type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   batch: HarvestBatchSummary | null;
+  loading?: boolean;
 };
 
 type OutgoingDocument = NonNullable<HarvestBatchSummary["outgoingDocuments"]>[number];
@@ -55,9 +56,10 @@ const outputLabel = (value: string) => ({
   process_loss: "Отходы / потери",
 } as Record<string, string>)[value] || "Результат";
 
-function stockComponentLabel(batchClass: string, physicalState: string): string {
+function stockComponentLabel(batchClass: string, physicalState: string, processingEligible: boolean): string {
   const batch = String(batchClass || "commodity").toLowerCase();
   const state = String(physicalState || "SOURCE").toUpperCase();
+  if (!processingEligible) return batch === "waste" ? "Примеси / мусор" : "Продукция";
   if (batch === "waste" && state === "SCREENINGS") return "Отсев";
   if (batch === "waste" && state === "AFTER_CLEANING") return "Отходы после очистки";
   if (batch === "waste") return "Прочие отходы";
@@ -134,7 +136,7 @@ function ProcessingDocumentDialog({ document, onOpenChange, onOpenTicket }: {
   );
 }
 
-export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
+export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false }: Props) {
   const [processingDocument, setProcessingDocument] = useState<OutgoingDocument | null>(null);
   const [ticketPreviewId, setTicketPreviewId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -151,7 +153,10 @@ export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
   };
   const trips = batch?.tripBatches || [];
   const stockComponents = batch?.stockComponents || [];
-  const outgoingDocuments = batch?.outgoingDocuments || [];
+  const processingEligible = batch?.processingEligible !== false;
+  const outgoingDocuments = (batch?.outgoingDocuments || []).filter(
+    (document) => processingEligible || document.sourceType !== "processing_document"
+  );
   const activeTrips = trips.filter((trip) => trip.status !== "voided");
   const moistureRelevant = Boolean(
     batch &&
@@ -202,13 +207,13 @@ export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
       visible: (batch.removedKg || 0) > 0,
     },
     {
-      label: "Передано в переработку",
+      label: processingEligible ? "Передано в переработку" : "Историческое выбытие партии",
       value: -(batch.processingInputKg || 0),
       tone: "text-rose-300",
       visible: (batch.processingInputKg || 0) > 0,
     },
     {
-      label: "Возвращено из переработки",
+      label: processingEligible ? "Возвращено из переработки" : "Историческое поступление партии",
       value: batch.processingOutputKg || 0,
       tone: "text-emerald-300",
       visible: (batch.processingOutputKg || 0) > 0,
@@ -273,6 +278,12 @@ export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
             </DialogHeader>
 
             <div ref={scrollRef} className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
+              {loading ? (
+                <div className="flex min-h-52 items-center justify-center gap-2 text-sm text-slate-400" role="status">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Загружаем историю партии...
+                </div>
+              ) : (
+              <>
               {batch.reviewState === "requires_review" ? (
                 <div className="rounded-md border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                   <div className="font-semibold">Требуется уточнение</div>
@@ -289,7 +300,7 @@ export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
                   <div className="divide-y divide-slate-800 border-y border-slate-800">
                     {stockComponents.map((component, index) => (
                       <div key={`${component.batchClass}-${component.physicalState}-${index}`} className="flex items-center justify-between gap-4 py-2.5 text-sm">
-                        <span className="text-slate-400">{stockComponentLabel(component.batchClass, component.physicalState)}</span>
+                        <span className="text-slate-400">{stockComponentLabel(component.batchClass, component.physicalState, processingEligible)}</span>
                         <span className="font-semibold tabular-nums text-slate-100">{kg(component.quantityKg)}</span>
                       </div>
                     ))}
@@ -413,8 +424,8 @@ export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
               </section>
 
               {outgoingDocuments.length > 0 ? (
-                <section aria-label="Выбытие">
-                  <h3 className="mb-3 text-base font-semibold">Выбытие</h3>
+                <section aria-label="История партии">
+                  <h3 className="mb-3 text-base font-semibold">История партии</h3>
                   <div className="divide-y divide-slate-800 overflow-hidden rounded-md border border-slate-800 bg-slate-950/35">
                     {outgoingDocuments.map((document) => {
                       const content = (
@@ -436,7 +447,9 @@ export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
                             ) : null}
                           </span>
                           <span className="flex shrink-0 items-center gap-3">
-                            <strong className="tabular-nums text-rose-300">-{kg(document.quantityKg)}</strong>
+                            <strong className={`tabular-nums ${document.direction === "processing" ? "text-emerald-300" : "text-rose-300"}`}>
+                              {document.direction === "processing" ? "+" : "-"}{kg(document.quantityKg)}
+                            </strong>
                             {document.sourceType !== "missing" ? <ExternalLink className="h-4 w-4 text-slate-500" /> : null}
                           </span>
                         </>
@@ -458,6 +471,8 @@ export function HarvestBatchDialog({ open, onOpenChange, batch }: Props) {
                   </div>
                 </section>
               ) : null}
+              </>
+              )}
             </div>
           </>
         ) : null}

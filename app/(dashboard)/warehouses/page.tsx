@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRightLeft,
   Boxes,
@@ -37,6 +37,7 @@ import { listHarvestBatchSummaries } from "@/lib/services/weighbridge";
 import {
   getInventoryBalances,
   getProducts,
+  getWarehouses,
   getWarehouseSummaries,
 } from "@/lib/services/warehouses";
 import type { HarvestBatchSummary } from "@/lib/types/weighbridge";
@@ -110,11 +111,17 @@ function formatMass(valueKg: number): string {
 
 const warehousePageCache = new Map<string, {
   summaries: WarehouseSummary[];
+  warehouses?: Warehouse[];
   balances?: InventoryBalance[];
   harvestBatches?: HarvestBatchSummary[];
   loadedWarehouseIds?: string[];
 }>();
+type WarehouseDetailsPayload = { balanceRows: InventoryBalance[]; batchRows: HarvestBatchSummary[] };
 const warehouseSummaryRequestCache = new Map<string, Promise<WarehouseSummary[]>>();
+const warehouseListRequestCache = new Map<string, Promise<Warehouse[]>>();
+const warehouseDetailsRequestCache = new Map<string, Promise<WarehouseDetailsPayload>>();
+const warehouseDetailsLoadedAt = new Map<string, number>();
+const warehouseSummariesLoadedAt = new Map<string, number>();
 
 export default function WarehousesPage() {
   const { profile } = useAuth();
@@ -139,6 +146,8 @@ export default function WarehousesPage() {
   const [transferOpen, setTransferOpen] = useState(false);
   const [detailBalance, setDetailBalance] = useState<InventoryBalance | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<HarvestBatchSummary | null>(null);
+  const [selectedBatchLoading, setSelectedBatchLoading] = useState(false);
+  const selectedBatchRequestGeneration = useRef(0);
   const [detailRevision, setDetailRevision] = useState(0);
 
   const role = String(profile?.role || "");
@@ -147,14 +156,30 @@ export default function WarehousesPage() {
   const canView = canStockOperate || canManageWarehouses || ["agronomist", "director", "weighman"].includes(role);
   const isReadOnlyRole = ["weighman", "agronomist", "director"].includes(role);
 
-  const loadWarehouseList = async ({ foreground = true }: { foreground?: boolean } = {}) => {
+  const loadWarehouseList = async ({ foreground = true, force = false }: { foreground?: boolean; force?: boolean } = {}) => {
     if (!profile?.company_id) return;
     if (foreground) {
       setLoading(true);
       setError(null);
     }
+    let warehouseListLoaded = false;
     try {
       const cacheKey = `${profile.company_id}:${language}:${canManageWarehouses}`;
+      let warehouseRequest = warehouseListRequestCache.get(cacheKey);
+      if (!warehouseRequest) {
+        warehouseRequest = getWarehouses(profile.company_id, canManageWarehouses, language)
+          .finally(() => warehouseListRequestCache.delete(cacheKey));
+        warehouseListRequestCache.set(cacheKey, warehouseRequest);
+      }
+      const warehouseRows = await warehouseRequest;
+      warehouseListLoaded = true;
+      setWarehouses(warehouseRows);
+      const cached = warehousePageCache.get(cacheKey) || { summaries: [] };
+      warehousePageCache.set(cacheKey, { ...cached, warehouses: warehouseRows });
+      setError(null);
+      if (foreground) setLoading(false);
+
+      if (!force && Date.now() - (warehouseSummariesLoadedAt.get(cacheKey) || 0) < 15_000) return;
       let request = warehouseSummaryRequestCache.get(cacheKey);
       if (!request) {
         request = getWarehouseSummaries(profile.company_id, canManageWarehouses, language)
@@ -164,10 +189,11 @@ export default function WarehousesPage() {
       const summaryRows = await request;
       setWarehouseSummaryRows(summaryRows);
       setWarehouses(summaryRows.map((row) => row.warehouse));
-      warehousePageCache.set(cacheKey, { ...warehousePageCache.get(cacheKey), summaries: summaryRows });
+      warehousePageCache.set(cacheKey, { ...warehousePageCache.get(cacheKey), warehouses: warehouseRows, summaries: summaryRows });
+      warehouseSummariesLoadedAt.set(cacheKey, Date.now());
       setError(null);
     } catch (cause) {
-      if (foreground) {
+      if (foreground && !warehouseListLoaded) {
         setError(cause instanceof Error ? cause.message : "Не удалось загрузить склады");
       } else {
         console.error("Background warehouse refresh failed", cause);
@@ -179,7 +205,7 @@ export default function WarehousesPage() {
 
   const loadWarehouseDetails = async (
     warehouseId: string,
-    { foreground = true }: { foreground?: boolean } = {}
+    { foreground = true, force = false }: { foreground?: boolean; force?: boolean } = {}
   ) => {
     if (!profile?.company_id) return;
     if (foreground) {
@@ -187,10 +213,18 @@ export default function WarehousesPage() {
       setDetailsError(null);
     }
     try {
-      const [balanceRows, batchRows] = await Promise.all([
-        getInventoryBalances(profile.company_id, language, { warehouseId }),
-        listHarvestBatchSummaries(profile.company_id, { warehouseId, aggregateLots: true }),
-      ]);
+      const requestKey = `${profile.company_id}:${language}:${warehouseId}`;
+      if (!force && !foreground && Date.now() - (warehouseDetailsLoadedAt.get(requestKey) || 0) < 15_000) return;
+      let request = warehouseDetailsRequestCache.get(requestKey);
+      if (!request) {
+        request = Promise.all([
+          getInventoryBalances(profile.company_id, language, { warehouseId }),
+          listHarvestBatchSummaries(profile.company_id, { warehouseId, aggregateLots: true, summaryOnly: true }),
+        ]).then(([balanceRows, batchRows]) => ({ balanceRows, batchRows }))
+          .finally(() => warehouseDetailsRequestCache.delete(requestKey));
+        warehouseDetailsRequestCache.set(requestKey, request);
+      }
+      const { balanceRows, batchRows } = await request;
       setBalances((current) => [
         ...current.filter((row) => row.warehouse_id !== warehouseId),
         ...balanceRows,
@@ -200,6 +234,7 @@ export default function WarehousesPage() {
         ...batchRows,
       ]);
       setLoadedWarehouseIds((current) => current.includes(warehouseId) ? current : [...current, warehouseId]);
+      warehouseDetailsLoadedAt.set(requestKey, Date.now());
       const cacheKey = `${profile.company_id}:${language}:${canManageWarehouses}`;
       const cached = warehousePageCache.get(cacheKey) || { summaries: warehouseSummaryRows };
       warehousePageCache.set(cacheKey, {
@@ -224,7 +259,7 @@ export default function WarehousesPage() {
     try {
       const [balanceRows, batchRows] = await Promise.all([
         getInventoryBalances(profile.company_id, language),
-        listHarvestBatchSummaries(profile.company_id, { aggregateLots: true }),
+        listHarvestBatchSummaries(profile.company_id, { aggregateLots: true, summaryOnly: true }),
       ]);
       setBalances(balanceRows);
       setHarvestBatches(batchRows);
@@ -239,6 +274,39 @@ export default function WarehousesPage() {
   const openWarehouse = (warehouseId: string) => {
     setSelectedWarehouseId(warehouseId);
     void loadWarehouseDetails(warehouseId, { foreground: !loadedWarehouseIds.includes(warehouseId) });
+  };
+
+  const openHarvestBatch = async (batch: HarvestBatchSummary) => {
+    if (!profile?.company_id) return;
+    const generation = ++selectedBatchRequestGeneration.current;
+    setSelectedBatch(batch);
+    if (batch.detailLevel === "full") {
+      setSelectedBatchLoading(false);
+      return;
+    }
+    setSelectedBatchLoading(true);
+    try {
+      const rows = await listHarvestBatchSummaries(profile.company_id, {
+        warehouseId: batch.warehouseId,
+        aggregateLots: true,
+        lotId: batch.aggregateLotId || batch.id,
+      });
+      const full = rows.find((row) => row.id === batch.id && row.warehouseId === batch.warehouseId);
+      if (!full) throw new Error("Партия больше не находится на этом складе");
+      if (selectedBatchRequestGeneration.current === generation) {
+        setSelectedBatch((current) => current?.id === batch.id && current.warehouseId === batch.warehouseId ? full : current);
+      }
+    } catch (cause) {
+      if (selectedBatchRequestGeneration.current === generation) {
+        toast({
+          title: "Не удалось загрузить историю партии",
+          description: cause instanceof Error ? cause.message : "Повторите попытку",
+          variant: "destructive",
+        });
+      }
+    } finally {
+      if (selectedBatchRequestGeneration.current === generation) setSelectedBatchLoading(false);
+    }
   };
 
   const openReceiptDialog = async (warehouseId: string) => {
@@ -264,7 +332,7 @@ export default function WarehousesPage() {
   useEffect(() => {
     const cacheKey = `${profile?.company_id || ""}:${language}:${canManageWarehouses}`;
     const cached = warehousePageCache.get(cacheKey);
-    setWarehouses(cached?.summaries.map((row) => row.warehouse) || []);
+    setWarehouses(cached?.warehouses || cached?.summaries.map((row) => row.warehouse) || []);
     setWarehouseSummaryRows(cached?.summaries || []);
     setProducts([]);
     setBalances(cached?.balances || []);
@@ -280,10 +348,11 @@ export default function WarehousesPage() {
 
   useLiveRefresh({
     enabled: Boolean(profile?.company_id && canView),
-    onRefresh: async () => {
-      const tasks: Promise<unknown>[] = [loadWarehouseList({ foreground: false })];
+    onRefresh: async (event) => {
+      const force = event?.source === "realtime" || event?.source === "online";
+      const tasks: Promise<unknown>[] = [loadWarehouseList({ foreground: false, force })];
       if (selectedWarehouseId) {
-        tasks.push(loadWarehouseDetails(selectedWarehouseId, { foreground: false }));
+        tasks.push(loadWarehouseDetails(selectedWarehouseId, { foreground: false, force }));
       }
       await Promise.all(tasks);
       setDetailRevision((current) => current + 1);
@@ -297,7 +366,7 @@ export default function WarehousesPage() {
   useEffect(() => {
     if (!selectedBatch) return;
     const current = harvestBatches.find((batch) => batch.id === selectedBatch.id);
-    if (current && current !== selectedBatch) setSelectedBatch(current);
+    if (current && current !== selectedBatch && selectedBatch.detailLevel !== "full") setSelectedBatch(current);
   }, [harvestBatches, selectedBatch]);
 
   const summaries = useMemo<Summary[]>(() => warehouses.map((warehouse) => {
@@ -541,7 +610,7 @@ export default function WarehousesPage() {
                         <button
                           key={`harvest-${batch.id}`}
                           type="button"
-                          onClick={() => setSelectedBatch(batch)}
+                          onClick={() => void openHarvestBatch(batch)}
                           className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-yellow-400"
                         >
                           <div className="min-w-0">
@@ -595,8 +664,8 @@ export default function WarehousesPage() {
           onCreated={async (receipt) => {
             toast({ title: "Приход проведён", description: `Документ ${receipt.receipt_no} создан, ledger IN записан.` });
             await Promise.all([
-              loadWarehouseList({ foreground: false }),
-              receiptWarehouseId ? loadWarehouseDetails(receiptWarehouseId, { foreground: false }) : Promise.resolve(),
+              loadWarehouseList({ foreground: false, force: true }),
+              receiptWarehouseId ? loadWarehouseDetails(receiptWarehouseId, { foreground: false, force: true }) : Promise.resolve(),
             ]);
             setDetailRevision((current) => current + 1);
           }}
@@ -613,8 +682,8 @@ export default function WarehousesPage() {
           onCreated={async (result) => {
             toast({ title: "Перемещение проведено", description: `${result.transfer_no}: OUT и IN записаны атомарно.` });
             await Promise.all([
-              loadWarehouseList({ foreground: false }),
-              selectedWarehouseId ? loadWarehouseDetails(selectedWarehouseId, { foreground: false }) : Promise.resolve(),
+              loadWarehouseList({ foreground: false, force: true }),
+              selectedWarehouseId ? loadWarehouseDetails(selectedWarehouseId, { foreground: false, force: true }) : Promise.resolve(),
             ]);
             setDetailRevision((current) => current + 1);
           }}
@@ -631,8 +700,15 @@ export default function WarehousesPage() {
       ) : null}
       <HarvestBatchDialog
         open={selectedBatch !== null}
-        onOpenChange={(open) => !open && setSelectedBatch(null)}
+        onOpenChange={(open) => {
+          if (!open) {
+            selectedBatchRequestGeneration.current += 1;
+            setSelectedBatch(null);
+            setSelectedBatchLoading(false);
+          }
+        }}
         batch={selectedBatch}
+        loading={selectedBatchLoading}
       />
     </div>
   );

@@ -239,6 +239,9 @@ export interface HarvestBatchSummary {
   productName: string;
   cropId: string | null;
   cropName: string;
+  cropCategorySlug?: string;
+  processingEligible?: boolean;
+  detailLevel?: "summary" | "full";
   varietyId: string | null;
   varietyName: string;
   reproductionId: string | null;
@@ -318,6 +321,7 @@ export interface HarvestBatchSummary {
     vehicleName: string | null;
     driverName: string | null;
     notes: string | null;
+    direction?: "out" | "processing";
     processingDocument?: {
       id: string;
       transformationType: string;

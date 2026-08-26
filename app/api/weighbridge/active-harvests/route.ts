@@ -6,7 +6,8 @@ import {
   requireWeighbridgeOperatorSession,
   resolveWeighbridgeSession,
 } from "@/app/api/weighbridge/_auth";
-import { isHarvestDestinationPlace } from "@/lib/warehouse/warehouse-scope";
+import { isHarvestDestinationPlace, isProcessingPlace } from "@/lib/warehouse/warehouse-scope";
+import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { getCurrentSeason, loadActiveHarvestRouteList } from "./_data";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -92,6 +93,31 @@ export async function POST(request: NextRequest) {
       !isHarvestDestinationPlace(warehouseRes.data.warehouse_type, warehouseRes.data.place_type)
     ) {
       return NextResponse.json({ error: "Место приёмки урожая недоступно" }, { status: 400 });
+    }
+    if (isProcessingPlace(warehouseRes.data.place_type)) {
+      const { data: crop, error: cropError } = await context.supabase
+        .from("crops")
+        .select("slug,name,name_ru,category_id,category,crop_category,subcategory,crop_subcategory")
+        .eq("id", structureRes.data.crop_id)
+        .maybeSingle();
+      const categoryResult = crop?.category_id
+        ? await context.supabase.from("crop_categories").select("slug,name_ru").eq("id", crop.category_id).maybeSingle()
+        : { data: null, error: null } as any;
+      if (cropError || categoryResult.error) {
+        return NextResponse.json({ error: cropError?.message || categoryResult.error?.message }, { status: 400 });
+      }
+      if (crop && !canUseGrainProcessing({
+        cropSlug: crop.slug,
+        cropName: crop.name_ru || crop.name,
+        categorySlug: categoryResult.data?.slug || crop.category,
+        categoryName: categoryResult.data?.name_ru || crop.crop_category,
+        subcategory: crop.subcategory || crop.crop_subcategory,
+      })) {
+        return NextResponse.json(
+          { error: "Овощные культуры направляйте на склад. Примеси оформляются отдельным талоном «Примеси»." },
+          { status: 400 }
+        );
+      }
     }
 
     if (existingRes.error) throw new Error(existingRes.error.message);

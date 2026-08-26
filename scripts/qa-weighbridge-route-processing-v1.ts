@@ -6,6 +6,7 @@ import {
   isOperationalStoragePlace,
   isProcessingPlace,
 } from "@/lib/warehouse/warehouse-scope";
+import { canUseGrainProcessing, isVegetableCropForProcessing } from "@/lib/weighbridge/crop-processing";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
@@ -13,7 +14,14 @@ const page = read("app/(dashboard)/weighbridge/page.tsx");
 const workspace = read("components/weighbridge/processing-workspace.tsx");
 const transformationsRoute = read("app/api/processing/transformations/route.ts");
 const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
+const activeHarvestRoute = read("app/api/weighbridge/active-harvests/route.ts");
+const harvestAllocationsRoute = read("app/api/weighbridge/harvest-allocations/route.ts");
+const harvestBatchesRoute = read("app/api/weighbridge/harvest-batches/route.ts");
+const warehousePage = read("app/(dashboard)/warehouses/page.tsx");
+const warehouseSummaryRoute = read("app/api/warehouses/summaries/route.ts");
+const harvestBatchDialog = read("components/warehouses/harvest-batch-dialog.tsx");
 const migration = read("supabase/migrations/20260826103000_weighbridge_route_processing_contract_v1.sql");
+const cropGuardMigration = read("supabase/migrations/20260827110000_weighbridge_crop_processing_guard_v1.sql");
 
 let passed = 0;
 const check = (name: string, run: () => void) => {
@@ -93,6 +101,46 @@ check("processing DTO carries method and physical place type", () => {
   assert.match(transformationsRoute, /processing_method:/);
   assert.match(transformationsRoute, /node_place_type:/);
   assert.match(transformationsRoute, /select\("id,name,place_type"\)/);
+});
+
+check("vegetables never enter grain dryer or cleaner processing", () => {
+  assert.equal(isVegetableCropForProcessing({ categorySlug: "vegetable" }), true);
+  assert.equal(isVegetableCropForProcessing({ cropSlug: "potato" }), true);
+  assert.equal(isVegetableCropForProcessing({ cropName: "Морковь" }), true);
+  assert.equal(canUseGrainProcessing({ categorySlug: "cereal", cropSlug: "wheat" }), true);
+  assert.match(page, /canUseGrainProcessing/);
+  assert.match(ticketRoute, /Овощные культуры направляйте на склад/);
+  assert.match(activeHarvestRoute, /Овощные культуры направляйте на склад/);
+  assert.match(cropGuardMigration, /VEGETABLE_PROCESSING_ROUTE_NOT_ALLOWED/);
+  assert.match(cropGuardMigration, /v_category_slug = 'vegetable'/);
+  assert.doesNotMatch(cropGuardMigration, /\b(?:delete\s+from|truncate|drop\s+table|drop\s+column)\b/i);
+});
+
+check("field allocation is a stable visible identity", () => {
+  assert.match(harvestAllocationsRoute, /allocationCode:/);
+  assert.match(harvestAllocationsRoute, /plotLabel: `Посевная строка №/);
+  assert.match(page, /Выберите точную посевную строку/);
+  assert.match(page, /selectedHarvestAllocation\.allocationCode/);
+});
+
+check("weighbridge forms omit decorative section captions", () => {
+  assert.doesNotMatch(page, />Маршрут<\/span>/);
+  assert.doesNotMatch(page, />Документ<\/span>/);
+  assert.doesNotMatch(page, />Партия и вид примесей<\/Label>/);
+  assert.doesNotMatch(page, />Транспорт<\/Label>/);
+  assert.doesNotMatch(page, />Вес<\/Label>/);
+});
+
+check("warehouse uses staged loading and exact lot details", () => {
+  assert.match(warehousePage, /getWarehouses/);
+  assert.match(warehousePage, /summaryOnly: true/);
+  assert.match(warehousePage, /warehouseDetailsRequestCache/);
+  assert.match(warehousePage, /lotId: batch\.aggregateLotId \|\| batch\.id/);
+  assert.match(harvestBatchesRoute, /detail\"\) === \"summary\"/);
+  assert.match(warehouseSummaryRoute, /\.limit\(1\)/);
+  assert.doesNotMatch(warehouseSummaryRoute, /\.limit\(5000\)/);
+  assert.match(harvestBatchDialog, /Историческое поступление партии/);
+  assert.match(harvestBatchDialog, /История партии/);
 });
 
 console.log(`ROUTE PROCESSING REGRESSION PASS (${passed}/${passed})`);

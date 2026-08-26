@@ -8,8 +8,9 @@ import { resolveWarehouseStockContract } from "@/lib/server/warehouse-stock-cont
 import type { StockBusinessEvent } from "@/lib/warehouse/stock-unit-contract";
 import { resolveHarvestTicketContext } from "@/lib/server/harvest-ticket-context";
 import { ensureHarvestProductIdentity } from "@/lib/server/harvest-product-identity";
-import { isHarvestDestinationPlace, isHarvestWarehouseType } from "@/lib/warehouse/warehouse-scope";
+import { isHarvestDestinationPlace, isHarvestWarehouseType, isProcessingPlace } from "@/lib/warehouse/warehouse-scope";
 import { isWeighedSupplierProduct } from "@/lib/weighbridge/product-rules";
+import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
 import { isWeighbridgePersonnelRole } from "@/lib/weighbridge/personnel";
 import { isCargoTractor, isCargoVehicle, isTrailerTransport, resolveTransportIdentity } from "@/lib/weighbridge/transport";
@@ -511,6 +512,7 @@ export async function POST(request: NextRequest) {
       name_kz?: string | null;
       name_en?: string | null;
     } | null = null;
+    let harvestCropProcessingIdentity: Record<string, unknown> | null = null;
     let createdHarvestProductId: string | null = null;
     const isImpurityRemoval =
       String(ticket.direction || "") === "outgoing" &&
@@ -585,7 +587,7 @@ export async function POST(request: NextRequest) {
       } else {
         const { data: crop, error: cropError } = await measure("harvest_crop", () => supabase
           .from("crops")
-          .select("id,name,name_ru,name_kz,name_en")
+          .select("id,name,name_ru,name_kz,name_en,slug,category_id,category,crop_category,subcategory,crop_subcategory")
           .eq("id", harvestContext.allocation?.cropId || "")
           .maybeSingle());
         if (cropError || !crop?.id) {
@@ -600,6 +602,19 @@ export async function POST(request: NextRequest) {
           name_ru: crop.name_ru,
           name_kz: crop.name_kz,
           name_en: crop.name_en,
+        };
+        const categoryResult = crop.category_id
+          ? await supabase.from("crop_categories").select("slug,name_ru").eq("id", crop.category_id).maybeSingle()
+          : { data: null, error: null } as any;
+        if (categoryResult.error) {
+          return NextResponse.json({ error: categoryResult.error.message }, { status: 400 });
+        }
+        harvestCropProcessingIdentity = {
+          cropSlug: crop.slug,
+          cropName: crop.name_ru || crop.name,
+          categorySlug: categoryResult.data?.slug || crop.category,
+          categoryName: categoryResult.data?.name_ru || crop.crop_category,
+          subcategory: crop.subcategory || crop.crop_subcategory,
         };
       }
 
@@ -638,6 +653,16 @@ export async function POST(request: NextRequest) {
         ) {
           return NextResponse.json(
             { error: "Выберите активный склад, разрешённый для приёма урожая." },
+            { status: 400 }
+          );
+        }
+        if (
+          isProcessingPlace(destinationWarehouse.place_type)
+          && harvestCropProcessingIdentity
+          && !canUseGrainProcessing(harvestCropProcessingIdentity)
+        ) {
+          return NextResponse.json(
+            { error: "Овощные культуры направляйте на склад. Примеси оформляются отдельным талоном «Примеси»." },
             { status: 400 }
           );
         }
@@ -838,6 +863,28 @@ export async function POST(request: NextRequest) {
         || Boolean(season.archived)
       ) {
         return NextResponse.json({ error: "Сезон или партия обработки больше не активны." }, { status: 409 });
+      }
+      if (lot.crop_id) {
+        const { data: outputCrop, error: outputCropError } = await supabase
+          .from("crops")
+          .select("slug,name,name_ru,category_id,category,crop_category,subcategory,crop_subcategory")
+          .eq("id", lot.crop_id)
+          .maybeSingle();
+        const outputCategoryResult = outputCrop?.category_id
+          ? await supabase.from("crop_categories").select("slug,name_ru").eq("id", outputCrop.category_id).maybeSingle()
+          : { data: null, error: null } as any;
+        if (outputCropError || outputCategoryResult.error) {
+          return NextResponse.json({ error: outputCropError?.message || outputCategoryResult.error?.message }, { status: 400 });
+        }
+        if (outputCrop && !canUseGrainProcessing({
+          cropSlug: outputCrop.slug,
+          cropName: outputCrop.name_ru || outputCrop.name,
+          categorySlug: outputCategoryResult.data?.slug || outputCrop.category,
+          categoryName: outputCategoryResult.data?.name_ru || outputCrop.crop_category,
+          subcategory: outputCrop.subcategory || outputCrop.crop_subcategory,
+        })) {
+          return NextResponse.json({ error: "Для овощной партии зерновая обработка недоступна. Оформите вывоз примесей." }, { status: 409 });
+        }
       }
       if (inputResult.error || outputResult.error || lossResult.error) {
         return NextResponse.json(

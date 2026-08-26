@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, ClipboardList, Clock3, FileDown, Info, Loader2, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
+import { CheckCircle2, ClipboardList, Clock3, FileDown, Info, Loader2, LockKeyhole, MoreHorizontal, Pencil, Scale, Trash2, UserRound } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,7 @@ import { WeighbridgeTicketPaper, type WeighbridgeTicketPaperLabels } from "@/com
 import { weighbridgeHarvestDraftsStorageKey } from "@/lib/weighbridge/fast-repeat";
 import { formatWeightKg, formatWeightNumber } from "@/lib/weighbridge/weight-format";
 import { parseStrictWeightKg } from "@/lib/weighbridge/weight-input";
+import { canUseGrainProcessing } from "@/lib/weighbridge/crop-processing";
 import { HarvestAllocationPicker } from "@/components/weighbridge/active-harvest-tabs";
 import { UniversalWorkspaceTabs, type UniversalWorkspaceTab } from "@/components/weighbridge/universal-workspace-tabs";
 import { TransportDriverSelects } from "@/components/weighbridge/transport-driver-picker";
@@ -201,6 +202,15 @@ type HarvestStructureOption = {
   varietyName: string;
   reproductionId: string;
   reproductionName: string;
+  cropSlug: string;
+  cropCategorySlug: string;
+  cropCategoryName: string;
+  cropSubcategory: string;
+  allocationCode: string;
+  plotOrdinal: number;
+  plotCount: number;
+  plotLabel: string;
+  notes: string;
   isIncomplete: boolean;
   debug?: {
     cropId: string;
@@ -1989,13 +1999,14 @@ export default function WeighbridgeOperationsPage() {
         .sort((a, b) => Number(a.isIncomplete) - Number(b.isIncomplete))
         .map((allocation) => ({
           value: `${fieldId}:${allocation.allocationId}`,
-          label: `${field.name} · ${allocation.cropName}`,
+          label: `${field.name} · ${allocation.plotLabel} · ${allocation.cropName}`,
           description: [
             allocation.varietyName,
             allocation.reproductionName,
             `${allocation.areaHa.toLocaleString("ru-RU", { maximumFractionDigits: 2 })} га`,
+            `код ${allocation.allocationCode}`,
           ].filter(Boolean).join(" · "),
-          keywords: [field.name, allocation.cropName, allocation.varietyName, allocation.reproductionName],
+          keywords: [field.name, allocation.cropName, allocation.varietyName, allocation.reproductionName, allocation.plotLabel, allocation.allocationCode],
         }));
     });
   }, [fields, harvestStructureByField]);
@@ -2748,11 +2759,18 @@ export default function WeighbridgeOperationsPage() {
   const harvestWarehouses = useMemo(
     () => warehouses
       .filter((warehouse) => isHarvestDestinationPlace(warehouse.warehouseType, warehouse.placeType))
+      .filter((warehouse) => canUseGrainProcessing({
+        cropSlug: selectedHarvestAllocation?.cropSlug,
+        cropName: selectedHarvestAllocation?.cropName,
+        categorySlug: selectedHarvestAllocation?.cropCategorySlug,
+        categoryName: selectedHarvestAllocation?.cropCategoryName,
+        subcategory: selectedHarvestAllocation?.cropSubcategory,
+      }) || !isProcessingPlace(warehouse.placeType))
       .sort((left, right) => {
         const typeOrder = storagePlaceTypeSortOrder(left.placeType) - storagePlaceTypeSortOrder(right.placeType);
         return typeOrder || left.name.localeCompare(right.name, "ru");
       }),
-    [warehouses]
+    [warehouses, selectedHarvestAllocation]
   );
   const historyTypes = useMemo(() => Array.from(new Set(tickets.map((t) => t.op_type).filter(Boolean))), [tickets]);
   const historyTickets = useMemo(
@@ -4298,9 +4316,6 @@ export default function WeighbridgeOperationsPage() {
 
             {form.operationType !== "harvest_incoming" ? (
             <div className={formSectionClass}>
-              <div className="mb-3">
-                <Label className="flex items-center gap-2 text-xs font-semibold uppercase text-slate-500"><span>Маршрут</span><ArrowRight className="h-3.5 w-3.5 text-yellow-400" /><span>Документ</span></Label>
-              </div>
             <div className="grid gap-3 md:grid-cols-2">
               {isFieldIssue ? (
                 <div className="space-y-1">
@@ -4451,9 +4466,6 @@ export default function WeighbridgeOperationsPage() {
 
             {isImpurityRemoval ? (
               <div className={formSectionClass}>
-                <div className="mb-3">
-                  <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Партия и вид примесей</Label>
-                </div>
                 <div className="space-y-3">
                   <div className="space-y-1.5">
                     <Label>Партия урожая *</Label>
@@ -4487,8 +4499,7 @@ export default function WeighbridgeOperationsPage() {
 
             {form.operationType === "supplier_receipt" ? (
               <div className={formSectionClass}>
-                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                  <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Товары в поставке</Label>
+                <div className="mb-2 flex justify-end">
                   <div className="text-xs text-slate-500">{form.supplierReceiptMode === "weighbridge" ? "Один талон — один товар" : "Один документ — несколько строк"}</div>
                 </div>
                 <div className="grid gap-2 md:grid-cols-2">
@@ -4613,11 +4624,11 @@ export default function WeighbridgeOperationsPage() {
                 </div>
                 {fieldHarvestOptions.length > 1 ? (
                   <Select value={form.cropStructureAllocationId} onValueChange={(v) => setForm((p) => ({ ...p, cropStructureAllocationId: v, stockIdentityKey: "", productId: "", varietyId: "", reproductionId: "", quantityKg: "" }))}>
-                    <SelectTrigger className="h-8"><SelectValue placeholder="Посевная строка / участок поля" /></SelectTrigger>
-                    <SelectContent>{fieldHarvestOptions.map((x) => <SelectItem key={x.allocationId} value={x.allocationId}>{harvestIdentityLabel(x.cropName, x.varietyName, x.reproductionName)} • {x.areaHa.toFixed(2)} га</SelectItem>)}</SelectContent>
+                    <SelectTrigger className="h-9"><SelectValue placeholder="Выберите точную посевную строку" /></SelectTrigger>
+                    <SelectContent>{fieldHarvestOptions.map((x) => <SelectItem key={x.allocationId} value={x.allocationId}>{x.plotLabel} · {harvestIdentityLabel(x.cropName, x.varietyName, x.reproductionName)} · {x.areaHa.toFixed(2)} га · {x.allocationCode}</SelectItem>)}</SelectContent>
                   </Select>
                 ) : null}
-                {selectedHarvestAllocation ? <div className="text-xs text-emerald-300">Участок: {harvestIdentityLabel(selectedHarvestAllocation.cropName, selectedHarvestAllocation.varietyName, selectedHarvestAllocation.reproductionName)} • {selectedHarvestAllocation.areaHa.toFixed(2)} га</div> : null}
+                {selectedHarvestAllocation ? <div className="text-xs text-emerald-300">{fields.find((field) => field.id === form.fieldId)?.name} · {selectedHarvestAllocation.plotLabel} · код {selectedHarvestAllocation.allocationCode} · {harvestIdentityLabel(selectedHarvestAllocation.cropName, selectedHarvestAllocation.varietyName, selectedHarvestAllocation.reproductionName)} · {selectedHarvestAllocation.areaHa.toFixed(2)} га</div> : null}
                 <div className="grid gap-2 md:grid-cols-2">
                   <Select value={form.stockIdentityKey} onValueChange={(v) => {
                     const selected = fieldIssueStockOptions.find((item) => item.key === v);
@@ -4725,9 +4736,6 @@ export default function WeighbridgeOperationsPage() {
 
             {isFieldIssueDirect ? null : (
               <div className={form.operationType === "harvest_incoming" ? "" : formSectionClass}>
-                {form.operationType !== "harvest_incoming" ? <div className="mb-3">
-                  <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Транспорт</Label>
-                </div> : null}
               <TransportDriverSelects
                 vehicleId={form.vehicleId}
                 driverId={form.driverId}
@@ -4763,8 +4771,7 @@ export default function WeighbridgeOperationsPage() {
 
             {isWeighbridgeForm ? (
               <div className={form.operationType === "harvest_incoming" ? "" : formSectionClass}>
-                {form.operationType !== "harvest_incoming" ? <Label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Вес</Label> : null}
-              <div className={form.operationType === "harvest_incoming" ? "" : "mt-3"}>
+              <div>
                 <div className={form.operationType === "harvest_incoming" ? "grid items-end gap-3 md:grid-cols-[1fr_170px_220px]" : "grid items-end gap-3 md:grid-cols-[1fr_180px]"}>
                   <CompactField label="Брутто / вес (кг)" required error={grossInputValidation && !grossInputValidation.ok ? grossInputValidation.message : null}>
                     <Input ref={grossInputRef} className="h-10" inputMode="decimal" value={form.grossKg} onChange={(e) => setForm((p) => ({ ...p, grossKg: e.target.value }))} placeholder="0" />

@@ -152,15 +152,23 @@ export async function getWeighbridgeTransportPickerData(
 
 export async function listHarvestBatchSummaries(
   companyId?: string,
-  options?: { warehouseId?: string; aggregateLots?: boolean }
+  options?: {
+    warehouseId?: string;
+    aggregateLots?: boolean;
+    summaryOnly?: boolean;
+    lotId?: string;
+    signal?: AbortSignal;
+  }
 ): Promise<HarvestBatchSummary[]> {
   const headers = await buildClientAuthHeaders("none");
   const query = new URLSearchParams();
   if (companyId) query.set("companyId", companyId);
   if (options?.warehouseId) query.set("warehouseId", options.warehouseId);
   if (options?.aggregateLots) query.set("view", "lots");
+  if (options?.summaryOnly) query.set("detail", "summary");
+  if (options?.lotId) query.set("lotId", options.lotId);
   const url = `/api/weighbridge/harvest-batches${query.size ? `?${query.toString()}` : ""}`;
-  const response = await fetch(url, { method: "GET", cache: "no-store", headers });
+  const response = await fetch(url, { method: "GET", cache: "no-store", headers, signal: options?.signal });
   const payload = await parseJsonOrThrow(response);
   return (payload.batches || []) as HarvestBatchSummary[];
 }

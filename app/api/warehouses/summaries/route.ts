@@ -33,31 +33,48 @@ export async function GET(request: NextRequest) {
     let warehouseQuery = supabase.from("warehouses").select("*").eq("company_id", companyId).order("name");
     if (!includeArchived) warehouseQuery = warehouseQuery.eq("archived", false).eq("is_archived", false);
 
-    const [warehousesResult, balancesResult, ledgerResult, harvestProductsResult, harvestLotsResult] = await Promise.all([
-      warehouseQuery,
+    const warehousesResult = await warehouseQuery;
+    if (warehousesResult.error) return NextResponse.json({ error: warehousesResult.error.message }, { status: 400 });
+    const visibleWarehouses = (warehousesResult.data || [])
+      .map(normalizeWarehouseRow)
+      .filter((row) => warehouseVisibleToRole(row, actor.role))
+      .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"]));
+    const warehouseIds = visibleWarehouses.map((warehouse) => String(warehouse.id));
+    if (!warehouseIds.length) return NextResponse.json({ summaries: [] });
+
+    const [balancesResult, harvestProductsResult, harvestLotsResult, ...latestLedgerResults] = await Promise.all([
       supabase
         .from("v_stock_balance_canonical")
         .select("warehouse_id,product_id,quantity")
-        .eq("company_id", companyId),
-      supabase
-        .from("stock_ledger_entries")
-        .select("warehouse_id,occurred_at,created_at")
         .eq("company_id", companyId)
-        .order("occurred_at", { ascending: false })
-        .limit(5000),
+        .in("warehouse_id", warehouseIds),
       supabase
         .from("inventory_batches")
         .select("product_id")
         .eq("company_id", companyId)
-        .eq("origin_type", "harvest"),
+        .eq("origin_type", "harvest")
+        .in("warehouse_id", warehouseIds),
       supabase
         .from("v_harvest_lot_stock_v1")
         .select("harvest_lot_id,warehouse_id,current_weight_kg")
-        .eq("company_id", companyId),
+        .eq("company_id", companyId)
+        .in("warehouse_id", warehouseIds)
+        .gt("current_weight_kg", 0.0001),
+      ...warehouseIds.map((warehouseId) => supabase
+        .from("stock_ledger_entries")
+        .select("warehouse_id,occurred_at,created_at")
+        .eq("company_id", companyId)
+        .eq("warehouse_id", warehouseId)
+        .order("occurred_at", { ascending: false })
+        .limit(1)),
     ]);
 
-    const error = warehousesResult.error || balancesResult.error || ledgerResult.error || harvestProductsResult.error || harvestLotsResult.error;
+    const error = balancesResult.error
+      || harvestProductsResult.error
+      || harvestLotsResult.error
+      || latestLedgerResults.map((result: any) => result.error).find(Boolean);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    const ledgerRows = latestLedgerResults.flatMap((result: any) => result.data || []);
 
     const harvestProductIds = new Set(
       (harvestProductsResult.data || []).map((row: any) => String(row.product_id || "")).filter(Boolean)
@@ -88,18 +105,14 @@ export async function GET(request: NextRequest) {
     }
 
     const lastMovementByWarehouse = new Map<string, string>();
-    for (const row of ledgerResult.data || []) {
+    for (const row of ledgerRows) {
       const warehouseId = String((row as any).warehouse_id || "");
       if (!warehouseId || lastMovementByWarehouse.has(warehouseId)) continue;
       const timestamp = String((row as any).occurred_at || (row as any).created_at || "");
       if (timestamp) lastMovementByWarehouse.set(warehouseId, timestamp);
     }
 
-    const summaries = (warehousesResult.data || [])
-      .map(normalizeWarehouseRow)
-      .filter((row) => warehouseVisibleToRole(row, actor.role))
-      .filter((row) => !rowHasQaDataMarker(row as unknown as Record<string, unknown>, ["name", "description", "warehouse_type"]))
-      .map((warehouse) => ({
+    const summaries = visibleWarehouses.map((warehouse) => ({
         warehouse,
         position_count:
           (materialPositions.get(String(warehouse.id))?.size || 0) +
