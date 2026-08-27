@@ -4629,23 +4629,25 @@ export default function WeighbridgeOperationsPage() {
                   </Select>
                 ) : null}
                 {selectedHarvestAllocation ? <div className="text-xs text-emerald-300">{fields.find((field) => field.id === form.fieldId)?.name} · {selectedHarvestAllocation.plotLabel} · код {selectedHarvestAllocation.allocationCode} · {harvestIdentityLabel(selectedHarvestAllocation.cropName, selectedHarvestAllocation.varietyName, selectedHarvestAllocation.reproductionName)} · {selectedHarvestAllocation.areaHa.toFixed(2)} га</div> : null}
-                <div className="grid gap-2 md:grid-cols-2">
-                  <Select value={form.stockIdentityKey} onValueChange={(v) => {
-                    const selected = fieldIssueStockOptions.find((item) => item.key === v);
-                    setForm((p) => ({
-                      ...p,
-                      stockIdentityKey: v,
-                      productId: selected?.product_id || "",
-                      varietyId: selected?.variety_id || "",
-                      reproductionId: selected?.reproduction_id || "",
-                      fieldMaterialCategory: selected ? inferFieldMaterialCategory(selected) : p.fieldMaterialCategory,
-                    }));
-                  }} disabled={!form.warehouseFromId || !selectedHarvestAllocation || stockIdentityLoading}>
-                    <SelectTrigger className="h-8"><SelectValue placeholder="Материал из наличия склада" /></SelectTrigger>
-                    <SelectContent>{fieldIssueStockOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                  {form.fieldIssueMode === "direct" ? <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" /> : <div className="rounded-md border border-slate-700 bg-slate-950/60 px-2 py-1.5 text-xs text-slate-300">Количество рассчитается при закрытии: нетто = брутто - тара.</div>}
-                </div>
+                {form.fieldIssueMode === "direct" ? (
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Select value={form.stockIdentityKey} onValueChange={(v) => {
+                      const selected = fieldIssueStockOptions.find((item) => item.key === v);
+                      setForm((p) => ({
+                        ...p,
+                        stockIdentityKey: v,
+                        productId: selected?.product_id || "",
+                        varietyId: selected?.variety_id || "",
+                        reproductionId: selected?.reproduction_id || "",
+                        fieldMaterialCategory: selected ? inferFieldMaterialCategory(selected) : p.fieldMaterialCategory,
+                      }));
+                    }} disabled={!form.warehouseFromId || !selectedHarvestAllocation || stockIdentityLoading}>
+                      <SelectTrigger className="h-8"><SelectValue placeholder="Материал из наличия склада" /></SelectTrigger>
+                      <SelectContent>{fieldIssueStockOptions.map((item) => <SelectItem key={item.key} value={item.key}>{item.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <Input className="h-8" value={form.quantityKg} onChange={(e) => setForm((p) => ({ ...p, quantityKg: e.target.value }))} placeholder="Количество, кг" />
+                  </div>
+                ) : null}
               </div>
             ) : null}
 

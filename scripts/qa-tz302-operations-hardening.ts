@@ -99,6 +99,14 @@ async function main() {
     assert.match(weighbridge, /inferFieldMaterialCategory/);
   });
 
+  await check("field issue material controls are visible only for manual issue", () => {
+    assert.match(
+      weighbridge,
+      /form\.fieldIssueMode === "direct" \? \([\s\S]*?Материал из наличия склада[\s\S]*?placeholder="Количество, кг"[\s\S]*?\) : null/
+    );
+    assert.doesNotMatch(weighbridge, /Количество рассчитается при закрытии/);
+  });
+
   await check("ticket journal starts at ten rows and expands only on demand", () => {
     assert.match(ticketRoute, /historyLimit/);
     assert.match(ticketRoute, /historyLimit \+ 1/);
