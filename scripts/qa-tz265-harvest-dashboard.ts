@@ -167,8 +167,8 @@ check("director cannot open warehouse or ticket routes", () => {
   assert.equal(canAccessPath("director", "/settings"), false);
 });
 check("agronomist menus contain the five approved routes", () => {
-  assert.match(sidebar, /const AGRONOMIST_NAV[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav/);
-  assert.match(mobileNav, /case "agronomist":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav/);
+  assert.match(sidebar, /const AGRONOMIST_NAV[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?tickets_nav[\s\S]*?weather/);
+  assert.match(mobileNav, /case "agronomist":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?tickets_nav[\s\S]*?weather/);
 });
 check("director menus contain dashboard only", () => {
   assert.match(sidebar, /const DIRECTOR_NAV:[\s\S]*?harvest_summary[\s\S]*?\];/);

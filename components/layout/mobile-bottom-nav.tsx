@@ -64,9 +64,9 @@ function getMobileRouteCandidates(role?: string | null): BottomItem[] {
       return [
         { labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" },
         { labelKey: "crop_structure", href: "/crop-structure", icon: Sprout, kind: "route" },
-        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
         { labelKey: "warehouses", href: "/warehouses", icon: Package, kind: "route" },
         { labelKey: "tickets_nav", href: "/tickets", icon: Scale, kind: "route" },
+        { labelKey: "weather", href: "/weather-lab", icon: CloudSun, kind: "route" },
       ];
     case "director":
       return [{ labelKey: "harvest_summary", href: "/dashboard", icon: LayoutDashboard, kind: "route" }];
@@ -137,6 +137,12 @@ function getRoleFilteredItems(role?: string | null): BottomItem[] {
   const routeItems = getMobileRouteCandidates(role)
     .filter((item) => canAccessPath(normalizedRole, item.href || ""))
     .slice(0, routeLimit);
+  if (normalizedRole === "agronomist" && canUseAssistantShell(normalizedRole)) {
+    const weather = routeItems.find((item) => item.href === "/weather-lab");
+    return weather
+      ? [...routeItems.filter((item) => item !== weather), COPILOT_ITEM, weather]
+      : [...routeItems, COPILOT_ITEM];
+  }
   return canUseAssistantShell(normalizedRole) ? [...routeItems, COPILOT_ITEM] : routeItems;
 }
 

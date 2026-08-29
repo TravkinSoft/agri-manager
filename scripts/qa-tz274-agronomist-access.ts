@@ -24,6 +24,8 @@ const locationApi = read("app/api/weather-lab/location/route.ts");
 const profilesApi = read("app/api/weather-lab/profiles/route.ts");
 const profileApi = read("app/api/weather-lab/profiles/[id]/route.ts");
 const assistantShell = read("lib/assistant/shell.ts");
+const ticketsPage = read("app/(dashboard)/tickets/page.tsx");
+const dashboardLayout = read("components/layout/dashboard-layout.tsx");
 
 check("agronomist can open approved pages", () => {
   assert.equal(canAccessPath("agronomist", "/dashboard"), true);
@@ -44,12 +46,13 @@ check("director receives no structure write route", () => {
 });
 
 check("desktop menu order matches owner contract", () => {
-  assert.match(sidebar, /const AGRONOMIST_NAV[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav[\s\S]*?\];/);
+  assert.match(sidebar, /const AGRONOMIST_NAV[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?tickets_nav[\s\S]*?weather[\s\S]*?\];/);
   assert.doesNotMatch(sidebar.match(/const AGRONOMIST_NAV[\s\S]*?\];/)?.[0] || "", /labelKey: "fields"|labelKey: "operations"/);
 });
 
 check("mobile menu has all five routes and stable labels", () => {
-  assert.match(mobileNav, /case "agronomist":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?weather[\s\S]*?warehouses[\s\S]*?tickets_nav/);
+  assert.match(mobileNav, /case "agronomist":[\s\S]*?harvest_summary[\s\S]*?crop_structure[\s\S]*?warehouses[\s\S]*?tickets_nav[\s\S]*?weather/);
+  assert.match(mobileNav, /COPILOT_ITEM, weather/);
   assert.match(mobileNav, /normalizedRole === "agronomist" \? 5 : 4/);
   assert.match(mobileNav, /line-clamp-2/);
 });
@@ -107,6 +110,16 @@ check("wind direction is visible in current and hourly forecast", () => {
 check("assistant is available to agronomist without broad admin access", () => {
   assert.match(assistantShell, /AssistantAllowedRole = "global_admin" \| "agronomist"/);
   assert.match(assistantShell, /ASSISTANT_ALLOWED_ROLES = new Set<AssistantAllowedRole>\(\[[\s\S]*?"global_admin",[\s\S]*?"agronomist",[\s\S]*?\]\)/);
+});
+
+check("ticket cards lead with field and identity while keeping optional moisture", () => {
+  const fieldIndex = ticketsPage.indexOf("ticket.field_name_snapshot");
+  const ticketNumberIndex = ticketsPage.indexOf("№ {ticket.ticket_no}");
+  assert.ok(fieldIndex >= 0 && ticketNumberIndex > fieldIndex);
+  assert.match(ticketsPage, /Сорт: \{identity\.variety \|\| "не указан"\}/);
+  assert.match(ticketsPage, /Репродукция: \{identity\.reproduction \|\| "не указана"\}/);
+  assert.match(ticketsPage, /moisturePercent != null/);
+  assert.match(dashboardLayout, /\[scrollbar-gutter:stable\]/);
 });
 
 console.log(`TZ274 PASS ${checks.length}/${checks.length}`);

@@ -30,6 +30,14 @@ function statusLabel(ticket: WeighbridgeTicket): string {
   return String(ticket.status || "");
 }
 
+function paperDocumentNo(ticket: WeighbridgeTicket): string {
+  return String(ticket.external_document_no || "").trim();
+}
+
+function ticketDayAt(ticket: WeighbridgeTicket): string | null | undefined {
+  return paperDocumentNo(ticket) ? ticket.created_at : (ticket.finalized_at || ticket.updated_at);
+}
+
 export default function TicketsPage() {
   const { profile } = useAuth();
   const [tickets, setTickets] = useState<WeighbridgeTicket[]>([]);
@@ -58,7 +66,10 @@ export default function TicketsPage() {
     if (mode === "open") return harvest.filter(isOpenHarvestTicket);
     if (mode === "today") {
       const today = dateKey(new Date());
-      return harvest.filter((ticket) => isEffectiveFinalizedHarvestTicket(ticket) && dateKey(ticket.finalized_at || ticket.updated_at) === today);
+      return harvest.filter((ticket) => {
+        const eventAt = ticketDayAt(ticket);
+        return isEffectiveFinalizedHarvestTicket(ticket) && eventAt != null && dateKey(eventAt) === today;
+      });
     }
     return harvest;
   }, [mode, tickets]);
@@ -82,14 +93,42 @@ export default function TicketsPage() {
           {rows.map((ticket) => {
             const identity = ticketIdentity(ticket);
             const finalized = isEffectiveFinalizedHarvestTicket(ticket);
+            const moisturePercent = ticket.lines?.[0]?.moisture_percent;
+            const paperNo = paperDocumentNo(ticket);
             return (
               <Card key={ticket.id} className="min-w-0 rounded-lg">
                 <CardContent className="p-0">
                   <button type="button" onClick={() => setTicketId(ticket.id)} className="block w-full min-w-0 p-3 text-left hover:bg-slate-800/40">
-                    <div className="flex items-start justify-between gap-2"><span className="truncate text-sm font-semibold text-slate-100">{ticket.ticket_no}</span><span className="shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300">{statusLabel(ticket)}</span></div>
-                    <div className="mt-2 truncate text-sm text-slate-300">{ticket.field_name_snapshot || "Поле не указано"}</div>
-                    <div className="truncate text-xs text-slate-500">{identity.label}</div>
-                    <div className="mt-3 flex items-end justify-between gap-2"><span className="text-xs text-slate-500">{dateTime(finalized ? ticket.finalized_at : ticket.created_at)}</span><span className="text-base font-semibold text-[#E0B100]">{kg(finalized ? ticket.net_weight_kg : ticket.gross_weight_kg)}</span></div>
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="min-w-0 truncate text-base font-semibold text-slate-100">{ticket.field_name_snapshot || "Поле не указано"}</span>
+                      <span className="shrink-0 rounded border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-300">{statusLabel(ticket)}</span>
+                    </div>
+                    <div className="mt-2 min-w-0 text-sm text-slate-300">
+                      <div className="truncate font-medium">{identity.crop}</div>
+                      <div className="truncate text-xs text-slate-500">
+                        Сорт: {identity.variety || "не указан"} · Репродукция: {identity.reproduction || "не указана"}
+                      </div>
+                    </div>
+                    {moisturePercent != null && Number.isFinite(Number(moisturePercent)) ? (
+                      <div className="mt-2 text-xs text-sky-200">
+                        Влажность: <span className="font-semibold">{Number(moisturePercent).toLocaleString("ru-RU", { maximumFractionDigits: 2 })}%</span>
+                      </div>
+                    ) : null}
+                    {paperNo ? (
+                      <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-amber-200">
+                        <span>Бумажный № <span className="font-semibold">{paperNo}</span></span>
+                        <span>Тара: <span className="font-semibold">{kg(ticket.tare_weight_kg)}</span></span>
+                      </div>
+                    ) : null}
+                    <div className="mt-3 flex items-end justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-[10px] text-slate-600">№ {ticket.ticket_no}</div>
+                        <div className="text-xs text-slate-500">
+                          {paperNo ? "Дата рейса: " : ""}{dateTime(paperNo ? ticket.created_at : (finalized ? ticket.finalized_at : ticket.created_at))}
+                        </div>
+                      </div>
+                      <span className="text-base font-semibold text-[#E0B100]">{kg(finalized ? ticket.net_weight_kg : ticket.gross_weight_kg)}</span>
+                    </div>
                   </button>
                 </CardContent>
               </Card>

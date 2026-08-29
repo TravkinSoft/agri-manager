@@ -92,8 +92,13 @@ async function main() {
     assert.doesNotMatch(weighbridge, /visibleActiveTickets\.length > 0 \|\| ticketsLoading \? "xl:grid-cols/);
   });
 
-  await check("operator form has no paper-import disclosure or manual material categories", () => {
-    assert.doesNotMatch(weighbridge, /Внести рейс из бумажного журнала/);
+  await check("historical paper import is compact, opt-in and limited to the harvest form", () => {
+    assert.match(weighbridge, /form\.operationType === "harvest_incoming" \? \([\s\S]*?<details className="rounded-md[^>]*>[\s\S]*?Исторический талон из бумажного журнала[\s\S]*?type="datetime-local"[\s\S]*?Бумажная тара, кг[\s\S]*?<\/details>/);
+    assert.match(weighbridge, /paperRecordedDate && paperDayStart[\s\S]*?recorded_at: paperRecordedDate\.toISOString\(\)[\s\S]*?tare_weight_kg: Number\(form\.paperTareKg\)/);
+    assert.match(weighbridge, /<details className="rounded-md border border-slate-800 bg-slate-950\/35 px-3 py-2">/);
+  });
+
+  await check("operator form keeps manual material categories out", () => {
     assert.doesNotMatch(weighbridge, /Семена \/ посадочный материал/);
     assert.doesNotMatch(weighbridge, /Прочие сыпучие материалы/);
     assert.match(weighbridge, /inferFieldMaterialCategory/);
