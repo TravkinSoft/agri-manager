@@ -669,25 +669,41 @@ export async function getVehicleReferences(
   return ((data || []) as any[]).map((row) => mapVehicleReference(row));
 }
 
+const duplicateVehiclePlateMessage = "Машина с таким госномером уже существует";
+
+function normalizeVehiclePlate(value: unknown): string {
+  const plateNumber = String(value || "").trim();
+  if (!plateNumber) throw new Error("Укажите госномер");
+  return plateNumber;
+}
+
+function isVehiclePlateUniqueViolation(error: any): boolean {
+  return String(error?.code || "") === "23505";
+}
+
 export async function createVehicleReference(
   companyId: string,
   userId: string,
   payload: VehicleFormData
 ): Promise<VehicleReference> {
+  const plateNumber = normalizeVehiclePlate(payload.plate_number);
   const existingByPlate = await supabase
     .from("reference_vehicles")
     .select("id")
     .eq("company_id", companyId)
-    .ilike("plate_number", payload.plate_number.trim())
+    .ilike("plate_number", plateNumber)
     .eq("archived", false)
     .maybeSingle();
   if (existingByPlate.error) throw new Error(existingByPlate.error.message);
-  if (existingByPlate.data?.id) throw new Error("Машина с таким госномером уже существует");
+  if (existingByPlate.data?.id) throw new Error(duplicateVehiclePlateMessage);
 
   const insertPayload: any = {
     ...payload,
+    plate_number: plateNumber,
+    license_plate: plateNumber,
+    fleet_type: String(payload.fleet_type || payload.type || "other").trim(),
     custom_name: payload.custom_name || null,
-    inventory_number: payload.inventory_number || null,
+    inventory_number: String(payload.inventory_number || "").trim() || null,
     global_brand_id: payload.global_brand_id || null,
     global_model_id: payload.global_model_id || null,
     transport_model_id: payload.transport_model_id || null,
@@ -700,6 +716,7 @@ export async function createVehicleReference(
     .insert([insertPayload])
     .select()
     .single();
+  if (isVehiclePlateUniqueViolation(error)) throw new Error(duplicateVehiclePlateMessage);
   if (error) throw new Error(error.message);
   return data as VehicleReference;
 }
@@ -737,35 +754,46 @@ export async function getGlobalTransportModels(): Promise<GlobalTransportModel[]
   return (data || []) as GlobalTransportModel[];
 }
 
+type VehicleAdminUpdatePayload = {
+  plate_number: string;
+  inventory_number?: string | null;
+  manufacture_year?: number | null;
+  is_active: boolean;
+};
+
 export async function updateVehicleReference(
+  companyId: string,
   id: string,
-  payload: Partial<VehicleFormData>
+  payload: VehicleAdminUpdatePayload
 ): Promise<VehicleReference> {
-  const normalized: any = {
-    ...payload,
+  const plateNumber = normalizeVehiclePlate(payload.plate_number);
+  const normalized = {
+    plate_number: plateNumber,
+    license_plate: plateNumber,
+    inventory_number: String(payload.inventory_number || "").trim() || null,
+    manufacture_year: payload.manufacture_year ?? null,
+    is_active: payload.is_active,
   };
-  if ("custom_name" in normalized) normalized.custom_name = normalized.custom_name || null;
-  if ("inventory_number" in normalized) normalized.inventory_number = normalized.inventory_number || null;
-  if ("global_brand_id" in normalized) normalized.global_brand_id = normalized.global_brand_id || null;
-  if ("global_model_id" in normalized) normalized.global_model_id = normalized.global_model_id || null;
-  if ("primary_responsible_personnel_id" in normalized) {
-    normalized.primary_responsible_personnel_id = normalized.primary_responsible_personnel_id || null;
-  }
   const { data, error } = await supabase
     .from("reference_vehicles")
     .update(normalized)
     .eq("id", id)
+    .eq("company_id", companyId)
     .select()
     .single();
+  if (isVehiclePlateUniqueViolation(error)) throw new Error(duplicateVehiclePlateMessage);
   if (error) throw new Error(error.message);
   return data as VehicleReference;
 }
 
-export async function archiveVehicleReference(id: string): Promise<void> {
+export async function archiveVehicleReference(companyId: string, id: string): Promise<void> {
   const { error } = await supabase
     .from("reference_vehicles")
     .update({ archived: true })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("company_id", companyId)
+    .select("id")
+    .single();
   if (error) throw new Error(error.message);
 }
 
