@@ -28,6 +28,9 @@ export async function POST(
     if (!existing?.id) {
       return NextResponse.json({ error: "Склад-источник не найден" }, { status: 404 });
     }
+    if (existing.archived === true || existing.is_archived === true) {
+      return NextResponse.json({ error: "Архивный объект недоступен для новых перемещений" }, { status: 409 });
+    }
 
     const idempotencyKey = String(
       request.headers.get("Idempotency-Key") || body.idempotency_key || ""
@@ -52,7 +55,7 @@ export async function POST(
       return NextResponse.json({ error: "Для внутреннего перемещения выберите машину и водителя" }, { status: 400 });
     }
     const [{ data: destination }, { data: vehicle }, { data: driver }, { data: product }] = await Promise.all([
-      supabase.from("warehouses").select("id,warehouse_type").eq("id", destinationWarehouseId).eq("company_id", companyId).eq("archived", false).maybeSingle(),
+      supabase.from("warehouses").select("id,warehouse_type").eq("id", destinationWarehouseId).eq("company_id", companyId).eq("archived", false).eq("is_archived", false).maybeSingle(),
       supabase.from("reference_vehicles").select("id").eq("id", vehicleId).eq("company_id", companyId).eq("archived", false).eq("is_active", true).maybeSingle(),
       supabase.from("reference_specialists").select("id").eq("id", driverId).eq("company_id", companyId).eq("archived", false).eq("status", "active").maybeSingle(),
       supabase.from("products").select("id,type,product_type,category,company_id").eq("id", productId).or(`company_id.eq.${companyId},company_id.is.null`).maybeSingle(),

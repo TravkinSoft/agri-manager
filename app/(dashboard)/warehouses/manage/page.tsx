@@ -50,6 +50,7 @@ import {
   updateWarehouse,
   updateProduct,
   archiveProduct,
+  archiveWarehouse,
   getWarehouseDeleteCheck,
   deleteWarehouseHard,
 } from "@/lib/services/warehouses";
@@ -68,6 +69,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useAuth } from "@/lib/contexts/auth-context";
 import { useLanguage } from "@/lib/contexts/language-context";
+import { normalizeStoragePlaceType } from "@/lib/warehouse/warehouse-scope";
 
 const WAREHOUSE_TYPES = [
   { value: "agrochemical", label: "Агрохимический" },
@@ -87,6 +89,13 @@ const CAPACITY_UNITS = [
   { value: "t", label: "т" },
   { value: "m3", label: "м³" },
   { value: "l", label: "л" },
+] as const;
+
+const STORAGE_PLACE_TYPES = [
+  { value: "WAREHOUSE", ru: "Склад", kz: "Қойма", en: "Warehouse" },
+  { value: "YARD", ru: "Площадка", kz: "Алаң", en: "Yard" },
+  { value: "DRYER", ru: "Сушилка", kz: "Кептіргіш", en: "Dryer" },
+  { value: "CLEANER", ru: "Очистка", kz: "Тазалау", en: "Cleaner" },
 ] as const;
 
 type WarehouseManageCacheEntry = {
@@ -199,15 +208,16 @@ export default function ManageWarehousesPage() {
     resolver: zodResolver(warehouseSchema),
     defaultValues: {
       name: "",
-      warehouse_type: "agrochemical",
+      place_type: "WAREHOUSE",
+      warehouse_type: "universal",
       capacity_value: null,
       capacity_unit: null,
       responsible_user_id: null,
       location: null,
       description: null,
-      is_archived: false,
     },
   });
+  const selectedPlaceType = warehouseForm.watch("place_type");
 
   const productForm = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
@@ -377,13 +387,13 @@ export default function ManageWarehousesPage() {
   const resetWarehouseForm = () => {
     warehouseForm.reset({
       name: "",
-      warehouse_type: "agrochemical",
+      place_type: "WAREHOUSE",
+      warehouse_type: "universal",
       capacity_value: null,
       capacity_unit: null,
       responsible_user_id: null,
       location: null,
       description: null,
-      is_archived: false,
     });
   };
 
@@ -393,16 +403,27 @@ export default function ManageWarehousesPage() {
     try {
       const normalized: WarehouseFormData = {
         ...data,
+        warehouse_type: data.place_type === "WAREHOUSE" ? data.warehouse_type || "universal" : "universal",
         responsible_user_id: data.responsible_user_id || null,
         location: data.location || null,
         description: data.description || null,
       };
       if (editingWarehouse) {
-        await updateWarehouse(editingWarehouse.id, normalized, profile.company_id);
-        toast({ title: t("Успешно", "Сәтті", "Success"), description: t("Склад обновлён", "Қойма жаңартылды", "Warehouse updated successfully") });
+        const updatePayload: Partial<WarehouseFormData> = { ...normalized };
+        // The current form does not edit the responsible person. Omitting the
+        // unchanged legacy value keeps unrelated edits possible if that person
+        // was later deactivated.
+        delete updatePayload.responsible_user_id;
+        if (data.place_type !== "WAREHOUSE" && data.place_type === editingWarehouse.place_type) {
+          // Existing processing objects can carry a legacy subtype. Do not
+          // backfill it implicitly while editing unrelated fields.
+          delete updatePayload.warehouse_type;
+        }
+        await updateWarehouse(editingWarehouse.id, updatePayload, profile.company_id);
+        toast({ title: t("Успешно", "Сәтті", "Success"), description: t("Объект обновлён", "Нысан жаңартылды", "Object updated successfully") });
       } else {
         await createWarehouse(profile.company_id, normalized);
-        toast({ title: t("Успешно", "Сәтті", "Success"), description: t("Склад создан", "Қойма құрылды", "Warehouse created successfully") });
+        toast({ title: t("Успешно", "Сәтті", "Success"), description: t("Объект создан", "Нысан құрылды", "Object created successfully") });
       }
       setWarehouseDialogOpen(false);
       setEditingWarehouse(null);
@@ -411,7 +432,7 @@ export default function ManageWarehousesPage() {
     } catch (error: any) {
       toast({
         title: t("Ошибка", "Қате", "Error"),
-        description: error.message || t("Не удалось сохранить склад", "Қойманы сақтау мүмкін болмады", "Failed to save warehouse"),
+        description: error.message || t("Не удалось сохранить объект", "Нысанды сақтау мүмкін болмады", "Failed to save object"),
         variant: "destructive",
       });
     }
@@ -440,40 +461,52 @@ export default function ManageWarehousesPage() {
   };
 
   const openWarehouseEdit = (warehouse: Warehouse) => {
+    const placeType = normalizeStoragePlaceType(warehouse.place_type);
     setEditingWarehouse(warehouse);
     warehouseForm.reset({
       name: warehouse.name,
-      warehouse_type: (warehouse.warehouse_type as any) || "universal",
+      place_type: placeType,
+      warehouse_type: placeType === "WAREHOUSE" ? (warehouse.warehouse_type as any) || "universal" : "universal",
       capacity_value: warehouse.capacity_value ?? null,
       capacity_unit: (warehouse.capacity_unit as any) || null,
       responsible_user_id: warehouse.responsible_user_id || null,
       location: warehouse.location || null,
       description: warehouse.description || null,
-      is_archived: Boolean(warehouse.is_archived || warehouse.archived),
     });
     setWarehouseDialogOpen(true);
   };
 
   const toggleArchiveWarehouse = async (warehouse: Warehouse) => {
     if (!profile?.company_id) return;
-    try {
-      await updateWarehouse(
-        warehouse.id,
-        { is_archived: !(warehouse.is_archived || warehouse.archived) },
-        profile.company_id
+    const archived = Boolean(warehouse.is_archived || warehouse.archived);
+    if (!archived) {
+      const confirmed = window.confirm(
+        t(
+          `Архивировать объект «${warehouse.name}»?`,
+          `«${warehouse.name}» нысанын мұрағаттау керек пе?`,
+          `Archive “${warehouse.name}”?`
+        )
       );
+      if (!confirmed) return;
+    }
+    try {
+      if (archived) {
+        await updateWarehouse(warehouse.id, { is_archived: false }, profile.company_id);
+      } else {
+        await archiveWarehouse(warehouse.id, profile.company_id);
+      }
       await loadData();
       toast({
         title: t("Успешно", "Сәтті", "Success"),
         description:
-          warehouse.is_archived || warehouse.archived
-            ? t("Склад восстановлен", "Қойма қалпына келтірілді", "Warehouse restored")
-            : t("Склад архивирован", "Қойма мұрағатталды", "Warehouse archived"),
+          archived
+            ? t("Объект восстановлен", "Нысан қалпына келтірілді", "Object restored")
+            : t("Объект архивирован", "Нысан мұрағатталды", "Object archived"),
       });
     } catch (error: any) {
       toast({
         title: t("Ошибка", "Қате", "Error"),
-        description: error.message || t("Не удалось обновить склад", "Қойманы жаңарту мүмкін болмады", "Failed to update warehouse"),
+        description: error.message || t("Не удалось обновить объект", "Нысанды жаңарту мүмкін болмады", "Failed to update object"),
         variant: "destructive",
       });
     }
@@ -538,7 +571,7 @@ export default function ManageWarehousesPage() {
     return (
       <div className="space-y-6">
         <PageHeader
-          title={t("Управление складами", "Қоймаларды басқару", "Warehouse management")}
+          title={t("Управление объектами хранения и обработки", "Сақтау және өңдеу нысандарын басқару", "Storage and processing object management")}
           description={t(
             "Доступ только для company_admin / global_admin",
             "Қолжетімділік тек company_admin / global_admin үшін",
@@ -552,13 +585,11 @@ export default function ManageWarehousesPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={canManageProducts
-          ? t("Управление складами и номенклатурой", "Қойма мен номенклатураны басқару", "Warehouses and products")
-          : t("Управление складами", "Қоймаларды басқару", "Warehouse management")}
+        title={t("Управление объектами хранения и обработки", "Сақтау және өңдеу нысандарын басқару", "Storage and processing object management")}
         description={t(
-          "Админ-управление складами: типы, вместимость, архив и безопасное удаление.",
-          "Қоймаларды әкімшілеу: түрлері, сыйымдылығы, мұрағат және қауіпсіз жою.",
-          "Admin management for warehouses: types, capacity, archive and safe delete."
+          "Склады, площадки, сушилки и очистки: параметры, архивирование и восстановление.",
+          "Қоймалар, алаңдар, кептіргіштер және тазалау нысандары.",
+          "Warehouses, yards, dryers and cleaners: settings, archive and restore."
         )}
       />
 
@@ -570,7 +601,7 @@ export default function ManageWarehousesPage() {
 
       <Tabs defaultValue="warehouses" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="warehouses">{t("Склады", "Қоймалар", "Warehouses")}</TabsTrigger>
+          <TabsTrigger value="warehouses">{t("Объекты", "Нысандар", "Objects")}</TabsTrigger>
           {canManageProducts ? (
             <TabsTrigger value="products">{t("Продукты", "Өнімдер", "Products")}</TabsTrigger>
           ) : null}
@@ -581,16 +612,20 @@ export default function ManageWarehousesPage() {
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <WarehouseIcon className="h-5 w-5" />
-                {t("Склады", "Қоймалар", "Warehouses")}
+                {t("Объекты хранения и обработки", "Сақтау және өңдеу нысандары", "Storage and processing objects")}
               </CardTitle>
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-2 rounded-md border px-3 py-1.5">
                   <span className="text-sm">{t("Показать архивные", "Мұрағатталғандарды көрсету", "Show archived")}</span>
-                  <Switch checked={showArchived} onCheckedChange={setShowArchived} />
+                  <Switch
+                    aria-label={t("Показать архивные", "Мұрағатталғандарды көрсету", "Show archived")}
+                    checked={showArchived}
+                    onCheckedChange={setShowArchived}
+                  />
                 </div>
                 <Button onClick={() => { setEditingWarehouse(null); resetWarehouseForm(); setWarehouseDialogOpen(true); }}>
                   <Plus className="mr-2 h-4 w-4" />
-                  {t("Новый склад", "Жаңа қойма", "New warehouse")}
+                  {t("Новый объект", "Жаңа нысан", "New object")}
                 </Button>
               </div>
             </CardHeader>
@@ -599,7 +634,8 @@ export default function ManageWarehousesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t("Название", "Атауы", "Name")}</TableHead>
-                    <TableHead>{t("Тип", "Түрі", "Type")}</TableHead>
+                    <TableHead>{t("Тип объекта", "Нысан түрі", "Object type")}</TableHead>
+                    <TableHead>{t("Тип склада", "Қойма түрі", "Warehouse type")}</TableHead>
                     <TableHead>{t("Вместимость", "Сыйымдылық", "Capacity")}</TableHead>
                     <TableHead>{t("Статус", "Күйі", "Status")}</TableHead>
                     <TableHead>{t("Остатки", "Қалдықтар", "Stock")}</TableHead>
@@ -609,14 +645,14 @@ export default function ManageWarehousesPage() {
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-slate-500 py-8">
+                      <TableCell colSpan={7} className="text-center text-slate-500 py-8">
                         {t("Загрузка...", "Жүктелуде...", "Loading...")}
                       </TableCell>
                     </TableRow>
                   ) : visibleWarehouses.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center text-slate-500 py-8">
-                        {t("Склады не найдены", "Қоймалар табылмады", "No warehouses found")}
+                      <TableCell colSpan={7} className="text-center text-slate-500 py-8">
+                        {t("Объекты не найдены", "Нысандар табылмады", "No objects found")}
                       </TableCell>
                     </TableRow>
                   ) : (
@@ -624,11 +660,18 @@ export default function ManageWarehousesPage() {
                       const check = deleteChecks[warehouse.id];
                       const stockRows = balances.filter((row) => row.warehouse_id === warehouse.id).length;
                       const archived = Boolean(warehouse.is_archived || warehouse.archived);
+                      const placeType = normalizeStoragePlaceType(warehouse.place_type);
+                      const placeTypeOption = STORAGE_PLACE_TYPES.find((type) => type.value === placeType);
                       return (
                         <TableRow key={warehouse.id}>
                           <TableCell className="font-medium">{warehouse.name}</TableCell>
                           <TableCell>
-                            {WAREHOUSE_TYPES.find((x) => x.value === warehouse.warehouse_type)?.label || warehouse.warehouse_type || "—"}
+                            {placeTypeOption ? t(placeTypeOption.ru, placeTypeOption.kz, placeTypeOption.en) : placeType}
+                          </TableCell>
+                          <TableCell>
+                            {placeType === "WAREHOUSE"
+                              ? WAREHOUSE_TYPES.find((x) => x.value === warehouse.warehouse_type)?.label || warehouse.warehouse_type || "—"
+                              : "—"}
                           </TableCell>
                           <TableCell>{formatCapacity(warehouse)}</TableCell>
                           <TableCell>
@@ -646,13 +689,14 @@ export default function ManageWarehousesPage() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              <Button variant="ghost" size="sm" onClick={() => openWarehouseEdit(warehouse)}>
+                              <Button variant="ghost" size="sm" aria-label={t("Редактировать", "Өңдеу", "Edit")} onClick={() => openWarehouseEdit(warehouse)}>
                                 <Pencil className="h-4 w-4" />
                               </Button>
                               <Button
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => toggleArchiveWarehouse(warehouse)}
+                                aria-label={archived ? t("Восстановить", "Қалпына келтіру", "Restore") : t("Архивировать", "Мұрағаттау", "Archive")}
                                 title={archived ? t("Восстановить", "Қалпына келтіру", "Restore") : t("Архивировать", "Мұрағаттау", "Archive")}
                               >
                                 {archived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
@@ -661,9 +705,10 @@ export default function ManageWarehousesPage() {
                                 variant="ghost"
                                 size="sm"
                                 disabled={!check?.can_delete}
+                                aria-label={t("Удалить объект", "Нысанды жою", "Delete object")}
                                 title={
                                   check?.can_delete
-                                    ? t("Удалить склад", "Қойманы жою", "Delete warehouse")
+                                    ? t("Удалить объект", "Нысанды жою", "Delete object")
                                     : t("Удаление запрещено: есть история/остатки", "Жоюға болмайды: тарих/қалдық бар", "Delete blocked: has history/stock")
                                 }
                                 onClick={() => handleHardDelete(warehouse)}
@@ -774,14 +819,14 @@ export default function ManageWarehousesPage() {
           <DialogHeader>
             <DialogTitle>
               {editingWarehouse
-                ? t("Редактировать склад", "Қойманы өңдеу", "Edit warehouse")
-                : t("Новый склад", "Жаңа қойма", "New warehouse")}
+                ? t("Редактировать объект", "Нысанды өңдеу", "Edit object")
+                : t("Новый объект", "Жаңа нысан", "New object")}
             </DialogTitle>
             <DialogDescription>
               {t(
-                "Production-параметры склада для корректной логистики и контроля.",
-                "Дұрыс логистика мен бақылау үшін қойма параметрлері.",
-                "Production warehouse parameters for logistics and control."
+                "Параметры объекта хранения или обработки.",
+                "Сақтау немесе өңдеу нысанының параметрлері.",
+                "Storage or processing object settings."
               )}
             </DialogDescription>
           </DialogHeader>
@@ -789,12 +834,37 @@ export default function ManageWarehousesPage() {
             <form onSubmit={warehouseForm.handleSubmit(handleWarehouseSubmit)} className="space-y-4">
               <FormField
                 control={warehouseForm.control}
+                name="place_type"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("Тип объекта *", "Нысан түрі *", "Object type *")}</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger aria-label={t("Тип объекта", "Нысан түрі", "Object type")}>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {STORAGE_PLACE_TYPES.map((type) => (
+                          <SelectItem key={type.value} value={type.value}>
+                            {t(type.ru, type.kz, type.en)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={warehouseForm.control}
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("Название склада *", "Қойма атауы *", "Warehouse name *")}</FormLabel>
+                    <FormLabel>{t("Название *", "Атауы *", "Name *")}</FormLabel>
                     <FormControl>
-                      <Input placeholder={t("Например: Овощной склад", "Мысалы: Көкөніс қоймасы", "Example: Vegetable warehouse")} {...field} />
+                      <Input placeholder={t("Например: Зерновой склад Т3-213", "Мысалы: Т3-213 астық қоймасы", "Example: Grain warehouse T3-213")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -802,30 +872,32 @@ export default function ManageWarehousesPage() {
               />
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField
-                  control={warehouseForm.control}
-                  name="warehouse_type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("Тип склада *", "Қойма түрі *", "Warehouse type *")}</FormLabel>
-                      <Select value={field.value || "universal"} onValueChange={field.onChange}>
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder={t("Выберите тип", "Түрін таңдаңыз", "Select type")} />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {WAREHOUSE_TYPES.map((type) => (
-                            <SelectItem key={type.value} value={type.value}>
-                              {type.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {selectedPlaceType === "WAREHOUSE" ? (
+                  <FormField
+                    control={warehouseForm.control}
+                    name="warehouse_type"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("Тип склада *", "Қойма түрі *", "Warehouse type *")}</FormLabel>
+                        <Select value={field.value || "universal"} onValueChange={field.onChange}>
+                          <FormControl>
+                            <SelectTrigger aria-label={t("Тип склада", "Қойма түрі", "Warehouse type")}>
+                              <SelectValue placeholder={t("Выберите тип", "Түрін таңдаңыз", "Select type")} />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {WAREHOUSE_TYPES.map((type) => (
+                              <SelectItem key={type.value} value={type.value}>
+                                {type.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                ) : null}
 
                 <FormField
                   control={warehouseForm.control}
@@ -905,28 +977,10 @@ export default function ManageWarehousesPage() {
                         value={field.value || ""}
                         onChange={(event) => field.onChange(event.target.value || null)}
                         rows={3}
-                        placeholder={t("Комментарий по складу", "Қойма бойынша түсініктеме", "Warehouse notes")}
+                        placeholder={t("Комментарий по объекту", "Нысан бойынша түсініктеме", "Object notes")}
                       />
                     </FormControl>
                     <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={warehouseForm.control}
-                name="is_archived"
-                render={({ field }) => (
-                  <FormItem className="flex items-center justify-between rounded-md border p-3">
-                    <div className="space-y-1">
-                      <FormLabel>{t("Архивный статус", "Мұрағат статусы", "Archived status")}</FormLabel>
-                      <div className="text-xs text-slate-500">
-                        {t("Архив скрывает склад из операционных списков", "Мұрағат қойманы операциялық тізімнен жасырады", "Archive hides warehouse from operational lists")}
-                      </div>
-                    </div>
-                    <FormControl>
-                      <Switch checked={Boolean(field.value)} onCheckedChange={field.onChange} />
-                    </FormControl>
                   </FormItem>
                 )}
               />

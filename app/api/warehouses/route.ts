@@ -6,8 +6,24 @@ import {
   getUserScopedClientFromRequest,
   resolveCompanyForActor,
 } from "@/lib/auth/server-session";
-import { WAREHOUSE_ENTITY_WRITE_ROLES, WAREHOUSE_READ_ROLES, normalizeWarehouseRow, toNullableText, warehouseVisibleToRole } from "@/app/api/warehouses/_helpers";
+import { WAREHOUSE_ENTITY_WRITE_ROLES, WAREHOUSE_READ_ROLES, isActiveResponsibleUserInCompany, normalizeWarehouseRow, toNullableText, warehouseVisibleToRole } from "@/app/api/warehouses/_helpers";
 import { rowHasQaDataMarker } from "@/lib/utils/qa-data";
+import { parseStoragePlaceType } from "@/lib/warehouse/warehouse-scope";
+import { getServiceClient } from "@/lib/supabase/service";
+
+const WAREHOUSE_TYPES = new Set([
+  "agrochemical",
+  "grain",
+  "vegetable",
+  "seed",
+  "fertilizer",
+  "pesticide",
+  "universal",
+  "potato_storage",
+  "fuel",
+  "temporary",
+]);
+const CAPACITY_UNITS = new Set(["kg", "t", "m3", "l"]);
 
 export async function GET(request: NextRequest) {
   try {
@@ -17,8 +33,9 @@ export async function GET(request: NextRequest) {
     const includeArchived = String(request.nextUrl.searchParams.get("includeArchived") || "false").toLowerCase() === "true";
 
     const supabase = await getUserScopedClientFromRequest(request);
+    const accessSupabase = getServiceClient();
     await assertActorAccess({
-      supabase,
+      supabase: accessSupabase,
       actorUserId: actor.id,
       companyId,
       allowedRoles: [...WAREHOUSE_READ_ROLES],
@@ -61,9 +78,9 @@ export async function POST(request: NextRequest) {
     const requestedCompanyId = String(body.companyId || "").trim() || null;
     const companyId = resolveCompanyForActor(actor, requestedCompanyId);
 
-    const supabase = await getUserScopedClientFromRequest(request);
+    const writeSupabase = getServiceClient();
     await assertActorAccess({
-      supabase,
+      supabase: writeSupabase,
       actorUserId: actor.id,
       companyId,
       allowedRoles: [...WAREHOUSE_ENTITY_WRITE_ROLES],
@@ -74,7 +91,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Warehouse name is required" }, { status: 400 });
     }
 
-    const warehouseType = toNullableText(body.warehouse_type || body.warehouseType) || "universal";
+    const placeType = parseStoragePlaceType(body.place_type ?? body.placeType ?? "WAREHOUSE");
+    if (!placeType) {
+      return NextResponse.json({ error: "Неизвестный тип объекта" }, { status: 400 });
+    }
+
+    const requestedWarehouseType = toNullableText(body.warehouse_type ?? body.warehouseType) || "universal";
+    if (placeType === "WAREHOUSE" && !WAREHOUSE_TYPES.has(requestedWarehouseType)) {
+      return NextResponse.json({ error: "Неизвестный тип склада" }, { status: 400 });
+    }
+    const warehouseType = placeType === "WAREHOUSE" ? requestedWarehouseType : "universal";
     const capacityValue =
       body.capacity_value == null || body.capacity_value === ""
         ? null
@@ -88,10 +114,18 @@ export async function POST(request: NextRequest) {
     if (capacityValue != null && (!Number.isFinite(capacityValue) || capacityValue < 0)) {
       return NextResponse.json({ error: "capacity_value must be a positive number" }, { status: 400 });
     }
+    if (capacityUnit && !CAPACITY_UNITS.has(capacityUnit)) {
+      return NextResponse.json({ error: "Неизвестная единица вместимости" }, { status: 400 });
+    }
+
+    if (responsibleUserId && !(await isActiveResponsibleUserInCompany(writeSupabase, companyId, responsibleUserId))) {
+      return NextResponse.json({ error: "Ответственный пользователь недоступен в выбранной компании" }, { status: 400 });
+    }
 
     const payload: Record<string, unknown> = {
       company_id: companyId,
       name,
+      place_type: placeType,
       warehouse_type: warehouseType,
       capacity_value: capacityValue,
       capacity_unit: capacityUnit,
@@ -109,7 +143,7 @@ export async function POST(request: NextRequest) {
       archived_by_user_id: isArchived ? actor.id : null,
     };
 
-    const { data, error } = await supabase.from("warehouses").insert(payload).select("*").single();
+    const { data, error } = await writeSupabase.from("warehouses").insert(payload).select("*").single();
     if (error || !data) {
       return NextResponse.json(
         { error: error?.message || "Failed to create warehouse" },

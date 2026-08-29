@@ -1,5 +1,7 @@
 import type { NextRequest } from "next/server";
 import { SessionAuthError, getServerActorFromSession, getUserScopedClientFromRequest, resolveCompanyForActor } from "@/lib/auth/server-session";
+import { normalizeStoragePlaceType } from "@/lib/warehouse/warehouse-scope";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const WAREHOUSE_READ_ROLES = [
   "company_admin",
@@ -27,7 +29,7 @@ export function normalizeWarehouseRow(row: any) {
     id: String(row.id),
     company_id: row.company_id ? String(row.company_id) : null,
     name: String(row.name || "Склад"),
-    place_type: row.place_type ?? "WAREHOUSE",
+    place_type: normalizeStoragePlaceType(row.place_type),
     warehouse_type: row.warehouse_type ?? null,
     storage_capacity_kg: row.storage_capacity_kg == null ? null : Number(row.storage_capacity_kg),
     capacity_value: row.capacity_value == null ? null : Number(row.capacity_value),
@@ -49,6 +51,22 @@ export function normalizeWarehouseRow(row: any) {
 export function toNullableText(value: unknown): string | null {
   const text = String(value || "").trim();
   return text ? text : null;
+}
+
+export async function isActiveResponsibleUserInCompany(
+  supabase: SupabaseClient,
+  companyId: string,
+  profileId: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", profileId)
+    .eq("company_id", companyId)
+    .eq("status", "active")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data?.id);
 }
 
 export function warehouseVisibleToRole(row: any, role: string): boolean {

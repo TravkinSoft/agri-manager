@@ -21,11 +21,15 @@ export const STORAGE_PLACE_TYPES = ["WAREHOUSE", "YARD", "DRYER", "CLEANER"] as 
 
 export type StoragePlaceType = typeof STORAGE_PLACE_TYPES[number];
 
-export function normalizeStoragePlaceType(value: unknown): StoragePlaceType {
-  const normalized = String(value || "WAREHOUSE").trim().toUpperCase();
+export function parseStoragePlaceType(value: unknown): StoragePlaceType | null {
+  const normalized = String(value || "").trim().toUpperCase();
   return (STORAGE_PLACE_TYPES as readonly string[]).includes(normalized)
     ? normalized as StoragePlaceType
-    : "WAREHOUSE";
+    : null;
+}
+
+export function normalizeStoragePlaceType(value: unknown): StoragePlaceType {
+  return parseStoragePlaceType(value) || "WAREHOUSE";
 }
 
 export function isProcessingPlace(value: unknown): boolean {

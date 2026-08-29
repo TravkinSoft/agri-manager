@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { StoragePlaceType } from "@/lib/warehouse/warehouse-scope";
 
 export type ProductCategory =
   | "crop"
@@ -30,7 +31,7 @@ export type WarehouseType =
 export interface Warehouse {
   id: string;
   name: string;
-  place_type?: "WAREHOUSE" | "YARD" | "DRYER" | "CLEANER" | string | null;
+  place_type?: StoragePlaceType | null;
   warehouse_type?: string | null;
   storage_capacity_kg?: number | null;
   capacity_value?: number | null;
@@ -379,6 +380,24 @@ export interface WarehouseDeleteCheck {
   };
 }
 
+export interface WarehouseArchiveCheck {
+  can_archive: boolean;
+  reasons: string[];
+  stats: {
+    stock_balance_rows: number;
+    stock_balance_qty: number;
+    batch_stock_rows: number;
+    open_tickets: number;
+    active_harvests: number;
+    active_transformations: number;
+    active_processing_documents: number;
+    active_processing_nodes: number;
+    draft_inventory_transactions: number;
+    active_inventory_documents: number;
+    active_issue_requests: number;
+  };
+}
+
 export interface WarehouseHistorySnapshot {
   transactions: InventoryTransactionWithDetails[];
   tickets: Array<{
@@ -403,10 +422,12 @@ export interface WarehouseHistorySnapshot {
 }
 
 export const warehouseSchema = z.object({
-  name: z.string().trim().min(1, "Warehouse name is required"),
+  name: z.string().trim().min(1, "Укажите название объекта"),
+  place_type: z.enum(["WAREHOUSE", "YARD", "DRYER", "CLEANER"]).default("WAREHOUSE"),
   warehouse_type: z
     .enum(["agrochemical", "grain", "vegetable", "seed", "fertilizer", "pesticide", "universal", "potato_storage", "fuel", "temporary"])
-    .default("universal"),
+    .optional()
+    .nullable(),
   capacity_value: z.coerce.number().min(0).optional().nullable(),
   capacity_unit: z.enum(["kg", "t", "m3", "l"]).optional().nullable(),
   responsible_user_id: z.string().uuid().optional().or(z.literal("")).nullable(),
