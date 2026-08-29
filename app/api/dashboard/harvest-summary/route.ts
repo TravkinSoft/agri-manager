@@ -9,10 +9,115 @@ import {
   type HarvestPeriodPreset,
 } from "@/lib/dashboard/harvest-summary";
 import type { HarvestBatchSummary, WeighbridgeTicket } from "@/lib/types/weighbridge";
+import {
+  lotByTicketIdFromLineage,
+  resolveHarvestLotTicketLineage,
+} from "@/lib/weighbridge/harvest-lot-lineage";
 import { resolveTransportIdentity } from "@/lib/weighbridge/transport";
 
 const DASHBOARD_ROLES = ["global_admin", "company_admin", "agronomist", "director"] as const;
 const PERIOD_PRESETS = new Set<HarvestPeriodPreset>(["current_day", "previous_day", "current_shift", "last_24_hours", "season", "custom"]);
+const LINEAGE_QUERY_CHUNK_SIZE = 200;
+const LINEAGE_QUERY_CONCURRENCY = 4;
+const LINEAGE_QUERY_PAGE_SIZE = 1000;
+
+const uniqueIds = (values: unknown[]) => Array.from(new Set(
+  values.map((value) => String(value || "").trim()).filter(Boolean)
+));
+
+async function loadInChunks<T>(
+  values: string[],
+  query: (chunk: string[]) => any
+): Promise<T[]> {
+  const normalized = uniqueIds(values);
+  if (!normalized.length) return [];
+  const chunks: string[][] = [];
+  for (let index = 0; index < normalized.length; index += LINEAGE_QUERY_CHUNK_SIZE) {
+    chunks.push(normalized.slice(index, index + LINEAGE_QUERY_CHUNK_SIZE));
+  }
+  const rows: T[] = [];
+  for (let index = 0; index < chunks.length; index += LINEAGE_QUERY_CONCURRENCY) {
+    const resultPages = await Promise.all(
+      chunks.slice(index, index + LINEAGE_QUERY_CONCURRENCY).map(async (chunk) => {
+        const chunkRows: T[] = [];
+        for (let from = 0; ; from += LINEAGE_QUERY_PAGE_SIZE) {
+          const result = await query(chunk).range(from, from + LINEAGE_QUERY_PAGE_SIZE - 1);
+          if (result.error) throw result.error;
+          const page = (result.data || []) as T[];
+          chunkRows.push(...page);
+          if (page.length < LINEAGE_QUERY_PAGE_SIZE) break;
+        }
+        return chunkRows;
+      })
+    );
+    rows.push(...resultPages.flat());
+  }
+  return rows;
+}
+
+async function loadLotByTicketId(
+  supabase: any,
+  companyId: string,
+  ticketIds: string[]
+): Promise<Map<string, string>> {
+  if (!ticketIds.length) return new Map();
+  const [ticketLinks, sourceBatches] = await Promise.all([
+    loadInChunks<any>(ticketIds, (chunk) => supabase
+      .from("harvest_lot_batches")
+      .select("harvest_lot_id,inventory_batch_id,source_ticket_id")
+      .eq("company_id", companyId)
+      .in("source_ticket_id", chunk)
+      .order("inventory_batch_id", { ascending: true })),
+    loadInChunks<any>(ticketIds, (chunk) => supabase
+      .from("inventory_batches")
+      .select("id,parent_batch_id,source_ticket_id")
+      .eq("company_id", companyId)
+      .in("source_ticket_id", chunk)
+      .order("id", { ascending: true })),
+  ]);
+
+  const parentCandidateIds = uniqueIds([
+    ...ticketLinks.map((link) => link.inventory_batch_id),
+    ...sourceBatches.map((batch) => batch.id),
+  ]);
+  const descendantBatches: any[] = [];
+  const seenBatchIds = new Set(parentCandidateIds);
+  let parentFrontier = parentCandidateIds;
+  while (parentFrontier.length) {
+    const loadedChildren = await loadInChunks<any>(parentFrontier, (chunk) => supabase
+      .from("inventory_batches")
+      .select("id,parent_batch_id,source_ticket_id")
+      .eq("company_id", companyId)
+      .in("parent_batch_id", chunk)
+      .order("id", { ascending: true }));
+    const freshChildren = loadedChildren.filter((batch) => {
+      const batchId = String(batch.id || "");
+      return batchId && !seenBatchIds.has(batchId);
+    });
+    descendantBatches.push(...freshChildren);
+    freshChildren.forEach((batch) => seenBatchIds.add(String(batch.id)));
+    parentFrontier = uniqueIds(freshChildren.map((batch) => batch.id));
+  }
+  const lineageBatchIds = uniqueIds([
+    ...parentCandidateIds,
+    ...descendantBatches.map((batch) => batch.id),
+  ]);
+  const batchLinks = await loadInChunks<any>(lineageBatchIds, (chunk) => supabase
+    .from("harvest_lot_batches")
+    .select("harvest_lot_id,inventory_batch_id,source_ticket_id")
+    .eq("company_id", companyId)
+    .in("inventory_batch_id", chunk)
+    .order("inventory_batch_id", { ascending: true }));
+
+  const links = Array.from(new Map(
+    [...ticketLinks, ...batchLinks].map((link) => [String(link.inventory_batch_id), link])
+  ).values());
+  const batches = Array.from(new Map(
+    [...sourceBatches, ...descendantBatches].map((batch) => [String(batch.id), batch])
+  ).values());
+  const lineage = resolveHarvestLotTicketLineage(links, links, batches);
+  return lotByTicketIdFromLineage(lineage, ticketIds).lotByTicketId;
+}
 
 async function loadTickets(supabase: any, companyId: string): Promise<WeighbridgeTicket[]> {
   const rows: any[] = [];
@@ -62,15 +167,7 @@ async function loadTickets(supabase: any, companyId: string): Promise<Weighbridg
   const driverById = byId([...(people || []), ...(specialists || []), ...(driverProfiles || [])]);
 
   const ticketIds = rows.map((row) => String(row.id));
-  const { data: lotLinks, error: lotLinksError } = ticketIds.length
-    ? await supabase
-        .from("harvest_lot_batches")
-        .select("harvest_lot_id,source_ticket_id")
-        .eq("company_id", companyId)
-        .in("source_ticket_id", ticketIds)
-    : { data: [], error: null };
-  if (lotLinksError) throw lotLinksError;
-  const lotByTicketId = new Map((lotLinks || []).map((link: any) => [String(link.source_ticket_id), String(link.harvest_lot_id)]));
+  const lotByTicketId = await loadLotByTicketId(supabase, companyId, ticketIds);
 
   return rows.map((row) => {
     const vehicle = vehicleById.get(String(row.vehicle_id || ""));

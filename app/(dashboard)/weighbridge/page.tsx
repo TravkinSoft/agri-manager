@@ -849,6 +849,7 @@ export default function WeighbridgeOperationsPage() {
   const [historyHasMore, setHistoryHasMore] = useState(false);
   const [historyLoadingMore, setHistoryLoadingMore] = useState(false);
   const [harvestBatches, setHarvestBatches] = useState<HarvestBatchSummary[]>([]);
+  const [harvestBatchDetailLoading, setHarvestBatchDetailLoading] = useState(false);
   const [fields, setFields] = useState<{ id: string; name: string; area: number }[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierOption[]>([]);
@@ -1391,7 +1392,10 @@ export default function WeighbridgeOperationsPage() {
 
   const refreshHarvestBatches = async () => {
     if (!profile?.company_id) return;
-    setHarvestBatches(await listHarvestBatchSummaries(profile.company_id, { aggregateLots: true }));
+    setHarvestBatches(await listHarvestBatchSummaries(profile.company_id, {
+      aggregateLots: true,
+      summaryOnly: true,
+    }));
   };
 
   const refreshBootstrap = async (includeSummary = false, signal?: AbortSignal) => {
@@ -2882,9 +2886,63 @@ export default function WeighbridgeOperationsPage() {
     [harvestBatches, form.warehouseFromId]
   );
   const selectedHarvestBatch = useMemo(
-    () => harvestBatches.find((batch) => batch.id === form.sourceBatchId) || null,
-    [harvestBatches, form.sourceBatchId]
+    () => harvestBatches.find((batch) =>
+      batch.id === form.sourceBatchId
+      && (!form.warehouseFromId || batch.warehouseId === form.warehouseFromId)
+    ) || null,
+    [harvestBatches, form.sourceBatchId, form.warehouseFromId]
   );
+
+  useEffect(() => {
+    if (
+      form.operationType !== "impurity_removal"
+      || !profile?.company_id
+      || !selectedHarvestBatch?.aggregateLotId
+      || selectedHarvestBatch.detailLevel === "full"
+    ) {
+      setHarvestBatchDetailLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setHarvestBatchDetailLoading(true);
+    void listHarvestBatchSummaries(profile.company_id, {
+      aggregateLots: true,
+      lotId: selectedHarvestBatch.aggregateLotId,
+      warehouseId: selectedHarvestBatch.warehouseId,
+      signal: controller.signal,
+    }).then((rows) => {
+      if (controller.signal.aborted) return;
+      const detail = rows.find((row) =>
+        row.id === selectedHarvestBatch.id
+        && row.warehouseId === selectedHarvestBatch.warehouseId
+        && row.detailLevel === "full"
+      );
+      if (!detail) throw new Error("Полная карточка партии не найдена");
+      setHarvestBatches((current) => current.map((row) =>
+        row.id === detail.id && row.warehouseId === detail.warehouseId ? detail : row
+      ));
+    }).catch((error: any) => {
+      if (controller.signal.aborted || error?.name === "AbortError") return;
+      toast({
+        title: "Не удалось загрузить партию",
+        description: error?.message || "Повторите выбор партии",
+        variant: "destructive",
+      });
+    }).finally(() => {
+      if (!controller.signal.aborted) setHarvestBatchDetailLoading(false);
+    });
+
+    return () => controller.abort();
+  }, [
+    form.operationType,
+    profile?.company_id,
+    selectedHarvestBatch?.id,
+    selectedHarvestBatch?.warehouseId,
+    selectedHarvestBatch?.aggregateLotId,
+    selectedHarvestBatch?.detailLevel,
+    toast,
+  ]);
   const fieldIssueStockOptions = useMemo(() => {
     const filtered = stockIdentityOptions.filter(isFieldMaterialOption);
     if (!selectedHarvestAllocation) return filtered;
@@ -3189,6 +3247,9 @@ export default function WeighbridgeOperationsPage() {
       if (!form.warehouseFromId) return "Выберите склад";
       if (!form.sourceBatchId || !selectedHarvestBatch) return "Выберите партию урожая";
       if (selectedHarvestBatch.warehouseId !== form.warehouseFromId) return "Партия не принадлежит выбранному складу";
+      if (selectedHarvestBatch.detailLevel !== "full") {
+        return harvestBatchDetailLoading ? "Данные партии ещё загружаются" : "Не удалось загрузить полные данные партии";
+      }
       if (selectedHarvestBatch.cleanMassKg <= 0) return "В партии не осталось чистой массы";
       if (!form.impurityType) return "Выберите вид примесей";
       if (form.impurityType === "other" && !form.notes.trim()) return "Для вида «Прочее» добавьте комментарий";
@@ -4474,16 +4535,22 @@ export default function WeighbridgeOperationsPage() {
                       <SelectContent>
                         {availableHarvestBatches.length === 0 ? <SelectItem value="__empty" disabled>На складе нет принятых партий урожая</SelectItem> : null}
                         {availableHarvestBatches.map((batch) => (
-                          <SelectItem key={batch.id} value={batch.id}>{batch.cropName} / {batch.varietyName} · {batch.fieldName} · чистая масса {batch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</SelectItem>
+                          <SelectItem key={`${batch.id}:${batch.warehouseId}`} value={batch.id}>
+                            {batch.batchCode} · {[batch.cropName, batch.varietyName, batch.reproductionName].filter(Boolean).join(" / ")} · {batch.fieldName ? `${batch.fieldName} · ` : ""}остаток {batch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  {selectedHarvestBatch ? (
+                  {selectedHarvestBatch?.detailLevel === "full" ? (
                     <div className="grid gap-2 rounded-md border border-slate-700 bg-slate-950/55 p-3 text-xs sm:grid-cols-3">
                       <div><span className="text-slate-500">Принято</span><div className="mt-1 font-semibold text-slate-100">{selectedHarvestBatch.receivedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                       <div><span className="text-slate-500">Уже вывезено</span><div className="mt-1 font-semibold text-amber-300">{selectedHarvestBatch.removedKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
                       <div><span className="text-slate-500">Чистая масса</span><div className="mt-1 font-semibold text-emerald-300">{selectedHarvestBatch.cleanMassKg.toLocaleString("ru-RU", { maximumFractionDigits: 3 })} кг</div></div>
+                    </div>
+                  ) : selectedHarvestBatch ? (
+                    <div className="rounded-md border border-slate-700 bg-slate-950/55 p-3 text-xs text-slate-400">
+                      {harvestBatchDetailLoading ? "Загружаем учёт и происхождение партии..." : "Полные данные партии недоступны. Выберите её повторно."}
                     </div>
                   ) : null}
                   <div className="grid grid-cols-2 gap-2 md:grid-cols-3">

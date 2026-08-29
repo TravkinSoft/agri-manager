@@ -272,6 +272,7 @@ export interface HarvestBatchSummary {
   reservedKg?: number;
   availableKg?: number;
   reconciliationDeltaKg?: number;
+  reconciliationState?: "reconciled" | "mismatch" | "incomplete_lineage";
   harvestedAreaHa: number | null;
   grossYieldTPerHa: number | null;
   cleanYieldTPerHa: number | null;

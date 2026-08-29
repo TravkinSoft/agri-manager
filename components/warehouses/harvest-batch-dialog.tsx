@@ -352,7 +352,12 @@ export function HarvestBatchDialog({ open, onOpenChange, batch, loading = false 
                     </>
                   ) : null}
                 </div>
-                {Math.abs(batch.reconciliationDeltaKg || 0) > 0.001 ? (
+                {batch.reconciliationState === "incomplete_lineage" ? (
+                  <div className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+                    Не для всех рейсов восстановлена связь с талонами. Красное несхождение не показывается до полной сверки происхождения.
+                  </div>
+                ) : batch.reconciliationState === "mismatch"
+                  || (batch.reconciliationState == null && Math.abs(batch.reconciliationDeltaKg || 0) > 0.001) ? (
                   <div className="mt-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">
                     Учёт не сходится на {kg(batch.reconciliationDeltaKg || 0)}. Требуется проверка проводок.
                   </div>

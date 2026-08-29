@@ -2,6 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { calculateHarvestLotAccounting } from "../lib/weighbridge/harvest-lot-accounting";
+import {
+  hasCompleteHarvestTicketLineage,
+  isEffectiveFinalizedHarvestTicket,
+  lineageTicketIds,
+  lotByTicketIdFromLineage,
+  resolveHarvestLotTicketLineage,
+  resolveHarvestTicketIdsByBatch,
+} from "../lib/weighbridge/harvest-lot-lineage";
 
 const root = process.cwd();
 const read = (path: string) => readFileSync(resolve(root, path), "utf8");
@@ -10,6 +18,7 @@ const ticketRoute = read("app/api/weighbridge/tickets/route.ts");
 const processingRoute = read("app/api/processing/transformations/route.ts");
 const transferRoute = read("app/api/warehouses/[id]/transfers/route.ts");
 const harvestBatchRoute = read("app/api/weighbridge/harvest-batches/route.ts");
+const dashboardRoute = read("app/api/dashboard/harvest-summary/route.ts");
 const migration = read("supabase/migrations/20260821152000_tz296_harvest_stock_aggregation_v1.sql");
 
 const checks: Array<{ name: string; run: () => void }> = [];
@@ -37,6 +46,129 @@ check("warehouse cards aggregate technical physical states into one canonical lo
   assert.match(harvestBatchRoute, /warehouseStockRows/);
   assert.match(harvestBatchRoute, /stockComponents/);
   assert.match(harvestBatchRoute, /trip\.opType === "harvest_incoming"/);
+});
+
+check("legacy ticket lineage follows canonical precedence through repeated transfers", () => {
+  const memberLinks = [
+    { harvest_lot_id: "lot-link", inventory_batch_id: "batch-link", source_ticket_id: "ticket-link" },
+    { harvest_lot_id: "lot-batch", inventory_batch_id: "batch-source", source_ticket_id: null },
+    { harvest_lot_id: "lot-parent-link", inventory_batch_id: "child-parent-link", source_ticket_id: null },
+    { harvest_lot_id: "lot-parent-batch", inventory_batch_id: "child-parent-batch", source_ticket_id: null },
+    { harvest_lot_id: "lot-transfer", inventory_batch_id: "child-transfer", source_ticket_id: "ticket-transfer" },
+    { harvest_lot_id: "lot-grandparent", inventory_batch_id: "grandchild-transfer", source_ticket_id: null },
+  ];
+  const parentLinks = [
+    { harvest_lot_id: "lot-parent-link", inventory_batch_id: "parent-link", source_ticket_id: "ticket-parent-link" },
+    { harvest_lot_id: "lot-grandparent", inventory_batch_id: "root-harvest-link", source_ticket_id: "ticket-grandparent" },
+  ];
+  const batches = [
+    { id: "batch-link", source_ticket_id: "ticket-batch-ignored" },
+    { id: "batch-source", source_ticket_id: "ticket-batch" },
+    { id: "child-parent-link", parent_batch_id: "parent-link", source_ticket_id: null },
+    { id: "parent-link", source_ticket_id: null },
+    { id: "child-parent-batch", parent_batch_id: "parent-batch", source_ticket_id: null },
+    { id: "parent-batch", source_ticket_id: "ticket-parent-batch" },
+    { id: "child-transfer", parent_batch_id: "parent-harvest", source_ticket_id: null },
+    { id: "parent-harvest", source_ticket_id: "ticket-harvest" },
+    { id: "grandchild-transfer", parent_batch_id: "middle-transfer", source_ticket_id: null },
+    { id: "middle-transfer", parent_batch_id: "root-harvest-link", source_ticket_id: null },
+    { id: "root-harvest-link", source_ticket_id: null },
+  ];
+  const lineage = resolveHarvestLotTicketLineage(memberLinks, [...memberLinks, ...parentLinks], batches);
+  const byBatch = new Map(lineage.map((row) => [row.inventoryBatchId, row]));
+
+  assert.deepEqual(
+    ["batch-link", "batch-source", "child-parent-link", "child-parent-batch", "child-transfer", "grandchild-transfer"]
+      .map((batchId) => [byBatch.get(batchId)?.ticketId, byBatch.get(batchId)?.source]),
+    [
+      ["ticket-link", "link"],
+      ["ticket-batch", "inventory_batch"],
+      ["ticket-parent-link", "parent_link"],
+      ["ticket-parent-batch", "parent_batch"],
+      ["ticket-transfer", "link"],
+      ["ticket-grandparent", "parent_link"],
+    ]
+  );
+  assert.deepEqual(new Set(lineageTicketIds(lineage)), new Set([
+    "ticket-link",
+    "ticket-batch-ignored",
+    "ticket-batch",
+    "ticket-parent-link",
+    "ticket-parent-batch",
+    "ticket-transfer",
+    "ticket-harvest",
+    "ticket-grandparent",
+  ]));
+
+  const harvestTicketIds = [
+    "ticket-link",
+    "ticket-batch",
+    "ticket-parent-link",
+    "ticket-parent-batch",
+    "ticket-harvest",
+    "ticket-grandparent",
+  ];
+  const mapped = lotByTicketIdFromLineage(lineage, harvestTicketIds);
+  assert.equal(mapped.lotByTicketId.get("ticket-harvest"), "lot-transfer");
+  assert.equal(mapped.lotByTicketId.get("ticket-parent-link"), "lot-parent-link");
+  assert.equal(mapped.lotByTicketId.get("ticket-grandparent"), "lot-grandparent");
+  assert.equal(mapped.lotByTicketId.has("ticket-batch-ignored"), false);
+  assert.equal(mapped.conflictingTicketIds.size, 0);
+});
+
+check("warehouse detail and dashboard use one lineage resolver", () => {
+  assert.match(harvestBatchRoute, /resolveHarvestLotTicketLineage/);
+  assert.match(harvestBatchRoute, /while \(ancestorBatchIds\.length\)/);
+  assert.match(harvestBatchRoute, /\.select\("id,ticket_no,op_type,/);
+  assert.match(harvestBatchRoute, /loadInChunks<any>\(ticketIds,/);
+  assert.match(harvestBatchRoute, /query\(chunk\)\.range\(from, from \+ LINEAGE_QUERY_PAGE_SIZE - 1\)/);
+  assert.match(harvestBatchRoute, /resolveHarvestTicketIdsByBatch\(lineage, ticketRows\)/);
+  assert.match(harvestBatchRoute, /hasCompleteHarvestTicketLineage\(/);
+  assert.match(harvestBatchRoute, /warehouseMemberBatchIds/);
+  assert.match(harvestBatchRoute, /warehouseMemberBatchIds = ids\(\[[\s\S]*?stockBearingBatchIds[\s\S]*?warehouseLedgerEntries\.map\(\(entry\) => resolveLedgerBatchId\(entry\)\)/);
+  assert.match(harvestBatchRoute, /reconciliationState:[\s\S]*?incomplete_lineage/);
+  assert.match(dashboardRoute, /resolveHarvestLotTicketLineage/);
+  assert.match(dashboardRoute, /while \(parentFrontier\.length\)/);
+  assert.match(dashboardRoute, /\.in\("parent_batch_id", chunk\)/);
+  assert.match(dashboardRoute, /lotByTicketIdFromLineage\(lineage, ticketIds\)/);
+  assert.match(migration, /hlb\.source_ticket_id,[\s\S]*ib\.source_ticket_id,[\s\S]*parent_link\.source_ticket_id,[\s\S]*parent_batch\.source_ticket_id/);
+});
+
+check("only effective finalized harvest tickets can reconcile warehouse accounting", () => {
+  const lineage = resolveHarvestLotTicketLineage(
+    [{ harvest_lot_id: "lot", inventory_batch_id: "batch", source_ticket_id: "ticket-open" }],
+    [{ harvest_lot_id: "lot", inventory_batch_id: "batch", source_ticket_id: "ticket-open" }],
+    [{ id: "batch", source_ticket_id: "ticket-final" }]
+  );
+  const tickets = [
+    { id: "ticket-open", op_type: "harvest_incoming", status: "active", is_finalized: false, is_voided: false },
+    { id: "ticket-final", op_type: "harvest_incoming", status: "finalized", is_finalized: true, is_voided: false },
+  ];
+  const resolved = resolveHarvestTicketIdsByBatch(lineage, tickets);
+  assert.equal(resolved.displayByBatchId.get("batch"), "ticket-final");
+  assert.equal(resolved.effectiveByBatchId.get("batch"), "ticket-final");
+  assert.equal(hasCompleteHarvestTicketLineage(lineage, resolved.effectiveByBatchId, ["batch"]), true);
+  assert.equal(hasCompleteHarvestTicketLineage(lineage, resolved.effectiveByBatchId, ["batch", "missing"]), false);
+  assert.equal(isEffectiveFinalizedHarvestTicket(tickets[0]), false);
+  assert.equal(isEffectiveFinalizedHarvestTicket(tickets[1]), true);
+  assert.equal(isEffectiveFinalizedHarvestTicket({
+    ...tickets[1],
+    id: "ticket-replaced",
+    replacement_ticket_id: "replacement",
+  }), false);
+});
+
+check("complete legacy lineage does not create a false accounting mismatch", () => {
+  const receivedKg = [{ id: "ticket-legacy", netWeightKg: 12_000 }]
+    .reduce((sum, ticket) => sum + ticket.netWeightKg, 0);
+  const accounting = calculateHarvestLotAccounting({
+    receivedKg,
+    currentKg: 12_000,
+    ledgerEntries: [],
+  });
+  assert.equal(receivedKg, 12_000);
+  assert.equal(accounting.receivedKg, 12_000);
+  assert.equal(accounting.reconciliationDeltaKg, 0);
 });
 
 check("processing outputs are not counted twice as harvest receipts", () => {
