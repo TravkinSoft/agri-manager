@@ -174,6 +174,21 @@ async function assertWarehousekeeperMovementScope(
   payload: Record<string, any>,
   movementType: MovementType
 ) {
+  const warehouseIds = [payload.source_warehouse_id, payload.destination_warehouse_id, payload.warehouse_id]
+    .map((value) => String(value || ""))
+    .filter(Boolean);
+  const { data: warehouses, error: warehouseError } = await supabase
+    .from("warehouses")
+    .select("id,warehouse_type,archived,is_archived")
+    .eq("company_id", companyId)
+    .eq("archived", false)
+    .eq("is_archived", false)
+    .in("id", Array.from(new Set(warehouseIds)));
+  if (warehouseError) throw new Error(warehouseError.message);
+  if ((warehouses || []).length !== Array.from(new Set(warehouseIds)).length) {
+    throw new WarehouseScopeError("Архивный или недоступный объект нельзя использовать в новой операции");
+  }
+
   if (actorRole !== "warehouse" && actorRole !== "warehouse_operator") return;
   if (movementType === "receipt") {
     throw new WarehouseScopeError("Use the atomic warehouse receipt form for incoming stock");
@@ -182,17 +197,7 @@ async function assertWarehousekeeperMovementScope(
     throw new WarehouseScopeError("Warehouse issue is allowed only through an operation material request");
   }
 
-  const warehouseIds = [payload.source_warehouse_id, payload.destination_warehouse_id, payload.warehouse_id]
-    .map((value) => String(value || ""))
-    .filter(Boolean);
-  const { data: warehouses, error: warehouseError } = await supabase
-    .from("warehouses")
-    .select("id,warehouse_type")
-    .eq("company_id", companyId)
-    .in("id", Array.from(new Set(warehouseIds)));
-  if (warehouseError) throw new Error(warehouseError.message);
   if (
-    (warehouses || []).length !== Array.from(new Set(warehouseIds)).length ||
     (warehouses || []).some((row: any) => !AGROCHEMICAL_WAREHOUSE_TYPES.includes(row.warehouse_type as any))
   ) {
     throw new WarehouseScopeError("Warehousekeeper movement is limited to agrochemical warehouses");

@@ -133,7 +133,11 @@ export async function POST(request: NextRequest) {
       allowedRoles: ["company_admin", "global_admin"],
     });
     const { data: existing, error: warehouseError } = await supabase.from("warehouses").select("id")
-      .eq("id", warehouseId).eq("company_id", companyId).maybeSingle();
+      .eq("id", warehouseId)
+      .eq("company_id", companyId)
+      .eq("archived", false)
+      .eq("is_archived", false)
+      .maybeSingle();
     if (warehouseError || !existing?.id) return NextResponse.json({ error: "Склад не найден" }, { status: 404 });
 
     const { data, error } = await supabase.rpc("start_warehouse_inventory_v2", {

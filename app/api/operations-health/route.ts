@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
       supabase.from("crops").select("id", { count: "exact", head: true }).eq("archived", false),
       supabase.from("varieties").select("id", { count: "exact", head: true }).eq("archived", false),
       supabase.from("seed_reproductions").select("id", { count: "exact", head: true }).eq("archived", false),
-      supabase.from("warehouses").select("id,warehouse_type,place_type,archived").eq("company_id", companyId).eq("archived", false),
+      supabase.from("warehouses").select("id,warehouse_type,place_type,archived,is_archived").eq("company_id", companyId).eq("archived", false).eq("is_archived", false),
       supabase.from("company_people").select("id,role_type,status,deleted_at").eq("company_id", companyId),
       supabase.from("reference_vehicles").select("id,archived").eq("company_id", companyId).eq("archived", false),
       supabase.from("reference_machines").select("id,archived").eq("company_id", companyId).eq("archived", false),

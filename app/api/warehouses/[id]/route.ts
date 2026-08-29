@@ -1,8 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { assertActorAccess } from "@/lib/auth/server-acl";
 import { SessionAuthError } from "@/lib/auth/server-session";
-import { getWarehouseDeleteCheck } from "@/lib/server/warehouse-access";
-import { WAREHOUSE_ENTITY_WRITE_ROLES, WAREHOUSE_READ_ROLES, normalizeWarehouseRow, resolveWarehouseForActor, toNullableText } from "@/app/api/warehouses/_helpers";
+import { getWarehouseArchiveCheck, getWarehouseDeleteCheck, getWarehouseUsageCheck } from "@/lib/server/warehouse-access";
+import { WAREHOUSE_ENTITY_WRITE_ROLES, WAREHOUSE_READ_ROLES, isActiveResponsibleUserInCompany, normalizeWarehouseRow, resolveWarehouseForActor, toNullableText } from "@/app/api/warehouses/_helpers";
+import { normalizeStoragePlaceType, parseStoragePlaceType } from "@/lib/warehouse/warehouse-scope";
+import { getServiceClient } from "@/lib/supabase/service";
+
+const WAREHOUSE_TYPES = new Set([
+  "agrochemical",
+  "grain",
+  "vegetable",
+  "seed",
+  "fertilizer",
+  "pesticide",
+  "universal",
+  "potato_storage",
+  "fuel",
+  "temporary",
+]);
+const CAPACITY_UNITS = new Set(["kg", "t", "m3", "l"]);
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
@@ -11,8 +27,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (!warehouseId) return NextResponse.json({ error: "Warehouse id is required" }, { status: 400 });
 
     const { actor, companyId, supabase, existing } = await resolveWarehouseForActor(request, warehouseId);
+    const accessSupabase = getServiceClient();
     await assertActorAccess({
-      supabase,
+      supabase: accessSupabase,
       actorUserId: actor.id,
       companyId,
       allowedRoles: [...WAREHOUSE_READ_ROLES],
@@ -21,7 +38,6 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     if (!existing?.id) {
       return NextResponse.json({ error: "Warehouse not found" }, { status: 404 });
     }
-
     const deleteCheck = await getWarehouseDeleteCheck(supabase, companyId, warehouseId);
 
     return NextResponse.json({
@@ -59,9 +75,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     const warehouseId = String(id || "").trim();
     if (!warehouseId) return NextResponse.json({ error: "Warehouse id is required" }, { status: 400 });
 
-    const { actor, companyId, supabase, existing } = await resolveWarehouseForActor(request, warehouseId);
+    const { actor, companyId, existing } = await resolveWarehouseForActor(request, warehouseId);
+    const writeSupabase = getServiceClient();
     await assertActorAccess({
-      supabase,
+      supabase: writeSupabase,
       actorUserId: actor.id,
       companyId,
       allowedRoles: [...WAREHOUSE_ENTITY_WRITE_ROLES],
@@ -69,19 +86,60 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (!existing?.id) {
       return NextResponse.json({ error: "Warehouse not found" }, { status: 404 });
     }
-
     const body = await request.json().catch(() => ({}));
     const payload: Record<string, unknown> = {
       updated_by_user_id: actor.authUserId,
     };
+    const existingPlaceType = normalizeStoragePlaceType(existing.place_type);
+    const hasPlaceType = body.place_type !== undefined || body.placeType !== undefined;
+    const requestedPlaceType = hasPlaceType
+      ? parseStoragePlaceType(body.place_type ?? body.placeType)
+      : existingPlaceType;
+    if (!requestedPlaceType) {
+      return NextResponse.json({ error: "Неизвестный тип объекта" }, { status: 400 });
+    }
+    const existingWarehouseType = toNullableText(existing.warehouse_type) || "universal";
+    const hasWarehouseType = body.warehouse_type !== undefined || body.warehouseType !== undefined;
+    const requestedWarehouseType = requestedPlaceType === "WAREHOUSE"
+      ? hasWarehouseType
+        ? toNullableText(body.warehouse_type ?? body.warehouseType) || "universal"
+        : existingPlaceType === "WAREHOUSE"
+          ? existingWarehouseType
+          : "universal"
+      : requestedPlaceType === existingPlaceType
+        ? existingWarehouseType
+        : "universal";
+    if (requestedPlaceType === "WAREHOUSE" && !WAREHOUSE_TYPES.has(requestedWarehouseType)) {
+      return NextResponse.json({ error: "Неизвестный тип склада" }, { status: 400 });
+    }
+
+    const effectiveTypeChanged =
+      requestedPlaceType !== existingPlaceType ||
+      (requestedPlaceType === "WAREHOUSE" &&
+        existingPlaceType === "WAREHOUSE" &&
+        requestedWarehouseType !== existingWarehouseType);
+    if (effectiveTypeChanged) {
+      const usage = await getWarehouseUsageCheck(writeSupabase, companyId, warehouseId);
+      if (usage.isUsed) {
+        return NextResponse.json(
+          {
+            error: "Тип используемого объекта изменить нельзя. Архивируйте его и создайте новый объект.",
+            reasons: usage.reasons,
+            stats: usage.stats,
+          },
+          { status: 409 }
+        );
+      }
+      if (requestedPlaceType !== existingPlaceType) payload.place_type = requestedPlaceType;
+    }
 
     if (body.name !== undefined) {
       const name = String(body.name || "").trim();
       if (!name) return NextResponse.json({ error: "Warehouse name is required" }, { status: 400 });
       payload.name = name;
     }
-    if (body.warehouse_type !== undefined || body.warehouseType !== undefined) {
-      payload.warehouse_type = toNullableText(body.warehouse_type || body.warehouseType) || "universal";
+    if (requestedWarehouseType !== existingWarehouseType) {
+      payload.warehouse_type = requestedWarehouseType;
     }
     if (body.capacity_value !== undefined || body.capacityValue !== undefined) {
       const raw = body.capacity_value ?? body.capacityValue;
@@ -96,25 +154,49 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       }
     }
     if (body.capacity_unit !== undefined || body.capacityUnit !== undefined) {
-      payload.capacity_unit = toNullableText(body.capacity_unit || body.capacityUnit);
+      const capacityUnit = toNullableText(body.capacity_unit ?? body.capacityUnit);
+      if (capacityUnit && !CAPACITY_UNITS.has(capacityUnit)) {
+        return NextResponse.json({ error: "Неизвестная единица вместимости" }, { status: 400 });
+      }
+      payload.capacity_unit = capacityUnit;
     }
-    if (payload.capacity_unit === "kg") {
-      payload.storage_capacity_kg = payload.capacity_value ?? existing.capacity_value ?? null;
+    if (body.capacity_value !== undefined || body.capacityValue !== undefined || body.capacity_unit !== undefined || body.capacityUnit !== undefined) {
+      const nextCapacityValue = payload.capacity_value !== undefined ? payload.capacity_value : existing.capacity_value;
+      const nextCapacityUnit = payload.capacity_unit !== undefined ? payload.capacity_unit : existing.capacity_unit;
+      payload.storage_capacity_kg = nextCapacityUnit === "kg" ? nextCapacityValue ?? null : null;
     }
     if (body.responsible_user_id !== undefined || body.responsibleUserId !== undefined) {
-      payload.responsible_user_id = toNullableText(body.responsible_user_id || body.responsibleUserId);
+      const responsibleUserId = toNullableText(body.responsible_user_id || body.responsibleUserId);
+      if (responsibleUserId && !(await isActiveResponsibleUserInCompany(writeSupabase, companyId, responsibleUserId))) {
+        return NextResponse.json({ error: "Ответственный пользователь недоступен в выбранной компании" }, { status: 400 });
+      }
+      payload.responsible_user_id = responsibleUserId;
     }
     if (body.location !== undefined) payload.location = toNullableText(body.location);
     if (body.description !== undefined) payload.description = toNullableText(body.description);
     if (body.is_archived !== undefined) {
       const isArchived = Boolean(body.is_archived);
+      const wasArchived = existing.is_archived === true || existing.archived === true;
+      if (isArchived && !wasArchived) {
+        const archiveCheck = await getWarehouseArchiveCheck(writeSupabase, companyId, warehouseId);
+        if (!archiveCheck.canArchive) {
+          return NextResponse.json(
+            {
+              error: `Объект нельзя архивировать: ${archiveCheck.reasons.join("; ")}`,
+              reasons: archiveCheck.reasons,
+              stats: archiveCheck.stats,
+            },
+            { status: 409 }
+          );
+        }
+      }
       payload.is_archived = isArchived;
       payload.archived = isArchived;
       payload.archived_at = isArchived ? new Date().toISOString() : null;
       payload.archived_by_user_id = isArchived ? actor.id : null;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await writeSupabase
       .from("warehouses")
       .update(payload)
       .eq("id", warehouseId)
@@ -125,7 +207,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (error || !data) {
       return NextResponse.json(
         { error: error?.message || "Failed to update warehouse" },
-        { status: 400 }
+        { status: error?.code === "23514" ? 409 : 400 }
       );
     }
 
@@ -147,9 +229,10 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     const warehouseId = String(id || "").trim();
     if (!warehouseId) return NextResponse.json({ error: "Warehouse id is required" }, { status: 400 });
 
-    const { actor, companyId, supabase, existing } = await resolveWarehouseForActor(request, warehouseId);
+    const { actor, companyId, existing } = await resolveWarehouseForActor(request, warehouseId);
+    const writeSupabase = getServiceClient();
     await assertActorAccess({
-      supabase,
+      supabase: writeSupabase,
       actorUserId: actor.id,
       companyId,
       allowedRoles: [...WAREHOUSE_ENTITY_WRITE_ROLES],
@@ -157,22 +240,28 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     if (!existing?.id) {
       return NextResponse.json({ error: "Warehouse not found" }, { status: 404 });
     }
-
     const mode = String(request.nextUrl.searchParams.get("mode") || "archive").toLowerCase();
-    const deleteCheck = await getWarehouseDeleteCheck(supabase, companyId, warehouseId);
 
     if (mode === "hard") {
-      if (!deleteCheck.canDelete) {
+      const [deleteCheck, usageCheck] = await Promise.all([
+        getWarehouseDeleteCheck(writeSupabase, companyId, warehouseId),
+        getWarehouseUsageCheck(writeSupabase, companyId, warehouseId),
+      ]);
+      if (!deleteCheck.canDelete || usageCheck.isUsed) {
+        const reasons = Array.from(new Set([...deleteCheck.reasons, ...usageCheck.reasons]));
         return NextResponse.json(
           {
             error: "Warehouse cannot be hard deleted because it has stock or history",
-            reasons: deleteCheck.reasons,
-            stats: deleteCheck.stats,
+            reasons,
+            stats: {
+              delete: deleteCheck.stats,
+              usage: usageCheck.stats,
+            },
           },
           { status: 409 }
         );
       }
-      const { error: deleteError } = await supabase
+      const { error: deleteError } = await writeSupabase
         .from("warehouses")
         .delete()
         .eq("id", warehouseId)
@@ -183,7 +272,22 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       return NextResponse.json({ deleted: true, mode: "hard" });
     }
 
-    const { data, error } = await supabase
+    const alreadyArchived = existing.is_archived === true || existing.archived === true;
+    if (!alreadyArchived) {
+      const archiveCheck = await getWarehouseArchiveCheck(writeSupabase, companyId, warehouseId);
+      if (!archiveCheck.canArchive) {
+        return NextResponse.json(
+          {
+            error: `Объект нельзя архивировать: ${archiveCheck.reasons.join("; ")}`,
+            reasons: archiveCheck.reasons,
+            stats: archiveCheck.stats,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
+    const { data, error } = await writeSupabase
       .from("warehouses")
       .update({
         is_archived: true,
@@ -198,18 +302,16 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
       .single();
 
     if (error || !data) {
-      return NextResponse.json({ error: error?.message || "Failed to archive warehouse" }, { status: 400 });
+      return NextResponse.json(
+        { error: error?.message || "Failed to archive warehouse" },
+        { status: error?.code === "23514" ? 409 : 400 }
+      );
     }
 
     return NextResponse.json({
       deleted: false,
       mode: "archive",
       warehouse: normalizeWarehouseRow(data),
-      delete_check: {
-        can_delete: deleteCheck.canDelete,
-        reasons: deleteCheck.reasons,
-        stats: deleteCheck.stats,
-      },
     });
   } catch (error) {
     if (error instanceof SessionAuthError) {

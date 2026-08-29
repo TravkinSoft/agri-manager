@@ -101,9 +101,10 @@ export async function GET(request: NextRequest) {
         .order("name", { ascending: true }),
       supabase
         .from("warehouses")
-        .select("id,name,name_ru,name_kz,name_en,warehouse_type,place_type")
+        .select("id,name,name_ru,name_kz,name_en,warehouse_type,place_type,archived,is_archived")
         .eq("company_id", companyId)
         .eq("archived", false)
+        .eq("is_archived", false)
         .order("name", { ascending: true }),
     ]);
 

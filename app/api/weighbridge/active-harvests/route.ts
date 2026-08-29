@@ -58,10 +58,11 @@ export async function POST(request: NextRequest) {
         .maybeSingle(),
       context.supabase
         .from("warehouses")
-        .select("id,warehouse_type,place_type,archived")
+        .select("id,warehouse_type,place_type,archived,is_archived")
         .eq("id", warehouseId)
         .eq("company_id", context.companyId)
         .eq("archived", false)
+        .eq("is_archived", false)
         .maybeSingle(),
       context.supabase
         .from("weighbridge_active_harvests")
